@@ -1,0 +1,135 @@
+* OmniCloud 
+
+** Applications and Usecases
+- Sandstorm grain model for long running containers hosting individual small applications? 
+- Federated learning?
+- Diff Privacy pooling? 
+
+
+** Invoker 
+*** :TODO: SmartQueue (Where is this pattern seen in the OS?)
+- Ultra low latency queue for function dispatch with delaying based on resource pressure and future invocation prediction
+- Possible related: microservice work (mutune, nightcore, ..) 
+
+*** Lightweight invoker to run functions 
+- FaasD as a potential option 
+
+*** Understand OpenWhisk "packet format" and NDN coupling 
+
+    
+** Proxy 
+- OpenWhisk gateway supports hierarchical names.. https://github.com/apache/openwhisk/blob/master/docs/apigateway.md
+*** :TODO: Examine gateway implementation and see if it can used for our own use? 
+- https://github.com/apache/openwhisk-apigateway
+- Seems to be lua and http proxy only. No actual code? This is good!? But complex LUA stuff?
+
+- Webactions.. https://github.com/apache/openwhisk/blob/master/docs/webactions.md 
+
+** Distributed Control Plane 
+- Start with proxy first (either run locally, or simply forward to the cloud)
+
+*** NDN Routing? Original plan 
+
+
+** WASM 
+- Fastly wasm startup time is 35 microseconds. Sound comparison is needed with real functions. Too good to be true? 
+  - WASM performance with real functions on raspberry-pi? 
+- https://wasmcloud.com/ Build your functions and services in the language you want and run them securely everywhere with WebAssembly.
+- https://wasmedge.org/  curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash . Create an app or function for WasmEdge in: Rust,  JavaScript
+- Real low latency stuff in WASM and partial execution https://news.ycombinator.com/item?id=30686919 
+
+** Storage 
+- Cockroach DB free serverless tier. 50 GB Free? https://www.cockroachlabs.com/pricing/ 
+- Clodflare Durable Objects: Only one leader/primary at a time. 
+- 
+
+** Networking 
+- PRISM and other proxies? UCSD Socc20 work. Klimovic? 
+
+** Predictable performance for serverless computing 
+1. From Code to predicted performance 
+
+
+* High Level
+- High performance *control plane*
+- Non-distributed. Single execution context per function invocation. 
+  - Containerd is a daemon... 
+
+* Writing From Scratch?
+- faasd provides some baseline infra
+- But in Go.
+- Only partial credit from a paper perspective
+- 
+
+* Components 
+1. Container runtime
+2. Container Networking
+3. Scheduler
+4. Server/CLI
+5. Logging performance and energy
+6. Keep-alive
+7. Load-balancer 
+
+* Steps
+1. Simplest possible prototype for a FaaS invoker 
+   - Creat/run container
+2. 
+
+* Container Runtimes
+- COntainerd
+- runc
+- crun (in C and fast, lol)
+
+** crun 
+- crun profiling? Why does it take 150ms? 
+- Code seems simple and nice. *Networking?*
+- wasmedge support!? https://github.com/containers/crun/blob/main/src/libcrun/handlers/wasmedge.c
+
+** Krun
+- KVM based process isolation! 
+- https://github.com/containers/libkrun
+
+
+** Rust 
+- https://rustrepo.com/repo/flouthoc-vas-quod v. minimalistic. 
+- Oracle railcar 2017 abandoned https://blogs.oracle.com/developers/post/building-a-container-runtime-in-rust
+- 
+
+** Youki
+- https://www.utam0k.jp/en/blog/2021/12/27/youki_first_release/
+- 200ms vs. 350 for runc. crun is 150ms wow haha
+- https://github.com/containers/youki
+- 2 process forks just to get started!? 
+
+* Networking
+- Aardvark and netavark https://github.com/containers/netavark 
+
+
+* FaasD
+
+Deps:
+- Containerd
+- CNI for networking 
+
+|                  |                               |           |
+|------------------+-------------------------------+-----------|
+| Main entry point | pkg/supervisor.go             | 500 lines |
+| Networking       | pkg/cninetwork/cni_network.go |           |
+- 
+
+** Supervisor
+- Dont need docker compose stuff?
+- 
+
+* Rust support?
+
+
+* ToDo 
+- containers from scratch
+- try crun etc on local desktop
+- Micro optimizations vs. high-level design 
+  - Low-level opts: container runtime, custom container creation, etc.
+  - v1: Just run /some/ container somehow. Micro-optimizations can come later.
+  - *Focus is on control plane*
+    - WHY!? Corresponding research question?
+    - Non processor sharing, delay queue, 
