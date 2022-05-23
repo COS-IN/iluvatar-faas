@@ -1,14 +1,19 @@
-* High Level
-- High performance *control plane*
+* High Level: High performance *control plane*
+- Deterministic performance
+- Focus on good /warm start/ performance. Assume cold-starts will be reduced through orthogonal mechanisms 
+- Small number of components. Control plane as one process. No GC. 
 - Non-distributed. Single execution context per function invocation. 
-  - Containerd is a daemon... 
+  - Containerd is a daemon...
+-Performance and energy monitoring 
+ - Fine-grained and trustworthy. Not just through async log-parsing but as a 1st class metric capable of being used in control-loops. 
+- 
 
 * Writing From Scratch?
 - faasd provides some baseline infra
 - But in Go.
 - Only partial credit from a paper perspective
-- 
-
+-
+ 
 * Components 
 1. Container runtime
 2. Container Networking
@@ -16,17 +21,41 @@
 4. Server/CLI
 5. Logging performance and energy
 6. Keep-alive
-7. Load-balancer 
+7. Load-balancer
+8. Load generation tool. Sampling and practical challenge. Also at individual container level (lookbusy etc.) 
 
 * Steps
 1. Simplest possible prototype for a FaaS invoker 
-   - Creat/run container
-2. 
+   - Creat/run a single container
+   - Image management issues
+   - Basic networking 
+2. Control plane concurrency 
+   - Run multiple function invocations
+   - Most control-plane policies implemented here
+   - Keep track of container states: keep-alive, network interface caching, etc.
+   - DelayQ and non-processor-sharing
+3. Performance Demonstration
+   - Latency of various steps.
+   - Compare with OpenWhisk
+   - Performance determinism, variance, predictability 
+4. Energy Demonstration
+   - Power measurement and accounting (including control plane)
+   - Power capping 
+5. Heterogeneity Demonstration
+   - Raspberry PI, beaglebones, etc
+   - WASMER and other isolation runtimes?
+6. Load-balancer and central controller 
 
 * Container Runtimes
-- COntainerd
-- runc
-- crun (in C and fast, lol)
+By abstraction level:  https://containerd.io/img/architecture.png
+1. Docker/podman etc 
+2. Containerd (used by faasd) 
+3. OCI implementations 
+   - runc (Go)
+   - crun (fast C impl)
+   - youki (Rust), etc.
+   - 
+
 
 ** crun 
 - crun profiling? Why does it take 150ms? 
@@ -49,9 +78,18 @@
 - https://github.com/containers/youki
 - 2 process forks just to get started!? 
 
+
 * Networking
 - Aardvark and netavark https://github.com/containers/netavark 
 
+* Images 
+Two step process. =Register-function= will create the full final container image for that function. 
+This image will then be directly executed when the function is invoked. 
+
+* Interface 
+- REST vs. grpc question.
+- Invoker's interface/API should be self-sufficient. That is, we should be able to launch functions on a single invoker directly. 
+- Maintain a similar API vs. OpenWhisk/OpenFaaS? Are there already standard APIs for FaaS? Given that there are gateways to AWS Lambda etc, there probably are. 
 
 * FaasD
 
