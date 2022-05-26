@@ -1,0 +1,21 @@
+[package]
+name = "Ilúvatar"
+version = "0.1.0"
+edition = "2021"
+authors = ["Alex Fuerst alfuerst@iu.edu"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[lib]
+name = "worker_api"
+path = "src/lib/worker_api.rs"
+
+[[bin]]
+name = "worker"
+path = "src/worker/main.rs"
+
+[[bin]]
+name = "workercli"
+path = "src/workercli/main.rs"
