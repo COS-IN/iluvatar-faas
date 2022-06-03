@@ -1,7 +1,8 @@
+extern crate iluvatar_worker;
+use iluvatar_worker::config::Configuration;
+
 fn main() {
-  println!("I'm a server!");
+  let settings = Configuration::new().unwrap();
+  println!("configuration = {:?}", settings);
 } 
 
-pub mod server {
-
-}
