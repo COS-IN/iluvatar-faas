@@ -1,0 +1,11 @@
+[package]
+name = "iluvatar_worker_cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["Alex Fuerst alfuerst@iu.edu"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iluvatar_lib = { path = "../iluvatar_lib" }
+config = "0.13.1"
