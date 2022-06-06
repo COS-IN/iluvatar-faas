@@ -1,5 +1,5 @@
 extern crate clap;
-use clap::{ArgMatches, App, SubCommand};
+use clap::{ArgMatches, App, SubCommand, Arg};
 
 pub fn parse() -> ArgMatches<'static> {
   App::new("myapp")
@@ -7,15 +7,52 @@ pub fn parse() -> ArgMatches<'static> {
     .about("Interacts with Ilúvatar workers")
     .args_from_usage(
         "-c, --config=[FILE] 'Sets a custom config file'
-        -n, --name=[NAME]           'Name of worker to send request to'
+        -w, --worker=[NAME]           'Name of worker to send request to'
         -v...                'Sets the level of verbosity'")
     .subcommand(SubCommand::with_name("ping")
                 .about("Pings a worker to check if it is up"))
+                
     .subcommand(SubCommand::with_name("invoke")
-                .about("Invoke a function"))
+                .about("Invoke a function")
+                .arg(Arg::with_name("name")
+                  .short("n")
+                  .long("name")
+                  .help("Name of function to invoke")
+                  .required(true)
+                  .takes_value(true))
+                .arg(Arg::with_name("version")
+                  .long("version")
+                  .default_value("0.1.0")
+                  .help("Version of function to invoke")
+                  .required(false)
+                  .takes_value(true)))
+
     .subcommand(SubCommand::with_name("register")
-                .about("Register a new function"))
+                .about("Register a new function")
+                .arg(Arg::with_name("name")
+                  .short("n")
+                  .long("name")
+                  .help("Name of function to register")
+                  .required(true)
+                  .takes_value(true))
+                .arg(Arg::with_name("version")
+                  .long("version")
+                  .default_value("0.1.0")
+                  .help("Version of function to register")
+                  .required(false)
+                  .takes_value(true)))
+
     .subcommand(SubCommand::with_name("status")
                 .about("Get the current status"))
     .get_matches()
+}
+
+pub fn get_val<'a>(name: &'a str, args: &'a ArgMatches) -> &'a str {
+  if let Some(val) = args.value_of(name) {
+    return val;
+  }
+  panic!("Unable to find '{}' in args '{:?}'", name, args)
+  // args.value_of(name).unwrap_or_else({
+  //   panic!("Unable to find {} in args {}", name, "args")
+  // })
 }
