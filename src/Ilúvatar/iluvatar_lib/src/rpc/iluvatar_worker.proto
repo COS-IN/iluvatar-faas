@@ -21,6 +21,12 @@ message InvokeResponse {
   int32 duration_ms = 3;
 }
 
+message PrewarmResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+
 message RegisterRequest {
   string function_name = 1;
   string function_version = 2;
@@ -41,9 +47,25 @@ message StatusResponse {
   float load = 5;
 }
 
+message HealthRequest {
+}
+
+
+enum HealthStatus {
+  HEALTHY = 0;
+  UNHEALTHY = 1;
+}
+message HealthResponse {
+  HealthStatus status = 1;
+}
+
+
 service IluvatarWorker {
   rpc ping(PingRequest) returns (PingResponse) {}
+  rpc prewarm(InvokeRequest) returns (PrewarmResponse) {}
   rpc invoke(InvokeRequest) returns (InvokeResponse) {}
+  rpc invoke_async(InvokeRequest) returns (InvokeResponse) {}
   rpc register(RegisterRequest) returns (RegisterResponse) {}
+  rpc health(HealthRequest) returns (HealthResponse) {}
   rpc status(StatusRequest) returns (StatusResponse) {}
 }

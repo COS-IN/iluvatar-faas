@@ -1,8 +1,9 @@
 tonic::include_proto!("iluvatar_worker");
 use tonic::async_trait;
 use tonic::transport::Channel;
-
+use std::error::Error;
 use crate::rpc::iluvatar_worker_client::IluvatarWorkerClient;
+use crate::worker_api;
 
 #[allow(unused)]
 pub struct RCPWorkerAPI {
@@ -21,6 +22,20 @@ impl RCPWorkerAPI {
       client
     })
   }
+}
+
+#[derive(Debug)]
+pub struct RPCError {
+  message: String,
+}
+impl std::fmt::Display for RPCError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    write!(f, "{}", self.message).unwrap();
+    Ok(())
+  }
+}
+impl Error for RPCError {
+
 }
 
 #[async_trait]
@@ -42,6 +57,29 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().json_result)
   }
 
+  async fn invoke_async(&mut self, function_name: &str, version: &str) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+    let request = tonic::Request::new(InvokeRequest {
+      function_name: function_name.into(),
+      function_version: version.into(),
+    });
+    let response = self.client.invoke_async(request).await?;
+    Ok(response.into_inner().json_result)
+  }
+
+  async fn prewarm(&mut self, function_name: &str, version: &str) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+    let request = tonic::Request::new(InvokeRequest {
+      function_name: function_name.into(),
+      function_version: version.into(),
+    });
+    let response = self.client.prewarm(request).await?;
+    let response = response.into_inner();
+
+    match response.success {
+      true => Ok("".to_string()),
+      false => Err(Box::new(RPCError { message: response.message })),
+    }
+  }
+
   async fn register(&mut self, function_name: &str, version: &str) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(RegisterRequest {
       function_name: function_name.into(),
@@ -55,5 +93,19 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     let request = tonic::Request::new(StatusRequest { });
     let response = self.client.status(request).await?;
     Ok(response.into_inner().json_result)
+  }
+
+  async fn health(&mut self) -> Result<worker_api::HealthStatus, Box<(dyn std::error::Error + 'static)>> {
+    let request = tonic::Request::new(HealthRequest { });
+    let response = self.client.health(request).await?;
+    match response.into_inner().status {
+      // HealthStatus::Healthy
+      0 => Ok(worker_api::HealthStatus::HEALTHY),
+      // HealthStatus::Unhealthy
+      1 => Ok(worker_api::HealthStatus::UNHEALTHY),
+      i => Err(Box::new(RPCError {
+        message: format!("Got unexpected status of {}", i)
+      })),
+    }
   }
 }

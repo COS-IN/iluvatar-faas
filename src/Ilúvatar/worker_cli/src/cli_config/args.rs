@@ -26,7 +26,35 @@ pub fn parse() -> ArgMatches<'static> {
                   .help("Version of function to invoke")
                   .required(false)
                   .takes_value(true)))
-
+    .subcommand(SubCommand::with_name("invoke-async")
+                .about("Invoke a function asynchronously")
+                .arg(Arg::with_name("name")
+                  .short("n")
+                  .long("name")
+                  .help("Name of function to invoke")
+                  .required(true)
+                  .takes_value(true))
+                .arg(Arg::with_name("version")
+                  .long("version")
+                  .default_value("0.1.0")
+                  .help("Version of function to invoke")
+                  .required(false)
+                  .takes_value(true)))
+    .subcommand(SubCommand::with_name("prewarm")
+                .about("Prewarm a function")
+                .arg(Arg::with_name("name")
+                  .short("n")
+                  .long("name")
+                  .help("Name of function to invoke")
+                  .required(true)
+                  .takes_value(true))
+                .arg(Arg::with_name("version")
+                  .long("version")
+                  .default_value("0.1.0")
+                  .help("Version of function to invoke")
+                  .required(false)
+                  .takes_value(true)))
+      
     .subcommand(SubCommand::with_name("register")
                 .about("Register a new function")
                 .arg(Arg::with_name("name")
@@ -44,6 +72,8 @@ pub fn parse() -> ArgMatches<'static> {
 
     .subcommand(SubCommand::with_name("status")
                 .about("Get the current status"))
+    .subcommand(SubCommand::with_name("health")
+                .about("Get the current health status"))
     .get_matches()
 }
 
@@ -52,7 +82,4 @@ pub fn get_val<'a>(name: &'a str, args: &'a ArgMatches) -> &'a str {
     return val;
   }
   panic!("Unable to find '{}' in args '{:?}'", name, args)
-  // args.value_of(name).unwrap_or_else({
-  //   panic!("Unable to find {} in args {}", name, "args")
-  // })
 }
