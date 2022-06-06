@@ -2,22 +2,26 @@ use crate::cli_config::Worker;
 use iluvatar_lib::rpc::RCPWorkerAPI;
 use iluvatar_lib::worker_api::WorkerAPI;
 
-pub fn ping(worker: Box<Worker>) {
-  let api = RCPWorkerAPI::new(worker.address, worker.port);
-  api.ping().unwrap();
+pub async fn ping(worker: Box<Worker>) {
+  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await.unwrap();
+  let ret = api.ping().await.unwrap();
+  println!("{}", ret)
 }
 
-pub fn invoke(worker: Box<Worker>) {
-  let api = RCPWorkerAPI::new(worker.address, worker.port);
-  api.invoke().unwrap();
+pub async fn invoke(worker: Box<Worker>) {
+  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await.unwrap();
+  let ret = api.invoke().await.unwrap();
+  println!("{}", ret)
 }
 
-pub fn register(worker: Box<Worker>) {
-  let api = RCPWorkerAPI::new(worker.address, worker.port);
-  api.register().unwrap();
+pub async fn register(worker: Box<Worker>) {
+  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await.unwrap();
+  let ret = api.register().await.unwrap();
+  println!("{}", ret)
 }
 
-pub fn status(worker: Box<Worker>) {
-  let api = RCPWorkerAPI::new(worker.address, worker.port);
-  api.status().unwrap();
+pub async fn status(worker: Box<Worker>) {
+  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await.unwrap();
+  let ret = api.status().await.unwrap();
+  println!("{}", ret)
 }

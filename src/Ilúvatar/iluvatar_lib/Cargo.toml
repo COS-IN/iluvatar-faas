@@ -7,4 +7,9 @@ authors = ["Alex Fuerst alfuerst@iu.edu"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+tonic = "0.7.2"
+prost = "0.10"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 
+[build-dependencies]
+tonic-build = "0.7.2"

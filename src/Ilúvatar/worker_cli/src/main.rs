@@ -3,7 +3,8 @@ use iluvatar_worker_cli::cli_config::CliSettings;
 use iluvatar_worker_cli::cli_config::args::parse;
 use iluvatar_worker_cli::commands;
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   let args = parse();
 
@@ -16,11 +17,11 @@ fn main() {
   println!("worker = {:?}", worker);
 
   match args.subcommand() {
-    ("ping", Some(_)) => { commands::ping(worker) },
-    ("invoke", Some(_sub_m)) => { commands::invoke(worker) },
-    ("register", Some(_sub_m)) => { commands::register(worker) },
-    ("status", Some(_sub_m)) => { commands::status(worker) },
+    ("ping", Some(_)) => { commands::ping(worker).await },
+    ("invoke", Some(_sub_m)) => { commands::invoke(worker).await },
+    ("register", Some(_sub_m)) => { commands::register(worker).await },
+    ("status", Some(_sub_m)) => { commands::status(worker).await },
     (text,_) => { panic!("Unsupported command {}", text) },
-  }
-
+  };
+  Ok(())
 }

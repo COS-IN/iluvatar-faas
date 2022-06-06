@@ -4,8 +4,9 @@ use config::{Config, ConfigError, File};
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 pub struct Configuration {
-  name: String,
-  port: i32,
+  pub name: String,
+  pub address: String,
+  pub port: i32,
 }
 
 impl Configuration {
@@ -13,8 +14,6 @@ impl Configuration {
     let s = Config::builder()
     .add_source(File::with_name("worker/src/worker.json"))
     .build()?;
-
-    // You can deserialize (and thus freeze) the entire configuration as
     s.try_deserialize()
   }
 }

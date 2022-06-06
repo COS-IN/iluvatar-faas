@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package iluvatar_worker;
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingResponse {
+  string message = 1;
+}
+
+service IluvatarWorker {
+  rpc Ping(PingRequest) returns (PingResponse) {}
+}
