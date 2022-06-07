@@ -5,6 +5,7 @@ build() {
   func_name=$2
   docker_base="Dockerfile.base"
   cp server.py $pth
+  back=$PWD
 
   if ! [ -f "$pth/Dockerfile" ]; then
     cp $docker_base $pth/Dockerfile
@@ -12,7 +13,7 @@ build() {
     docker build -t "alfuerst/$func_name-iluvatar-action:latest" .
     rm Dockerfile
     rm server.py
-    cd ../../
+    cd $back
   else
     cp $docker_base $pth
     cd $pth
@@ -20,7 +21,7 @@ build() {
     docker build -f "Dockerfile" -t "alfuerst/$func_name-iluvatar-action:latest" .
     rm $docker_base
     rm server.py
-    cd ../../
+    cd $back
   fi
 }
 
