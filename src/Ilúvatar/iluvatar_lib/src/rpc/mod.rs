@@ -42,34 +42,48 @@ impl Error for RPCError {
 impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
   async fn ping(&mut self) -> Result<String, Box<dyn std::error::Error>> {
     let request = tonic::Request::new(PingRequest {
-      message: "Ping".into(),
+      message: "Ping".to_string(),
     });
     let response = self.client.ping(request).await?;
     Ok(response.into_inner().message)
   }
 
-  async fn invoke(&mut self, function_name: &str, version: &str) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn invoke(&mut self, function_name: String, version: String, args: String, memory: Option<u32>) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(InvokeRequest {
-      function_name: function_name.into(),
-      function_version: version.into(),
+      function_name: function_name,
+      function_version: version,
+      memory: match memory {
+        Some(x) => x,
+        _ => 0,
+      },
+      json_args: args
     });
     let response = self.client.invoke(request).await?;
     Ok(response.into_inner().json_result)
   }
 
-  async fn invoke_async(&mut self, function_name: &str, version: &str) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
-    let request = tonic::Request::new(InvokeRequest {
-      function_name: function_name.into(),
-      function_version: version.into(),
+  async fn invoke_async(&mut self, function_name: String, version: String, args: String, memory: Option<u32>) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+    let request = tonic::Request::new(InvokeAsyncRequest {
+      function_name: function_name,
+      function_version: version,
+      memory: match memory {
+        Some(x) => x,
+        _ => 0,
+      },
+      json_args: args
     });
     let response = self.client.invoke_async(request).await?;
-    Ok(response.into_inner().json_result)
+    Ok(response.into_inner().lookup_cookie)
   }
 
-  async fn prewarm(&mut self, function_name: &str, version: &str) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
-    let request = tonic::Request::new(InvokeRequest {
-      function_name: function_name.into(),
-      function_version: version.into(),
+  async fn prewarm(&mut self, function_name: String, version: String, memory: Option<u32>) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+    let request = tonic::Request::new(PrewarmRequest {
+      function_name: function_name,
+      function_version: version,
+      memory: match memory {
+        Some(x) => x,
+        _ => 0,
+      },
     });
     let response = self.client.prewarm(request).await?;
     let response = response.into_inner();
@@ -80,10 +94,11 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     }
   }
 
-  async fn register(&mut self, function_name: &str, version: &str) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn register(&mut self, function_name: String, version: String, memory: u32) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(RegisterRequest {
-      function_name: function_name.into(),
-      function_version: version.into(),
+      function_name,
+      function_version: version,
+      memory
     });
     let response = self.client.register(request).await?;
     Ok(response.into_inner().function_json_result)

@@ -13,6 +13,8 @@ message PingResponse {
 message InvokeRequest {
   string function_name = 1;
   string function_version = 2;
+  uint32 memory = 3;
+  string json_args = 4;
 }
 
 message InvokeResponse {
@@ -21,15 +23,33 @@ message InvokeResponse {
   int32 duration_ms = 3;
 }
 
+message InvokeAsyncRequest {
+  string function_name = 1;
+  string function_version = 2;
+  uint32 memory = 3;
+  string json_args = 4;
+}
+message InvokeAsyncResponse {
+  string lookup_cookie = 1;
+}
+message InvokeAsyncLookupRequest {
+  string lookup_cookie = 1;
+}
+
+message PrewarmRequest {
+  string function_name = 1;
+  string function_version = 2;
+  uint32 memory = 3;
+}
 message PrewarmResponse {
   bool success = 1;
   string message = 2;
 }
 
-
 message RegisterRequest {
   string function_name = 1;
   string function_version = 2;
+  uint32 memory = 3;
 }
 
 message RegisterResponse {
@@ -62,9 +82,9 @@ message HealthResponse {
 
 service IluvatarWorker {
   rpc ping(PingRequest) returns (PingResponse) {}
-  rpc prewarm(InvokeRequest) returns (PrewarmResponse) {}
+  rpc prewarm(PrewarmRequest) returns (PrewarmResponse) {}
   rpc invoke(InvokeRequest) returns (InvokeResponse) {}
-  rpc invoke_async(InvokeRequest) returns (InvokeResponse) {}
+  rpc invoke_async(InvokeAsyncRequest) returns (InvokeAsyncResponse) {}
   rpc register(RegisterRequest) returns (RegisterResponse) {}
   rpc health(HealthRequest) returns (HealthResponse) {}
   rpc status(StatusRequest) returns (StatusResponse) {}

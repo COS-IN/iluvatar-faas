@@ -36,17 +36,15 @@ use tonic::{Request, Response, Status};
     }
 
   async fn invoke_async(&self,
-    request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
-      let reply = InvokeResponse {
-        json_result: format!("'Error': 'invoke_async for {} not implemented'", request.into_inner().function_name).into(),
-        success: false,
-        duration_ms: 3
+    request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
+      let reply = InvokeAsyncResponse {
+        lookup_cookie: format!("{}_COOKIE", request.into_inner().function_name).into(),
       };
       Ok(Response::new(reply))
     }
 
   async fn prewarm(&self,
-    request: Request<InvokeRequest>) -> Result<Response<PrewarmResponse>, Status> {
+    request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let reply = PrewarmResponse {
         message: format!("'Error': 'prewarm for {} not implemented'", request.into_inner().function_name).into(),
         success: false

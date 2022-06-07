@@ -12,7 +12,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let settings = CliSettings::new().unwrap();
   let worker = settings.get_worker(worker_name).unwrap();
 
-
   match args.subcommand() {
     ("ping", Some(_)) => { commands::ping(worker).await },
     ("invoke", Some(_sub_m)) => { commands::invoke(worker, _sub_m).await },
