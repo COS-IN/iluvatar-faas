@@ -3,7 +3,7 @@ Reference : https://github.com/rcmalli/keras-squeezenet
 SqueezeNet v1.1 Implementation using Keras Functional Framework 2.0
 
 """
-import tensorflow
+import tensorflow.compat.v1 as tf
 from keras_applications.imagenet_utils import _obtain_input_shape
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import Input, Convolution2D, MaxPooling2D, Activation, concatenate, Dropout
@@ -115,7 +115,7 @@ def SqueezeNet(include_top=True, weights='imagenet',
     # Ensure that the model takes into account
     # any potential predecessors of `input_tensor`.
     if input_tensor is not None:
-        inputs = tensorflow.keras.utils.get_source_inputs(input_tensor)
+        inputs = tf.keras.utils.get_source_inputs(input_tensor)
     else:
         inputs = img_input
 

@@ -25,7 +25,8 @@ def invoke():
   # TODO: enforce concurrency limit
   # TODO: security to confirm invocation is from authorized source?
   try:
-    ret = main(request.get_json())
+    json_input = request.get_json()
+    ret = main(json_input)
     if type(ret) is tuple:
       return ret
     else:
@@ -35,7 +36,6 @@ def invoke():
 
 port = os.environ.get("__IL_PORT", 8080)
 host = os.environ.get("__IL_HOST", "0.0.0.0")
-
 
 if __name__ == "__main__":
   app.run(host=host, port=port)

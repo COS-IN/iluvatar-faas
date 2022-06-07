@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package iluvatar_worker;
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingResponse {
+  string message = 1;
+}
+
+message InvokeRequest {
+  string function_name = 1;
+  string function_version = 2;
+  uint32 memory = 3;
+  string json_args = 4;
+}
+
+message InvokeResponse {
+  string json_result = 1;
+  bool success = 2;
+  int32 duration_ms = 3;
+}
+
+message InvokeAsyncRequest {
+  string function_name = 1;
+  string function_version = 2;
+  uint32 memory = 3;
+  string json_args = 4;
+}
+message InvokeAsyncResponse {
+  string lookup_cookie = 1;
+}
+message InvokeAsyncLookupRequest {
+  string lookup_cookie = 1;
+}
+
+message PrewarmRequest {
+  string function_name = 1;
+  string function_version = 2;
+  uint32 memory = 3;
+}
+message PrewarmResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message RegisterRequest {
+  string function_name = 1;
+  string function_version = 2;
+  uint32 memory = 3;
+}
+
+message RegisterResponse {
+  string function_json_result = 1;
+}
+
+message StatusRequest {
+}
+
+message StatusResponse {
+  string json_result = 1;
+  int32 queue_len = 2;
+  int32 used_mem = 3;
+  int32 total_mem = 4;
+  float load = 5;
+}
+
+message HealthRequest {
+}
+
+
+enum HealthStatus {
+  HEALTHY = 0;
+  UNHEALTHY = 1;
+}
+message HealthResponse {
+  HealthStatus status = 1;
+}
+
+
+service IluvatarWorker {
+  rpc ping(PingRequest) returns (PingResponse) {}
+  rpc prewarm(PrewarmRequest) returns (PrewarmResponse) {}
+  rpc invoke(InvokeRequest) returns (InvokeResponse) {}
+  rpc invoke_async(InvokeAsyncRequest) returns (InvokeAsyncResponse) {}
+  rpc register(RegisterRequest) returns (RegisterResponse) {}
+  rpc health(HealthRequest) returns (HealthResponse) {}
+  rpc status(StatusRequest) returns (StatusResponse) {}
+}
