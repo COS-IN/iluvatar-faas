@@ -6,7 +6,8 @@ try:
     from time import time
 
     # import boto3
-    import tensorflow as tf
+    import tensorflow.compat.v1 as tf
+    tf.disable_v2_behavior()
     from tensorflow.keras.preprocessing import image
     from tensorflow.keras.applications.resnet50 import preprocess_input, decode_predictions
     from tensorflow.keras.utils import get_file

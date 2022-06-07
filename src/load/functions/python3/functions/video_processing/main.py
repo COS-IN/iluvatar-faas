@@ -64,7 +64,7 @@ def main(args):
         src = "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"
         urllib.request.urlretrieve(src, download_path)
 
-        latency, upload_path, start, end = video_processing(object_key, download_path)
+        upload_path = video_processing(object_key, download_path)
 
         # TODO: Upload
         # s3_client.upload_file(upload_path, output_bucket, upload_path.split("/")[FILE_PATH_INDEX])
