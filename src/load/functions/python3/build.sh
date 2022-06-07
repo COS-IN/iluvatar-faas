@@ -9,15 +9,15 @@ build() {
   if ! [ -f "$pth/Dockerfile" ]; then
     cp $docker_base $pth/Dockerfile
     cd $pth
-    docker build -t "alfuerst/$func_name-il-action" .
+    docker build -t "alfuerst/$func_name-iluvatar-action:latest" .
     rm Dockerfile
     rm server.py
     cd ../../
   else
     cp $docker_base $pth
     cd $pth
-    docker build -f $docker_base -t "alfuerst/il-action-base" .
-    docker build -f "Dockerfile" -t "alfuerst/$func_name-il-action" .
+    docker build -f $docker_base -t "alfuerst/iluvatar-action-base:latest" .
+    docker build -f "Dockerfile" -t "alfuerst/$func_name-iluvatar-action:latest" .
     rm $docker_base
     rm server.py
     cd ../../
