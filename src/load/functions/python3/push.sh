@@ -6,7 +6,7 @@ do
     # echo ${dir##*/}    # print everything after the final "/"
     func_name=${dir##*/}
 
-    docker push "alfuerst/$func_name-il-action"
+    docker push "alfuerst/$func_name-iluvatar-action:latest"
 
 done
 
