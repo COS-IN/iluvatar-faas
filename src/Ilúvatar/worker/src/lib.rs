@@ -1,17 +1,18 @@
 pub mod config;
+pub mod containerlife;
 
 pub mod iluvatar_worker {
 
 use tonic::{Request, Response, Status};
- 
- use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
- use iluvatar_lib::rpc::*;
- 
- #[derive(Debug, Default)]
- pub struct MyPinger {}
+
+use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
+use iluvatar_lib::rpc::*;
+
+#[derive(Debug, Default)]
+pub struct MyPinger {}
  
  #[tonic::async_trait]
- impl IluvatarWorker for MyPinger {
+impl IluvatarWorker for MyPinger {
   async fn ping(
       &self,
       request: Request<PingRequest>,
@@ -45,11 +46,27 @@ use tonic::{Request, Response, Status};
 
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
-      let reply = PrewarmResponse {
-        message: format!("'Error': 'prewarm for {} not implemented'", request.into_inner().function_name).into(),
-        success: false
-      };
-      Ok(Response::new(reply))
+      let request = request.into_inner();
+      let mut life = crate::containerlife::ContainerLifecycle::new();
+
+      let container_id = life.run_container(request.function_name, "default").await;
+
+      match container_id {
+        Ok(_) => {
+          let resp = PrewarmResponse {
+            success: true,
+            message: "".to_string(),
+          };
+          Ok(Response::new(resp))    
+        },
+        Err(e) => {
+          let resp = PrewarmResponse {
+            success: false,
+            message: format!("{{ 'Error': '{}' }}", e.to_string()),
+          };
+          Ok(Response::new(resp))  
+        }
+      }
     }
 
   async fn register(&self,
