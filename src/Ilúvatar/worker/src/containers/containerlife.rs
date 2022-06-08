@@ -19,6 +19,7 @@ use client::services::v1::container::Runtime;
 use client::with_namespace;
 use containerd_client::tonic::Request;
 use prost_types::Any;
+use std::process::Command;
 
 pub struct ContainerLifecycle {
   channel: Option<Channel>
@@ -44,7 +45,7 @@ impl ContainerLifecycle {
   }
 
   fn spec(&self) -> Any {
-    let spec = include_str!("container_spec.json");
+    let spec = include_str!("../container_spec.json");
     let spec = spec
         .to_string()
         .replace("$ROOTFS", "rootfs")
@@ -234,11 +235,28 @@ impl ContainerLifecycle {
     Ok(())
   }
 
-  pub async fn ensure_image(&mut self) -> Result<()> {
-    self.connect().await?;
-    let mut client = ImagesClient::new(self.channel());
-
-    Ok(())
+  pub async fn ensure_image(&mut self, image_name: &String) -> Result<()> {
+    let output = Command::new("ctr")
+          .args(["images", "pull", image_name.as_str()])
+          .output();
+    match output {
+      Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
+      Ok(output) => {
+        if let Some(status) = output.status.code() {
+          if status == 0 {
+            Ok(())
+          } else {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to pull the image '{}' with exit code of '{}', stdout '{}', stderr '{}'", image_name, output.status, stdout, stderr)
+          }
+        } else {
+          let stdout = String::from_utf8_lossy(&output.stdout);
+          let stderr = String::from_utf8_lossy(&output.stderr);
+          anyhow::bail!("Failed to pull the image '{}' with unkonwn exit code, stdout '{}', stderr '{}'", image_name, stdout, stderr)
+        }
+      },
+    }
   }
 
 }

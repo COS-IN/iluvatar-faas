@@ -49,11 +49,14 @@ message PrewarmResponse {
 message RegisterRequest {
   string function_name = 1;
   string function_version = 2;
-  uint32 memory = 3;
+  string image_name = 3;
+  uint32 memory = 4;
+  uint32 cpus = 5;
 }
 
 message RegisterResponse {
-  string function_json_result = 1;
+  bool success = 1;
+  string function_json_result = 2;
 }
 
 message StatusRequest {

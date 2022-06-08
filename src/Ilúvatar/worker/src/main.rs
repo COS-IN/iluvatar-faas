@@ -1,7 +1,9 @@
 extern crate iluvatar_worker;
 
+use std::time::Duration;
+
 use iluvatar_worker::config::Configuration;
-use iluvatar_worker::iluvatar_worker::MyPinger;
+use iluvatar_worker::iluvatar_worker::IluvatarWorkerImpl;
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use tonic::transport::Server;
 
@@ -13,10 +15,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let addr = format!("{}:{}", settings.address, settings.port);
 
   let addr = addr.parse()?;
-  let greeter = MyPinger::default();
+  let worker = IluvatarWorkerImpl::new();
 
   Server::builder()
-      .add_service(IluvatarWorkerServer::new(greeter))
+      .timeout(Duration::from_secs(settings.timeout_sec))
+      .add_service(IluvatarWorkerServer::new(worker))
       .serve(addr)
       .await?;
 

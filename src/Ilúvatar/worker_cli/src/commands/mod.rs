@@ -55,8 +55,10 @@ pub async fn register(worker: Box<Worker>, args: &ArgMatches<'static>) {
   let function_name = get_val("name", &args);
   let version = get_val("version", &args);
   let memory = get_val("memory", &args);
+  let cpu = get_val("cpu", &args);
+  let image = get_val("image", &args);
 
-  let ret = api.register(function_name, version, memory).await.unwrap();
+  let ret = api.register(function_name, version, image, memory, cpu).await.unwrap();
   println!("{}", ret)
 }
 

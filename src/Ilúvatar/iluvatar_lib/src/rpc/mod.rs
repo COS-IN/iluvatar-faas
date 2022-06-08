@@ -94,11 +94,13 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     }
   }
 
-  async fn register(&mut self, function_name: String, version: String, memory: u32) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: u32, cpus: u32) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(RegisterRequest {
       function_name,
       function_version: version,
-      memory
+      memory,
+      cpus,
+      image_name
     });
     let response = self.client.register(request).await?;
     Ok(response.into_inner().function_json_result)

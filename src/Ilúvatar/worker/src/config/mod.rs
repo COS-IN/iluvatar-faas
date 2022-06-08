@@ -7,6 +7,7 @@ pub struct Configuration {
   pub name: String,
   pub address: String,
   pub port: i32,
+  pub timeout_sec: u64,
 }
 
 impl Configuration {

@@ -1,5 +1,5 @@
 pub mod config;
-pub mod containerlife;
+pub mod containers;
 
 pub mod iluvatar_worker {
 
@@ -7,12 +7,24 @@ use tonic::{Request, Response, Status};
 
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_lib::rpc::*;
+use crate::containers::containerlife;
+use crate::containers::containermanager::ContainerManager;
 
-#[derive(Debug, Default)]
-pub struct MyPinger {}
+#[derive(Debug)]
+pub struct IluvatarWorkerImpl {
+  container_manager: ContainerManager,
+}
+
+impl IluvatarWorkerImpl {
+  pub fn new() -> IluvatarWorkerImpl {
+    IluvatarWorkerImpl {
+      container_manager: ContainerManager::new(),
+    }
+  }
+}
  
  #[tonic::async_trait]
-impl IluvatarWorker for MyPinger {
+impl IluvatarWorker for IluvatarWorkerImpl {
   async fn ping(
       &self,
       request: Request<PingRequest>,
@@ -47,7 +59,7 @@ impl IluvatarWorker for MyPinger {
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();
-      let mut life = crate::containerlife::ContainerLifecycle::new();
+      let mut life = containerlife::ContainerLifecycle::new();
 
       let container_id = life.run_container(request.function_name, "default").await;
 
@@ -71,10 +83,26 @@ impl IluvatarWorker for MyPinger {
 
   async fn register(&self,
     request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
-      let reply = RegisterResponse {
-        function_json_result: format!("'Error': 'register for '{}' not not implemented'", request.into_inner().function_name).into(),
-      };
-      Ok(Response::new(reply))    
+      let request = request.into_inner();
+
+      let reg_result = self.container_manager.register(&request).await;
+
+      match reg_result {
+        Ok(_) => {
+          let reply = RegisterResponse {
+            success: true,
+            function_json_result: format!("'Ok': 'function '{}' registered'", request.function_name).into(),
+          };
+          Ok(Response::new(reply))        
+        },
+        Err(msg) => {
+          let reply = RegisterResponse {
+            success: false,
+            function_json_result: format!("'Error': 'Error during registration of '{}': '{:?}' ", request.function_name, msg).into(),
+          };
+          Ok(Response::new(reply))        
+        },
+      }
     }
 
   async fn status(&self,
