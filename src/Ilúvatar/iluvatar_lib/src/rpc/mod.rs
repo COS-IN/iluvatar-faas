@@ -76,13 +76,21 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().lookup_cookie)
   }
 
-  async fn prewarm(&mut self, function_name: String, version: String, memory: Option<u32>) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn prewarm(&mut self, function_name: String, version: String, memory: Option<u32>, cpu: Option<u32>, image: Option<String>) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(PrewarmRequest {
       function_name: function_name,
       function_version: version,
       memory: match memory {
         Some(x) => x,
         _ => 0,
+      },
+      cpu: match cpu {
+        Some(x) => x,
+        _ => 0,
+      },
+      image_name: match image {
+        Some(x) => x,
+        _ => "".into(),
       },
     });
     let response = self.client.prewarm(request).await?;

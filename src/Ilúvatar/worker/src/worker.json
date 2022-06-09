@@ -1,6 +1,12 @@
 {
   "name": "local",
   "address": "127.0.0.1",
-  "port": 8080,
-  "timeout_sec": 6000
+  "port": 8079,
+  "timeout_sec": 6000,
+  "limits" : {
+    "timeout_sec": 6000,
+    "mem_min_mb": 5,
+    "mem_max_mb": 2048,
+    "cpu_max": 10
+  }
 }

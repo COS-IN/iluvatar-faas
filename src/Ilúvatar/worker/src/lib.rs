@@ -7,23 +7,26 @@ use tonic::{Request, Response, Status};
 
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_lib::rpc::*;
-use crate::containers::containerlife;
+use crate::config::WorkerConfig;
 use crate::containers::containermanager::ContainerManager;
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct IluvatarWorkerImpl {
   container_manager: ContainerManager,
+  config: WorkerConfig,
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new() -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
-      container_manager: ContainerManager::new(),
+      container_manager: ContainerManager::new(config.clone()),
+      config: config,
     }
   }
 }
  
- #[tonic::async_trait]
+#[tonic::async_trait]
 impl IluvatarWorker for IluvatarWorkerImpl {
   async fn ping(
       &self,
@@ -59,9 +62,10 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();
-      let mut life = containerlife::ContainerLifecycle::new();
+      // let mut life = containerlife::ContainerLifecycle::new();
 
-      let container_id = life.run_container(request.function_name, "default").await;
+      // let container_id = life.run_container(request.function_name, "default").await;
+      let container_id = self.container_manager.prewarm(&request).await;
 
       match container_id {
         Ok(_) => {

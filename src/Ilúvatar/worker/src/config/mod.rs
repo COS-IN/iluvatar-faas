@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
@@ -8,7 +10,20 @@ pub struct Configuration {
   pub address: String,
   pub port: i32,
   pub timeout_sec: u64,
+  pub limits: FunctionLimits,
 }
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+pub struct FunctionLimits {
+  pub mem_min_mb: u32,
+  pub mem_max_mb: u32,
+  pub cpu_max: u32,
+  pub timeout_sec: u64,
+}
+
+// pub type WorkerConfig = Rc<Box<Configuration>>;
+pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
   pub fn new() -> Result<Self, ConfigError> {
@@ -16,5 +31,10 @@ impl Configuration {
     .add_source(File::with_name("worker/src/worker.json"))
     .build()?;
     s.try_deserialize()
+  }
+
+  pub fn boxed() -> Result<WorkerConfig, ConfigError> {
+    // Ok(Rc::new(Box::new(Configuration::new()?)))
+    Ok(Arc::new(Configuration::new()?))
   }
 }

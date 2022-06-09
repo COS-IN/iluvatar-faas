@@ -22,12 +22,14 @@ use prost_types::Any;
 use std::process::Command;
 
 pub struct ContainerLifecycle {
-  channel: Option<Channel>
+  channel: Option<Channel>,
 }
 
 impl ContainerLifecycle {
   pub fn new() -> ContainerLifecycle {
-    ContainerLifecycle { channel: None }
+    ContainerLifecycle {
+       channel: None,
+    }
   }
 
   async fn connect(&mut self) -> Result<()> {
@@ -73,7 +75,7 @@ impl ContainerLifecycle {
     anyhow::bail!("failed to read content")
   }
   
-  async fn search_image_digest(&mut self, image: &String, namespace: &str) -> Result<String> {
+  pub async fn search_image_digest(&mut self, image: &String, namespace: &str) -> Result<String> {
     self.connect().await?;
     // Step 1. get image digest
     let get_image_req = GetImageRequest { name: image.into() };
@@ -87,12 +89,12 @@ impl ContainerLifecycle {
       anyhow::bail!("Could not find image")
     };
   
-    println!("get image {} info {:?}", image, image_digest);
+    // println!("get image {} info {:?}", image, image_digest);
   
     // Step 2. get image content manifests
     let content = self.read_content(namespace, image_digest).await?;
     let config_index: ImageIndex = serde_json::from_slice(&content)?;
-    println!("config index = {:?}", config_index);
+    // println!("config index = {:?}", config_index);
   
     let manifest_item = config_index
         .manifests()
@@ -122,7 +124,7 @@ impl ContainerLifecycle {
         let sha = hex::encode(hasher.finalize());
         prev_digest = format!("sha256:{}", sha)
     }
-    println!("load {} diff digest {}", image, prev_digest);
+    // println!("load {} diff digest {}", image, prev_digest);
     Ok(prev_digest)
   }
   
@@ -140,11 +142,11 @@ impl ContainerLifecycle {
         .await?
         .into_inner();
   
-    println!("get mounts {} {}", id, rsp.mounts.len());
+    // println!("get mounts {} {}", id, rsp.mounts.len());
     Ok(rsp.mounts)
   }
 
-  async fn create_container(&mut self, image_name: &String, namespace: &str) -> Result<String> {
+  pub async fn create_container(&mut self, image_name: &String, namespace: &str) -> Result<String> {
     let cid = GUID::rand().to_string();
     let spec = self.spec();
 
@@ -170,12 +172,11 @@ impl ContainerLifecycle {
     };
     let req = with_namespace!(req, namespace);
 
-    let resp = client
+    let _resp = client
         .create(req)
-        .await
-        .expect("Failed to create container");
+        .await?;
 
-    println!("Container: created {:?}", resp);
+    // println!("Container: created {:?}", resp);
     Ok(cid)
   }
 
@@ -202,8 +203,8 @@ impl ContainerLifecycle {
     let req = with_namespace!(req, namespace);
   
     let mut client = TasksClient::new(self.channel());
-    let resp = client.create(req).await.expect("Failed to create task");
-    println!("Task: started {:?}", resp);
+    let _resp = client.create(req).await?;
+    // println!("Task: started {:?}", resp);
   
     let req = StartRequest {
       container_id: cid.clone(),
@@ -211,9 +212,9 @@ impl ContainerLifecycle {
     };
     let req = with_namespace!(req, namespace);
   
-    let resp = client.start(req).await.expect("Failed to start task");
+    let _resp = client.start(req).await?;
   
-    println!("Task {}: {:?} started", cid, resp);
+    // println!("Task {}: {:?} started", cid, resp);
 
     Ok(cid)
   }
@@ -231,7 +232,7 @@ impl ContainerLifecycle {
         .delete(req)
         .await?;
 
-    println!("Container: {:?} deleted", container_name);
+    // println!("Container: {:?} deleted", container_name);
     Ok(())
   }
 

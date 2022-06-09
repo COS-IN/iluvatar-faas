@@ -9,16 +9,17 @@ use tonic::transport::Server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  let settings = Configuration::new().unwrap();
-  println!("configuration = {:?}", settings);
+  // let server_config = Configuration::new().unwrap();
+  let server_config = Configuration::boxed().unwrap();
+  println!("configuration = {:?}", server_config);
 
-  let addr = format!("{}:{}", settings.address, settings.port);
+  let addr = format!("{}:{}", server_config.address, server_config.port);
 
   let addr = addr.parse()?;
-  let worker = IluvatarWorkerImpl::new();
+  let worker = IluvatarWorkerImpl::new(server_config.clone());
 
   Server::builder()
-      .timeout(Duration::from_secs(settings.timeout_sec))
+      .timeout(Duration::from_secs(server_config.timeout_sec))
       .add_service(IluvatarWorkerServer::new(worker))
       .serve(addr)
       .await?;

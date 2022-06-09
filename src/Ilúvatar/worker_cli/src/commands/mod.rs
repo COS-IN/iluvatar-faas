@@ -42,8 +42,10 @@ pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches<'static>) {
   let function_name = get_val("name", &args);
   let version = get_val("version", &args);
   let memory = get_val_opt("memory", &args);
+  let cpu = get_val_opt("cpu", &args);
+  let image = get_val_opt("image", &args);
 
-  let result = api.prewarm(function_name, version, memory).await;
+  let result = api.prewarm(function_name, version, memory, cpu, image).await;
   match result {
     Ok(string) => println!("{}", string),
     Err(err) => println!("{}", err),
