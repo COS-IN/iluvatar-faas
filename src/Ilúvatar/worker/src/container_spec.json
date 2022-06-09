@@ -14,7 +14,7 @@
             "uid": 0,
             "gid": 0
         },
-        "args": [ "echo", "$OUTPUT" ],
+        "args": [ "/usr/local/bin/python3", "/app/server.py" ],
         "env": [
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "TERM=xterm"

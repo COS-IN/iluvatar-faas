@@ -1,0 +1,14 @@
+FROM python:3.10-alpine
+
+# TODO: these images are really big...
+# Do something to slim them down
+
+RUN apk update && apk upgrade && python3 -m pip install --upgrade pip && python3 -m pip install flask
+
+WORKDIR /app
+COPY *.py ./
+COPY reqs.txt .
+
+RUN python3 -m pip install -r reqs.txt
+
+ENTRYPOINT [ "python3", "./server.py" ]

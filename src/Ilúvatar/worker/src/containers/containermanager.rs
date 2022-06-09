@@ -63,7 +63,7 @@ impl ContainerManager {
     // TODO: memory limits
     // TODO: cpu limits
     // TODO: overrides for cpu and mem request overrides registration
-    let cid = lifecycle.create_container(&reg.image_name, "default").await?;
+    let cid = lifecycle.run_container(&reg.image_name, "default").await?;
     {
       let mut conts = self.active_containers.write();
       conts.push(Arc::new(Container {

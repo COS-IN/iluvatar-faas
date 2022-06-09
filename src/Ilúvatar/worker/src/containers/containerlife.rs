@@ -88,10 +88,11 @@ impl ContainerLifecycle {
     let get_image_req = GetImageRequest { name: image.into() };
     let mut cli = ImagesClient::new(self.channel());
     let rsp = cli.get(with_namespace!(get_image_req, namespace)).await?.into_inner();
-    let image_digest = if let Some(image) = rsp.image {
+    // println!("image resp = {:?}", rsp);
+    let (image_digest, media_type) = if let Some(image) = rsp.image {
       image.target
             .ok_or_else(|| anyhow::anyhow!("Could not find image digest"))
-          .map(|v: Descriptor| v.digest)?
+          .map(|v: Descriptor| (v.digest, v.media_type))?
     } else {
       anyhow::bail!("Could not find image")
     };
@@ -100,27 +101,40 @@ impl ContainerLifecycle {
   
     // Step 2. get image content manifests
     let content = self.read_content(namespace, image_digest).await?;
-    let config_index: ImageIndex = serde_json::from_slice(&content)?;
-    // println!("config index = {:?}", config_index);
-  
-    let manifest_item = config_index
-        .manifests()
-        .iter()
-        .find(|file| match file.platform() {
-            Some(v) => v.architecture().to_string() == "amd64" && v.os().to_string() == "linux",
-            None => false,
-        })
-        .ok_or_else(|| anyhow::anyhow!("fail to load specific manifest"))?;
-  
-    // Step 3. load image manifest from specific platform filter
-    let layer_item: ImageManifest =
-        serde_json::from_slice(&self.read_content(namespace, manifest_item.digest().to_owned()).await?)?;
-  
-    // Step 3. load image configuration (layer) from image
+    let layer_item = match media_type.as_str() {
+      "application/vnd.docker.distribution.manifest.list.v2+json" => {
+        println!("config ImageIndex = {:?}", String::from_utf8_lossy(&content));
+        let config_index: ImageIndex = serde_json::from_slice(&content)?;
+        // println!("config index = {:?}", config_index);
+      
+        let manifest_item = config_index
+              .manifests()
+              .iter()
+              .find(|file| match file.platform() {
+                  Some(v) => v.architecture().to_string() == "amd64" && v.os().to_string() == "linux",
+                  None => false,
+              })
+              .ok_or_else(|| anyhow::anyhow!("fail to load specific manifest"))?.digest().to_owned();
+        // println!("Acquired manifest item: {}", manifest_item);
+        // Step 3. load image manifest from specific platform filter
+        let layer_item: ImageManifest =
+          serde_json::from_slice(&self.read_content(namespace, manifest_item).await?)?;
+        layer_item.config().to_owned()
+     },
+      "application/vnd.docker.distribution.manifest.v2+json" => {
+        let config_index: ImageManifest = serde_json::from_slice(&content)?;
+        config_index.config().to_owned()  
+      }
+      _ => anyhow::bail!("Don't know how to handle unknown image media type '{}'", media_type)
+    };
+
+    // Step 5. load image configuration (layer) from image
     let config: ImageConfiguration =
-        serde_json::from_slice(&self.read_content(namespace, layer_item.config().digest().to_owned()).await?)?;
+        serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_owned()).await?)?;
   
-    // Step 4. calculate finalize digest
+    // println!("Loaded ImageConfiguration: {:?}", config);
+
+    // Step 6. calculate finalize digest
     let mut iter = config.rootfs().diff_ids().iter();
     let mut prev_digest: String = iter.next().map_or_else(String::new, |v| v.clone());
     while let Some(v) = iter.by_ref().next() {
@@ -196,9 +210,9 @@ impl ContainerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&mut self, image_name: String, namespace: &str) -> Result<String> {
-    let cid = self.create_container(&image_name, namespace).await?;
-    let snapshot_base = self.search_image_digest(&image_name, "default").await?;
+  pub async fn run_container(&mut self, image_name: &String, namespace: &str) -> Result<String> {
+    let cid = self.create_container(image_name, namespace).await?;
+    let snapshot_base = self.search_image_digest(image_name, "default").await?;
 
     let mounts = self.load_mounts(&cid, snapshot_base).await.unwrap();
 
