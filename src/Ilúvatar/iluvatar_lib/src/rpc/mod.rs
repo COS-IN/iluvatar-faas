@@ -38,6 +38,7 @@ impl Error for RPCError {
 
 }
 
+/// An implementation of the worker API that communicates with workers via RPC
 #[async_trait]
 impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
   async fn ping(&mut self) -> Result<String, Box<dyn std::error::Error>> {

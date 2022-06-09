@@ -42,6 +42,11 @@ impl ContainerManager {
     }
   }
 
+  /// Prewarm a container for the requested function
+  /// 
+  /// # Errors
+  /// Can error if not already registered and full info isn't provided
+  /// Other errors caused by starting/registered the function apply
   pub async fn prewarm(&self, request: &PrewarmRequest) -> Result<()> {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     let reg = match self.get_registration(&fqdn) {
@@ -57,6 +62,7 @@ impl ContainerManager {
     let mut lifecycle = ContainerLifecycle::new();
     // TODO: memory limits
     // TODO: cpu limits
+    // TODO: overrides for cpu and mem request overrides registration
     let cid = lifecycle.create_container(&reg.image_name, "default").await?;
     {
       let mut conts = self.active_containers.write();
@@ -67,13 +73,18 @@ impl ContainerManager {
     Ok(())
   }
 
+  /// Registerrs a function using the given request
+  /// 
+  /// # Errors
+  /// Can error if the function is already registers, the image is invalid, or many other reasons
   pub async fn register(&self, request: &RegisterRequest) -> Result<()> {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
 
-    self.check_registration(&fqdn, true)?;
+    self.check_registration(&fqdn)?;
     return self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpus, &fqdn).await;
   }
 
+  /// Returns the function registration identified by `fqdn` if it exists, an error otherwise
   fn get_registration(&self, fqdn: &String) -> Result<Arc<RegisteredFunction>> {
     { // read lock
       let acquired_reg = self.registered_functions.read();
@@ -84,13 +95,14 @@ impl ContainerManager {
     }
   }
 
-  fn check_registration(&self, fqdn: &String, throw_on_dupe: bool) -> Result<()> {
+  /// check_registration
+  /// 
+  /// Returns an error if the function identified by `fqdn`
+  fn check_registration(&self, fqdn: &String) -> Result<()> {
     { // read lock
       let acquired_reg = self.registered_functions.read();
       if acquired_reg.contains_key(fqdn) {
-        if throw_on_dupe {
-          anyhow::bail!("Function {} is already registered!", fqdn);
-        }
+        anyhow::bail!("Function {} is already registered!", fqdn);
       }
     }
     Ok(())

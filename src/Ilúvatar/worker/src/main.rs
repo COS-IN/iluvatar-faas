@@ -9,7 +9,6 @@ use tonic::transport::Server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  // let server_config = Configuration::new().unwrap();
   let server_config = Configuration::boxed().unwrap();
   println!("configuration = {:?}", server_config);
 

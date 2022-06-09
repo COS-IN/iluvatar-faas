@@ -62,9 +62,6 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();
-      // let mut life = containerlife::ContainerLifecycle::new();
-
-      // let container_id = life.run_container(request.function_name, "default").await;
       let container_id = self.container_manager.prewarm(&request).await;
 
       match container_id {

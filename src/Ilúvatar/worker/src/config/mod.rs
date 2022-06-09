@@ -22,7 +22,6 @@ pub struct FunctionLimits {
   pub timeout_sec: u64,
 }
 
-// pub type WorkerConfig = Rc<Box<Configuration>>;
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
@@ -34,7 +33,6 @@ impl Configuration {
   }
 
   pub fn boxed() -> Result<WorkerConfig, ConfigError> {
-    // Ok(Rc::new(Box::new(Configuration::new()?)))
     Ok(Arc::new(Configuration::new()?))
   }
 }

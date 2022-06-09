@@ -25,6 +25,9 @@ pub struct ContainerLifecycle {
   channel: Option<Channel>,
 }
 
+/// A service to handle the low-level details of container lifecycles:
+///   creation, destruction, pulling images, etc
+/// NOT THREAD SAFE
 impl ContainerLifecycle {
   pub fn new() -> ContainerLifecycle {
     ContainerLifecycle {
@@ -32,6 +35,7 @@ impl ContainerLifecycle {
     }
   }
 
+  /// connect to the containerd socket
   async fn connect(&mut self) -> Result<()> {
     if let Some(_) = &self.channel {
       Ok(())
@@ -42,10 +46,12 @@ impl ContainerLifecycle {
     }
   }
 
+  /// get the channel to the containerd socket
   fn channel(&self) -> Channel {
     self.channel.as_ref().expect("Tried to access channel before opening connection!").clone()
   }
 
+  /// get the default container spec
   fn spec(&self) -> Any {
     let spec = include_str!("../container_spec.json");
     let spec = spec
@@ -75,6 +81,7 @@ impl ContainerLifecycle {
     anyhow::bail!("failed to read content")
   }
   
+  /// Read through an image's digest to find it's snapshot base
   pub async fn search_image_digest(&mut self, image: &String, namespace: &str) -> Result<String> {
     self.connect().await?;
     // Step 1. get image digest
@@ -128,9 +135,11 @@ impl ContainerLifecycle {
     Ok(prev_digest)
   }
   
+  /// get the mount points for a container's (id) snapshot base
   async fn load_mounts(&mut self, id: &str, snapshot_base: String) -> Result<Vec<containerd_client::types::Mount>> {
     let view_snapshot_req = PrepareSnapshotRequest {
-        snapshotter: "overlayfs".to_string(), // cfg.snapshotter.clone(),
+        // TODO: be picky about snapshotter?
+        snapshotter: "overlayfs".to_string(),
         key: id.to_owned(),
         parent: snapshot_base,
         labels: HashMap::new(),
@@ -146,6 +155,8 @@ impl ContainerLifecycle {
     Ok(rsp.mounts)
   }
 
+  /// Create a container using the given image in the specified namespace
+  /// Does not start any process in it
   pub async fn create_container(&mut self, image_name: &String, namespace: &str) -> Result<String> {
     let cid = GUID::rand().to_string();
     let spec = self.spec();
@@ -182,7 +193,8 @@ impl ContainerLifecycle {
 
   /// run_container
   /// 
-  /// creates and starts the entrypoint for a container
+  /// creates and starts the entrypoint for a container based on the given image
+  /// Run inside the specified namespace
   /// returns a new, unique ID representing it
   pub async fn run_container(&mut self, image_name: String, namespace: &str) -> Result<String> {
     let cid = self.create_container(&image_name, namespace).await?;
@@ -219,6 +231,7 @@ impl ContainerLifecycle {
     Ok(cid)
   }
 
+  /// Removed the specified container in the namespace
   pub async fn remove_container(&mut self, container_name: String, namespace: String) -> Result<()> {
     self.connect().await?;
     let mut client = ContainersClient::new(self.channel());
@@ -236,6 +249,7 @@ impl ContainerLifecycle {
     Ok(())
   }
 
+  /// Ensures that the specified image is available on the machine
   pub async fn ensure_image(&mut self, image_name: &String) -> Result<()> {
     let output = Command::new("ctr")
           .args(["images", "pull", image_name.as_str()])
