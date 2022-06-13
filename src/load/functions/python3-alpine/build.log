@@ -1,0 +1,1461 @@
+Sending build context to Docker daemon  6.656kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> 13f48792706b
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Running in 832485d6ea99
+Collecting chameleon
+  Downloading Chameleon-3.10.1.tar.gz (92 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 92.9/92.9 KB 6.3 MB/s eta 0:00:00
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Collecting six
+  Downloading six-1.16.0-py2.py3-none-any.whl (11 kB)
+Using legacy 'setup.py install' for chameleon, since package 'wheel' is not installed.
+Installing collected packages: six, chameleon
+  Running setup.py install for chameleon: started
+  Running setup.py install for chameleon: finished with status 'done'
+Successfully installed chameleon-3.10.1 six-1.16.0
+[91mWARNING: You are using pip version 22.0.4; however, version 22.1.2 is available.
+You should consider upgrading via the '/opt/venv/bin/python3 -m pip install --upgrade pip' command.
+[0mRemoving intermediate container 832485d6ea99
+ ---> 2c100e459fbe
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> ed08a40a1564
+Step 8/10 : WORKDIR /app
+ ---> Running in bc03bd696849
+Removing intermediate container bc03bd696849
+ ---> 15cf2a4f7067
+Step 9/10 : COPY *.py ./
+ ---> e78014718cde
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in 9959b3314de5
+Removing intermediate container 9959b3314de5
+ ---> 663948502493
+Successfully built 663948502493
+Successfully tagged alfuerst/chameleon-iluvatar-action-alpine:latest
+Sending build context to Docker daemon  14.34kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> 244297c07f1b
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Running in 88a3bd4020b8
+Collecting uuid
+  Downloading uuid-1.30.tar.gz (5.8 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Collecting s3transfer
+  Downloading s3transfer-0.6.0-py3-none-any.whl (79 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 79.6/79.6 KB 5.3 MB/s eta 0:00:00
+Collecting jmespath
+  Downloading jmespath-1.0.0-py3-none-any.whl (23 kB)
+Collecting tensorboard
+  Downloading tensorboard-2.9.1-py3-none-any.whl (5.8 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.8/5.8 MB 59.5 MB/s eta 0:00:00
+[91mERROR: Could not find a version that satisfies the requirement tensorflow (from versions: none)
+[0m[91mERROR: No matching distribution found for tensorflow
+[0m[91mWARNING: You are using pip version 22.0.4; however, version 22.1.2 is available.
+You should consider upgrading via the '/opt/venv/bin/python3 -m pip install --upgrade pip' command.
+[0mThe command '/bin/sh -c /opt/venv/bin/python3 -m pip install -r reqs.txt' returned a non-zero code: 1
+Sending build context to Docker daemon  6.144kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> abc7d864695f
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Running in 16f5d623e252
+[91mWARNING: You are using pip version 22.0.4; however, version 22.1.2 is available.
+You should consider upgrading via the '/opt/venv/bin/python3 -m pip install --upgrade pip' command.
+[0mRemoving intermediate container 16f5d623e252
+ ---> 8baeb7d9f1d4
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> 867154649121
+Step 8/10 : WORKDIR /app
+ ---> Running in 751dc8cc2ff7
+Removing intermediate container 751dc8cc2ff7
+ ---> 7b4823ec241c
+Step 9/10 : COPY *.py ./
+ ---> cdb27e544385
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in e04faa95fbe8
+Removing intermediate container e04faa95fbe8
+ ---> 4a6d82f56e49
+Successfully built 4a6d82f56e49
+Successfully tagged alfuerst/dd-iluvatar-action-alpine:latest
+Sending build context to Docker daemon  5.632kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> Using cache
+ ---> abc7d864695f
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Using cache
+ ---> 8baeb7d9f1d4
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> Using cache
+ ---> 867154649121
+Step 8/10 : WORKDIR /app
+ ---> Using cache
+ ---> 7b4823ec241c
+Step 9/10 : COPY *.py ./
+ ---> 9f25f724d615
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in 28762794c569
+Removing intermediate container 28762794c569
+ ---> 6c91d40f598c
+Successfully built 6c91d40f598c
+Successfully tagged alfuerst/float_operation-iluvatar-action-alpine:latest
+Sending build context to Docker daemon  5.632kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> Using cache
+ ---> abc7d864695f
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Using cache
+ ---> 8baeb7d9f1d4
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> Using cache
+ ---> 867154649121
+Step 8/10 : WORKDIR /app
+ ---> Using cache
+ ---> 7b4823ec241c
+Step 9/10 : COPY *.py ./
+ ---> 834241d669ce
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in dd8de5f0d701
+Removing intermediate container dd8de5f0d701
+ ---> 6ed26db21beb
+Successfully built 6ed26db21beb
+Successfully tagged alfuerst/gzip_compression-iluvatar-action-alpine:latest
+Sending build context to Docker daemon   5.12kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> Using cache
+ ---> abc7d864695f
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Using cache
+ ---> 8baeb7d9f1d4
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> Using cache
+ ---> 867154649121
+Step 8/10 : WORKDIR /app
+ ---> Using cache
+ ---> 7b4823ec241c
+Step 9/10 : COPY *.py ./
+ ---> 63e99f15959a
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in f83a812e0b55
+Removing intermediate container f83a812e0b55
+ ---> c3649eaff281
+Successfully built c3649eaff281
+Successfully tagged alfuerst/hello-iluvatar-action-alpine:latest
+Sending build context to Docker daemon  8.704kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> 1ccd9fe8fdbe
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Running in 1dd29ffdfdff
+Collecting uuid
+  Downloading uuid-1.30.tar.gz (5.8 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Collecting Pillow
+  Downloading Pillow-9.1.1-cp310-cp310-musllinux_1_1_x86_64.whl (3.2 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.2/3.2 MB 50.5 MB/s eta 0:00:00
+Using legacy 'setup.py install' for uuid, since package 'wheel' is not installed.
+Installing collected packages: uuid, Pillow
+  Running setup.py install for uuid: started
+  Running setup.py install for uuid: finished with status 'done'
+Successfully installed Pillow-9.1.1 uuid-1.30
+[91mWARNING: You are using pip version 22.0.4; however, version 22.1.2 is available.
+You should consider upgrading via the '/opt/venv/bin/python3 -m pip install --upgrade pip' command.
+[0mRemoving intermediate container 1dd29ffdfdff
+ ---> 41f5c77a9321
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> b66c11e0d138
+Step 8/10 : WORKDIR /app
+ ---> Running in f8a8d47d04d4
+Removing intermediate container f8a8d47d04d4
+ ---> 751f87410049
+Step 9/10 : COPY *.py ./
+ ---> 44cc76d1b87a
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in 50272255516b
+Removing intermediate container 50272255516b
+ ---> 60d10f383f1b
+Successfully built 60d10f383f1b
+Successfully tagged alfuerst/image_processing-iluvatar-action-alpine:latest
+Sending build context to Docker daemon  6.144kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> Using cache
+ ---> abc7d864695f
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Using cache
+ ---> 8baeb7d9f1d4
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> Using cache
+ ---> 867154649121
+Step 8/10 : WORKDIR /app
+ ---> Using cache
+ ---> 7b4823ec241c
+Step 9/10 : COPY *.py ./
+ ---> 5291347d53d9
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in 9162c956b872
+Removing intermediate container 9162c956b872
+ ---> 7eb30dd45046
+Successfully built 7eb30dd45046
+Successfully tagged alfuerst/json_dumps_loads-iluvatar-action-alpine:latest
+Sending build context to Docker daemon  6.144kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> Using cache
+ ---> f49d18a394a4
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Using cache
+ ---> 6fed9f0c4411
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> Using cache
+ ---> 08aca0ba24b2
+Step 8/10 : WORKDIR /app
+ ---> Using cache
+ ---> 29eda18189a3
+Step 9/10 : COPY *.py ./
+ ---> e184606fb3d6
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in 9059e3763d76
+Removing intermediate container 9059e3763d76
+ ---> b2b7314563ed
+Successfully built b2b7314563ed
+Successfully tagged alfuerst/lin_pack-iluvatar-action-alpine:latest
+Sending build context to Docker daemon   7.68kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> 2dd4fa6b1d05
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Running in b6366e4ebc23
+Collecting uuid
+  Downloading uuid-1.30.tar.gz (5.8 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Collecting joblib
+  Downloading joblib-1.1.0-py2.py3-none-any.whl (306 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 307.0/307.0 KB 10.8 MB/s eta 0:00:00
+Collecting pandas
+  Downloading pandas-1.4.2.tar.gz (4.9 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.9/4.9 MB 66.5 MB/s eta 0:00:00
+  Installing build dependencies: started
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting sklearn
+  Downloading sklearn-0.0.tar.gz (1.1 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Collecting numpy>=1.21.0
+  Downloading numpy-1.22.4.zip (11.5 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.5/11.5 MB 76.3 MB/s eta 0:00:00
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting pytz>=2020.1
+  Downloading pytz-2022.1-py2.py3-none-any.whl (503 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 503.5/503.5 KB 47.4 MB/s eta 0:00:00
+Collecting python-dateutil>=2.8.1
+  Downloading python_dateutil-2.8.2-py2.py3-none-any.whl (247 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 247.7/247.7 KB 38.2 MB/s eta 0:00:00
+Collecting scikit-learn
+  Downloading scikit-learn-1.1.1.tar.gz (6.8 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.8/6.8 MB 82.6 MB/s eta 0:00:00
+  Installing build dependencies: started
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting six>=1.5
+  Downloading six-1.16.0-py2.py3-none-any.whl (11 kB)
+Collecting scipy>=1.3.2
+  Using cached scipy-1.8.1-cp310-cp310-linux_x86_64.whl
+Collecting threadpoolctl>=2.0.0
+  Downloading threadpoolctl-3.1.0-py3-none-any.whl (14 kB)
+Using legacy 'setup.py install' for uuid, since package 'wheel' is not installed.
+Using legacy 'setup.py install' for sklearn, since package 'wheel' is not installed.
+Building wheels for collected packages: pandas, numpy, scikit-learn
+  Building wheel for pandas (pyproject.toml): started
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): still running...
+  Building wheel for pandas (pyproject.toml): finished with status 'done'
+  Created wheel for pandas: filename=pandas-1.4.2-cp310-cp310-linux_x86_64.whl size=11625533 sha256=6664b0723281935af2bfedfaf3d12b4a6ffb8af0c676e1f5a4ba97c523d98ef5
+  Stored in directory: /root/.cache/pip/wheels/82/75/6d/2c20eedf9d84f89e61218f5379ff63a4ba4cece209fc76f0a3
+  Building wheel for numpy (pyproject.toml): started
+  Building wheel for numpy (pyproject.toml): still running...
+  Building wheel for numpy (pyproject.toml): still running...
+  Building wheel for numpy (pyproject.toml): still running...
+  Building wheel for numpy (pyproject.toml): still running...
+  Building wheel for numpy (pyproject.toml): finished with status 'done'
+  Created wheel for numpy: filename=numpy-1.22.4-cp310-cp310-linux_x86_64.whl size=6185669 sha256=b2bddb6ef19dde6d6297b0b4cc115f2765494623046f96439c70aaed81914110
+  Stored in directory: /root/.cache/pip/wheels/d6/68/05/3a6393c4e391ccfc8f9b047dd49b7f5c26d9740ff6d5fe2a64
+  Building wheel for scikit-learn (pyproject.toml): started
+  Building wheel for scikit-learn (pyproject.toml): still running...
+  Building wheel for scikit-learn (pyproject.toml): still running...
+  Building wheel for scikit-learn (pyproject.toml): still running...
+  Building wheel for scikit-learn (pyproject.toml): still running...
+  Building wheel for scikit-learn (pyproject.toml): still running...
+  Building wheel for scikit-learn (pyproject.toml): still running...
+  Building wheel for scikit-learn (pyproject.toml): still running...
+  Building wheel for scikit-learn (pyproject.toml): still running...
+  Building wheel for scikit-learn (pyproject.toml): finished with status 'done'
+  Created wheel for scikit-learn: filename=scikit_learn-1.1.1-cp310-cp310-linux_x86_64.whl size=8505352 sha256=8ac491da1c728db114862b7cec4e302af9a68794fb9c1150e8a086a5ada485f7
+  Stored in directory: /root/.cache/pip/wheels/95/51/ca/8e8b7042e867d4a619185041a6b4be6ff9b7b3f4bae5fe8824
+Successfully built pandas numpy scikit-learn
+Installing collected packages: uuid, pytz, threadpoolctl, six, numpy, joblib, scipy, python-dateutil, scikit-learn, pandas, sklearn
+  Running setup.py install for uuid: started
+  Running setup.py install for uuid: finished with status 'done'
+  Running setup.py install for sklearn: started
+  Running setup.py install for sklearn: finished with status 'done'
+Successfully installed joblib-1.1.0 numpy-1.22.4 pandas-1.4.2 python-dateutil-2.8.2 pytz-2022.1 scikit-learn-1.1.1 scipy-1.8.1 six-1.16.0 sklearn-0.0 threadpoolctl-3.1.0 uuid-1.30
+[91mWARNING: You are using pip version 22.0.4; however, version 22.1.2 is available.
+You should consider upgrading via the '/opt/venv/bin/python3 -m pip install --upgrade pip' command.
+[0mRemoving intermediate container b6366e4ebc23
+ ---> 0cacac4261c1
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> 0216ce7e5e41
+Step 8/10 : WORKDIR /app
+ ---> Running in df4583c9b160
+Removing intermediate container df4583c9b160
+ ---> e421558863c8
+Step 9/10 : COPY *.py ./
+ ---> ee4b270a10f9
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in b887c3f7fd0f
+Removing intermediate container b887c3f7fd0f
+ ---> e06aef2a989e
+Successfully built e06aef2a989e
+Successfully tagged alfuerst/model_training-iluvatar-action-alpine:latest
+Sending build context to Docker daemon  6.656kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> Using cache
+ ---> b1e7a2e753d3
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Using cache
+ ---> ddcd8681b1ad
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> Using cache
+ ---> 7c0a20cb65c1
+Step 8/10 : WORKDIR /app
+ ---> Using cache
+ ---> e920a6a4f4dd
+Step 9/10 : COPY *.py ./
+ ---> 980f65be846f
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Running in 99cdbcfad9ab
+Removing intermediate container 99cdbcfad9ab
+ ---> 0938e2325725
+Successfully built 0938e2325725
+Successfully tagged alfuerst/pyaes-iluvatar-action-alpine:latest
+Sending build context to Docker daemon  8.704kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 855004280d77
+Step 4/10 : COPY reqs.txt .
+ ---> 545e49b38570
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Running in 23a1bc0dcdb8
+Collecting uuid
+  Downloading uuid-1.30.tar.gz (5.8 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Collecting opencv-python
+  Downloading opencv-python-4.6.0.66.tar.gz (90.3 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 90.3/90.3 MB 21.0 MB/s eta 0:00:00
+  Installing build dependencies: started
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: still running...
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting numpy>=1.19.3
+  Downloading numpy-1.22.4.zip (11.5 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.5/11.5 MB 56.4 MB/s eta 0:00:00
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Using legacy 'setup.py install' for uuid, since package 'wheel' is not installed.
+Building wheels for collected packages: opencv-python, numpy
+  Building wheel for opencv-python (pyproject.toml): started
+  Building wheel for opencv-python (pyproject.toml): still running...
+  Building wheel for opencv-python (pyproject.toml): still running...
+  Building wheel for opencv-python (pyproject.toml): still running...
+  Building wheel for opencv-python (pyproject.toml): still running...
+  Building wheel for opencv-python (pyproject.toml): finished with status 'error'
+[91m  error: subprocess-exited-with-error
+  
+  × Building wheel for opencv-python (pyproject.toml) did not run successfully.
+  │ exit code: 1
+  ╰─> [901 lines of output]
+      Not searching for unused variables given on the command line.
+      CMake Error: CMake was unable to find a build program corresponding to "Ninja".  CMAKE_MAKE_PROGRAM is not set.  You probably need to select a different build tool.
+      -- Configuring incomplete, errors occurred!
+      See also "/tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_cmake_test_compile/build/CMakeFiles/CMakeOutput.log".
+      Not searching for unused variables given on the command line.
+      -- The C compiler identification is GNU 11.2.1
+      -- Detecting C compiler ABI info
+      -- Detecting C compiler ABI info - done
+      -- Check for working C compiler: /usr/bin/cc - skipped
+      -- Detecting C compile features
+      -- Detecting C compile features - done
+      -- The CXX compiler identification is GNU 11.2.1
+      -- Detecting CXX compiler ABI info
+      -- Detecting CXX compiler ABI info - done
+      -- Check for working CXX compiler: /usr/bin/c++ - skipped
+      -- Detecting CXX compile features
+      -- Detecting CXX compile features - done
+      -- Configuring done
+      -- Generating done
+      -- Build files have been written to: /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_cmake_test_compile/build
+      -- The CXX compiler identification is GNU 11.2.1
+      -- The C compiler identification is GNU 11.2.1
+      -- Detecting CXX compiler ABI info
+      -- Detecting CXX compiler ABI info - done
+      -- Check for working CXX compiler: /usr/bin/c++ - skipped
+      -- Detecting CXX compile features
+      -- Detecting CXX compile features - done
+      -- Detecting C compiler ABI info
+      -- Detecting C compiler ABI info - done
+      -- Check for working C compiler: /usr/bin/cc - skipped
+      -- Detecting C compile features
+      -- Detecting C compile features - done
+      -- ocv_init_download: OpenCV source tree is not fetched as git repository. 3rdparty resources will be downloaded from github.com by default.
+      -- Detected processor: x86_64
+      -- Found PythonInterp: /opt/venv/bin/python3 (found suitable version "3.10.5", minimum required is "2.7")
+      CMake Warning at cmake/OpenCVDetectPython.cmake:81 (message):
+        CMake's 'find_host_package(PythonInterp 2.7)' found wrong Python version:
+      
+        PYTHON_EXECUTABLE=/opt/venv/bin/python3
+      
+        PYTHON_VERSION_STRING=3.10.5
+      
+        Consider providing the 'PYTHON2_EXECUTABLE' variable via CMake command line
+        or environment variables
+      
+      Call Stack (most recent call first):
+        cmake/OpenCVDetectPython.cmake:271 (find_python)
+        CMakeLists.txt:628 (include)
+      
+      
+      -- Could NOT find Python2 (missing: Python2_EXECUTABLE Interpreter)
+          Reason given by package:
+              Interpreter: Wrong major version for the interpreter "/usr/local/bin/python"
+      
+      -- Found PythonInterp: /opt/venv/bin/python3 (found suitable version "3.10.5", minimum required is "3.2")
+      -- Found PythonLibs: /usr/local/lib/libpython3.10.so (found suitable exact version "3.10.5")
+      -- Looking for ccache - not found
+      -- Performing Test HAVE_CXX_FSIGNED_CHAR
+      -- Performing Test HAVE_CXX_FSIGNED_CHAR - Success
+      -- Performing Test HAVE_C_FSIGNED_CHAR
+      -- Performing Test HAVE_C_FSIGNED_CHAR - Success
+      -- Performing Test HAVE_CXX_W
+      -- Performing Test HAVE_CXX_W - Success
+      -- Performing Test HAVE_C_W
+      -- Performing Test HAVE_C_W - Success
+      -- Performing Test HAVE_CXX_WALL
+      -- Performing Test HAVE_CXX_WALL - Success
+      -- Performing Test HAVE_C_WALL
+      -- Performing Test HAVE_C_WALL - Success
+      -- Performing Test HAVE_CXX_WRETURN_TYPE
+      -- Performing Test HAVE_CXX_WRETURN_TYPE - Success
+      -- Performing Test HAVE_C_WRETURN_TYPE
+      -- Performing Test HAVE_C_WRETURN_TYPE - Success
+      -- Performing Test HAVE_CXX_WNON_VIRTUAL_DTOR
+      -- Performing Test HAVE_CXX_WNON_VIRTUAL_DTOR - Success
+      -- Performing Test HAVE_C_WNON_VIRTUAL_DTOR
+      -- Performing Test HAVE_C_WNON_VIRTUAL_DTOR - Failed
+      -- Performing Test HAVE_CXX_WADDRESS
+      -- Performing Test HAVE_CXX_WADDRESS - Success
+      -- Performing Test HAVE_C_WADDRESS
+      -- Performing Test HAVE_C_WADDRESS - Success
+      -- Performing Test HAVE_CXX_WSEQUENCE_POINT
+      -- Performing Test HAVE_CXX_WSEQUENCE_POINT - Success
+      -- Performing Test HAVE_C_WSEQUENCE_POINT
+      -- Performing Test HAVE_C_WSEQUENCE_POINT - Success
+      -- Performing Test HAVE_CXX_WFORMAT
+      -- Performing Test HAVE_CXX_WFORMAT - Success
+      -- Performing Test HAVE_C_WFORMAT
+      -- Performing Test HAVE_C_WFORMAT - Success
+      -- Performing Test HAVE_CXX_WFORMAT_SECURITY
+      -- Performing Test HAVE_CXX_WFORMAT_SECURITY - Success
+      -- Performing Test HAVE_C_WFORMAT_SECURITY
+      -- Performing Test HAVE_C_WFORMAT_SECURITY - Success
+      -- Performing Test HAVE_CXX_WMISSING_DECLARATIONS
+      -- Performing Test HAVE_CXX_WMISSING_DECLARATIONS - Success
+      -- Performing Test HAVE_C_WMISSING_DECLARATIONS
+      -- Performing Test HAVE_C_WMISSING_DECLARATIONS - Success
+      -- Performing Test HAVE_CXX_WMISSING_PROTOTYPES
+      -- Performing Test HAVE_CXX_WMISSING_PROTOTYPES - Failed
+      -- Performing Test HAVE_C_WMISSING_PROTOTYPES
+      -- Performing Test HAVE_C_WMISSING_PROTOTYPES - Success
+      -- Performing Test HAVE_CXX_WSTRICT_PROTOTYPES
+      -- Performing Test HAVE_CXX_WSTRICT_PROTOTYPES - Failed
+      -- Performing Test HAVE_C_WSTRICT_PROTOTYPES
+      -- Performing Test HAVE_C_WSTRICT_PROTOTYPES - Success
+      -- Performing Test HAVE_CXX_WUNDEF
+      -- Performing Test HAVE_CXX_WUNDEF - Success
+      -- Performing Test HAVE_C_WUNDEF
+      -- Performing Test HAVE_C_WUNDEF - Success
+      -- Performing Test HAVE_CXX_WINIT_SELF
+      -- Performing Test HAVE_CXX_WINIT_SELF - Success
+      -- Performing Test HAVE_C_WINIT_SELF
+      -- Performing Test HAVE_C_WINIT_SELF - Success
+      -- Performing Test HAVE_CXX_WPOINTER_ARITH
+      -- Performing Test HAVE_CXX_WPOINTER_ARITH - Success
+      -- Performing Test HAVE_C_WPOINTER_ARITH
+      -- Performing Test HAVE_C_WPOINTER_ARITH - Success
+      -- Performing Test HAVE_CXX_WSHADOW
+      -- Performing Test HAVE_CXX_WSHADOW - Success
+      -- Performing Test HAVE_C_WSHADOW
+      -- Performing Test HAVE_C_WSHADOW - Success
+      -- Performing Test HAVE_CXX_WSIGN_PROMO
+      -- Performing Test HAVE_CXX_WSIGN_PROMO - Success
+      -- Performing Test HAVE_C_WSIGN_PROMO
+      -- Performing Test HAVE_C_WSIGN_PROMO - Failed
+      -- Performing Test HAVE_CXX_WUNINITIALIZED
+      -- Performing Test HAVE_CXX_WUNINITIALIZED - Success
+      -- Performing Test HAVE_C_WUNINITIALIZED
+      -- Performing Test HAVE_C_WUNINITIALIZED - Success
+      -- Performing Test HAVE_CXX_WSUGGEST_OVERRIDE
+      -- Performing Test HAVE_CXX_WSUGGEST_OVERRIDE - Success
+      -- Performing Test HAVE_C_WSUGGEST_OVERRIDE
+      -- Performing Test HAVE_C_WSUGGEST_OVERRIDE - Failed
+      -- Performing Test HAVE_CXX_WNO_DELETE_NON_VIRTUAL_DTOR
+      -- Performing Test HAVE_CXX_WNO_DELETE_NON_VIRTUAL_DTOR - Success
+      -- Performing Test HAVE_C_WNO_DELETE_NON_VIRTUAL_DTOR
+      -- Performing Test HAVE_C_WNO_DELETE_NON_VIRTUAL_DTOR - Failed
+      -- Performing Test HAVE_CXX_WNO_UNNAMED_TYPE_TEMPLATE_ARGS
+      -- Performing Test HAVE_CXX_WNO_UNNAMED_TYPE_TEMPLATE_ARGS - Failed
+      -- Performing Test HAVE_C_WNO_UNNAMED_TYPE_TEMPLATE_ARGS
+      -- Performing Test HAVE_C_WNO_UNNAMED_TYPE_TEMPLATE_ARGS - Failed
+      -- Performing Test HAVE_CXX_WNO_COMMENT
+      -- Performing Test HAVE_CXX_WNO_COMMENT - Success
+      -- Performing Test HAVE_C_WNO_COMMENT
+      -- Performing Test HAVE_C_WNO_COMMENT - Success
+      -- Performing Test HAVE_CXX_WIMPLICIT_FALLTHROUGH_3
+      -- Performing Test HAVE_CXX_WIMPLICIT_FALLTHROUGH_3 - Success
+      -- Performing Test HAVE_C_WIMPLICIT_FALLTHROUGH_3
+      -- Performing Test HAVE_C_WIMPLICIT_FALLTHROUGH_3 - Success
+      -- Performing Test HAVE_CXX_WNO_STRICT_OVERFLOW
+      -- Performing Test HAVE_CXX_WNO_STRICT_OVERFLOW - Success
+      -- Performing Test HAVE_C_WNO_STRICT_OVERFLOW
+      -- Performing Test HAVE_C_WNO_STRICT_OVERFLOW - Success
+      -- Performing Test HAVE_CXX_FDIAGNOSTICS_SHOW_OPTION
+      -- Performing Test HAVE_CXX_FDIAGNOSTICS_SHOW_OPTION - Success
+      -- Performing Test HAVE_C_FDIAGNOSTICS_SHOW_OPTION
+      -- Performing Test HAVE_C_FDIAGNOSTICS_SHOW_OPTION - Success
+      -- Performing Test HAVE_CXX_WNO_LONG_LONG
+      -- Performing Test HAVE_CXX_WNO_LONG_LONG - Success
+      -- Performing Test HAVE_C_WNO_LONG_LONG
+      -- Performing Test HAVE_C_WNO_LONG_LONG - Success
+      -- Performing Test HAVE_CXX_PTHREAD
+      -- Performing Test HAVE_CXX_PTHREAD - Success
+      -- Performing Test HAVE_C_PTHREAD
+      -- Performing Test HAVE_C_PTHREAD - Success
+      -- Performing Test HAVE_CXX_FOMIT_FRAME_POINTER
+      -- Performing Test HAVE_CXX_FOMIT_FRAME_POINTER - Success
+      -- Performing Test HAVE_C_FOMIT_FRAME_POINTER
+      -- Performing Test HAVE_C_FOMIT_FRAME_POINTER - Success
+      -- Performing Test HAVE_CXX_FFUNCTION_SECTIONS
+      -- Performing Test HAVE_CXX_FFUNCTION_SECTIONS - Success
+      -- Performing Test HAVE_C_FFUNCTION_SECTIONS
+      -- Performing Test HAVE_C_FFUNCTION_SECTIONS - Success
+      -- Performing Test HAVE_CXX_FDATA_SECTIONS
+      -- Performing Test HAVE_CXX_FDATA_SECTIONS - Success
+      -- Performing Test HAVE_C_FDATA_SECTIONS
+      -- Performing Test HAVE_C_FDATA_SECTIONS - Success
+      -- Performing Test HAVE_CXX_MSSE (check file: cmake/checks/cpu_sse.cpp)
+      -- Performing Test HAVE_CXX_MSSE - Success
+      -- Performing Test HAVE_CXX_MSSE2 (check file: cmake/checks/cpu_sse2.cpp)
+      -- Performing Test HAVE_CXX_MSSE2 - Success
+      -- Performing Test HAVE_CXX_MSSE3 (check file: cmake/checks/cpu_sse3.cpp)
+      -- Performing Test HAVE_CXX_MSSE3 - Success
+      -- Performing Test HAVE_CXX_MSSSE3 (check file: cmake/checks/cpu_ssse3.cpp)
+      -- Performing Test HAVE_CXX_MSSSE3 - Success
+      -- Performing Test HAVE_CXX_MSSE4_1 (check file: cmake/checks/cpu_sse41.cpp)
+      -- Performing Test HAVE_CXX_MSSE4_1 - Success
+      -- Performing Test HAVE_CXX_MPOPCNT (check file: cmake/checks/cpu_popcnt.cpp)
+      -- Performing Test HAVE_CXX_MPOPCNT - Success
+      -- Performing Test HAVE_CXX_MSSE4_2 (check file: cmake/checks/cpu_sse42.cpp)
+      -- Performing Test HAVE_CXX_MSSE4_2 - Success
+      -- Performing Test HAVE_CXX_MF16C (check file: cmake/checks/cpu_fp16.cpp)
+      -- Performing Test HAVE_CXX_MF16C - Success
+      -- Performing Test HAVE_CXX_MFMA
+      -- Performing Test HAVE_CXX_MFMA - Success
+      -- Performing Test HAVE_CXX_MAVX (check file: cmake/checks/cpu_avx.cpp)
+      -- Performing Test HAVE_CXX_MAVX - Success
+      -- Performing Test HAVE_CXX_MAVX2 (check file: cmake/checks/cpu_avx2.cpp)
+      -- Performing Test HAVE_CXX_MAVX2 - Success
+      -- Performing Test HAVE_CXX_MAVX512F (check file: cmake/checks/cpu_avx512.cpp)
+      -- Performing Test HAVE_CXX_MAVX512F - Success
+      -- Performing Test HAVE_CXX_MAVX512F_MAVX512CD (check file: cmake/checks/cpu_avx512common.cpp)
+      -- Performing Test HAVE_CXX_MAVX512F_MAVX512CD - Success
+      -- Performing Test HAVE_CXX_MAVX512F_MAVX512CD_MAVX512VL_MAVX512BW_MAVX512DQ (check file: cmake/checks/cpu_avx512skx.cpp)
+      -- Performing Test HAVE_CXX_MAVX512F_MAVX512CD_MAVX512VL_MAVX512BW_MAVX512DQ - Success
+      -- Performing Test HAVE_CPU_BASELINE_FLAGS
+      -- Performing Test HAVE_CPU_BASELINE_FLAGS - Success
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_SSE4_1
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_SSE4_1 - Success
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_SSE4_2
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_SSE4_2 - Success
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_FP16
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_FP16 - Success
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_AVX
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_AVX - Success
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_AVX2
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_AVX2 - Success
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_AVX512_SKX
+      -- Performing Test HAVE_CPU_DISPATCH_FLAGS_AVX512_SKX - Success
+      -- Performing Test HAVE_CXX_FVISIBILITY_HIDDEN
+      -- Performing Test HAVE_CXX_FVISIBILITY_HIDDEN - Success
+      -- Performing Test HAVE_C_FVISIBILITY_HIDDEN
+      -- Performing Test HAVE_C_FVISIBILITY_HIDDEN - Success
+      -- Performing Test HAVE_CXX_FVISIBILITY_INLINES_HIDDEN
+      -- Performing Test HAVE_CXX_FVISIBILITY_INLINES_HIDDEN - Success
+      -- Performing Test HAVE_C_FVISIBILITY_INLINES_HIDDEN
+      -- Performing Test HAVE_C_FVISIBILITY_INLINES_HIDDEN - Failed
+      -- Performing Test HAVE_LINK_AS_NEEDED
+      -- Performing Test HAVE_LINK_AS_NEEDED - Success
+      -- Performing Test HAVE_LINK_NO_UNDEFINED
+      -- Performing Test HAVE_LINK_NO_UNDEFINED - Success
+      -- Looking for pthread.h
+      -- Looking for pthread.h - found
+      -- Looking for posix_memalign
+      -- Looking for posix_memalign - found
+      -- Looking for malloc.h
+      -- Looking for malloc.h - found
+      -- Looking for memalign
+      -- Looking for memalign - found
+      -- Could NOT find ZLIB (missing: ZLIB_LIBRARY ZLIB_INCLUDE_DIR) (Required is at least version "1.2.3")
+      -- Looking for fseeko
+      -- Looking for fseeko - found
+      -- Looking for unistd.h
+      -- Looking for unistd.h - found
+      -- Looking for sys/types.h
+      -- Looking for sys/types.h - found
+      -- Looking for stdint.h
+      -- Looking for stdint.h - found
+      -- Looking for stddef.h
+      -- Looking for stddef.h - found
+      -- Check size of off64_t
+      -- Check size of off64_t - failed
+      -- Performing Test HAVE_C_WNO_SHORTEN_64_TO_32
+      -- Performing Test HAVE_C_WNO_SHORTEN_64_TO_32 - Failed
+      -- Performing Test HAVE_C_WNO_ATTRIBUTES
+      -- Performing Test HAVE_C_WNO_ATTRIBUTES - Success
+      -- Performing Test HAVE_C_WNO_STRICT_PROTOTYPES
+      -- Performing Test HAVE_C_WNO_STRICT_PROTOTYPES - Success
+      -- Performing Test HAVE_C_WNO_MISSING_PROTOTYPES
+      -- Performing Test HAVE_C_WNO_MISSING_PROTOTYPES - Success
+      -- Performing Test HAVE_C_WNO_MISSING_DECLARATIONS
+      -- Performing Test HAVE_C_WNO_MISSING_DECLARATIONS - Success
+      -- Performing Test HAVE_C_WNO_SHIFT_NEGATIVE_VALUE
+      -- Performing Test HAVE_C_WNO_SHIFT_NEGATIVE_VALUE - Success
+      -- Performing Test HAVE_C_WNO_UNDEF
+      -- Performing Test HAVE_C_WNO_UNDEF - Success
+      -- Performing Test HAVE_C_WNO_IMPLICIT_FALLTHROUGH
+      -- Performing Test HAVE_C_WNO_IMPLICIT_FALLTHROUGH - Success
+      -- Could NOT find JPEG (missing: JPEG_LIBRARY JPEG_INCLUDE_DIR)
+      -- Performing Test HAVE_C_WNO_UNUSED_PARAMETER
+      -- Performing Test HAVE_C_WNO_UNUSED_PARAMETER - Success
+      -- Performing Test HAVE_C_WNO_SIGN_COMPARE
+      -- Performing Test HAVE_C_WNO_SIGN_COMPARE - Success
+      -- libjpeg-turbo: VERSION = 2.1.2, BUILD = opencv-4.6.0-libjpeg-turbo
+      -- Check size of size_t
+      -- Check size of size_t - done
+      -- Check size of unsigned long
+      -- Check size of unsigned long - done
+      -- Performing Test HAVE_BUILTIN_CTZL
+      -- Performing Test HAVE_BUILTIN_CTZL - Success
+      -- Looking for include file locale.h
+      -- Looking for include file locale.h - found
+      -- Looking for include file stdlib.h
+      -- Looking for include file stdlib.h - found
+      -- Looking for include file sys/types.h
+      -- Looking for include file sys/types.h - found
+      -- Could NOT find TIFF (missing: TIFF_LIBRARY TIFF_INCLUDE_DIR)
+      -- Looking for assert.h
+      -- Looking for assert.h - found
+      -- Looking for dlfcn.h
+      -- Looking for dlfcn.h - found
+      -- Looking for fcntl.h
+      -- Looking for fcntl.h - found
+      -- Looking for inttypes.h
+      -- Looking for inttypes.h - found
+      -- Looking for io.h
+      -- Looking for io.h - not found
+      -- Looking for limits.h
+      -- Looking for limits.h - found
+      -- Looking for memory.h
+      -- Looking for memory.h - found
+      -- Looking for search.h
+      -- Looking for search.h - found
+      -- Looking for string.h
+      -- Looking for string.h - found
+      -- Looking for strings.h
+      -- Looking for strings.h - found
+      -- Looking for sys/time.h
+      -- Looking for sys/time.h - found
+      -- Looking for unistd.h
+      -- Looking for unistd.h - found
+      -- Performing Test C_HAS_inline
+      -- Performing Test C_HAS_inline - Success
+      -- Check size of signed short
+      -- Check size of signed short - done
+      -- Check size of unsigned short
+      -- Check size of unsigned short - done
+      -- Check size of signed int
+      -- Check size of signed int - done
+      -- Check size of unsigned int
+      -- Check size of unsigned int - done
+      -- Check size of signed long
+      -- Check size of signed long - done
+      -- Check size of signed long long
+      -- Check size of signed long long - done
+      -- Check size of unsigned long long
+      -- Check size of unsigned long long - done
+      -- Check size of unsigned char *
+      -- Check size of unsigned char * - done
+      -- Check size of ptrdiff_t
+      -- Check size of ptrdiff_t - done
+      -- Check size of INT8
+      -- Check size of INT8 - failed
+      -- Check size of INT16
+      -- Check size of INT16 - failed
+      -- Check size of INT32
+      -- Check size of INT32 - failed
+      -- Looking for floor
+      -- Looking for floor - found
+      -- Looking for pow
+      -- Looking for pow - found
+      -- Looking for sqrt
+      -- Looking for sqrt - found
+      -- Looking for isascii
+      -- Looking for isascii - found
+      -- Looking for memset
+      -- Looking for memset - found
+      -- Looking for mmap
+      -- Looking for mmap - found
+      -- Looking for getopt
+      -- Looking for getopt - found
+      -- Looking for memmove
+      -- Looking for memmove - found
+      -- Looking for setmode
+      -- Looking for setmode - not found
+      -- Looking for strcasecmp
+      -- Looking for strcasecmp - found
+      -- Looking for strchr
+      -- Looking for strchr - found
+      -- Looking for strrchr
+      -- Looking for strrchr - found
+      -- Looking for strstr
+      -- Looking for strstr - found
+      -- Looking for strtol
+      -- Looking for strtol - found
+      -- Looking for strtol
+      -- Looking for strtol - found
+      -- Looking for strtoull
+      -- Looking for strtoull - found
+      -- Looking for lfind
+      -- Looking for lfind - found
+      -- Performing Test HAVE_SNPRINTF
+      -- Performing Test HAVE_SNPRINTF - Success
+      -- Performing Test HAVE_C_WNO_UNUSED_BUT_SET_VARIABLE
+      -- Performing Test HAVE_C_WNO_UNUSED_BUT_SET_VARIABLE - Success
+      -- Performing Test HAVE_C_WNO_UNUSED
+      -- Performing Test HAVE_C_WNO_UNUSED - Success
+      -- Performing Test HAVE_C_WNO_CAST_ALIGN
+      -- Performing Test HAVE_C_WNO_CAST_ALIGN - Success
+      -- Performing Test HAVE_C_WNO_SHADOW
+      -- Performing Test HAVE_C_WNO_SHADOW - Success
+      -- Performing Test HAVE_C_WNO_MAYBE_UNINITIALIZED
+      -- Performing Test HAVE_C_WNO_MAYBE_UNINITIALIZED - Success
+      -- Performing Test HAVE_C_WNO_POINTER_TO_INT_CAST
+      -- Performing Test HAVE_C_WNO_POINTER_TO_INT_CAST - Success
+      -- Performing Test HAVE_C_WNO_INT_TO_POINTER_CAST
+      -- Performing Test HAVE_C_WNO_INT_TO_POINTER_CAST - Success
+      -- Performing Test HAVE_C_WNO_MISLEADING_INDENTATION
+      -- Performing Test HAVE_C_WNO_MISLEADING_INDENTATION - Success
+      -- Performing Test HAVE_C_WNO_ARRAY_PARAMETER
+      -- Performing Test HAVE_C_WNO_ARRAY_PARAMETER - Success
+      -- Performing Test HAVE_CXX_WNO_MISSING_DECLARATIONS
+      -- Performing Test HAVE_CXX_WNO_MISSING_DECLARATIONS - Success
+      -- Performing Test HAVE_CXX_WNO_UNUSED_PARAMETER
+      -- Performing Test HAVE_CXX_WNO_UNUSED_PARAMETER - Success
+      -- Performing Test HAVE_CXX_WNO_MISSING_PROTOTYPES
+      -- Performing Test HAVE_CXX_WNO_MISSING_PROTOTYPES - Failed
+      -- Performing Test HAVE_CXX_WNO_UNDEF
+      -- Performing Test HAVE_CXX_WNO_UNDEF - Success
+      -- Performing Test HAVE_C_STD_C99
+      -- Performing Test HAVE_C_STD_C99 - Success
+      -- Performing Test HAVE_C_WNO_UNUSED_VARIABLE
+      -- Performing Test HAVE_C_WNO_UNUSED_VARIABLE - Success
+      -- Performing Test HAVE_C_WNO_UNUSED_FUNCTION
+      -- Performing Test HAVE_C_WNO_UNUSED_FUNCTION - Success
+      -- Could NOT find OpenJPEG (minimal suitable version: 2.0, recommended version >= 2.3.1). OpenJPEG will be built from sources
+      -- Performing Test HAVE_C_WNO_IMPLICIT_CONST_INT_FLOAT_CONVERSION
+      -- Performing Test HAVE_C_WNO_IMPLICIT_CONST_INT_FLOAT_CONVERSION - Failed
+      -- OpenJPEG: VERSION = 2.4.0, BUILD = opencv-4.6.0-openjp2-2.4.0
+      -- Looking for stdio.h
+      -- Looking for stdio.h - found
+      -- Looking for math.h
+      -- Looking for math.h - found
+      -- Looking for float.h
+      -- Looking for float.h - found
+      -- Looking for time.h
+      -- Looking for time.h - found
+      -- Looking for stdarg.h
+      -- Looking for stdarg.h - found
+      -- Looking for ctype.h
+      -- Looking for ctype.h - found
+      -- Looking for stdint.h
+      -- Looking for stdint.h - found
+      -- Looking for inttypes.h
+      -- Looking for inttypes.h - found
+      -- Looking for sys/stat.h
+      -- Looking for sys/stat.h - found
+      -- Looking for include file malloc.h
+      -- Looking for include file malloc.h - found
+      -- Looking for _aligned_malloc
+      -- Looking for _aligned_malloc - not found
+      -- Looking for posix_memalign
+      -- Looking for posix_memalign - found
+      -- Looking for memalign
+      -- Looking for memalign - found
+      -- Performing Test HAVE_C_WNO_CAST_FUNCTION_TYPE
+      -- Performing Test HAVE_C_WNO_CAST_FUNCTION_TYPE - Success
+      -- OpenJPEG libraries will be built from sources: libopenjp2 (version "2.4.0")
+      -- Found ZLIB: zlib (found version "1.2.12")
+      -- Could NOT find PNG (missing: PNG_LIBRARY PNG_PNG_INCLUDE_DIR)
+      -- Performing Test HAVE_C_WNO_NULL_POINTER_SUBTRACTION
+      -- Performing Test HAVE_C_WNO_NULL_POINTER_SUBTRACTION - Failed
+      -- Looking for semaphore.h
+      -- Looking for semaphore.h - found
+      -- Performing Test HAVE_CXX_WNO_SHADOW
+      -- Performing Test HAVE_CXX_WNO_SHADOW - Success
+      -- Performing Test HAVE_CXX_WNO_UNUSED
+      -- Performing Test HAVE_CXX_WNO_UNUSED - Success
+      -- Performing Test HAVE_CXX_WNO_SIGN_COMPARE
+      -- Performing Test HAVE_CXX_WNO_SIGN_COMPARE - Success
+      -- Performing Test HAVE_CXX_WNO_UNINITIALIZED
+      -- Performing Test HAVE_CXX_WNO_UNINITIALIZED - Success
+      -- Performing Test HAVE_CXX_WNO_SWITCH
+      -- Performing Test HAVE_CXX_WNO_SWITCH - Success
+      -- Performing Test HAVE_CXX_WNO_PARENTHESES
+      -- Performing Test HAVE_CXX_WNO_PARENTHESES - Success
+      -- Performing Test HAVE_CXX_WNO_ARRAY_BOUNDS
+      -- Performing Test HAVE_CXX_WNO_ARRAY_BOUNDS - Success
+      -- Performing Test HAVE_CXX_WNO_EXTRA
+      -- Performing Test HAVE_CXX_WNO_EXTRA - Success
+      -- Performing Test HAVE_CXX_WNO_DEPRECATED_DECLARATIONS
+      -- Performing Test HAVE_CXX_WNO_DEPRECATED_DECLARATIONS - Success
+      -- Performing Test HAVE_CXX_WNO_MISLEADING_INDENTATION
+      -- Performing Test HAVE_CXX_WNO_MISLEADING_INDENTATION - Success
+      -- Performing Test HAVE_CXX_WNO_DEPRECATED
+      -- Performing Test HAVE_CXX_WNO_DEPRECATED - Success
+      -- Performing Test HAVE_CXX_WNO_SUGGEST_OVERRIDE
+      -- Performing Test HAVE_CXX_WNO_SUGGEST_OVERRIDE - Success
+      -- Performing Test HAVE_CXX_WNO_INCONSISTENT_MISSING_OVERRIDE
+      -- Performing Test HAVE_CXX_WNO_INCONSISTENT_MISSING_OVERRIDE - Failed
+      -- Performing Test HAVE_CXX_WNO_IMPLICIT_FALLTHROUGH
+      -- Performing Test HAVE_CXX_WNO_IMPLICIT_FALLTHROUGH - Success
+      -- Performing Test HAVE_CXX_WNO_TAUTOLOGICAL_COMPARE
+      -- Performing Test HAVE_CXX_WNO_TAUTOLOGICAL_COMPARE - Success
+      -- Performing Test HAVE_CXX_WNO_REORDER
+      -- Performing Test HAVE_CXX_WNO_REORDER - Success
+      -- Performing Test HAVE_CXX_WNO_UNUSED_RESULT
+      -- Performing Test HAVE_CXX_WNO_UNUSED_RESULT - Success
+      -- Performing Test HAVE_CXX_WNO_IMPLICIT_CONST_INT_FLOAT_CONVERSION
+      -- Performing Test HAVE_CXX_WNO_IMPLICIT_CONST_INT_FLOAT_CONVERSION - Failed
+      -- Performing Test HAVE_CXX_WNO_CLASS_MEMACCESS
+      -- Performing Test HAVE_CXX_WNO_CLASS_MEMACCESS - Success
+      -- libva: missing va.h header (VA_INCLUDE_DIR)
+      -- IPPICV: Downloading ippicv_2020_lnx_intel64_20191018_general.tgz from https://raw.githubusercontent.com/opencv/opencv_3rdparty/a56b6ac6f030c312b2dce17430eef13aed9af274/ippicv/ippicv_2020_lnx_intel64_20191018_general.tgz
+      -- found Intel IPP (ICV version): 2020.0.0 [2020.0.0 Gold]
+      -- at: /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_skbuild/linux-x86_64-3.10/cmake-build/3rdparty/ippicv/ippicv_lnx/icv
+      -- found Intel IPP Integration Wrappers sources: 2020.0.0
+      -- at: /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_skbuild/linux-x86_64-3.10/cmake-build/3rdparty/ippicv/ippicv_lnx/iw
+      -- Found OpenBLAS libraries: /usr/lib/libopenblas.so
+      -- Found OpenBLAS include: /usr/include
+      -- LAPACK(OpenBLAS): LAPACK_LIBRARIES: /usr/lib/libopenblas.so
+      -- LAPACK(OpenBLAS): Support is enabled.
+      -- Performing Test HAVE_CXX_WNO_UNUSED_LOCAL_TYPEDEFS
+      -- Performing Test HAVE_CXX_WNO_UNUSED_LOCAL_TYPEDEFS - Success
+      -- Performing Test HAVE_CXX_WNO_SIGN_PROMO
+      -- Performing Test HAVE_CXX_WNO_SIGN_PROMO - Success
+      -- Performing Test HAVE_CXX_WNO_TAUTOLOGICAL_UNDEFINED_COMPARE
+      -- Performing Test HAVE_CXX_WNO_TAUTOLOGICAL_UNDEFINED_COMPARE - Failed
+      -- Performing Test HAVE_CXX_WNO_IGNORED_QUALIFIERS
+      -- Performing Test HAVE_CXX_WNO_IGNORED_QUALIFIERS - Success
+      -- Performing Test HAVE_CXX_WNO_UNUSED_FUNCTION
+      -- Performing Test HAVE_CXX_WNO_UNUSED_FUNCTION - Success
+      -- Performing Test HAVE_CXX_WNO_UNUSED_CONST_VARIABLE
+      -- Performing Test HAVE_CXX_WNO_UNUSED_CONST_VARIABLE - Success
+      -- Performing Test HAVE_CXX_WNO_SHORTEN_64_TO_32
+      -- Performing Test HAVE_CXX_WNO_SHORTEN_64_TO_32 - Failed
+      -- Performing Test HAVE_CXX_WNO_INVALID_OFFSETOF
+      -- Performing Test HAVE_CXX_WNO_INVALID_OFFSETOF - Success
+      -- Performing Test HAVE_CXX_WNO_ENUM_COMPARE_SWITCH
+      -- Performing Test HAVE_CXX_WNO_ENUM_COMPARE_SWITCH - Failed
+      -- Could NOT find JNI (missing: JAVA_AWT_LIBRARY JAVA_JVM_LIBRARY JAVA_INCLUDE_PATH JAVA_INCLUDE_PATH2 JAVA_AWT_INCLUDE_PATH)
+      -- VTK is not found. Please set -DVTK_DIR in CMake to VTK build directory, or to VTK install subdirectory with VTKConfig.cmake file
+      -- Looking for dlerror in dl
+      -- Looking for dlerror in dl - found
+      -- ADE: Downloading v0.1.1f.zip from https://github.com/opencv/ade/archive/v0.1.1f.zip
+      -- Checking for module 'gtk+-3.0'
+      --   Package 'gtk+-3.0', required by 'virtual:world', not found
+      -- Checking for module 'gtk+-2.0'
+      --   Package 'gtk+-2.0', required by 'virtual:world', not found
+      -- Checking for module 'gthread-2.0'
+      --   Package 'gthread-2.0', required by 'virtual:world', not found
+      -- Checking for modules 'libavcodec;libavformat;libavutil;libswscale'
+      --   Package 'libavcodec', required by 'virtual:world', not found
+      --   Package 'libavformat', required by 'virtual:world', not found
+      --   Package 'libavutil', required by 'virtual:world', not found
+      --   Package 'libswscale', required by 'virtual:world', not found
+      -- FFMPEG is disabled. Required libraries: libavcodec;libavformat;libavutil;libswscale. Missing libraries: libavcodec;libavformat;libavutil;libswscale
+      -- Checking for module 'gstreamer-base-1.0'
+      --   Package 'gstreamer-base-1.0', required by 'virtual:world', not found
+      -- Checking for module 'gstreamer-app-1.0'
+      --   Package 'gstreamer-app-1.0', required by 'virtual:world', not found
+      -- Checking for module 'gstreamer-riff-1.0'
+      --   Package 'gstreamer-riff-1.0', required by 'virtual:world', not found
+      -- Checking for module 'gstreamer-pbutils-1.0'
+      --   Package 'gstreamer-pbutils-1.0', required by 'virtual:world', not found
+      -- Checking for module 'gstreamer-video-1.0'
+      --   Package 'gstreamer-video-1.0', required by 'virtual:world', not found
+      -- Checking for module 'gstreamer-audio-1.0'
+      --   Package 'gstreamer-audio-1.0', required by 'virtual:world', not found
+      -- Checking for module 'libdc1394-2'
+      --   Package 'libdc1394-2', required by 'virtual:world', not found
+      -- Allocator metrics storage type: 'long long'
+      -- Registering hook 'INIT_MODULE_SOURCES_opencv_dnn': /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv/modules/dnn/cmake/hooks/INIT_MODULE_SOURCES_opencv_dnn.cmake
+      -- opencv_dnn: filter out cuda4dnn source code
+      -- Excluding from source files list: <BUILD>/modules/dnn/layers/layers_common.rvv.cpp
+      -- imgcodecs: OpenEXR codec is disabled in runtime. Details: https://github.com/opencv/opencv/issues/21326
+      -- highgui: using builtin backend: NONE
+      -- Found 'misc' Python modules from /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv/modules/python/package/extra_modules
+      -- Found 'mat_wrapper;utils' Python modules from /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv/modules/core/misc/python/package
+      -- Found 'gapi' Python modules from /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv/modules/gapi/misc/python/package
+      -- Performing Test HAVE_CXX_WNO_OVERLOADED_VIRTUAL
+      -- Performing Test HAVE_CXX_WNO_OVERLOADED_VIRTUAL - Success
+      -- Performing Test HAVE_CXX_WNO_UNUSED_PRIVATE_FIELD
+      -- Performing Test HAVE_CXX_WNO_UNUSED_PRIVATE_FIELD - Failed
+      -- Found 'misc' Python modules from /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv/modules/python/package/extra_modules
+      -- Found 'mat_wrapper;utils' Python modules from /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv/modules/core/misc/python/package
+      -- Found 'gapi' Python modules from /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv/modules/gapi/misc/python/package
+      --
+      -- General configuration for OpenCV 4.6.0 =====================================
+      --   Version control:               unknown
+      --
+      --   Platform:
+      --     Timestamp:                   2022-06-09T18:14:41Z
+      --     Host:                        Linux 5.13.0-44-generic x86_64
+      --     CMake:                       3.22.5
+      --     CMake generator:             Unix Makefiles
+      --     CMake build tool:            /usr/bin/make
+      --     Configuration:               Release
+      --
+      --   CPU/HW features:
+      --     Baseline:                    SSE SSE2 SSE3
+      --       requested:                 SSE3
+      --     Dispatched code generation:  SSE4_1 SSE4_2 FP16 AVX AVX2 AVX512_SKX
+      --       requested:                 SSE4_1 SSE4_2 AVX FP16 AVX2 AVX512_SKX
+      --       SSE4_1 (16 files):         + SSSE3 SSE4_1
+      --       SSE4_2 (1 files):          + SSSE3 SSE4_1 POPCNT SSE4_2
+      --       FP16 (0 files):            + SSSE3 SSE4_1 POPCNT SSE4_2 FP16 AVX
+      --       AVX (4 files):             + SSSE3 SSE4_1 POPCNT SSE4_2 AVX
+      --       AVX2 (31 files):           + SSSE3 SSE4_1 POPCNT SSE4_2 FP16 FMA3 AVX AVX2
+      --       AVX512_SKX (5 files):      + SSSE3 SSE4_1 POPCNT SSE4_2 FP16 FMA3 AVX AVX2 AVX_512F AVX512_COMMON AVX512_SKX
+      --
+      --   C/C++:
+      --     Built as dynamic libs?:      NO
+      --     C++ standard:                11
+      --     C++ Compiler:                /usr/bin/c++  (ver 11.2.1)
+      --     C++ flags (Release):         -fsigned-char -W -Wall -Wreturn-type -Wnon-virtual-dtor -Waddress -Wsequence-point -Wformat -Wformat-security -Wmissing-declarations -Wundef -Winit-self -Wpointer-arith -Wshadow -Wsign-promo -Wuninitialized -Wsuggest-override -Wno-delete-non-virtual-dtor -Wno-comment -Wimplicit-fallthrough=3 -Wno-strict-overflow -fdiagnostics-show-option -Wno-long-long -pthread -fomit-frame-pointer -ffunction-sections -fdata-sections  -[0m[91mmsse -msse2 -msse3 -fvisibility=hidden -fvisibility-inlines-hidden -O3 -DNDEBUG  -DNDEBUG
+      --     C++ flags (Debug):           -fsigned-char -W -Wall -Wreturn-type -Wnon-virtual-dtor -Waddress -Wsequence-point -Wformat -Wformat-security -Wmissing-declarations -Wundef -Winit-self -Wpointer-arith -Wshadow -Wsign-promo -Wuninitialized -Wsuggest-override -Wno-delete-non-virtual-dtor -Wno-comment -Wimplicit-fallthrough=3 -Wno-strict-overflow -fdiagnostics-show-option -Wno-long-long -pthread -fomit-frame-pointer -ffunction-sections -fdata-sections  -msse -msse2 -msse3 -fvisibility=hidden -fvisibility-inlines-hidden -g  -O0 -DDEBUG -D_DEBUG
+      --     C Compiler:                  /usr/bin/cc
+      --     C flags (Release):           -fsigned-char -W -Wall -Wreturn-type -Waddress -Wsequence-point -Wformat -Wformat-security -Wmissing-declarations -Wmissing-prototypes -Wstrict-prototypes -Wundef -Winit-self -Wpointer-arith -Wshadow -Wuninitialized -Wno-comment -Wimplicit-fallthrough=3 -Wno-strict-overflow -fdiagnostics-show-option -Wno-long-long -pthread -fomit-frame-pointer -ffunction-sections -fdata-sections  -msse -msse2 -msse3 -fvisibility=hidden -O3 -DNDEBUG  -DNDEBUG
+      --     C flags (Debug):             -fsigned-char -W -Wall -Wreturn-type -Waddress -Wsequence-point -Wformat -Wformat-security -Wmissing-declarations -Wmissing-prototypes -Wstrict-prototypes -Wundef -Winit-self -Wpointer-arith -Wshadow -Wuninitialized -Wno-comment -Wimplicit-fallthrough=3 -Wno-strict-overflow -fdiagnostics-show-option -Wno-long-long -pthread -fomit-frame-pointer -ffunction-sections -fdata-sections  -msse -msse2 -msse3 -fvisibility=hidden -g  -O0 -DDEBUG -D_DEBUG
+      --     Linker flags (Release):      -Wl,--exclude-libs,libippicv.a -Wl,--exclude-libs,libippiw.a   -Wl,--gc-sections -Wl,--as-needed -Wl,--no-undefined
+      --     Linker flags (Debug):        -Wl,--exclude-libs,libippicv.a -Wl,--exclude-libs,libippiw.a   -Wl,--gc-sections -Wl,--as-needed -Wl,--no-undefined
+      --     ccache:                      NO
+      --     Precompiled headers:         NO
+      --     Extra dependencies:          /usr/lib/libopenblas.so dl m pthread rt
+      --     3rdparty dependencies:       libprotobuf ade ittnotify libjpeg-turbo libwebp libpng libtiff libopenjp2 IlmImf zlib quirc ippiw ippicv
+      --
+      --   OpenCV modules:
+      --     To be built:                 calib3d core dnn features2d flann gapi highgui imgcodecs imgproc ml objdetect photo python3 stitching video videoio
+      --     Disabled:                    world
+      --     Disabled by dependency:      -
+      --     Unavailable:                 java python2 ts
+      --     Applications:                -
+      --     Documentation:               NO
+      --     Non-free algorithms:         NO
+      --
+      --   GUI:                           NONE
+      --     GTK+:                        NO
+      --     VTK support:                 NO
+      --
+      --   Media I/O:
+      --     ZLib:                        zlib (ver 1.2.12)
+      --     JPEG:                        libjpeg-turbo (ver 2.1.2-62)
+      --     WEBP:                        build (ver encoder: 0x020f)
+      --     PNG:                         build (ver 1.6.37)
+      --     TIFF:                        build (ver 42 - 4.2.0)
+      --     JPEG 2000:                   build (ver 2.4.0)
+      --     OpenEXR:                     build (ver 2.3.0)
+      --     HDR:                         YES
+      --     SUNRASTER:                   YES
+      --     PXM:                         YES
+      --     PFM:                         YES
+      --
+      --   Video I/O:
+      --     DC1394:                      NO
+      --     FFMPEG:                      NO
+      --       avcodec:                   NO
+      --       avformat:                  NO
+      --       avutil:                    NO
+      --       swscale:                   NO
+      --       avresample:                NO
+      --     GStreamer:                   NO
+      --     v4l/v4l2:                    NO
+      --
+      --   Parallel framework:            pthreads
+      --
+      --   Trace:                         YES (with Intel ITT)
+      --
+      --   Other third-party libraries:
+      --     Intel IPP:                   2020.0.0 Gold [2020.0.0]
+      --            at:                   /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_skbuild/linux-x86_64-3.10/cmake-build/3rdparty/ippicv/ippicv_lnx/icv
+      --     Intel IPP IW:                sources (2020.0.0)
+      --               at:                /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_skbuild/linux-x86_64-3.10/cmake-build/3rdparty/ippicv/ippicv_lnx/iw
+      --     VA:                          NO
+      --     Lapack:                      YES (/usr/lib/libopenblas.so)
+      --     Eigen:                       NO
+      --     Custom HAL:                  NO
+      --     Protobuf:                    build (3.19.1)
+      --
+      --   OpenCL:                        YES (no extra features)
+      --     Include path:                /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv/3rdparty/include/opencl/1.2
+      --     Link libraries:              Dynamic load
+      --
+      --   Python 3:
+      --     Interpreter:                 /opt/venv/bin/python3 (ver 3.10.5)
+      --     Libraries:                   /usr/local/lib/libpython3.10.so (ver 3.10.5)
+      --     numpy:                       /tmp/pip-build-env-epe0itj0/overlay/lib/python3.10/site-packages/numpy/core/include (ver 1.21.2)
+      --     install path:                python/cv2/python-3
+      --
+      --   Python (for build):            /opt/venv/bin/python3
+      --
+      --   Java:
+      --     ant:                         NO
+      --     JNI:                         NO
+      --     Java wrappers:               NO
+      --     Java tests:                  NO
+      --
+      --   Install to:                    /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_skbuild/linux-x86_64-3.10/cmake-install
+      -- -----------------------------------------------------------------
+      --
+      -- Configuring done
+      -- Generating done
+      -- Build files have been written to: /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_skbuild/linux-x86_64-3.10/cmake-build
+      [  0%] Built target opencv_highgui_plugins
+      [  0%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/thread.c.o
+      [  0%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/bio.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/cio.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/dwt.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/event.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/image.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/invert.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/j2k.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/jp2.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/mct.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/mqc.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/openjpeg.c.o
+      [  1%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/opj_clock.c.o
+      [  2%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/pi.c.o
+      [  2%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/t1.c.o
+      [  2%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/t2.c.o
+      [  2%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/tcd.c.o
+      [  2%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/tgt.c.o
+      [  2%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/function_list.c.o
+      [  2%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/opj_malloc.c.o
+      [  2%] Building C object 3rdparty/openjpeg/openjp2/CMakeFiles/libopenjp2.dir/sparse_array.c.o
+      [  2%] Linking C static library ../../lib/liblibopenjp2.a
+      [  2%] Built target libopenjp2
+      [  2%] Built target opencv_videoio_plugins
+      [  2%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/adler32.c.o
+      [  2%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/compress.c.o
+      [  2%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/crc32.c.o
+      [  2%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/deflate.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/gzclose.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/gzlib.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/gzread.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/gzwrite.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/inflate.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/infback.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/inftrees.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/inffast.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/trees.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/uncompr.c.o
+      [  3%] Building C object 3rdparty/zlib/CMakeFiles/zlib.dir/zutil.c.o
+      [  4%] Linking C static library ../lib/libzlib.a
+      [  4%] Built target zlib
+      [  5%] Building C object 3rdparty/ittnotify/CMakeFiles/ittnotify.dir/src/ittnotify/ittnotify_static.c.o
+      [  5%] Building C object 3rdparty/ittnotify/CMakeFiles/ittnotify.dir/src/ittnotify/jitprofiling.c.o
+      [  5%] Linking C static library ../lib/libittnotify.a
+      [  5%] Built target ittnotify
+      [  5%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_core.c.o
+      [  5%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image.c.o
+      [  5%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_color_convert_all.c.o
+      [  5%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_color_convert_rgbs.c.o
+      [  5%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_filter_bilateral.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_filter_box.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_filter_canny.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_filter_gaussian.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_filter_general.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_filter_laplacian.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_filter_morphology.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_filter_scharr.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_filter_sobel.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_op_copy.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_op_copy_channel.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_op_copy_make_border.c.o
+      [  6%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_op_copy_merge.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_op_copy_split.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_op_scale.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_op_set.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_op_set_channel.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_op_swap_channels.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_transform_mirror.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_transform_resize.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_transform_rotate.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_image_transform_warpaffine.c.o
+      [  7%] Building C object 3rdparty/ippiw/CMakeFiles/ippiw.dir/src/iw_own.c.o
+      [  7%] Linking C static library ../lib/libippiw.a
+      [  7%] Built target ippiw
+      [  7%] Processing OpenCL kernels (core)
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/algorithm.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/alloc.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/arithm.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/arithm.dispatch.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/array.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/async.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/batch_distance.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/bindings_utils.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/buffer_area.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/channels.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/check.cpp.o
+      [  8%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/command_line_parser.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/conjugate_gradient.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/convert.dispatch.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/convert_c.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/convert_scale.dispatch.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/copy.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/count_non_zero.dispatch.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/cuda_gpu_mat.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/cuda_gpu_mat_nd.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/cuda_host_mem.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/cuda_info.cpp.o
+      [  9%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/cuda_stream.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/datastructs.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/directx.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/downhill_simplex.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/dxt.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/gl_core_3_1.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/glob.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/hal_internal.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/kmeans.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/lapack.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/lda.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/logger.cpp.o
+      [ 10%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/lpsolver.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/lut.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/mathfuncs.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/mathfuncs_core.dispatch.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matmul.dispatch.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matrix.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matrix_c.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matrix_decomp.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matrix_expressions.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matrix_iterator.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matrix_operations.cpp.o
+      [ 11%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matrix_sparse.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matrix_transform.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/matrix_wrap.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/mean.dispatch.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/merge.dispatch.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/minmax.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/norm.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/ocl.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/opencl/runtime/opencl_clblas.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/opencl/runtime/opencl_clfft.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/opencl/runtime/opencl_core.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/opengl.cpp.o
+      [ 12%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/out.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/ovx.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/parallel.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/parallel/parallel.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/parallel/parallel_openmp.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/parallel/parallel_tbb.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/parallel_impl.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/pca.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/persistence.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/persistence_base64_encoding.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/persistence_json.cpp.o
+      [ 13%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/persistence_types.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/persistence_xml.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/persistence_yml.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/rand.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/softfloat.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/split.dispatch.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/stat.dispatch.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/stat_c.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/stl.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/sum.dispatch.cpp.o
+      [ 14%] Building CXX object modules/core/CMakeFiles/opencv_core.dir/src/system.cpp.o
+      /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv/modules/core/src/system.cpp:143:12: fatal error: linux/auxvec.h: No such file or directory
+        143 | #  include <linux/auxvec.h>
+            |            ^~~~~~~~~~~~~~~~
+      compilation terminated.
+      make[2]: *** [modules/core/CMakeFiles/opencv_core.dir/build.make:1195: modules/core/CMakeFiles/opencv_core.dir/src/system.cpp.o] Error 1
+      make[1]: *** [CMakeFiles/Makefile2:1656: modules/core/CMakeFiles/opencv_core.dir/all] Error 2
+      make: *** [Makefile:166: all] Error 2
+        File "/tmp/pip-build-env-epe0itj0/overlay/lib/python3.10/site-packages/skbuild/setuptools_wrap.py", line 645, in setup
+          cmkr.make(make_args, install_target=cmake_install_target, env=env)
+        File "/tmp/pip-build-env-epe0itj0/overlay/lib/python3.10/site-packages/skbuild/cmaker.py", line 680, in make
+          self.make_impl(clargs=clargs, config=config, source_dir=source_dir, install_target=install_target, env=env)
+        File "/tmp/pip-build-env-epe0itj0/overlay/lib/python3.10/site-packages/skbuild/cmaker.py", line 704, in make_impl
+          raise SKBuildError(
+      
+      
+      --------------------------------------------------------------------------------
+      -- Trying "Ninja" generator
+      --------------------------------
+      ---------------------------
+      ----------------------
+      -----------------
+      ------------
+      -------
+      --
+      --
+      -------
+      ------------
+      -----------------
+      ----------------------
+      ---------------------------
+      --------------------------------
+      -- Trying "Ninja" generator - failure
+      --------------------------------------------------------------------------------
+      
+      
+      
+      --------------------------------------------------------------------------------
+      -- Trying "Unix Makefiles" generator
+      --------------------------------
+      ---------------------------
+      ----------------------
+      -----------------
+      ------------
+      -------
+      --
+      --
+      -------
+      ------------
+      -----------------
+      ----------------------
+      ---------------------------
+      --------------------------------
+      -- Trying "Unix Makefiles" generator - success
+      --------------------------------------------------------------------------------
+      
+      Configuring Project
+        Working directory:
+          /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_skbuild/linux-x86_64-3.10/cmake-build
+        Command:
+          cmake /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/opencv -G 'Unix Makefiles' -DCMAKE_INSTALL_PREFIX:PATH=/tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_skbuild/linux-x86_64-3.10/cmake-install -DPYTHON_VERSION_STRING:STRING=3.10.5 -DSKBUILD:INTERNAL=TRUE -DCMAKE_MODULE_PATH:PATH=/tmp/pip-build-env-epe0itj0/overlay/lib/python3.10/site-packages/skbuild/resources/cmake -DPython3_EXECUTABLE:FILEPATH=/opt/venv/bin/python3 -DPython3_INCLUDE_DIR:PATH=/usr/local/include/python3.10 -DPython3_LIBRARY:PATH=/usr/local/lib/libpython3.10.so -DPython3_NumPy_INCLUDE_DIRS:PATH=/tmp/pip-build-env-epe0itj0/overlay/lib/python3.10/site-packages/numpy/core/include -DPython_EXECUTABLE:FILEPATH=/opt/venv/bin/python3 -DPython_INCLUDE_DIR:PATH=/usr/local/include/python3.10 -DPython_LIBRARY:PATH=/usr/local/lib/libpython3.10.so -DPython_NumPy_INCLUDE_DIRS:PATH=/tmp/pip-build-env-epe0itj0/overlay/lib/python3.10/site-packages/numpy/core/include -DPYTHON_EXECUTABLE:FILEPATH=/opt/venv/bin/python3 -DPYTHON_INCLUDE_DIR:PATH=/usr/local/include/python3.10 -DPYTHON_LIBRARY:PATH=/usr/local/lib/libpython3.10.so -DPYTHON_NumPy_INCLUDE_DIRS:PATH=/tmp/pip-build-env-epe0itj0/overlay/lib/python3.10/site-packages/numpy/core/include -DPYTHON3_EXECUTABLE=/opt/venv/bin/python3 -DPYTHON3_INCLUDE_DIR=/usr/local/include/python3.10 -DPYTHON3_LIBRARY=/usr/local/lib/libpython3.10.so -DBUILD_opencv_python3=ON -DBUILD_opencv_python2=OFF -DBUILD_opencv_java=OFF -DOPENCV_PYTHON3_INSTALL_PATH=python -DINSTALL_CREATE_DISTRIB=ON -DBUILD_opencv_apps=OFF -DBUILD_opencv_freetype=OFF -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF -DPYTHON3_LIMITED_API=ON -DBUILD_OPENEXR=ON -DCMAKE_BUILD_TYPE:STRING=Release
+      
+      Traceback (most recent call last):
+      
+      An error occurred while building with CMake.
+        Command:
+          cmake --build . --target install --config Release --
+        Install target:
+          install
+        Source directory:
+          /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016
+        Working directory:
+          /tmp/pip-install-ppsx9o6k/opencv-python_78d9dccc2d9443ef9c9ff1947513f016/_skbuild/linux-x86_64-3.10/cmake-build
+      Please check the install target is valid and see CMake's output for more information.
+      [end of output]
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+[0m[91m  ERROR: Failed building wheel for opencv-python
+[0m  Building wheel for numpy (pyproject.toml): started
+  Building wheel for numpy (pyproject.toml): still running...
+  Building wheel for numpy (pyproject.toml): still running...
+  Building wheel for numpy (pyproject.toml): still running...
+  Building wheel for numpy (pyproject.toml): still running...
+  Building wheel for numpy (pyproject.toml): finished with status 'done'
+  Created wheel for numpy: filename=numpy-1.22.4-cp310-cp310-linux_x86_64.whl size=6185669 sha256=47a0524155125983b92eb183735e9d127f3628f7560648548b07b1baf9acf7b6
+  Stored in directory: /root/.cache/pip/wheels/d6/68/05/3a6393c4e391ccfc8f9b047dd49b7f5c26d9740ff6d5fe2a64
+Successfully built numpy
+Failed to build opencv-python
+[91mERROR: Could not build wheels for opencv-python, which is required to install pyproject.toml-based projects
+[0m[91mWARNING: You are using pip version 22.0.4; however, version 22.1.2 is available.
+You should consider upgrading via the '/opt/venv/bin/python3 -m pip install --upgrade pip' command.
+[0mThe command '/bin/sh -c /opt/venv/bin/python3 -m pip install -r reqs.txt' returned a non-zero code: 1
+Sending build context to Docker daemon  8.704kB
+Step 1/2 : FROM alfuerst/iluvatar-action-base-alpine
+manifest for alfuerst/iluvatar-action-base-alpine:latest not found: manifest unknown: manifest unknown

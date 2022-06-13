@@ -1,4 +1,4 @@
-FROM alfuerst/il-action-base
+FROM alfuerst/iluvatar-action-base
 
 RUN apt-get install -y ffmpeg 
 # RUN apt-get install -y jpeg-dev zlib-dev freetype-dev lcms2-dev openjpeg-dev tiff-dev tk-dev tcl-dev libgcc openssl-dev

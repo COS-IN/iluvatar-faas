@@ -1,0 +1,111 @@
+Sending build context to Docker daemon  8.704kB
+Step 1/10 : FROM python:3.10-alpine as builder
+ ---> 27edb73bd1fc
+Step 2/10 : RUN mkdir /opt/venv
+ ---> Using cache
+ ---> edede44ed7c0
+Step 3/10 : RUN apk add --no-cache build-base gcc gfortran openblas-dev linux-headers     && python3 -m venv /opt/venv     && /opt/venv/bin/python3 -m pip install flask
+ ---> Using cache
+ ---> 782259fb92bd
+Step 4/10 : COPY reqs.txt .
+ ---> Using cache
+ ---> 704015602e95
+Step 5/10 : RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+ ---> Using cache
+ ---> 0207f0fcd503
+Step 6/10 : FROM python:3.10-alpine as prod
+ ---> 27edb73bd1fc
+Step 7/10 : COPY --from=builder /opt/venv /opt/venv
+ ---> Using cache
+ ---> fa8c64ac1d86
+Step 8/10 : WORKDIR /app
+ ---> Using cache
+ ---> c2fd382b4aef
+Step 9/10 : COPY *.py ./
+ ---> Using cache
+ ---> 90dc29757574
+Step 10/10 : ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+ ---> Using cache
+ ---> d30a0c5172fb
+Successfully built d30a0c5172fb
+Successfully tagged alfuerst/iluvatar-action-base-alpine:latest
+Sending build context to Docker daemon  8.704kB
+Step 1/2 : FROM alfuerst/iluvatar-action-base-alpine
+ ---> d30a0c5172fb
+Step 2/2 : RUN apk add --no-cache ffmpeg
+ ---> Running in 3920a4025514
+fetch https://dl-cdn.alpinelinux.org/alpine/v3.16/main/x86_64/APKINDEX.tar.gz
+fetch https://dl-cdn.alpinelinux.org/alpine/v3.16/community/x86_64/APKINDEX.tar.gz
+(1/67) Installing sdl2 (2.0.22-r0)
+(2/67) Installing libxau (1.0.9-r0)
+(3/67) Installing libxdmcp (1.1.3-r0)
+(4/67) Installing libxcb (1.15-r0)
+(5/67) Installing libx11 (1.8-r0)
+(6/67) Installing aom-libs (3.3.0-r0)
+(7/67) Installing alsa-lib (1.2.6.1-r0)
+(8/67) Installing brotli-libs (1.0.9-r6)
+(9/67) Installing libpng (1.6.37-r1)
+(10/67) Installing freetype (2.12.1-r0)
+(11/67) Installing fontconfig (2.14.0-r0)
+(12/67) Installing fribidi (1.0.12-r0)
+(13/67) Installing libblkid (2.38-r1)
+(14/67) Installing libmount (2.38-r1)
+(15/67) Installing pcre (8.45-r2)
+(16/67) Installing glib (2.72.1-r0)
+(17/67) Installing graphite2 (1.3.14-r1)
+(18/67) Installing harfbuzz (4.3.0-r0)
+(19/67) Installing libass (0.16.0-r0)
+(20/67) Installing libdav1d (1.0.0-r0)
+(21/67) Installing libpciaccess (0.16-r0)
+(22/67) Installing libdrm (2.4.110-r0)
+(23/67) Installing gmp (6.2.1-r2)
+(24/67) Installing nettle (3.7.3-r0)
+(25/67) Installing p11-kit (0.24.1-r0)
+(26/67) Installing libtasn1 (4.18.0-r0)
+(27/67) Installing libunistring (1.0-r0)
+(28/67) Installing gnutls (3.7.6-r0)
+(29/67) Installing lame (3.100-r0)
+(30/67) Installing opus (1.3.1-r1)
+(31/67) Installing libasyncns (0.8-r1)
+(32/67) Installing dbus-libs (1.14.0-r1)
+(33/67) Installing libltdl (2.4.7-r0)
+(34/67) Installing orc (0.4.32-r0)
+(35/67) Installing libgcc (11.2.1_git20220219-r2)
+(36/67) Installing libogg (1.3.5-r1)
+(37/67) Installing libstdc++ (11.2.1_git20220219-r2)
+(38/67) Installing flac (1.3.4-r0)
+(39/67) Installing libvorbis (1.3.7-r0)
+(40/67) Installing libsndfile (1.1.0-r0)
+(41/67) Installing libgomp (11.2.1_git20220219-r2)
+(42/67) Installing soxr (0.1.3-r2)
+(43/67) Installing speexdsp (1.2.0-r0)
+(44/67) Installing tdb-libs (1.4.6-r0)
+(45/67) Installing libpulse (15.0-r2)
+(46/67) Installing cjson (1.7.15-r3)
+(47/67) Installing mbedtls (2.28.0-r0)
+(48/67) Installing librist (0.2.6-r1)
+(49/67) Installing libsrt (1.4.4-r0)
+(50/67) Installing libssh (0.9.6-r1)
+(51/67) Installing libtheora (1.1.1-r16)
+(52/67) Installing libjpeg-turbo (2.1.3-r1)
+(53/67) Installing v4l-utils-libs (1.22.1-r1)
+(54/67) Installing libxext (1.3.4-r0)
+(55/67) Installing libxfixes (6.0.0-r0)
+(56/67) Installing wayland-libs-client (1.20.0-r0)
+(57/67) Installing libva (2.14.0-r0)
+(58/67) Installing libvdpau (1.5-r0)
+(59/67) Installing vidstab (1.1.0-r1)
+(60/67) Installing libvpx (1.11.0-r1)
+(61/67) Installing libwebp (1.2.2-r0)
+(62/67) Installing x264-libs (0.163_git20210613-r0)
+(63/67) Installing numactl (2.0.14-r0)
+(64/67) Installing x265-libs (3.5-r3)
+(65/67) Installing xvidcore (1.3.7-r1)
+(66/67) Installing ffmpeg-libs (5.0.1-r1)
+(67/67) Installing ffmpeg (5.0.1-r1)
+Executing busybox-1.35.0-r13.trigger
+OK: 106 MiB in 103 packages
+Removing intermediate container 3920a4025514
+ ---> 03abe0891057
+Successfully built 03abe0891057
+Successfully tagged alfuerst/video_processing-iluvatar-action-alpine:latest

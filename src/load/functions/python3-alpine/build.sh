@@ -31,6 +31,8 @@ do
     # echo ${dir##*/}    # print everything after the final "/"
     func_name=${dir##*/}
 
-    build $dir $func_name
+    if [ $func_name == "video_processing" ]; then
+      build $dir $func_name
+    fi
 done
 

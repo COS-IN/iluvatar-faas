@@ -49,3 +49,8 @@ And changes to the image can implemented a custom `Dockerfile` as well that must
 
 Simply execute the `build.sh` script that's located in `./functions/python3/` while in that directory.
 It will build all the containers, putting the web server, function code, and dependencies together.
+
+## python3-alpine
+
+Duplicates of the python3 folder, but builds smaller alpine images
+**NOTE**: They use a slighly different entrypoint

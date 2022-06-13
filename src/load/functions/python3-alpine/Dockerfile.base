@@ -1,14 +1,19 @@
-FROM python:3.10-alpine
+FROM python:3.10-alpine as builder
 
-# TODO: these images are really big...
-# Do something to slim them down
+RUN mkdir /opt/venv
+RUN apk add --no-cache build-base gcc gfortran openblas-dev linux-headers \
+    && python3 -m venv /opt/venv \
+    && /opt/venv/bin/python3 -m pip install flask
 
-RUN apk update && apk upgrade && python3 -m pip install --upgrade pip && python3 -m pip install flask
+COPY reqs.txt .
+RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
+
+FROM python:3.10-alpine as prod
+
+COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
 COPY *.py ./
-COPY reqs.txt .
 
-RUN python3 -m pip install -r reqs.txt
 
-ENTRYPOINT [ "python3", "./server.py" ]
+ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
