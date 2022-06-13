@@ -8,5 +8,10 @@
     "mem_min_mb": 5,
     "mem_max_mb": 2048,
     "cpu_max": 10
+  },
+  "logging": {
+    "level": "debug",
+    "directory": ".",
+    "basename": "worker"
   }
 }

@@ -1,8 +1,9 @@
 use crate::containers::containerlife::ContainerLifecycle;
 
 use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
-use iluvatar_lib::utils::calculate_fqdn;
+use iluvatar_lib::utils::{calculate_fqdn, Port, new_port, calculate_invoke_uri, calculate_base_uri};
 use anyhow::Result;
+use log::*;
 use std::collections::HashMap; 
 use std::sync::Arc;
 use parking_lot::RwLock;
@@ -22,13 +23,18 @@ struct RegisteredFunction {
 #[derive(Debug)]
 #[allow(unused)]
 struct Container {
-  id: String
+  id: String,
+  port: Port,
+  address: String,
+  invoke_uri: String,
+  base_uri: String
   // TODO: reference to function somehow
 }
 
 #[derive(Debug)]
 pub struct ContainerManager {
   registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
+  // TODO: a better data structure?
   active_containers: Arc<RwLock<Vec<Arc<Container>>>>,
   config: WorkerConfig
 }
@@ -52,24 +58,39 @@ impl ContainerManager {
     let reg = match self.get_registration(&fqdn) {
         Ok(r) => r,
         Err(_) => {
+          error!("function {} was attempted to be prewarmed before registering. Attempting register...", fqdn);
           match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, &fqdn).await {
             Ok(_) => self.get_registration(&fqdn)?,
-            Err(sub_e) => anyhow::bail!("Function {} was not registered! Attempted registration failed because '{}'", fqdn, sub_e),
-          }          
+            Err(sub_e) => {
+              error!("Prewarm of function {} was not registered because it was not registered! Attempted registration failed because '{}'", fqdn, sub_e);
+              anyhow::bail!("Function {} was not registered! Attempted registration failed because '{}'", fqdn, sub_e)
+            }
+          }
         },
     };
 
     let mut lifecycle = ContainerLifecycle::new();
     // TODO: memory limits
     // TODO: cpu limits
-    // TODO: overrides for cpu and mem request overrides registration
+    // TODO: cpu and mem prewarm request overrides registration
+    let address = "0.0.0.0".to_string();
+    let port = new_port()?;
+    let uri = calculate_invoke_uri(&address, port);
+    let base_uri = calculate_base_uri(&address, port);
     let cid = lifecycle.run_container(&reg.image_name, "default").await?;
+
     {
+      // acquire write lock
       let mut conts = self.active_containers.write();
       conts.push(Arc::new(Container {
-        id: cid
+        id: cid,
+        address,
+        port,
+        invoke_uri: uri,
+        base_uri
       }));
     }
+    info!("function '{}' was successfully prewarmed", fqdn);
     Ok(())
   }
 
@@ -139,7 +160,7 @@ impl ContainerManager {
       let mut acquired_reg = self.registered_functions.write();
       acquired_reg.insert(fqdn.clone(), Arc::new(registration));
     }
-    println!("function '{}'; version '{}' was successfully registered", function_name, function_version);
+    info!("function '{}'; version '{}' was successfully registered", function_name, function_version);
     Ok(())
   }
 }

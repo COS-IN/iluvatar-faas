@@ -3,6 +3,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
+
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 pub struct Configuration {
@@ -11,6 +12,7 @@ pub struct Configuration {
   pub port: i32,
   pub timeout_sec: u64,
   pub limits: FunctionLimits,
+  pub logging: Logging,
 }
 
 #[derive(Debug, Deserialize)]
@@ -20,6 +22,14 @@ pub struct FunctionLimits {
   pub mem_max_mb: u32,
   pub cpu_max: u32,
   pub timeout_sec: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+pub struct Logging {
+  pub level: String,
+  pub directory: String,
+  pub basename: String
 }
 
 pub type WorkerConfig = Arc<Configuration>;

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
 use guid_create::GUID;
+use log::*;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;
 use sha2::{Sha256, Digest};
@@ -88,7 +89,7 @@ impl ContainerLifecycle {
     let get_image_req = GetImageRequest { name: image.into() };
     let mut cli = ImagesClient::new(self.channel());
     let rsp = cli.get(with_namespace!(get_image_req, namespace)).await?.into_inner();
-    // println!("image resp = {:?}", rsp);
+    debug!("image resp = {:?}", rsp);
     let (image_digest, media_type) = if let Some(image) = rsp.image {
       image.target
             .ok_or_else(|| anyhow::anyhow!("Could not find image digest"))
@@ -97,15 +98,14 @@ impl ContainerLifecycle {
       anyhow::bail!("Could not find image")
     };
   
-    // println!("get image {} info {:?}", image, image_digest);
+    debug!("got image {} info {:?}", image, image_digest);
   
     // Step 2. get image content manifests
     let content = self.read_content(namespace, image_digest).await?;
     let layer_item = match media_type.as_str() {
       "application/vnd.docker.distribution.manifest.list.v2+json" => {
-        println!("config ImageIndex = {:?}", String::from_utf8_lossy(&content));
         let config_index: ImageIndex = serde_json::from_slice(&content)?;
-        // println!("config index = {:?}", config_index);
+        debug!("config ImageIndex = {:?}", config_index);
       
         let manifest_item = config_index
               .manifests()
@@ -115,7 +115,8 @@ impl ContainerLifecycle {
                   None => false,
               })
               .ok_or_else(|| anyhow::anyhow!("fail to load specific manifest"))?.digest().to_owned();
-        // println!("Acquired manifest item: {}", manifest_item);
+        
+        debug!("Acquired manifest item: {}", manifest_item);
         // Step 3. load image manifest from specific platform filter
         let layer_item: ImageManifest =
           serde_json::from_slice(&self.read_content(namespace, manifest_item).await?)?;
@@ -123,6 +124,7 @@ impl ContainerLifecycle {
      },
       "application/vnd.docker.distribution.manifest.v2+json" => {
         let config_index: ImageManifest = serde_json::from_slice(&content)?;
+        debug!("config ImageManifest = {:?}", config_index);
         config_index.config().to_owned()  
       }
       _ => anyhow::bail!("Don't know how to handle unknown image media type '{}'", media_type)
@@ -132,7 +134,7 @@ impl ContainerLifecycle {
     let config: ImageConfiguration =
         serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_owned()).await?)?;
   
-    // println!("Loaded ImageConfiguration: {:?}", config);
+    debug!("Loaded ImageConfiguration: {:?}", config);
 
     // Step 6. calculate finalize digest
     let mut iter = config.rootfs().diff_ids().iter();
@@ -145,7 +147,7 @@ impl ContainerLifecycle {
         let sha = hex::encode(hasher.finalize());
         prev_digest = format!("sha256:{}", sha)
     }
-    // println!("load {} diff digest {}", image, prev_digest);
+    debug!("load {} diff digest {}", image, prev_digest);
     Ok(prev_digest)
   }
   
@@ -153,6 +155,7 @@ impl ContainerLifecycle {
   async fn load_mounts(&mut self, id: &str, snapshot_base: String) -> Result<Vec<containerd_client::types::Mount>> {
     let view_snapshot_req = PrepareSnapshotRequest {
         // TODO: be picky about snapshotter?
+        // https://github.com/containerd/containerd/tree/main/docs/snapshotters
         snapshotter: "overlayfs".to_string(),
         key: id.to_owned(),
         parent: snapshot_base,
@@ -165,7 +168,7 @@ impl ContainerLifecycle {
         .await?
         .into_inner();
   
-    // println!("get mounts {} {}", id, rsp.mounts.len());
+    debug!("got mounts {} {}", id, rsp.mounts.len());
     Ok(rsp.mounts)
   }
 
@@ -197,11 +200,11 @@ impl ContainerLifecycle {
     };
     let req = with_namespace!(req, namespace);
 
-    let _resp = client
+    let resp = client
         .create(req)
         .await?;
 
-    // println!("Container: created {:?}", resp);
+    debug!("Container: created {:?}", resp);
     Ok(cid)
   }
 
@@ -229,8 +232,8 @@ impl ContainerLifecycle {
     let req = with_namespace!(req, namespace);
   
     let mut client = TasksClient::new(self.channel());
-    let _resp = client.create(req).await?;
-    // println!("Task: started {:?}", resp);
+    let resp = client.create(req).await?;
+    debug!("Task: created {:?}", resp);
   
     let req = StartRequest {
       container_id: cid.clone(),
@@ -238,9 +241,9 @@ impl ContainerLifecycle {
     };
     let req = with_namespace!(req, namespace);
   
-    let _resp = client.start(req).await?;
+    let resp = client.start(req).await?;
   
-    // println!("Task {}: {:?} started", cid, resp);
+    debug!("Task {}: {:?} started", cid, resp);
 
     Ok(cid)
   }
@@ -259,7 +262,7 @@ impl ContainerLifecycle {
         .delete(req)
         .await?;
 
-    // println!("Container: {:?} deleted", container_name);
+    debug!("Container: {:?} deleted", container_name);
     Ok(())
   }
 
