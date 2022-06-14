@@ -1,6 +1,6 @@
 use crate::containers::containerlife::ContainerLifecycle;
 
-use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
+use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest, InvokeRequest};
 use iluvatar_lib::utils::{calculate_fqdn, Port, new_port, calculate_invoke_uri, calculate_base_uri};
 use anyhow::Result;
 use log::*;
@@ -48,6 +48,10 @@ impl ContainerManager {
     }
   }
 
+  pub async fn invoke(&self, request: &InvokeRequest) -> Result<(String, u64)> {
+    Ok( ("".to_string(), 2) )
+  }
+
   /// Prewarm a container for the requested function
   /// 
   /// # Errors
@@ -73,18 +77,18 @@ impl ContainerManager {
     // TODO: memory limits
     // TODO: cpu limits
     // TODO: cpu and mem prewarm request overrides registration
-    let address = "0.0.0.0".to_string();
+    let address = "0.0.0.0";
     let port = new_port()?;
     let uri = calculate_invoke_uri(&address, port);
     let base_uri = calculate_base_uri(&address, port);
-    let cid = lifecycle.run_container(&reg.image_name, "default").await?;
+    let cid = lifecycle.run_container(&reg.image_name, "default", address, port).await?;
 
     {
       // acquire write lock
       let mut conts = self.active_containers.write();
       conts.push(Arc::new(Container {
         id: cid,
-        address,
+        address: address.to_string(),
         port,
         invoke_uri: uri,
         base_uri

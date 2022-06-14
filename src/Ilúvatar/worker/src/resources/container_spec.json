@@ -17,7 +17,9 @@
         "args": [ "/usr/local/bin/python3", "/app/server.py" ],
         "env": [
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "TERM=xterm"
+            "TERM=xterm",
+            "__IL_PORT=$PORT",
+            "__IL_HOST=$HOST_ADDR"
         ],
         "cwd": "/",
         "rlimits": [{

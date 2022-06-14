@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
 use guid_create::GUID;
+use iluvatar_lib::utils::Port;
 use log::*;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;
@@ -53,12 +54,14 @@ impl ContainerLifecycle {
   }
 
   /// get the default container spec
-  fn spec(&self) -> Any {
-    let spec = include_str!("../container_spec.json");
+  fn spec(&self, host_addr: &str, port: Port) -> Any {
+    let spec = include_str!("../resources/container_spec.json");
     let spec = spec
         .to_string()
         .replace("$ROOTFS", "rootfs")
-        .replace("$OUTPUT", "");
+        .replace("$OUTPUT", "")
+        .replace("$HOST_ADDR", host_addr)
+        .replace("$PORT", &port.to_string());
     
     Any {
         type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
@@ -174,9 +177,9 @@ impl ContainerLifecycle {
 
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&mut self, image_name: &String, namespace: &str) -> Result<String> {
+  pub async fn create_container(&mut self, image_name: &String, namespace: &str, host_addr: &str, port: Port) -> Result<String> {
     let cid = GUID::rand().to_string();
-    let spec = self.spec();
+    let spec = self.spec(host_addr, port);
 
     let container = Container {
       id: cid.to_string(),
@@ -213,8 +216,8 @@ impl ContainerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&mut self, image_name: &String, namespace: &str) -> Result<String> {
-    let cid = self.create_container(image_name, namespace).await?;
+  pub async fn run_container(&mut self, image_name: &String, namespace: &str, host_addr: &str, port: Port) -> Result<String> {
+    let cid = self.create_container(image_name, namespace, host_addr, port).await?;
     let snapshot_base = self.search_image_digest(image_name, "default").await?;
 
     let mounts = self.load_mounts(&cid, snapshot_base).await.unwrap();

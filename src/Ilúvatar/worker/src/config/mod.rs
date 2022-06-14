@@ -13,6 +13,8 @@ pub struct Configuration {
   pub timeout_sec: u64,
   pub limits: FunctionLimits,
   pub logging: Logging,
+  pub memory_mb: u32,
+  pub cores: u32
 }
 
 #[derive(Debug, Deserialize)]

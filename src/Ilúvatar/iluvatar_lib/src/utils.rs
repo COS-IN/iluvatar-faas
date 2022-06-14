@@ -6,14 +6,13 @@ pub fn calculate_fqdn(function_name: &String, function_version: &String) -> Stri
   format!("{}/{}", function_name, function_version)
 }
 
-pub fn calculate_invoke_uri(address: &String, port: Port) -> String {
+pub fn calculate_invoke_uri(address: &str, port: Port) -> String {
   format!("http://{}:{}/invoke", address, port)
 }
 
-pub fn calculate_base_uri(address: &String, port: Port) -> String {
+pub fn calculate_base_uri(address: &str, port: Port) -> String {
   format!("http://{}:{}/", address, port)
 }
-
 
 pub type Port = u16;
 
