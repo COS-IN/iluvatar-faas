@@ -15,5 +15,11 @@
     "basename": "worker"
   },
   "memory_mb": 2048,
-  "cores": 4
+  "cores": 4,
+  "networking": {
+    "bridge": "IlWorkBr0",
+    "cnitool": "/home/alex/.gopth/bin/cnitool",
+    "cni_plugin_bin": "/opt/cni/bin",
+    "cni_name": "il_worker_br"
+  }
 }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
 use guid_create::GUID;
-use iluvatar_lib::utils::Port;
+use iluvatar_lib::utils::{Port, calculate_base_uri, calculate_invoke_uri};
 use log::*;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;
@@ -15,25 +15,32 @@ use client::services::v1::content_client::ContentClient;
 use client::services::v1::images_client::ImagesClient;
 use client::services::v1::snapshots::snapshots_client::SnapshotsClient;
 use client::services::v1::snapshots::PrepareSnapshotRequest;
-use client::services::v1::{Container, CreateContainerRequest, CreateTaskRequest, StartRequest, DeleteContainerRequest};
+use client::services::v1::{CreateContainerRequest, CreateTaskRequest, StartRequest, DeleteContainerRequest};
+use client::services::v1::Container as Containerd_Container;
 use client::services::v1::{GetImageRequest, ReadContentRequest};
 use client::services::v1::container::Runtime;
 use client::with_namespace;
 use containerd_client::tonic::Request;
 use prost_types::Any;
 use std::process::Command;
+use crate::config::WorkerConfig;
+use crate::containers::structs::{Container, Task};
+use crate::network::namespace_manager::NamespaceManager;
 
 pub struct ContainerLifecycle {
   channel: Option<Channel>,
+  namespace_manager: NamespaceManager,
 }
 
 /// A service to handle the low-level details of container lifecycles:
 ///   creation, destruction, pulling images, etc
 /// NOT THREAD SAFE
+///   TODO: is this safe to share the channel?
 impl ContainerLifecycle {
-  pub fn new() -> ContainerLifecycle {
+  pub fn new(config: WorkerConfig, ns_man: NamespaceManager) -> ContainerLifecycle {
     ContainerLifecycle {
-       channel: None,
+      channel: None,
+      namespace_manager: ns_man
     }
   }
 
@@ -54,14 +61,15 @@ impl ContainerLifecycle {
   }
 
   /// get the default container spec
-  fn spec(&self, host_addr: &str, port: Port) -> Any {
+  fn spec(&self, host_addr: &str, port: Port, container_id: &String) -> Any {
     let spec = include_str!("../resources/container_spec.json");
     let spec = spec
         .to_string()
         .replace("$ROOTFS", "rootfs")
         .replace("$OUTPUT", "")
         .replace("$HOST_ADDR", host_addr)
-        .replace("$PORT", &port.to_string());
+        .replace("$PORT", &port.to_string())
+        .replace("$NET_NS", &self.namespace_manager.net_namespace(container_id));
     
     Any {
         type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
@@ -177,11 +185,20 @@ impl ContainerLifecycle {
 
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&mut self, image_name: &String, namespace: &str, host_addr: &str, port: Port) -> Result<String> {
-    let cid = GUID::rand().to_string();
-    let spec = self.spec(host_addr, port);
+  pub async fn create_container(&mut self, image_name: &String, namespace: &str) -> Result<Container> {
+    let port = 8080;
 
-    let container = Container {
+    let cid = GUID::rand().to_string();
+    let ns = self.namespace_manager.create_namespace(&cid)?;
+
+    let address = &ns.ips[0].address;
+
+    let spec = self.spec(address, port, &cid);
+
+    let uri = calculate_invoke_uri(address, port);
+    let base_uri = calculate_base_uri(address, port);
+
+    let container = Containerd_Container {
       id: cid.to_string(),
       image: image_name.to_string(),
       runtime: Some(Runtime {
@@ -208,16 +225,7 @@ impl ContainerLifecycle {
         .await?;
 
     debug!("Container: created {:?}", resp);
-    Ok(cid)
-  }
 
-  /// run_container
-  /// 
-  /// creates and starts the entrypoint for a container based on the given image
-  /// Run inside the specified namespace
-  /// returns a new, unique ID representing it
-  pub async fn run_container(&mut self, image_name: &String, namespace: &str, host_addr: &str, port: Port) -> Result<String> {
-    let cid = self.create_container(image_name, namespace, host_addr, port).await?;
     let snapshot_base = self.search_image_digest(image_name, "default").await?;
 
     let mounts = self.load_mounts(&cid, snapshot_base).await.unwrap();
@@ -237,18 +245,42 @@ impl ContainerLifecycle {
     let mut client = TasksClient::new(self.channel());
     let resp = client.create(req).await?;
     debug!("Task: created {:?}", resp);
+
+    Ok(Container {
+      container_id: cid,
+      address: address.to_owned(),
+      port: port,
+      invoke_uri: uri,
+      base_uri,
+      task: Task {
+        pid: resp.into_inner().pid,
+        container_id: None,
+        running: false
+      }
+    })
+  }
+
+  /// run_container
+  /// 
+  /// creates and starts the entrypoint for a container based on the given image
+  /// Run inside the specified namespace
+  /// returns a new, unique ID representing it
+  pub async fn run_container(&mut self, image_name: &String, namespace: &str) -> Result<Container> {
+    info!("Creating container from image '{}', in namespace '{}'", image_name, namespace);
+    let mut container = self.create_container(image_name, namespace).await?;
+    let mut client = TasksClient::new(self.channel());
   
     let req = StartRequest {
-      container_id: cid.clone(),
+      container_id: container.container_id.clone(),
       ..Default::default()
     };
     let req = with_namespace!(req, namespace);
   
     let resp = client.start(req).await?;
   
-    debug!("Task {}: {:?} started", cid, resp);
-
-    Ok(cid)
+    debug!("Task {}: {:?} started", container.container_id, resp);
+    container.task.running = true;
+    Ok(container)
   }
 
   /// Removed the specified container in the namespace
@@ -265,6 +297,7 @@ impl ContainerLifecycle {
         .delete(req)
         .await?;
 
+    // TODO: delete / release namespace here
     debug!("Container: {:?} deleted", container_name);
     Ok(())
   }

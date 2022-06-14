@@ -4,6 +4,7 @@ use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_lib::rpc::*;
 use crate::config::WorkerConfig;
 use crate::containers::containermanager::ContainerManager;
+use crate::network::namespace_manager::NamespaceManager;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -13,9 +14,9 @@ pub struct IluvatarWorkerImpl {
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, netm: NamespaceManager) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
-      container_manager: ContainerManager::new(config.clone()),
+      container_manager: ContainerManager::new(config.clone(), netm),
       config: config,
     }
   }

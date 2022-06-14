@@ -1,7 +1,8 @@
 use crate::containers::containerlife::ContainerLifecycle;
+use crate::network::namespace_manager::NamespaceManager;
 
 use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest, InvokeRequest};
-use iluvatar_lib::utils::{calculate_fqdn, Port, new_port, calculate_invoke_uri, calculate_base_uri};
+use iluvatar_lib::utils::calculate_fqdn;
 use anyhow::Result;
 use log::*;
 use std::collections::HashMap; 
@@ -9,42 +10,24 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use crate::config::WorkerConfig;
 
-#[derive(Debug)]
-#[allow(unused)]
-struct RegisteredFunction {
-  pub function_name: String,
-  pub function_version: String,
-  pub image_name: String,
-  pub memory: u32,
-  pub cpus: u32,
-  pub snapshot_base: String,
-}
-
-#[derive(Debug)]
-#[allow(unused)]
-struct Container {
-  id: String,
-  port: Port,
-  address: String,
-  invoke_uri: String,
-  base_uri: String
-  // TODO: reference to function somehow
-}
+use super::structs::{Container, RegisteredFunction};
 
 #[derive(Debug)]
 pub struct ContainerManager {
   registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
   // TODO: a better data structure?
   active_containers: Arc<RwLock<Vec<Arc<Container>>>>,
-  config: WorkerConfig
+  config: WorkerConfig,
+  namespace_man: NamespaceManager,
 }
 
 impl ContainerManager {
-  pub fn new(config: WorkerConfig) -> ContainerManager {
+  pub fn new(config: WorkerConfig, ns_man: NamespaceManager) -> ContainerManager {
     ContainerManager {
       registered_functions: Arc::new(RwLock::new(HashMap::new())),
       active_containers: Arc::new(RwLock::new(Vec::new())),
-      config
+      config,
+      namespace_man: ns_man,
     }
   }
 
@@ -73,26 +56,18 @@ impl ContainerManager {
         },
     };
 
-    let mut lifecycle = ContainerLifecycle::new();
+    let mut lifecycle = ContainerLifecycle::new(self.config.clone(), self.namespace_man.clone());
     // TODO: memory limits
     // TODO: cpu limits
     // TODO: cpu and mem prewarm request overrides registration
-    let address = "0.0.0.0";
-    let port = new_port()?;
-    let uri = calculate_invoke_uri(&address, port);
-    let base_uri = calculate_base_uri(&address, port);
-    let cid = lifecycle.run_container(&reg.image_name, "default", address, port).await?;
+    // let address = "0.0.0.0";
+    // let port = new_port()?;
+    let container = lifecycle.run_container(&reg.image_name, "default").await?;
 
     {
       // acquire write lock
       let mut conts = self.active_containers.write();
-      conts.push(Arc::new(Container {
-        id: cid,
-        address: address.to_string(),
-        port,
-        invoke_uri: uri,
-        base_uri
-      }));
+      conts.push(Arc::new(container));
     }
     info!("function '{}' was successfully prewarmed", fqdn);
     Ok(())
@@ -134,7 +109,7 @@ impl ContainerManager {
   }
 
   async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: u32, cpus: u32, fqdn: &String) -> Result<()> {
-    let mut lifecycle = ContainerLifecycle::new();
+    let mut lifecycle = ContainerLifecycle::new(self.config.clone(), self.namespace_man.clone());
 
     if function_name.len() < 1 {
       anyhow::bail!("Invalid function name");

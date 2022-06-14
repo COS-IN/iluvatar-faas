@@ -14,7 +14,8 @@ pub struct Configuration {
   pub limits: FunctionLimits,
   pub logging: Logging,
   pub memory_mb: u32,
-  pub cores: u32
+  pub cores: u32,
+  pub networking: Networking,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,6 +34,16 @@ pub struct Logging {
   pub directory: String,
   pub basename: String
 }
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+pub struct Networking {
+  pub bridge: String,
+  pub cnitool: String,
+  pub cni_plugin_bin: String,
+  pub cni_name: String
+}
+
 
 pub type WorkerConfig = Arc<Configuration>;
 

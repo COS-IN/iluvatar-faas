@@ -128,7 +128,8 @@
                 "type": "pid"
             },
             {
-                "type": "network"
+                "type": "network",
+                "path": "$NET_NS"
             },
             {
                 "type": "ipc"
