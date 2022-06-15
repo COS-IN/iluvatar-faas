@@ -2,30 +2,45 @@ use crate::{config::WorkerConfig, network::network_structs::Namespace};
 use std::{process::Command, collections::HashMap};
 use anyhow::Result;
 use std::env;
+use std::fs::File;
+use std::io::Write;
 use log::*;
 
 #[derive(Debug)]
 #[allow(unused)]
 pub struct NamespaceManager {
-  config: WorkerConfig
+  config: WorkerConfig,
+  net_conf_path: String,
 }
 
-const NETCONFPATH: &str = "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni";
 const CNI_PATH_VAR: &str = "CNI_PATH";
 const NETCONFPATH_VAR: &str = "NETCONFPATH";
 
 impl NamespaceManager {
   pub fn new(config: WorkerConfig) -> NamespaceManager {
     return NamespaceManager {
-      config
+      config,
+      net_conf_path: ".".to_string()
     }
   }
 
-  pub fn ensure_bridge(&self) -> Result<()> {
+  pub fn ensure_bridge(&mut self) -> Result<()> {
     info!("Ensuring network bridge");
+
+    let bridge_json = include_str!("../resources/cni/il_worker_br.json");
+    let mut temp_directory = env::temp_dir();
+    temp_directory.push("ilúvatar_worker");
+
+    self.net_conf_path = temp_directory.to_string_lossy().to_string();
+    std::fs::create_dir_all(self.net_conf_path.clone())?;
+
+    let temp_file = temp_directory.join("il_worker_br.json");
+    let mut file = File::create(temp_file)?;
+    writeln!(&mut file, "{}", bridge_json)?;
+
     let mut env: HashMap<String, String> = env::vars().collect();
     env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
-    env.insert(NETCONFPATH_VAR.to_string(), NETCONFPATH.to_string());
+    env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
 
     let name = "mk_bridge_throwaway".to_string();
 
@@ -69,7 +84,7 @@ impl NamespaceManager {
   fn bridge_exists(&self, nspth: &String) -> Result<bool> {
     let mut env: HashMap<String, String> = env::vars().collect();
     env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
-    env.insert(NETCONFPATH_VAR.to_string(), NETCONFPATH.to_string());
+    env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
 
     let output = Command::new(self.config.networking.cnitool.clone())
             .args(["check", &self.config.networking.cni_name.as_str(), &nspth.as_str()])
@@ -129,7 +144,7 @@ impl NamespaceManager {
   pub fn create_namespace(&self, name: &String) -> Result<Namespace> {
     let mut env: HashMap<String, String> = env::vars().collect();
     env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
-    env.insert(NETCONFPATH_VAR.to_string(), NETCONFPATH.to_string());
+    env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
   
     let nspth = self.net_namespace(name);
     self.create_namespace_internal(&name)?;

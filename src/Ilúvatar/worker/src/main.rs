@@ -31,8 +31,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let addr = format!("{}:{}", server_config.address, server_config.port);
   let addr = addr.parse()?;
 
-  let netm = Arc::new(NamespaceManager::new(server_config.clone()));
+  let mut netm = NamespaceManager::new(server_config.clone());
   netm.ensure_bridge()?;
+  let netm = Arc::new(netm);
+
   let container_man = Arc::new(ContainerManager::new(server_config.clone(), netm));
   let invoker = Arc::new(InvokerService::new(container_man.clone()));
 
