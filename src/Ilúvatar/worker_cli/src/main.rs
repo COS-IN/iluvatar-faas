@@ -16,6 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ("ping", Some(_)) => { commands::ping(worker).await },
     ("invoke", Some(_sub_m)) => { commands::invoke(worker, _sub_m).await },
     ("invoke-async", Some(_sub_m)) => { commands::invoke_async(worker, _sub_m).await },
+    ("invoke-async-check", Some(_sub_m)) => { commands::invoke_async_check(worker, _sub_m).await },
     ("prewarm", Some(_sub_m)) => { commands::prewarm(worker, _sub_m).await },
     ("register", Some(_sub_m)) => { commands::register(worker, _sub_m).await },
     ("status", Some(_sub_m)) => { commands::status(worker).await },

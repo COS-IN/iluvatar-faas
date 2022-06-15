@@ -63,7 +63,16 @@ pub fn parse() -> ArgMatches<'static> {
                   .help("Version of function to invoke")
                   .required(false)
                   .takes_value(true)))
-                  
+
+    .subcommand(SubCommand::with_name("invoke-async-check")
+                .about("Check on the status of an asynchronously invoked function")
+                .arg(Arg::with_name("cookie")
+                  .short("c")
+                  .long("cookie")
+                  .help("Cookie for async invoke to check")
+                  .required(true)
+                  .takes_value(true)))
+                    
     .subcommand(SubCommand::with_name("prewarm")
                 .about("Prewarm a function")
                 .arg(Arg::with_name("name")
@@ -181,7 +190,7 @@ pub fn args_to_json(args: Vec<String>) -> String {
     if split.len() != 2 {
       panic!("Got unexpected number of items ({}) in argument '{}'; Should only have 2", split.len(), arg);
     }
-    let fmt = format!("'{}':'{}'", split[0].to_string(), split[1].to_string());
+    let fmt = format!("\"{}\":\"{}\"", split[0].to_string(), split[1].to_string());
     if ret.len() > 1 {
       ret.push(',');
     }

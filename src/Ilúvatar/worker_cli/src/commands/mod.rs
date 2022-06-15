@@ -37,6 +37,14 @@ pub async fn invoke_async(worker: Box<Worker>, args: &ArgMatches<'static>) {
   println!("{}", ret)
 }
 
+pub async fn invoke_async_check(worker: Box<Worker>, args: &ArgMatches<'static>) {
+  let cookie = get_val("cookie", &args);
+
+  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await.unwrap();
+  let ret = api.invoke_async_check(&cookie).await.unwrap();
+  println!("{}", ret)
+}
+
 pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches<'static>) {
   let mut api = RCPWorkerAPI::new(worker.address, worker.port).await.unwrap();
   let function_name = get_val("name", &args);

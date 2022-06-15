@@ -7,6 +7,7 @@ use iluvatar_lib::rpc::*;
 use crate::config::WorkerConfig;
 use crate::containers::containermanager::ContainerManager;
 use crate::invocation::invoker::InvokerService;
+use log::*;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -19,8 +20,8 @@ pub struct IluvatarWorkerImpl {
 impl IluvatarWorkerImpl {
   pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
-      container_manager: container_manager,
-      config: config,
+      container_manager,
+      config,
       invoker,
     }
   }
@@ -67,18 +68,39 @@ impl IluvatarWorker for IluvatarWorkerImpl {
 
   async fn invoke_async(&self,
     request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
-      let reply = InvokeAsyncResponse {
-        lookup_cookie: format!("{}_COOKIE", request.into_inner().function_name).into(),
-      };
-      Ok(Response::new(reply))
+      let resp = self.invoker.invoke_async(Arc::new(request.into_inner()));
+
+      match resp {
+        Ok( cookie ) => {
+          let reply = InvokeAsyncResponse {
+            lookup_cookie: cookie,
+          };
+          Ok(Response::new(reply))
+        },
+        Err(e) => {
+          error!("Failed to launch an async invocation with error '{}'", e);
+          Ok(Response::new(InvokeAsyncResponse {
+            lookup_cookie: "".to_string()
+          }))
+        },
+      }
     }
 
-  async fn invoke_async_check(&self, _request: Request<InvokeAsyncLookupRequest>) -> Result<Response<InvokeResponse>, Status> {
-    Ok(Response::new(InvokeResponse {
-      json_result: format!("{{ 'Error': 'not implemented' }}"),
-      success: false,
-      duration_ms: 0
-    }))
+  async fn invoke_async_check(&self, request: Request<InvokeAsyncLookupRequest>) -> Result<Response<InvokeResponse>, Status> {
+    let resp = self.invoker.invoke_async_check(&request.into_inner().lookup_cookie);
+    match resp {
+      Ok( resp ) => {
+        Ok(Response::new(resp))
+      },
+      Err(e) => {
+        error!("Failed to check async invocation status '{}'", e);
+        Ok(Response::new(InvokeResponse {
+          json_result: format!("{{ 'Error': '{}' }}", e.to_string()),
+          success: false,
+          duration_ms: 0
+        }))
+      },
+    }
   }
 
   async fn prewarm(&self,
