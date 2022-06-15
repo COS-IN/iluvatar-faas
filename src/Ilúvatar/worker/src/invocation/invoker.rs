@@ -31,7 +31,7 @@ impl InvokerService {
     async fn invoke_internal(function_name: &String, function_version: &String, json_args: &String, 
       cont_manager: &Arc<ContainerManager>) -> Result<(String, u64)> {
       let fqdn = calculate_fqdn(&function_name, &function_version);
-      match cont_manager.acquire_container(&fqdn) {
+      match cont_manager.acquire_container(&fqdn).await? {
         Some(ctr_lock) => 
         {
           let client = reqwest::Client::new();

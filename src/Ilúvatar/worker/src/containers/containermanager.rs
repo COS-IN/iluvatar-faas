@@ -33,46 +33,130 @@ impl ContainerManager {
     }
   }
 
-  pub fn acquire_container(&self, fqdn: &String) -> Option<ContainerLock> {
+  pub async fn acquire_container<'a>(&'a self, fqdn: &String) -> Result<Option<ContainerLock<'a>>> {
+    match self.try_acquire_container(fqdn) {
+      Some(l) => Ok(Some(l)),
+      None => {
+        // not available container, cold start
+        // TODO: cold start container needs time to start web server
+        //    poll? wait? what to do...
+        Ok(self.cold_start(fqdn).await?)
+      },
+    } 
+  }
+
+  fn try_acquire_container<'a>(&'a self, fqdn: &String) -> Option<ContainerLock<'a>> {
     let conts = self.active_containers.read();
-    if conts.contains_key(fqdn) {
-      match conts.get(fqdn) {
-        Some(pool) => {
-          let pool = pool.read();
-          if pool.len() > 0 {
-            for container in pool.iter() {
-              unsafe {
-                if *container.mutex.data_ptr() > 0 {
-                  let mut m = container.mutex.lock();
-                  if *m > 0 {
-                    *m -= 1;
-                    return Some(ContainerLock {
-                      container:pool[0].clone(),
-                      container_mrg: self,
-                    });
-                  }
-                }
-              }
+    let opt = conts.get(fqdn);
+    match opt {
+      Some(pool) => {
+        let pool = pool.read();
+        if pool.len() > 0 {
+          for container in pool.iter() {
+            match self.try_lock_container(container) {
+              Some(c) => return Some(c),
+              None => continue,
             }
-            return None;
           }
-          else {
-            None
-          }
-        },
-        None => {
-          None
-        },
+        }
+        None
+      },
+      None => {
+        // 'should' not get here
+        error!("active_containers had key for fqdn '{}' but not a real value", fqdn);
+        None
+      },
+    }
+  }
+
+  async fn cold_start<'a>(&'a self, fqdn: &String) -> Result<Option<ContainerLock<'a>>> {
+    let container = self.launch_container(fqdn).await?;
+    {
+      // claim this for ourselves before it touches the pool
+      let mut m = container.mutex.lock();
+      *m -= 1;
+    }
+    let container = self.add_container_to_pool(fqdn, container)?;
+    Ok(Some(ContainerLock {
+      container: container.clone(),
+      container_mrg: self,
+    }))
+  }
+
+  fn try_lock_container(&self, container: &Arc<Container>) -> Option<ContainerLock> {
+    unsafe {
+      if *container.mutex.data_ptr() > 0 {
+        let mut m = container.mutex.lock();
+        if *m > 0 {
+          *m -= 1;
+          return Some(ContainerLock {
+            container: container.clone(),
+            container_mrg: self,
+          });
+        }
       }
     }
-    else {
-      None
-    }
+    None
   }
 
   pub fn return_container(&self, container: &Arc<Container>) {
     let mut m = container.mutex.lock();
     *m += 1;
+  }
+
+  pub async fn launch_container(&self, fqdn: &String) -> Result<Container> {
+    let reg = match self.get_registration(&fqdn) {
+      Ok(r) => r,
+      Err(_) => {
+        warn!("function {} was attempted to be prewarmed before registering. Attempting register...", fqdn);
+        anyhow::bail!("Function {} was not registered! Launching new container for it failed", fqdn);
+      },
+    };
+    let container = self.launch_container_internal(&reg).await?;
+    Ok(container)
+  }
+
+  fn add_container_to_pool(&self, fqdn: &String, container: Container) -> Result<Arc<Container>> {
+    // acquire read lock to see if that function already has a pool entry
+    let conts = self.active_containers.read();
+    if conts.contains_key(fqdn) {
+      let pool = conts.get(fqdn);
+      match pool {
+          Some(pool) => {
+            let mut locked_pool = pool.write();
+            let ret = Arc::new(container);
+            locked_pool.push(ret.clone());
+            return Ok(ret);
+          },
+          None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", fqdn),
+      }
+    } 
+    else {
+      // acquire global write lock on containers
+      drop(conts);
+      let mut conts = self.active_containers.write();
+      conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
+      let pool = conts.get(fqdn);
+      match pool {
+          Some(pool) => {
+            let mut locked_pool = pool.write();
+            let ret = Arc::new(container);
+            locked_pool.push(ret.clone());
+            return Ok(ret);
+          },
+          None => anyhow::bail!("Function '{}' was supposed to be just added in pool but could not be found", fqdn),
+      }
+    }
+  }
+
+  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>) -> Result<Container> {
+    let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
+    // TODO: memory limits
+    // TODO: cpu limits
+    // TODO: cpu and mem prewarm request overrides registration
+    let cont = lifecycle.run_container(&reg.image_name, reg.parallel_invokes, "default").await?;
+    info!("container with image '{}' was launched", reg.image_name);
+    Ok(cont)
   }
 
   /// Prewarm a container for the requested function
@@ -85,7 +169,7 @@ impl ContainerManager {
     let reg = match self.get_registration(&fqdn) {
         Ok(r) => r,
         Err(_) => {
-          error!("function {} was attempted to be prewarmed before registering. Attempting register...", fqdn);
+          warn!("function {} was attempted to be prewarmed before registering. Attempting register...", fqdn);
           match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn).await {
             Ok(_) => self.get_registration(&fqdn)?,
             Err(sub_e) => {
@@ -96,39 +180,8 @@ impl ContainerManager {
         },
     };
 
-    let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
-    // TODO: memory limits
-    // TODO: cpu limits
-    // TODO: cpu and mem prewarm request overrides registration
-    let container = lifecycle.run_container(&reg.image_name, reg.parallel_invokes, "default").await?;
-
-    // acquire read lock to see if that function already has a pool entry
-    let conts = self.active_containers.read();
-    if conts.contains_key(&fqdn) {
-      let pool = conts.get(&fqdn);
-      match pool {
-          Some(pool) => {
-            let mut locked_pool = pool.write();
-            locked_pool.push(Arc::new(container));
-          },
-          None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", fqdn),
-      }
-      drop(conts);
-    } 
-    else {
-      // acquire global write lock on containers
-      drop(conts);
-      let mut conts = self.active_containers.write();
-      conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
-      let pool = conts.get(&fqdn);
-      match pool {
-          Some(pool) => {
-            let mut locked_pool = pool.write();
-            locked_pool.push(Arc::new(container));
-          },
-          None => anyhow::bail!("Function '{}' was supposed to be just added in pool but could not be found", fqdn),
-      }
-    }
+    let container = self.launch_container_internal(&reg).await?;
+    self.add_container_to_pool(&fqdn, container)?;
     info!("function '{}' was successfully prewarmed", fqdn);
     Ok(())
   }
