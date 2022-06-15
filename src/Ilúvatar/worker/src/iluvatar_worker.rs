@@ -73,6 +73,14 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       Ok(Response::new(reply))
     }
 
+  async fn invoke_async_check(&self, _request: Request<InvokeAsyncLookupRequest>) -> Result<Response<InvokeResponse>, Status> {
+    Ok(Response::new(InvokeResponse {
+      json_result: format!("{{ 'Error': 'not implemented' }}"),
+      success: false,
+      duration_ms: 0
+    }))
+  }
+
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();

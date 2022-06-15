@@ -24,7 +24,6 @@ use client::with_namespace;
 use containerd_client::tonic::Request;
 use prost_types::Any;
 use std::process::Command;
-use crate::config::WorkerConfig;
 use crate::containers::structs::{Container, Task};
 use crate::network::namespace_manager::NamespaceManager;
 
@@ -38,7 +37,7 @@ pub struct ContainerLifecycle {
 /// NOT THREAD SAFE
 ///   TODO: is this safe to share the channel?
 impl ContainerLifecycle {
-  pub fn new(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> ContainerLifecycle {
+  pub fn new(ns_man: Arc<NamespaceManager>) -> ContainerLifecycle {
     ContainerLifecycle {
       channel: None,
       namespace_manager: ns_man
@@ -186,7 +185,7 @@ impl ContainerLifecycle {
 
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&mut self, image_name: &String, namespace: &str) -> Result<Container> {
+  pub async fn create_container(&mut self, image_name: &String, namespace: &str, parallel_invokes: u32) -> Result<Container> {
     let port = 8080;
 
     let cid = GUID::rand().to_string();
@@ -257,7 +256,8 @@ impl ContainerLifecycle {
         pid: resp.into_inner().pid,
         container_id: None,
         running: false
-      }
+      },
+      mutex: parking_lot::Mutex::new(parallel_invokes as i32)
     })
   }
 
@@ -266,9 +266,9 @@ impl ContainerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&mut self, image_name: &String, namespace: &str) -> Result<Container> {
+  pub async fn run_container(&mut self, image_name: &String, parallel_invokes: u32, namespace: &str) -> Result<Container> {
     info!("Creating container from image '{}', in namespace '{}'", image_name, namespace);
-    let mut container = self.create_container(image_name, namespace).await?;
+    let mut container = self.create_container(image_name, namespace, parallel_invokes).await?;
     let mut client = TasksClient::new(self.channel());
   
     let req = StartRequest {

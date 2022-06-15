@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::RwLock;
 use crate::config::WorkerConfig;
-use super::structs::{Container, RegisteredFunction};
+use super::structs::{Container, RegisteredFunction, ContainerLock};
 
 type ContainerPool = HashMap<String, Arc<RwLock<Vec<Arc<Container>>>>>;
 
@@ -23,7 +23,7 @@ pub struct ContainerManager {
 
 impl ContainerManager {
   // TODO: implement removing container
-  
+
   pub fn new(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> ContainerManager {
     ContainerManager {
       registered_functions: Arc::new(RwLock::new(HashMap::new())),
@@ -33,16 +33,28 @@ impl ContainerManager {
     }
   }
 
-  pub fn acquire_container(&self, fqdn: &String) -> Option<Arc<Container>> {
-    // TODO: implement 'returning' container
-    // TODO: implement exclusive use of a container while executing
+  pub fn acquire_container(&self, fqdn: &String) -> Option<ContainerLock> {
     let conts = self.active_containers.read();
     if conts.contains_key(fqdn) {
       match conts.get(fqdn) {
         Some(pool) => {
           let pool = pool.read();
           if pool.len() > 0 {
-            Some(pool[0].clone())
+            for container in pool.iter() {
+              unsafe {
+                if *container.mutex.data_ptr() > 0 {
+                  let mut m = container.mutex.lock();
+                  if *m > 0 {
+                    *m -= 1;
+                    return Some(ContainerLock {
+                      container:pool[0].clone(),
+                      container_mrg: self,
+                    });
+                  }
+                }
+              }
+            }
+            return None;
           }
           else {
             None
@@ -58,6 +70,11 @@ impl ContainerManager {
     }
   }
 
+  pub fn return_container(&self, container: &Arc<Container>) {
+    let mut m = container.mutex.lock();
+    *m += 1;
+  }
+
   /// Prewarm a container for the requested function
   /// 
   /// # Errors
@@ -69,7 +86,7 @@ impl ContainerManager {
         Ok(r) => r,
         Err(_) => {
           error!("function {} was attempted to be prewarmed before registering. Attempting register...", fqdn);
-          match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, &fqdn).await {
+          match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn).await {
             Ok(_) => self.get_registration(&fqdn)?,
             Err(sub_e) => {
               error!("Prewarm of function {} was not registered because it was not registered! Attempted registration failed because '{}'", fqdn, sub_e);
@@ -79,11 +96,11 @@ impl ContainerManager {
         },
     };
 
-    let mut lifecycle = ContainerLifecycle::new(self.config.clone(), self.namespace_man.clone());
+    let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
     // TODO: memory limits
     // TODO: cpu limits
     // TODO: cpu and mem prewarm request overrides registration
-    let container = lifecycle.run_container(&reg.image_name, "default").await?;
+    let container = lifecycle.run_container(&reg.image_name, reg.parallel_invokes, "default").await?;
 
     // acquire read lock to see if that function already has a pool entry
     let conts = self.active_containers.read();
@@ -124,7 +141,7 @@ impl ContainerManager {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
 
     self.check_registration(&fqdn)?;
-    return self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpus, &fqdn).await;
+    return self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpus, request.parallel_invokes, &fqdn).await;
   }
 
   /// Returns the function registration identified by `fqdn` if it exists, an error otherwise
@@ -151,8 +168,8 @@ impl ContainerManager {
     Ok(())
   }
 
-  async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: u32, cpus: u32, fqdn: &String) -> Result<()> {
-    let mut lifecycle = ContainerLifecycle::new(self.config.clone(), self.namespace_man.clone());
+  async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: u32, cpus: u32, parallel_invokes: u32, fqdn: &String) -> Result<()> {
+    let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
 
     if function_name.len() < 1 {
       anyhow::bail!("Invalid function name");
@@ -173,9 +190,10 @@ impl ContainerManager {
       function_name: function_name.clone(),
       function_version: function_version.clone(),
       image_name: image_name.clone(),
-      memory: memory,
-      cpus: cpus,
-      snapshot_base
+      memory,
+      cpus,
+      snapshot_base,
+      parallel_invokes,
     };
 
     { // write lock

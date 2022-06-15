@@ -146,7 +146,8 @@ impl NamespaceManager {
     Ok(ns)
   }
 
-  pub fn remove_namespace(&self, name: String) -> Result<()> {
+  pub fn remove_namespace(&self, _name: String) -> Result<()> {
+    // TODO: this function
     Ok(())
   }
 }

@@ -21,11 +21,11 @@ impl InvokerService {
     pub async fn invoke(&self, request: &InvokeRequest) -> Result<(String, u64)> {
       let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
       match self.cont_manager.acquire_container(&fqdn) {
-        Some(container) => 
+        Some(ctr_lock) => 
         {
           let client = reqwest::Client::new();
           let start = SystemTime::now();
-          let result = client.post(&container.invoke_uri)
+          let result = client.post(&ctr_lock.container.invoke_uri)
             .body(request.json_args.to_owned())
             .header("Content-Type", "application/json")
             .send()
@@ -39,6 +39,10 @@ impl InvokerService {
     }
 
     pub async fn invoke_async(&self, ) -> Result<String> {
+      Ok("".to_string())
+    }
+
+    pub async fn invoke_async_check(&self, ) -> Result<String> {
       Ok("".to_string())
     }
 }

@@ -1,4 +1,9 @@
+use std::sync::Arc;
+
 use iluvatar_lib::utils::Port;
+
+use super::containermanager::ContainerManager;
+use log::debug;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -9,7 +14,9 @@ pub struct Container {
   pub address: String,
   pub invoke_uri: String,
   pub base_uri: String,
-  // TODO: reference to function somehow
+  /// Mutex guard used to limit number of open requests to a single container
+  pub mutex: parking_lot::Mutex<i32>,
+  // TODO: reference to function somehow?
 }
 
 #[derive(Debug)]
@@ -29,4 +36,28 @@ pub struct RegisteredFunction {
   pub memory: u32,
   pub cpus: u32,
   pub snapshot_base: String,
+  pub parallel_invokes: u32,
+}
+
+#[derive(Debug)]
+#[allow(unused)]
+pub struct ContainerLock<'a> {
+  pub container: Arc<Container>,
+  pub container_mrg: &'a ContainerManager,
+}
+
+impl<'a> ContainerLock<'a> {
+  pub fn new(container: Arc<Container>, container_mrg: &'a ContainerManager) -> Self {
+    ContainerLock {
+      container,
+      container_mrg
+    }
+  }
+}
+
+impl<'a> Drop for ContainerLock<'a> {
+  fn drop(&mut self) {
+    debug!("Dropping container lock!");
+    self.container_mrg.return_container(&self.container);
+  }
 }
