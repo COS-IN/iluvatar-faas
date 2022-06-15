@@ -24,3 +24,4 @@ hex = "0.4.3"
 parking_lot = "0.12.1"
 log = "0.4.17"
 flexi_logger = { version = "0.22.5", features = ["async"] }
+reqwest = { version = "0.11.11", features = ["json"] }

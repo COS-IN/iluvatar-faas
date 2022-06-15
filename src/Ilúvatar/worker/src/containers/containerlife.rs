@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
@@ -29,7 +30,7 @@ use crate::network::namespace_manager::NamespaceManager;
 
 pub struct ContainerLifecycle {
   channel: Option<Channel>,
-  namespace_manager: NamespaceManager,
+  namespace_manager: Arc<NamespaceManager>,
 }
 
 /// A service to handle the low-level details of container lifecycles:
@@ -37,7 +38,7 @@ pub struct ContainerLifecycle {
 /// NOT THREAD SAFE
 ///   TODO: is this safe to share the channel?
 impl ContainerLifecycle {
-  pub fn new(config: WorkerConfig, ns_man: NamespaceManager) -> ContainerLifecycle {
+  pub fn new(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> ContainerLifecycle {
     ContainerLifecycle {
       channel: None,
       namespace_manager: ns_man

@@ -1,23 +1,27 @@
+use std::sync::Arc;
+
 use tonic::{Request, Response, Status};
 
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_lib::rpc::*;
 use crate::config::WorkerConfig;
 use crate::containers::containermanager::ContainerManager;
-use crate::network::namespace_manager::NamespaceManager;
+use crate::invocation::invoker::InvokerService;
 
 #[derive(Debug)]
 #[allow(unused)]
 pub struct IluvatarWorkerImpl {
-  container_manager: ContainerManager,
+  container_manager: Arc<ContainerManager>,
   config: WorkerConfig,
+  invoker: Arc<InvokerService>,
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig, netm: NamespaceManager) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
-      container_manager: ContainerManager::new(config.clone(), netm),
+      container_manager: container_manager,
       config: config,
+      invoker,
     }
   }
 }
@@ -40,7 +44,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn invoke(&self,
     request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
       let request = request.into_inner();
-      let resp = self.container_manager.invoke(&request).await;
+      let resp = self.invoker.invoke(&request).await;
 
       match resp {
         Ok( (json, dur) ) => {

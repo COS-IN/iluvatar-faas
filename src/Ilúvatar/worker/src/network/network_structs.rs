@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-#[allow(unused)]
+#[allow(unused, non_snake_case)]
 pub struct Namespace {
   pub cniVersion: String,
   pub interfaces: Vec<Interface>,

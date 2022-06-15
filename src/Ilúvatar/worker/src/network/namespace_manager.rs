@@ -1,14 +1,12 @@
 use crate::{config::WorkerConfig, network::network_structs::Namespace};
-use std::{process::Command, collections::HashMap, sync::Arc};
+use std::{process::Command, collections::HashMap};
 use anyhow::Result;
 use std::env;
 use log::*;
 
-pub type NamespaceManager = Arc<NamespaceManagerInternal>;
-
 #[derive(Debug)]
 #[allow(unused)]
-pub struct NamespaceManagerInternal {
+pub struct NamespaceManager {
   config: WorkerConfig
 }
 
@@ -16,11 +14,11 @@ const NETCONFPATH: &str = "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resou
 const CNI_PATH_VAR: &str = "CNI_PATH";
 const NETCONFPATH_VAR: &str = "NETCONFPATH";
 
-impl NamespaceManagerInternal {
+impl NamespaceManager {
   pub fn new(config: WorkerConfig) -> NamespaceManager {
-    return Arc::new(NamespaceManagerInternal {
+    return NamespaceManager {
       config
-    })
+    }
   }
 
   pub fn ensure_bridge(&self) -> Result<()> {

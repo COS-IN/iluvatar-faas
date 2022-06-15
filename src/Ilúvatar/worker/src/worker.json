@@ -11,7 +11,7 @@
   },
   "logging": {
     "level": "debug",
-    "directory": ".",
+    "directory": "./logs",
     "basename": "worker"
   },
   "memory_mb": 2048,

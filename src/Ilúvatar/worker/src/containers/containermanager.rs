@@ -1,7 +1,7 @@
 use crate::containers::containerlife::ContainerLifecycle;
 use crate::network::namespace_manager::NamespaceManager;
 
-use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest, InvokeRequest};
+use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_lib::utils::calculate_fqdn;
 use anyhow::Result;
 use log::*;
@@ -9,30 +9,53 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::RwLock;
 use crate::config::WorkerConfig;
-
 use super::structs::{Container, RegisteredFunction};
+
+type ContainerPool = HashMap<String, Arc<RwLock<Vec<Arc<Container>>>>>;
 
 #[derive(Debug)]
 pub struct ContainerManager {
   registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
-  // TODO: a better data structure?
-  active_containers: Arc<RwLock<Vec<Arc<Container>>>>,
+  active_containers: Arc<RwLock<ContainerPool>>,
   config: WorkerConfig,
-  namespace_man: NamespaceManager,
+  namespace_man: Arc<NamespaceManager>,
 }
 
 impl ContainerManager {
-  pub fn new(config: WorkerConfig, ns_man: NamespaceManager) -> ContainerManager {
+  // TODO: implement removing container
+  
+  pub fn new(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> ContainerManager {
     ContainerManager {
       registered_functions: Arc::new(RwLock::new(HashMap::new())),
-      active_containers: Arc::new(RwLock::new(Vec::new())),
+      active_containers: Arc::new(RwLock::new(HashMap::new())),
       config,
       namespace_man: ns_man,
     }
   }
 
-  pub async fn invoke(&self, request: &InvokeRequest) -> Result<(String, u64)> {
-    Ok( ("".to_string(), 2) )
+  pub fn acquire_container(&self, fqdn: &String) -> Option<Arc<Container>> {
+    // TODO: implement 'returning' container
+    // TODO: implement exclusive use of a container while executing
+    let conts = self.active_containers.read();
+    if conts.contains_key(fqdn) {
+      match conts.get(fqdn) {
+        Some(pool) => {
+          let pool = pool.read();
+          if pool.len() > 0 {
+            Some(pool[0].clone())
+          }
+          else {
+            None
+          }
+        },
+        None => {
+          None
+        },
+      }
+    }
+    else {
+      None
+    }
   }
 
   /// Prewarm a container for the requested function
@@ -60,14 +83,34 @@ impl ContainerManager {
     // TODO: memory limits
     // TODO: cpu limits
     // TODO: cpu and mem prewarm request overrides registration
-    // let address = "0.0.0.0";
-    // let port = new_port()?;
     let container = lifecycle.run_container(&reg.image_name, "default").await?;
 
-    {
-      // acquire write lock
+    // acquire read lock to see if that function already has a pool entry
+    let conts = self.active_containers.read();
+    if conts.contains_key(&fqdn) {
+      let pool = conts.get(&fqdn);
+      match pool {
+          Some(pool) => {
+            let mut locked_pool = pool.write();
+            locked_pool.push(Arc::new(container));
+          },
+          None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", fqdn),
+      }
+      drop(conts);
+    } 
+    else {
+      // acquire global write lock on containers
+      drop(conts);
       let mut conts = self.active_containers.write();
-      conts.push(Arc::new(container));
+      conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
+      let pool = conts.get(&fqdn);
+      match pool {
+          Some(pool) => {
+            let mut locked_pool = pool.write();
+            locked_pool.push(Arc::new(container));
+          },
+          None => anyhow::bail!("Function '{}' was supposed to be just added in pool but could not be found", fqdn),
+      }
     }
     info!("function '{}' was successfully prewarmed", fqdn);
     Ok(())
