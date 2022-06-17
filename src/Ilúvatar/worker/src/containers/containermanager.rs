@@ -7,7 +7,7 @@ use anyhow::Result;
 use log::*;
 use std::collections::HashMap; 
 use std::sync::Arc;
-use parking_lot::RwLock;
+use parking_lot::{RwLock, Mutex};
 use crate::config::WorkerConfig;
 use super::structs::{Container, RegisteredFunction, ContainerLock};
 
@@ -19,6 +19,7 @@ pub struct ContainerManager {
   active_containers: Arc<RwLock<ContainerPool>>,
   config: WorkerConfig,
   namespace_man: Arc<NamespaceManager>,
+  used_mem_mb: Mutex<u32>,
 }
 
 impl ContainerManager {
@@ -30,6 +31,7 @@ impl ContainerManager {
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       config,
       namespace_man: ns_man,
+      used_mem_mb: Mutex::new(0),
     }
   }
 
@@ -154,7 +156,24 @@ impl ContainerManager {
     // TODO: memory limits
     // TODO: cpu limits
     // TODO: cpu and mem prewarm request overrides registration
-    let cont = lifecycle.run_container(&reg.image_name, reg.parallel_invokes, "default").await?;
+    unsafe {
+      let curr_mem = *self.used_mem_mb.data_ptr();
+      if curr_mem >= self.config.memory_mb {
+        anyhow::bail!("Insufficient memory, already allocated {} of {}", curr_mem, self.config.memory_mb);
+      }  
+    }
+    let cont = lifecycle.run_container(&reg.image_name, reg.parallel_invokes, "default", reg.memory).await;
+    let mut cont = match cont {
+        Ok(cont) => {
+          let mut locked = self.used_mem_mb.lock();
+          *locked += reg.memory;
+      
+          cont
+        },
+        Err(e) => return Err(e),
+    };
+
+    cont.function = Some(reg.clone());
     info!("container with image '{}' was launched", reg.image_name);
     Ok(cont)
   }
@@ -235,6 +254,9 @@ impl ContainerManager {
     }
     if cpus < 1 || cpus > self.config.limits.cpu_max {
       anyhow::bail!("Illegal cpu allocation request");
+    }
+    if parallel_invokes != 1 {
+      anyhow::bail!("Illegal parallel invokes set, must be 1");
     }
 
     lifecycle.ensure_image(&image_name).await?;
