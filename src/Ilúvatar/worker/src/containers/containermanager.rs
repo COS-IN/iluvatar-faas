@@ -153,16 +153,14 @@ impl ContainerManager {
 
   async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>) -> Result<Container> {
     let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
-    // TODO: memory limits
-    // TODO: cpu limits
-    // TODO: cpu and mem prewarm request overrides registration
+    // TODO: cpu and mem prewarm request overrides registration?
     unsafe {
       let curr_mem = *self.used_mem_mb.data_ptr();
       if curr_mem >= self.config.memory_mb {
         anyhow::bail!("Insufficient memory, already allocated {} of {}", curr_mem, self.config.memory_mb);
       }  
     }
-    let cont = lifecycle.run_container(&reg.image_name, reg.parallel_invokes, "default", reg.memory).await;
+    let cont = lifecycle.run_container(&reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus).await;
     let mut cont = match cont {
         Ok(cont) => {
           let mut locked = self.used_mem_mb.lock();

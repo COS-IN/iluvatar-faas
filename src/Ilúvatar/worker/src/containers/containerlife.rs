@@ -61,7 +61,7 @@ impl ContainerLifecycle {
   }
 
   /// get the default container spec
-  fn spec(&self, host_addr: &str, port: Port, container_id: &String, mem_limit_mb: u32) -> Any {
+  fn spec(&self, host_addr: &str, port: Port, container_id: &String, mem_limit_mb: u32, cpus: u32) -> Any {
     let spec = include_str!("../resources/container_spec.json");
     let spec = spec
         .to_string()
@@ -70,7 +70,8 @@ impl ContainerLifecycle {
         .replace("$HOST_ADDR", host_addr)
         .replace("$PORT", &port.to_string())
         .replace("$NET_NS", &self.namespace_manager.net_namespace(container_id))
-        .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string());
+        .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
+        .replace("\"$CPUSHARES\"", &(cpus*1024).to_string());
     
     Any {
         type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
@@ -186,7 +187,7 @@ impl ContainerLifecycle {
 
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&mut self, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32) -> Result<Container> {
+  pub async fn create_container(&mut self, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32) -> Result<Container> {
     let port = 8080;
 
     let cid = GUID::rand().to_string();
@@ -194,7 +195,7 @@ impl ContainerLifecycle {
 
     let address = &ns.ips[0].address;
 
-    let spec = self.spec(address, port, &cid, mem_limit_mb);
+    let spec = self.spec(address, port, &cid, mem_limit_mb, cpus);
 
     let uri = calculate_invoke_uri(address, port);
     let base_uri = calculate_base_uri(address, port);
@@ -269,9 +270,9 @@ impl ContainerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&mut self, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32) -> Result<Container> {
+  pub async fn run_container(&mut self, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32) -> Result<Container> {
     info!("Creating container from image '{}', in namespace '{}'", image_name, namespace);
-    let mut container = self.create_container(image_name, namespace, parallel_invokes, mem_limit_mb).await?;
+    let mut container = self.create_container(image_name, namespace, parallel_invokes, mem_limit_mb, cpus).await?;
     let mut client = TasksClient::new(self.channel());
   
     let req = StartRequest {
