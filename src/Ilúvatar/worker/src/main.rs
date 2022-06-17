@@ -14,7 +14,7 @@ use iluvatar_worker::invocation::invoker::InvokerService;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  let server_config = Configuration::boxed().unwrap();
+  let server_config = Configuration::boxed(None).unwrap();
 
   let _logger = Logger::try_with_str(server_config.logging.level.as_str())?
         .log_to_file(FileSpec::default()

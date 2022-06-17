@@ -156,6 +156,12 @@
             "/proc/irq",
             "/proc/sys",
             "/proc/sysrq-trigger"
-        ]
+        ],
+        "memory": {
+          "limit": "$MEMLIMIT"
+        },
+        "cpu": {
+          
+        }
     }
 }

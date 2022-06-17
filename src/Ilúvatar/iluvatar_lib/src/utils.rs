@@ -1,4 +1,4 @@
-use std::{net::{TcpStream}, sync::{Mutex, Arc}};
+use std::{net::TcpStream, sync::{Mutex, Arc}};
 use anyhow::Result;
 
 /// get the fully qualified domain name for a function from its name and version
@@ -44,4 +44,42 @@ pub fn new_port() -> Result<Port> {
   let ret = Ok(try_port);
   *lock = try_port+ 1;
   return ret;
+}
+
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use rstest::rstest;
+
+  #[rstest]
+  #[case("localhost", 8080, "http://localhost:8080/invoke")]
+  #[case("localhost", 8081, "http://localhost:8081/invoke")]
+  #[case("localhost", 19840, "http://localhost:19840/invoke")]
+  #[case("0.0.0.0", 8080, "http://0.0.0.0:8080/invoke")]
+  fn format_invoke_correctly(#[case] addr: &str, #[case] port: Port, #[case] expected: &str){
+    let ans = calculate_invoke_uri(addr, port);
+    assert_eq!(expected, ans);
+  }
+
+  #[rstest]
+  #[case("localhost", 8080, "http://localhost:8080/")]
+  #[case("localhost", 8081, "http://localhost:8081/")]
+  #[case("localhost", 19840, "http://localhost:19840/")]
+  #[case("0.0.0.0", 8080, "http://0.0.0.0:8080/")]
+  fn format_base_correctly(#[case] addr: &str, #[case] port: Port, #[case] expected: &str){
+    let ans = calculate_base_uri(addr, port);
+    assert_eq!(expected, ans);
+  }
+
+  #[rstest]
+  #[case("hello", "080", "hello/080")]
+  #[case("cnn", "1.0.2", "cnn/1.0.2")]
+  #[case("video", "1.5.2", "video/1.5.2")]
+  #[case("alpine", "0.0.1", "alpine/0.0.1")]
+  fn format_fqdn(#[case] name: &str, #[case] version: &str, #[case] expected: &str){
+    let ans = calculate_fqdn(&name.to_string(), &version.to_string());
+    assert_eq!(expected, ans);
+  }
+  
 }

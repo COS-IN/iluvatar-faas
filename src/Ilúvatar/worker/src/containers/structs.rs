@@ -15,8 +15,12 @@ pub struct Container {
   pub invoke_uri: String,
   pub base_uri: String,
   /// Mutex guard used to limit number of open requests to a single container
+  // TODO: implement real in-container parallelism
+  //    run multiple tasks in each? -> what about port setup then?
+  //    web server handles parallelism?
   pub mutex: parking_lot::Mutex<i32>,
   // TODO: reference to function somehow?
+  pub function: Option<Arc<RegisteredFunction>>,
 }
 
 #[derive(Debug)]

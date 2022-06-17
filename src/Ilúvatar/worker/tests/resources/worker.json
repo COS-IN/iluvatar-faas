@@ -1,0 +1,25 @@
+{
+  "name": "local",
+  "address": "127.0.0.1",
+  "port": 8079,
+  "timeout_sec": 6000,
+  "limits" : {
+    "timeout_sec": 6000,
+    "mem_min_mb": 5,
+    "mem_max_mb": 2048,
+    "cpu_max": 10
+  },
+  "logging": {
+    "level": "debug",
+    "directory": "./logs",
+    "basename": "worker"
+  },
+  "memory_mb": 256,
+  "cores": 4,
+  "networking": {
+    "bridge": "IlWorkBr0",
+    "cnitool": "/home/alex/.gopth/bin/cnitool",
+    "cni_plugin_bin": "/opt/cni/bin",
+    "cni_name": "il_worker_br"
+  }
+}
