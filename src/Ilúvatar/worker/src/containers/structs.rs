@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use iluvatar_lib::utils::Port;
+use iluvatar_lib::utils::{Port, temp_file};
+use inotify::{Inotify, WatchMask};
 
 use super::containermanager::ContainerManager;
 use log::debug;
+use anyhow::Result;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -21,6 +23,31 @@ pub struct Container {
   pub mutex: parking_lot::Mutex<i32>,
   // TODO: reference to function somehow?
   pub function: Option<Arc<RegisteredFunction>>,
+}
+
+#[allow(unused)]
+impl Container {
+  pub fn stdout(&self) -> Result<String> {
+    temp_file(&self.container_id, "stdout")
+  }
+  pub fn stderr(&self) -> Result<String> {
+    temp_file(&self.container_id, "stderr")
+  }
+  pub fn stdin(&self) -> Result<String> {
+    temp_file(&self.container_id, "stdin")
+  }
+
+  /// wait_startup
+  /// Waits for the startup message for a container to come through
+  /// Really the task inside, the web server should write (something) to stdout when it is ready
+  pub fn wait_startup(&self) -> Result<()> {
+    let mut inotify = Inotify::init()?;
+    inotify
+    .add_watch(self.stdout()?, WatchMask::MODIFY)?;
+    let mut buffer = [0; 128];
+    inotify.read_events_blocking(&mut buffer)?;
+    Ok(())
+  }
 }
 
 #[derive(Debug)]

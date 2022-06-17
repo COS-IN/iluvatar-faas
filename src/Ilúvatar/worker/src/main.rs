@@ -14,6 +14,7 @@ use iluvatar_worker::invocation::invoker::InvokerService;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+  iluvatar_lib::utils::ensure_temp_dir()?;
   let server_config = Configuration::boxed(None).unwrap();
 
   let _logger = Logger::try_with_str(server_config.logging.level.as_str())?

@@ -269,7 +269,6 @@ use super::*;
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
     let c2 = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
 
-    std::thread::sleep(Duration::from_millis(1000));
     let client = reqwest::Client::new();
     let result = client.get(&c2.container.base_uri)
       .send()

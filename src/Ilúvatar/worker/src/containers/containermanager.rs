@@ -174,6 +174,7 @@ impl ContainerManager {
     };
 
     cont.function = Some(reg.clone());
+    cont.wait_startup()?;
     info!("container with image '{}' was launched", reg.image_name);
     Ok(cont)
   }

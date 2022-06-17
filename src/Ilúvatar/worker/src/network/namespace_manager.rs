@@ -102,7 +102,7 @@ impl NamespaceManager {
   }
   
   pub fn net_namespace(&self, name: &String) -> String {
-    format!("/var/run/netns/{}", name)
+    format!("/run/netns/{}", name)
   }
 
   pub fn namespace_exists(&self, name: &String) -> bool {

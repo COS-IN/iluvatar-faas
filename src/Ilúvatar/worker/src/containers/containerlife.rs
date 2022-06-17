@@ -4,7 +4,7 @@ use std::sync::Arc;
 use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
 use guid_create::GUID;
-use iluvatar_lib::utils::{Port, calculate_base_uri, calculate_invoke_uri};
+use iluvatar_lib::utils::{Port, calculate_base_uri, calculate_invoke_uri, temp_file};
 use log::*;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;
@@ -236,9 +236,10 @@ impl ContainerLifecycle {
         rootfs: mounts,
         checkpoint: None,
         options: None,
-        stdin: "".into(),
-        stdout: "".into(),
-        stderr: "".into(),
+        // TODO: clean up these files on container/task deletion
+        stdin: temp_file(&cid, "stdin")?,
+        stdout: temp_file(&cid, "stdout")?,
+        stderr: temp_file(&cid, "stderr")?,
         terminal: false,
     };
     let req = with_namespace!(req, namespace);
