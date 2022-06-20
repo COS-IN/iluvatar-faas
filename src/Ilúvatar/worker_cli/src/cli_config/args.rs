@@ -26,7 +26,7 @@ pub fn parse() -> ArgMatches<'static> {
                   .short("a")
                   .long("arguments")
                   .help("Function arguments")
-                  .required(true)
+                  .required(false)
                   .multiple(true)
                   .takes_value(true))
                 .arg(Arg::with_name("name")
@@ -54,7 +54,7 @@ pub fn parse() -> ArgMatches<'static> {
                   .short("a")
                   .long("arguments")
                   .help("Function arguments")
-                  .required(true)
+                  .required(false)
                   .multiple(true)
                   .takes_value(true))
                 .arg(Arg::with_name("memory")
@@ -163,10 +163,10 @@ pub fn parse() -> ArgMatches<'static> {
     .get_matches()
 }
 
-pub fn get_val<'a, T: ?Sized + std::str::FromStr>(name: &'a str, args: &'a ArgMatches) -> T {
+pub fn get_val<'a, T: ?Sized + std::str::FromStr>(name: &'a str, args: &'a ArgMatches) -> anyhow::Result<T> {
   match value_t!(args, name, T) {
-    Ok(val) => val,
-    Err(e) => panic!("Got an error '{:?}' parsing '{}' from args '{:?}'", e, name, args),
+    Ok(val) => Ok(val),
+    Err(e) => anyhow::bail!("Got an error '{:?}' parsing '{}' from args '{:?}'", e, name, args),
   }
 }
 

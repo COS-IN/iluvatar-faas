@@ -160,7 +160,7 @@ impl ContainerManager {
         anyhow::bail!("Insufficient memory, already allocated {} of {}", curr_mem, self.config.memory_mb);
       }  
     }
-    let cont = lifecycle.run_container(&reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus).await;
+    let cont = lifecycle.run_container(&reg.function_name, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus).await;
     let mut cont = match cont {
         Ok(cont) => {
           let mut locked = self.used_mem_mb.lock();
@@ -256,6 +256,9 @@ impl ContainerManager {
     }
     if parallel_invokes != 1 {
       anyhow::bail!("Illegal parallel invokes set, must be 1");
+    }
+    if function_name.contains("/") || function_name.contains("\\") {
+      anyhow::bail!("Illegal characters in function name: cannot container any \\,/");
     }
 
     lifecycle.ensure_image(&image_name).await?;

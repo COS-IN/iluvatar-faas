@@ -14,7 +14,7 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
   format!("http://{}:{}/", address, port)
 }
 
-const TEMP_DIR: &str = "/tmp/ilúvatar_worker";
+pub const TEMP_DIR: &str = "/tmp/ilúvatar_worker";
 
 pub fn temp_file(with_tail: &String, with_extension: &str) -> Result<String> {
   let ret = format!("{}/{}.{}", TEMP_DIR, with_tail, with_extension);

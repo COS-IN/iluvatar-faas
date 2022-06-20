@@ -14,4 +14,4 @@ clap = "2"
 tonic = "0.7.2"
 prost = "0.10"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
-
+anyhow = "1.0.13"

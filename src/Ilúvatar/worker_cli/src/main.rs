@@ -8,8 +8,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   let args = parse();
 
-  let worker_name = get_val("worker", &args);
-  let settings = CliSettings::new().unwrap();
+  let worker_name = get_val("worker", &args)?;
+  let settings = CliSettings::new(&args).unwrap();
   let worker = settings.get_worker(worker_name).unwrap();
 
   match args.subcommand() {
@@ -22,6 +22,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ("status", Some(_sub_m)) => { commands::status(worker).await },
     ("health", Some(_sub_m)) => { commands::health(worker).await },
     (text,_) => { panic!("Unsupported command {}", text) },
-  };
+  }?;
   Ok(())
 }

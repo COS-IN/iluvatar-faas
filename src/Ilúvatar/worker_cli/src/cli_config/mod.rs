@@ -1,5 +1,8 @@
+use clap::ArgMatches;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
+
+use self::args::get_val;
 
 pub mod args;
 
@@ -19,9 +22,18 @@ pub struct CliSettings {
 }
 
 impl CliSettings {
-  pub fn new() -> Result<Self, ConfigError> {
+  pub fn new(args: &ArgMatches) -> Result<Self, ConfigError> {
+    let mut sources = vec!["worker_cli/src/worker_cli.json".to_string(), "~/.config/Ilúvatar/worker_cli.json".to_string()];
+    let _ = get_val("config", args).and_then(|path: String| { sources.push(path); Ok(()) });
     let s = Config::builder()
-    .add_source(File::with_name("worker_cli/src/worker_cli.json"))
+    .add_source(
+      sources.iter()
+      .filter(|path| {
+        std::path::Path::new(&path).exists()
+      })
+              .map(|path| File::with_name(path))
+              .collect::<Vec<_>>()
+    )
     .build()?;
     s.try_deserialize()
   }

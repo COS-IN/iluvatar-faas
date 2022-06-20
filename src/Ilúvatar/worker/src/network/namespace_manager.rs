@@ -1,6 +1,7 @@
 use crate::{config::WorkerConfig, network::network_structs::Namespace};
 use std::{process::Command, collections::HashMap};
 use anyhow::Result;
+use iluvatar_lib::utils;
 use std::env;
 use std::fs::File;
 use std::io::Write;
@@ -27,15 +28,11 @@ impl NamespaceManager {
   pub fn ensure_bridge(&mut self) -> Result<()> {
     info!("Ensuring network bridge");
 
-    let bridge_json = include_str!("../resources/cni/il_worker_br.json");
-    let mut temp_directory = env::temp_dir();
-    temp_directory.push("ilúvatar_worker");
+    let temp_file = utils::temp_file(&"il_worker_br".to_string(), "json")?;
+    self.net_conf_path = utils::TEMP_DIR.to_string();
 
-    self.net_conf_path = temp_directory.to_string_lossy().to_string();
-    std::fs::create_dir_all(self.net_conf_path.clone())?;
-
-    let temp_file = temp_directory.join("il_worker_br.json");
     let mut file = File::create(temp_file)?;
+    let bridge_json = include_str!("../resources/cni/il_worker_br.json");
     writeln!(&mut file, "{}", bridge_json)?;
 
     let mut env: HashMap<String, String> = env::vars().collect();
@@ -58,10 +55,12 @@ impl NamespaceManager {
       return Ok(());
     }
 
-    let out = Command::new(self.config.networking.cnitool.clone())
-            .args(["add", &self.config.networking.cni_name.as_str(), &nspth.as_str()])
-            .envs(&env)
-            .output();
+    let mut cmd = Command::new(self.config.networking.cnitool.clone());
+    cmd.args(["add", &self.config.networking.cni_name.as_str(), &nspth.as_str()])
+            .envs(&env);
+    debug!("Command to create network bridge: '{:?}'", cmd);
+
+    let out = cmd.output();
     debug!("Output from creating network bridge: '{:?}'", out);
     match out {
         Ok(output) => {

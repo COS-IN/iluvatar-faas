@@ -35,6 +35,24 @@
     },
     "hostname": "test",
     "mounts": [{
+          "destination": "/etc/resolv.conf",
+          "source": "$RESOLVCONFPTH",
+          "type": "tmpfs",
+          "options": [
+            "ro",
+            "bind"
+          ]
+        },
+        {
+          "destination": "/etc/hosts",
+          "source": "$HOSTSPTH",
+          "type": "tmpfs",
+          "options": [
+            "ro",
+            "bind"
+          ]
+        },
+        {
             "destination": "/proc",
             "type": "proc",
             "source": "proc"

@@ -1,8 +1,10 @@
 #!/bin/bash
-# ip netns delete mk_bridge_throwaway
-# ip link delete IlWorkBr0 type bridge
-# TODO: finish this, or put in rust?
+
+echo "removing bridge"
+# TODO: find out what all the bridge tool is doing
+# remove it properly without hardcoding
+sudo NETCONFPATH=/tmp/ilúvatar_worker/ CNI_PATH=/opt/cni/bin /home/alex/.gopth/bin/cnitool del il_worker_br /run/netns/mk_bridge_throwaway
 
 echo "removing net namespaces"
 
-sudo ip -all netns delete
+ip -all netns delete

@@ -26,6 +26,7 @@ use prost_types::Any;
 use std::process::Command;
 use crate::containers::structs::{Container, Task};
 use crate::network::namespace_manager::NamespaceManager;
+use std::io::Write;
 
 pub struct ContainerLifecycle {
   channel: Option<Channel>,
@@ -38,6 +39,11 @@ pub struct ContainerLifecycle {
 ///   TODO: is this safe to share the channel?
 impl ContainerLifecycle {
   pub fn new(ns_man: Arc<NamespaceManager>) -> ContainerLifecycle {
+    // let temp_file = iluvatar_lib::utils::temp_file(&"resolv".to_string(), "conf")?;
+    // let mut file = std::fs::File::create(temp_file)?;
+    // let bridge_json = include_str!("../resources/cni/resolv.conf");
+    // writeln!(&mut file, "{}", bridge_json)?;
+
     ContainerLifecycle {
       channel: None,
       namespace_manager: ns_man
@@ -71,7 +77,9 @@ impl ContainerLifecycle {
         .replace("$PORT", &port.to_string())
         .replace("$NET_NS", &self.namespace_manager.net_namespace(container_id))
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
-        .replace("\"$CPUSHARES\"", &(cpus*1024).to_string());
+        .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
+        .replace("$RESOLVCONFPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/resolv.conf") // ../resources/cni/resolv.conf
+        .replace("$HOSTSPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/hosts");
     
     Any {
         type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
@@ -187,10 +195,10 @@ impl ContainerLifecycle {
 
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&mut self, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32) -> Result<Container> {
+  pub async fn create_container(&mut self, function_name: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32) -> Result<Container> {
     let port = 8080;
 
-    let cid = GUID::rand().to_string();
+    let cid = format!("{}-{}", function_name, GUID::rand());
     let ns = self.namespace_manager.create_namespace(&cid)?;
 
     let address = &ns.ips[0].address;
@@ -270,9 +278,9 @@ impl ContainerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&mut self, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32) -> Result<Container> {
+  pub async fn run_container(&mut self, function_name: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32) -> Result<Container> {
     info!("Creating container from image '{}', in namespace '{}'", image_name, namespace);
-    let mut container = self.create_container(image_name, namespace, parallel_invokes, mem_limit_mb, cpus).await?;
+    let mut container = self.create_container(function_name, image_name, namespace, parallel_invokes, mem_limit_mb, cpus).await?;
     let mut client = TasksClient::new(self.channel());
   
     let req = StartRequest {
