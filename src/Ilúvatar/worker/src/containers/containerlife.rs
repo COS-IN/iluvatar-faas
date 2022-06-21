@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-
 use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
 use guid_create::GUID;
-use iluvatar_lib::utils::{Port, calculate_base_uri, calculate_invoke_uri, temp_file};
+use iluvatar_lib::utils::{Port, temp_file};
 use log::*;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;
@@ -16,7 +15,7 @@ use client::services::v1::content_client::ContentClient;
 use client::services::v1::images_client::ImagesClient;
 use client::services::v1::snapshots::snapshots_client::SnapshotsClient;
 use client::services::v1::snapshots::PrepareSnapshotRequest;
-use client::services::v1::{CreateContainerRequest, CreateTaskRequest, StartRequest, DeleteContainerRequest};
+use client::services::v1::{CreateContainerRequest, CreateTaskRequest, StartRequest, DeleteContainerRequest, DeleteTaskRequest, KillRequest};
 use client::services::v1::Container as Containerd_Container;
 use client::services::v1::{GetImageRequest, ReadContentRequest};
 use client::services::v1::container::Runtime;
@@ -26,7 +25,9 @@ use prost_types::Any;
 use std::process::Command;
 use crate::containers::structs::{Container, Task};
 use crate::network::namespace_manager::NamespaceManager;
-use std::io::Write;
+// use std::io::Write;
+
+use super::structs::RegisteredFunction;
 
 pub struct ContainerLifecycle {
   channel: Option<Channel>,
@@ -195,18 +196,15 @@ impl ContainerLifecycle {
 
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&mut self, function_name: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32) -> Result<Container> {
+  pub async fn create_container(&mut self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>) -> Result<Container> {
     let port = 8080;
 
-    let cid = format!("{}-{}", function_name, GUID::rand());
+    let cid = format!("{}-{}", fqdn, GUID::rand());
     let ns = self.namespace_manager.create_namespace(&cid)?;
 
     let address = &ns.ips[0].address;
 
     let spec = self.spec(address, port, &cid, mem_limit_mb, cpus);
-
-    let uri = calculate_invoke_uri(address, port);
-    let base_uri = calculate_base_uri(address, port);
 
     let container = Containerd_Container {
       id: cid.to_string(),
@@ -257,20 +255,13 @@ impl ContainerLifecycle {
     let resp = client.create(req).await?;
     debug!("Task: created {:?}", resp);
 
-    Ok(Container {
-      container_id: cid,
-      address: address.to_owned(),
-      port: port,
-      invoke_uri: uri,
-      base_uri,
-      task: Task {
-        pid: resp.into_inner().pid,
-        container_id: None,
-        running: false
-      },
-      mutex: parking_lot::Mutex::new(parallel_invokes as i32),
-      function: None
-    })
+    let task = Task {
+      pid: resp.into_inner().pid,
+      container_id: None,
+      running: false
+    };
+
+    Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg))
   }
 
   /// run_container
@@ -278,9 +269,9 @@ impl ContainerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&mut self, function_name: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32) -> Result<Container> {
+  pub async fn run_container(&mut self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>) -> Result<Container> {
     info!("Creating container from image '{}', in namespace '{}'", image_name, namespace);
-    let mut container = self.create_container(function_name, image_name, namespace, parallel_invokes, mem_limit_mb, cpus).await?;
+    let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg).await?;
     let mut client = TasksClient::new(self.channel());
   
     let req = StartRequest {
@@ -297,21 +288,49 @@ impl ContainerLifecycle {
   }
 
   /// Removed the specified container in the namespace
-  pub async fn remove_container(&mut self, container_name: String, namespace: String) -> Result<()> {
+  pub async fn remove_container(&mut self, container: &Arc<Container>, namespace: &str) -> Result<()> {
     self.connect().await?;
-    let mut client = ContainersClient::new(self.channel());
 
-    let req = DeleteContainerRequest {
-        id: container_name.clone(),
+    let mut client = TasksClient::new(self.channel());
+
+    let req = KillRequest {
+      container_id: container.container_id.clone(),
+      // exec_id: container.task.pid.to_string(),
+      exec_id: "".to_string(),
+      signal: 9, // SIGKILL
+      all: false,
+    };
+    let req = with_namespace!(req, namespace);
+
+    let _resp = client
+        .kill(req)
+        .await?;
+    debug!("Kill task response {:?}", _resp);
+
+    let req = DeleteTaskRequest {
+      container_id: container.container_id.clone(),
     };
     let req = with_namespace!(req, namespace);
 
     let _resp = client
         .delete(req)
         .await?;
+    debug!("Delete task response {:?}", _resp);
+
+    let mut client = ContainersClient::new(self.channel());
+
+    let req = DeleteContainerRequest {
+        id: container.container_id.clone(),
+    };
+    let req = with_namespace!(req, namespace);
+
+    let _resp = client
+        .delete(req)
+        .await?;
+    debug!("Delete container response {:?}", _resp);
 
     // TODO: delete / release namespace here
-    debug!("Container: {:?} deleted", container_name);
+    debug!("Container: {:?} deleted", container.container_id);
     Ok(())
   }
 

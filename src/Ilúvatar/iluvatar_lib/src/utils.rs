@@ -3,7 +3,7 @@ use anyhow::Result;
 
 /// get the fully qualified domain name for a function from its name and version
 pub fn calculate_fqdn(function_name: &String, function_version: &String) -> String {
-  format!("{}/{}", function_name, function_version)
+  format!("{}-{}", function_name, function_version)
 }
 
 pub fn calculate_invoke_uri(address: &str, port: Port) -> String {
@@ -94,10 +94,10 @@ mod tests {
   }
 
   #[rstest]
-  #[case("hello", "080", "hello/080")]
-  #[case("cnn", "1.0.2", "cnn/1.0.2")]
-  #[case("video", "1.5.2", "video/1.5.2")]
-  #[case("alpine", "0.0.1", "alpine/0.0.1")]
+  #[case("hello", "080", "hello-080")]
+  #[case("cnn", "1.0.2", "cnn-1.0.2")]
+  #[case("video", "1.5.2", "video-1.5.2")]
+  #[case("alpine", "0.0.1", "alpine-0.0.1")]
   fn format_fqdn(#[case] name: &str, #[case] version: &str, #[case] expected: &str){
     let ans = calculate_fqdn(&name.to_string(), &version.to_string());
     assert_eq!(expected, ans);

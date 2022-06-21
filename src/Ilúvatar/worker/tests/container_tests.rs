@@ -45,7 +45,7 @@ mod registration {
       parallel_invokes: 1
     };
     let err = cm.register(&input).await;
-    assert_error!(err, "Function test/test is already registered!", "registration succeeded when it should have failed!");
+    assert_error!(err, "Function test-test is already registered!", "registration succeeded when it should have failed!");
   }
   
   #[tokio::test]
@@ -201,9 +201,8 @@ mod prewarm {
     let _d = match c {
       Some(c) => {
         assert_eq!(c.container.task.running, true);
-        let f = c.container.function.as_ref().ok_or_else(|| panic!("container did not have a function")).unwrap();
-        assert_eq!(f.function_name, "test");
-        assert_eq!(f.function_version, "0.1.1");
+        assert_eq!(c.container.function.function_name, "test");
+        assert_eq!(c.container.function.function_version, "0.1.1");
       },
       None => panic!("Did not get a container"),
     };
@@ -274,4 +273,53 @@ mod get_container {
       .await.unwrap();
       assert_eq!(result.status(), 200);
     }
+}
+
+#[cfg(test)]
+mod remove_container {
+  use super::*;
+  use reqwest;
+
+  #[tokio::test]
+  async fn removed_container_gone() {
+    let (_cfg, _nm, cm): (WorkerConfig, Arc<NamespaceManager>, ContainerManager) = container_mgr!();
+    let input = PrewarmRequest {
+      function_name: "test".to_string(),
+      function_version: "0.1.1".to_string(),
+      cpu: 1,
+      memory: 128,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+    };
+    cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
+    let c1 = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    
+    let c1_cont = c1.container.clone();
+    drop(c1);
+
+    cm.remove_container(&c1_cont, true).await.unwrap_or_else(|e| panic!("remove container failed: {:?}", e));
+
+    let client = reqwest::Client::new();
+    let result = client.get(&c1_cont.base_uri)
+      .send()
+      .await;
+    match result {
+    Ok(result) => panic!("Unpexpected result when container should be gone {:?}", result),
+    Err(e) => {
+        if e.is_request() {
+          if let Some(status) = e.status() {
+            assert_eq!(status, 111, "unexpected return status {:?} with error {:?}", status, e);
+          }
+        }
+        else {
+          panic!("Unexpected error connecting to gone container {:?}", e);
+        }
+      },
+    }
+    // assert_ne!(result.status(), 111, "unexpected return status for container {:?}", c1_cont);
+
+    let c2 = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    assert_ne!(c1_cont.container_id, c2.container.container_id, "Second container should have different ID because container is gone");
+  }
+
 }

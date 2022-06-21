@@ -1,9 +1,10 @@
 use crate::containers::containerlife::ContainerLifecycle;
+use crate::containers::structs::{InsufficientMemoryError, ContainerStartupError};
 use crate::network::namespace_manager::NamespaceManager;
 
 use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_lib::utils::calculate_fqdn;
-use anyhow::Result;
+use anyhow::{Result, bail};
 use log::*;
 use std::collections::HashMap; 
 use std::sync::Arc;
@@ -11,7 +12,8 @@ use parking_lot::{RwLock, Mutex};
 use crate::config::WorkerConfig;
 use super::structs::{Container, RegisteredFunction, ContainerLock};
 
-type ContainerPool = HashMap<String, Arc<RwLock<Vec<Arc<Container>>>>>;
+type ContainerList = Arc<RwLock<Vec<Arc<Container>>>>;
+type ContainerPool = HashMap<String, ContainerList>;
 
 #[derive(Debug)]
 pub struct ContainerManager {
@@ -19,7 +21,7 @@ pub struct ContainerManager {
   active_containers: Arc<RwLock<ContainerPool>>,
   config: WorkerConfig,
   namespace_man: Arc<NamespaceManager>,
-  used_mem_mb: Mutex<u32>,
+  used_mem_mb: Arc<Mutex<u32>>,
 }
 
 impl ContainerManager {
@@ -31,7 +33,7 @@ impl ContainerManager {
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       config,
       namespace_man: ns_man,
-      used_mem_mb: Mutex::new(0),
+      used_mem_mb: Arc::new(Mutex::new(0)),
     }
   }
 
@@ -56,7 +58,10 @@ impl ContainerManager {
         if pool.len() > 0 {
           for container in pool.iter() {
             match self.try_lock_container(container) {
-              Some(c) => return Some(c),
+              Some(c) => {
+                c.container.touch();
+                return Some(c)
+              },
               None => continue,
             }
           }
@@ -106,7 +111,7 @@ impl ContainerManager {
     *m += 1;
   }
 
-  pub async fn launch_container(&self, fqdn: &String) -> Result<Container> {
+  async fn launch_container(&self, fqdn: &String) -> Result<Container> {
     let reg = match self.get_registration(&fqdn) {
       Ok(r) => r,
       Err(_) => {
@@ -134,48 +139,65 @@ impl ContainerManager {
       }
     } 
     else {
-      // acquire global write lock on containers
-      drop(conts);
-      let mut conts = self.active_containers.write();
-      conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
-      let pool = conts.get(fqdn);
-      match pool {
-          Some(pool) => {
-            let mut locked_pool = pool.write();
-            let ret = Arc::new(container);
-            locked_pool.push(ret.clone());
-            return Ok(ret);
-          },
-          None => anyhow::bail!("Function '{}' was supposed to be just added in pool but could not be found", fqdn),
-      }
+      anyhow::bail!("Function '{}' was not registered yet", fqdn);
     }
   }
 
-  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>) -> Result<Container> {
+  async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>) -> Result<Container> {
     let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
     // TODO: cpu and mem prewarm request overrides registration?
-    unsafe {
-      let curr_mem = *self.used_mem_mb.data_ptr();
-      if curr_mem >= self.config.memory_mb {
-        anyhow::bail!("Insufficient memory, already allocated {} of {}", curr_mem, self.config.memory_mb);
-      }  
+    {
+      let mut curr_mem = self.used_mem_mb.lock();
+      if *curr_mem + reg.memory >= self.config.memory_mb {
+        let avail = self.config.memory_mb-*curr_mem;
+        anyhow::bail!(InsufficientMemoryError{ needed: reg.memory-avail, used: *curr_mem, available: avail});
+      } else {
+        *curr_mem += reg.memory;
+      }
     }
-    let cont = lifecycle.run_container(&reg.function_name, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus).await;
-    let mut cont = match cont {
+    let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
+    let cont = lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg).await;
+    let cont = match cont {
         Ok(cont) => {
-          let mut locked = self.used_mem_mb.lock();
-          *locked += reg.memory;
-      
           cont
         },
-        Err(e) => return Err(e),
+        Err(e) => {
+          let mut locked = self.used_mem_mb.lock();
+          *locked -= reg.memory;
+          error!("Failed to run container because {}", e);
+          return Err(e);
+        },
     };
 
-    cont.function = Some(reg.clone());
-    cont.wait_startup()?;
-    info!("container with image '{}' was launched", reg.image_name);
+    match cont.wait_startup(){
+        Ok(_) => {},
+        Err(e) => {
+          error!("Failed to wait for container startup because {}", e);
+          self.remove_container(&Arc::new(cont), true).await?;
+          anyhow::bail!(ContainerStartupError{message:format!("Failed to wait for container startup because {}", e)});
+        },
+    };
+    info!("container '{}' with image '{}' was launched", cont.container_id, reg.image_name);
     Ok(cont)
   }
+
+  /// launch_container_internal
+  /// 
+  /// Does a best effort to ensure a container is launched
+  /// If various known errors happen, it will re-try to start it
+  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>) -> Result<Container> {
+    match self.try_launch_container(&reg).await {
+            Ok(c) => Ok(c),
+            Err(cause) => 
+              match cause.downcast_ref::<InsufficientMemoryError>() {
+                Some(mem) => {
+                  self.reclaim_memory(mem.needed).await?;
+                  self.try_launch_container(&reg).await
+                },
+                None => bail!("Unknown error {}", cause),
+              },
+        }
+    }
 
   /// Prewarm a container for the requested function
   /// 
@@ -198,13 +220,23 @@ impl ContainerManager {
         },
     };
 
-    let container = self.launch_container_internal(&reg).await?;
+    let container = match self.launch_container_internal(&reg).await {
+        Ok(c) => Ok(c),
+        Err(cause) => 
+          match cause.downcast_ref::<InsufficientMemoryError>() {
+            Some(mem) => {
+              self.reclaim_memory(mem.needed).await?;
+              self.launch_container_internal(&reg).await
+            },
+            None => bail!("Unknown error {}", cause),
+          },
+    }?;
     self.add_container_to_pool(&fqdn, container)?;
     info!("function '{}' was successfully prewarmed", fqdn);
     Ok(())
   }
 
-  /// Registerrs a function using the given request
+  /// Registers a function using the given request
   /// 
   /// # Errors
   /// Can error if the function is already registers, the image is invalid, or many other reasons
@@ -273,11 +305,95 @@ impl ContainerManager {
       parallel_invokes,
     };
 
-    { // write lock
+    { // write lock on registered_functions
       let mut acquired_reg = self.registered_functions.write();
       acquired_reg.insert(fqdn.clone(), Arc::new(registration));
     }
+    { // write lock on active_containers
+      let mut conts = self.active_containers.write();
+      conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
+    }
     info!("function '{}'; version '{}' was successfully registered", function_name, function_version);
     Ok(())
+  }
+
+  pub async fn remove_container(&self, container: &Arc<Container>, lock_check: bool) -> Result<()> {
+    if lock_check {
+      let mut cont_lock = container.mutex.lock();
+      if *cont_lock != container.function.parallel_invokes {
+        bail!("Someone is still holding a lock on container '{}'; cannot remove", container.container_id)
+      }
+      *cont_lock = 0;
+    }
+
+    match self.get_container_vec(&container.fqdn) {
+      Some(pool) => {
+        let (pos, pool_len) = self.find_container_pos(&container, pool.clone());
+        if pos < pool_len {
+          {
+            let mut wlocked_pool = pool.write();
+            let dropped_cont = wlocked_pool.remove(pos);
+            let mut locked = self.used_mem_mb.lock();
+            *locked -= dropped_cont.function.memory;
+          }
+          let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
+          lifecycle.remove_container(&container, "default").await?;
+          return Ok(());
+        } else {
+          anyhow::bail!("Was unable to find container {} to remove it", container.container_id);
+        }
+      },
+      None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", container.fqdn),
+    }
+  }
+
+  async fn reclaim_memory(&self, amount_mb: u32) -> Result<()> {
+    let mut to_remove = Vec::new();
+    let mut reclaimed = 0;
+    'outer: for (_fqdn, cont_list) in self.active_containers.read().iter() {
+      for container in cont_list.read().iter() {
+        if self.try_seize_container(container) {
+          to_remove.push(container.clone());
+          reclaimed += container.function.memory;
+          if reclaimed >= amount_mb {
+            break 'outer;
+          }
+        }
+      }
+    }
+    for container in to_remove {
+      self.remove_container(&container, false).await?;
+    }
+    Ok(())
+  }
+
+  fn try_seize_container(&self, container: &Arc<Container>) -> bool {
+    let mut cont_lock = container.mutex.lock();
+    if *cont_lock != container.function.parallel_invokes {
+      return false;
+    }
+    *cont_lock = 0;
+    true
+  }
+
+  fn find_container_pos(&self, container: &Arc<Container>, pool: ContainerList) -> (usize,usize) {
+    let rlocked_pool = pool.read();
+    let pool_len = rlocked_pool.len();
+    let mut pos = pool_len + 100;
+    for (i, iter_cont) in rlocked_pool.iter().enumerate() {
+      if container.container_id == iter_cont.container_id {
+        pos = i;
+        break;
+      }
+    }
+    return (pos, pool_len);
+  }
+
+  fn get_container_vec(&self, fqdn: &String) -> Option<ContainerList> {
+    let lock = self.active_containers.read();
+    match lock.get(fqdn) {
+        Some(v) => Some(v.clone()),
+        None => None,
+    }
   }
 }

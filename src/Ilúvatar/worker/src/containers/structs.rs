@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
-use iluvatar_lib::utils::{Port, temp_file};
+use iluvatar_lib::utils::{Port, temp_file, calculate_invoke_uri, calculate_base_uri};
 use inotify::{Inotify, WatchMask};
-
+use parking_lot::RwLock;
 use super::containermanager::ContainerManager;
 use log::debug;
 use anyhow::Result;
@@ -20,13 +20,33 @@ pub struct Container {
   // TODO: implement real in-container parallelism
   //    run multiple tasks in each? -> what about port setup then?
   //    web server handles parallelism?
-  pub mutex: parking_lot::Mutex<i32>,
+  pub mutex: parking_lot::Mutex<u32>,
   // TODO: reference to function somehow?
-  pub function: Option<Arc<RegisteredFunction>>,
+  pub fqdn: String,
+  pub function: Arc<RegisteredFunction>,
+  last_used: RwLock<SystemTime>,
 }
 
 #[allow(unused)]
 impl Container {
+
+  pub fn new(container_id: String, task: Task, port: Port, address: String, parallel_invokes: u32, fqdn: &String, function: &Arc<RegisteredFunction>) -> Self {
+    let invoke_uri = calculate_invoke_uri(&address, port);
+    let base_uri = calculate_base_uri(&address, port);
+    Container {
+      container_id,
+      task,
+      port,
+      address,
+      invoke_uri,
+      base_uri,
+      mutex: parking_lot::Mutex::new(parallel_invokes),
+      fqdn: fqdn.clone(),
+      function: function.clone(),
+      last_used: RwLock::new(SystemTime::now()),
+    }
+  }
+
   pub fn stdout(&self) -> Result<String> {
     temp_file(&self.container_id, "stdout")
   }
@@ -41,12 +61,22 @@ impl Container {
   /// Waits for the startup message for a container to come through
   /// Really the task inside, the web server should write (something) to stdout when it is ready
   pub fn wait_startup(&self) -> Result<()> {
+    debug!("Waiting for startup of container {}", &self.container_id);
     let mut inotify = Inotify::init()?;
     inotify
     .add_watch(self.stdout()?, WatchMask::MODIFY)?;
     let mut buffer = [0; 128];
     inotify.read_events_blocking(&mut buffer)?;
     Ok(())
+  }
+
+  pub fn touch(&self) {
+    let mut lock = self.last_used.write();
+    *lock = SystemTime::now();
+  }
+
+  pub fn last_used(&self) -> SystemTime {
+    *self.last_used.read()
   }
 }
 
@@ -91,4 +121,34 @@ impl<'a> Drop for ContainerLock<'a> {
     debug!("Dropping container lock!");
     self.container_mrg.return_container(&self.container);
   }
+}
+
+#[derive(Debug)]
+pub struct InsufficientMemoryError {
+  pub needed: u32,
+  pub used: u32,
+  pub available: u32,
+}
+impl std::fmt::Display for InsufficientMemoryError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    write!(f, "Not enough memory to launch container").unwrap();
+    Ok(())
+  }
+}
+impl std::error::Error for InsufficientMemoryError {
+
+}
+
+#[derive(Debug)]
+pub struct ContainerStartupError {
+  pub message: String
+}
+impl std::fmt::Display for ContainerStartupError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    write!(f, "Startup error: {}", self.message).unwrap();
+    Ok(())
+  }
+}
+impl std::error::Error for ContainerStartupError {
+
 }
