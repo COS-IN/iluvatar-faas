@@ -17,7 +17,8 @@
   "container_resources": {
     "memory_mb": 2048,
     "cores": 4,
-    "eviction": "LRU"
+    "eviction": "LRU",
+    "startup_timeout_ms": 60000
   },
   "networking": {
     "bridge": "IlWorkBr0",

@@ -58,7 +58,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         },
         Err(e) => {
           Ok(Response::new(InvokeResponse {
-            json_result: format!("{{ 'Error': '{}' }}", e.to_string()),
+            json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
             success: false,
             duration_ms: 0
           }))
@@ -95,7 +95,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       Err(e) => {
         error!("Failed to check async invocation status '{}'", e);
         Ok(Response::new(InvokeResponse {
-          json_result: format!("{{ 'Error': '{}' }}", e.to_string()),
+          json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
           success: false,
           duration_ms: 0
         }))
@@ -119,7 +119,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Err(e) => {
           let resp = PrewarmResponse {
             success: false,
-            message: format!("{{ 'Error': '{}' }}", e.to_string()),
+            message: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
           };
           Ok(Response::new(resp))  
         }
@@ -136,14 +136,14 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok(_) => {
           let reply = RegisterResponse {
             success: true,
-            function_json_result: format!("'Ok': 'function '{}' registered'", request.function_name).into(),
+            function_json_result: format!("{{\"Ok\": \"function '{}' registered\"}}", request.function_name).into(),
           };
           Ok(Response::new(reply))        
         },
         Err(msg) => {
           let reply = RegisterResponse {
             success: false,
-            function_json_result: format!("'Error': 'Error during registration of '{}': '{:?}' ", request.function_name, msg).into(),
+            function_json_result: format!("{{\"Error\": \"Error during registration of '{}': '{:?}\"}}", request.function_name, msg).into(),
           };
           Ok(Response::new(reply))        
         },
@@ -153,7 +153,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn status(&self,
     _: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
       let _reply = StatusResponse {
-        json_result: "{'Error': 'not implemented'}".into(),
+        json_result: "{\"Error\": \"not implemented\"}".into(),
         queue_len: 0,
         used_mem: 0,
         total_mem: 0,

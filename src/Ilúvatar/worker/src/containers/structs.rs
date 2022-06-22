@@ -1,11 +1,10 @@
-use std::{sync::Arc, time::SystemTime};
-
+use std::{sync::Arc, time::SystemTime, fs};
 use iluvatar_lib::utils::{Port, temp_file, calculate_invoke_uri, calculate_base_uri};
 use inotify::{Inotify, WatchMask};
 use parking_lot::RwLock;
 use super::containermanager::ContainerManager;
-use log::debug;
-use anyhow::Result;
+use log::{debug, error};
+use anyhow::{Result, bail, Context};
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -60,14 +59,33 @@ impl Container {
   /// wait_startup
   /// Waits for the startup message for a container to come through
   /// Really the task inside, the web server should write (something) to stdout when it is ready
-  pub fn wait_startup(&self) -> Result<()> {
+  pub fn wait_startup(&self, timout_ms: u64) -> Result<()> {
     // TODO: timeout for this wait
     debug!("Waiting for startup of container {}", &self.container_id);
+    let stdout = self.stdout()?;
+
+    let start = SystemTime::now();
+
     let mut inotify = Inotify::init()?;
     inotify
-    .add_watch(self.stdout()?, WatchMask::MODIFY)?;
-    let mut buffer = [0; 128];
-    inotify.read_events_blocking(&mut buffer)?;
+    .add_watch(&stdout, WatchMask::MODIFY)?;
+    let mut buffer = [0; 256];
+
+    loop {
+      match inotify.read_events(&mut buffer) {
+        Ok(events) => break, // stdout was written to
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+          if start.elapsed()?.as_millis() as u64 >= timout_ms {
+            let stdout = fs::read_to_string(stdout).context("Failed to read stdout of broken container startup")?;
+            let stderr = fs::read_to_string(self.stderr()?).context("Failed to read stderr of broken container startup")?;
+            error!("Timeout while reading inotify events for container {}; stdout: '{}'; stderr '{}'", self.container_id, stdout, stderr);
+            bail!("Timeout while reading inotify events for container {}", self.container_id);
+          }
+          continue;
+        },
+        _ => bail!("Error while reading inotify events for container {}", self.container_id),
+      }
+    }
     Ok(())
   }
 

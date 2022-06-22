@@ -21,6 +21,7 @@ pub struct ContainerResources {
   pub memory_mb: u32,
   pub cores: u32,
   pub eviction: String,
+  pub startup_timeout_ms: u64,
 }
 
 #[derive(Debug, Deserialize)]

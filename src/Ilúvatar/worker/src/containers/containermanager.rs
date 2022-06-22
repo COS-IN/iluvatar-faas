@@ -170,11 +170,13 @@ impl ContainerManager {
         },
     };
 
-    match cont.wait_startup(){
+    match cont.wait_startup(self.config.container_resources.startup_timeout_ms) {
         Ok(_) => {},
         Err(e) => {
           error!("Failed to wait for container startup because {}", e);
-          self.remove_container(&Arc::new(cont), true).await?;
+          self.cont_lifecycle.remove_container(&Arc::new(cont), "default").await?;
+          let mut locked = self.used_mem_mb.lock();
+          *locked -= reg.memory;
           anyhow::bail!(ContainerStartupError{message:format!("Failed to wait for container startup because {}", e)});
         },
     };
