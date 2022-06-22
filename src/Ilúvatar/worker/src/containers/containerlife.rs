@@ -36,8 +36,9 @@ pub struct ContainerLifecycle {
 
 /// A service to handle the low-level details of container lifecycles:
 ///   creation, destruction, pulling images, etc
-/// NOT THREAD SAFE
-///   TODO: is this safe to share the channel?
+///   
+/// TODO: this is threadsafe if we clone challen
+///   https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
 impl ContainerLifecycle {
   pub fn new(ns_man: Arc<NamespaceManager>) -> ContainerLifecycle {
     // let temp_file = iluvatar_lib::utils::temp_file(&"resolv".to_string(), "conf")?;

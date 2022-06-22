@@ -14,8 +14,11 @@
     "directory": "./logs",
     "basename": "worker"
   },
-  "memory_mb": 2048,
-  "cores": 4,
+  "container_resources": {
+    "memory_mb": 2048,
+    "cores": 4,
+    "eviction": "LRU"
+  },
   "networking": {
     "bridge": "IlWorkBr0",
     "cnitool": "/home/alex/.gopth/bin/cnitool",

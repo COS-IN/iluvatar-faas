@@ -6,6 +6,7 @@ use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_lib::utils::calculate_fqdn;
 use anyhow::{Result, bail};
 use log::*;
+use core::panic;
 use std::collections::HashMap; 
 use std::sync::Arc;
 use parking_lot::{RwLock, Mutex};
@@ -144,18 +145,18 @@ impl ContainerManager {
   }
 
   async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>) -> Result<Container> {
-    let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
     // TODO: cpu and mem prewarm request overrides registration?
     {
       let mut curr_mem = self.used_mem_mb.lock();
-      if *curr_mem + reg.memory >= self.config.memory_mb {
-        let avail = self.config.memory_mb-*curr_mem;
+      if *curr_mem + reg.memory > self.config.container_resources.memory_mb {
+        let avail = self.config.container_resources.memory_mb-*curr_mem;
         anyhow::bail!(InsufficientMemoryError{ needed: reg.memory-avail, used: *curr_mem, available: avail});
       } else {
         *curr_mem += reg.memory;
       }
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
+    let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
     let cont = lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg).await;
     let cont = match cont {
         Ok(cont) => {
@@ -348,23 +349,39 @@ impl ContainerManager {
   }
 
   async fn reclaim_memory(&self, amount_mb: u32) -> Result<()> {
-    let mut to_remove = Vec::new();
-    let mut reclaimed = 0;
-    'outer: for (_fqdn, cont_list) in self.active_containers.read().iter() {
-      for container in cont_list.read().iter() {
-        if self.try_seize_container(container) {
-          to_remove.push(container.clone());
-          reclaimed += container.function.memory;
-          if reclaimed >= amount_mb {
-            break 'outer;
-          }
-        }
-      }
-    }
+    let to_remove = match self.config.container_resources.eviction.as_str() {
+      "LRU" => self.lru_eviction(amount_mb),
+      _ => panic!("Unkonwn eviction algorithm '{}'", self.config.container_resources.eviction)
+    };
+
     for container in to_remove {
       self.remove_container(&container, false).await?;
     }
     Ok(())
+  }
+
+  fn lru_eviction(&self, amount_mb: u32) -> Vec<Arc<Container>> {
+    let mut ordered = Vec::new();
+    let mut reclaimed = 0;
+    for (_fqdn, cont_list) in self.active_containers.read().iter() {
+      for container in cont_list.read().iter() {
+        ordered.push(container.clone());
+      }
+    }
+
+    ordered.sort_by(|c1, c2| c1.last_used().cmp(&c2.last_used()));
+    let mut to_remove = Vec::new();
+    for container in ordered.iter() {
+      if self.try_seize_container(container) {
+        to_remove.push(container.clone());
+        reclaimed += container.function.memory;
+        if reclaimed >= amount_mb {
+          break;
+        }
+      }
+    }
+
+    return to_remove;
   }
 
   fn try_seize_container(&self, container: &Arc<Container>) -> bool {

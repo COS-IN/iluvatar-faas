@@ -11,9 +11,16 @@ pub struct Configuration {
   pub timeout_sec: u64,
   pub limits: FunctionLimits,
   pub logging: Logging,
+  pub networking: Networking,
+  pub container_resources: ContainerResources,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+pub struct ContainerResources {
   pub memory_mb: u32,
   pub cores: u32,
-  pub networking: Networking,
+  pub eviction: String,
 }
 
 #[derive(Debug, Deserialize)]
