@@ -19,7 +19,7 @@ macro_rules! container_mgr {
       let mut nm = NamespaceManager::new(cfg.clone());
       nm.ensure_bridge().unwrap();
       let nm = Arc::new(nm);
-      let cm = ContainerManager::new(cfg.clone(), nm.clone());
+      let cm = ContainerManager::new(cfg.clone(), nm.clone()).await.unwrap();
       (cfg, nm, cm)
     }
   };
@@ -34,7 +34,7 @@ macro_rules! invoker_svc {
       let mut nm = NamespaceManager::new(cfg.clone());
       nm.ensure_bridge().unwrap();
       let nm = Arc::new(nm);
-      let cm = Arc::new(ContainerManager::new(cfg.clone(), nm.clone()));
+      let cm = Arc::new(ContainerManager::new(cfg.clone(), nm.clone()).await.unwrap());
       let invoker = Arc::new(InvokerService::new(cm.clone()));
       (cfg, nm, cm, invoker)
     }

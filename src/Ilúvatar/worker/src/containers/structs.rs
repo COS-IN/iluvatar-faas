@@ -61,6 +61,7 @@ impl Container {
   /// Waits for the startup message for a container to come through
   /// Really the task inside, the web server should write (something) to stdout when it is ready
   pub fn wait_startup(&self) -> Result<()> {
+    // TODO: timeout for this wait
     debug!("Waiting for startup of container {}", &self.container_id);
     let mut inotify = Inotify::init()?;
     inotify

@@ -21,31 +21,32 @@ pub struct ContainerManager {
   registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
   active_containers: Arc<RwLock<ContainerPool>>,
   config: WorkerConfig,
-  namespace_man: Arc<NamespaceManager>,
   used_mem_mb: Arc<Mutex<u32>>,
+  cont_lifecycle: Arc<ContainerLifecycle>,
 }
 
 impl ContainerManager {
-  // TODO: implement removing container
+  // TODO: implement CPU restrictions
 
-  pub fn new(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> ContainerManager {
-    ContainerManager {
+  pub async fn new(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> Result<ContainerManager> {
+    let mut lifecycle = ContainerLifecycle::new(ns_man.clone());
+    lifecycle.connect().await?;
+    Ok(ContainerManager {
       registered_functions: Arc::new(RwLock::new(HashMap::new())),
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       config,
-      namespace_man: ns_man,
       used_mem_mb: Arc::new(Mutex::new(0)),
-    }
+      cont_lifecycle: Arc::new(lifecycle),
+    })
   }
 
   pub async fn acquire_container<'a>(&'a self, fqdn: &String) -> Result<Option<ContainerLock<'a>>> {
-    match self.try_acquire_container(fqdn) {
+    let cont = self.try_acquire_container(fqdn);
+    match cont {
       Some(l) => Ok(Some(l)),
       None => {
         // not available container, cold start
-        // TODO: cold start container needs time to start web server
-        //    poll? wait? what to do...
-        Ok(self.cold_start(fqdn).await?)
+        self.cold_start(fqdn).await
       },
     } 
   }
@@ -156,8 +157,7 @@ impl ContainerManager {
       }
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
-    let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
-    let cont = lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg).await;
+    let cont = self.cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg).await;
     let cont = match cont {
         Ok(cont) => {
           cont
@@ -273,8 +273,6 @@ impl ContainerManager {
   }
 
   async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: u32, cpus: u32, parallel_invokes: u32, fqdn: &String) -> Result<()> {
-    let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
-
     if function_name.len() < 1 {
       anyhow::bail!("Invalid function name");
     }
@@ -294,8 +292,8 @@ impl ContainerManager {
       anyhow::bail!("Illegal characters in function name: cannot container any \\,/");
     }
 
-    lifecycle.ensure_image(&image_name).await?;
-    let snapshot_base = lifecycle.search_image_digest(&image_name, "default").await?;
+    self.cont_lifecycle.ensure_image(&image_name).await?;
+    let snapshot_base = self.cont_lifecycle.search_image_digest(&image_name, "default").await?;
     let registration = RegisteredFunction {
       function_name: function_name.clone(),
       function_version: function_version.clone(),
@@ -337,8 +335,7 @@ impl ContainerManager {
             let mut locked = self.used_mem_mb.lock();
             *locked -= dropped_cont.function.memory;
           }
-          let mut lifecycle = ContainerLifecycle::new(self.namespace_man.clone());
-          lifecycle.remove_container(&container, "default").await?;
+          self.cont_lifecycle.remove_container(&container, "default").await?;
           return Ok(());
         } else {
           anyhow::bail!("Was unable to find container {} to remove it", container.container_id);

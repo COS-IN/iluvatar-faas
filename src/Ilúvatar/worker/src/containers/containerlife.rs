@@ -29,6 +29,7 @@ use crate::network::namespace_manager::NamespaceManager;
 
 use super::structs::RegisteredFunction;
 
+#[derive(Debug)]
 pub struct ContainerLifecycle {
   channel: Option<Channel>,
   namespace_manager: Arc<NamespaceManager>,
@@ -37,8 +38,6 @@ pub struct ContainerLifecycle {
 /// A service to handle the low-level details of container lifecycles:
 ///   creation, destruction, pulling images, etc
 ///   
-/// TODO: this is threadsafe if we clone challen
-///   https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
 impl ContainerLifecycle {
   pub fn new(ns_man: Arc<NamespaceManager>) -> ContainerLifecycle {
     // let temp_file = iluvatar_lib::utils::temp_file(&"resolv".to_string(), "conf")?;
@@ -47,13 +46,15 @@ impl ContainerLifecycle {
     // writeln!(&mut file, "{}", bridge_json)?;
 
     ContainerLifecycle {
+      // this is threadsafe if we clone channel
+      // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
       channel: None,
       namespace_manager: ns_man
     }
   }
 
   /// connect to the containerd socket
-  async fn connect(&mut self) -> Result<()> {
+  pub async fn connect(&mut self) -> Result<()> {
     if let Some(_) = &self.channel {
       Ok(())
     } else {
@@ -89,13 +90,12 @@ impl ContainerLifecycle {
     }
   }
 
-  async fn read_content(&mut self, namespace: &str, digest: String) -> Result<Vec<u8>> {
+  async fn read_content(&self, namespace: &str, digest: String) -> Result<Vec<u8>> {
     let read_content_req = ReadContentRequest {
         digest,
         offset: 0,
         size: 0,
     };
-    self.connect().await?;
     let mut cli = ContentClient::new(self.channel());
   
     let mut rsp = cli.read(with_namespace!(read_content_req, namespace)).await?.into_inner();
@@ -106,8 +106,7 @@ impl ContainerLifecycle {
   }
   
   /// Read through an image's digest to find it's snapshot base
-  pub async fn search_image_digest(&mut self, image: &String, namespace: &str) -> Result<String> {
-    self.connect().await?;
+  pub async fn search_image_digest(&self, image: &String, namespace: &str) -> Result<String> {
     // Step 1. get image digest
     let get_image_req = GetImageRequest { name: image.into() };
     let mut cli = ImagesClient::new(self.channel());
@@ -175,7 +174,7 @@ impl ContainerLifecycle {
   }
   
   /// get the mount points for a container's (id) snapshot base
-  async fn load_mounts(&mut self, id: &str, snapshot_base: String) -> Result<Vec<containerd_client::types::Mount>> {
+  async fn load_mounts(&self, id: &str, snapshot_base: String) -> Result<Vec<containerd_client::types::Mount>> {
     let view_snapshot_req = PrepareSnapshotRequest {
         // TODO: be picky about snapshotter?
         // https://github.com/containerd/containerd/tree/main/docs/snapshotters
@@ -184,7 +183,6 @@ impl ContainerLifecycle {
         parent: snapshot_base,
         labels: HashMap::new(),
     };
-    self.connect().await?;
     let mut cli = SnapshotsClient::new(self.channel());
     let rsp = cli
         .prepare(with_namespace!(view_snapshot_req, "default"))
@@ -197,7 +195,7 @@ impl ContainerLifecycle {
 
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&mut self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>) -> Result<Container> {
+  pub async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>) -> Result<Container> {
     let port = 8080;
 
     let cid = format!("{}-{}", fqdn, GUID::rand());
@@ -222,7 +220,6 @@ impl ContainerLifecycle {
       snapshot_key: "".to_string(),
       snapshotter: "".to_string(),
     };
-    self.connect().await?;
     let mut client = ContainersClient::new(self.channel());
     let req = CreateContainerRequest {
       container: Some(container),
@@ -270,7 +267,7 @@ impl ContainerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&mut self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>) -> Result<Container> {
+  pub async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>) -> Result<Container> {
     info!("Creating container from image '{}', in namespace '{}'", image_name, namespace);
     let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg).await?;
     let mut client = TasksClient::new(self.channel());
@@ -289,9 +286,7 @@ impl ContainerLifecycle {
   }
 
   /// Removed the specified container in the namespace
-  pub async fn remove_container(&mut self, container: &Arc<Container>, namespace: &str) -> Result<()> {
-    self.connect().await?;
-
+  pub async fn remove_container(&self, container: &Arc<Container>, namespace: &str) -> Result<()> {
     let mut client = TasksClient::new(self.channel());
 
     let req = KillRequest {
@@ -336,7 +331,7 @@ impl ContainerLifecycle {
   }
 
   /// Ensures that the specified image is available on the machine
-  pub async fn ensure_image(&mut self, image_name: &String) -> Result<()> {
+  pub async fn ensure_image(&self, image_name: &String) -> Result<()> {
     let output = Command::new("ctr")
           .args(["images", "pull", image_name.as_str()])
           .output();

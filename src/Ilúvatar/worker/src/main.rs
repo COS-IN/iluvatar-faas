@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   netm.ensure_bridge()?;
   let netm = Arc::new(netm);
 
-  let container_man = Arc::new(ContainerManager::new(server_config.clone(), netm));
+  let container_man = Arc::new(ContainerManager::new(server_config.clone(), netm).await?);
   let invoker = Arc::new(InvokerService::new(container_man.clone()));
 
   let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker);
