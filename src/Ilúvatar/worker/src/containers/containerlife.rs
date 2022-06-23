@@ -203,13 +203,13 @@ impl ContainerLifecycle {
   }
   
   /// get the mount points for a container's (id) snapshot base
-  async fn load_mounts(&self, id: &str, snapshot_base: String) -> Result<Vec<containerd_client::types::Mount>> {
+  pub async fn load_mounts(&self, id: &str, snapshot_base: &String) -> Result<Vec<containerd_client::types::Mount>> {
     let view_snapshot_req = PrepareSnapshotRequest {
         // TODO: be picky about snapshotter?
         // https://github.com/containerd/containerd/tree/main/docs/snapshotters
         snapshotter: "overlayfs".to_string(),
         key: id.to_owned(),
-        parent: snapshot_base,
+        parent: snapshot_base.clone(),
         labels: HashMap::new(),
     };
     let mut cli = SnapshotsClient::new(self.channel());
@@ -269,9 +269,7 @@ impl ContainerLifecycle {
 
     debug!("Container: created {:?}", resp);
 
-    let snapshot_base = self.search_image_digest(image_name, "default").await?;
-
-    let mounts = self.load_mounts(&cid, snapshot_base).await?;
+    let mounts = self.load_mounts(&cid, &reg.snapshot_base).await?;
 
     let req = CreateTaskRequest {
         container_id: cid.clone(),
