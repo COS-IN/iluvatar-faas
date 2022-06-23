@@ -15,9 +15,6 @@ args = argparser.parse_args()
 
 actions = os.listdir("../functions/python3/functions")
 
-colds = defaultdict(list)
-warms = defaultdict(list)
-
 def register(args, version, dir):
   proc_args = [args.clipth, "--worker", args.worker, "--config", "/home/alex/repos/efaas/src/Ilúvatar/worker_cli/src/worker_cli.json", "register", "--name", dir, "--version", version, "--memory", "128", "--cpu", "1", "--image", image]
   cli = subprocess.run(args=proc_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -36,15 +33,21 @@ def invoke(args, version, dir):
     cli.check_returncode()
   return cli, duration
 
+
+colds = defaultdict(list)
+warms = defaultdict(list)
+colds_over = defaultdict(list)
+warms_over = defaultdict(list)
+
 for dir in actions:
   if dir in ["cnn_image_classification", "video_processing", "model_training", "image_processing", "json_dumps_loads"]:
     continue
   print(dir)
   image = "docker.io/alfuerst/{}-iluvatar-action:latest".format(dir)
-  for i in range(10):
+  for i in range(20):
     version = "0.0.{}".format(i)
     register(args, version, dir)
-    for _ in range(2):
+    for _ in range(3):
       cli, duration = invoke(args, version, dir)
       try:
         output = json.loads(cli.stdout)
@@ -56,11 +59,16 @@ for dir in actions:
         continue
       else:
         if "body" in output:
+          lat = output["body"]["latency"]
+          overhead = duration - lat 
           if "cold" in output["body"]:
             if bool(output["body"]["cold"]):
               colds[dir].append(duration)
+              colds_over[dir].append(overhead)
             else:
               warms[dir].append(duration)
+              warms_over[dir].append(overhead)
 
+print("Name, Warm, Cold, WarmOver, ColdOver")
 for k in colds.keys():
-  print(k, np.mean(warms[k]), np.mean(colds[k]))
+  print(k, np.mean(warms[k]), np.mean(colds[k]), np.mean(warms_over[k]), np.mean(colds_over[k]))
