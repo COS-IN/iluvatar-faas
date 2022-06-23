@@ -47,13 +47,13 @@ impl Container {
   }
 
   pub fn stdout(&self) -> Result<String> {
-    temp_file(&self.container_id, "stdout")
+    temp_file(&self.container_id, "stdout").context("stdout")
   }
   pub fn stderr(&self) -> Result<String> {
-    temp_file(&self.container_id, "stderr")
+    temp_file(&self.container_id, "stderr").context("stderr")
   }
   pub fn stdin(&self) -> Result<String> {
-    temp_file(&self.container_id, "stdin")
+    temp_file(&self.container_id, "stdin").context("stdin")
   }
 
   /// wait_startup
@@ -65,14 +65,17 @@ impl Container {
 
     let start = SystemTime::now();
 
-    let mut inotify = Inotify::init()?;
-    inotify
-    .add_watch(&stdout, WatchMask::MODIFY)?;
+    let mut inotify = Inotify::init().context("Init inotify watch failed")?;
+    let dscriptor = inotify
+    .add_watch(&stdout, WatchMask::MODIFY).context("Adding inotify watch failed")?;
     let mut buffer = [0; 256];
 
     loop {
       match inotify.read_events(&mut buffer) {
-        Ok(events) => break, // stdout was written to
+        Ok(events) => {
+          inotify.rm_watch(dscriptor).context("Deleting inotify watch failed")?;
+          break
+        }, // stdout was written to
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
           if start.elapsed()?.as_millis() as u64 >= timout_ms {
             let stdout = fs::read_to_string(stdout).context("Failed to read stdout of broken container startup")?;
