@@ -12,6 +12,7 @@ prost = "0.10"
 tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util"] }
 lazy_static = "1.4.0"
 anyhow = "1.0.13"
+log = "0.4.17"
 
 [build-dependencies]
 tonic-build = "0.7.2"

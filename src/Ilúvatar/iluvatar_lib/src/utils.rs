@@ -1,6 +1,8 @@
 use std::{net::TcpStream, sync::{Mutex, Arc}};
 use anyhow::Result;
 
+use crate::bail_error;
+
 /// get the fully qualified domain name for a function from its name and version
 pub fn calculate_fqdn(function_name: &String, function_version: &String) -> String {
   format!("{}-{}", function_name, function_version)
@@ -54,7 +56,10 @@ fn is_port_free(port_num: Port) -> bool {
 ///   could be sniped by somebody else, 
 ///   but successive calls to this will not cause that
 pub fn new_port() -> Result<Port> {
-  let mut lock = NEXT_PORT_MUTEX.lock().unwrap();
+  let mut lock = match NEXT_PORT_MUTEX.lock() {
+    Ok(l) => l,
+    Err(e) => bail_error!("failed to get lock because {}", e),
+  };
   let mut try_port = *lock;
   while ! is_port_free(try_port) {
     try_port += 1;

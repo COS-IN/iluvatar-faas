@@ -30,7 +30,7 @@ pub struct RPCError {
 }
 impl std::fmt::Display for RPCError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-    write!(f, "{}", self.message).unwrap();
+    write!(f, "{}", self.message)?;
     Ok(())
   }
 }

@@ -27,3 +27,5 @@ debug=0
 debug-assertions=false
 overflow-checks=false
 incremental=false
+strip=true
+panic="abort"

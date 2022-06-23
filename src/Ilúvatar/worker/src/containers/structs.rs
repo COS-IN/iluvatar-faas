@@ -151,7 +151,7 @@ pub struct InsufficientMemoryError {
 }
 impl std::fmt::Display for InsufficientMemoryError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-    write!(f, "Not enough memory to launch container").unwrap();
+    write!(f, "Not enough memory to launch container")?;
     Ok(())
   }
 }
@@ -165,7 +165,7 @@ pub struct ContainerStartupError {
 }
 impl std::fmt::Display for ContainerStartupError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-    write!(f, "Startup error: {}", self.message).unwrap();
+    write!(f, "Startup error: {}", self.message)?;
     Ok(())
   }
 }
