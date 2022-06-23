@@ -34,7 +34,6 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       request: Request<PingRequest>,
   ) -> Result<Response<PingResponse>, Status> {
       println!("Got a request: {:?}", request);
-
       let reply = PingResponse {
           message: format!("Pong").into(),
       };
@@ -57,6 +56,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           Ok(Response::new(reply))    
         },
         Err(e) => {
+          error!("Invoke failed with error: {}", e);
           Ok(Response::new(InvokeResponse {
             json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
             success: false,
@@ -117,6 +117,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           Ok(Response::new(resp))    
         },
         Err(e) => {
+          error!("Prewarm failed with error: {}", e);
           let resp = PrewarmResponse {
             success: false,
             message: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
@@ -141,6 +142,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           Ok(Response::new(reply))        
         },
         Err(msg) => {
+          error!("Register failed with error {}", msg);
           let reply = RegisterResponse {
             success: false,
             function_json_result: format!("{{\"Error\": \"Error during registration of '{}': '{:?}\"}}", request.function_name, msg).into(),

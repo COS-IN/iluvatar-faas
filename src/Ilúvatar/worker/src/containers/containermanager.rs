@@ -2,6 +2,7 @@ use crate::containers::containerlife::ContainerLifecycle;
 use crate::containers::structs::{InsufficientMemoryError, ContainerStartupError};
 use crate::network::namespace_manager::NamespaceManager;
 
+use iluvatar_lib::bail_error;
 use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_lib::utils::calculate_fqdn;
 use anyhow::{Result, bail};
@@ -216,8 +217,7 @@ impl ContainerManager {
           match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn).await {
             Ok(_) => self.get_registration(&fqdn)?,
             Err(sub_e) => {
-              error!("Prewarm of function {} was not registered because it was not registered! Attempted registration failed because '{}'", fqdn, sub_e);
-              anyhow::bail!("Function {} was not registered! Attempted registration failed because '{}'", fqdn, sub_e)
+              bail_error!("Prewarm of function {} was not registered because it was not registered! Attempted registration failed because '{}'", fqdn, sub_e);
             }
           }
         },

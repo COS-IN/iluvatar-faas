@@ -1,7 +1,7 @@
 use crate::{config::WorkerConfig, network::network_structs::Namespace};
 use std::{process::Command, collections::HashMap};
 use anyhow::Result;
-use iluvatar_lib::utils;
+use iluvatar_lib::{utils, bail_error};
 use std::env;
 use std::fs::File;
 use std::io::Write;
@@ -119,10 +119,10 @@ impl NamespaceManager {
       if status == 0 {
         return Ok(());
       } else {
-        anyhow::bail!("Failed to create internal namespace with exit code '{}' and error '{:?}'", status, out)
+        bail_error!("Failed to create internal namespace with exit code '{}' and error '{:?}'", status, out)
       }
     } else {
-      anyhow::bail!("Failed to create bridge with no exit code and error '{:?}'", out)
+      bail_error!("Failed to create bridge with no exit code and error '{:?}'", out)
     }
   }
 
@@ -153,11 +153,14 @@ impl NamespaceManager {
               .envs(&env)
               .output()?;
 
-    let mut ns: Namespace = serde_json::from_slice(&out.stdout)?;
-    self.cleanup_addresses(&mut ns);
-    debug!("Namespace '{}' created. Output: '{:?}'", name, ns);
-    
-    Ok(ns)
+    match serde_json::from_slice(&out.stdout) {
+        Ok(mut ns) => {
+          self.cleanup_addresses(&mut ns);
+          debug!("Namespace '{}' created. Output: '{:?}'", name, ns);
+          Ok(ns)
+        },
+        Err(e) => bail_error!("JSON error in create_namespace: {}", e),
+    }
   }
 
   pub fn remove_namespace(&self, _name: String) -> Result<()> {

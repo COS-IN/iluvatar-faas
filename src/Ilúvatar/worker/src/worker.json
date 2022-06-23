@@ -15,7 +15,7 @@
     "basename": "worker"
   },
   "container_resources": {
-    "memory_mb": 2048,
+    "memory_mb": 20480,
     "cores": 4,
     "eviction": "LRU",
     "startup_timeout_ms": 60000

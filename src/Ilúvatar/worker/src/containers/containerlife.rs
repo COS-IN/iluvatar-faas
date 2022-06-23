@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
+use client::tonic::Code;
 use guid_create::GUID;
 use iluvatar_lib::utils::{Port, temp_file};
-use log::*;
+use log::{debug, warn, info};
+use iluvatar_lib::bail_error;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;
 use sha2::{Sha256, Digest};
@@ -81,8 +83,16 @@ impl ContainerLifecycle {
         .replace("$NET_NS", &self.namespace_manager.net_namespace(container_id))
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
         .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
-        .replace("$RESOLVCONFPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/resolv.conf") // ../resources/cni/resolv.conf
-        .replace("$HOSTSPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/hosts");
+        .replace("$RESOLVCONFPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/resolv.conf"); // ../resources/cni/resolv.conf
+        // .replace("$HOSTSPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/hosts");
+        // {
+        //   "destination": "/etc/hosts",
+        //   "source": "$HOSTSPTH",
+        //   "options": [
+        //     "ro",
+        //     "bind"
+        //   ]
+        // },
     
     Any {
         type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
@@ -98,11 +108,16 @@ impl ContainerLifecycle {
     };
     let mut cli = ContentClient::new(self.channel());
   
-    let mut rsp = cli.read(with_namespace!(read_content_req, namespace)).await?.into_inner();
-    if let Some(rsp) = rsp.message().await? {
-      return Ok(rsp.data);
+    match cli.read(with_namespace!(read_content_req, namespace)).await {
+        Ok(rsp) => {
+          match rsp.into_inner().message().await {
+            Ok(Some(rsp)) => Ok(rsp.data),
+            Ok(None) => bail_error!("Did not get data reading message content {}", ""),
+            Err(e) => bail_error!("failed to read content message because {}", e),
+          }
+        },
+        Err(e) => bail_error!("failed to read content because {}", e),
     }
-    anyhow::bail!("failed to read content")
   }
   
   /// Read through an image's digest to find it's snapshot base
@@ -110,7 +125,12 @@ impl ContainerLifecycle {
     // Step 1. get image digest
     let get_image_req = GetImageRequest { name: image.into() };
     let mut cli = ImagesClient::new(self.channel());
-    let rsp = cli.get(with_namespace!(get_image_req, namespace)).await?.into_inner();
+    let rsp = match cli.get(with_namespace!(get_image_req, namespace)).await {
+        Ok(rsp) => rsp.into_inner(),
+        Err(e) => {
+          bail_error!("Failed to prepare snapshot and load mounts: {:?}", e);
+        },
+    };
     debug!("image resp = {:?}", rsp);
     let (image_digest, media_type) = if let Some(image) = rsp.image {
       image.target
@@ -124,9 +144,13 @@ impl ContainerLifecycle {
   
     // Step 2. get image content manifests
     let content = self.read_content(namespace, image_digest).await?;
+
     let layer_item = match media_type.as_str() {
       "application/vnd.docker.distribution.manifest.list.v2+json" => {
-        let config_index: ImageIndex = serde_json::from_slice(&content)?;
+        let config_index: ImageIndex = match serde_json::from_slice(&content) {
+            Ok(s) => s,
+            Err(e) => bail_error!("JSON error getting ImageIndex: {}", e),
+        };
         debug!("config ImageIndex = {:?}", config_index);
       
         let manifest_item = config_index
@@ -140,8 +164,10 @@ impl ContainerLifecycle {
         
         debug!("Acquired manifest item: {}", manifest_item);
         // Step 3. load image manifest from specific platform filter
-        let layer_item: ImageManifest =
-          serde_json::from_slice(&self.read_content(namespace, manifest_item).await?)?;
+        let layer_item: ImageManifest = match serde_json::from_slice(&self.read_content(namespace, manifest_item).await?) {
+            Ok(s) => s,
+            Err(e) => bail_error!("JSON error getting ImageManifest: {}", e),
+        };
         layer_item.config().to_owned()
      },
       "application/vnd.docker.distribution.manifest.v2+json" => {
@@ -153,8 +179,11 @@ impl ContainerLifecycle {
     };
 
     // Step 5. load image configuration (layer) from image
-    let config: ImageConfiguration =
-        serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_owned()).await?)?;
+    let config: ImageConfiguration = match 
+        serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_owned()).await?) {
+          Ok(s) => s,
+          Err(e) => bail_error!("JSON error getting ImageConfiguration: {}", e),
+      };
   
     debug!("Loaded ImageConfiguration: {:?}", config);
 
@@ -186,11 +215,14 @@ impl ContainerLifecycle {
     let mut cli = SnapshotsClient::new(self.channel());
     let rsp = cli
         .prepare(with_namespace!(view_snapshot_req, "default"))
-        .await?
-        .into_inner();
-  
-    debug!("got mounts {} {}", id, rsp.mounts.len());
-    Ok(rsp.mounts)
+        .await;
+    if let Ok(rsp) = rsp {
+      let rsp = rsp.into_inner();
+      debug!("got mounts {} {}", id, rsp.mounts.len());
+      Ok(rsp.mounts)
+    } else {
+      bail_error!("Failed to prepare snapshot and load mounts: {:?}", rsp);
+    }
   }
 
   /// Create a container using the given image in the specified namespace
@@ -226,15 +258,20 @@ impl ContainerLifecycle {
     };
     let req = with_namespace!(req, namespace);
 
-    let resp = client
+    let resp =  match client
         .create(req)
-        .await?;
+        .await {
+            Ok(resp) => resp,
+            Err(e) => {
+              bail_error!("Containerd failed to create container with error: {}", e);
+            },
+        };
 
     debug!("Container: created {:?}", resp);
 
     let snapshot_base = self.search_image_digest(image_name, "default").await?;
 
-    let mounts = self.load_mounts(&cid, snapshot_base).await.unwrap();
+    let mounts = self.load_mounts(&cid, snapshot_base).await?;
 
     let req = CreateTaskRequest {
         container_id: cid.clone(),
@@ -250,16 +287,18 @@ impl ContainerLifecycle {
     let req = with_namespace!(req, namespace);
   
     let mut client = TasksClient::new(self.channel());
-    let resp = client.create(req).await?;
-    debug!("Task: created {:?}", resp);
-
-    let task = Task {
-      pid: resp.into_inner().pid,
-      container_id: None,
-      running: false
-    };
-
-    Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg))
+    match client.create(req).await {
+        Ok(t) => {
+          debug!("Task: created {:?}", t);
+          let task = Task {
+            pid: t.into_inner().pid,
+            container_id: None,
+            running: false
+          };
+          Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg))
+        },
+        Err(e) => bail_error!("Create task failed with: {}", e),
+    }
   }
 
   /// run_container
@@ -278,11 +317,14 @@ impl ContainerLifecycle {
     };
     let req = with_namespace!(req, namespace);
   
-    let resp = client.start(req).await?;
-  
-    debug!("Task {}: {:?} started", container.container_id, resp);
-    container.task.running = true;
-    Ok(container)
+    match client.start(req).await {
+        Ok(r) => {
+          debug!("Task {}: {:?} started", container.container_id, r);
+          container.task.running = true;
+          Ok(container)
+        },
+        Err(e) => bail_error!("Starting task failed with {}", e),
+    }
   }
 
   /// Removed the specified container in the namespace
@@ -298,20 +340,42 @@ impl ContainerLifecycle {
     };
     let req = with_namespace!(req, namespace);
 
-    let _resp = client
+    let resp = client
         .kill(req)
-        .await?;
-    debug!("Kill task response {:?}", _resp);
+        .await;
+    match &resp {
+        Ok(_) => {},
+        Err(e) => {
+          if e.code() == Code::NotFound {
+            // task crashed and was removed
+            warn!("Task for container '{}' was missing when it was attempted to be killed", container.container_id);
+          } else {
+            bail_error!("Attempt to kill task in container '{}' failed with error: {}", container.container_id, e);
+          }
+        },
+    }
+    debug!("Kill task response {:?}", resp);
 
     let req = DeleteTaskRequest {
       container_id: container.container_id.clone(),
     };
     let req = with_namespace!(req, namespace);
 
-    let _resp = client
+    let resp = client
         .delete(req)
-        .await?;
-    debug!("Delete task response {:?}", _resp);
+        .await;
+    match &resp {
+      Ok(_) => {},
+      Err(e) => {
+        if e.code() == Code::NotFound {
+          // task crashed and was removed
+          warn!("Task for container '{}' was missing when it was attempted to be delete", container.container_id);
+        } else {
+          bail_error!("Attempt to delete task in container '{}' failed with error: {}", container.container_id, e);
+        }
+      },
+    }
+    debug!("Delete task response {:?}", resp);
 
     let mut client = ContainersClient::new(self.channel());
 
@@ -320,9 +384,14 @@ impl ContainerLifecycle {
     };
     let req = with_namespace!(req, namespace);
 
-    let _resp = client
+    let _resp = match client
         .delete(req)
-        .await?;
+        .await {
+            Ok(resp) => resp,
+            Err(e) => {
+              bail_error!("Delete container failed with error {}", e);
+            },
+        };
     debug!("Delete container response {:?}", _resp);
 
     // TODO: delete / release namespace here
