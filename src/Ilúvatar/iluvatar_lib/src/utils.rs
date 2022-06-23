@@ -16,7 +16,7 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
 
 pub const TEMP_DIR: &str = "/tmp/ilúvatar_worker";
 
-pub fn temp_file(with_tail: &String, with_extension: &str) -> Result<String> {
+pub fn temp_file(with_tail: &str, with_extension: &str) -> Result<String> {
   let ret = format!("{}/{}.{}", TEMP_DIR, with_tail, with_extension);
   touch(&ret)?;
   return Ok(ret);

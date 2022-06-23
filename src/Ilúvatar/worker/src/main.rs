@@ -2,7 +2,6 @@ extern crate iluvatar_worker;
 
 use std::sync::Arc;
 use std::time::Duration;
-use flexi_logger::{Logger, FileSpec, WriteMode};
 use iluvatar_worker::config::Configuration;
 use iluvatar_worker::containers::containermanager::ContainerManager;
 use iluvatar_worker::iluvatar_worker::IluvatarWorkerImpl;
@@ -15,22 +14,10 @@ use iluvatar_worker::invocation::invoker::InvokerService;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   iluvatar_lib::utils::ensure_temp_dir()?;
+
   let server_config = Configuration::boxed(None).unwrap();
-
-  let _logger = Logger::try_with_str(server_config.logging.level.as_str())?
-        .log_to_file(FileSpec::default()
-                        .directory(server_config.logging.directory.as_str())
-                        .basename(server_config.logging.basename.as_str())
-                      )
-        .write_mode(WriteMode::Async)
-        .create_symlink("iluvitar_worker.log")
-        .print_message()
-        .start()?;
-
+  let _logger = iluvatar_worker::logging::make_logger(&server_config);
   debug!("loaded configuration = {:?}", server_config);
-
-  let addr = format!("{}:{}", server_config.address, server_config.port);
-  let addr = addr.parse()?;
 
   let mut netm = NamespaceManager::new(server_config.clone());
   netm.ensure_bridge()?;
@@ -41,10 +28,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker);
 
+  let addr = format!("{}:{}", server_config.address, server_config.port);
   Server::builder()
       .timeout(Duration::from_secs(server_config.timeout_sec))
       .add_service(IluvatarWorkerServer::new(worker))
-      .serve(addr)
+      .serve(addr.parse()?)
       .await?;
   Ok(())
 }
