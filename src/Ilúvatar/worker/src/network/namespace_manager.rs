@@ -41,15 +41,15 @@ impl NamespaceManager {
       let cln = ns.clone();
       info!("launching namespace pool monitor thread");
       let _handle = tokio::spawn(async move {
-        NamespaceManager::monitor_pool(cln).await;
+        NamespaceManager::monitor_pool(config, cln).await;
       });
     }
     ns
   }
 
-  async fn monitor_pool(nm: Arc<NamespaceManager>) {
+  async fn monitor_pool(config: WorkerConfig, nm: Arc<NamespaceManager>) {
     loop {
-      while nm.pool_size() < 3 {
+      while nm.pool_size() < config.networking.pool_size {
         let ns = match nm.create_namespace(&GUID::rand().to_string()) {
             Ok(ns) => ns,
             Err(e) => {
@@ -62,7 +62,7 @@ impl NamespaceManager {
             Err(e) => error!("Failed giving namespace to pool: {}", e),
         };
       }
-      tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(config.networking.pool_freq_sec)).await;
     }
   }
 

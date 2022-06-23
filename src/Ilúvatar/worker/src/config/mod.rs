@@ -49,6 +49,8 @@ pub struct Networking {
   pub cni_plugin_bin: String,
   pub cni_name: String,
   pub use_pool: bool,
+  pub pool_size: usize,
+  pub pool_freq_sec: u64,
 }
 
 

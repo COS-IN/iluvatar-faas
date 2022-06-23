@@ -1235,6 +1235,7 @@ name = "iluvatar_lib"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "guid-create",
  "lazy_static",
  "log",
  "prost 0.10.4",

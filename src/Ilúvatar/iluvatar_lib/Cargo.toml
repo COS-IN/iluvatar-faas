@@ -13,6 +13,7 @@ tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-uti
 lazy_static = "1.4.0"
 anyhow = "1.0.13"
 log = "0.4.17"
+guid-create = "0.2.0"
 
 [build-dependencies]
 tonic-build = "0.7.2"

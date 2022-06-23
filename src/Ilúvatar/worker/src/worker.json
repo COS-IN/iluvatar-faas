@@ -25,6 +25,8 @@
     "cnitool": "/home/alex/.gopth/bin/cnitool",
     "cni_plugin_bin": "/opt/cni/bin",
     "cni_name": "il_worker_br",
-    "use_pool": true
+    "use_pool": true,
+    "pool_size": 10,
+    "pool_freq_sec": 1
   }
 }

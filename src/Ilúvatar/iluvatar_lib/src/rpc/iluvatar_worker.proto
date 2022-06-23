@@ -4,6 +4,7 @@ package iluvatar_worker;
 
 message PingRequest {
   string message = 1;
+  string transaction_id = 2;
 }
 
 message PingResponse {
@@ -15,6 +16,7 @@ message InvokeRequest {
   string function_version = 2;
   uint32 memory = 3;
   string json_args = 4;
+  string transaction_id = 5;
 }
 
 message InvokeResponse {
@@ -28,12 +30,14 @@ message InvokeAsyncRequest {
   string function_version = 2;
   uint32 memory = 3;
   string json_args = 4;
+  string transaction_id = 5;
 }
 message InvokeAsyncResponse {
   string lookup_cookie = 1;
 }
 message InvokeAsyncLookupRequest {
   string lookup_cookie = 1;
+  string transaction_id = 2;
 }
 
 message PrewarmRequest {
@@ -42,6 +46,7 @@ message PrewarmRequest {
   uint32 memory = 3;
   uint32 cpu = 4;
   string image_name = 5;
+  string transaction_id = 6;
 }
 message PrewarmResponse {
   bool success = 1;
@@ -55,6 +60,7 @@ message RegisterRequest {
   uint32 memory = 4;
   uint32 cpus = 5;
   uint32 parallel_invokes = 6;
+  string transaction_id = 7;
 }
 
 message RegisterResponse {
@@ -63,6 +69,7 @@ message RegisterResponse {
 }
 
 message StatusRequest {
+  string transaction_id = 1;
 }
 
 message StatusResponse {
@@ -74,6 +81,7 @@ message StatusResponse {
 }
 
 message HealthRequest {
+  string transaction_id = 1;
 }
 
 
