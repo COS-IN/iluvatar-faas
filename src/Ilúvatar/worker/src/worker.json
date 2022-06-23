@@ -24,6 +24,7 @@
     "bridge": "IlWorkBr0",
     "cnitool": "/home/alex/.gopth/bin/cnitool",
     "cni_plugin_bin": "/opt/cni/bin",
-    "cni_name": "il_worker_br"
+    "cni_name": "il_worker_br",
+    "use_pool": true
   }
 }

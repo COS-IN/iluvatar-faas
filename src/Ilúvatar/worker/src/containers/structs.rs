@@ -2,6 +2,8 @@ use std::{sync::Arc, time::SystemTime, fs};
 use iluvatar_lib::{utils::{Port, temp_file, calculate_invoke_uri, calculate_base_uri}, bail_error};
 use inotify::{Inotify, WatchMask};
 use parking_lot::RwLock;
+use crate::network::network_structs::Namespace;
+
 use super::containermanager::ContainerManager;
 use log::{debug};
 use anyhow::{Result, Context};
@@ -24,12 +26,13 @@ pub struct Container {
   pub fqdn: String,
   pub function: Arc<RegisteredFunction>,
   last_used: RwLock<SystemTime>,
+  pub namespace: Arc<Namespace>,
 }
 
 #[allow(unused)]
 impl Container {
 
-  pub fn new(container_id: String, task: Task, port: Port, address: String, parallel_invokes: u32, fqdn: &String, function: &Arc<RegisteredFunction>) -> Self {
+  pub fn new(container_id: String, task: Task, port: Port, address: String, parallel_invokes: u32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>) -> Self {
     let invoke_uri = calculate_invoke_uri(&address, port);
     let base_uri = calculate_base_uri(&address, port);
     Container {
@@ -43,6 +46,7 @@ impl Container {
       fqdn: fqdn.clone(),
       function: function.clone(),
       last_used: RwLock::new(SystemTime::now()),
+      namespace: ns
     }
   }
 

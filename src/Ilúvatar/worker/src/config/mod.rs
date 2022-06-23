@@ -47,7 +47,8 @@ pub struct Networking {
   pub bridge: String,
   pub cnitool: String,
   pub cni_plugin_bin: String,
-  pub cni_name: String
+  pub cni_name: String,
+  pub use_pool: bool,
 }
 
 

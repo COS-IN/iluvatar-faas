@@ -3,6 +3,13 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 #[allow(unused, non_snake_case)]
 pub struct Namespace {
+  pub name: String,
+  pub namespace: ContdNamespace,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused, non_snake_case)]
+pub struct ContdNamespace {
   pub cniVersion: String,
   pub interfaces: Vec<Interface>,
   pub ips: Vec<IP>,

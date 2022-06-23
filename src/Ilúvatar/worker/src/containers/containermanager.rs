@@ -73,7 +73,7 @@ impl ContainerManager {
       },
       None => {
         // 'should' not get here
-        error!("active_containers had key for fqdn '{}' but not a real value", fqdn);
+        error!("fqdn '{}' has not been registered", fqdn);
         None
       },
     }
@@ -175,7 +175,7 @@ impl ContainerManager {
         Ok(_) => {},
         Err(e) => {
           error!("Failed to wait for container startup because {}", e);
-          self.cont_lifecycle.remove_container(&Arc::new(cont), "default").await?;
+          self.cont_lifecycle.remove_container(Arc::new(cont), "default").await?;
           let mut locked = self.used_mem_mb.lock();
           *locked -= reg.memory;
           anyhow::bail!(ContainerStartupError{message:format!("Failed to wait for container startup because {}", e)});
@@ -318,7 +318,7 @@ impl ContainerManager {
     Ok(())
   }
 
-  pub async fn remove_container(&self, container: &Arc<Container>, lock_check: bool) -> Result<()> {
+  pub async fn remove_container(&self, container: Arc<Container>, lock_check: bool) -> Result<()> {
     if lock_check {
       let mut cont_lock = container.mutex.lock();
       if *cont_lock != container.function.parallel_invokes {
@@ -337,7 +337,7 @@ impl ContainerManager {
             let mut locked = self.used_mem_mb.lock();
             *locked -= dropped_cont.function.memory;
           }
-          self.cont_lifecycle.remove_container(&container, "default").await?;
+          self.cont_lifecycle.remove_container(container, "default").await?;
           return Ok(());
         } else {
           anyhow::bail!("Was unable to find container {} to remove it", container.container_id);
@@ -354,7 +354,7 @@ impl ContainerManager {
     };
 
     for container in to_remove {
-      self.remove_container(&container, false).await?;
+      self.remove_container(container, false).await?;
     }
     Ok(())
   }

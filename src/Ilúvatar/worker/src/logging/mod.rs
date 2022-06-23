@@ -27,7 +27,7 @@ pub fn make_logger(server_config: &WorkerConfig) -> LoggerHandle {
     .format(timed_format)
     .write_mode(WriteMode::Async)
     .create_symlink("iluvitar_worker.log")
-    .create_symlink(iluvatar_lib::utils::temp_file("iluvitar_worker", "log").unwrap())
+    // .create_symlink(iluvatar_lib::utils::temp_file("iluvitar_worker", "log").unwrap())
     .print_message()
     .start().unwrap()
 }

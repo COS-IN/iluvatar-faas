@@ -19,9 +19,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let _logger = iluvatar_worker::logging::make_logger(&server_config);
   debug!("loaded configuration = {:?}", server_config);
 
-  let mut netm = NamespaceManager::new(server_config.clone());
+  let netm = NamespaceManager::boxed(server_config.clone());
   netm.ensure_bridge()?;
-  let netm = Arc::new(netm);
 
   let container_man = Arc::new(ContainerManager::new(server_config.clone(), netm).await?);
   let invoker = Arc::new(InvokerService::new(container_man.clone()));

@@ -72,7 +72,7 @@ impl ContainerLifecycle {
   }
 
   /// get the default container spec
-  fn spec(&self, host_addr: &str, port: Port, container_id: &String, mem_limit_mb: u32, cpus: u32) -> Any {
+  fn spec(&self, host_addr: &str, port: Port, mem_limit_mb: u32, cpus: u32, net_ns_name: &String) -> Any {
     let spec = include_str!("../resources/container_spec.json");
     let spec = spec
         .to_string()
@@ -80,7 +80,7 @@ impl ContainerLifecycle {
         .replace("$OUTPUT", "")
         .replace("$HOST_ADDR", host_addr)
         .replace("$PORT", &port.to_string())
-        .replace("$NET_NS", &self.namespace_manager.net_namespace(container_id))
+        .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
         .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
         .replace("$RESOLVCONFPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/resolv.conf"); // ../resources/cni/resolv.conf
@@ -231,11 +231,11 @@ impl ContainerLifecycle {
     let port = 8080;
 
     let cid = format!("{}-{}", fqdn, GUID::rand());
-    let ns = self.namespace_manager.create_namespace(&cid)?;
+    let ns = self.namespace_manager.get_namespace()?;
 
-    let address = &ns.ips[0].address;
+    let address = &ns.namespace.ips[0].address;
 
-    let spec = self.spec(address, port, &cid, mem_limit_mb, cpus);
+    let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name);
 
     let container = Containerd_Container {
       id: cid.to_string(),
@@ -293,7 +293,7 @@ impl ContainerLifecycle {
             container_id: None,
             running: false
           };
-          Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg))
+          Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg, ns))
         },
         Err(e) => bail_error!("Create task failed with: {}", e),
     }
@@ -326,7 +326,7 @@ impl ContainerLifecycle {
   }
 
   /// Removed the specified container in the namespace
-  pub async fn remove_container(&self, container: &Arc<Container>, namespace: &str) -> Result<()> {
+  pub async fn remove_container(&self, container: Arc<Container>, namespace: &str) -> Result<()> {
     let mut client = TasksClient::new(self.channel());
 
     let req = KillRequest {
@@ -393,6 +393,8 @@ impl ContainerLifecycle {
     debug!("Delete container response {:?}", _resp);
 
     // TODO: delete / release namespace here
+    self.namespace_manager.return_namespace(container.namespace.clone())?;
+
     debug!("Container: {:?} deleted", container.container_id);
     Ok(())
   }
