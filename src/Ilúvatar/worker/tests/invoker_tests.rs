@@ -21,7 +21,8 @@ mod invoke {
       cpus: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let input = PrewarmRequest {
@@ -30,13 +31,15 @@ mod invoke {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       memory: 128,
-      json_args:"{\"name\":\"TESTING\"}".to_string()
+      json_args:"{\"name\":\"TESTING\"}".to_string(),
+      transaction_id: "testTID".to_string()
     };
     let result = invok_svc.invoke(&req).await;
     match result {
@@ -57,14 +60,16 @@ mod invoke {
       cpus: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       memory: 128,
-      json_args:"{\"name\":\"TESTING\"}".to_string()
+      json_args:"{\"name\":\"TESTING\"}".to_string(),
+      transaction_id: "testTID".to_string()
     };
     let result = invok_svc.invoke(&req).await;
     match result {
@@ -93,7 +98,8 @@ use std::time::Duration;
       cpus: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let input = PrewarmRequest {
@@ -102,13 +108,15 @@ use std::time::Duration;
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = Arc::new(InvokeAsyncRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       memory: 128,
-      json_args:"{\"name\":\"TESTING\"}".to_string()
+      json_args:"{\"name\":\"TESTING\"}".to_string(),
+      transaction_id: "testTID".to_string()
     });
     let result = invok_svc.invoke_async(req);
     let mut count = 0;
@@ -156,14 +164,16 @@ use std::time::Duration;
       cpus: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = Arc::new(InvokeAsyncRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       memory: 128,
-      json_args:"{\"name\":\"TESTING\"}".to_string()
+      json_args:"{\"name\":\"TESTING\"}".to_string(),
+      transaction_id: "testTID".to_string()
     });
     let result = invok_svc.invoke_async(req);
     let mut count = 0;

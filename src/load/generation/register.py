@@ -58,7 +58,7 @@ for dir in actions:
         print(output["Error"])
         continue
       else:
-        if "body" in output:
+        if "body" in output and "latency" in output["body"]:
           lat = output["body"]["latency"]
           overhead = duration - lat 
           if "cold" in output["body"]:
@@ -68,6 +68,8 @@ for dir in actions:
             else:
               warms[dir].append(duration)
               warms_over[dir].append(overhead)
+          else:
+            print(output)
 
 print("Name, Warm, Cold, WarmOver, ColdOver")
 for k in colds.keys():

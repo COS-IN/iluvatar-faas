@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let netm = NamespaceManager::boxed(server_config.clone());
   netm.ensure_bridge()?;
 
-  let container_man = Arc::new(ContainerManager::new(server_config.clone(), netm).await?);
+  let container_man = ContainerManager::boxed(server_config.clone(), netm).await?;
   let invoker = Arc::new(InvokerService::new(container_man.clone()));
 
   let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker);

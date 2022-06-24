@@ -18,7 +18,9 @@
     "memory_mb": 20480,
     "cores": 4,
     "eviction": "LRU",
-    "startup_timeout_ms": 60000
+    "startup_timeout_ms": 60000,
+    "memory_buffer_mb": 0,
+    "pool_freq_sec": 5
   },
   "networking": {
     "bridge": "IlWorkBr0",

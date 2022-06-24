@@ -27,6 +27,7 @@ pub struct Container {
   pub function: Arc<RegisteredFunction>,
   last_used: RwLock<SystemTime>,
   pub namespace: Arc<Namespace>,
+  invocations: parking_lot::Mutex<u32>,
 }
 
 #[allow(unused)]
@@ -46,7 +47,8 @@ impl Container {
       fqdn: fqdn.clone(),
       function: function.clone(),
       last_used: RwLock::new(SystemTime::now()),
-      namespace: ns
+      namespace: ns,
+      invocations: parking_lot::Mutex::new(0),
     }
   }
 
@@ -97,10 +99,15 @@ impl Container {
   pub fn touch(&self) {
     let mut lock = self.last_used.write();
     *lock = SystemTime::now();
+    *self.invocations.lock() += 1;
   }
 
   pub fn last_used(&self) -> SystemTime {
     *self.last_used.read()
+  }
+
+  pub fn invocations(&self) -> u32 {
+    *self.invocations.lock()
   }
 }
 

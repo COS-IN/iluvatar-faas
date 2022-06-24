@@ -19,7 +19,8 @@ mod registration {
       cpus: 1,
       memory: 128,
       image_name: "docker.io/library/alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
   }
@@ -33,7 +34,8 @@ mod registration {
       cpus: 1,
       memory: 128,
       image_name: "docker.io/library/alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let input = RegisterRequest {
@@ -42,7 +44,8 @@ mod registration {
       cpus: 1,
       memory: 128,
       image_name: "docker.io/library/alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Function test-test is already registered!", "registration succeeded when it should have failed!");
@@ -57,7 +60,8 @@ mod registration {
       cpus: 1,
       memory: 128,
       image_name: "docker.io/library/alpine:latest".to_string(),
-      parallel_invokes: 0
+      parallel_invokes: 0,
+      transaction_id: "testTID".to_string()
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Illegal parallel invokes set, must be 1", "registration succeeded when it should have failed!");
@@ -72,7 +76,8 @@ mod registration {
       cpus: 1,
       memory: 128,
       image_name: "docker.io/library/alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Invalid function name", "registration succeeded when it should have failed!");
@@ -87,7 +92,8 @@ mod registration {
       cpus: 1,
       memory: 128,
       image_name: "docker.io/library/alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Invalid function version", "registration succeeded when it should have failed!");
@@ -102,7 +108,8 @@ mod registration {
       cpus: 0,
       memory: 128,
       image_name: "docker.io/library/alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Illegal cpu allocation request", "registration succeeded when it should have failed!");
@@ -117,7 +124,8 @@ mod registration {
       cpus: 1,
       memory: 0,
       image_name: "docker.io/library/alpine:latest".to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
@@ -133,7 +141,8 @@ mod registration {
       cpus: 1,
       memory: 128,
       image_name: bad_img.to_string(),
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
     };
     let err = cm.register(&input).await;
     // assert_error!(err, "Function test/test is already registered!", "registration succeeded when it should have failed!");
@@ -181,6 +190,7 @@ mod prewarm {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
   }
@@ -194,6 +204,7 @@ mod prewarm {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -223,6 +234,7 @@ mod get_container {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -241,6 +253,7 @@ mod get_container {
       cpu: 1,
       memory: 256,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -262,6 +275,7 @@ mod get_container {
       cpu: 1,
       memory: 256,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -289,6 +303,7 @@ mod remove_container {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -297,7 +312,7 @@ mod remove_container {
     let c1_cont = c1.container.clone();
     drop(c1);
 
-    cm.remove_container(&c1_cont, true).await.unwrap_or_else(|e| panic!("remove container failed: {:?}", e));
+    cm.remove_container(c1_cont.clone(), true).await.unwrap_or_else(|e| panic!("remove container failed: {:?}", e));
 
     let client = reqwest::Client::new();
     let result = client.get(&c1_cont.base_uri)

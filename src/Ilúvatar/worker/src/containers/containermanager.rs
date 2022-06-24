@@ -7,7 +7,7 @@ use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_lib::utils::calculate_fqdn;
 use anyhow::{Result, bail};
 use log::*;
-use core::panic;
+use std::cmp::Ordering;
 use std::collections::HashMap; 
 use std::sync::Arc;
 use parking_lot::{RwLock, Mutex};
@@ -24,6 +24,7 @@ pub struct ContainerManager {
   config: WorkerConfig,
   used_mem_mb: Arc<Mutex<u32>>,
   cont_lifecycle: Arc<ContainerLifecycle>,
+  prioritized_list: ContainerList,
 }
 
 impl ContainerManager {
@@ -38,7 +39,37 @@ impl ContainerManager {
       config,
       used_mem_mb: Arc::new(Mutex::new(0)),
       cont_lifecycle: Arc::new(lifecycle),
+      prioritized_list: Arc::new(RwLock::new(Vec::new())),
     })
+  }
+
+  pub async fn boxed(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> Result<Arc<ContainerManager>> {
+    let cm = Arc::new(ContainerManager::new(config.clone(), ns_man).await?);
+    let cm_clone = cm.clone();
+    let _handle = tokio::spawn(async move {
+      ContainerManager::monitor_pool(config, cm_clone).await;
+    });
+    Ok(cm)
+  }
+
+  async fn monitor_pool(config: WorkerConfig, cm: Arc<ContainerManager>) {
+    loop {
+      cm.compute_eviction_priorities();
+      if config.container_resources.memory_buffer_mb > 0 {
+        let reclaim = config.container_resources.memory_buffer_mb - cm.free_memory();
+        if reclaim > 0 {
+          match cm.reclaim_memory(reclaim).await {
+            Ok(_) => {},
+            Err(e) => error!("Error while trying to remove containers '{}'", e),
+          };
+        }
+      }
+      tokio::time::sleep(std::time::Duration::from_secs(config.container_resources.pool_freq_sec)).await;
+    }
+  }
+
+  pub fn free_memory(&self) -> u32 {
+    self.config.container_resources.memory_mb - *self.used_mem_mb.lock()
   }
 
   pub async fn acquire_container<'a>(&'a self, fqdn: &String) -> Result<Option<ContainerLock<'a>>> {
@@ -348,29 +379,12 @@ impl ContainerManager {
   }
 
   async fn reclaim_memory(&self, amount_mb: u32) -> Result<()> {
-    let to_remove = match self.config.container_resources.eviction.as_str() {
-      "LRU" => self.lru_eviction(amount_mb),
-      _ => panic!("Unkonwn eviction algorithm '{}'", self.config.container_resources.eviction)
-    };
-
-    for container in to_remove {
-      self.remove_container(container, false).await?;
+    if amount_mb <= 0 {
+      bail!("Cannot reclaim '{}' amount of memory", amount_mb);
     }
-    Ok(())
-  }
-
-  fn lru_eviction(&self, amount_mb: u32) -> Vec<Arc<Container>> {
-    let mut ordered = Vec::new();
     let mut reclaimed = 0;
-    for (_fqdn, cont_list) in self.active_containers.read().iter() {
-      for container in cont_list.read().iter() {
-        ordered.push(container.clone());
-      }
-    }
-
-    ordered.sort_by(|c1, c2| c1.last_used().cmp(&c2.last_used()));
     let mut to_remove = Vec::new();
-    for container in ordered.iter() {
+    for container in self.prioritized_list.read().iter() {
       if self.try_seize_container(container) {
         to_remove.push(container.clone());
         reclaimed += container.function.memory;
@@ -379,8 +393,33 @@ impl ContainerManager {
         }
       }
     }
+    for container in to_remove {
+      self.remove_container(container, false).await?;
+    }
+    Ok(())
+  }
 
-    return to_remove;
+  fn compute_eviction_priorities(&self) {
+    let mut ordered = Vec::new();
+    for (_fqdn, cont_list) in self.active_containers.read().iter() {
+      for container in cont_list.read().iter() {
+        ordered.push(container.clone());
+      }
+    }
+    let comparator = match self.config.container_resources.eviction.as_str() {
+      "LRU" => ContainerManager::lru_eviction,
+      _ => { 
+          error!("Unkonwn eviction algorithm '{}'", self.config.container_resources.eviction);
+          return;
+      }
+    };
+    ordered.sort_by(|c1, c2| comparator(c1,c2));
+    let mut lock = self.prioritized_list.write();
+    *lock = ordered;
+  }
+
+  fn lru_eviction(c1: &Arc<Container>, c2: &Arc<Container>) -> Ordering {
+    c1.last_used().cmp(&c2.last_used())
   }
 
   fn try_seize_container(&self, container: &Arc<Container>) -> bool {
