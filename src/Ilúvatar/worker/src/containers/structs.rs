@@ -149,7 +149,7 @@ impl<'a> ContainerLock<'a> {
 
 impl<'a> Drop for ContainerLock<'a> {
   fn drop(&mut self) {
-    debug!("Dropping container lock!");
+    debug!("Dropping container lock for '{}'!", self.container.container_id);
     self.container_mrg.return_container(&self.container);
   }
 }
