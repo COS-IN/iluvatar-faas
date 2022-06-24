@@ -17,12 +17,18 @@
   "container_resources": {
     "memory_mb": 256,
     "cores": 4,
-    "eviction": "LRU"
+    "eviction": "LRU",
+    "startup_timeout_ms": 60000,
+    "memory_buffer_mb": 0,
+    "pool_freq_sec": 5
   },
   "networking": {
     "bridge": "IlWorkBr0",
     "cnitool": "/home/alex/.gopth/bin/cnitool",
     "cni_plugin_bin": "/opt/cni/bin",
-    "cni_name": "il_worker_br"
+    "cni_name": "il_worker_br",
+    "use_pool": false,
+    "pool_size": 10,
+    "pool_freq_sec": 1
   }
 }

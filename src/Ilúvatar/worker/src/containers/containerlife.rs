@@ -83,8 +83,16 @@ impl ContainerLifecycle {
         .replace("$PORT", &port.to_string())
         .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
-        .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
-        .replace("$RESOLVCONFPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/resolv.conf"); // ../resources/cni/resolv.conf
+        .replace("\"$CPUSHARES\"", &(cpus*1024).to_string());
+        // .replace("$RESOLVCONFPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/resolv.conf"); // ../resources/cni/resolv.conf
+        // {
+        //   "destination": "/etc/resolv.conf",
+        //   "source": "$RESOLVCONFPTH",
+        //   "options": [
+        //     "ro",
+        //     "bind"
+        //   ]
+        // },
         // .replace("$HOSTSPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/hosts");
         // {
         //   "destination": "/etc/hosts",
@@ -338,7 +346,7 @@ impl ContainerLifecycle {
       // exec_id: container.task.pid.to_string(),
       exec_id: "".to_string(),
       signal: 9, // SIGKILL
-      all: false,
+      all: true,
     };
     let req = with_namespace!(req, namespace);
 
@@ -355,7 +363,7 @@ impl ContainerLifecycle {
             bail_error!("Attempt to kill task in container '{}' failed with error: {}", container_id, e);
           }
         },
-    }
+    };
     debug!("Kill task response {:?}", resp);
 
     let req = DeleteTaskRequest {
@@ -369,11 +377,10 @@ impl ContainerLifecycle {
     match &resp {
       Ok(_) => {},
       Err(e) => {
-        if e.code() == Code::NotFound {
-          // task crashed and was removed
-          warn!("Task for container '{}' was missing when it was attempted to be delete", container_id);
-        } else {
-          bail_error!("Attempt to delete task in container '{}' failed with error: {}", container_id, e);
+        match e.code() {
+                      // task crashed and was removed
+          Code::NotFound => warn!("Task for container '{}' was missing when it was attempted to be delete", container_id),
+          _ => bail_error!("Attempt to delete task in container '{}' failed with error: {}", container_id, e),
         }
       },
     }
@@ -427,5 +434,4 @@ impl ContainerLifecycle {
       },
     }
   }
-
 }

@@ -1,5 +1,5 @@
 use crate::containers::containerlife::ContainerLifecycle;
-use crate::containers::structs::{InsufficientMemoryError, ContainerStartupError};
+use crate::containers::structs::InsufficientMemoryError;
 use crate::network::namespace_manager::NamespaceManager;
 
 use iluvatar_lib::bail_error;
@@ -149,8 +149,7 @@ impl ContainerManager {
     let reg = match self.get_registration(&fqdn) {
       Ok(r) => r,
       Err(_) => {
-        warn!("function {} was attempted to be prewarmed before registering. Attempting register...", fqdn);
-        anyhow::bail!("Function {} was not registered! Launching new container for it failed", fqdn);
+        anyhow::bail!("Function {} was not registered! Cannot launch a container for it", fqdn);
       },
     };
     let container = self.launch_container_internal(&reg).await?;
@@ -197,19 +196,21 @@ impl ContainerManager {
         Err(e) => {
           let mut locked = self.used_mem_mb.lock();
           *locked -= reg.memory;
-          error!("Failed to run container because {}", e);
           return Err(e);
         },
     };
 
     match cont.wait_startup(self.config.container_resources.startup_timeout_ms) {
-        Ok(_) => {},
+        Ok(_) => (),
         Err(e) => {
-          error!("Failed to wait for container startup because {}", e);
-          self.cont_lifecycle.remove_container(&cont.container_id, &cont.namespace, "default").await?;
-          let mut locked = self.used_mem_mb.lock();
-          *locked -= reg.memory;
-          anyhow::bail!(ContainerStartupError{message:format!("Failed to wait for container startup because {}", e)});
+          {
+            let mut locked = self.used_mem_mb.lock();
+            *locked -= reg.memory;
+          }
+          match self.cont_lifecycle.remove_container(&cont.container_id, &cont.namespace, "default").await {
+            Ok(_) => { return Err(e); },
+            Err(inner_e) => anyhow::bail!("Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'", e, inner_e),
+          };
         },
     };
     info!("container '{}' with image '{}' was launched", cont.container_id, reg.image_name);
@@ -229,7 +230,7 @@ impl ContainerManager {
                   self.reclaim_memory(mem.needed).await?;
                   self.try_launch_container(&reg).await
                 },
-                None => bail!("Unknown error {}", cause),
+                None => Err(cause),
               },
         }
     }
@@ -262,7 +263,7 @@ impl ContainerManager {
               self.reclaim_memory(mem.needed).await?;
               self.launch_container_internal(&reg).await
             },
-            None => bail!("Unknown error {}", cause),
+            None => Err(cause),
           },
     }?;
     self.add_container_to_pool(&fqdn, container)?;

@@ -145,7 +145,6 @@ mod registration {
       transaction_id: "testTID".to_string()
     };
     let err = cm.register(&input).await;
-    // assert_error!(err, "Function test/test is already registered!", "registration succeeded when it should have failed!");
     match err {
       Ok(_) => panic!("registration succeeded when it should have failed!"),
       Err(e) => {
@@ -189,7 +188,7 @@ mod prewarm {
       function_version: "test".to_string(),
       cpu: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
@@ -203,7 +202,7 @@ mod prewarm {
       function_version: "0.1.1".to_string(),
       cpu: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
@@ -233,7 +232,7 @@ mod get_container {
       function_version: "0.1.1".to_string(),
       cpu: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
@@ -252,7 +251,7 @@ mod get_container {
       function_version: "0.1.1".to_string(),
       cpu: 1,
       memory: 256,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
@@ -261,8 +260,8 @@ mod get_container {
 
     let c2 = cm.acquire_container(&fqdn).await; //.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
     match c2 {
-    Ok(_c2) => print!("should have gotten an error instead of something"),
-    Err(_c2) => {},
+      Ok(_c2) => print!("should have gotten an error instead of something"),
+      Err(_c2) => {},
     }
   }
 
@@ -274,7 +273,7 @@ mod get_container {
       function_version: "0.1.1".to_string(),
       cpu: 1,
       memory: 256,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
@@ -286,7 +285,7 @@ mod get_container {
       .send()
       .await.unwrap();
       assert_eq!(result.status(), 200);
-    }
+  }
 }
 
 #[cfg(test)]
@@ -302,7 +301,7 @@ mod remove_container {
       function_version: "0.1.1".to_string(),
       cpu: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
