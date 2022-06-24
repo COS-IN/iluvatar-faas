@@ -136,7 +136,7 @@ use std::time::Duration;
                   panic!("Async invocation check after check: {:?}", result);
                 } else if result.json_result == "{ 'Status': 'Invocation not completed' }" {
                   // keep waiting on invocation
-                  tokio::time::sleep(Duration::from_millis(100));
+                  tokio::time::sleep(Duration::from_millis(100)).await;
                   count += 1;
                   if count > 100 {
                     panic!("Waited too long for invocation result; cookie: {}; response: {:?}", cookie, result);
@@ -193,7 +193,7 @@ use std::time::Duration;
                   panic!("Async invocation check after check: {:?}", result);
                 } else if result.json_result == "{ 'Status': 'Invocation not completed' }" {
                   // keep waiting on invocation
-                  tokio::time::sleep(Duration::from_millis(100));
+                  tokio::time::sleep(Duration::from_millis(100)).await;
                   count += 1;
                   if count > 100 {
                     panic!("Waited too long for invocation result; cookie: {}; response: {:?}", cookie, result);

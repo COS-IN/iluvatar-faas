@@ -206,7 +206,7 @@ impl ContainerManager {
         Ok(_) => {},
         Err(e) => {
           error!("Failed to wait for container startup because {}", e);
-          self.cont_lifecycle.remove_container(Arc::new(cont), "default").await?;
+          self.cont_lifecycle.remove_container(&cont.container_id, &cont.namespace, "default").await?;
           let mut locked = self.used_mem_mb.lock();
           *locked -= reg.memory;
           anyhow::bail!(ContainerStartupError{message:format!("Failed to wait for container startup because {}", e)});
@@ -368,7 +368,7 @@ impl ContainerManager {
             let mut locked = self.used_mem_mb.lock();
             *locked -= dropped_cont.function.memory;
           }
-          self.cont_lifecycle.remove_container(container, "default").await?;
+          self.cont_lifecycle.remove_container(&container.container_id, &container.namespace, "default").await?;
           return Ok(());
         } else {
           anyhow::bail!("Was unable to find container {} to remove it", container.container_id);

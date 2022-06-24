@@ -27,6 +27,7 @@ use prost_types::Any;
 use std::process::Command;
 use crate::containers::structs::{Container, Task};
 use crate::network::namespace_manager::NamespaceManager;
+use crate::network::network_structs::Namespace;
 // use std::io::Write;
 
 use super::structs::RegisteredFunction;
@@ -295,7 +296,10 @@ impl ContainerLifecycle {
           };
           Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg, ns))
         },
-        Err(e) => bail_error!("Create task failed with: {}", e),
+        Err(e) => {
+          self.remove_container(&cid, &ns, namespace).await?;
+          bail_error!("Create task failed with: {}", e);
+        },
     }
   }
 
@@ -326,11 +330,11 @@ impl ContainerLifecycle {
   }
 
   /// Removed the specified container in the namespace
-  pub async fn remove_container(&self, container: Arc<Container>, namespace: &str) -> Result<()> {
+  pub async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, namespace: &str) -> Result<()> {
     let mut client = TasksClient::new(self.channel());
 
     let req = KillRequest {
-      container_id: container.container_id.clone(),
+      container_id: container_id.clone(),
       // exec_id: container.task.pid.to_string(),
       exec_id: "".to_string(),
       signal: 9, // SIGKILL
@@ -346,16 +350,16 @@ impl ContainerLifecycle {
         Err(e) => {
           if e.code() == Code::NotFound {
             // task crashed and was removed
-            warn!("Task for container '{}' was missing when it was attempted to be killed", container.container_id);
+            warn!("Task for container '{}' was missing when it was attempted to be killed", container_id);
           } else {
-            bail_error!("Attempt to kill task in container '{}' failed with error: {}", container.container_id, e);
+            bail_error!("Attempt to kill task in container '{}' failed with error: {}", container_id, e);
           }
         },
     }
     debug!("Kill task response {:?}", resp);
 
     let req = DeleteTaskRequest {
-      container_id: container.container_id.clone(),
+      container_id: container_id.clone(),
     };
     let req = with_namespace!(req, namespace);
 
@@ -367,9 +371,9 @@ impl ContainerLifecycle {
       Err(e) => {
         if e.code() == Code::NotFound {
           // task crashed and was removed
-          warn!("Task for container '{}' was missing when it was attempted to be delete", container.container_id);
+          warn!("Task for container '{}' was missing when it was attempted to be delete", container_id);
         } else {
-          bail_error!("Attempt to delete task in container '{}' failed with error: {}", container.container_id, e);
+          bail_error!("Attempt to delete task in container '{}' failed with error: {}", container_id, e);
         }
       },
     }
@@ -378,7 +382,7 @@ impl ContainerLifecycle {
     let mut client = ContainersClient::new(self.channel());
 
     let req = DeleteContainerRequest {
-        id: container.container_id.clone(),
+        id: container_id.clone(),
     };
     let req = with_namespace!(req, namespace);
 
@@ -393,9 +397,9 @@ impl ContainerLifecycle {
     debug!("Delete container response {:?}", _resp);
 
     // TODO: delete / release namespace here
-    self.namespace_manager.return_namespace(container.namespace.clone())?;
+    self.namespace_manager.return_namespace(net_namespace.clone())?;
 
-    debug!("Container: {:?} deleted", container.container_id);
+    debug!("Container: {:?} deleted", container_id);
     Ok(())
   }
 
