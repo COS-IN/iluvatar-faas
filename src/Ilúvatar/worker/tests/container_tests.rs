@@ -5,7 +5,7 @@ use std::sync::Arc;
 use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_worker::{containers::containermanager::ContainerManager, network::namespace_manager::NamespaceManager, config::Configuration, config::WorkerConfig};
 use iluvatar_lib::utils::calculate_fqdn;
-
+use iluvatar_lib::transaction::TEST_TID;
 
 #[cfg(test)]
 mod registration {
@@ -207,7 +207,7 @@ mod prewarm {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+    let c = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
     let _d = match c {
       Some(c) => {
         assert_eq!(c.container.task.running, true);
@@ -222,7 +222,8 @@ mod prewarm {
 #[cfg(test)]
 mod get_container {
   use super::*;
-  use reqwest;
+  use iluvatar_lib::transaction::TEST_TID;
+use reqwest;
 
   #[tokio::test]
   async fn cant_double_acquire() {
@@ -237,9 +238,9 @@ mod get_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c1 = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let c1 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
 
-    let c2 = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten cold-start container");
+    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten cold-start container");
     assert_ne!(c1.container.container_id, c2.container.container_id);
   }
 
@@ -256,9 +257,9 @@ mod get_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let _c1 = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let _c1 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
 
-    let c2 = cm.acquire_container(&fqdn).await; //.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await; //.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
     match c2 {
       Ok(_c2) => print!("should have gotten an error instead of something"),
       Err(_c2) => {},
@@ -278,7 +279,7 @@ mod get_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c2 = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
 
     let client = reqwest::Client::new();
     let result = client.get(&c2.container.base_uri)
@@ -306,12 +307,12 @@ mod remove_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c1 = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let c1 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
     
     let c1_cont = c1.container.clone();
     drop(c1);
 
-    cm.remove_container(c1_cont.clone(), true).await.unwrap_or_else(|e| panic!("remove container failed: {:?}", e));
+    cm.remove_container(c1_cont.clone(), true, &TEST_TID).await.unwrap_or_else(|e| panic!("remove container failed: {:?}", e));
 
     let client = reqwest::Client::new();
     let result = client.get(&c1_cont.base_uri)
@@ -332,7 +333,7 @@ mod remove_container {
     }
     // assert_ne!(result.status(), 111, "unexpected return status for container {:?}", c1_cont);
 
-    let c2 = cm.acquire_container(&fqdn).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
     assert_ne!(c1_cont.container_id, c2.container.container_id, "Second container should have different ID because container is gone");
   }
 

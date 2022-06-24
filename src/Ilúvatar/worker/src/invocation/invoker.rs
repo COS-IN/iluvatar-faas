@@ -1,6 +1,6 @@
 use std::{sync::Arc, collections::HashMap};
 use crate::containers::containermanager::ContainerManager;
-use iluvatar_lib::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn};
+use iluvatar_lib::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::TransactionId};
 use parking_lot::RwLock;
 use std::time::SystemTime;
 use anyhow::Result;
@@ -25,13 +25,13 @@ impl InvokerService {
     }
 
     pub async fn invoke(&self, request: &InvokeRequest) -> Result<(String, u64)> {
-      InvokerService::invoke_internal(&request.function_name, &request.function_version, &request.json_args, &self.cont_manager).await
+      InvokerService::invoke_internal(&request.function_name, &request.function_version, &request.json_args, &self.cont_manager, &request.transaction_id).await
     }
 
     async fn invoke_internal(function_name: &String, function_version: &String, json_args: &String, 
-      cont_manager: &Arc<ContainerManager>) -> Result<(String, u64)> {
+      cont_manager: &Arc<ContainerManager>, tid: &TransactionId) -> Result<(String, u64)> {
       let fqdn = calculate_fqdn(&function_name, &function_version);
-      match cont_manager.acquire_container(&fqdn).await? {
+      match cont_manager.acquire_container(&fqdn, tid).await? {
         Some(ctr_lock) => 
         {
           let client = reqwest::Client::new();
@@ -71,7 +71,7 @@ impl InvokerService {
       let _handle: tokio::task::JoinHandle<anyhow::Result<()>> = tokio::task::spawn(async move {
         debug!("Launching Async invocation for cookie '{}'", cookie_clone);
         let result = match InvokerService::invoke_internal(&request.function_name, &request.function_version, 
-                  &request.json_args, &containers).await {
+                  &request.json_args, &containers, &request.transaction_id).await {
                     Ok(res) => res,
                     Err(e) => ( format!("{{ 'Error': '{}' }}", e), 0),
                 };

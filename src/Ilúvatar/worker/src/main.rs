@@ -2,6 +2,7 @@ extern crate iluvatar_worker;
 
 use std::sync::Arc;
 use std::time::Duration;
+use iluvatar_lib::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker::config::Configuration;
 use iluvatar_worker::containers::containermanager::ContainerManager;
 use iluvatar_worker::iluvatar_worker::IluvatarWorkerImpl;
@@ -14,13 +15,14 @@ use iluvatar_worker::invocation::invoker::InvokerService;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   iluvatar_lib::utils::ensure_temp_dir()?;
+  let tid: &TransactionId = &STARTUP_TID;
 
   let server_config = Configuration::boxed(None).unwrap();
-  let _logger = iluvatar_worker::logging::make_logger(&server_config);
-  debug!("loaded configuration = {:?}", server_config);
+  let _logger = iluvatar_worker::logging::make_logger(&server_config, tid);
+  debug!("[{}] loaded configuration = {:?}", tid, server_config);
 
-  let netm = NamespaceManager::boxed(server_config.clone());
-  netm.ensure_bridge()?;
+  let netm = NamespaceManager::boxed(server_config.clone(), tid);
+  netm.ensure_bridge(tid)?;
 
   let container_man = ContainerManager::boxed(server_config.clone(), netm).await?;
   let invoker = Arc::new(InvokerService::new(container_man.clone()));

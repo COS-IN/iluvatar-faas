@@ -4,6 +4,7 @@ use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
 use client::tonic::Code;
 use guid_create::GUID;
+use iluvatar_lib::transaction::TransactionId;
 use iluvatar_lib::utils::{Port, temp_file};
 use log::{debug, warn, info};
 use iluvatar_lib::bail_error;
@@ -130,17 +131,17 @@ impl ContainerLifecycle {
   }
   
   /// Read through an image's digest to find it's snapshot base
-  pub async fn search_image_digest(&self, image: &String, namespace: &str) -> Result<String> {
+  pub async fn search_image_digest(&self, image: &String, namespace: &str, tid: &TransactionId) -> Result<String> {
     // Step 1. get image digest
     let get_image_req = GetImageRequest { name: image.into() };
     let mut cli = ImagesClient::new(self.channel());
     let rsp = match cli.get(with_namespace!(get_image_req, namespace)).await {
         Ok(rsp) => rsp.into_inner(),
         Err(e) => {
-          bail_error!("Failed to prepare snapshot and load mounts: {:?}", e);
+          bail_error!("[{}] Failed to prepare snapshot and load mounts: {:?}", tid, e);
         },
     };
-    debug!("image resp = {:?}", rsp);
+    debug!("[{}] image resp = {:?}", tid, rsp);
     let (image_digest, media_type) = if let Some(image) = rsp.image {
       image.target
             .ok_or_else(|| anyhow::anyhow!("Could not find image digest"))
@@ -149,7 +150,7 @@ impl ContainerLifecycle {
       anyhow::bail!("Could not find image")
     };
   
-    debug!("got image {} info {:?}", image, image_digest);
+    debug!("[{}] got image {} info {:?}", tid, image, image_digest);
   
     // Step 2. get image content manifests
     let content = self.read_content(namespace, image_digest).await?;
@@ -158,9 +159,9 @@ impl ContainerLifecycle {
       "application/vnd.docker.distribution.manifest.list.v2+json" => {
         let config_index: ImageIndex = match serde_json::from_slice(&content) {
             Ok(s) => s,
-            Err(e) => bail_error!("JSON error getting ImageIndex: {}", e),
+            Err(e) => bail_error!("[{}] JSON error getting ImageIndex: {}", tid, e),
         };
-        debug!("config ImageIndex = {:?}", config_index);
+        debug!("[{}] config ImageIndex = {:?}", tid, config_index);
       
         let manifest_item = config_index
               .manifests()
@@ -171,17 +172,17 @@ impl ContainerLifecycle {
               })
               .ok_or_else(|| anyhow::anyhow!("fail to load specific manifest"))?.digest().to_owned();
         
-        debug!("Acquired manifest item: {}", manifest_item);
+        debug!("[{}] Acquired manifest item: {}", tid, manifest_item);
         // Step 3. load image manifest from specific platform filter
         let layer_item: ImageManifest = match serde_json::from_slice(&self.read_content(namespace, manifest_item).await?) {
             Ok(s) => s,
-            Err(e) => bail_error!("JSON error getting ImageManifest: {}", e),
+            Err(e) => bail_error!("[{}] JSON error getting ImageManifest: {}", tid, e),
         };
         layer_item.config().to_owned()
      },
       "application/vnd.docker.distribution.manifest.v2+json" => {
         let config_index: ImageManifest = serde_json::from_slice(&content)?;
-        debug!("config ImageManifest = {:?}", config_index);
+        debug!("[{}] config ImageManifest = {:?}", tid, config_index);
         config_index.config().to_owned()  
       }
       _ => anyhow::bail!("Don't know how to handle unknown image media type '{}'", media_type)
@@ -191,10 +192,10 @@ impl ContainerLifecycle {
     let config: ImageConfiguration = match 
         serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_owned()).await?) {
           Ok(s) => s,
-          Err(e) => bail_error!("JSON error getting ImageConfiguration: {}", e),
+          Err(e) => bail_error!("[{}] JSON error getting ImageConfiguration: {}", tid, e),
       };
   
-    debug!("Loaded ImageConfiguration: {:?}", config);
+    debug!("[{}] Loaded ImageConfiguration: {:?}", tid, config);
 
     // Step 6. calculate finalize digest
     let mut iter = config.rootfs().diff_ids().iter();
@@ -207,12 +208,12 @@ impl ContainerLifecycle {
         let sha = hex::encode(hasher.finalize());
         prev_digest = format!("sha256:{}", sha)
     }
-    debug!("load {} diff digest {}", image, prev_digest);
+    debug!("[{}] load {} diff digest {}", tid, image, prev_digest);
     Ok(prev_digest)
   }
   
   /// get the mount points for a container's (id) snapshot base
-  pub async fn load_mounts(&self, id: &str, snapshot_base: &String) -> Result<Vec<containerd_client::types::Mount>> {
+  pub async fn load_mounts(&self, id: &str, snapshot_base: &String, tid: &TransactionId) -> Result<Vec<containerd_client::types::Mount>> {
     let view_snapshot_req = PrepareSnapshotRequest {
         // TODO: be picky about snapshotter?
         // https://github.com/containerd/containerd/tree/main/docs/snapshotters
@@ -227,20 +228,21 @@ impl ContainerLifecycle {
         .await;
     if let Ok(rsp) = rsp {
       let rsp = rsp.into_inner();
-      debug!("got mounts {} {}", id, rsp.mounts.len());
+      debug!("[{}] got mounts {} {}", tid, id, rsp.mounts.len());
       Ok(rsp.mounts)
     } else {
-      bail_error!("Failed to prepare snapshot and load mounts: {:?}", rsp);
+      bail_error!("[{}] Failed to prepare snapshot and load mounts: {:?}", tid, rsp);
     }
   }
 
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>) -> Result<Container> {
+  pub async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     let port = 8080;
 
     let cid = format!("{}-{}", fqdn, GUID::rand());
-    let ns = self.namespace_manager.get_namespace()?;
+    let ns = self.namespace_manager.get_namespace(tid)?;
+    debug!("[{}] Assigning namespace {} to container {}", tid, ns.name, cid);
 
     let address = &ns.namespace.ips[0].address;
 
@@ -272,13 +274,13 @@ impl ContainerLifecycle {
         .await {
             Ok(resp) => resp,
             Err(e) => {
-              bail_error!("Containerd failed to create container with error: {}", e);
+              bail_error!("[{}] Containerd failed to create container with error: {}", tid, e);
             },
         };
 
-    debug!("Container: created {:?}", resp);
+    debug!("[{}] Container: created {:?}", tid, resp);
 
-    let mounts = self.load_mounts(&cid, &reg.snapshot_base).await?;
+    let mounts = self.load_mounts(&cid, &reg.snapshot_base, tid).await?;
 
     let req = CreateTaskRequest {
         container_id: cid.clone(),
@@ -296,7 +298,7 @@ impl ContainerLifecycle {
     let mut client = TasksClient::new(self.channel());
     match client.create(req).await {
         Ok(t) => {
-          debug!("Task: created {:?}", t);
+          debug!("[{}] Task: created {:?}", tid, t);
           let task = Task {
             pid: t.into_inner().pid,
             container_id: None,
@@ -305,8 +307,8 @@ impl ContainerLifecycle {
           Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg, ns))
         },
         Err(e) => {
-          self.remove_container(&cid, &ns, namespace).await?;
-          bail_error!("Create task failed with: {}", e);
+          self.remove_container(&cid, &ns, namespace, tid).await?;
+          bail_error!("[{}] Create task failed with: {}", tid, e);
         },
     }
   }
@@ -316,9 +318,9 @@ impl ContainerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>) -> Result<Container> {
-    info!("Creating container from image '{}', in namespace '{}'", image_name, namespace);
-    let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg).await?;
+  pub async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+    info!("[{}] Creating container from image '{}', in namespace '{}'", tid, image_name, namespace);
+    let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
     let mut client = TasksClient::new(self.channel());
   
     let req = StartRequest {
@@ -333,12 +335,12 @@ impl ContainerLifecycle {
           container.task.running = true;
           Ok(container)
         },
-        Err(e) => bail_error!("Starting task failed with {}", e),
+        Err(e) => bail_error!("[{}] Starting task failed with {}", tid, e),
     }
   }
 
   /// Removed the specified container in the namespace
-  pub async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, namespace: &str) -> Result<()> {
+  pub async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
     let mut client = TasksClient::new(self.channel());
 
     let req = KillRequest {
@@ -348,7 +350,7 @@ impl ContainerLifecycle {
       signal: 9, // SIGKILL
       all: true,
     };
-    let req = with_namespace!(req, namespace);
+    let req = with_namespace!(req, ctd_namespace);
 
     let resp = client
         .kill(req)
@@ -358,18 +360,18 @@ impl ContainerLifecycle {
         Err(e) => {
           if e.code() == Code::NotFound {
             // task crashed and was removed
-            warn!("Task for container '{}' was missing when it was attempted to be killed", container_id);
+            warn!("[{}] Task for container '{}' was missing when it was attempted to be killed", tid, container_id);
           } else {
-            bail_error!("Attempt to kill task in container '{}' failed with error: {}", container_id, e);
+            bail_error!("[{}] Attempt to kill task in container '{}' failed with error: {}", tid, container_id, e);
           }
         },
     };
-    debug!("Kill task response {:?}", resp);
+    debug!("[{}] Kill task response {:?}", tid, resp);
 
     let req = DeleteTaskRequest {
       container_id: container_id.clone(),
     };
-    let req = with_namespace!(req, namespace);
+    let req = with_namespace!(req, ctd_namespace);
 
     let resp = client
         .delete(req)
@@ -379,34 +381,34 @@ impl ContainerLifecycle {
       Err(e) => {
         match e.code() {
                       // task crashed and was removed
-          Code::NotFound => warn!("Task for container '{}' was missing when it was attempted to be delete", container_id),
-          _ => bail_error!("Attempt to delete task in container '{}' failed with error: {}", container_id, e),
+          Code::NotFound => warn!("[{}] Task for container '{}' was missing when it was attempted to be delete. Usually the process crashed", tid, container_id),
+          _ => bail_error!("[{}] Attempt to delete task in container '{}' failed with error: {}", tid, container_id, e),
         }
       },
     }
-    debug!("Delete task response {:?}", resp);
+    debug!("[{}] Delete task response {:?}", tid, resp);
 
     let mut client = ContainersClient::new(self.channel());
 
     let req = DeleteContainerRequest {
         id: container_id.clone(),
     };
-    let req = with_namespace!(req, namespace);
+    let req = with_namespace!(req, ctd_namespace);
 
     let _resp = match client
         .delete(req)
         .await {
             Ok(resp) => resp,
             Err(e) => {
-              bail_error!("Delete container failed with error {}", e);
+              bail_error!("[{}] Delete container failed with error {}", tid, e);
             },
         };
-    debug!("Delete container response {:?}", _resp);
+    debug!("[{}] Delete container response {:?}", tid, _resp);
 
     // TODO: delete / release namespace here
-    self.namespace_manager.return_namespace(net_namespace.clone())?;
+    self.namespace_manager.return_namespace(net_namespace.clone(), tid)?;
 
-    debug!("Container: {:?} deleted", container_id);
+    debug!("[{}] Container: {:?} deleted", tid, container_id);
     Ok(())
   }
 

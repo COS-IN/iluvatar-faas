@@ -4,6 +4,7 @@ use crate::network::namespace_manager::NamespaceManager;
 
 use iluvatar_lib::bail_error;
 use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
+use iluvatar_lib::transaction::{TransactionId, CTR_MGR_WORKER_TID};
 use iluvatar_lib::utils::calculate_fqdn;
 use anyhow::{Result, bail};
 use log::*;
@@ -53,14 +54,15 @@ impl ContainerManager {
   }
 
   async fn monitor_pool(config: WorkerConfig, cm: Arc<ContainerManager>) {
+    let tid: &TransactionId = &CTR_MGR_WORKER_TID;
     loop {
-      cm.compute_eviction_priorities();
+      cm.compute_eviction_priorities(tid);
       if config.container_resources.memory_buffer_mb > 0 {
         let reclaim = config.container_resources.memory_buffer_mb - cm.free_memory();
         if reclaim > 0 {
-          match cm.reclaim_memory(reclaim).await {
+          match cm.reclaim_memory(reclaim, tid).await {
             Ok(_) => {},
-            Err(e) => error!("Error while trying to remove containers '{}'", e),
+            Err(e) => error!("[{}] Error while trying to remove containers '{}'", tid, e),
           };
         }
       }
@@ -72,18 +74,18 @@ impl ContainerManager {
     self.config.container_resources.memory_mb - *self.used_mem_mb.lock()
   }
 
-  pub async fn acquire_container<'a>(&'a self, fqdn: &String) -> Result<Option<ContainerLock<'a>>> {
-    let cont = self.try_acquire_container(fqdn);
+  pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &TransactionId) -> Result<Option<ContainerLock<'a>>> {
+    let cont = self.try_acquire_container(fqdn, tid);
     match cont {
       Some(l) => Ok(Some(l)),
       None => {
         // not available container, cold start
-        self.cold_start(fqdn).await
+        self.cold_start(fqdn, tid).await
       },
     } 
   }
 
-  fn try_acquire_container<'a>(&'a self, fqdn: &String) -> Option<ContainerLock<'a>> {
+  fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &TransactionId) -> Option<ContainerLock<'a>> {
     let conts = self.active_containers.read();
     let opt = conts.get(fqdn);
     match opt {
@@ -104,14 +106,14 @@ impl ContainerManager {
       },
       None => {
         // 'should' not get here
-        error!("fqdn '{}' has not been registered", fqdn);
+        error!("[{}] fqdn '{}' has not been registered", tid, fqdn);
         None
       },
     }
   }
 
-  async fn cold_start<'a>(&'a self, fqdn: &String) -> Result<Option<ContainerLock<'a>>> {
-    let container = self.launch_container(fqdn).await?;
+  async fn cold_start<'a>(&'a self, fqdn: &String, tid: &TransactionId) -> Result<Option<ContainerLock<'a>>> {
+    let container = self.launch_container(fqdn, tid).await?;
     {
       // claim this for ourselves before it touches the pool
       let mut m = container.mutex.lock();
@@ -145,14 +147,14 @@ impl ContainerManager {
     *m += 1;
   }
 
-  async fn launch_container(&self, fqdn: &String) -> Result<Container> {
+  async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Container> {
     let reg = match self.get_registration(&fqdn) {
       Ok(r) => r,
       Err(_) => {
         anyhow::bail!("Function {} was not registered! Cannot launch a container for it", fqdn);
       },
     };
-    let container = self.launch_container_internal(&reg).await?;
+    let container = self.launch_container_internal(&reg, tid).await?;
     Ok(container)
   }
 
@@ -176,7 +178,7 @@ impl ContainerManager {
     }
   }
 
-  async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>) -> Result<Container> {
+  async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     // TODO: cpu and mem prewarm request overrides registration?
     {
       let mut curr_mem = self.used_mem_mb.lock();
@@ -188,7 +190,7 @@ impl ContainerManager {
       }
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
-    let cont = self.cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg).await;
+    let cont = self.cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, tid).await;
     let cont = match cont {
         Ok(cont) => {
           cont
@@ -200,20 +202,20 @@ impl ContainerManager {
         },
     };
 
-    match cont.wait_startup(self.config.container_resources.startup_timeout_ms) {
+    match cont.wait_startup(self.config.container_resources.startup_timeout_ms, tid) {
         Ok(_) => (),
         Err(e) => {
           {
             let mut locked = self.used_mem_mb.lock();
             *locked -= reg.memory;
           }
-          match self.cont_lifecycle.remove_container(&cont.container_id, &cont.namespace, "default").await {
+          match self.cont_lifecycle.remove_container(&cont.container_id, &cont.namespace, "default", tid).await {
             Ok(_) => { return Err(e); },
             Err(inner_e) => anyhow::bail!("Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'", e, inner_e),
           };
         },
     };
-    info!("container '{}' with image '{}' was launched", cont.container_id, reg.image_name);
+    info!("[{}] container '{}' with image '{}' was launched", tid, cont.container_id, reg.image_name);
     Ok(cont)
   }
 
@@ -221,14 +223,14 @@ impl ContainerManager {
   /// 
   /// Does a best effort to ensure a container is launched
   /// If various known errors happen, it will re-try to start it
-  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>) -> Result<Container> {
-    match self.try_launch_container(&reg).await {
+  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+    match self.try_launch_container(&reg, tid).await {
             Ok(c) => Ok(c),
             Err(cause) => 
               match cause.downcast_ref::<InsufficientMemoryError>() {
                 Some(mem) => {
-                  self.reclaim_memory(mem.needed).await?;
-                  self.try_launch_container(&reg).await
+                  self.reclaim_memory(mem.needed, tid).await?;
+                  self.try_launch_container(&reg, tid).await
                 },
                 None => Err(cause),
               },
@@ -245,29 +247,29 @@ impl ContainerManager {
     let reg = match self.get_registration(&fqdn) {
         Ok(r) => r,
         Err(_) => {
-          warn!("function {} was attempted to be prewarmed before registering. Attempting register...", fqdn);
-          match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn).await {
+          warn!("[{}] function {} was attempted to be prewarmed before registering. Attempting register...", request.transaction_id, fqdn);
+          match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn, &request.transaction_id).await {
             Ok(_) => self.get_registration(&fqdn)?,
             Err(sub_e) => {
-              bail_error!("Prewarm of function {} was not registered because it was not registered! Attempted registration failed because '{}'", fqdn, sub_e);
+              bail_error!("[{}] Prewarm of function {} was not registered because it was not registered! Attempted registration failed because '{}'", &request.transaction_id, fqdn, sub_e);
             }
           }
         },
     };
 
-    let container = match self.launch_container_internal(&reg).await {
+    let container = match self.launch_container_internal(&reg, &request.transaction_id).await {
         Ok(c) => Ok(c),
         Err(cause) => 
           match cause.downcast_ref::<InsufficientMemoryError>() {
             Some(mem) => {
-              self.reclaim_memory(mem.needed).await?;
-              self.launch_container_internal(&reg).await
+              self.reclaim_memory(mem.needed, &request.transaction_id).await?;
+              self.launch_container_internal(&reg, &request.transaction_id).await
             },
             None => Err(cause),
           },
     }?;
     self.add_container_to_pool(&fqdn, container)?;
-    info!("function '{}' was successfully prewarmed", fqdn);
+    info!("[{}] function '{}' was successfully prewarmed", &request.transaction_id, fqdn);
     Ok(())
   }
 
@@ -279,7 +281,7 @@ impl ContainerManager {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
 
     self.check_registration(&fqdn)?;
-    return self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpus, request.parallel_invokes, &fqdn).await;
+    return self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpus, request.parallel_invokes, &fqdn, &request.transaction_id).await;
   }
 
   /// Returns the function registration identified by `fqdn` if it exists, an error otherwise
@@ -306,7 +308,7 @@ impl ContainerManager {
     Ok(())
   }
 
-  async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: u32, cpus: u32, parallel_invokes: u32, fqdn: &String) -> Result<()> {
+  async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: u32, cpus: u32, parallel_invokes: u32, fqdn: &String, tid: &TransactionId) -> Result<()> {
     if function_name.len() < 1 {
       anyhow::bail!("Invalid function name");
     }
@@ -327,7 +329,7 @@ impl ContainerManager {
     }
 
     self.cont_lifecycle.ensure_image(&image_name).await?;
-    let snapshot_base = self.cont_lifecycle.search_image_digest(&image_name, "default").await?;
+    let snapshot_base = self.cont_lifecycle.search_image_digest(&image_name, "default", tid).await?;
     let registration = RegisteredFunction {
       function_name: function_name.clone(),
       function_version: function_version.clone(),
@@ -346,11 +348,11 @@ impl ContainerManager {
       let mut conts = self.active_containers.write();
       conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
     }
-    info!("function '{}'; version '{}' was successfully registered", function_name, function_version);
+    info!("[{}] function '{}'; version '{}' was successfully registered", tid, function_name, function_version);
     Ok(())
   }
 
-  pub async fn remove_container(&self, container: Arc<Container>, lock_check: bool) -> Result<()> {
+  pub async fn remove_container(&self, container: Arc<Container>, lock_check: bool, tid: &TransactionId) -> Result<()> {
     if lock_check {
       let mut cont_lock = container.mutex.lock();
       if *cont_lock != container.function.parallel_invokes {
@@ -363,13 +365,14 @@ impl ContainerManager {
       Some(pool) => {
         let (pos, pool_len) = self.find_container_pos(&container, pool.clone());
         if pos < pool_len {
+          info!("[{}] Removing container {}", tid, &container.container_id);
           {
             let mut wlocked_pool = pool.write();
             let dropped_cont = wlocked_pool.remove(pos);
             let mut locked = self.used_mem_mb.lock();
             *locked -= dropped_cont.function.memory;
           }
-          self.cont_lifecycle.remove_container(&container.container_id, &container.namespace, "default").await?;
+          self.cont_lifecycle.remove_container(&container.container_id, &container.namespace, "default", tid).await?;
           return Ok(());
         } else {
           anyhow::bail!("Was unable to find container {} to remove it", container.container_id);
@@ -379,7 +382,7 @@ impl ContainerManager {
     }
   }
 
-  async fn reclaim_memory(&self, amount_mb: u32) -> Result<()> {
+  async fn reclaim_memory(&self, amount_mb: u32, tid: &TransactionId) -> Result<()> {
     if amount_mb <= 0 {
       bail!("Cannot reclaim '{}' amount of memory", amount_mb);
     }
@@ -395,12 +398,12 @@ impl ContainerManager {
       }
     }
     for container in to_remove {
-      self.remove_container(container, false).await?;
+      self.remove_container(container, false, tid).await?;
     }
     Ok(())
   }
 
-  fn compute_eviction_priorities(&self) {
+  fn compute_eviction_priorities(&self, tid: &TransactionId) {
     let mut ordered = Vec::new();
     for (_fqdn, cont_list) in self.active_containers.read().iter() {
       for container in cont_list.read().iter() {
@@ -410,7 +413,7 @@ impl ContainerManager {
     let comparator = match self.config.container_resources.eviction.as_str() {
       "LRU" => ContainerManager::lru_eviction,
       _ => { 
-          error!("Unkonwn eviction algorithm '{}'", self.config.container_resources.eviction);
+          error!("[{}] Unkonwn eviction algorithm '{}'", tid, self.config.container_resources.eviction);
           return;
       }
     };

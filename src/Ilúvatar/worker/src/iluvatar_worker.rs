@@ -1,7 +1,5 @@
 use std::sync::Arc;
-
 use tonic::{Request, Response, Status};
-
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_lib::rpc::*;
 use crate::config::WorkerConfig;
@@ -87,13 +85,15 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     }
 
   async fn invoke_async_check(&self, request: Request<InvokeAsyncLookupRequest>) -> Result<Response<InvokeResponse>, Status> {
-    let resp = self.invoker.invoke_async_check(&request.into_inner().lookup_cookie);
+    let request = request.into_inner();
+    info!("[{}] Handling invoke async check", request.transaction_id);
+    let resp = self.invoker.invoke_async_check(&request.lookup_cookie);
     match resp {
       Ok( resp ) => {
         Ok(Response::new(resp))
       },
       Err(e) => {
-        error!("Failed to check async invocation status '{}'", e);
+        error!("[{}] Failed to check async invocation status '{}'", request.transaction_id, e);
         Ok(Response::new(InvokeResponse {
           json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
           success: false,
@@ -106,6 +106,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();
+      info!("[{}] Handling prewarm request", request.transaction_id);
       let container_id = self.container_manager.prewarm(&request).await;
 
       match container_id {
@@ -117,7 +118,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           Ok(Response::new(resp))    
         },
         Err(e) => {
-          error!("Prewarm failed with error: {}", e);
+          error!("[{}] Prewarm failed with error: {}", request.transaction_id, e);
           let resp = PrewarmResponse {
             success: false,
             message: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
@@ -130,6 +131,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn register(&self,
     request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
       let request = request.into_inner();
+      info!("[{}] Handling register request", request.transaction_id);
 
       let reg_result = self.container_manager.register(&request).await;
 
@@ -142,7 +144,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           Ok(Response::new(reply))        
         },
         Err(msg) => {
-          error!("Register failed with error {}", msg);
+          error!("[{}] Register failed with error {}", request.transaction_id, msg);
           let reply = RegisterResponse {
             success: false,
             function_json_result: format!("{{\"Error\": \"Error during registration of '{}': '{:?}\"}}", request.function_name, msg).into(),

@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::SystemTime, fs};
-use iluvatar_lib::{utils::{Port, temp_file, calculate_invoke_uri, calculate_base_uri}, bail_error};
+use iluvatar_lib::{utils::{Port, temp_file, calculate_invoke_uri, calculate_base_uri}, bail_error, transaction::TransactionId};
 use inotify::{Inotify, WatchMask};
 use parking_lot::RwLock;
 use crate::network::network_structs::Namespace;
@@ -65,8 +65,8 @@ impl Container {
   /// wait_startup
   /// Waits for the startup message for a container to come through
   /// Really the task inside, the web server should write (something) to stdout when it is ready
-  pub fn wait_startup(&self, timout_ms: u64) -> Result<()> {
-    debug!("Waiting for startup of container {}", &self.container_id);
+  pub fn wait_startup(&self, timout_ms: u64, tid: &TransactionId) -> Result<()> {
+    debug!("[{}] Waiting for startup of container {}", tid, &self.container_id);
     let stdout = self.stdout()?;
 
     let start = SystemTime::now();
@@ -86,11 +86,11 @@ impl Container {
           if start.elapsed()?.as_millis() as u64 >= timout_ms {
             let stdout = fs::read_to_string(stdout).context("Failed to read stdout of broken container startup")?;
             let stderr = fs::read_to_string(self.stderr()?).context("Failed to read stderr of broken container startup")?;
-            bail_error!("Timeout while reading inotify events for container {}; stdout: '{}'; stderr '{}'", self.container_id, stdout, stderr);
+            bail_error!("[{}] Timeout while reading inotify events for container {}; stdout: '{}'; stderr '{}'", tid, &self.container_id, stdout, stderr);
           }
           continue;
         },
-        _ => bail_error!("Error while reading inotify events for container {}", self.container_id),
+        _ => bail_error!("[{}] Error while reading inotify events for container {}", &tid, self.container_id),
       }
     }
     Ok(())

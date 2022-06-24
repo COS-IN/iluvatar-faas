@@ -1,4 +1,6 @@
 use flexi_logger::{DeferredNow, Record, TS_DASHES_BLANK_COLONS_DOT_BLANK, Logger, FileSpec, WriteMode, LoggerHandle};
+use iluvatar_lib::transaction::TransactionId;
+use log::debug;
 
 use crate::config::WorkerConfig;
 
@@ -18,7 +20,8 @@ pub fn timed_format(
   )
 }
 
-pub fn make_logger(server_config: &WorkerConfig) -> LoggerHandle {
+pub fn make_logger(server_config: &WorkerConfig, tid: &TransactionId) -> LoggerHandle {
+  debug!("[{}] Creating logger", tid,);
   Logger::try_with_str(server_config.logging.level.as_str()).unwrap()
     .log_to_file(FileSpec::default()
                     .directory(server_config.logging.directory.as_str())
