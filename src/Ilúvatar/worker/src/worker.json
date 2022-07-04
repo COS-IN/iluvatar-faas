@@ -24,10 +24,10 @@
   },
   "networking": {
     "bridge": "IlWorkBr0",
-    "cnitool": "/home/alex/.gopth/bin/cnitool",
+    "cnitool": "/opt/cni/bin/cnitool",
     "cni_plugin_bin": "/opt/cni/bin",
     "cni_name": "il_worker_br",
-    "use_pool": true,
+    "use_pool": false,
     "pool_size": 10,
     "pool_freq_sec": 1
   }

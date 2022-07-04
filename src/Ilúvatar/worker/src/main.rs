@@ -14,7 +14,7 @@ use iluvatar_worker::invocation::invoker::InvokerService;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  iluvatar_lib::utils::ensure_temp_dir()?;
+  iluvatar_lib::utils::file_utils::ensure_temp_dir()?;
   let tid: &TransactionId = &STARTUP_TID;
 
   let server_config = Configuration::boxed(None).unwrap();

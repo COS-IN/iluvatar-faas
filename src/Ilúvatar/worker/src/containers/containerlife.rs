@@ -5,7 +5,7 @@ use client::services::v1::tasks_client::TasksClient;
 use client::tonic::Code;
 use guid_create::GUID;
 use iluvatar_lib::transaction::TransactionId;
-use iluvatar_lib::utils::{Port, temp_file};
+use iluvatar_lib::utils::{port_utils::Port, file_utils::temp_file};
 use log::{debug, warn, info};
 use iluvatar_lib::bail_error;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};

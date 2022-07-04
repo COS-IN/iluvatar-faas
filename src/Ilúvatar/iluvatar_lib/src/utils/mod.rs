@@ -1,7 +1,13 @@
-use std::{net::TcpStream, sync::{Mutex, Arc}};
-use anyhow::Result;
+pub mod file_utils;
+pub mod port_utils;
 
+use crate::utils::port_utils::Port;
+use crate::transaction::TransactionId;
 use crate::bail_error;
+use std::collections::HashMap;
+use std::process::{Command, Output};
+use log::*;
+use anyhow::Result;
 
 /// get the fully qualified domain name for a function from its name and version
 pub fn calculate_fqdn(function_name: &String, function_version: &String) -> String {
@@ -16,60 +22,24 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
   format!("http://{}:{}/", address, port)
 }
 
-pub const TEMP_DIR: &str = "/tmp/ilúvatar_worker";
-
-pub fn temp_file(with_tail: &str, with_extension: &str) -> Result<String> {
-  let ret = format!("{}/{}.{}", TEMP_DIR, with_tail, with_extension);
-  touch(&ret)?;
-  return Ok(ret);
-}
-
-// A simple implementation of `% touch path` (ignores existing files)
-fn touch(path: &String) -> std::io::Result<()> {
-  match std::fs::OpenOptions::new().create(true).write(true).open(path) {
-      Ok(_) => Ok(()),
-      Err(e) => Err(e),
+/// execute_cmd
+///
+/// Executes the specified executable with args and environment
+/// cmd_pth **must** be an absolute path
+pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> {
+  debug!("[{}] executing command '{}' with args '{:?}' and environment '{:?}'", tid, cmd_pth, args, env);
+  if ! std::path::Path::new(&cmd_pth).exists() {
+    bail_error!("[{}] command '{}' does not exists", tid, cmd_pth);
   }
-}
-
-pub fn ensure_temp_dir() -> Result<()> {
-  std::fs::create_dir_all(TEMP_DIR)?;
-  Ok(())
-}
-
-pub type Port = u16;
-
-static MAX_PORT: Port = 65500;
-static START_PORT: Port = 10000;
-lazy_static::lazy_static! {
-  static ref NEXT_PORT_MUTEX: Arc<Mutex<Port>> = Arc::new(Mutex::new(START_PORT));
-}
-
-fn is_port_free(port_num: Port) -> bool {
-  match TcpStream::connect(("0.0.0.0", port_num)) {
-    Ok(_) => true,
-    Err(_) => false,
+  let mut cmd = Command::new(cmd_pth);
+  cmd.args(args);
+  if let Some(env) = env {
+    cmd.envs(env);
   }
-}
-
-/// Get a port number that (should) be valid
-///   could be sniped by somebody else, 
-///   but successive calls to this will not cause that
-pub fn new_port() -> Result<Port> {
-  let mut lock = match NEXT_PORT_MUTEX.lock() {
-    Ok(l) => l,
-    Err(e) => bail_error!("failed to get lock because {}", e),
-  };
-  let mut try_port = *lock;
-  while ! is_port_free(try_port) {
-    try_port += 1;
-    if try_port >= MAX_PORT {
-      try_port = START_PORT;
-    }
-  }
-  let ret = Ok(try_port);
-  *lock = try_port+ 1;
-  return ret;
+  match cmd.output() {
+        Ok(out) => Ok(out),
+        Err(e) => bail_error!("[{}] running command '{}' failed with error '{:?}'", tid, cmd_pth, e)
+      }
 }
 
 
@@ -107,5 +77,4 @@ mod tests {
     let ans = calculate_fqdn(&name.to_string(), &version.to_string());
     assert_eq!(expected, ans);
   }
-  
 }

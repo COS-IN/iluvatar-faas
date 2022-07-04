@@ -29,8 +29,9 @@ pub fn make_logger(server_config: &WorkerConfig, tid: &TransactionId) -> LoggerH
                   )
     .format(timed_format)
     .write_mode(WriteMode::Async)
+    // .write_mode(WriteMode::Direct)
     .create_symlink("iluvitar_worker.log")
-    // .create_symlink(iluvatar_lib::utils::temp_file("iluvitar_worker", "log").unwrap())
+    // .create_symlink(iluvatar_lib::utils::file_utils::temp_file("iluvitar_worker", "log").unwrap())
     .print_message()
     .start().unwrap()
 }

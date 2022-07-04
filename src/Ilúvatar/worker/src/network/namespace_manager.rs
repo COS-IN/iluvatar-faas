@@ -1,10 +1,10 @@
 use crate::network::network_structs::ContdNamespace;
 use crate::{config::WorkerConfig, network::network_structs::Namespace};
 use std::sync::Arc;
-use std::{process::Command, collections::HashMap};
+use std::collections::HashMap;
 use anyhow::Result;
 use iluvatar_lib::transaction::{TransactionId, NAMESPACE_POOL_WORKER_TID};
-use iluvatar_lib::{utils, bail_error};
+use iluvatar_lib::{utils, bail_error, utils::execute_cmd};
 use parking_lot::Mutex;
 use std::env;
 use std::fs::File;
@@ -29,7 +29,7 @@ impl NamespaceManager {
   fn new(config: WorkerConfig) -> NamespaceManager {
     return NamespaceManager {
       config,
-      net_conf_path: utils::TEMP_DIR.to_string(),
+      net_conf_path: utils::file_utils::TEMP_DIR.to_string(),
       pool: Arc::new(Mutex::new(Vec::new())),
     }
   }
@@ -51,12 +51,12 @@ impl NamespaceManager {
   async fn monitor_pool(config: WorkerConfig, nm: Arc<NamespaceManager>) {
     let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
     loop {
-      while nm.pool_size() < config.networking.pool_size {
+      'inner: while nm.pool_size() < config.networking.pool_size {
         let ns = match nm.create_namespace(&GUID::rand().to_string(), tid) {
             Ok(ns) => ns,
             Err(e) => {
               error!("[{}] Failed creating namespace in monitor: {}", tid, e);
-              break;
+              break 'inner;
             },
         };
         match nm.return_namespace(Arc::new(ns), tid) {
@@ -71,7 +71,7 @@ impl NamespaceManager {
   pub fn ensure_bridge(&self, tid: &TransactionId) -> Result<()> {
     info!("[{}] Ensuring network bridge", tid);
 
-    let temp_file = utils::temp_file(&"il_worker_br".to_string(), "json")?;
+    let temp_file = utils::file_utils::temp_file(&"il_worker_br".to_string(), "json")?;
 
     let mut file = File::create(temp_file)?;
     let bridge_json = include_str!("../resources/cni/il_worker_br.json");
@@ -92,53 +92,54 @@ impl NamespaceManager {
 
     let nspth = NamespaceManager::net_namespace(&name);
 
-    if self.bridge_exists(&nspth)? {
+    if self.bridge_exists(&nspth, tid)? {
       debug!("[{}] Bridge already exists, skipping", tid);
       return Ok(());
     }
 
-    let mut cmd = Command::new(self.config.networking.cnitool.clone());
-    cmd.args(["add", &self.config.networking.cni_name.as_str(), &nspth.as_str()])
-            .envs(&env);
-    debug!("[{}] Command to create network bridge: '{:?}'", tid, cmd);
-
-    let out = cmd.output();
-    debug!("[{}] Output from creating network bridge: '{:?}'", tid, out);
-    match out {
-        Ok(output) => {
-          if let Some(status) = output.status.code() {
-            if status == 0 {
-              Ok(())
-            } else {
-              panic!("Failed to create bridge with exit code '{}' and error '{:?}'", status, output)
-            }
+    let output = execute_cmd(&self.config.networking.cnitool, 
+                  &vec!["add", &self.config.networking.cni_name.as_str(), &nspth.as_str()],
+                  Some(&env), tid);
+    debug!("[{}] Output from creating network bridge: '{:?}'", tid, output);
+    match output {
+      Ok(output) => {
+        if let Some(status) = output.status.code() {
+          if status == 0 {
+            Ok(())
           } else {
-            panic!("Failed to create bridge with no exit code and error '{:?}'", output)
+            panic!("[{}] Failed to create bridge with exit code '{}' and error '{:?}'", tid, status, output)
           }
-        },
-        Err(e) => {
-          panic!("Failed to create bridge with error '{:?}'", e)
-        },
+        } else {
+          panic!("[{}] Failed to create bridge with no exit code and error '{:?}'", tid, output)
+        }
+      },
+      Err(e) => {
+        panic!("[{}] Failed to create bridge with error '{:?}'", tid, e)
+      },
     }
   }
 
-  fn bridge_exists(&self, nspth: &String) -> Result<bool> {
+  fn bridge_exists(&self, nspth: &String, tid: &TransactionId) -> Result<bool> {
     let mut env: HashMap<String, String> = env::vars().collect();
     env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
     env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
 
-    let output = Command::new(self.config.networking.cnitool.clone())
-            .args(["check", &self.config.networking.cni_name.as_str(), &nspth.as_str()])
-            .envs(&env)
-            .output()?;
-    if let Some(status) = output.status.code() {
-      if status == 0 {
-        Ok(true)
-      } else {
-        Ok(false)
-      }
-    } else {
-      panic!("Error checking bridge status '{:?}'", output)
+    let output = execute_cmd(&self.config.networking.cnitool, 
+      &vec!["check", &self.config.networking.cni_name.as_str(), &nspth.as_str()],
+      Some(&env), tid);
+    match output {
+        Ok(output) => {
+        if let Some(status) = output.status.code() {
+          if status == 0 {
+            Ok(true)
+          } else {
+            Ok(false)
+          }
+        } else {
+          panic!("[{}] Error checking bridge status '{:?}'", tid, output)
+        }
+      },
+      Err(e) => panic!("[{}] Error checking bridge status '{:?}'", tid, e)
     }
   }
   
@@ -152,9 +153,10 @@ impl NamespaceManager {
   }
   
   fn create_namespace_internal(name: &String, tid: &TransactionId) -> Result<()> {
-    let out = Command::new("ip")
-            .args(["netns", "add", name])
-            .output()?;
+    let out = match execute_cmd("/bin/ip", &vec!["netns", "add", name], None, tid) {
+              Ok(out) => out,
+              Err(e) => bail_error!("[{}] Failed to launch 'ip netns add' command with error '{:?}'", tid, e)
+            };
 
     debug!("[{}] internal create namespace '{}' via ip: '{:?}'", tid, name, out);
     if let Some(status) = out.status.code() {
@@ -164,7 +166,7 @@ impl NamespaceManager {
         bail_error!("[{}] Failed to create internal namespace with exit code '{}' and error '{:?}'", tid, status, out)
       }
     } else {
-      bail_error!("[{}] Failed to create delete with no exit code and error '{:?}'", tid, out)
+      bail_error!("[{}] Failed to create internal namespace with no exit code and error '{:?}'", tid, out)
     }
   }
 
@@ -195,10 +197,9 @@ impl NamespaceManager {
     let nspth = NamespaceManager::net_namespace(name);
     NamespaceManager::create_namespace_internal(&name, tid)?;
 
-    let out = Command::new(self.config.networking.cnitool.clone())
-              .args(["add", &self.config.networking.cni_name.as_str(), &nspth.as_str()])
-              .envs(&env)
-              .output()?;
+    let out = execute_cmd(&self.config.networking.cnitool, 
+                          &vec!["add", &self.config.networking.cni_name.as_str(), &nspth.as_str()],
+                          Some(&env), tid)?;
 
     match serde_json::from_slice(&out.stdout) {
         Ok(mut ns) => {
@@ -242,9 +243,7 @@ impl NamespaceManager {
   }
 
   fn delete_namespace(&self, name: &String, tid: &TransactionId) -> Result<()> {
-    let out = Command::new("ip")
-            .args(["netns", "delete", name])
-            .output()?;
+    let out = execute_cmd("/bin/ip", &vec!["netns", "delete", name], None, tid)?;
 
     debug!("[{}] internal delete namespace '{}' via ip: '{:?}'", tid, name, out);
     if let Some(status) = out.status.code() {
