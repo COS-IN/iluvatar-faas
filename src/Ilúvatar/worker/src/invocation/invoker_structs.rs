@@ -9,6 +9,7 @@ pub struct InvocationResult {
   pub result_json: String,
   pub duration: u64,
   waker: Option<Waker>,
+  pub attempts: u32
 }
 
 pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
@@ -48,6 +49,7 @@ impl QueueFuture {
       duration: 0,
       result_json: "".to_string(),
       waker: None,
+      attempts: 0,
     }));
     let q = QueueFuture {
       result: result.clone(),

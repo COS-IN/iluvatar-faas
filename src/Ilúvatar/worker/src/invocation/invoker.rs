@@ -66,10 +66,16 @@ impl InvokerService {
             Err(e) =>
             {
               error!("[{}] Encountered error trying to run queued invocation '{}'", &item.tid, e);
-              // TODO: give up after a while
               // TODO: insert smartly into queue
-              let mut queue = invoker_svc.invoke_queue.lock();
-              queue.push(item);
+              let mut result = item.result_ptr.lock();
+              if result.attempts > 5 {
+                error!("[{}] Abandoning attempt to run invocation after {} errors", &item.tid, result.attempts);
+              } else {
+                result.attempts += 1;
+                debug!("[{}] re-queueing invocation attempt with {} errors", &item.tid, result.attempts);
+                let mut queue = invoker_svc.invoke_queue.lock();
+                queue.push(item.clone());
+              }
             },
         };
       });
