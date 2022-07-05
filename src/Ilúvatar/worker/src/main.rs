@@ -1,6 +1,5 @@
 extern crate iluvatar_worker;
 
-use std::sync::Arc;
 use std::time::Duration;
 use iluvatar_lib::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker::config::Configuration;
@@ -25,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   netm.ensure_bridge(tid)?;
 
   let container_man = ContainerManager::boxed(server_config.clone(), netm).await?;
-  let invoker = Arc::new(InvokerService::new(container_man.clone()));
+  let invoker = InvokerService::boxed(container_man.clone(), tid);
 
   let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker);
 

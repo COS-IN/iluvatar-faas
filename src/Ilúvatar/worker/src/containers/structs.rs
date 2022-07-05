@@ -135,21 +135,23 @@ pub struct RegisteredFunction {
 #[allow(unused)]
 pub struct ContainerLock<'a> {
   pub container: Arc<Container>,
-  pub container_mrg: &'a ContainerManager,
+  container_mrg: &'a ContainerManager,
+  transaction_id: &'a TransactionId,
 }
 
 impl<'a> ContainerLock<'a> {
-  pub fn new(container: Arc<Container>, container_mrg: &'a ContainerManager) -> Self {
+  pub fn new(container: Arc<Container>, container_mrg: &'a ContainerManager, tid: &'a TransactionId) -> Self {
     ContainerLock {
       container,
-      container_mrg
+      container_mrg,
+      transaction_id: tid
     }
   }
 }
 
 impl<'a> Drop for ContainerLock<'a> {
   fn drop(&mut self) {
-    debug!("Dropping container lock for '{}'!", self.container.container_id);
+    debug!("[{}] Dropping container lock for '{}'!", self.transaction_id, self.container.container_id);
     self.container_mrg.return_container(&self.container);
   }
 }

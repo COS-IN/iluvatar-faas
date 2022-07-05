@@ -42,7 +42,8 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn invoke(&self,
     request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
       let request = request.into_inner();
-      let resp = self.invoker.invoke(&request).await;
+      info!("[{}] Handling invocation request", request.transaction_id);
+      let resp = self.invoker.invoke(request).await;
 
       match resp {
         Ok( (json, dur) ) => {
@@ -66,7 +67,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
 
   async fn invoke_async(&self,
     request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
-      let resp = self.invoker.invoke_async(Arc::new(request.into_inner()));
+      let resp = self.invoker.invoke_async(request.into_inner());
 
       match resp {
         Ok( cookie ) => {

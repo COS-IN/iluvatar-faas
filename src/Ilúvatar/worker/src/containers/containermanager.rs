@@ -78,7 +78,11 @@ impl ContainerManager {
     self.config.container_resources.cores - *self.running_funcs.lock()
   }
 
-  pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &TransactionId) -> Result<Option<ContainerLock<'a>>> {
+  /// acquire_container
+  /// get a lock on a container for the specified function
+  /// will start a function if one is not available
+  /// Can return a custom InsufficientCoresError if an invocation cannot be started now
+  pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<Option<ContainerLock<'a>>> {
     let cont = self.try_acquire_container(fqdn, tid);
     let cont = match cont {
       Some(l) => Ok(Some(l)),
@@ -89,10 +93,11 @@ impl ContainerManager {
     };
     match cont {
         Ok(cont) =>  {
-          let mut lock = self.running_funcs.lock();
-          if self.config.container_resources.cores > 0 && *lock > self.config.container_resources.cores {
-            *lock -= 1;
+          let mut running_funcs = self.running_funcs.lock();
+          if self.config.container_resources.cores > 0 && *running_funcs < self.config.container_resources.cores {
+            *running_funcs += 1;
           } else {
+            debug!("[{}] Not enough available cores to run something right now", tid);
             anyhow::bail!(InsufficientCoresError{})
           }
           Ok(cont)
@@ -101,7 +106,7 @@ impl ContainerManager {
     }
   }
 
-  fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &TransactionId) -> Option<ContainerLock<'a>> {
+  fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     let conts = self.active_containers.read();
     let opt = conts.get(fqdn);
     match opt {
@@ -109,8 +114,9 @@ impl ContainerManager {
         let pool = pool.read();
         if pool.len() > 0 {
           for container in pool.iter() {
-            match self.try_lock_container(container) {
+            match self.try_lock_container(container, tid) {
               Some(c) => {
+                debug!("[{}] Container '{}' acquired", tid, c.container.container_id);
                 c.container.touch();
                 return Some(c)
               },
@@ -128,7 +134,7 @@ impl ContainerManager {
     }
   }
 
-  async fn cold_start<'a>(&'a self, fqdn: &String, tid: &TransactionId) -> Result<Option<ContainerLock<'a>>> {
+  async fn cold_start<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<Option<ContainerLock<'a>>> {
     let container = self.launch_container(fqdn, tid).await?;
     {
       // claim this for ourselves before it touches the pool
@@ -136,22 +142,16 @@ impl ContainerManager {
       *m -= 1;
     }
     let container = self.add_container_to_pool(fqdn, container)?;
-    Ok(Some(ContainerLock {
-      container: container.clone(),
-      container_mrg: self,
-    }))
+    Ok(Some(ContainerLock::new(container.clone(), self, tid)))
   }
 
-  fn try_lock_container(&self, container: &Arc<Container>) -> Option<ContainerLock> {
+  fn try_lock_container<'a>(&'a self, container: &Arc<Container>, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     unsafe {
       if *container.mutex.data_ptr() > 0 {
         let mut m = container.mutex.lock();
         if *m > 0 {
           *m -= 1;
-          return Some(ContainerLock {
-            container: container.clone(),
-            container_mrg: self,
-          });
+          return Some(ContainerLock::new(container.clone(), self, tid));
         }
       }
     }
@@ -161,8 +161,9 @@ impl ContainerManager {
   pub fn return_container(&self, container: &Arc<Container>) {
     let mut m = container.mutex.lock();
     *m += 1;
-    if self.config.container_resources.cores > 0 {
-      *self.running_funcs.lock() -= 1;
+    let mut running_funcs = self.running_funcs.lock();
+    if self.config.container_resources.cores > 0 && *running_funcs >= self.config.container_resources.cores {
+      *running_funcs -= 1;
     }
   }
 
@@ -203,18 +204,10 @@ impl ContainerManager {
       let mut curr_mem = self.used_mem_mb.lock();
       if *curr_mem + reg.memory > self.config.container_resources.memory_mb {
         let avail = self.config.container_resources.memory_mb-*curr_mem;
+        debug!("[{}] Can't launch container due to insufficient memory. needed: {}; used: {}; available: {}", tid, reg.memory-avail, *curr_mem, avail);
         anyhow::bail!(InsufficientMemoryError{ needed: reg.memory-avail, used: *curr_mem, available: avail });
       } else {
         *curr_mem += reg.memory;
-      }
-    }
-    {
-      let mut running = self.running_funcs.lock();
-      if self.config.container_resources.cores > 0 && *running >= self.config.container_resources.cores {
-        anyhow::bail!(InsufficientCoresError{});
-      }
-      else {
-        *running += 1;
       }
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
