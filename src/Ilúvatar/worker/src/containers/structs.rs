@@ -171,6 +171,19 @@ impl std::error::Error for InsufficientMemoryError {
 }
 
 #[derive(Debug)]
+pub struct InsufficientCoresError {
+}
+impl std::fmt::Display for InsufficientCoresError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    write!(f, "No available cores to service container")?;
+    Ok(())
+  }
+}
+impl std::error::Error for InsufficientCoresError {
+
+}
+
+#[derive(Debug)]
 pub struct ContainerStartupError {
   pub message: String
 }

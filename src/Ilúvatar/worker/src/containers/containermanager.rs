@@ -1,5 +1,5 @@
 use crate::containers::containerlife::ContainerLifecycle;
-use crate::containers::structs::InsufficientMemoryError;
+use crate::containers::structs::{InsufficientMemoryError, InsufficientCoresError};
 use crate::network::namespace_manager::NamespaceManager;
 
 use iluvatar_lib::bail_error;
@@ -24,13 +24,12 @@ pub struct ContainerManager {
   active_containers: Arc<RwLock<ContainerPool>>,
   config: WorkerConfig,
   used_mem_mb: Arc<Mutex<u32>>,
+  running_funcs: Arc<Mutex<u32>>,
   cont_lifecycle: Arc<ContainerLifecycle>,
   prioritized_list: ContainerList,
 }
 
 impl ContainerManager {
-  // TODO: implement CPU restrictions
-
   pub async fn new(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> Result<ContainerManager> {
     let mut lifecycle = ContainerLifecycle::new(ns_man.clone());
     lifecycle.connect().await?;
@@ -39,6 +38,7 @@ impl ContainerManager {
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       config,
       used_mem_mb: Arc::new(Mutex::new(0)),
+      running_funcs: Arc::new(Mutex::new(0)),
       cont_lifecycle: Arc::new(lifecycle),
       prioritized_list: Arc::new(RwLock::new(Vec::new())),
     })
@@ -74,15 +74,31 @@ impl ContainerManager {
     self.config.container_resources.memory_mb - *self.used_mem_mb.lock()
   }
 
+  pub fn free_cores(&self) -> u32 {
+    self.config.container_resources.cores - *self.running_funcs.lock()
+  }
+
   pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &TransactionId) -> Result<Option<ContainerLock<'a>>> {
     let cont = self.try_acquire_container(fqdn, tid);
-    match cont {
+    let cont = match cont {
       Some(l) => Ok(Some(l)),
       None => {
         // not available container, cold start
         self.cold_start(fqdn, tid).await
       },
-    } 
+    };
+    match cont {
+        Ok(cont) =>  {
+          let mut lock = self.running_funcs.lock();
+          if self.config.container_resources.cores > 0 && *lock > self.config.container_resources.cores {
+            *lock -= 1;
+          } else {
+            anyhow::bail!(InsufficientCoresError{})
+          }
+          Ok(cont)
+        },
+        Err(e) => Err(e),
+    }
   }
 
   fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &TransactionId) -> Option<ContainerLock<'a>> {
@@ -145,6 +161,9 @@ impl ContainerManager {
   pub fn return_container(&self, container: &Arc<Container>) {
     let mut m = container.mutex.lock();
     *m += 1;
+    if self.config.container_resources.cores > 0 {
+      *self.running_funcs.lock() -= 1;
+    }
   }
 
   async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Container> {
@@ -184,9 +203,18 @@ impl ContainerManager {
       let mut curr_mem = self.used_mem_mb.lock();
       if *curr_mem + reg.memory > self.config.container_resources.memory_mb {
         let avail = self.config.container_resources.memory_mb-*curr_mem;
-        anyhow::bail!(InsufficientMemoryError{ needed: reg.memory-avail, used: *curr_mem, available: avail});
+        anyhow::bail!(InsufficientMemoryError{ needed: reg.memory-avail, used: *curr_mem, available: avail });
       } else {
         *curr_mem += reg.memory;
+      }
+    }
+    {
+      let mut running = self.running_funcs.lock();
+      if self.config.container_resources.cores > 0 && *running >= self.config.container_resources.cores {
+        anyhow::bail!(InsufficientCoresError{});
+      }
+      else {
+        *running += 1;
       }
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
@@ -196,8 +224,7 @@ impl ContainerManager {
           cont
         },
         Err(e) => {
-          let mut locked = self.used_mem_mb.lock();
-          *locked -= reg.memory;
+          *self.used_mem_mb.lock() -= reg.memory;
           return Err(e);
         },
     };
@@ -206,8 +233,7 @@ impl ContainerManager {
         Ok(_) => (),
         Err(e) => {
           {
-            let mut locked = self.used_mem_mb.lock();
-            *locked -= reg.memory;
+            *self.used_mem_mb.lock() -= reg.memory;
           }
           match self.cont_lifecycle.remove_container(&cont.container_id, &cont.namespace, "default", tid).await {
             Ok(_) => { return Err(e); },
@@ -259,13 +285,13 @@ impl ContainerManager {
 
     let container = match self.launch_container_internal(&reg, &request.transaction_id).await {
         Ok(c) => Ok(c),
-        Err(cause) => 
-          match cause.downcast_ref::<InsufficientMemoryError>() {
-            Some(mem) => {
-              self.reclaim_memory(mem.needed, &request.transaction_id).await?;
+        Err(cause) => {
+            if let Some(mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
+              self.reclaim_memory(mem_err.needed, &request.transaction_id).await?;
               self.launch_container_internal(&reg, &request.transaction_id).await
-            },
-            None => Err(cause),
+            } else {
+              Err(cause)
+            }
           },
     }?;
     self.add_container_to_pool(&fqdn, container)?;
@@ -369,8 +395,7 @@ impl ContainerManager {
           {
             let mut wlocked_pool = pool.write();
             let dropped_cont = wlocked_pool.remove(pos);
-            let mut locked = self.used_mem_mb.lock();
-            *locked -= dropped_cont.function.memory;
+            *self.used_mem_mb.lock() -= dropped_cont.function.memory;
           }
           self.cont_lifecycle.remove_container(&container.container_id, &container.namespace, "default", tid).await?;
           return Ok(());
