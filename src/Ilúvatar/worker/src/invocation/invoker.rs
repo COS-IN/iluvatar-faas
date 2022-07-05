@@ -67,12 +67,15 @@ impl InvokerService {
             {
               error!("[{}] Encountered error trying to run queued invocation '{}'", &item.tid, e);
               // TODO: insert smartly into queue
-              let mut result = item.result_ptr.lock();
-              if result.attempts > 5 {
-                error!("[{}] Abandoning attempt to run invocation after {} errors", &item.tid, result.attempts);
+              let mut result_ptr = item.result_ptr.lock();
+              if result_ptr.attempts > 5 {
+                error!("[{}] Abandoning attempt to run invocation after {} errors", &item.tid, result_ptr.attempts);
+                result_ptr.duration = 0;
+                result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", e);
+                result_ptr.completed = true;
               } else {
-                result.attempts += 1;
-                debug!("[{}] re-queueing invocation attempt with {} errors", &item.tid, result.attempts);
+                result_ptr.attempts += 1;
+                debug!("[{}] re-queueing invocation attempt with {} errors", &item.tid, result_ptr.attempts);
                 let mut queue = invoker_svc.invoke_queue.lock();
                 queue.push(item.clone());
               }
