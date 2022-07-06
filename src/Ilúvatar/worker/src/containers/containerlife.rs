@@ -77,7 +77,7 @@ impl ContainerLifecycle {
 
   /// get the default container spec
   fn spec(&self, host_addr: &str, port: Port, mem_limit_mb: MemSizeMb, cpus: u32, net_ns_name: &String) -> Any {
-    // https://github.com/opencontainers/runtime-spec/blob/main/runtime.md
+    // https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
     let spec = include_str!("../resources/container_spec.json");
     let spec = spec
         .to_string()
@@ -87,6 +87,7 @@ impl ContainerLifecycle {
         .replace("$PORT", &port.to_string())
         .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
+        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
         .replace("\"$CPUSHARES\"", &(cpus*1024).to_string());
         // .replace("$RESOLVCONFPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/resolv.conf"); // ../resources/cni/resolv.conf
         // {

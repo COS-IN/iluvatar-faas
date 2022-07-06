@@ -48,8 +48,19 @@ impl ContainerManager {
   pub async fn boxed(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> Result<Arc<ContainerManager>> {
     let cm = Arc::new(ContainerManager::new(config.clone(), ns_man).await?);
     let cm_clone = cm.clone();
-    let _handle = tokio::spawn(async move {
-      ContainerManager::monitor_pool(config, cm_clone).await;
+    // run on an OS thread here
+    // If this thread crashes, we'll never know and the worker will not have a good time
+    let _handle = std::thread::spawn(move || {
+      let tid: &TransactionId = &CTR_MGR_WORKER_TID;
+      let worker_rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => { 
+          error!("[{}] tokio thread runtime failed to start {}", tid, e);
+          return ();
+        },
+      };
+      debug!("[{}] container manager worker started", tid);
+      worker_rt.block_on(ContainerManager::monitor_pool(config, cm_clone));
     });
     Ok(cm)
   }
@@ -69,7 +80,7 @@ impl ContainerManager {
           };
         }
       }
-      tokio::time::sleep(std::time::Duration::from_secs(config.container_resources.pool_freq_sec)).await;
+      std::thread::sleep(std::time::Duration::from_secs(config.container_resources.pool_freq_sec));
     }
   }
 
@@ -82,17 +93,22 @@ impl ContainerManager {
   }
 
   fn update_memory_usages(&self, tid: &TransactionId) {
+    debug!("[{}] updating container memory usages", tid);
+    let old_total_mem = *self.used_mem_mb.lock();
     for (_fqdn, cont_list) in self.active_containers.read().iter() {
       let read_lock = cont_list.read();
       let mut sum_change = 0;
       for container in read_lock.iter() {
         let old_usage = container.curr_mem_usage();
         let new_usage = container.update_memory_usage_mb(tid);
-        let diff = old_usage - new_usage;
+        let diff = new_usage - old_usage;
+        debug!("[{}] container '{}' new: {}; old: {}; diff:{}", tid, container.container_id, new_usage, old_usage, diff);
         sum_change += diff;
       }
       *self.used_mem_mb.lock() += sum_change;
     }
+    let new_total_mem = *self.used_mem_mb.lock();
+    debug!("[{}] Total container memory usage old: {}; new: {}", tid, old_total_mem, new_total_mem);
   }
 
   /// acquire_container
@@ -439,6 +455,7 @@ impl ContainerManager {
   }
 
   fn compute_eviction_priorities(&self, tid: &TransactionId) {
+    debug!("[{}] Computing eviction priorities", tid);
     let mut ordered = Vec::new();
     for (_fqdn, cont_list) in self.active_containers.read().iter() {
       for container in cont_list.read().iter() {

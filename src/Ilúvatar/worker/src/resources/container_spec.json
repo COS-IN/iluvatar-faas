@@ -158,7 +158,8 @@
             "/proc/sysrq-trigger"
         ],
         "memory": {
-          "limit": "$MEMLIMIT"
+          "limit": "$MEMLIMIT",
+          "swap": "$SWAPLIMIT"
         },
         "cpu": {
           "shares": "$CPUSHARES"
