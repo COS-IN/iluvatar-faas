@@ -11,4 +11,5 @@ lazy_static::lazy_static! {
   pub static ref CTR_MGR_WORKER_TID: TransactionId = "CtrMrgWorker".to_string();
   pub static ref STARTUP_TID: TransactionId = "Startup".to_string();
   pub static ref TEST_TID: TransactionId = "TestTest".to_string();
+  pub static ref INVOKER_QUEUE_WORKER_TID: TransactionId = "InvokerQueue".to_string();
 }

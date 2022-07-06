@@ -1,6 +1,6 @@
 use std::{sync::Arc, collections::HashMap, time::Duration};
 use crate::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
-use iluvatar_lib::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::TransactionId, bail_error};
+use iluvatar_lib::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
 use parking_lot::{RwLock, Mutex};
 use std::time::SystemTime;
 use anyhow::Result;
@@ -31,14 +31,21 @@ impl InvokerService {
       let _handle = InvokerService::start_queue_thread(i.clone(), tid);
       return i;
     }
-
     fn start_queue_thread(invoker_svc: Arc<InvokerService>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
       debug!("[{}] Launching InvokerService queue thread", tid);
       // TODO: smartly manage the queue, not just FIFO?
       // run on an OS thread here
       std::thread::spawn(move || {
-          // TODO: prevent this thread from crashing?
-          let worker_rt = tokio::runtime::Runtime::new().unwrap();
+          let tid: &TransactionId = &INVOKER_QUEUE_WORKER_TID;
+          debug!("[{}] invoker worker started", tid);
+          let worker_rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => { 
+              error!("[{}] tokio thread runtime failed to start {}", tid, e);
+              return ();
+            },
+          };
+          debug!("[{}] invoker worker loop starting", tid);
           loop {
             if InvokerService::has_resources_to_run(&invoker_svc) {
               let mut queue = invoker_svc.invoke_queue.lock();
