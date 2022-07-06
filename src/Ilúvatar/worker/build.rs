@@ -31,12 +31,6 @@ fn copy_folder(folder: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-  let output_path = get_output_path();
   copy_folder(Path::new("resources")).unwrap();
-
-  let input_path = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("src/resources/container_spec.json");
-  let output_path = Path::new(&output_path).join("container_spec.json");
-  std::fs::copy(input_path, output_path).unwrap();
-
   Ok(())
 }
