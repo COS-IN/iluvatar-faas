@@ -1,6 +1,6 @@
 use std::{sync::Arc, collections::HashMap, time::Duration};
 use crate::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
-use iluvatar_lib::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::TransactionId};
+use iluvatar_lib::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::TransactionId, bail_error};
 use parking_lot::{RwLock, Mutex};
 use std::time::SystemTime;
 use anyhow::Result;
@@ -37,8 +37,8 @@ impl InvokerService {
       // TODO: smartly manage the queue, not just FIFO?
       // run on an OS thread here
       std::thread::spawn(move || {
-        // TODO: prevent this thread from crashing?
-        let worker_rt = tokio::runtime::Runtime::new().unwrap();
+          // TODO: prevent this thread from crashing?
+          let worker_rt = tokio::runtime::Runtime::new().unwrap();
           loop {
             if InvokerService::has_resources_to_run(&invoker_svc) {
               let mut queue = invoker_svc.invoke_queue.lock();
@@ -127,15 +127,22 @@ impl InvokerService {
         Ok(ctr_lock) => {
           let client = reqwest::Client::new();
           let start = SystemTime::now();
-          // TODO: handle this result
-          let result = client.post(&ctr_lock.container.invoke_uri)
+          let result = match client.post(&ctr_lock.container.invoke_uri)
             .body(json_args.to_owned())
             .header("Content-Type", "application/json")
             .send()
-            .await?;
-          let duration = start.elapsed()?.as_millis() as u64;
-          // TODO: handle this result
-          let data = result.text().await?;
+            .await {
+                Ok(r) => r,
+                Err(e) => bail_error!("[{}] HTTP error when trying to connect to container '{}'", tid, e),
+            };
+          let duration = match start.elapsed() {
+            Ok(dur) => dur,
+            Err(e) => bail_error!("[{}] timer error recording invocation duration '{}'", tid, e),
+          }.as_millis() as u64;
+          let data = match result.text().await {
+            Ok(r) => r,
+            Err(e) => bail_error!("[{}] Error reading text data from container http response '{}'", tid, e),
+          };
           Ok((data, duration))
         },
         Err(cause) => Err(cause),
