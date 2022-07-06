@@ -58,11 +58,3 @@ ModuleNotFoundError: No module named 'csv'
 ModuleNotFoundError: No module named 'calendar'
 '" }
 ```
-
-## Process not killed by containerd
-
-In `containerlife.remove_container`
-
-```
-'remove container failed: Attempt to delete task in container 'test-0.1.1-CD9D1E38-B93D-65AC-284A-BCC71DC75714' failed with error: status: Unknown, message: "failed to delete task: cannot delete a running process: unknown", details: [], metadata: MetadataMap { headers: {"content-type": "application/grpc"} }
-```

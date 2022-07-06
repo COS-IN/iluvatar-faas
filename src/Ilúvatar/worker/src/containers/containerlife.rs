@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
 use client::tonic::Code;
@@ -339,7 +340,8 @@ impl ContainerLifecycle {
     }
   }
 
-  /// Removed the specified container in the namespace
+  /// remove_container
+  /// Removed the specified container in the containerd namespace
   pub async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
     let mut client = TasksClient::new(self.channel());
 
@@ -368,25 +370,17 @@ impl ContainerLifecycle {
     };
     debug!("[{}] Kill task response {:?}", tid, resp);
 
-    let req = DeleteTaskRequest {
-      container_id: container_id.clone(),
-    };
-    let req = with_namespace!(req, ctd_namespace);
-
-    let resp = client
-        .delete(req)
-        .await;
-    match &resp {
-      Ok(_) => {},
-      Err(e) => {
-        match e.code() {
-                      // task crashed and was removed
-          Code::NotFound => warn!("[{}] Task for container '{}' was missing when it was attempted to be delete. Usually the process crashed", tid, container_id),
-          _ => bail_error!("[{}] Attempt to delete task in container '{}' failed with error: {}", tid, container_id, e),
+    match self.try_delete_task(&mut client, container_id, ctd_namespace, tid).await {
+        Ok(_) => (),
+        Err(_) => {
+          // sleep a little and hope the process has terminated in that time
+          tokio::time::sleep(Duration::from_millis(2)).await;
+          match self.try_delete_task(&mut client, container_id, ctd_namespace, tid).await {
+            Ok(_) => (),
+            Err(e2) => bail_error!("[{}] Deleting task in container '{}' failed with error: {}", tid, container_id, e2),
         }
       },
-    }
-    debug!("[{}] Delete task response {:?}", tid, resp);
+    };
 
     let mut client = ContainersClient::new(self.channel());
 
@@ -405,11 +399,40 @@ impl ContainerLifecycle {
         };
     debug!("[{}] Delete container response {:?}", tid, _resp);
 
-    // TODO: delete / release namespace here
     self.namespace_manager.return_namespace(net_namespace.clone(), tid)?;
 
-    debug!("[{}] Container: {:?} deleted", tid, container_id);
+    info!("[{}] Container: {:?} deleted", tid, container_id);
     Ok(())
+  }
+
+  /// try_delete_task
+  /// Attempts to delete a task
+  /// Sometimes this can fail if the internal process hasn't shut down yet (or wasn't killed at all)
+  async fn try_delete_task(&self, client: &mut TasksClient<Channel>, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+    let req = DeleteTaskRequest {
+      container_id: container_id.clone(),
+    };
+    let req = with_namespace!(req, ctd_namespace);
+
+    let resp = client
+        .delete(req)
+        .await;
+    match &resp {
+      Ok(_) => {
+        debug!("[{}] Delete task response {:?}", tid, resp);
+        Ok(())
+      },
+      Err(e) => {
+        match e.code() {
+          // task crashed and was removed
+          Code::NotFound => {
+            warn!("[{}] Task for container '{}' was missing when it was attempted to be delete. Usually the process crashed", tid, container_id);
+            Ok(())
+          },
+          _ => anyhow::bail!("[{}] Attempt to delete task in container '{}' failed with error: {}", tid, container_id, e),
+        }
+      },
+    }
   }
 
   /// Ensures that the specified image is available on the machine
