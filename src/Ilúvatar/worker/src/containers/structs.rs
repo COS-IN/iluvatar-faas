@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::SystemTime, fs};
-use iluvatar_lib::{utils::{port_utils::Port, file_utils::temp_file, calculate_invoke_uri, calculate_base_uri}, bail_error, transaction::TransactionId};
+use iluvatar_lib::{utils::{port_utils::Port, file_utils::temp_file, calculate_invoke_uri, calculate_base_uri}, bail_error, transaction::TransactionId, types::MemSizeMb};
 use inotify::{Inotify, WatchMask};
 use parking_lot::RwLock;
 use crate::network::network_structs::Namespace;
@@ -28,6 +28,7 @@ pub struct Container {
   last_used: RwLock<SystemTime>,
   pub namespace: Arc<Namespace>,
   invocations: parking_lot::Mutex<u32>,
+  mem_usage: RwLock<MemSizeMb>,
 }
 
 #[allow(unused)]
@@ -49,6 +50,7 @@ impl Container {
       last_used: RwLock::new(SystemTime::now()),
       namespace: ns,
       invocations: parking_lot::Mutex::new(0),
+      mem_usage: RwLock::new(function.memory),
     }
   }
 
@@ -109,6 +111,36 @@ impl Container {
   pub fn invocations(&self) -> u32 {
     *self.invocations.lock()
   }
+
+  pub fn curr_mem_usage(&self) -> MemSizeMb {
+    *self.mem_usage.read()
+  }
+
+  /// update_memory_usage_mb
+  /// Update the current resident memory size of the container
+  pub fn update_memory_usage_mb(&self, tid: &TransactionId) -> MemSizeMb {
+    let contents = match fs::read_to_string(format!("/proc/{}/statm", self.task.pid)) {
+        Ok(c) => c,
+        Err(e) => { 
+          log::warn!("[{}] Error trying to read /proc/<pid>/statm: {}", e, tid);
+          *self.mem_usage.write() = self.function.memory; 
+          return *self.mem_usage.read(); 
+        },
+    };
+    let split: Vec<&str> = contents.split(" ").collect();
+    // https://linux.die.net/man/5/proc
+    // virtual memory resident set size
+    let vmrss = split[1];
+    *self.mem_usage.write() = match vmrss.parse::<MemSizeMb>() {
+      // multiply page size in bytes by number pages, then convert to mb
+      Ok(size_pages) => (size_pages * 4096) / (1024*1024),
+      Err(e) => {
+        log::warn!("[{}] Error trying to parse vmrss of '{}': {}", e, vmrss, tid);
+        self.function.memory
+      },
+    };
+    *self.mem_usage.read()
+  }
 }
 
 #[derive(Debug)]
@@ -125,7 +157,7 @@ pub struct RegisteredFunction {
   pub function_name: String,
   pub function_version: String,
   pub image_name: String,
-  pub memory: u32,
+  pub memory: MemSizeMb,
   pub cpus: u32,
   pub snapshot_base: String,
   pub parallel_invokes: u32,
@@ -158,9 +190,9 @@ impl<'a> Drop for ContainerLock<'a> {
 
 #[derive(Debug)]
 pub struct InsufficientMemoryError {
-  pub needed: u32,
-  pub used: u32,
-  pub available: u32,
+  pub needed: MemSizeMb,
+  pub used: MemSizeMb,
+  pub available: MemSizeMb,
 }
 impl std::fmt::Display for InsufficientMemoryError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

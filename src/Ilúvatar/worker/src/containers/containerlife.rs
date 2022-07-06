@@ -6,6 +6,7 @@ use client::services::v1::tasks_client::TasksClient;
 use client::tonic::Code;
 use guid_create::GUID;
 use iluvatar_lib::transaction::TransactionId;
+use iluvatar_lib::types::MemSizeMb;
 use iluvatar_lib::utils::{port_utils::Port, file_utils::temp_file};
 use log::{debug, warn, info};
 use iluvatar_lib::bail_error;
@@ -75,7 +76,8 @@ impl ContainerLifecycle {
   }
 
   /// get the default container spec
-  fn spec(&self, host_addr: &str, port: Port, mem_limit_mb: u32, cpus: u32, net_ns_name: &String) -> Any {
+  fn spec(&self, host_addr: &str, port: Port, mem_limit_mb: MemSizeMb, cpus: u32, net_ns_name: &String) -> Any {
+    // https://github.com/opencontainers/runtime-spec/blob/main/runtime.md
     let spec = include_str!("../resources/container_spec.json");
     let spec = spec
         .to_string()
@@ -238,7 +240,7 @@ impl ContainerLifecycle {
 
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  pub async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     let port = 8080;
 
     let cid = format!("{}-{}", fqdn, GUID::rand());
@@ -319,7 +321,7 @@ impl ContainerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: u32, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  pub async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     info!("[{}] Creating container from image '{}', in namespace '{}'", tid, image_name, namespace);
     let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
     let mut client = TasksClient::new(self.channel());

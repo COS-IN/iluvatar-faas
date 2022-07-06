@@ -4,6 +4,7 @@ use tonic::transport::Channel;
 use std::error::Error;
 use crate::rpc::iluvatar_worker_client::IluvatarWorkerClient;
 use crate::transaction::TransactionId;
+use crate::types::MemSizeMb;
 use crate::worker_api;
 
 #[allow(unused)]
@@ -51,7 +52,7 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().message)
   }
 
-  async fn invoke(&mut self, function_name: String, version: String, args: String, memory: Option<u32>, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn invoke(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(InvokeRequest {
       function_name: function_name,
       function_version: version,
@@ -66,7 +67,7 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().json_result)
   }
 
-  async fn invoke_async(&mut self, function_name: String, version: String, args: String, memory: Option<u32>, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn invoke_async(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(InvokeAsyncRequest {
       function_name: function_name,
       function_version: version,
@@ -90,7 +91,7 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().json_result)
   }
 
-  async fn prewarm(&mut self, function_name: String, version: String, memory: Option<u32>, cpu: Option<u32>, image: Option<String>, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn prewarm(&mut self, function_name: String, version: String, memory: Option<MemSizeMb>, cpu: Option<u32>, image: Option<String>, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(PrewarmRequest {
       function_name: function_name,
       function_version: version,
@@ -117,7 +118,7 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     }
   }
 
-  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: u32, cpus: u32, parallels: u32, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(RegisterRequest {
       function_name,
       function_version: version,

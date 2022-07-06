@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use iluvatar_lib::types::MemSizeMb;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
@@ -18,19 +19,19 @@ pub struct Configuration {
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 pub struct ContainerResources {
-  pub memory_mb: u32,
+  pub memory_mb: MemSizeMb,
   pub cores: u32,
   pub eviction: String,
   pub startup_timeout_ms: u64,
-  pub memory_buffer_mb: u32,
+  pub memory_buffer_mb: MemSizeMb,
   pub pool_freq_sec: u64,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 pub struct FunctionLimits {
-  pub mem_min_mb: u32,
-  pub mem_max_mb: u32,
+  pub mem_min_mb: MemSizeMb,
+  pub mem_max_mb: MemSizeMb,
   pub cpu_max: u32,
   pub timeout_sec: u64,
 }

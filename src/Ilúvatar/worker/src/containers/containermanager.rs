@@ -5,6 +5,7 @@ use crate::network::namespace_manager::NamespaceManager;
 use iluvatar_lib::bail_error;
 use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_lib::transaction::{TransactionId, CTR_MGR_WORKER_TID};
+use iluvatar_lib::types::MemSizeMb;
 use iluvatar_lib::utils::calculate_fqdn;
 use anyhow::{Result, bail};
 use log::*;
@@ -23,7 +24,7 @@ pub struct ContainerManager {
   registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
   active_containers: Arc<RwLock<ContainerPool>>,
   config: WorkerConfig,
-  used_mem_mb: Arc<Mutex<u32>>,
+  used_mem_mb: Arc<Mutex<MemSizeMb>>,
   running_funcs: Arc<Mutex<u32>>,
   cont_lifecycle: Arc<ContainerLifecycle>,
   prioritized_list: ContainerList,
@@ -56,6 +57,8 @@ impl ContainerManager {
   async fn monitor_pool(config: WorkerConfig, cm: Arc<ContainerManager>) {
     let tid: &TransactionId = &CTR_MGR_WORKER_TID;
     loop {
+      cm.update_memory_usages(tid);
+
       cm.compute_eviction_priorities(tid);
       if config.container_resources.memory_buffer_mb > 0 {
         let reclaim = config.container_resources.memory_buffer_mb - cm.free_memory();
@@ -70,12 +73,26 @@ impl ContainerManager {
     }
   }
 
-  pub fn free_memory(&self) -> u32 {
+  pub fn free_memory(&self) -> MemSizeMb {
     self.config.container_resources.memory_mb - *self.used_mem_mb.lock()
   }
 
   pub fn free_cores(&self) -> u32 {
     self.config.container_resources.cores - *self.running_funcs.lock()
+  }
+
+  fn update_memory_usages(&self, tid: &TransactionId) {
+    for (_fqdn, cont_list) in self.active_containers.read().iter() {
+      let read_lock = cont_list.read();
+      let mut sum_change = 0;
+      for container in read_lock.iter() {
+        let old_usage = container.curr_mem_usage();
+        let new_usage = container.update_memory_usage_mb(tid);
+        let diff = old_usage - new_usage;
+        sum_change += diff;
+      }
+      *self.used_mem_mb.lock() += sum_change;
+    }
   }
 
   /// acquire_container
@@ -327,7 +344,7 @@ impl ContainerManager {
     Ok(())
   }
 
-  async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: u32, cpus: u32, parallel_invokes: u32, fqdn: &String, tid: &TransactionId) -> Result<()> {
+  async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, fqdn: &String, tid: &TransactionId) -> Result<()> {
     if function_name.len() < 1 {
       anyhow::bail!("Invalid function name");
     }
@@ -388,7 +405,7 @@ impl ContainerManager {
           {
             let mut wlocked_pool = pool.write();
             let dropped_cont = wlocked_pool.remove(pos);
-            *self.used_mem_mb.lock() -= dropped_cont.function.memory;
+            *self.used_mem_mb.lock() -= dropped_cont.curr_mem_usage();
           }
           self.cont_lifecycle.remove_container(&container.container_id, &container.namespace, "default", tid).await?;
           return Ok(());
@@ -400,16 +417,16 @@ impl ContainerManager {
     }
   }
 
-  async fn reclaim_memory(&self, amount_mb: u32, tid: &TransactionId) -> Result<()> {
+  async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
     if amount_mb <= 0 {
       bail!("Cannot reclaim '{}' amount of memory", amount_mb);
     }
-    let mut reclaimed = 0;
+    let mut reclaimed: MemSizeMb = 0;
     let mut to_remove = Vec::new();
     for container in self.prioritized_list.read().iter() {
       if self.try_seize_container(container) {
         to_remove.push(container.clone());
-        reclaimed += container.function.memory;
+        reclaimed += container.curr_mem_usage();
         if reclaimed >= amount_mb {
           break;
         }

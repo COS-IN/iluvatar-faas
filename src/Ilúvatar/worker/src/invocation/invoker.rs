@@ -18,7 +18,7 @@ pub struct InvokerService {
 }
 
 impl InvokerService {
-    pub fn new(cont_manager: Arc<ContainerManager>) -> Self {
+    fn new(cont_manager: Arc<ContainerManager>) -> Self {
       InvokerService {
         cont_manager,
         async_functions: Arc::new(RwLock::new(HashMap::new())),

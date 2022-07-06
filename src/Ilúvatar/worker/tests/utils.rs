@@ -33,7 +33,7 @@ macro_rules! invoker_svc {
       let nm = NamespaceManager::boxed(cfg.clone(), &TEST_TID);
       nm.ensure_bridge(&TEST_TID).unwrap();
       let cm = Arc::new(ContainerManager::new(cfg.clone(), nm.clone()).await.unwrap());
-      let invoker = Arc::new(InvokerService::new(cm.clone()));
+      let invoker = InvokerService::boxed(cm.clone(), &TEST_TID);
       (cfg, nm, cm, invoker)
     }
   };
