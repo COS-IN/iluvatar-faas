@@ -1,5 +1,5 @@
-use std::{sync::Arc, collections::HashMap};
-use crate::containers::{containermanager::ContainerManager, structs::InsufficientCoresError};
+use std::{sync::Arc, collections::HashMap, time::Duration};
+use crate::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use iluvatar_lib::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::TransactionId};
 use parking_lot::{RwLock, Mutex};
 use std::time::SystemTime;
@@ -34,21 +34,29 @@ impl InvokerService {
 
     fn start_queue_thread(invoker_svc: Arc<InvokerService>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
       debug!("[{}] Launching InvokerService queue thread", tid);
-      // TODO: actually manage the queue, not just FIFO
+      // TODO: smartly manage the queue, not just FIFO?
       // run on an OS thread here
       std::thread::spawn(move || {
         // TODO: prevent this thread from crashing?
         let worker_rt = tokio::runtime::Runtime::new().unwrap();
           loop {
-            let mut queue = invoker_svc.invoke_queue.lock();
-            if queue.len() > 0 {
-              let item = queue.remove(0);
-              debug!("[{}] Dequeueing item", &item.tid);
-              InvokerService::spawn_tokio_worker(&worker_rt, invoker_svc.clone(), item);
+            if InvokerService::has_resources_to_run(&invoker_svc) {
+              let mut queue = invoker_svc.invoke_queue.lock();
+              if queue.len() > 0 {
+                let item = queue.remove(0);
+                debug!("[{}] Dequeueing item", &item.tid);
+                InvokerService::spawn_tokio_worker(&worker_rt, invoker_svc.clone(), item);
+              }
+            } else {
+              std::thread::sleep(Duration::from_millis(1));
             }
           }
         }
       )
+    }
+
+    fn has_resources_to_run(invoker_svc: &Arc<InvokerService>) -> bool {
+      invoker_svc.cont_manager.free_cores() > 0
     }
 
     fn spawn_tokio_worker(runtime: &tokio::runtime::Runtime, invoker_svc: Arc<InvokerService>, item: Arc<EnqueuedInvocation>) {
@@ -63,21 +71,31 @@ impl InvokerService {
               result_ptr.completed = true;
               debug!("[{}] queued invocation completed successfully", &item.tid);
             },
-            Err(e) =>
+            Err(cause) =>
             {
-              error!("[{}] Encountered error trying to run queued invocation '{}'", &item.tid, e);
-              // TODO: insert smartly into queue
-              let mut result_ptr = item.result_ptr.lock();
-              if result_ptr.attempts > 5 {
-                error!("[{}] Abandoning attempt to run invocation after {} errors", &item.tid, result_ptr.attempts);
-                result_ptr.duration = 0;
-                result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", e);
-                result_ptr.completed = true;
-              } else {
-                result_ptr.attempts += 1;
-                debug!("[{}] re-queueing invocation attempt with {} errors", &item.tid, result_ptr.attempts);
+              if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
+                debug!("[{}] Insufficient cores to run item right now", &item.tid);
                 let mut queue = invoker_svc.invoke_queue.lock();
-                queue.push(item.clone());
+                queue.insert(0, item.clone());
+              } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
+                warn!("[{}] Insufficient memory to run item right now", &item.tid);
+                let mut queue = invoker_svc.invoke_queue.lock();
+                queue.insert(0, item.clone());
+              } else {
+                error!("[{}] Encountered unknown error while trying to run queued invocation '{}'", &item.tid, cause);
+                // TODO: insert smartly into queue
+                let mut result_ptr = item.result_ptr.lock();
+                if result_ptr.attempts > 5 {
+                  error!("[{}] Abandoning attempt to run invocation after {} errors", &item.tid, result_ptr.attempts);
+                  result_ptr.duration = 0;
+                  result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
+                  result_ptr.completed = true;
+                } else {
+                  result_ptr.attempts += 1;
+                  debug!("[{}] re-queueing invocation attempt with {} errors", &item.tid, result_ptr.attempts);
+                  let mut queue = invoker_svc.invoke_queue.lock();
+                  queue.push(item.clone());
+                }
               }
             },
         };
@@ -105,21 +123,8 @@ impl InvokerService {
       debug!("[{}] Internal invocation starting", tid);
 
       let fqdn = calculate_fqdn(&function_name, &function_version);
-      let cont = match cont_manager.acquire_container(&fqdn, tid).await {
-        Ok(c) => c,
-        Err(cause) => {
-          if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
-            // TODO: handle this case properly, don't keep trying to queue
-            return Err(cause);
-          } else {
-            return Err(cause);
-          }
-        },
-      };
-      
-      match cont {
-        Some(ctr_lock) => 
-        {
+      match cont_manager.acquire_container(&fqdn, tid).await {
+        Ok(ctr_lock) => {
           let client = reqwest::Client::new();
           let start = SystemTime::now();
           // TODO: handle this result
@@ -133,7 +138,7 @@ impl InvokerService {
           let data = result.text().await?;
           Ok((data, duration))
         },
-        None => anyhow::bail!("Unable to acquire a container for function '{}'", &fqdn),
+        Err(cause) => Err(cause),
       }
     }
 

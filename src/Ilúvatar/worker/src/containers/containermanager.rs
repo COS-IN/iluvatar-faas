@@ -82,10 +82,10 @@ impl ContainerManager {
   /// get a lock on a container for the specified function
   /// will start a function if one is not available
   /// Can return a custom InsufficientCoresError if an invocation cannot be started now
-  pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<Option<ContainerLock<'a>>> {
+  pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     let cont = self.try_acquire_container(fqdn, tid);
     let cont = match cont {
-      Some(l) => Ok(Some(l)),
+      Some(l) => Ok(l),
       None => {
         // not available container, cold start
         self.cold_start(fqdn, tid).await
@@ -134,7 +134,7 @@ impl ContainerManager {
     }
   }
 
-  async fn cold_start<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<Option<ContainerLock<'a>>> {
+  async fn cold_start<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     let container = self.launch_container(fqdn, tid).await?;
     {
       // claim this for ourselves before it touches the pool
@@ -142,7 +142,7 @@ impl ContainerManager {
       *m -= 1;
     }
     let container = self.add_container_to_pool(fqdn, container)?;
-    Ok(Some(ContainerLock::new(container.clone(), self, tid)))
+    Ok(ContainerLock::new(container.clone(), self, tid))
   }
 
   fn try_lock_container<'a>(&'a self, container: &Arc<Container>, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
