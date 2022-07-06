@@ -41,7 +41,7 @@ mod invoke {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = invok_svc.invoke(&req).await;
+    let result = invok_svc.invoke(req).await;
     match result {
       Ok( (json, dur) ) => {
         assert!(dur > 0, "Duration should not be <= 0!");
@@ -71,7 +71,7 @@ mod invoke {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = invok_svc.invoke(&req).await;
+    let result = invok_svc.invoke(req).await;
     match result {
       Ok( (json, dur) ) => {
         assert!(dur > 0, "Duration should not be <= 0!");
@@ -111,13 +111,13 @@ use std::time::Duration;
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
-    let req = Arc::new(InvokeAsyncRequest {
+    let req = InvokeAsyncRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       memory: 128,
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
-    });
+    };
     let result = invok_svc.invoke_async(req);
     let mut count = 0;
     match result {
@@ -168,13 +168,13 @@ use std::time::Duration;
       transaction_id: "testTID".to_string()
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
-    let req = Arc::new(InvokeAsyncRequest {
+    let req = InvokeAsyncRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       memory: 128,
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
-    });
+    };
     let result = invok_svc.invoke_async(req);
     let mut count = 0;
     match result {

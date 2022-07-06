@@ -208,14 +208,9 @@ mod prewarm {
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
     let c = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-    let _d = match c {
-      Some(c) => {
-        assert_eq!(c.container.task.running, true);
-        assert_eq!(c.container.function.function_name, "test");
-        assert_eq!(c.container.function.function_version, "0.1.1");
-      },
-      None => panic!("Did not get a container"),
-    };
+    assert_eq!(c.container.task.running, true);
+    assert_eq!(c.container.function.function_name, "test");
+    assert_eq!(c.container.function.function_version, "0.1.1");
   }
 }
 
@@ -238,9 +233,9 @@ use reqwest;
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c1 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let c1 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
 
-    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten cold-start container");
+    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten cold-start container");
     assert_ne!(c1.container.container_id, c2.container.container_id);
   }
 
@@ -257,7 +252,7 @@ use reqwest;
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let _c1 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let _c1 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
 
     let c2 = cm.acquire_container(&fqdn, &TEST_TID).await; //.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
     match c2 {
@@ -279,7 +274,7 @@ use reqwest;
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
 
     let client = reqwest::Client::new();
     let result = client.get(&c2.container.base_uri)
@@ -307,7 +302,7 @@ mod remove_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c1 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let c1 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
     
     let c1_cont = c1.container.clone();
     drop(c1);
@@ -333,7 +328,7 @@ mod remove_container {
     }
     // assert_ne!(result.status(), 111, "unexpected return status for container {:?}", c1_cont);
 
-    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e)).expect("should have gotten prewarmed container");
+    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
     assert_ne!(c1_cont.container_id, c2.container.container_id, "Second container should have different ID because container is gone");
   }
 
