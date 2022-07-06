@@ -31,10 +31,12 @@ impl InvokerService {
       let _handle = InvokerService::start_queue_thread(i.clone(), tid);
       return i;
     }
+
     fn start_queue_thread(invoker_svc: Arc<InvokerService>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
       debug!("[{}] Launching InvokerService queue thread", tid);
       // TODO: smartly manage the queue, not just FIFO?
       // run on an OS thread here
+      // If this thread crashes, we'll never know and the worker will deadlock
       std::thread::spawn(move || {
           let tid: &TransactionId = &INVOKER_QUEUE_WORKER_TID;
           debug!("[{}] invoker worker started", tid);
@@ -62,10 +64,14 @@ impl InvokerService {
       )
     }
 
+    /// has_resources_to_run
+    /// checks if the container manager (probably) has enough resources to run an invocation
     fn has_resources_to_run(invoker_svc: &Arc<InvokerService>) -> bool {
       invoker_svc.cont_manager.free_cores() > 0
     }
 
+    /// spawn_tokio_worker
+    /// runs the specific invocation on a new tokio worker thread
     fn spawn_tokio_worker(runtime: &tokio::runtime::Runtime, invoker_svc: Arc<InvokerService>, item: Arc<EnqueuedInvocation>) {
       let _handle = runtime.spawn(async move {
         debug!("[{}] Launching invocation thread for queued item", &item.tid);
@@ -109,6 +115,8 @@ impl InvokerService {
       });
     }
 
+    /// enqueue_invocation
+    /// Insert an invocation request into the queue and return a QueueFuture for it's execution result
     fn enqueue_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> QueueFuture {
       debug!("[{}] Enqueueing invocation", tid);
       let fut = QueueFuture::new();
@@ -118,6 +126,9 @@ impl InvokerService {
       fut
     }
 
+    /// invoke
+    /// synchronously run an invocation
+    /// /// returns the json result and duration as a tuple
     pub async fn invoke(&self, request: InvokeRequest) -> Result<(String, u64)> {
       let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone()).await;
       info!("[{}] Invocation complete", request.transaction_id);
@@ -125,6 +136,9 @@ impl InvokerService {
       Ok( (fut.result_json.clone(), fut.duration) )
     }
 
+    /// invoke_internal
+    /// acquires a container and invokes the function inside it
+    /// returns the json result and duration as a tuple
     async fn invoke_internal(function_name: &String, function_version: &String, json_args: &String, 
       cont_manager: &Arc<ContainerManager>, tid: &TransactionId) -> Result<(String, u64)> {
       debug!("[{}] Internal invocation starting", tid);
@@ -156,6 +170,9 @@ impl InvokerService {
       }
     }
 
+    /// invoke_async
+    /// Sets up an asyncronous invocation of the function
+    /// Returns a lookup cookie the request can be found at
     pub fn invoke_async(&self, request: InvokeAsyncRequest) -> Result<String> {
       debug!("[{}] Inserting async invocation", request.transaction_id);
       let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
@@ -165,6 +182,9 @@ impl InvokerService {
       Ok(cookie)
     }
 
+    /// get_async_entry
+    /// returns the async invoke entry if it exists
+    /// None otherwise
     fn get_async_entry(&self, cookie: &String) -> Option<InvocationResultPtr> {
       let async_functions_lock = self.async_functions.read();
       let i = async_functions_lock.get(cookie);
@@ -174,11 +194,16 @@ impl InvokerService {
       }
     }
 
+    /// remove_async_entry
+    /// removes the async invoke entry from the tracked invocations
     fn remove_async_entry(&self, cookie: &String) {
       let mut async_functions_lock = self.async_functions.write();
       async_functions_lock.remove(cookie);
     }
 
+    /// invoke_async_check
+    /// polls the invocation status
+    /// Destructively returns results if they are found
     pub fn invoke_async_check(&self, cookie: &String) -> Result<InvokeResponse> {
       let entry = match self.get_async_entry(cookie) {
         Some(entry) => entry,
