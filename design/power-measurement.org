@@ -1,0 +1,24 @@
+* On Victor 
+** Ipmi (BMC) 
+This is, most likely, the actual power consumption of the entire server. 
+Output of =dcmi power reading= is something like
+
+    Instantaneous power reading:                    75 Watts
+    Minimum during sampling period:                 68 Watts
+    Maximum during sampling period:                444 Watts
+    Average power reading over sample period:      101 Watts
+    IPMI timestamp:                           Thu Jul  7 20:50:47 2022
+    Sampling period:                          00425664 Seconds.
+    Power reading state is:                   activated
+
+** RAPL 
+- Driver still not found. Need to upgrade kernel? 
+- RAPL is a software power meter and uses a model based on CPU freq and voltage. 
+- turbostat --debug provides CPU and RAM Watts. CPU is ~40 and RAM is ~10, but fluctuates quite a bit, why!?  
+
+* AMD  Desktop
+- We dont have full-system true power
+  - Buy a separate power meter? 
+- AMDuProf for software power meter. Installs easily on ubuntu.
+- Shows CPU/package power (~5 W idle, matching specs), GPU power (50W lol)
+
