@@ -319,6 +319,7 @@ impl LifecycleService for ContainerdLifecycle {
 
   /// Removed the specified container in the containerd namespace
   async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+    info!("[{}] Removing container '{}'", tid, container_id);
     let mut client = TasksClient::new(self.channel());
 
     let req = KillRequest {

@@ -55,6 +55,7 @@ pub struct Networking {
   pub use_pool: bool,
   pub pool_size: usize,
   pub pool_freq_sec: u64,
+  pub hardware_interface: String,
 }
 
 

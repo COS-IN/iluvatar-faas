@@ -1,5 +1,5 @@
 use crate::services::LifecycleService;
-use crate::services::containers::structs::{InsufficientMemoryError, InsufficientCoresError};
+use crate::services::containers::structs::{InsufficientMemoryError, InsufficientCoresError, ContainerLockedError};
 use crate::bail_error;
 use crate::rpc::{RegisterRequest, PrewarmRequest};
 use crate::transaction::{TransactionId, CTR_MGR_WORKER_TID};
@@ -64,7 +64,7 @@ impl ContainerManager {
   async fn monitor_pool(config: WorkerConfig, cm: Arc<ContainerManager>) {
     let tid: &TransactionId = &CTR_MGR_WORKER_TID;
     loop {
-      cm.update_memory_usages(tid);
+      cm.update_memory_usages(tid).await;
 
       cm.compute_eviction_priorities(tid);
       if config.container_resources.memory_buffer_mb > 0 {
@@ -88,18 +88,46 @@ impl ContainerManager {
     self.config.container_resources.cores - *self.running_funcs.lock()
   }
 
-  fn update_memory_usages(&self, tid: &TransactionId) {
+  async fn update_memory_usages(&self, tid: &TransactionId) {
     debug!("[{}] updating container memory usages", tid);
     let old_total_mem = *self.used_mem_mb.lock();
     for (_fqdn, cont_list) in self.active_containers.read().iter() {
       let read_lock = cont_list.read();
       let mut sum_change = 0;
       for container in read_lock.iter() {
-        let old_usage = container.curr_mem_usage();
-        let new_usage = container.update_memory_usage_mb(tid);
-        let diff = new_usage - old_usage;
-        debug!("[{}] container '{}' new: {}; old: {}; diff:{}", tid, container.container_id, new_usage, old_usage, diff);
-        sum_change += diff;
+        if *container.healthy.lock() {
+          let old_usage = container.curr_mem_usage();
+          let new_usage = container.update_memory_usage_mb(tid);
+          let diff = new_usage - old_usage;
+          debug!("[{}] container '{}' new: {}; old: {}; diff:{}", tid, container.container_id, new_usage, old_usage, diff);
+          sum_change += diff;
+        } else {
+          let stdout = match container.stdin() {
+            Ok(s) => s,
+            Err(e) =>  {
+              error!("[{}] error reading container '{}' stdout: {}", tid, container.container_id, e);
+              "".to_string()
+            },
+          };
+          let stderr = match container.stderr() {
+            Ok(s) => s,
+            Err(e) =>  {
+              error!("[{}] error reading container '{}' stdout: {}", tid, container.container_id, e);
+              "".to_string()
+            },
+          };
+          info!("[{}] Removing an unhealthy container stdout: {} stderr {}", tid, stdout, stderr);
+          match self.remove_container(container.clone(), true, tid).await {
+            Ok(_) => (),
+            Err(cause) => {
+              if let Some(_core_err) = cause.downcast_ref::<ContainerLockedError>() {
+                error!("[{}] tried to remove an unhealthy container someone was using", tid);
+              } else {
+                error!("[{}] got an unknown error trying to remove an unhealthy container '{}'", tid, cause);
+              }
+            },
+          };
+        }
       }
       *self.used_mem_mb.lock() += sum_change;
     }
@@ -176,7 +204,7 @@ impl ContainerManager {
 
   fn try_lock_container<'a>(&'a self, container: &Arc<Container>, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     unsafe {
-      if *container.mutex.data_ptr() > 0 {
+      if *container.mutex.data_ptr() > 0 && *container.healthy.lock() {
         let mut m = container.mutex.lock();
         if *m > 0 {
           *m -= 1;
@@ -400,11 +428,16 @@ impl ContainerManager {
     Ok(())
   }
 
+  pub fn mark_unhealthy(&self, container: &Arc<Container>, tid: &TransactionId) {
+    info!("[{}] Marking containe '{}' as unhealthy", tid, container.container_id);
+    *container.healthy.lock() = false;
+  }
+
   pub async fn remove_container(&self, container: Arc<Container>, lock_check: bool, tid: &TransactionId) -> Result<()> {
     if lock_check {
       let mut cont_lock = container.mutex.lock();
       if *cont_lock != container.function.parallel_invokes {
-        bail!("Someone is still holding a lock on container '{}'; cannot remove", container.container_id)
+        bail!(ContainerLockedError{})
       }
       *cont_lock = 0;
     }

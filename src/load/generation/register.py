@@ -40,8 +40,8 @@ colds_over = defaultdict(list)
 warms_over = defaultdict(list)
 
 for dir in actions:
-  if dir in ["cnn_image_classification", "video_processing", "model_training", "image_processing", "json_dumps_loads"]:
-    continue
+  # if dir in ["cnn_image_classification", "video_processing", "model_training", "image_processing", "json_dumps_loads"]:
+  #   continue
   print(dir)
   image = "docker.io/alfuerst/{}-iluvatar-action:latest".format(dir)
   for i in range(20):
@@ -71,6 +71,17 @@ for dir in actions:
           else:
             print(output)
 
-print("Name, Warm, Cold, WarmOver, ColdOver")
-for k in colds.keys():
-  print(k, np.mean(warms[k]), np.mean(colds[k]), np.mean(warms_over[k]), np.mean(colds_over[k]))
+# function name, mean warn time, mean cold time, mean warm system overhead, mean cold system overhead
+print("Name, Warm, Cold, WarmOverhead, ColdOverhead")
+for k in set(colds.keys() + warms.keys()):
+  warm_m = 0
+  cold_m = 0
+  warm_mo = 0
+  cold_mo = 0
+  if k in colds:
+    cold_m = np.mean(colds[k])
+    cold_mo = np.mean(colds_over[k])
+  if k in warms:
+    warm_m = np.mean(warms[k])
+    warm_mo = np.mean(warms_over[k])
+  print(k, warm_m, cold_m, warm_mo cold_mo)

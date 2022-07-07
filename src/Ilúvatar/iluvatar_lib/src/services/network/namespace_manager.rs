@@ -104,19 +104,36 @@ impl NamespaceManager {
     match output {
       Ok(output) => {
         if let Some(status) = output.status.code() {
-          if status == 0 {
-            Ok(())
-          } else {
-            panic!("[{}] Failed to create bridge with exit code '{}' and error '{:?}'", tid, status, output)
+          if status != 0 {
+            panic!("[{}] Failed to create bridge with exit code '{}' and error '{:?}'", tid, status, output);
           }
         } else {
-          panic!("[{}] Failed to create bridge with no exit code and error '{:?}'", tid, output)
+          panic!("[{}] Failed to create bridge with no exit code and error '{:?}'", tid, output);
         }
       },
       Err(e) => {
-        panic!("[{}] Failed to create bridge with error '{:?}'", tid, e)
+        panic!("[{}] Failed to create bridge with error '{:?}'", tid, e);
       },
-    }
+    };
+
+    // https://unix.stackexchange.com/questions/248504/bridged-interfaces-do-not-have-internet-access
+    match execute_cmd("/usr/sbin/iptables", 
+      &vec!["-t", "nat", "-A", "POSTROUTING", "-o" , &self.config.networking.hardware_interface, "-j", "MASQUERADE"], None, tid) {
+        Ok(_) => debug!("[{}] Setting nat on hardware interface succeded", tid),
+        Err(_) => panic!("[{}] Setting nat on hardware interface failed", tid),
+      };
+    match execute_cmd("/usr/sbin/iptables", 
+    &vec!["-A", "FORWARD", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"], None, tid) {
+      Ok(_) => debug!("[{}] Setting conntrack succeded", tid),
+      Err(_) => panic!("[{}] Setting conntrack failed", tid),
+    };
+    match execute_cmd("/usr/sbin/iptables", 
+      &vec!["-A", "FORWARD", "-i", &self.config.networking.bridge, "-o", &self.config.networking.hardware_interface, "-j", "ACCEPT"], None, tid) {
+      Ok(_) => debug!("[{}] Forwarding bridge to interface succeded", tid),
+      Err(_) => panic!("[{}] Forwarding bridge to interface failed", tid),
+    };
+
+    Ok(())
   }
 
   fn bridge_exists(&self, nspth: &String, tid: &TransactionId) -> Result<bool> {

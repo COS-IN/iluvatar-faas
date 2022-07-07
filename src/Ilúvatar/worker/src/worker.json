@@ -30,6 +30,7 @@
     "cni_name": "il_worker_br",
     "use_pool": false,
     "pool_size": 10,
-    "pool_freq_sec": 1
+    "pool_freq_sec": 1,
+    "hardware_interface": "enp4s0"
   }
 }

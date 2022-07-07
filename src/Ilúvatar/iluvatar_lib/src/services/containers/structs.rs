@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::SystemTime, fs};
 use crate::{utils::{port_utils::Port, file_utils::temp_file, calculate_invoke_uri, calculate_base_uri}, bail_error, transaction::TransactionId, types::MemSizeMb, services::network::network_structs::Namespace};
 use inotify::{Inotify, WatchMask};
-use parking_lot::RwLock;
+use parking_lot::{RwLock, Mutex};
 
 use crate::services::containers::containermanager::ContainerManager;
 use log::{debug};
@@ -20,14 +20,15 @@ pub struct Container {
   // TODO: implement real in-container parallelism
   //    run multiple tasks in each? -> what about port setup then?
   //    web server handles parallelism?
-  pub mutex: parking_lot::Mutex<u32>,
+  pub mutex: Mutex<u32>,
   // TODO: reference to function somehow?
   pub fqdn: String,
   pub function: Arc<RegisteredFunction>,
   last_used: RwLock<SystemTime>,
   pub namespace: Arc<Namespace>,
-  invocations: parking_lot::Mutex<u32>,
+  invocations: Mutex<u32>,
   mem_usage: RwLock<MemSizeMb>,
+  pub healthy: Mutex<bool>
 }
 
 #[allow(unused)]
@@ -43,13 +44,14 @@ impl Container {
       address,
       invoke_uri,
       base_uri,
-      mutex: parking_lot::Mutex::new(parallel_invokes),
+      mutex: Mutex::new(parallel_invokes),
       fqdn: fqdn.clone(),
       function: function.clone(),
       last_used: RwLock::new(SystemTime::now()),
       namespace: ns,
-      invocations: parking_lot::Mutex::new(0),
+      invocations: Mutex::new(0),
       mem_usage: RwLock::new(function.memory),
+      healthy: Mutex::new(true),
     }
   }
 
@@ -121,7 +123,7 @@ impl Container {
     let contents = match fs::read_to_string(format!("/proc/{}/statm", self.task.pid)) {
         Ok(c) => c,
         Err(e) => { 
-          log::warn!("[{}] Error trying to read /proc/<pid>/statm: {}", e, tid);
+          log::warn!("[{}] Error trying to read container '{}' /proc/<pid>/statm: {}", e, self.container_id, tid);
           *self.mem_usage.write() = self.function.memory; 
           return *self.mem_usage.read(); 
         },
@@ -227,5 +229,18 @@ impl std::fmt::Display for ContainerStartupError {
   }
 }
 impl std::error::Error for ContainerStartupError {
+
+}
+
+#[derive(Debug)]
+pub struct ContainerLockedError {
+}
+impl std::fmt::Display for ContainerLockedError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    write!(f, "Someone has a lock on this container")?;
+    Ok(())
+  }
+}
+impl std::error::Error for ContainerLockedError {
 
 }

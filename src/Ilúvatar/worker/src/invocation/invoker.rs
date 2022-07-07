@@ -154,7 +154,10 @@ impl InvokerService {
             .send()
             .await {
                 Ok(r) => r,
-                Err(e) => bail_error!("[{}] HTTP error when trying to connect to container '{}'", tid, e),
+                Err(e) =>{
+                  cont_manager.mark_unhealthy(&ctr_lock.container, tid);
+                  bail_error!("[{}] HTTP error when trying to connect to container '{}'", tid, e);
+                },
             };
           let duration = match start.elapsed() {
             Ok(dur) => dur,
