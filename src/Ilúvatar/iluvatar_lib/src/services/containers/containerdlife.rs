@@ -5,11 +5,13 @@ use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
 use client::tonic::Code;
 use guid_create::GUID;
-use iluvatar_lib::transaction::TransactionId;
-use iluvatar_lib::types::MemSizeMb;
-use iluvatar_lib::utils::{port_utils::Port, file_utils::temp_file};
+use tonic::async_trait;
+use crate::services::LifecycleService;
+use crate::transaction::TransactionId;
+use crate::types::MemSizeMb;
+use crate::utils::{port_utils::Port, file_utils::temp_file};
 use log::{debug, warn, info};
-use iluvatar_lib::bail_error;
+use crate::bail_error;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;
 use sha2::{Sha256, Digest};
@@ -28,30 +30,29 @@ use client::with_namespace;
 use containerd_client::tonic::Request;
 use prost_types::Any;
 use std::process::Command;
-use crate::containers::structs::{Container, Task};
-use crate::network::namespace_manager::NamespaceManager;
-use crate::network::network_structs::Namespace;
+use crate::services::containers::structs::{Container, Task};
+use crate::services::network::namespace_manager::NamespaceManager;
+use crate::services::network::network_structs::Namespace;
 // use std::io::Write;
 
 use super::structs::RegisteredFunction;
 
 #[derive(Debug)]
-pub struct ContainerLifecycle {
+pub struct ContainerdLifecycle {
   channel: Option<Channel>,
   namespace_manager: Arc<NamespaceManager>,
 }
 
-/// A service to handle the low-level details of container lifecycles:
+/// A service to handle the low-level details of containerd container lifecycles:
 ///   creation, destruction, pulling images, etc
-///   
-impl ContainerLifecycle {
-  pub fn new(ns_man: Arc<NamespaceManager>) -> ContainerLifecycle {
-    // let temp_file = iluvatar_lib::utils::temp_file(&"resolv".to_string(), "conf")?;
+impl ContainerdLifecycle {
+  pub fn new(ns_man: Arc<NamespaceManager>) -> ContainerdLifecycle {
+    // let temp_file = crate::utils::temp_file(&"resolv".to_string(), "conf")?;
     // let mut file = std::fs::File::create(temp_file)?;
     // let bridge_json = include_str!("../resources/cni/resolv.conf");
     // writeln!(&mut file, "{}", bridge_json)?;
 
-    ContainerLifecycle {
+    ContainerdLifecycle {
       // this is threadsafe if we clone channel
       // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
       channel: None,
@@ -78,7 +79,7 @@ impl ContainerLifecycle {
   /// get the default container spec
   fn spec(&self, host_addr: &str, port: Port, mem_limit_mb: MemSizeMb, cpus: u32, net_ns_name: &String) -> Any {
     // https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
-    let spec = include_str!("../resources/container_spec.json");
+    let spec = include_str!("../../resources/container_spec.json");
     let spec = spec
         .to_string()
         .replace("$ROOTFS", "rootfs")
@@ -134,90 +135,8 @@ impl ContainerLifecycle {
     }
   }
   
-  /// Read through an image's digest to find it's snapshot base
-  pub async fn search_image_digest(&self, image: &String, namespace: &str, tid: &TransactionId) -> Result<String> {
-    // Step 1. get image digest
-    let get_image_req = GetImageRequest { name: image.into() };
-    let mut cli = ImagesClient::new(self.channel());
-    let rsp = match cli.get(with_namespace!(get_image_req, namespace)).await {
-        Ok(rsp) => rsp.into_inner(),
-        Err(e) => {
-          bail_error!("[{}] Failed to prepare snapshot and load mounts: {:?}", tid, e);
-        },
-    };
-    debug!("[{}] image resp = {:?}", tid, rsp);
-    let (image_digest, media_type) = if let Some(image) = rsp.image {
-      image.target
-            .ok_or_else(|| anyhow::anyhow!("Could not find image digest"))
-          .map(|v: Descriptor| (v.digest, v.media_type))?
-    } else {
-      anyhow::bail!("Could not find image")
-    };
-  
-    debug!("[{}] got image {} info {:?}", tid, image, image_digest);
-  
-    // Step 2. get image content manifests
-    let content = self.read_content(namespace, image_digest).await?;
-
-    let layer_item = match media_type.as_str() {
-      "application/vnd.docker.distribution.manifest.list.v2+json" => {
-        let config_index: ImageIndex = match serde_json::from_slice(&content) {
-            Ok(s) => s,
-            Err(e) => bail_error!("[{}] JSON error getting ImageIndex: {}", tid, e),
-        };
-        debug!("[{}] config ImageIndex = {:?}", tid, config_index);
-      
-        let manifest_item = config_index
-              .manifests()
-              .iter()
-              .find(|file| match file.platform() {
-                  Some(v) => v.architecture().to_string() == "amd64" && v.os().to_string() == "linux",
-                  None => false,
-              })
-              .ok_or_else(|| anyhow::anyhow!("fail to load specific manifest"))?.digest().to_owned();
-        
-        debug!("[{}] Acquired manifest item: {}", tid, manifest_item);
-        // Step 3. load image manifest from specific platform filter
-        let layer_item: ImageManifest = match serde_json::from_slice(&self.read_content(namespace, manifest_item).await?) {
-            Ok(s) => s,
-            Err(e) => bail_error!("[{}] JSON error getting ImageManifest: {}", tid, e),
-        };
-        layer_item.config().to_owned()
-     },
-      "application/vnd.docker.distribution.manifest.v2+json" => {
-        let config_index: ImageManifest = serde_json::from_slice(&content)?;
-        debug!("[{}] config ImageManifest = {:?}", tid, config_index);
-        config_index.config().to_owned()  
-      }
-      _ => anyhow::bail!("Don't know how to handle unknown image media type '{}'", media_type)
-    };
-
-    // Step 5. load image configuration (layer) from image
-    let config: ImageConfiguration = match 
-        serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_owned()).await?) {
-          Ok(s) => s,
-          Err(e) => bail_error!("[{}] JSON error getting ImageConfiguration: {}", tid, e),
-      };
-  
-    debug!("[{}] Loaded ImageConfiguration: {:?}", tid, config);
-
-    // Step 6. calculate finalize digest
-    let mut iter = config.rootfs().diff_ids().iter();
-    let mut prev_digest: String = iter.next().map_or_else(String::new, |v| v.clone());
-    while let Some(v) = iter.by_ref().next() {
-        let mut hasher = Sha256::new();
-        hasher.update(prev_digest);
-        hasher.update(" ");
-        hasher.update(v);
-        let sha = hex::encode(hasher.finalize());
-        prev_digest = format!("sha256:{}", sha)
-    }
-    debug!("[{}] load {} diff digest {}", tid, image, prev_digest);
-    Ok(prev_digest)
-  }
-  
   /// get the mount points for a container's (id) snapshot base
-  pub async fn load_mounts(&self, id: &str, snapshot_base: &String, tid: &TransactionId) -> Result<Vec<containerd_client::types::Mount>> {
+  async fn load_mounts(&self, id: &str, snapshot_base: &String, tid: &TransactionId) -> Result<Vec<containerd_client::types::Mount>> {
     let view_snapshot_req = PrepareSnapshotRequest {
         // TODO: be picky about snapshotter?
         // https://github.com/containerd/containerd/tree/main/docs/snapshotters
@@ -239,9 +158,41 @@ impl ContainerLifecycle {
     }
   }
 
+  /// Attempts to delete a task
+  /// Sometimes this can fail if the internal process hasn't shut down yet (or wasn't killed at all)
+  async fn try_delete_task(&self, client: &mut TasksClient<Channel>, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+    let req = DeleteTaskRequest {
+      container_id: container_id.clone(),
+    };
+    let req = with_namespace!(req, ctd_namespace);
+
+    let resp = client
+        .delete(req)
+        .await;
+    match &resp {
+      Ok(_) => {
+        debug!("[{}] Delete task response {:?}", tid, resp);
+        Ok(())
+      },
+      Err(e) => {
+        match e.code() {
+          // task crashed and was removed
+          Code::NotFound => {
+            warn!("[{}] Task for container '{}' was missing when it was attempted to be delete. Usually the process crashed", tid, container_id);
+            Ok(())
+          },
+          _ => anyhow::bail!("[{}] Attempt to delete task in container '{}' failed with error: {}", tid, container_id, e),
+        }
+      },
+    }
+  }
+}
+
+#[async_trait]
+impl LifecycleService for ContainerdLifecycle {
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  pub async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     let port = 8080;
 
     let cid = format!("{}-{}", fqdn, GUID::rand());
@@ -317,12 +268,35 @@ impl ContainerLifecycle {
     }
   }
 
-  /// run_container
-  /// 
+  /// Ensures that the specified image is available on the machine
+  async fn ensure_image(&self, image_name: &String) -> Result<()> {
+    let output = Command::new("ctr")
+          .args(["images", "pull", image_name.as_str()])
+          .output();
+    match output {
+      Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
+      Ok(output) => {
+        if let Some(status) = output.status.code() {
+          if status == 0 {
+            Ok(())
+          } else {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to pull the image '{}' with exit code of '{}', stdout '{}', stderr '{}'", image_name, output.status, stdout, stderr)
+          }
+        } else {
+          let stdout = String::from_utf8_lossy(&output.stdout);
+          let stderr = String::from_utf8_lossy(&output.stderr);
+          anyhow::bail!("Failed to pull the image '{}' with unkonwn exit code, stdout '{}', stderr '{}'", image_name, stdout, stderr)
+        }
+      },
+    }
+  }
+
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  pub async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     info!("[{}] Creating container from image '{}', in namespace '{}'", tid, image_name, namespace);
     let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
     let mut client = TasksClient::new(self.channel());
@@ -343,9 +317,8 @@ impl ContainerLifecycle {
     }
   }
 
-  /// remove_container
   /// Removed the specified container in the containerd namespace
-  pub async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+  async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
     let mut client = TasksClient::new(self.channel());
 
     let req = KillRequest {
@@ -408,58 +381,85 @@ impl ContainerLifecycle {
     Ok(())
   }
 
-  /// try_delete_task
-  /// Attempts to delete a task
-  /// Sometimes this can fail if the internal process hasn't shut down yet (or wasn't killed at all)
-  async fn try_delete_task(&self, client: &mut TasksClient<Channel>, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
-    let req = DeleteTaskRequest {
-      container_id: container_id.clone(),
+  /// Read through an image's digest to find it's snapshot base
+  async fn search_image_digest(&self, image: &String, namespace: &str, tid: &TransactionId) -> Result<String> {
+    // Step 1. get image digest
+    let get_image_req = GetImageRequest { name: image.into() };
+    let mut cli = ImagesClient::new(self.channel());
+    let rsp = match cli.get(with_namespace!(get_image_req, namespace)).await {
+        Ok(rsp) => rsp.into_inner(),
+        Err(e) => {
+          bail_error!("[{}] Failed to prepare snapshot and load mounts: {:?}", tid, e);
+        },
     };
-    let req = with_namespace!(req, ctd_namespace);
+    debug!("[{}] image resp = {:?}", tid, rsp);
+    let (image_digest, media_type) = if let Some(image) = rsp.image {
+      image.target
+            .ok_or_else(|| anyhow::anyhow!("Could not find image digest"))
+          .map(|v: Descriptor| (v.digest, v.media_type))?
+    } else {
+      anyhow::bail!("Could not find image")
+    };
+  
+    debug!("[{}] got image {} info {:?}", tid, image, image_digest);
+  
+    // Step 2. get image content manifests
+    let content = self.read_content(namespace, image_digest).await?;
 
-    let resp = client
-        .delete(req)
-        .await;
-    match &resp {
-      Ok(_) => {
-        debug!("[{}] Delete task response {:?}", tid, resp);
-        Ok(())
+    let layer_item = match media_type.as_str() {
+      "application/vnd.docker.distribution.manifest.list.v2+json" => {
+        let config_index: ImageIndex = match serde_json::from_slice(&content) {
+            Ok(s) => s,
+            Err(e) => bail_error!("[{}] JSON error getting ImageIndex: {}", tid, e),
+        };
+        debug!("[{}] config ImageIndex = {:?}", tid, config_index);
+      
+        let manifest_item = config_index
+              .manifests()
+              .iter()
+              .find(|file| match file.platform() {
+                  Some(v) => v.architecture().to_string() == "amd64" && v.os().to_string() == "linux",
+                  None => false,
+              })
+              .ok_or_else(|| anyhow::anyhow!("fail to load specific manifest"))?.digest().to_owned();
+        
+        debug!("[{}] Acquired manifest item: {}", tid, manifest_item);
+        // Step 3. load image manifest from specific platform filter
+        let layer_item: ImageManifest = match serde_json::from_slice(&self.read_content(namespace, manifest_item).await?) {
+            Ok(s) => s,
+            Err(e) => bail_error!("[{}] JSON error getting ImageManifest: {}", tid, e),
+        };
+        layer_item.config().to_owned()
       },
-      Err(e) => {
-        match e.code() {
-          // task crashed and was removed
-          Code::NotFound => {
-            warn!("[{}] Task for container '{}' was missing when it was attempted to be delete. Usually the process crashed", tid, container_id);
-            Ok(())
-          },
-          _ => anyhow::bail!("[{}] Attempt to delete task in container '{}' failed with error: {}", tid, container_id, e),
-        }
-      },
-    }
-  }
+      "application/vnd.docker.distribution.manifest.v2+json" => {
+        let config_index: ImageManifest = serde_json::from_slice(&content)?;
+        debug!("[{}] config ImageManifest = {:?}", tid, config_index);
+        config_index.config().to_owned()  
+      }
+      _ => anyhow::bail!("Don't know how to handle unknown image media type '{}'", media_type)
+    };
 
-  /// Ensures that the specified image is available on the machine
-  pub async fn ensure_image(&self, image_name: &String) -> Result<()> {
-    let output = Command::new("ctr")
-          .args(["images", "pull", image_name.as_str()])
-          .output();
-    match output {
-      Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
-      Ok(output) => {
-        if let Some(status) = output.status.code() {
-          if status == 0 {
-            Ok(())
-          } else {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to pull the image '{}' with exit code of '{}', stdout '{}', stderr '{}'", image_name, output.status, stdout, stderr)
-          }
-        } else {
-          let stdout = String::from_utf8_lossy(&output.stdout);
-          let stderr = String::from_utf8_lossy(&output.stderr);
-          anyhow::bail!("Failed to pull the image '{}' with unkonwn exit code, stdout '{}', stderr '{}'", image_name, stdout, stderr)
-        }
-      },
+    // Step 5. load image configuration (layer) from image
+    let config: ImageConfiguration = match 
+        serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_owned()).await?) {
+          Ok(s) => s,
+          Err(e) => bail_error!("[{}] JSON error getting ImageConfiguration: {}", tid, e),
+      };
+  
+    debug!("[{}] Loaded ImageConfiguration: {:?}", tid, config);
+
+    // Step 6. calculate finalize digest
+    let mut iter = config.rootfs().diff_ids().iter();
+    let mut prev_digest: String = iter.next().map_or_else(String::new, |v| v.clone());
+    while let Some(v) = iter.by_ref().next() {
+        let mut hasher = Sha256::new();
+        hasher.update(prev_digest);
+        hasher.update(" ");
+        hasher.update(v);
+        let sha = hex::encode(hasher.finalize());
+        prev_digest = format!("sha256:{}", sha)
     }
-  }
+    debug!("[{}] load {} diff digest {}", tid, image, prev_digest);
+    Ok(prev_digest)
+  }  
 }

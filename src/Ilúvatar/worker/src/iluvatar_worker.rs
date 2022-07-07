@@ -2,12 +2,12 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_lib::rpc::*;
-use crate::config::WorkerConfig;
-use crate::containers::containermanager::ContainerManager;
+use iluvatar_lib::worker_api::config::WorkerConfig;
+use iluvatar_lib::services::containers::containermanager::ContainerManager;
 use crate::invocation::invoker::InvokerService;
 use log::*;
 
-#[derive(Debug)]
+// #[derive(Debug)]
 #[allow(unused)]
 pub struct IluvatarWorkerImpl {
   container_manager: Arc<ContainerManager>,

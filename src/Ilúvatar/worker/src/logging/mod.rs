@@ -2,7 +2,7 @@ use flexi_logger::{DeferredNow, Record, TS_DASHES_BLANK_COLONS_DOT_BLANK, Logger
 use iluvatar_lib::transaction::TransactionId;
 use log::debug;
 
-use crate::config::WorkerConfig;
+use iluvatar_lib::worker_api::config::WorkerConfig;
 
 
 pub fn timed_format(

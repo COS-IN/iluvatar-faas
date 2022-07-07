@@ -1,10 +1,9 @@
 use std::{sync::Arc, time::SystemTime, fs};
-use iluvatar_lib::{utils::{port_utils::Port, file_utils::temp_file, calculate_invoke_uri, calculate_base_uri}, bail_error, transaction::TransactionId, types::MemSizeMb};
+use crate::{utils::{port_utils::Port, file_utils::temp_file, calculate_invoke_uri, calculate_base_uri}, bail_error, transaction::TransactionId, types::MemSizeMb, services::network::network_structs::Namespace};
 use inotify::{Inotify, WatchMask};
 use parking_lot::RwLock;
-use crate::network::network_structs::Namespace;
 
-use super::containermanager::ContainerManager;
+use crate::services::containers::containermanager::ContainerManager;
 use log::{debug};
 use anyhow::{Result, Context};
 
@@ -163,8 +162,8 @@ pub struct RegisteredFunction {
   pub parallel_invokes: u32,
 }
 
-#[derive(Debug)]
-#[allow(unused)]
+// #[derive(Debug)]
+// #[allow(unused)]
 pub struct ContainerLock<'a> {
   pub container: Arc<Container>,
   container_mrg: &'a ContainerManager,

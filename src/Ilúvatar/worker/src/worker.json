@@ -20,7 +20,8 @@
     "eviction": "LRU",
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 0,
-    "pool_freq_sec": 5
+    "pool_freq_sec": 5,
+    "backend": "containerd"
   },
   "networking": {
     "bridge": "IlWorkBr0",

@@ -1,10 +1,10 @@
-use crate::network::network_structs::ContdNamespace;
-use crate::{config::WorkerConfig, network::network_structs::Namespace};
+use crate::services::network::network_structs::{ContdNamespace, Namespace};
+use crate::worker_api::config::WorkerConfig;
 use std::sync::Arc;
 use std::collections::HashMap;
 use anyhow::Result;
-use iluvatar_lib::transaction::{TransactionId, NAMESPACE_POOL_WORKER_TID};
-use iluvatar_lib::{utils, bail_error, utils::execute_cmd};
+use crate::transaction::{TransactionId, NAMESPACE_POOL_WORKER_TID};
+use crate::{utils, bail_error, utils::execute_cmd};
 use parking_lot::Mutex;
 use std::env;
 use std::fs::File;
@@ -74,7 +74,7 @@ impl NamespaceManager {
     let temp_file = utils::file_utils::temp_file(&"il_worker_br".to_string(), "json")?;
 
     let mut file = File::create(temp_file)?;
-    let bridge_json = include_str!("../resources/cni/il_worker_br.json");
+    let bridge_json = include_str!("../../resources/cni/il_worker_br.json");
     writeln!(&mut file, "{}", bridge_json)?;
 
     let mut env: HashMap<String, String> = env::vars().collect();

@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use iluvatar_lib::types::MemSizeMb;
+use crate::types::MemSizeMb;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
@@ -25,6 +25,7 @@ pub struct ContainerResources {
   pub startup_timeout_ms: u64,
   pub memory_buffer_mb: MemSizeMb,
   pub pool_freq_sec: u64,
+  pub backend: String,
 }
 
 #[derive(Debug, Deserialize)]

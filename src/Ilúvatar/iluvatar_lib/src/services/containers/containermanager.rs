@@ -1,52 +1,48 @@
-use crate::containers::containerlife::ContainerLifecycle;
-use crate::containers::structs::{InsufficientMemoryError, InsufficientCoresError};
-use crate::network::namespace_manager::NamespaceManager;
-
-use iluvatar_lib::bail_error;
-use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
-use iluvatar_lib::transaction::{TransactionId, CTR_MGR_WORKER_TID};
-use iluvatar_lib::types::MemSizeMb;
-use iluvatar_lib::utils::calculate_fqdn;
+use crate::services::LifecycleService;
+use crate::services::containers::structs::{InsufficientMemoryError, InsufficientCoresError};
+use crate::bail_error;
+use crate::rpc::{RegisterRequest, PrewarmRequest};
+use crate::transaction::{TransactionId, CTR_MGR_WORKER_TID};
+use crate::types::MemSizeMb;
+use crate::utils::calculate_fqdn;
 use anyhow::{Result, bail};
 use log::*;
 use std::cmp::Ordering;
 use std::collections::HashMap; 
 use std::sync::Arc;
 use parking_lot::{RwLock, Mutex};
-use crate::config::WorkerConfig;
+use crate::worker_api::config::WorkerConfig;
 use super::structs::{Container, RegisteredFunction, ContainerLock};
 
 type ContainerList = Arc<RwLock<Vec<Arc<Container>>>>;
 type ContainerPool = HashMap<String, ContainerList>;
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct ContainerManager {
   registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
   active_containers: Arc<RwLock<ContainerPool>>,
   config: WorkerConfig,
   used_mem_mb: Arc<Mutex<MemSizeMb>>,
   running_funcs: Arc<Mutex<u32>>,
-  cont_lifecycle: Arc<ContainerLifecycle>,
+  cont_lifecycle: Arc<dyn LifecycleService>,
   prioritized_list: ContainerList,
 }
 
 impl ContainerManager {
-  pub async fn new(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> Result<ContainerManager> {
-    let mut lifecycle = ContainerLifecycle::new(ns_man.clone());
-    lifecycle.connect().await?;
+  pub async fn new(config: WorkerConfig, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<ContainerManager> {
     Ok(ContainerManager {
       registered_functions: Arc::new(RwLock::new(HashMap::new())),
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       config,
       used_mem_mb: Arc::new(Mutex::new(0)),
       running_funcs: Arc::new(Mutex::new(0)),
-      cont_lifecycle: Arc::new(lifecycle),
+      cont_lifecycle,
       prioritized_list: Arc::new(RwLock::new(Vec::new())),
     })
   }
 
-  pub async fn boxed(config: WorkerConfig, ns_man: Arc<NamespaceManager>) -> Result<Arc<ContainerManager>> {
-    let cm = Arc::new(ContainerManager::new(config.clone(), ns_man).await?);
+  pub async fn boxed(config: WorkerConfig, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<Arc<ContainerManager>> {
+    let cm = Arc::new(ContainerManager::new(config.clone(), cont_lifecycle).await?);
     let cm_clone = cm.clone();
     // run on an OS thread here
     // If this thread crashes, we'll never know and the worker will not have a good time
