@@ -84,4 +84,4 @@ for k in set(colds.keys() + warms.keys()):
   if k in warms:
     warm_m = np.mean(warms[k])
     warm_mo = np.mean(warms_over[k])
-  print(k, warm_m, cold_m, warm_mo cold_mo)
+  print(k, warm_m, cold_m, warm_mo, cold_mo)
