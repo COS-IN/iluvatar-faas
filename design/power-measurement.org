@@ -14,7 +14,23 @@ Output of =dcmi power reading= is something like
 ** RAPL 
 - Driver still not found. Need to upgrade kernel? 
 - RAPL is a software power meter and uses a model based on CPU freq and voltage. 
-- turbostat --debug provides CPU and RAM Watts. CPU is ~40 and RAM is ~10, but fluctuates quite a bit, why!?  
+- turbostat --debug provides CPU and RAM Watts. CPU is ~40 and RAM is ~5, but fluctuates quite a bit, why!?  
+- rapl-read https://web.eece.maine.edu/~vweaver/projects/rapl/index.html works. 
+- Fails for powercap, but reading the msrs works (hence needs root). Kernel driver issue??
+- on v-019:/home/prateeks/rapl-read will output:
+        Sleeping 1 second
+
+        Package 0:
+                Package energy: 20.273865J
+                PowerPlane0 (cores): 0.000000J
+                DRAM: 1.299484J
+        Package 1:
+                Package energy: 18.747803J
+                PowerPlane0 (cores): 0.000000J
+                DRAM: 0.902191J
+
+
+
 
 * AMD  Desktop
 - We dont have full-system true power
