@@ -71,6 +71,7 @@ for dir in actions:
           else:
             print(output)
 
+pctl = 0.3
 # function name, mean warn time, mean cold time, mean warm system overhead, mean cold system overhead
 print("Name, Warm, Cold, WarmOverhead, ColdOverhead")
 for k in set(colds.keys() + warms.keys()):
@@ -79,9 +80,9 @@ for k in set(colds.keys() + warms.keys()):
   warm_mo = 0
   cold_mo = 0
   if k in colds:
-    cold_m = np.mean(colds[k])
-    cold_mo = np.mean(colds_over[k])
+    cold_m = np.quantile(colds[k], pctl)
+    cold_mo = np.quantile(colds_over[k], pctl)
   if k in warms:
-    warm_m = np.mean(warms[k])
-    warm_mo = np.mean(warms_over[k])
+    warm_m = np.quantile(warms[k], pctl)
+    warm_mo = np.quantile(warms_over[k], pctl)
   print(k, warm_m, cold_m, warm_mo, cold_mo)
