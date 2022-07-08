@@ -18,6 +18,7 @@ pub trait LifecycleService: Send + Sync {
   async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;
   async fn ensure_image(&self, image_name: &String) -> Result<()>;
   async fn search_image_digest(&self, image: &String, namespace: &str, tid: &TransactionId) -> Result<String>;
+  async fn clean_containers(&self, namespace: &str, tid: &TransactionId) -> Result<()>;
 }
 
 pub struct LifecycleFactory {
@@ -31,10 +32,12 @@ impl LifecycleFactory {
     }
   }
 
-  pub async fn get_lifecycle_service(&self, tid: &TransactionId) -> Result<Arc<dyn LifecycleService>> {
+  pub async fn get_lifecycle_service(&self, tid: &TransactionId, bridge: bool) -> Result<Arc<dyn LifecycleService>> {
     if self.config.container_resources.backend == "containerd" {
       let netm = NamespaceManager::boxed(self.config.clone(), tid);
-      netm.ensure_bridge(tid)?;
+      if bridge {
+        netm.ensure_bridge(tid)?;
+      }
       
       let mut lifecycle = ContainerdLifecycle::new(netm);
       lifecycle.connect().await?;

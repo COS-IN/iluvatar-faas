@@ -1261,6 +1261,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-std",
+ "clap",
  "config",
  "containerd-client",
  "flexi_logger",

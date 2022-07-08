@@ -24,6 +24,8 @@ type NamespacePool = Arc<Mutex<Vec<Arc<Namespace>>>>;
 
 const CNI_PATH_VAR: &str = "CNI_PATH";
 const NETCONFPATH_VAR: &str = "NETCONFPATH";
+const NAMESPACE_IDENTIFIER: &str = "ilunns-";
+const BRIDGE_NET_ID: &str = "mk_bridge_throwaway";
 
 impl NamespaceManager {
   fn new(config: WorkerConfig) -> NamespaceManager {
@@ -52,7 +54,7 @@ impl NamespaceManager {
     let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
     loop {
       'inner: while nm.pool_size() < config.networking.pool_size {
-        let ns = match nm.create_namespace(&GUID::rand().to_string(), tid) {
+        let ns = match nm.create_namespace(&nm.generate_net_namespace_name(), tid) {
             Ok(ns) => ns,
             Err(e) => {
               error!("[{}] Failed creating namespace in monitor: {}", tid, e);
@@ -81,7 +83,7 @@ impl NamespaceManager {
     env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
     env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
 
-    let name = "mk_bridge_throwaway".to_string();
+    let name = BRIDGE_NET_ID.to_string();
 
     if ! self.namespace_exists(&name) {
       debug!("[{}] Namespace '{}' does not exists, making", tid, name);
@@ -205,7 +207,7 @@ impl NamespaceManager {
     return self.pool.lock().len();
   }
   
-  pub fn create_namespace(&self, name: &String, tid: &TransactionId) -> Result<Namespace> {
+  fn create_namespace(&self, name: &String, tid: &TransactionId) -> Result<Namespace> {
     info!("[{}] Creating new namespace: {}", tid, name);
     let mut env: HashMap<String, String> = env::vars().collect();
     env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
@@ -243,9 +245,17 @@ impl NamespaceManager {
       }
     } else {
       debug!("[{}] Creating new namespace, pool is empty", tid);
-      let ns = Arc::new(self.create_namespace(&GUID::rand().to_string(), tid)?);
+      let ns = Arc::new(self.create_namespace(&self.generate_net_namespace_name(), tid)?);
       return Ok(ns);
     }
+  }
+
+  fn generate_net_namespace_name(&self) -> String {
+    format!("{}{}", NAMESPACE_IDENTIFIER, GUID::rand())
+  }
+
+  fn is_owned_namespace(&self, ns: &str) -> bool {
+    ns.starts_with(NAMESPACE_IDENTIFIER)
   }
 
   pub fn return_namespace(&self, ns: Arc<Namespace>, tid: &TransactionId) -> Result<()> {
@@ -272,5 +282,31 @@ impl NamespaceManager {
     } else {
       bail_error!("[{}] Failed to delete delete with no exit code and error '{:?}'", tid, out)
     }
+  }
+
+  pub fn clean(&self, tid: &TransactionId) -> Result<()> {
+    info!("[{}] Deleting all owned namespaces", tid);
+    let out = execute_cmd("/bin/ip", &vec!["netns"], None, tid)?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines = stdout.split("\n");
+    for line in lines {
+      if self.is_owned_namespace(line) {
+        let split: Vec<&str> = line.split(" ").collect();
+        self.delete_namespace(&split[0].to_string(), tid)?;
+      }
+    }
+    // sudo NETCONFPATH=/tmp/ilúvatar_worker/ CNI_PATH=/opt/cni/bin /home/alex/.gopth/bin/cnitool del il_worker_br /run/netns/mk_bridge_throwaway
+    // sudo ip link delete IlWorkBr0 type bridge
+    
+    let nspth = NamespaceManager::net_namespace(&BRIDGE_NET_ID.to_string());
+    let mut env: HashMap<String, String> = env::vars().collect();
+    env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
+    env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
+    let _output = execute_cmd(&self.config.networking.cnitool, 
+      &vec!["del", &self.config.networking.cni_name.as_str(), &nspth.as_str()],
+      Some(&env), tid)?;
+    let _out = execute_cmd("/bin/ip", &vec!["link", "delete", &self.config.networking.bridge, "type", "bridge"], Some(&env), tid)?;
+      
+    Ok(())
   }
 }

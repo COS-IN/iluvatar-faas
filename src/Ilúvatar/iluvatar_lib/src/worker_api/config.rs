@@ -62,7 +62,7 @@ pub struct Networking {
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
-  pub fn new(fpath: std::option::Option<&str>) -> Result<Self, ConfigError> {
+  pub fn new(fpath: std::option::Option<&str>, cleaning: bool) -> Result<Self, ConfigError> {
     let fpath = match fpath {
         Some(f) => f,
         None => "worker/src/worker.json",
@@ -70,10 +70,15 @@ impl Configuration {
     let s = Config::builder()
     .add_source(File::with_name(fpath))
     .build()?;
-    s.try_deserialize()
+    let mut cfg: Configuration = s.try_deserialize()?;
+    if cleaning {
+      // disable network pool during cleaning
+      cfg.networking.use_pool = false;
+    }
+    Ok(cfg)
   }
 
-  pub fn boxed(fpath: std::option::Option<&str>) -> Result<WorkerConfig, ConfigError> {
-    Ok(Arc::new(Configuration::new(fpath)?))
+  pub fn boxed(fpath: std::option::Option<&str>, cleaning: bool) -> Result<WorkerConfig, ConfigError> {
+    Ok(Arc::new(Configuration::new(fpath, cleaning)?))
   }
 }

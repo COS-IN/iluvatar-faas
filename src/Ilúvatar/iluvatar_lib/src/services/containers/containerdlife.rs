@@ -22,7 +22,7 @@ use client::services::v1::content_client::ContentClient;
 use client::services::v1::images_client::ImagesClient;
 use client::services::v1::snapshots::snapshots_client::SnapshotsClient;
 use client::services::v1::snapshots::PrepareSnapshotRequest;
-use client::services::v1::{CreateContainerRequest, CreateTaskRequest, StartRequest, DeleteContainerRequest, DeleteTaskRequest, KillRequest};
+use client::services::v1::{CreateContainerRequest, CreateTaskRequest, StartRequest, DeleteContainerRequest, DeleteTaskRequest, KillRequest, ListContainersRequest};
 use client::services::v1::Container as Containerd_Container;
 use client::services::v1::{GetImageRequest, ReadContentRequest};
 use client::services::v1::container::Runtime;
@@ -158,6 +158,20 @@ impl ContainerdLifecycle {
     }
   }
 
+  async fn delete_task(&self, client: &mut TasksClient<Channel>, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+      match self.try_delete_task(client, container_id, ctd_namespace, tid).await {
+        Ok(_) => Ok(()),
+        Err(_) => {
+          // sleep a little and hope the process has terminated in that time
+          tokio::time::sleep(Duration::from_millis(2)).await;
+          match self.try_delete_task(client, container_id, ctd_namespace, tid).await {
+            Ok(_) => Ok(()),
+            Err(e2) => bail_error!("[{}] Deleting task in container '{}' failed with error: {}", tid, container_id, e2),
+        }
+      },
+    }
+  }
+
   /// Attempts to delete a task
   /// Sometimes this can fail if the internal process hasn't shut down yet (or wasn't killed at all)
   async fn try_delete_task(&self, client: &mut TasksClient<Channel>, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
@@ -186,6 +200,52 @@ impl ContainerdLifecycle {
       },
     }
   }
+
+  async fn kill_task(&self, client: &mut TasksClient<Channel>, container_id: &String, ctd_namespace: &str, tid:&TransactionId) -> Result<()> {
+    let req = KillRequest {
+      container_id: container_id.clone(),
+      // exec_id: container.task.pid.to_string(),
+      exec_id: "".to_string(),
+      signal: 9, // SIGKILL
+      all: true,
+    };
+    let req = with_namespace!(req, ctd_namespace);
+
+    let resp = client
+        .kill(req)
+        .await;
+    match &resp {
+        Ok(_) => {},
+        Err(e) => {
+          if e.code() == Code::NotFound {
+            // task crashed and was removed
+            warn!("[{}] Task for container '{}' was missing when it was attempted to be killed", tid, container_id);
+          } else {
+            bail_error!("[{}] Attempt to kill task in container '{}' failed with error: {}", tid, container_id, e);
+          }
+        },
+    };
+    debug!("[{}] Kill task response {:?}", tid, resp);
+    Ok(())
+  }
+
+  async fn delete_containerd_container(&self, client: &mut ContainersClient<Channel>, container_id: &String, ctd_namespace: &str, tid:&TransactionId) -> Result<()> {
+    let req = DeleteContainerRequest {
+      id: container_id.clone(),
+    };
+    let req = with_namespace!(req, ctd_namespace);
+
+    let _resp = match client
+        .delete(req)
+        .await {
+            Ok(resp) => resp,
+            Err(e) => {
+              bail_error!("[{}] Delete container failed with error {}", tid, e);
+            },
+        };
+    debug!("[{}] Delete container response {:?}", tid, _resp);
+    Ok(())
+  }
 }
 
 #[async_trait]
@@ -202,6 +262,8 @@ impl LifecycleService for ContainerdLifecycle {
     let address = &ns.namespace.ips[0].address;
 
     let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name);
+    let mut labels: HashMap<String, String> = HashMap::new();
+    labels.insert("owner".to_string(), "iluvatar_worker".to_string());
 
     let container = Containerd_Container {
       id: cid.to_string(),
@@ -214,7 +276,7 @@ impl LifecycleService for ContainerdLifecycle {
       created_at: None,
       updated_at: None,
       extensions: HashMap::new(),
-      labels: HashMap::new(),
+      labels: labels,
       snapshot_key: "".to_string(),
       snapshotter: "".to_string(),
     };
@@ -322,60 +384,12 @@ impl LifecycleService for ContainerdLifecycle {
     info!("[{}] Removing container '{}'", tid, container_id);
     let mut client = TasksClient::new(self.channel());
 
-    let req = KillRequest {
-      container_id: container_id.clone(),
-      // exec_id: container.task.pid.to_string(),
-      exec_id: "".to_string(),
-      signal: 9, // SIGKILL
-      all: true,
-    };
-    let req = with_namespace!(req, ctd_namespace);
+    self.kill_task(&mut client, container_id, ctd_namespace, tid).await?;
 
-    let resp = client
-        .kill(req)
-        .await;
-    match &resp {
-        Ok(_) => {},
-        Err(e) => {
-          if e.code() == Code::NotFound {
-            // task crashed and was removed
-            warn!("[{}] Task for container '{}' was missing when it was attempted to be killed", tid, container_id);
-          } else {
-            bail_error!("[{}] Attempt to kill task in container '{}' failed with error: {}", tid, container_id, e);
-          }
-        },
-    };
-    debug!("[{}] Kill task response {:?}", tid, resp);
-
-    match self.try_delete_task(&mut client, container_id, ctd_namespace, tid).await {
-        Ok(_) => (),
-        Err(_) => {
-          // sleep a little and hope the process has terminated in that time
-          tokio::time::sleep(Duration::from_millis(2)).await;
-          match self.try_delete_task(&mut client, container_id, ctd_namespace, tid).await {
-            Ok(_) => (),
-            Err(e2) => bail_error!("[{}] Deleting task in container '{}' failed with error: {}", tid, container_id, e2),
-        }
-      },
-    };
+    self.delete_task(&mut client, container_id, ctd_namespace, tid).await?;
 
     let mut client = ContainersClient::new(self.channel());
-
-    let req = DeleteContainerRequest {
-        id: container_id.clone(),
-    };
-    let req = with_namespace!(req, ctd_namespace);
-
-    let _resp = match client
-        .delete(req)
-        .await {
-            Ok(resp) => resp,
-            Err(e) => {
-              bail_error!("[{}] Delete container failed with error {}", tid, e);
-            },
-        };
-    debug!("[{}] Delete container response {:?}", tid, _resp);
-
+    self.delete_containerd_container(&mut client, container_id, ctd_namespace, tid).await?;
     self.namespace_manager.return_namespace(net_namespace.clone(), tid)?;
 
     info!("[{}] Container: {:?} deleted", tid, container_id);
@@ -462,5 +476,40 @@ impl LifecycleService for ContainerdLifecycle {
     }
     debug!("[{}] load {} diff digest {}", tid, image, prev_digest);
     Ok(prev_digest)
-  }  
+  }
+  
+  async fn clean_containers(&self, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+    info!("[{}] Cleaning containers in namespace {}", tid, ctd_namespace);
+    let mut ctr_client = ContainersClient::new(self.channel());
+    let req = ListContainersRequest {
+      filters: vec!["".to_string()],
+    };
+    let req = with_namespace!(req, ctd_namespace);
+
+    let resp =  match ctr_client
+        .list(req)
+        .await {
+            Ok(resp) => resp,
+            Err(e) => {
+              bail_error!("[{}] Containerd failed to list containers with error: {}", tid, e);
+            },
+        };
+    let mut task_client = TasksClient::new(self.channel());
+
+    debug!("[{}] Container list response {:?}", tid, resp);
+    for container in resp.into_inner().containers.iter() {
+      let container_id = &container.id;
+      info!("[{}] Removing container {}", tid, container_id);
+
+      self.kill_task(&mut task_client, container_id, ctd_namespace, tid).await?;
+
+      tokio::time::sleep(Duration::from_millis(5)).await;
+
+      self.delete_task(&mut task_client, container_id, ctd_namespace, tid).await?;
+      self.delete_containerd_container(&mut ctr_client, container_id, ctd_namespace, tid).await?;
+    }
+
+    self.namespace_manager.clean(tid)?;
+    Ok(())
+  }
 }
