@@ -73,3 +73,11 @@ Only identification is the proc entry being missing.
 [2022-07-08 15:59:26.350599 -04:00] [INFO] [iluvatar_lib::services::containers::containerdlife] [CtrMrgWorker] Removing container 'chameleon-0.0.2-550AA71B-E197-774A-362C-4D6ED52C01E9'
 [2022-07-08 15:59:26.450213 -04:00] [INFO] [iluvatar_lib::services::containers::containerdlife] [CtrMrgWorker] Container: "chameleon-0.0.2-550AA71B-E197-774A-362C-4D6ED52C01E9" deleted
 ```
+
+## Just nothing?
+
+Process never goes anywhere, output and err are empty.
+
+```
+[a475b382to7ae8toacbcto2635to70a24b16f1bf] Timeout while reading inotify events for container cnn_image_classification-0.0.7-08EA26DA-B4E4-4C31-FA95-88746C958BEB; stdout: ''; stderr ''
+```
