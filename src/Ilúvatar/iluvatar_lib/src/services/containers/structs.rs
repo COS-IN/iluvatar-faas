@@ -124,6 +124,7 @@ impl Container {
         Ok(c) => c,
         Err(e) => { 
           log::warn!("[{}] Error trying to read container '{}' /proc/<pid>/statm: {}", e, self.container_id, tid);
+          *self.healthy.lock() = false;
           *self.mem_usage.write() = self.function.memory; 
           return *self.mem_usage.read(); 
         },
