@@ -42,7 +42,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn invoke(&self,
     request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
       let request = request.into_inner();
-      info!("[{}] Handling invocation request", request.transaction_id);
+      info!("[{}] Handling invocation request {} {}", request.transaction_id, request.function_name, request.function_version);
       let resp = self.invoker.invoke(request).await;
 
       match resp {
@@ -67,7 +67,9 @@ impl IluvatarWorker for IluvatarWorkerImpl {
 
   async fn invoke_async(&self,
     request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
-      let resp = self.invoker.invoke_async(request.into_inner());
+      let request = request.into_inner();
+      info!("[{}] Handling async invocation request {} {}", request.transaction_id, request.function_name, request.function_version);
+      let resp = self.invoker.invoke_async(request);
 
       match resp {
         Ok( cookie ) => {
@@ -107,7 +109,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();
-      info!("[{}] Handling prewarm request", request.transaction_id);
+      info!("[{}] Handling prewarm request {} {}", request.transaction_id, request.function_name, request.function_version);
       let container_id = self.container_manager.prewarm(&request).await;
 
       match container_id {
@@ -132,7 +134,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn register(&self,
     request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
       let request = request.into_inner();
-      info!("[{}] Handling register request", request.transaction_id);
+      info!("[{}] Handling register request {} {}", request.transaction_id, request.function_name, request.function_version);
 
       let reg_result = self.container_manager.register(&request).await;
 
@@ -156,7 +158,8 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     }
 
   async fn status(&self,
-    _: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
+    request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
+      info!("[{}] Handling status request", request.into_inner().transaction_id);
       let _reply = StatusResponse {
         json_result: "{\"Error\": \"not implemented\"}".into(),
         queue_len: 0,
@@ -168,7 +171,8 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     }
 
   async fn health(&self,
-    _: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+    request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+      info!("[{}] Handling health request", request.into_inner().transaction_id);
       let reply = HealthResponse {
         status: HealthStatus::Healthy as i32
       };

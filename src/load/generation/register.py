@@ -5,6 +5,7 @@ import subprocess
 import os
 from time import time
 import numpy as np
+import pickle
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--test", '-t')
@@ -86,3 +87,7 @@ for k in set(colds.keys() + warms.keys()):
     warm_m = np.quantile(warms[k], pctl)
     warm_mo = np.quantile(warms_over[k], pctl)
   print(k, warm_m, cold_m, warm_mo, cold_mo)
+
+data = (colds, colds_over, warms, warms_over)
+with open("data.pckl", "w+b") as f:
+  pickle.dump(data, f)

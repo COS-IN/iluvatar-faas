@@ -1,13 +1,16 @@
-use clap::{ArgMatches, App, SubCommand};
+use clap::{ArgMatches, App, SubCommand, Arg};
 
 pub fn parse() -> ArgMatches<'static> {
   App::new("ilúvatar_worker")
     .version("0.1.0")
     .about("Ilúvatar worker")
-    // TODO: use tihs file
-    .args_from_usage(
-        "-c, --config=[FILE] 'Sets a custom config file'")
-       
+    .arg(Arg::with_name("config")
+      .short("c")
+      .long("config")
+      .help("Path to a configuration file to use")
+      .required(false)
+      .default_value("/tmp/foo/bar")
+      .takes_value(true))   
     .subcommand(SubCommand::with_name("clean")
                 .about("Clean up the system from possible previous executions"))
     .get_matches()

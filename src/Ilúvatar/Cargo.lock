@@ -1235,6 +1235,7 @@ name = "iluvatar_lib"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "config",
  "containerd-client",
  "guid-create",

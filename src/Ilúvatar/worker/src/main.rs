@@ -8,7 +8,7 @@ use iluvatar_lib::services::containers::containermanager::ContainerManager;
 use iluvatar_worker::args::parse;
 use iluvatar_worker::iluvatar_worker::IluvatarWorkerImpl;
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorkerServer;
-// use iluvatar_lib::services::network::namespace_manager::NamespaceManager;
+use iluvatar_lib::utils::config_utils::get_val;
 use log::*;
 use anyhow::Result;
 use tonic::transport::Server;
@@ -54,14 +54,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let tid: &TransactionId = &STARTUP_TID;
 
   let args = parse();
+  let config_pth = get_val("config", &args)?;
 
   match args.subcommand() {
     ("clean", Some(_)) => {
-      let server_config = Configuration::boxed(None, true).unwrap();
+      let server_config = Configuration::boxed(true, &config_pth).unwrap();
       clean(server_config, tid).await?;      
     },
     (_,_) => { 
-      let server_config = Configuration::boxed(None, false).unwrap();
+      let server_config = Configuration::boxed(false, &config_pth).unwrap();
       run(server_config, tid).await?;
      },
   };

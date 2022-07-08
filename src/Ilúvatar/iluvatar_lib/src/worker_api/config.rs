@@ -93,13 +93,15 @@ pub struct Networking {
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
-  pub fn new(fpath: std::option::Option<&str>, cleaning: bool) -> Result<Self, ConfigError> {
-    let fpath = match fpath {
-        Some(f) => f,
-        None => "worker/src/worker.json",
-    };
+  pub fn new(cleaning: bool, config_fpath: &String) -> Result<Self, ConfigError> {
+    let sources = vec!["worker/src/worker.json", config_fpath.as_str(), "worker/src/worker.dev.json"];
     let s = Config::builder()
-      .add_source(File::with_name(fpath))
+      .add_source(
+        sources.iter().filter(|path| {
+          std::path::Path::new(&path).exists()
+        })
+        .map(|path| File::with_name(path))
+        .collect::<Vec<_>>())
       .build()?;
     let mut cfg: Configuration = s.try_deserialize()?;
     if cleaning {
@@ -109,7 +111,7 @@ impl Configuration {
     Ok(cfg)
   }
 
-  pub fn boxed(fpath: std::option::Option<&str>, cleaning: bool) -> Result<WorkerConfig, ConfigError> {
-    Ok(Arc::new(Configuration::new(fpath, cleaning)?))
+  pub fn boxed(cleaning: bool, config_fpath: &String) -> Result<WorkerConfig, ConfigError> {
+    Ok(Arc::new(Configuration::new(cleaning, config_fpath)?))
   }
 }
