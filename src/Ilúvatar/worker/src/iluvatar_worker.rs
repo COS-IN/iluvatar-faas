@@ -1,26 +1,28 @@
 use std::sync::Arc;
+use iluvatar_lib::services::invocation::invoker::InvokerService;
+use iluvatar_lib::services::status::status_service::StatusService;
 use tonic::{Request, Response, Status};
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_lib::rpc::*;
 use iluvatar_lib::worker_api::config::WorkerConfig;
 use iluvatar_lib::services::containers::containermanager::ContainerManager;
-use crate::invocation::invoker::InvokerService;
 use log::*;
 
-// #[derive(Debug)]
 #[allow(unused)]
 pub struct IluvatarWorkerImpl {
   container_manager: Arc<ContainerManager>,
   config: WorkerConfig,
   invoker: Arc<InvokerService>,
+  status: Arc<StatusService>,
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>, status: Arc<StatusService>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
       container_manager,
       config,
       invoker,
+      status
     }
   }
 }
@@ -159,15 +161,21 @@ impl IluvatarWorker for IluvatarWorkerImpl {
 
   async fn status(&self,
     request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
-      info!("[{}] Handling status request", request.into_inner().transaction_id);
-      let _reply = StatusResponse {
-        json_result: "{\"Error\": \"not implemented\"}".into(),
-        queue_len: 0,
-        used_mem: 0,
-        total_mem: 0,
-        load: 0.0,
-      };
-      Err(Status::aborted("failed"))
+      let request = request.into_inner();
+      info!("[{}] Handling status request", request.transaction_id);
+      match self.status.get_status(&request.transaction_id) {
+        Ok(stat) => Ok(Response::new(stat)),
+        Err(e) => {
+          error!("[{}] Getting status of worker failed {}", request.transaction_id, e);
+          Ok(Response::new(StatusResponse {
+            success: false,
+            queue_len: 0,
+            used_mem: 0,
+            total_mem: 0,
+            load: 0.0,
+          }))
+        },
+      }
     }
 
   async fn health(&self,

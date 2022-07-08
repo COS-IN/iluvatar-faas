@@ -58,3 +58,18 @@ ModuleNotFoundError: No module named 'csv'
 ModuleNotFoundError: No module named 'calendar'
 '" }
 ```
+
+## Processes dying?
+
+Perfectly healthy containers are suddenly no longer working.
+Only identification is the proc entry being missing.
+
+```
+[2022-07-08 15:59:16.127772 -04:00] [DEBUG] [iluvatar_lib::services::containers::containermanager] [CtrMrgWorker] container 'chameleon-0.0.2-550AA71B-E197-774A-362C-4D6ED52C01E9' new: 31; old: 31; diff:0
+[2022-07-08 15:59:21.128956 -04:00] [WARN] [iluvatar_lib::services::containers::structs] [No such file or directory (os error 2)] Error trying to read container 'chameleon-0.0.2-550AA71B-E197-774A-362C-4D6ED52C01E9' /proc/<pid>/statm: CtrMrgWorker
+[2022-07-08 15:59:21.129006 -04:00] [DEBUG] [iluvatar_lib::services::containers::containermanager] [CtrMrgWorker] container 'chameleon-0.0.2-550AA71B-E197-774A-362C-4D6ED52C01E9' new: 128; old: 31; diff:97
+[2022-07-08 15:59:26.350464 -04:00] [WARN] [iluvatar_lib::services::containers::containermanager] [CtrMrgWorker] Removing an unhealthy container chameleon-0.0.2-550AA71B-E197-774A-362C-4D6ED52C01E9 stdout: ' * Serving Flask app 'server' (lazy loading)\n * Environment: production\n   WARNING: This is a development server. Do not use it in a production deployment.\n   Use a production WSGI server instead.\n * Debug mode: off\n' stderr: ' * Running on http://10.10.8.93:8080 (Press CTRL+C to quit)\n10.10.0.1 - - [08/Jul/2022 19:58:54] "POST /invoke HTTP/1.1" 200 -\n10.10.0.1 - - [08/Jul/2022 19:58:54] "POST /invoke HTTP/1.1" 200 -\n10.10.0.1 - - [08/Jul/2022 19:58:54] "POST /invoke HTTP/1.1" 200 -\n'
+[2022-07-08 15:59:26.350543 -04:00] [INFO] [iluvatar_lib::services::containers::containermanager] [CtrMrgWorker] Removing container chameleon-0.0.2-550AA71B-E197-774A-362C-4D6ED52C01E9
+[2022-07-08 15:59:26.350599 -04:00] [INFO] [iluvatar_lib::services::containers::containerdlife] [CtrMrgWorker] Removing container 'chameleon-0.0.2-550AA71B-E197-774A-362C-4D6ED52C01E9'
+[2022-07-08 15:59:26.450213 -04:00] [INFO] [iluvatar_lib::services::containers::containerdlife] [CtrMrgWorker] Container: "chameleon-0.0.2-550AA71B-E197-774A-362C-4D6ED52C01E9" deleted
+```

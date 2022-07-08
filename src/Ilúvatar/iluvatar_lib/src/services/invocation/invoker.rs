@@ -1,6 +1,6 @@
 use std::{sync::Arc, collections::HashMap, time::Duration};
-use iluvatar_lib::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
-use iluvatar_lib::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
+use crate::{services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}}, worker_api::config::WorkerConfig};
+use crate::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
 use parking_lot::{RwLock, Mutex};
 use std::time::SystemTime;
 use anyhow::Result;
@@ -9,25 +9,25 @@ use guid_create::GUID;
 use log::*;
 use super::invoker_structs::{QueueFuture, EnqueuedInvocation, InvocationResultPtr};
 
-// #[derive(Debug)]
-// #[allow(unused)]
 pub struct InvokerService {
   pub cont_manager: Arc<ContainerManager>,
   pub async_functions: Arc<RwLock<HashMap<String, InvocationResultPtr>>>,
   pub invoke_queue: Arc<Mutex<Vec<Arc<EnqueuedInvocation>>>>,
+  pub config: WorkerConfig
 }
 
 impl InvokerService {
-    fn new(cont_manager: Arc<ContainerManager>) -> Self {
+    fn new(cont_manager: Arc<ContainerManager>, config: WorkerConfig) -> Self {
       InvokerService {
         cont_manager,
         async_functions: Arc::new(RwLock::new(HashMap::new())),
         invoke_queue: Arc::new(Mutex::new(Vec::new())),
+        config,
       }
     }
 
-    pub fn boxed(cont_manager: Arc<ContainerManager>, tid: &TransactionId) -> Arc<Self> {
-      let i = Arc::new(InvokerService::new(cont_manager));
+    pub fn boxed(cont_manager: Arc<ContainerManager>, tid: &TransactionId, config: WorkerConfig) -> Arc<Self> {
+      let i = Arc::new(InvokerService::new(cont_manager, config));
       let _handle = InvokerService::start_queue_thread(i.clone(), tid);
       return i;
     }
@@ -98,7 +98,7 @@ impl InvokerService {
                 error!("[{}] Encountered unknown error while trying to run queued invocation '{}'", &item.tid, cause);
                 // TODO: insert smartly into queue
                 let mut result_ptr = item.result_ptr.lock();
-                if result_ptr.attempts > 5 {
+                if result_ptr.attempts >= invoker_svc.config.limits.retries {
                   error!("[{}] Abandoning attempt to run invocation after {} errors", &item.tid, result_ptr.attempts);
                   result_ptr.duration = 0;
                   result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
@@ -113,6 +113,10 @@ impl InvokerService {
             },
         };
       });
+    }
+
+    pub fn queue_len(&self) -> usize {
+      self.invoke_queue.lock().len()
     }
 
     /// enqueue_invocation

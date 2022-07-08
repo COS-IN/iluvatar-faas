@@ -84,7 +84,7 @@ pub async fn register(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result
 pub async fn status(worker: Box<Worker>) -> Result<()> {
   let mut api = RCPWorkerAPI::new(worker.address, worker.port).await?;
   let ret = api.status(gen_tid()).await.unwrap();
-  println!("{}", ret);
+  println!("{:?}", ret);
   Ok(())
 }
 

@@ -1,5 +1,5 @@
 use std::{task::{Poll, Waker}, sync::Arc, time::Duration};
-use iluvatar_lib::transaction::TransactionId;
+use crate::transaction::TransactionId;
 use parking_lot::Mutex;
 
 #[derive(Debug)]

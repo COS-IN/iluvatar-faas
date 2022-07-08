@@ -53,6 +53,9 @@ pub struct FunctionLimits {
   pub cpu_max: u32,
   /// invocation length timeout
   pub timeout_sec: u64,
+  /// number of retries before giving up on an invocation
+  /// Setting to 0 means no retries
+  pub retries: u32
 }
 
 #[derive(Debug, Deserialize)]

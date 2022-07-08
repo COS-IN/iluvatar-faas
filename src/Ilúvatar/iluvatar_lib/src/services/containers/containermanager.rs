@@ -17,7 +17,6 @@ use super::structs::{Container, RegisteredFunction, ContainerLock};
 type ContainerList = Arc<RwLock<Vec<Arc<Container>>>>;
 type ContainerPool = HashMap<String, ContainerList>;
 
-// #[derive(Debug)]
 pub struct ContainerManager {
   registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
   active_containers: Arc<RwLock<ContainerPool>>,
@@ -91,46 +90,42 @@ impl ContainerManager {
   async fn update_memory_usages(&self, tid: &TransactionId) {
     debug!("[{}] updating container memory usages", tid);
     let old_total_mem = *self.used_mem_mb.lock();
-    for (_fqdn, cont_list) in self.active_containers.read().iter() {
-      let read_lock = cont_list.read();
-      let mut sum_change = 0;
-      for container in read_lock.iter() {
-        if *container.healthy.lock() {
-          let old_usage = container.curr_mem_usage();
-          let new_usage = container.update_memory_usage_mb(tid);
-          let diff = new_usage - old_usage;
-          debug!("[{}] container '{}' new: {}; old: {}; diff:{}", tid, container.container_id, new_usage, old_usage, diff);
-          sum_change += diff;
-        } else {
-          let stdout = match container.stdin() {
-            Ok(s) => s,
-            Err(e) =>  {
-              error!("[{}] error reading container '{}' stdout: {}", tid, container.container_id, e);
-              "".to_string()
-            },
-          };
-          let stderr = match container.stderr() {
-            Ok(s) => s,
-            Err(e) =>  {
-              error!("[{}] error reading container '{}' stdout: {}", tid, container.container_id, e);
-              "".to_string()
-            },
-          };
-          info!("[{}] Removing an unhealthy container stdout: {} stderr {}", tid, stdout, stderr);
-          match self.remove_container(container.clone(), true, tid).await {
-            Ok(_) => (),
-            Err(cause) => {
-              if let Some(_core_err) = cause.downcast_ref::<ContainerLockedError>() {
-                error!("[{}] tried to remove an unhealthy container someone was using", tid);
-              } else {
-                error!("[{}] got an unknown error trying to remove an unhealthy container '{}'", tid, cause);
-              }
-            },
-          };
+    let mut to_remove = vec![];
+    unsafe {
+      for (_fqdn, cont_list) in (*self.active_containers.data_ptr()).iter() {
+        let read_lock = cont_list.read();
+        let mut sum_change = 0;
+        for container in read_lock.iter() {
+          if *container.healthy.lock() {
+            let old_usage = container.curr_mem_usage();
+            let new_usage = container.update_memory_usage_mb(tid);
+            let diff = new_usage - old_usage;
+            debug!("[{}] container '{}' new: {}; old: {}; diff:{}", tid, container.container_id, new_usage, old_usage, diff);
+            sum_change += diff;
+          } else {
+            to_remove.push(container.clone());
+          }
         }
+        *self.used_mem_mb.lock() += sum_change;
       }
-      *self.used_mem_mb.lock() += sum_change;
     }
+
+    for container in to_remove {
+      let stdout = container.read_stdout(tid);
+      let stderr = container.read_stderr(tid);
+      warn!("[{}] Removing an unhealthy container {} stdout: '{}' stderr: '{}'", tid, container.container_id, stdout, stderr);
+      match self.remove_container(container.clone(), true, tid).await {
+        Ok(_) => (),
+        Err(cause) => {
+          if let Some(_core_err) = cause.downcast_ref::<ContainerLockedError>() {
+            error!("[{}] tried to remove an unhealthy container someone was using", tid);
+          } else {
+            error!("[{}] got an unknown error trying to remove an unhealthy container '{}'", tid, cause);
+          }
+        },
+      };
+    }
+
     let new_total_mem = *self.used_mem_mb.lock();
     debug!("[{}] Total container memory usage old: {}; new: {}", tid, old_total_mem, new_total_mem);
   }
@@ -416,10 +411,12 @@ impl ContainerManager {
       parallel_invokes,
     };
 
+    debug!("[{}] Adding new registration to registered_functions map: {} {}", tid, function_name, function_version);
     { // write lock on registered_functions
       let mut acquired_reg = self.registered_functions.write();
       acquired_reg.insert(fqdn.clone(), Arc::new(registration));
     }
+    debug!("[{}] Adding new registration to active_containers map: {} {}", tid, function_name, function_version);
     { // write lock on active_containers
       let mut conts = self.active_containers.write();
       conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
@@ -463,6 +460,7 @@ impl ContainerManager {
   }
 
   async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
+    debug!("[{}] Trying to reclaim {} memory", tid, amount_mb);
     if amount_mb <= 0 {
       bail!("Cannot reclaim '{}' amount of memory", amount_mb);
     }
@@ -486,9 +484,11 @@ impl ContainerManager {
   fn compute_eviction_priorities(&self, tid: &TransactionId) {
     debug!("[{}] Computing eviction priorities", tid);
     let mut ordered = Vec::new();
-    for (_fqdn, cont_list) in self.active_containers.read().iter() {
-      for container in cont_list.read().iter() {
-        ordered.push(container.clone());
+    unsafe {
+      for (_fqdn, cont_list) in (*self.active_containers.data_ptr()).iter() {
+        for container in cont_list.read().iter() {
+          ordered.push(container.clone());
+        }
       }
     }
     let comparator = match self.config.container_resources.eviction.as_str() {

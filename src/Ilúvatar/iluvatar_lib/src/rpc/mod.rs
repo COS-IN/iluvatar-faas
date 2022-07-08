@@ -135,10 +135,10 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().function_json_result)
   }
   
-  async fn status(&mut self, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(StatusRequest { transaction_id: tid, });
     let response = self.client.status(request).await?;
-    Ok(response.into_inner().json_result)
+    Ok(response.into_inner())
   }
 
   async fn health(&mut self, tid: TransactionId) -> Result<worker_api::HealthStatus, Box<(dyn std::error::Error + 'static)>> {

@@ -58,8 +58,34 @@ impl Container {
   pub fn stdout(&self) -> Result<String> {
     temp_file(&self.container_id, "stdout").context("stdout")
   }
+  pub fn read_stdout(&self, tid: &TransactionId) -> String {
+    let path = match self.stdout() {
+      Ok(pth) => pth,
+      Err(_) => return "".to_string(),
+    };
+    match std::fs::read_to_string(path) {
+      Ok(s) => str::replace(&s, "\n", "\\n"),
+      Err(e) =>  {
+        log::error!("[{}] error reading container '{}' stdout: {}", tid, self.container_id, e);
+        "".to_string()
+      },
+    }
+  }
   pub fn stderr(&self) -> Result<String> {
     temp_file(&self.container_id, "stderr").context("stderr")
+  }
+  pub fn read_stderr(&self, tid: &TransactionId) -> String {
+    let path = match self.stderr() {
+      Ok(pth) => pth,
+      Err(_) => return "".to_string(),
+    };
+    match std::fs::read_to_string(path) {
+      Ok(s) => str::replace(&s, "\n", "\\n"),
+      Err(e) =>  {
+        log::error!("[{}] error reading container '{}' stdout: {}", tid, self.container_id, e);
+        "".to_string()
+      },
+    }
   }
   pub fn stdin(&self) -> Result<String> {
     temp_file(&self.container_id, "stdin").context("stdin")
@@ -165,8 +191,6 @@ pub struct RegisteredFunction {
   pub parallel_invokes: u32,
 }
 
-// #[derive(Debug)]
-// #[allow(unused)]
 pub struct ContainerLock<'a> {
   pub container: Arc<Container>,
   container_mrg: &'a ContainerManager,

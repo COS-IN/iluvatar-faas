@@ -45,7 +45,7 @@ for dir in actions:
   #   continue
   print(dir)
   image = "docker.io/alfuerst/{}-iluvatar-action:latest".format(dir)
-  for i in range(20):
+  for i in range(10):
     version = "0.0.{}".format(i)
     register(args, version, dir)
     for _ in range(3):
@@ -75,7 +75,7 @@ for dir in actions:
 pctl = 0.3
 # function name, mean warn time, mean cold time, mean warm system overhead, mean cold system overhead
 print("Name, Warm, Cold, WarmOverhead, ColdOverhead")
-for k in set(colds.keys() + warms.keys()):
+for k in set(colds.keys()).union(set(warms.keys())):
   warm_m = 0
   cold_m = 0
   warm_mo = 0
@@ -89,5 +89,5 @@ for k in set(colds.keys() + warms.keys()):
   print(k, warm_m, cold_m, warm_mo, cold_mo)
 
 data = (colds, colds_over, warms, warms_over)
-with open("data.pckl", "w+b") as f:
+with open("data2.pckl", "w+b") as f:
   pickle.dump(data, f)

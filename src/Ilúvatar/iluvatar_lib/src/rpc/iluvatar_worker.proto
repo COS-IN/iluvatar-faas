@@ -73,10 +73,10 @@ message StatusRequest {
 }
 
 message StatusResponse {
-  string json_result = 1;
-  int32 queue_len = 2;
-  int32 used_mem = 3;
-  int32 total_mem = 4;
+  bool success = 1;
+  int64 queue_len = 2;
+  int64 used_mem = 3;
+  int64 total_mem = 4;
   float load = 5;
 }
 

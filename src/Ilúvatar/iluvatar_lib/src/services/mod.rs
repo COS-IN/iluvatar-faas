@@ -8,10 +8,11 @@ use crate::{types::MemSizeMb, transaction::TransactionId, worker_api::config::Wo
 use self::{containers::{structs::{Container, RegisteredFunction}, containerdlife::ContainerdLifecycle}, network::{network_structs::Namespace, namespace_manager::NamespaceManager}};
 
 pub mod containers;
+pub mod invocation;
 pub mod network;
+pub mod status;
 
 #[async_trait]
-// #[derive(Debug)]
 pub trait LifecycleService: Send + Sync {
   async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container>;
   async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container>;

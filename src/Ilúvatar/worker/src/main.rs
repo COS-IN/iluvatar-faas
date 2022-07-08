@@ -2,6 +2,8 @@ extern crate iluvatar_worker;
 
 use std::sync::Arc;
 use std::time::Duration;
+use iluvatar_lib::services::invocation::invoker::InvokerService;
+use iluvatar_lib::services::status::status_service::StatusService;
 use iluvatar_lib::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_lib::worker_api::config::Configuration;
 use iluvatar_lib::services::containers::containermanager::ContainerManager;
@@ -12,7 +14,6 @@ use iluvatar_lib::utils::config_utils::get_val;
 use log::*;
 use anyhow::Result;
 use tonic::transport::Server;
-use iluvatar_worker::invocation::invoker::InvokerService;
 use iluvatar_lib::services::{LifecycleFactory};
 use flexi_logger::WriteMode;
 
@@ -24,8 +25,10 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<(
   let lifecycle = factory.get_lifecycle_service(tid, true).await?;
 
   let container_man = ContainerManager::boxed(server_config.clone(), lifecycle.clone()).await?;
-  let invoker = InvokerService::boxed(container_man.clone(), tid);
-  let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker);
+  let invoker = InvokerService::boxed(container_man.clone(), tid, server_config.clone());
+  let status = StatusService::boxed(container_man.clone(), invoker.clone());
+
+  let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker, status);
   let addr = format!("{}:{}", server_config.address, server_config.port);
   Server::builder()
       .timeout(Duration::from_secs(server_config.timeout_sec))
@@ -43,7 +46,7 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
   let lifecycle = factory.get_lifecycle_service(tid, false).await?;
 
   let container_man = ContainerManager::boxed(server_config.clone(), lifecycle.clone()).await?;
-  let _invoker = InvokerService::boxed(container_man.clone(), tid);
+  let _invoker = InvokerService::boxed(container_man.clone(), tid, server_config);
   lifecycle.clean_containers("default", tid).await?;
   Ok(())
 }
