@@ -14,6 +14,9 @@ Output of =dcmi power reading= is something like
 ** RAPL 
 - Driver still not found. Need to upgrade kernel? 
 - RAPL is a software power meter and uses a model based on CPU freq and voltage. 
+- https://www.reddit.com/r/rust/comments/twvz21/coppers_rust_test_harness_that_measures_energy/  good comment 
+- https://github.com/ThijsRay/coppers 
+- https://luiscruz.github.io/course_sustainableSE/2022/ 
 - turbostat --debug provides CPU and RAM Watts. CPU is ~40 and RAM is ~5, but fluctuates quite a bit, why!?  
 - rapl-read https://web.eece.maine.edu/~vweaver/projects/rapl/index.html works. 
 - Fails for powercap, but reading the msrs works (hence needs root). Kernel driver issue??
