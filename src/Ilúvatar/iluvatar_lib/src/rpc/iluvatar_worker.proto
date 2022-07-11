@@ -77,7 +77,11 @@ message StatusResponse {
   int64 queue_len = 2;
   int64 used_mem = 3;
   int64 total_mem = 4;
-  float load = 5;
+  int64 cpu_us = 5;
+  int64 cpu_sy = 6;
+  int64 cpu_id = 7;
+  int64 cpu_wa = 8;
+  double load_avg_1minute = 9;
 }
 
 message HealthRequest {

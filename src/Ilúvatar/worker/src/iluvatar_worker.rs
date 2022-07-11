@@ -169,10 +169,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           error!("[{}] Getting status of worker failed {}", request.transaction_id, e);
           Ok(Response::new(StatusResponse {
             success: false,
-            queue_len: 0,
-            used_mem: 0,
-            total_mem: 0,
-            load: 0.0,
+            ..Default::default()
           }))
         },
       }
