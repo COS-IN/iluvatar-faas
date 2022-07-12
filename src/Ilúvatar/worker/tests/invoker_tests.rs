@@ -3,10 +3,11 @@ pub mod utils;
 
 use std::sync::Arc;
 use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
-use iluvatar_worker::{containers::containermanager::ContainerManager, network::namespace_manager::NamespaceManager, config::Configuration, config::WorkerConfig};
 use iluvatar_lib::rpc::InvokeRequest;
-use iluvatar_worker::invocation::invoker::InvokerService;
 use iluvatar_lib::transaction::TEST_TID;
+use iluvatar_lib::worker_api::worker_config::{WorkerConfig, Configuration};
+use iluvatar_lib::services::{containers::containermanager::ContainerManager, invocation::invoker::InvokerService};
+use iluvatar_lib::services::LifecycleFactory;
 
 #[cfg(test)]
 mod invoke {
@@ -14,13 +15,13 @@ mod invoke {
 
   #[tokio::test]
   async fn invocation_works() {
-    let (_cfg, _nm, cm, invok_svc): (WorkerConfig, Arc<NamespaceManager>, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       cpus: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       parallel_invokes: 1,
       transaction_id: "testTID".to_string()
     };
@@ -30,7 +31,7 @@ mod invoke {
       function_version: "0.1.1".to_string(),
       cpu: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
@@ -53,13 +54,13 @@ mod invoke {
 
   #[tokio::test]
   async fn cold_start_works() {
-    let (_cfg, _nm, cm, invok_svc): (WorkerConfig, Arc<NamespaceManager>, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       cpus: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       parallel_invokes: 1,
       transaction_id: "testTID".to_string()
     };
@@ -85,19 +86,19 @@ mod invoke {
 #[cfg(test)]
 mod invoke_async {
   use core::panic;
-use std::time::Duration;
+  use std::time::Duration;
   use iluvatar_lib::rpc::InvokeAsyncRequest;
   use super::*;
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
   async fn invocation_works() {
-    let (_cfg, _nm, cm, invok_svc): (WorkerConfig, Arc<NamespaceManager>, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       cpus: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       parallel_invokes: 1,
       transaction_id: "testTID".to_string()
     };
@@ -107,7 +108,7 @@ use std::time::Duration;
       function_version: "0.1.1".to_string(),
       cpu: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
@@ -157,13 +158,13 @@ use std::time::Duration;
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
   async fn cold_start_works() {
-    let (_cfg, _nm, cm, invok_svc): (WorkerConfig, Arc<NamespaceManager>, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       cpus: 1,
       memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action-alpine:latest".to_string(),
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       parallel_invokes: 1,
       transaction_id: "testTID".to_string()
     };

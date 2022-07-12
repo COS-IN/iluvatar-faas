@@ -11,30 +11,17 @@ macro_rules! assert_error {
 }
 
 #[macro_export]
-macro_rules! container_mgr {
-  () => {
-    {
-      iluvatar_lib::utils::file::ensure_temp_dir().unwrap();
-      let cfg = Configuration::boxed(Some("tests/resources/worker.json")).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
-      let nm = NamespaceManager::boxed(cfg.clone(), &TEST_TID);
-      nm.ensure_bridge(&TEST_TID).unwrap();
-      let cm = ContainerManager::new(cfg.clone(), nm.clone()).await.unwrap();
-      (cfg, nm, cm)
-    }
-  };
-}
-
-#[macro_export]
 macro_rules! invoker_svc {
   () => {
     {
       iluvatar_lib::utils::file::ensure_temp_dir().unwrap();
-      let cfg = Configuration::boxed(Some("tests/resources/worker.json")).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
-      let nm = NamespaceManager::boxed(cfg.clone(), &TEST_TID);
-      nm.ensure_bridge(&TEST_TID).unwrap();
-      let cm = Arc::new(ContainerManager::new(cfg.clone(), nm.clone()).await.unwrap());
-      let invoker = InvokerService::boxed(cm.clone(), &TEST_TID);
-      (cfg, nm, cm, invoker)
+      let cfg = Configuration::boxed(false, &"tests/resources/worker.dev.json".to_string()).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
+      let factory = LifecycleFactory::new(cfg.clone());
+      let lifecycle = factory.get_lifecycle_service(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycke: {}", e));
+
+      let cm = Arc::new(ContainerManager::new(cfg.clone(), lifecycle.clone()).await.unwrap());
+      let invoker = InvokerService::boxed(cm.clone(), &TEST_TID, cfg.clone());
+      (cfg, cm, invoker)
     }
   };
 }

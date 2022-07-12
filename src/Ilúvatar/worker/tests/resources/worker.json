@@ -7,7 +7,8 @@
     "timeout_sec": 6000,
     "mem_min_mb": 5,
     "mem_max_mb": 2048,
-    "cpu_max": 10
+    "cpu_max": 10,
+    "retries": 1
   },
   "logging": {
     "level": "debug",
@@ -15,20 +16,22 @@
     "basename": "worker"
   },
   "container_resources": {
-    "memory_mb": 256,
+    "memory_mb": 20480,
     "cores": 4,
     "eviction": "LRU",
-    "startup_timeout_ms": 60000,
+    "startup_timeout_ms": 10000,
     "memory_buffer_mb": 0,
-    "pool_freq_sec": 5
+    "pool_freq_sec": 5,
+    "backend": "containerd"
   },
   "networking": {
     "bridge": "IlWorkBr0",
-    "cnitool": "/home/alex/.gopth/bin/cnitool",
+    "cnitool": "/opt/cni/bin/cnitool",
     "cni_plugin_bin": "/opt/cni/bin",
     "cni_name": "il_worker_br",
-    "use_pool": false,
+    "use_pool": true,
     "pool_size": 10,
-    "pool_freq_sec": 1
+    "pool_freq_sec": 1,
+    "hardware_interface": "enp4s0"
   }
 }
