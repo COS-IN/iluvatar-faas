@@ -17,7 +17,7 @@ args = argparser.parse_args()
 actions = os.listdir("../functions/python3/functions")
 
 def register(args, version, dir):
-  proc_args = [args.clipth, "--worker", args.worker, "--config", "/home/alex/repos/efaas/src/Ilúvatar/worker_cli/src/worker_cli.json", "register", "--name", dir, "--version", version, "--memory", "128", "--cpu", "1", "--image", image]
+  proc_args = [args.clipth, "--worker", args.worker, "--config", "/home/alex/repos/efaas/src/Ilúvatar/worker_cli/src/worker_cli.json", "register", "--name", dir, "--version", version, "--memory", "512", "--cpu", "1", "--image", image]
   cli = subprocess.run(args=proc_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
   if cli.returncode != 0:
     print(cli.stderr)

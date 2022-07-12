@@ -14,7 +14,7 @@ macro_rules! assert_error {
 macro_rules! container_mgr {
   () => {
     {
-      iluvatar_lib::utils::file_utils::ensure_temp_dir().unwrap();
+      iluvatar_lib::utils::file::ensure_temp_dir().unwrap();
       let cfg = Configuration::boxed(Some("tests/resources/worker.json")).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
       let nm = NamespaceManager::boxed(cfg.clone(), &TEST_TID);
       nm.ensure_bridge(&TEST_TID).unwrap();
@@ -28,7 +28,7 @@ macro_rules! container_mgr {
 macro_rules! invoker_svc {
   () => {
     {
-      iluvatar_lib::utils::file_utils::ensure_temp_dir().unwrap();
+      iluvatar_lib::utils::file::ensure_temp_dir().unwrap();
       let cfg = Configuration::boxed(Some("tests/resources/worker.json")).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
       let nm = NamespaceManager::boxed(cfg.clone(), &TEST_TID);
       nm.ensure_bridge(&TEST_TID).unwrap();

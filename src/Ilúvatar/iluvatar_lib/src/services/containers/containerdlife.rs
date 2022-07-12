@@ -9,7 +9,9 @@ use tonic::async_trait;
 use crate::services::LifecycleService;
 use crate::transaction::TransactionId;
 use crate::types::MemSizeMb;
-use crate::utils::{port_utils::Port, file_utils::temp_file};
+use crate::utils::file::{try_remove_pth, temp_file, temp_file_pth};
+use crate::utils::cgroup::cgroup_namespace;
+use crate::utils::port::Port;
 use log::{debug, warn, info};
 use crate::bail_error;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
@@ -47,11 +49,6 @@ pub struct ContainerdLifecycle {
 ///   creation, destruction, pulling images, etc
 impl ContainerdLifecycle {
   pub fn new(ns_man: Arc<NamespaceManager>) -> ContainerdLifecycle {
-    // let temp_file = crate::utils::temp_file(&"resolv".to_string(), "conf")?;
-    // let mut file = std::fs::File::create(temp_file)?;
-    // let bridge_json = include_str!("../resources/cni/resolv.conf");
-    // writeln!(&mut file, "{}", bridge_json)?;
-
     ContainerdLifecycle {
       // this is threadsafe if we clone channel
       // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
@@ -77,7 +74,7 @@ impl ContainerdLifecycle {
   }
 
   /// get the default container spec
-  fn spec(&self, host_addr: &str, port: Port, mem_limit_mb: MemSizeMb, cpus: u32, net_ns_name: &String) -> Any {
+  fn spec(&self, host_addr: &str, port: Port, mem_limit_mb: MemSizeMb, cpus: u32, net_ns_name: &String, container_id: &String) -> Any {
     // https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
     let spec = include_str!("../../resources/container_spec.json");
     let spec = spec
@@ -89,26 +86,8 @@ impl ContainerdLifecycle {
         .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
         .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
-        .replace("\"$CPUSHARES\"", &(cpus*1024).to_string());
-        // .replace("$RESOLVCONFPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/resolv.conf"); // ../resources/cni/resolv.conf
-        // {
-        //   "destination": "/etc/resolv.conf",
-        //   "source": "$RESOLVCONFPTH",
-        //   "options": [
-        //     "ro",
-        //     "bind"
-        //   ]
-        // },
-        // .replace("$HOSTSPTH", "/home/alex/repos/efaas/src/Ilúvatar/worker/src/resources/cni/hosts");
-        // {
-        //   "destination": "/etc/hosts",
-        //   "source": "$HOSTSPTH",
-        //   "options": [
-        //     "ro",
-        //     "bind"
-        //   ]
-        // },
-    
+        .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
+        .replace("$CGROUPSPATH", &cgroup_namespace(container_id));
     Any {
         type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
         value: spec.into_bytes(),
@@ -246,6 +225,12 @@ impl ContainerdLifecycle {
     debug!("[{}] Delete container response {:?}", tid, _resp);
     Ok(())
   }
+
+  fn delete_container_resources(&self, container_id: &String, tid: &TransactionId) {
+    try_remove_pth(&temp_file_pth(container_id, "stdin"), tid);
+    try_remove_pth(&temp_file_pth(container_id, "stdout"), tid);
+    try_remove_pth(&temp_file_pth(container_id, "stderr"), tid);
+  }
 }
 
 #[async_trait]
@@ -261,7 +246,7 @@ impl LifecycleService for ContainerdLifecycle {
 
     let address = &ns.namespace.ips[0].address;
 
-    let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name);
+    let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name, &cid);
     let mut labels: HashMap<String, String> = HashMap::new();
     labels.insert("owner".to_string(), "iluvatar_worker".to_string());
 
@@ -304,7 +289,6 @@ impl LifecycleService for ContainerdLifecycle {
         rootfs: mounts,
         checkpoint: None,
         options: None,
-        // TODO: clean up these files on container/task deletion
         stdin: temp_file(&cid, "stdin")?,
         stdout: temp_file(&cid, "stdout")?,
         stderr: temp_file(&cid, "stderr")?,
@@ -318,7 +302,7 @@ impl LifecycleService for ContainerdLifecycle {
           debug!("[{}] Task: created {:?}", tid, t);
           let task = Task {
             pid: t.into_inner().pid,
-            container_id: None,
+            container_id: Some(cid.clone()),
             running: false
           };
           Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg, ns))
@@ -391,6 +375,7 @@ impl LifecycleService for ContainerdLifecycle {
     let mut client = ContainersClient::new(self.channel());
     self.delete_containerd_container(&mut client, container_id, ctd_namespace, tid).await?;
     self.namespace_manager.return_namespace(net_namespace.clone(), tid)?;
+    self.delete_container_resources(container_id, tid);
 
     info!("[{}] Container: {:?} deleted", tid, container_id);
     Ok(())
@@ -482,7 +467,7 @@ impl LifecycleService for ContainerdLifecycle {
     info!("[{}] Cleaning containers in namespace {}", tid, ctd_namespace);
     let mut ctr_client = ContainersClient::new(self.channel());
     let req = ListContainersRequest {
-      filters: vec!["".to_string()],
+      filters: vec!["labels.\"owner\"==iluvatar_worker".to_string()],
     };
     let req = with_namespace!(req, ctd_namespace);
 
@@ -507,6 +492,7 @@ impl LifecycleService for ContainerdLifecycle {
 
       self.delete_task(&mut task_client, container_id, ctd_namespace, tid).await?;
       self.delete_containerd_container(&mut ctr_client, container_id, ctd_namespace, tid).await?;
+      self.delete_container_resources(container_id, tid);
     }
 
     self.namespace_manager.clean(tid)?;

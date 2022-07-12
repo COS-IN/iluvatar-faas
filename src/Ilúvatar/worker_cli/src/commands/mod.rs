@@ -1,5 +1,5 @@
 use crate::cli_config::Worker;
-use iluvatar_lib::utils::config_utils::{get_val, get_val_opt, get_val_mult, args_to_json};
+use iluvatar_lib::utils::config::{get_val, get_val_opt, get_val_mult, args_to_json};
 use clap::ArgMatches;
 use iluvatar_lib::rpc::RCPWorkerAPI;
 use iluvatar_lib::transaction::gen_tid;

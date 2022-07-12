@@ -61,7 +61,7 @@ pub struct FunctionLimits {
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 /// details about how/where to log to
-/// a symlink to the current log file will be at "./iluvitar_worker.log"
+/// a symlink to the current log file will be at "./iluvatar_worker.log"
 pub struct Logging {
   /// the min log level
   pub level: String,

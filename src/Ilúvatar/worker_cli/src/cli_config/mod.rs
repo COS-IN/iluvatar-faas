@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
-use iluvatar_lib::utils::config_utils::get_val;
+use iluvatar_lib::utils::config::get_val;
 
 pub mod args;
 

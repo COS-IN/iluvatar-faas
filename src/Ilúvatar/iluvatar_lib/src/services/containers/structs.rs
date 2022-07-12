@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::SystemTime, fs};
-use crate::{utils::{port_utils::Port, file_utils::temp_file, calculate_invoke_uri, calculate_base_uri}, bail_error, transaction::TransactionId, types::MemSizeMb, services::network::network_structs::Namespace};
+use crate::{bail_error, transaction::TransactionId, types::MemSizeMb, services::network::network_structs::Namespace};
+use crate::utils::{port::Port, file::temp_file_pth, calculate_invoke_uri, calculate_base_uri};
 use inotify::{Inotify, WatchMask};
 use parking_lot::{RwLock, Mutex};
 
@@ -55,40 +56,34 @@ impl Container {
     }
   }
 
-  pub fn stdout(&self) -> Result<String> {
-    temp_file(&self.container_id, "stdout").context("stdout")
+  pub fn stdout(&self) -> String {
+    temp_file_pth(&self.container_id, "stdout")
   }
   pub fn read_stdout(&self, tid: &TransactionId) -> String {
-    let path = match self.stdout() {
-      Ok(pth) => pth,
-      Err(_) => return "".to_string(),
-    };
+    let path = self.stdout();
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {
         log::error!("[{}] error reading container '{}' stdout: {}", tid, self.container_id, e);
-        "".to_string()
+        format!("STDOUT_READ_ERROR: {}", e)
       },
     }
   }
-  pub fn stderr(&self) -> Result<String> {
-    temp_file(&self.container_id, "stderr").context("stderr")
+  pub fn stderr(&self) -> String {
+    temp_file_pth(&self.container_id, "stderr")
   }
   pub fn read_stderr(&self, tid: &TransactionId) -> String {
-    let path = match self.stderr() {
-      Ok(pth) => pth,
-      Err(_) => return "".to_string(),
-    };
+    let path = self.stderr();
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {
         log::error!("[{}] error reading container '{}' stdout: {}", tid, self.container_id, e);
-        "".to_string()
+        format!("STDERR_READ_ERROR: {}", e)
       },
     }
   }
-  pub fn stdin(&self) -> Result<String> {
-    temp_file(&self.container_id, "stdin").context("stdin")
+  pub fn stdin(&self) -> String {
+    temp_file_pth(&self.container_id, "stdin")
   }
 
   /// wait_startup
@@ -96,16 +91,17 @@ impl Container {
   /// Really the task inside, the web server should write (something) to stdout when it is ready
   pub fn wait_startup(&self, timout_ms: u64, tid: &TransactionId) -> Result<()> {
     debug!("[{}] Waiting for startup of container {}", tid, &self.container_id);
-    let stdout = self.stdout()?;
+    let stderr = self.stderr();
 
     let start = SystemTime::now();
 
     let mut inotify = Inotify::init().context("Init inotify watch failed")?;
     let dscriptor = inotify
-    .add_watch(&stdout, WatchMask::MODIFY).context("Adding inotify watch failed")?;
+        .add_watch(&stderr, WatchMask::MODIFY).context("Adding inotify watch failed")?;
     let mut buffer = [0; 256];
 
     loop {
+      // TODO: sleep a tiny bit here
       match inotify.read_events(&mut buffer) {
         Ok(events) => {
           inotify.rm_watch(dscriptor).context("Deleting inotify watch failed")?;
@@ -113,8 +109,8 @@ impl Container {
         }, // stdout was written to
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
           if start.elapsed()?.as_millis() as u64 >= timout_ms {
-            let stdout = fs::read_to_string(stdout).context("Failed to read stdout of broken container startup")?;
-            let stderr = fs::read_to_string(self.stderr()?).context("Failed to read stderr of broken container startup")?;
+            let stdout = self.read_stdout(tid);
+            let stderr = self.read_stderr(tid);
             bail_error!("[{}] Timeout while reading inotify events for container {}; stdout: '{}'; stderr '{}'", tid, &self.container_id, stdout, stderr);
           }
           continue;

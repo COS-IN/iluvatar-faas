@@ -3,7 +3,7 @@ FROM python:3.10-slim-bullseye
 # TODO: these images are really big...
 # Do something to slim them down
 
-RUN apt-get update -y && apt-get upgrade -y && python3 -m pip install --upgrade pip && python3 -m pip install flask
+RUN apt-get update -y && apt-get upgrade -y && python3 -m pip install --upgrade pip && python3 -m pip install flask gunicorn
 
 WORKDIR /app
 COPY *.py ./
@@ -11,4 +11,5 @@ COPY reqs.txt .
 
 RUN python3 -m pip install -r reqs.txt
 
-ENTRYPOINT [ "python3", "./server.py" ]
+# ENTRYPOINT [ "python3", "./server.py" ]
+ENTRYPOINT [ "gunicorn", "-w", "1", "server:app" ]

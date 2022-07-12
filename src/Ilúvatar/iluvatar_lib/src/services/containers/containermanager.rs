@@ -426,7 +426,7 @@ impl ContainerManager {
   }
 
   pub fn mark_unhealthy(&self, container: &Arc<Container>, tid: &TransactionId) {
-    info!("[{}] Marking containe '{}' as unhealthy", tid, container.container_id);
+    info!("[{}] Marking container '{}' as unhealthy", tid, container.container_id);
     *container.healthy.lock() = false;
   }
 

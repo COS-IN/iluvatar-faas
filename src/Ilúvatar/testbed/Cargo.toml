@@ -1,0 +1,33 @@
+[package]
+name = "testbed"
+version = "0.1.0"
+edition = "2021"
+authors = ["Alex Fuerst alfuerst@iu.edu"]
+
+
+[dependencies]
+iluvatar_lib = { path = "../iluvatar_lib" }
+config = "0.13.1"
+serde = { version = "1.0", features = ["derive"] }
+tonic = "0.7.2"
+prost = "0.10"
+prost-types = "0.9.0"
+tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util"] }
+containerd-client = "0.2.0"
+guid-create = "0.2.0"
+serde_json = "1.0.81"
+oci-spec = "0.5.1"
+anyhow = "1.0.13"
+sha2="0.10.2"
+hex = "0.4.3"
+parking_lot = "0.12.1"
+log = "0.4.17"
+flexi_logger = { version = "0.22.5", features = ["async", "use_chrono_for_offset"] }
+reqwest = { version = "0.11.11", features = ["json"] }
+inotify = "0.10.0"
+clap = "2"
+
+[dev-dependencies]
+rstest = "0.13.0"
+async-std = { version = "1.5", features = ["attributes"] }
+anyhow = { version = "1.0.13", features = ["backtrace"] }

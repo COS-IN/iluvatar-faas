@@ -10,15 +10,15 @@ use iluvatar_lib::services::containers::containermanager::ContainerManager;
 use iluvatar_worker::args::parse;
 use iluvatar_worker::iluvatar_worker::IluvatarWorkerImpl;
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorkerServer;
-use iluvatar_lib::utils::config_utils::get_val;
+use iluvatar_lib::utils::config::get_val;
 use log::*;
 use anyhow::Result;
 use tonic::transport::Server;
 use iluvatar_lib::services::{LifecycleFactory};
 use flexi_logger::WriteMode;
 
-async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
-  let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, WriteMode::Async);
+async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: WriteMode) -> Result<()> {
+  let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, mode);
   debug!("[{}] loaded configuration = {:?}", tid, server_config);
 
   let factory = LifecycleFactory::new(server_config.clone());
@@ -53,7 +53,7 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  iluvatar_lib::utils::file_utils::ensure_temp_dir()?;
+  iluvatar_lib::utils::file::ensure_temp_dir()?;
   let tid: &TransactionId = &STARTUP_TID;
 
   let args = parse();
@@ -66,7 +66,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     },
     (_,_) => { 
       let server_config = Configuration::boxed(false, &config_pth).unwrap();
-      run(server_config, tid).await?;
+      let mut write_mode = WriteMode::Async;
+      if args.is_present("direct-logs") {
+        write_mode = WriteMode::Direct;
+      }
+    
+      run(server_config, tid, write_mode).await?;
      },
   };
   Ok(())

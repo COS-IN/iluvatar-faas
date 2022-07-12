@@ -1,8 +1,13 @@
 pub mod file_utils;
+pub use file_utils as file;
 pub mod port_utils;
+pub use port_utils as port;
 pub mod config_utils;
+pub use config_utils as config;
+pub mod cgroup_utils;
+pub use cgroup_utils as cgroup;
 
-use crate::utils::port_utils::Port;
+use crate::utils::port::Port;
 use crate::transaction::TransactionId;
 use crate::bail_error;
 use std::collections::HashMap;
@@ -23,8 +28,6 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
   format!("http://{}:{}/", address, port)
 }
 
-/// execute_cmd
-///
 /// Executes the specified executable with args and environment
 /// cmd_pth **must** be an absolute path
 pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> {

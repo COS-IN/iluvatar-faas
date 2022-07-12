@@ -31,7 +31,7 @@ impl NamespaceManager {
   fn new(config: WorkerConfig) -> NamespaceManager {
     return NamespaceManager {
       config,
-      net_conf_path: utils::file_utils::TEMP_DIR.to_string(),
+      net_conf_path: utils::file::TEMP_DIR.to_string(),
       pool: Arc::new(Mutex::new(Vec::new())),
     }
   }
@@ -73,7 +73,7 @@ impl NamespaceManager {
   pub fn ensure_bridge(&self, tid: &TransactionId) -> Result<()> {
     info!("[{}] Ensuring network bridge", tid);
 
-    let temp_file = utils::file_utils::temp_file(&"il_worker_br".to_string(), "json")?;
+    let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "json");
 
     let mut file = File::create(temp_file)?;
     let bridge_json = include_str!("../../resources/cni/il_worker_br.json");

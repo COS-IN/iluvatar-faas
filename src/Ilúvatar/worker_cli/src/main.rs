@@ -1,6 +1,6 @@
 extern crate iluvatar_worker_cli;
 use iluvatar_worker_cli::cli_config::{CliSettings, args::parse};
-use iluvatar_lib::utils::config_utils::get_val;
+use iluvatar_lib::utils::config::get_val;
 use iluvatar_worker_cli::commands;
 
 #[tokio::main]
