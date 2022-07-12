@@ -33,7 +33,7 @@ def main(args):
         latency = end - start
 
         # print(str_json)
-        return {"body": {"network": network, "serialization": latency, "cold":was_cold, "start":glob_start, "end":end}}
+        return {"body": {"network": network, "serialization": latency, "latency": end-glob_start, "cold":was_cold, "start":glob_start, "end":end}}
 
     except Exception as e:
         return {"body": { "cust_error":traceback.format_exc(), "cold":was_cold, "link":link }}

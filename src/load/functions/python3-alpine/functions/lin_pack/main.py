@@ -39,6 +39,6 @@ def main(args):
         n = int(args.get("n", 20))
         result, start, end = linpack(n)
         # print(result)
-        return {"body": {"result":result, "cold":was_cold, "start":start, "end":end}}
+        return {"body": {"result":result, "cold":was_cold, "start":start, "end":end, "latency":end-start}}
     except Exception as e:
         return {"body": {"result":str(e), "cold":was_cold}}

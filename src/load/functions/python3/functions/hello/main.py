@@ -10,4 +10,4 @@ def main(args):
     name = args.get("name", "stranger")
     greeting = "Hello " + name + " from python!"
     end = time()
-    return {"body": {"greeting": greeting, "cold":was_cold, "start":start, "end":end} }
+    return {"body": {"greeting": greeting, "cold":was_cold, "start":start, "end":end, "latency": end-start} }

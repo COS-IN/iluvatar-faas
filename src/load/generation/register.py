@@ -69,8 +69,8 @@ for dir in actions:
             else:
               warms[dir].append(duration)
               warms_over[dir].append(overhead)
-          else:
-            print(output)
+        else:
+          print(output)
 
 pctl = 0.3
 # function name, mean warn time, mean cold time, mean warm system overhead, mean cold system overhead
@@ -89,5 +89,5 @@ for k in set(colds.keys()).union(set(warms.keys())):
   print(k, warm_m, cold_m, warm_mo, cold_mo)
 
 data = (colds, colds_over, warms, warms_over)
-with open("data2.pckl", "w+b") as f:
+with open("data.pckl", "w+b") as f:
   pickle.dump(data, f)

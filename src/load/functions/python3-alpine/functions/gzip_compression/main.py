@@ -29,6 +29,6 @@ def main(args):
 
         # print(compress_latency)
         glob_end = time()
-        return {"body": {'disk_write': disk_latency, "compress": glob_end-glob_start, "cold":was_cold, "start":glob_start, "end":glob_end}}
+        return {"body": {'disk_write': disk_latency, "compress": glob_end-glob_start, "cold":was_cold, "start":glob_start, "end":glob_end, "latency":glob_end-glob_start}}
     except Exception as e:
         return {"body": { "cust_error":traceback.format_exc(), "cold":was_cold }}
