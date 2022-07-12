@@ -89,12 +89,12 @@ message HealthRequest {
 }
 
 
-enum HealthStatus {
+enum RpcHealthStatus {
   HEALTHY = 0;
   UNHEALTHY = 1;
 }
 message HealthResponse {
-  HealthStatus status = 1;
+  RpcHealthStatus status = 1;
 }
 
 

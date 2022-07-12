@@ -179,7 +179,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
       info!("[{}] Handling health request", request.into_inner().transaction_id);
       let reply = HealthResponse {
-        status: HealthStatus::Healthy as i32
+        status: RpcHealthStatus::Healthy as i32
       };
       Ok(Response::new(reply))
     }

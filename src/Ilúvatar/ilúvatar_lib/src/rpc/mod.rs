@@ -2,10 +2,10 @@ tonic::include_proto!("iluvatar_worker");
 use tonic::async_trait;
 use tonic::transport::Channel;
 use std::error::Error;
+use crate::ilúvatar_api::{WorkerAPI, HealthStatus};
 use crate::rpc::iluvatar_worker_client::IluvatarWorkerClient;
 use crate::transaction::TransactionId;
 use crate::types::MemSizeMb;
-use crate::worker_api;
 
 #[allow(unused)]
 pub struct RCPWorkerAPI {
@@ -42,7 +42,7 @@ impl Error for RPCError {
 
 /// An implementation of the worker API that communicates with workers via RPC
 #[async_trait]
-impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
+impl WorkerAPI for RCPWorkerAPI {
   async fn ping(&mut self, tid: TransactionId) -> Result<String, Box<dyn std::error::Error>> {
     let request = tonic::Request::new(PingRequest {
       message: "Ping".to_string(),
@@ -141,14 +141,14 @@ impl crate::worker_api::WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner())
   }
 
-  async fn health(&mut self, tid: TransactionId) -> Result<worker_api::HealthStatus, Box<(dyn std::error::Error + 'static)>> {
+  async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus, Box<(dyn std::error::Error + 'static)>> {
     let request = tonic::Request::new(HealthRequest { transaction_id: tid, });
     let response = self.client.health(request).await?;
     match response.into_inner().status {
       // HealthStatus::Healthy
-      0 => Ok(worker_api::HealthStatus::HEALTHY),
+      0 => Ok(HealthStatus::HEALTHY),
       // HealthStatus::Unhealthy
-      1 => Ok(worker_api::HealthStatus::UNHEALTHY),
+      1 => Ok(HealthStatus::UNHEALTHY),
       i => Err(Box::new(RPCError {
         message: format!("Got unexpected status of {}", i)
       })),

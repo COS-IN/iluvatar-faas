@@ -9,8 +9,9 @@
 members = [
   "worker",
   "worker_cli",
-  "iluvatar_lib",
+  "ilúvatar_lib",
   "testbed",
+  "load_balancer"
 ]
 
 [profile.dev]

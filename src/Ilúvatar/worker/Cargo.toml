@@ -7,7 +7,7 @@ authors = ["Alex Fuerst alfuerst@iu.edu"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-iluvatar_lib = { path = "../iluvatar_lib" }
+iluvatar_lib = { path = "../ilúvatar_lib" }
 config = "0.13.1"
 serde = { version = "1.0", features = ["derive"] }
 tonic = "0.7.2"
