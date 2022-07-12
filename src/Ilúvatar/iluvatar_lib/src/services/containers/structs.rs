@@ -89,7 +89,7 @@ impl Container {
   /// wait_startup
   /// Waits for the startup message for a container to come through
   /// Really the task inside, the web server should write (something) to stdout when it is ready
-  pub fn wait_startup(&self, timout_ms: u64, tid: &TransactionId) -> Result<()> {
+  pub async fn wait_startup(&self, timout_ms: u64, tid: &TransactionId) -> Result<()> {
     debug!("[{}] Waiting for startup of container {}", tid, &self.container_id);
     let stderr = self.stderr();
 
@@ -101,12 +101,11 @@ impl Container {
     let mut buffer = [0; 256];
 
     loop {
-      // TODO: sleep a tiny bit here
       match inotify.read_events(&mut buffer) {
         Ok(events) => {
           inotify.rm_watch(dscriptor).context("Deleting inotify watch failed")?;
           break
-        }, // stdout was written to
+        }, // stderr was written to, gunicorn server is either up or crashed
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
           if start.elapsed()?.as_millis() as u64 >= timout_ms {
             let stdout = self.read_stdout(tid);
@@ -117,6 +116,7 @@ impl Container {
         },
         _ => bail_error!("[{}] Error while reading inotify events for container {}", &tid, self.container_id),
       }
+      tokio::time::sleep(std::time::Duration::from_micros(100)).await;
     }
     Ok(())
   }

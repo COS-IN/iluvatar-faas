@@ -274,7 +274,7 @@ impl ContainerManager {
         },
     };
 
-    match cont.wait_startup(self.config.container_resources.startup_timeout_ms, tid) {
+    match cont.wait_startup(self.config.container_resources.startup_timeout_ms, tid).await {
         Ok(_) => (),
         Err(e) => {
           {
