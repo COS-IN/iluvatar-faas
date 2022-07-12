@@ -13,12 +13,12 @@ pub struct StatusService {
   invoker_service: Arc<InvokerService>
 }
 
-
 impl StatusService {
   pub fn boxed(cm: Arc<ContainerManager>, invoke: Arc<InvokerService>) -> Arc<Self> {
     Arc::new(StatusService { container_manager: cm, invoker_service: invoke })    
   }
   
+  /// parse the string to an i64, used for getting info from vmstat
   fn parse(&self, string: &str, tid: &TransactionId) -> i64 {
     match string.parse::<i64>() {
       Ok(r) => r,
@@ -29,7 +29,10 @@ impl StatusService {
     }
   }
 
+  /// Returns the status and load of the worker
   pub fn get_status(&self, tid: &TransactionId) -> Result<StatusResponse> {
+    // TODO: put this on a background thread and store it, return that cached value
+    // No blocking time this way
     let _free_cs = self.container_manager.free_cores();
     let free_mem = self.container_manager.free_memory();
     let out = execute_cmd("/usr/bin/vmstat", &vec!["1", "2", "-n", "-w"], None, tid)?;
