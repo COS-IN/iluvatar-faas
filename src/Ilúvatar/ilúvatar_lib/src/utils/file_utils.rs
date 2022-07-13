@@ -3,7 +3,7 @@ use log::warn;
 
 use crate::transaction::TransactionId;
 
-pub const TEMP_DIR: &str = "/tmp/ilúvatar_worker";
+pub const TEMP_DIR: &str = "/tmp/ilúvatar";
 
 /// Return an absolute path to a file in the temp dir
 /// Takes a tail file name an extension

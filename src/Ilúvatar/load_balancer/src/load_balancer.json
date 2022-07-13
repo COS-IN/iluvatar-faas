@@ -1,0 +1,12 @@
+{
+  "name": "local",
+  "address": "127.0.0.1",
+  "port": 8079,
+  "timeout_sec": 6000,
+  "num_workers": 8,
+  "logging": {
+    "level": "debug",
+    "directory": "./logs",
+    "basename": "worker"
+  }
+}

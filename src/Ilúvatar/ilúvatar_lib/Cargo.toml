@@ -26,6 +26,7 @@ sha2="0.10.2"
 hex = "0.4.3"
 clap = "2"
 reqwest = { version = "0.11.11", features = ["json"] }
+flexi_logger = { version = "0.22.5", features = ["async", "use_chrono_for_offset"] }
 
 [build-dependencies]
 tonic-build = "0.7.2"

@@ -1,53 +1,39 @@
-use actix_web::{
-  middleware,
-  web::{self, Data},
-  App, HttpRequest, HttpResponse, HttpServer, get
-};
+use actix_web::{web::Data, App, HttpServer};
+use iluvatar_lib::transaction::{LOAD_BALANCER_TID, TransactionId};
 
-struct LBServer {
-  
-}
+pub mod web_server;
+pub mod load_balancer;
+pub mod logging;
 
-impl LBServer {
-  pub fn index(&self) {
-    println!("INDEX");
-  }
-  pub fn name(&self, name_str: &String) {
-    println!("server: {}", name_str);
-  }
-}
-
-#[get("/{name}")]
-async fn name(app: Data<LBServer>, req: HttpRequest, name: web::Path<String>) -> HttpResponse {
-  println!("{req:?}");
-  app.name(&name);
-  let body = format!(
-      "OK",
-  );
-  HttpResponse::Ok().body(body)
-}
-
-async fn index(app: Data<LBServer>, req: HttpRequest) -> HttpResponse {
-  println!("{req:?}");
-  app.index();
-  let body = format!(
-      "OK",
-  );
-  HttpResponse::Ok().body(body)
-}
-
+use crate::load_balancer::LoadBalancer;
+use crate::web_server::*;
+use crate::logging::make_logger;
+use log::info;
+use iluvatar_lib::load_balancer_api::config::Configuration;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-  let server = LBServer {};
+  iluvatar_lib::utils::file::ensure_temp_dir().unwrap();
+  let tid: &TransactionId = &LOAD_BALANCER_TID;
+
+  let config = Configuration::boxed(&"".to_string()).unwrap();
+  make_logger(&config, tid, flexi_logger::WriteMode::Direct);
+
+  let server = LoadBalancer {};
   let server_data = Data::new(server);
-  
-  // move is necessary to give closure below ownership of counter1
+
+  info!("[{}] Load balancer started!", tid);
+
   HttpServer::new(move || {
       App::new()
       .app_data(server_data.clone())
-          .service(web::resource("/").to(index))
-          .service(name)
+          .service(ping)
+          .service(invoke)
+          .service(invoke_async)
+          .service(invoke_async_check)
+          .service(prewarm)
+          .service(register_function)
+          .service(register_worker)
   })
   .bind(("127.0.0.1", 8080))?
   .run()

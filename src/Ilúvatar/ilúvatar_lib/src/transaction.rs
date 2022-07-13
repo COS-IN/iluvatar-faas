@@ -12,4 +12,5 @@ lazy_static::lazy_static! {
   pub static ref STARTUP_TID: TransactionId = "Startup".to_string();
   pub static ref TEST_TID: TransactionId = "TestTest".to_string();
   pub static ref INVOKER_QUEUE_WORKER_TID: TransactionId = "InvokerQueue".to_string();
+  pub static ref LOAD_BALANCER_TID: TransactionId = "LoadBalancer".to_string();
 }

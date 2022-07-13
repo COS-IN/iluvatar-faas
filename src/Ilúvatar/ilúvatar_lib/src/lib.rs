@@ -11,3 +11,4 @@ pub mod macros;
 pub mod transaction;
 pub mod types;
 pub mod services;
+pub mod logging;

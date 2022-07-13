@@ -7,3 +7,5 @@ authors = ["Alex Fuerst alfuerst@iu.edu"]
 [dependencies]
 actix-web = "4"
 iluvatar_lib = { path = "../ilúvatar_lib" }
+log = "0.4.17"
+flexi_logger = { version = "0.22.5", features = ["async", "use_chrono_for_offset"] }

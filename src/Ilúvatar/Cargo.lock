@@ -1520,6 +1520,7 @@ dependencies = [
  "clap",
  "config",
  "containerd-client",
+ "flexi_logger",
  "guid-create",
  "hex",
  "inotify",
@@ -1544,7 +1545,9 @@ name = "iluvatar_load_balancer"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "flexi_logger",
  "iluvatar_lib",
+ "log",
 ]
 
 [[package]]

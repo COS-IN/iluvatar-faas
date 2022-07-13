@@ -1,2 +1,3 @@
 worker/src/worker.dev.json
 worker/tests/resources/worker.dev.json
+load_balancer/src/load_balancer.dev.json
