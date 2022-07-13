@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use iluvatar_lib::{load_balancer_api::lb_config::LoadBalancerConfig, services::load_balance::{get_balancer, LoadBalancer}};
-
+use iluvatar_lib::{services::load_balance::{get_balancer, LoadBalancer}, transaction::TransactionId};
+use iluvatar_lib::load_balancer_api::{lb_config::LoadBalancerConfig, structs::{RegisterWorker, RegisterFunction}};
+use anyhow::Result;
 use crate::services::{async_invoke::AsyncService, registration::RegistrationService, load_reporting::LoadService, health::HealthService};
 
 
@@ -31,6 +32,15 @@ impl Controller {
       load_svc,
       registration_svc: reg_svc,
     }
+  }
+
+  pub async fn register_function(&self, function: RegisterFunction, tid: &TransactionId) -> Result<()> {
+    self.registration_svc.register_function(function, tid).await?;
+    Ok(())
+  }
+  pub async fn register_worker(&self, worker: RegisterWorker, tid: &TransactionId) -> Result<()> {
+    self.registration_svc.register_worker(worker, tid).await?;
+    Ok(())
   }
 
   pub fn index(&self) {

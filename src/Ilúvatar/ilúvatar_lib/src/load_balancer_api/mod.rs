@@ -10,11 +10,12 @@ use crate::{transaction::TransactionId, bail_error, utils::port_utils::Port};
 use self::lb_structs::RegisterWorker;
 
 /// Send worker details to the load balancer to register 
-pub async fn register_worker(name: &String, backend: &String, host: &String, port: Port, memory: i64, cpus: u32, loab_balancer_url: &String, tid: &TransactionId) -> Result<()> {
+pub async fn register_worker(name: &String, communication_method: &String, backend: &String, host: &String, port: Port, memory: i64, cpus: u32, loab_balancer_url: &String, tid: &TransactionId) -> Result<()> {
   let req = RegisterWorker {
     name: name.clone(),
     backend: backend.clone(),
     host: host.clone(),
+    communication_method: communication_method.clone(),
     port,
     memory,
     cpus

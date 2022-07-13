@@ -54,6 +54,7 @@ pub struct RegisterFunction {
 pub struct RegisterWorker {
   pub name: String,
   pub backend: String,
+  pub communication_method: String,
   pub host: String,
   pub port: Port,
   pub memory: i64,

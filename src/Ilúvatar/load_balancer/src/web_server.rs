@@ -3,6 +3,7 @@ use actix_web::{HttpRequest, HttpResponse, get, post};
 use actix_web::web::{Data, Json};
 use iluvatar_lib::load_balancer_api::structs::{Invoke, RegisterWorker, Prewarm, RegisterFunction};
 use iluvatar_lib::transaction::gen_tid;
+use iluvatar_lib::utils::calculate_fqdn;
 use log::*;
 
 #[get("/ping")]
@@ -71,24 +72,30 @@ pub async fn prewarm(server: Data<Controller>, req: Json<Prewarm>) -> HttpRespon
 pub async fn register_function(server: Data<Controller>, req: Json<RegisterFunction>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
-  info!("[{}] new register_function {:?}", tid, req);
+  let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
 
-  server.index();
-  let body = format!(
-      "OK",
-  );
-  HttpResponse::Ok().body(body)
+  info!("[{}] new register_function {:?}", tid, req);
+  match server.register_function(req, &tid).await {
+    Ok(_) => HttpResponse::Ok().finish(),
+    Err(e) => {
+      error!("[{}] the web server got an error trying to register function {} {}", tid, fqdn, e);
+      HttpResponse::Ok().finish()
+    },
+  }
 }
 
 #[post("/register_worker")]
 pub async fn register_worker(server: Data<Controller>, req: Json<RegisterWorker>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
+  let name = req.name.clone();
   info!("[{}] new register_worker {:?}", tid, req);
 
-  server.index();
-  let body = format!(
-      "OK",
-  );
-  HttpResponse::Ok().body(body)
+  match server.register_worker(req, &tid).await {
+    Ok(_) => HttpResponse::Ok().finish(),
+    Err(e) => {
+      error!("[{}] the web server got an error trying to register worker {} {}", tid, name, e);
+      HttpResponse::Ok().finish()
+    },
+  }
 }
