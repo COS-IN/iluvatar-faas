@@ -10,3 +10,4 @@ iluvatar_lib = { path = "../ilúvatar_lib" }
 log = "0.4.17"
 flexi_logger = { version = "0.22.5", features = ["async", "use_chrono_for_offset"] }
 anyhow = "1.0.13"
+parking_lot = "0.12.1"

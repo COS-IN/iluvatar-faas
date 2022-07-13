@@ -6,21 +6,18 @@ use crate::ilúvatar_api::{WorkerAPI, HealthStatus};
 use crate::rpc::iluvatar_worker_client::IluvatarWorkerClient;
 use crate::transaction::TransactionId;
 use crate::types::MemSizeMb;
+use crate::utils::port_utils::Port;
 
 #[allow(unused)]
 pub struct RCPWorkerAPI {
-  address: String, 
-  port: i32,
   client: IluvatarWorkerClient<Channel>
 }
 
 impl RCPWorkerAPI {
-  pub async fn new(address: String, port: i32) -> Result<RCPWorkerAPI, tonic::transport::Error> {
+  pub async fn new(address: &String, port: Port) -> Result<RCPWorkerAPI, tonic::transport::Error> {
     let addr = format!("{}:{}", address, port);
     let client = IluvatarWorkerClient::connect(addr).await?;
     Ok(RCPWorkerAPI {
-      address,
-      port, 
       client
     })
   }

@@ -5,7 +5,7 @@ pub struct RoundRobinLoadBalancer {
 }
 
 impl LoadBalancerTrait for RoundRobinLoadBalancer {
-    fn register_worker(&self, _worker: &RegisterWorker) {
+    fn add_worker(&self, _worker: &RegisterWorker) {
         todo!()
     }
 

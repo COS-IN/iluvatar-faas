@@ -6,7 +6,7 @@ use anyhow::Result;
 mod balancers;
 
 pub trait LoadBalancerTrait {
-  fn register_worker(&self, worker: &RegisterWorker);
+  fn add_worker(&self, worker: &RegisterWorker);
   fn send_invocation(&self);
   fn update_worker_status(&self);
 }

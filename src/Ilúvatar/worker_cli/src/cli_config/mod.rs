@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
-use iluvatar_lib::utils::config::get_val;
+use iluvatar_lib::utils::{config::get_val, port_utils::Port};
 
 pub mod args;
 
@@ -11,8 +11,7 @@ pub mod args;
 pub struct Worker {
   pub name: String,
   pub address: String,
-  pub port: i32,
-
+  pub port: Port,
 }
 
 #[derive(Debug, Deserialize)]

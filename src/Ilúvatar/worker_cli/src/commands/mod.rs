@@ -7,14 +7,14 @@ use iluvatar_lib::ilúvatar_api::{WorkerAPI, HealthStatus};
 use anyhow::Result;
 
 pub async fn ping(worker: Box<Worker>) -> Result<()> {
-  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await?;
+  let mut api = RCPWorkerAPI::new(&worker.address, worker.port).await?;
   let ret = api.ping(gen_tid()).await.unwrap();
   println!("{}", ret);
   Ok(())
 }
 
 pub async fn invoke(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<()> {
-  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await?;
+  let mut api = RCPWorkerAPI::new(&worker.address, worker.port).await?;
 
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;
@@ -36,7 +36,7 @@ pub async fn invoke_async(worker: Box<Worker>, args: &ArgMatches<'static>) -> Re
   println!("subargs: {:?} \n\n", args);
   println!("function arguments: {:?}", arguments);
 
-  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await?;
+  let mut api = RCPWorkerAPI::new(&worker.address, worker.port).await?;
   let ret = api.invoke_async(function_name, version, arguments, memory, gen_tid()).await.unwrap();
   println!("{}", ret);
   Ok(())
@@ -45,14 +45,14 @@ pub async fn invoke_async(worker: Box<Worker>, args: &ArgMatches<'static>) -> Re
 pub async fn invoke_async_check(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<()> {
   let cookie = get_val("cookie", &args)?;
 
-  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await?;
+  let mut api = RCPWorkerAPI::new(&worker.address, worker.port).await?;
   let ret = api.invoke_async_check(&cookie, gen_tid()).await.unwrap();
   println!("{}", ret);
   Ok(())
 }
 
 pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<()> {
-  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await?;
+  let mut api = RCPWorkerAPI::new(&worker.address, worker.port).await?;
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;
   let memory = get_val_opt("memory", &args);
@@ -68,7 +68,7 @@ pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<
 }
 
 pub async fn register(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<()> {
-  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await?;
+  let mut api = RCPWorkerAPI::new(&worker.address, worker.port).await?;
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;
   let memory = get_val("memory", &args)?;
@@ -82,14 +82,14 @@ pub async fn register(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result
 }
 
 pub async fn status(worker: Box<Worker>) -> Result<()> {
-  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await?;
+  let mut api = RCPWorkerAPI::new(&worker.address, worker.port).await?;
   let ret = api.status(gen_tid()).await.unwrap();
   println!("{:?}", ret);
   Ok(())
 }
 
 pub async fn health(worker: Box<Worker>) -> Result<()> {
-  let mut api = RCPWorkerAPI::new(worker.address, worker.port).await?;
+  let mut api = RCPWorkerAPI::new(&worker.address, worker.port).await?;
   let ret = api.health(gen_tid()).await.unwrap();
   match ret {
     HealthStatus::HEALTHY => println!("Worker is healthy"),

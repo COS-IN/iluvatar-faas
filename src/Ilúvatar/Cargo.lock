@@ -1549,6 +1549,7 @@ dependencies = [
  "flexi_logger",
  "iluvatar_lib",
  "log",
+ "parking_lot",
 ]
 
 [[package]]

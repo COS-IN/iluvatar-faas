@@ -5,7 +5,7 @@ pub struct LeastLoadedBalancer {
 }
 
 impl LoadBalancerTrait for LeastLoadedBalancer {
-    fn register_worker(&self, _worker: &RegisterWorker) {
+    fn add_worker(&self, _worker: &RegisterWorker) {
         todo!()
     }
 

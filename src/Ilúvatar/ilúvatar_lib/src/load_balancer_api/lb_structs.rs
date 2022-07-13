@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::utils::port_utils::Port;
+
 #[allow(unused)]
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Invoke {
@@ -52,7 +54,8 @@ pub struct RegisterFunction {
 pub struct RegisterWorker {
   pub name: String,
   pub backend: String,
-  pub base_url: String,
+  pub host: String,
+  pub port: Port,
   pub memory: i64,
   pub cpus: u32,
 }
