@@ -11,6 +11,7 @@ pub mod containers;
 pub mod invocation;
 pub mod network;
 pub mod status;
+pub mod load_balance;
 
 #[async_trait]
 pub trait LifecycleService: Send + Sync {

@@ -2,10 +2,10 @@ use actix_web::{web::Data, App, HttpServer};
 use iluvatar_lib::transaction::{LOAD_BALANCER_TID, TransactionId};
 
 pub mod web_server;
-pub mod load_balancer;
+pub mod controller;
 pub mod logging;
 
-use crate::load_balancer::LoadBalancer;
+use crate::controller::Controller;
 use crate::web_server::*;
 use crate::logging::make_logger;
 use log::info;
@@ -19,7 +19,7 @@ async fn main() -> std::io::Result<()> {
   let config = Configuration::boxed(&"".to_string()).unwrap();
   make_logger(&config, tid, flexi_logger::WriteMode::Direct);
 
-  let server = LoadBalancer {};
+  let server = Controller::new(config);
   let server_data = Data::new(server);
 
   info!("[{}] Load balancer started!", tid);

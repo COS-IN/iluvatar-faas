@@ -16,11 +16,13 @@ pub struct Configuration {
   /// Number of worker theads to run
   pub num_workers: u64,
   pub logging: Logging,
+  pub load_balancer: LoadBalancing,
 }
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 /// details about how/where to log to
-/// a symlink to the current log file will be at "./iluvatar_load_balancer.log"
+///   a symlink to the current log file will be at "./iluvatar_load_balancer.log" or "/tmp/ilúvatar/iluvatar_load_balancer.log"
+///   based on build configuration
 pub struct Logging {
   /// the min log level
   pub level: String,
@@ -28,6 +30,14 @@ pub struct Logging {
   pub directory: String,
   /// log filename start string
   pub basename: String
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+/// configuration for the load balancer
+pub struct LoadBalancing {
+  /// the load balancing algorithm to use
+  pub algorithm: String,
 }
 
 pub type LoadBalancerConfig = Arc<Configuration>;
