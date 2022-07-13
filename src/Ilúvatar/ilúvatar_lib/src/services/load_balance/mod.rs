@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
-use crate::load_balancer_api::lb_config::LoadBalancerConfig;
+use crate::load_balancer_api::{lb_config::LoadBalancerConfig, structs::RegisterWorker};
 use anyhow::Result;
 
 mod balancers;
 
-pub trait LoadBalancer {
-  fn register_worker(&self);
+pub trait LoadBalancerTrait {
+  fn register_worker(&self, worker: &RegisterWorker);
   fn send_invocation(&self);
   fn update_worker_status(&self);
 }
 
-pub fn get_balancer(config: &LoadBalancerConfig) -> Result<Arc<dyn LoadBalancer + Send + Sync + 'static>> {
+pub type LoadBalancer = Arc<dyn LoadBalancerTrait + Send + Sync + 'static>;
+
+pub fn get_balancer(config: &LoadBalancerConfig) -> Result<LoadBalancer> {
   if config.load_balancer.algorithm == "RoundRobin" {
     Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer {}))
   }

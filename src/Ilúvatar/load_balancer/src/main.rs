@@ -4,6 +4,7 @@ use iluvatar_lib::transaction::{LOAD_BALANCER_TID, TransactionId};
 pub mod web_server;
 pub mod controller;
 pub mod logging;
+pub mod services;
 
 use crate::controller::Controller;
 use crate::web_server::*;

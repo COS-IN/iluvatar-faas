@@ -1545,6 +1545,7 @@ name = "iluvatar_load_balancer"
 version = "0.1.0"
 dependencies = [
  "actix-web",
+ "anyhow",
  "flexi_logger",
  "iluvatar_lib",
  "log",

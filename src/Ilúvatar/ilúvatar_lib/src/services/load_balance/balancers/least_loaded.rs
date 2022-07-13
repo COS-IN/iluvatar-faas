@@ -1,11 +1,11 @@
-use crate::services::load_balance::LoadBalancer;
+use crate::{services::load_balance::LoadBalancerTrait, load_balancer_api::structs::RegisterWorker};
 
 pub struct LeastLoadedBalancer {
 
 }
 
-impl LoadBalancer for LeastLoadedBalancer {
-    fn register_worker(&self) {
+impl LoadBalancerTrait for LeastLoadedBalancer {
+    fn register_worker(&self, _worker: &RegisterWorker) {
         todo!()
     }
 

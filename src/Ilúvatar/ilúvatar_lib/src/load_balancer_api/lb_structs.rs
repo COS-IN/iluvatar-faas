@@ -3,56 +3,56 @@ use serde::{Deserialize, Serialize};
 #[allow(unused)]
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Invoke {
-  function_name: String,
-  function_version: String,
-  args: Vec<String>
+  pub function_name: String,
+  pub function_version: String,
+  pub args: Vec<String>
 }
 
 #[allow(unused)]
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct InvokeResult {
-  json_result: String,
+  pub json_result: String,
 }
 
 #[allow(unused)]
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct InvokeAsyncResult {
-  lookup_cookie: String,
+  pub lookup_cookie: String,
 }
 
 #[allow(unused)]
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct InvokeAsyncLookup {
-  lookup_cookie: String,
+  pub lookup_cookie: String,
 }
 
 #[allow(unused)]
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Prewarm {
-  function_name: String,
-  function_version: String,
-  memory: i64,
-  cpu: u32,
-  image_name: String,
+  pub function_name: String,
+  pub function_version: String,
+  pub memory: i64,
+  pub cpu: u32,
+  pub image_name: String,
 }
 
 #[allow(unused)]
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct RegisterFunction {
-  function_name: String,
-  function_version: String,
-  image_name: String,
-  memory: i64,
-  cpus: u32,
-  parallel_invokes: u32
+  pub function_name: String,
+  pub function_version: String,
+  pub image_name: String,
+  pub memory: i64,
+  pub cpus: u32,
+  pub parallel_invokes: u32
 }
 
 #[allow(unused)]
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct RegisterWorker {
-  name: String,
-  backend: String,
-  base_url: String,
-  memory: i64,
-  cpus: u32,
+  pub name: String,
+  pub backend: String,
+  pub base_url: String,
+  pub memory: i64,
+  pub cpus: u32,
 }

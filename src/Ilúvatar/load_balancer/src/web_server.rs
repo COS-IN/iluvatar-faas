@@ -1,7 +1,7 @@
 use crate::controller::Controller;
 use actix_web::{HttpRequest, HttpResponse, get, post};
 use actix_web::web::{Data, Json};
-use iluvatar_lib::load_balancer_api::structs::Invoke;
+use iluvatar_lib::load_balancer_api::structs::{Invoke, RegisterWorker, Prewarm, RegisterFunction};
 use iluvatar_lib::transaction::gen_tid;
 use log::*;
 
@@ -19,8 +19,9 @@ pub async fn ping(server: Data<Controller>, _req: HttpRequest) -> HttpResponse {
 #[post("/invoke")]
 pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
+  let req = req.into_inner();
   info!("[{}] new invoke {:?}", tid, req);
-  // println!("{req:?}");
+
   server.index();
   let body = format!(
       "OK",
@@ -31,7 +32,9 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
 #[post("/invoke_async")]
 pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
+  let req = req.into_inner();
   info!("[{}] new invoke_async {:?}", tid, req);
+
   server.index();
   let body = format!(
       "OK",
@@ -40,8 +43,9 @@ pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpRe
 }
 
 #[get("/invoke_async_check")]
-pub async fn invoke_async_check(server: Data<Controller>, req: HttpRequest) -> HttpResponse {
+pub async fn invoke_async_check(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
+  let req = req.into_inner();
   info!("[{}] new invoke_async_check {:?}", tid, req);
   server.index();
   let body = format!(
@@ -51,9 +55,11 @@ pub async fn invoke_async_check(server: Data<Controller>, req: HttpRequest) -> H
 }
 
 #[post("/prewarm")]
-pub async fn prewarm(server: Data<Controller>, req: HttpRequest) -> HttpResponse {
+pub async fn prewarm(server: Data<Controller>, req: Json<Prewarm>) -> HttpResponse {
   let tid = gen_tid();
+  let req = req.into_inner();
   info!("[{}] new prewar, {:?}", tid, req);
+
   server.index();
   let body = format!(
       "OK",
@@ -62,9 +68,11 @@ pub async fn prewarm(server: Data<Controller>, req: HttpRequest) -> HttpResponse
 }
 
 #[post("/register_function")]
-pub async fn register_function(server: Data<Controller>, req: HttpRequest) -> HttpResponse {
+pub async fn register_function(server: Data<Controller>, req: Json<RegisterFunction>) -> HttpResponse {
   let tid = gen_tid();
+  let req = req.into_inner();
   info!("[{}] new register_function {:?}", tid, req);
+
   server.index();
   let body = format!(
       "OK",
@@ -73,9 +81,11 @@ pub async fn register_function(server: Data<Controller>, req: HttpRequest) -> Ht
 }
 
 #[post("/register_worker")]
-pub async fn register_worker(server: Data<Controller>, req: HttpRequest) -> HttpResponse {
+pub async fn register_worker(server: Data<Controller>, req: Json<RegisterWorker>) -> HttpResponse {
   let tid = gen_tid();
+  let req = req.into_inner();
   info!("[{}] new register_worker {:?}", tid, req);
+
   server.index();
   let body = format!(
       "OK",
