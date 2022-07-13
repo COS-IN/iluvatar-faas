@@ -12,9 +12,10 @@ pub fn make_logger(server_config: &LoadBalancerConfig, tid: &TransactionId, log_
   }  else {
     iluvatar_lib::utils::file::temp_file_pth("iluvatar_load_balancer", "log")
   };
+  let path = std::fs::canonicalize(server_config.logging.directory.as_str()).unwrap();
   Logger::try_with_str(server_config.logging.level.as_str()).unwrap()
     .log_to_file(FileSpec::default()
-                    .directory(server_config.logging.directory.as_str())
+                    .directory(path)
                     .basename(server_config.logging.basename.as_str())
                   )
     .format(timed_format)
