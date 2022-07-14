@@ -63,4 +63,15 @@ impl LoadBalancerTrait for RoundRobinLoadBalancer {
     debug!("[{}] prewarm result: {}", tid, result);
     Ok(())
   }
+
+  async fn send_async_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(String, Arc<RegisteredWorker>)> {
+    let worker_idx = self.get_next();
+    let worker = self.workers.read()[worker_idx].clone();
+    info!("[{}] invoking function async {} on worker {}", tid, &func.fqdn, &worker.name);
+
+    let mut api = self.worker_fact.get_worker_api(&worker, tid).await?;
+    let result = api.invoke_async(func.function_name.clone(), func.function_version.clone(), json_args, None, tid.clone()).await?;
+    debug!("[{}] invocation result: {}", tid, result);
+    Ok( (result, worker) )
+  }
 }

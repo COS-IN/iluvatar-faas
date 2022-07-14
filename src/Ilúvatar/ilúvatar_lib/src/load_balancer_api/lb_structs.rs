@@ -17,13 +17,7 @@ pub mod json {
   pub struct InvokeResult {
     pub json_result: String,
   }
-  
-  #[allow(unused)]
-  #[derive(Deserialize, Serialize, Debug)]
-  pub struct InvokeAsyncResult {
-    pub lookup_cookie: String,
-  }
-  
+    
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
   pub struct InvokeAsyncLookup {

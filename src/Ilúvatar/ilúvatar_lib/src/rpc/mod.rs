@@ -1,5 +1,5 @@
 tonic::include_proto!("iluvatar_worker");
-use tonic::async_trait;
+use log::{error, debug};
 use tonic::transport::Channel;
 use std::error::Error;
 use crate::ilúvatar_api::{WorkerAPI, HealthStatus};
@@ -40,7 +40,7 @@ impl Error for RPCError {
 
 /// An implementation of the worker API that communicates with workers via RPC
 // TODO: handle errors in this properly
-#[async_trait]
+#[tonic::async_trait]
 impl WorkerAPI for RCPWorkerAPI {
   async fn ping(&mut self, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(PingRequest {
@@ -68,26 +68,32 @@ impl WorkerAPI for RCPWorkerAPI {
 
   async fn invoke_async(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(InvokeAsyncRequest {
-      function_name: function_name,
+      function_name,
       function_version: version,
       memory: match memory {
         Some(x) => x,
         _ => 0,
       },
       json_args: args,
-      transaction_id: tid,
+      transaction_id: tid.clone(),
     });
-    let response = self.client.invoke_async(request).await?;
-    Ok(response.into_inner().lookup_cookie)
+    let response = self.client.invoke_async(request).await?.into_inner();
+    if response.success {
+      debug!("[{}] Async invoke succeeded", tid);
+      Ok(response.lookup_cookie)
+    } else {
+      error!("[{}] Async invoke failed", tid);
+      anyhow::bail!("Async invoke failed")
+    }
   }
 
-  async fn invoke_async_check(&mut self, cookie: &String, tid: TransactionId) -> Result<String> {
+  async fn invoke_async_check(&mut self, cookie: &String, tid: TransactionId) -> Result<InvokeResponse> {
     let request = tonic::Request::new(InvokeAsyncLookupRequest {
       lookup_cookie: cookie.to_owned(),
       transaction_id: tid,
     });
     let response = self.client.invoke_async_check(request).await?;
-    Ok(response.into_inner().json_result)
+    Ok(response.into_inner())
   }
 
   async fn prewarm(&mut self, function_name: String, version: String, memory: Option<MemSizeMb>, cpu: Option<u32>, image: Option<String>, tid: TransactionId) -> Result<String> {

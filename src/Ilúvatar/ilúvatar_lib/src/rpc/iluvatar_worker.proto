@@ -34,6 +34,7 @@ message InvokeAsyncRequest {
 }
 message InvokeAsyncResponse {
   string lookup_cookie = 1;
+  bool success = 2;
 }
 message InvokeAsyncLookupRequest {
   string lookup_cookie = 1;

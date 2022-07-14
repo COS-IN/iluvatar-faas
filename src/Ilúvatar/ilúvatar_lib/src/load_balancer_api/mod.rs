@@ -2,6 +2,8 @@ pub mod lb_config;
 pub use lb_config as config;
 pub mod lb_structs;
 pub use lb_structs as structs;
+pub mod lb_errors;
+pub use lb_errors as errors;
 
 use anyhow::Result;
 use reqwest::StatusCode;

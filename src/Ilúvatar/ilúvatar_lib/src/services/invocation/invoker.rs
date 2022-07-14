@@ -215,7 +215,7 @@ impl InvokerService {
       let entry = match self.get_async_entry(cookie) {
         Some(entry) => entry,
         None => return Ok(InvokeResponse {
-          json_result: "{ 'Error': 'Invocation not found' }".to_string(),
+          json_result: "{ \"Error\": \"Invocation not found\" }".to_string(),
           success: false,
           duration_ms: 0
         }),
@@ -231,7 +231,7 @@ impl InvokerService {
         });
       }
       Ok(InvokeResponse {
-        json_result: "{ 'Status': 'Invocation not completed' }".to_string(),
+        json_result: "{ \"Status\": \"Invocation not completed\" }".to_string(),
         success: false,
         duration_ms: 0
       })

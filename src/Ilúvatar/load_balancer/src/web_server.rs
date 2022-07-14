@@ -1,7 +1,8 @@
 use crate::controller::Controller;
 use actix_web::{HttpRequest, HttpResponse, get, post};
 use actix_web::web::{Data, Json};
-use iluvatar_lib::load_balancer_api::structs::json::{Invoke, RegisterWorker, Prewarm, RegisterFunction};
+use iluvatar_lib::load_balancer_api::lb_errors::MissingAsyncCookieError;
+use iluvatar_lib::load_balancer_api::structs::json::{Invoke, RegisterWorker, Prewarm, RegisterFunction, InvokeAsyncLookup};
 use iluvatar_lib::transaction::gen_tid;
 use iluvatar_lib::utils::calculate_fqdn;
 use log::*;
@@ -26,28 +27,37 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
 }
 
 #[post("/invoke_async")]
-pub async fn invoke_async(_server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
+pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
   info!("[{}] new invoke_async {:?}", tid, req);
-
-  // server.index();
-  let body = format!(
-      "OK",
-  );
-  HttpResponse::Ok().body(body)
+  match server.invoke_async(req, &tid).await {
+    Ok(cookie) => HttpResponse::Created().body(cookie),
+    Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+  }
 }
 
 #[get("/invoke_async_check")]
-pub async fn invoke_async_check(_server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
+pub async fn invoke_async_check(server: Data<Controller>, req: Json<InvokeAsyncLookup>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
   info!("[{}] new invoke_async_check {:?}", tid, req);
-  // server.index();
-  let body = format!(
-      "OK",
-  );
-  HttpResponse::Ok().body(body)
+  match server.check_async_invocation(req.lookup_cookie, &tid).await {
+    Ok(some) => {
+      if let Some(json) = some {
+        HttpResponse::Ok().json(json)
+      } else {
+        HttpResponse::Accepted().finish()
+      }
+    },
+    Err(cause) => {
+      if let Some(_core_err) = cause.downcast_ref::<MissingAsyncCookieError>() {
+        HttpResponse::NotFound().body("Unable to find async inovcation matching cookie")
+      } else {
+        HttpResponse::InternalServerError().body(cause.to_string())
+      }
+    }
+  }
 }
 
 #[post("/prewarm")]

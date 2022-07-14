@@ -77,13 +77,15 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok( cookie ) => {
           let reply = InvokeAsyncResponse {
             lookup_cookie: cookie,
+            success: true
           };
           Ok(Response::new(reply))
         },
         Err(e) => {
           error!("Failed to launch an async invocation with error '{}'", e);
           Ok(Response::new(InvokeAsyncResponse {
-            lookup_cookie: "".to_string()
+            lookup_cookie: "".to_string(),
+            success: false
           }))
         },
       }

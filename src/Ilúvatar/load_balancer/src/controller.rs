@@ -5,7 +5,7 @@ use iluvatar_lib::utils::{calculate_fqdn, config::args_to_json};
 use iluvatar_lib::load_balancer_api::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
 use iluvatar_lib::load_balancer_api::lb_config::LoadBalancerConfig;
 use anyhow::Result;
-use log::{debug, info};
+use log::{debug, info, error};
 use crate::services::{async_invoke::AsyncService, registration::RegistrationService, load_reporting::LoadService, health::HealthService};
 
 #[allow(unused)]
@@ -70,5 +70,33 @@ impl Controller {
       },
       None => bail_error!("[{}] function {} was not registered; could not invoke", tid, fqdn)
     }
+  }
+
+  pub async fn invoke_async(&self, request: Invoke, tid: &TransactionId) -> Result<String> {
+    let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
+    match self.registration_svc.get_function(&fqdn) {
+      Some(func) => {
+        info!("[{}] sending function {} to load balancer for invocation", tid, &fqdn);
+        let args = match request.args {
+            Some(args_vec) => args_to_json(args_vec),
+            None => "{}".to_string(),
+        };
+        match self.lb.send_async_invocation(func, args, tid).await {
+          Ok( (cookie, worker) ) => {
+            self.async_svc.register_async_invocation(cookie.clone(), worker, tid);
+            Ok(cookie)
+          },
+          Err(e) => {
+            error!("[{}] async invocation failed because: {}", tid, e);
+            Err(e)
+          },
+        }
+      },
+      None => bail_error!("[{}] function {} was not registered; could not invoke", tid, fqdn)
+    }
+  }
+
+  pub async fn check_async_invocation(&self, cookie: String, tid: &TransactionId) -> Result<Option<String>> {
+    self.async_svc.check_async_invocation(cookie, tid).await
   }
 }

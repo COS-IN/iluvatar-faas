@@ -47,7 +47,7 @@ pub async fn invoke_async_check(worker: Box<Worker>, args: &ArgMatches<'static>)
 
   let mut api = RCPWorkerAPI::new(&worker.address, worker.port).await?;
   let ret = api.invoke_async_check(&cookie, gen_tid()).await.unwrap();
-  println!("{}", ret);
+  println!("{}", ret.json_result);
   Ok(())
 }
 
