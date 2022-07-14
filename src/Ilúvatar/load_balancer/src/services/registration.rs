@@ -45,16 +45,7 @@ impl RegistrationService {
       bail_error!("[{}] Worker {} was already registered", tid, &worker.name);
     }
 
-    let reg_worker = RegisteredWorker {
-      name: worker.name,
-      backend: worker.backend,
-      communication_method: worker.communication_method,
-      host: worker.host,
-      port: worker.port,
-      memory: worker.memory,
-      cpus: worker.cpus,
-    };
-    let reg_worker = Arc::new(reg_worker);
+    let reg_worker = Arc::new(RegisteredWorker::from(worker));
 
     let mut api = self.worker_fact.get_worker_api(&reg_worker, tid).await?;
     for (_fqdn, function) in self.functions.read().iter() {
@@ -101,16 +92,9 @@ impl RegistrationService {
             },
         };
       }
-      let function = RegisteredFunction {
-        function_name: function.function_name,
-        function_version: function.function_version,
-        image_name: function.image_name,
-        memory: function.memory,
-        cpus: function.cpus,
-        parallel_invokes: function.parallel_invokes
-      };
+      let function = Arc::new(RegisteredFunction::from(function));
       let mut functions = self.functions.write();
-      functions.insert(fqdn.clone(), Arc::new(function));
+      functions.insert(fqdn.clone(), function);
     }
 
     info!("[{}] Function {} was registered", tid, fqdn);

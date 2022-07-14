@@ -34,10 +34,7 @@ pub mod json {
   #[derive(Deserialize, Serialize, Debug)]
   pub struct Prewarm {
     pub function_name: String,
-    pub function_version: String,
-    pub memory: i64,
-    pub cpu: u32,
-    pub image_name: String,
+    pub function_version: String
   }
   
   #[allow(unused)]
@@ -79,6 +76,19 @@ pub mod internal {
     pub memory: i64,
     pub cpus: u32,
   }
+  impl RegisteredWorker {
+    pub fn from(req: json::RegisterWorker) -> Self {
+      RegisteredWorker {
+        name: req.name,
+        backend: req.backend,
+        communication_method: req.communication_method,
+        host: req.host,
+        port: req.port,
+        memory: req.memory,
+        cpus: req.cpus,
+      }
+    }
+  }
 
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
@@ -89,6 +99,19 @@ pub mod internal {
     pub memory: i64,
     pub cpus: u32,
     pub parallel_invokes: u32
+  }
+
+  impl RegisteredFunction {
+    pub fn from(req: json::RegisterFunction) -> Self {
+      RegisteredFunction {
+        function_name: req.function_name,
+        function_version: req.function_version,
+        image_name: req.image_name,
+        memory: req.memory,
+        cpus: req.cpus,
+        parallel_invokes: req.parallel_invokes
+      }
+    }
   }
 
   pub enum WorkerStatus {
