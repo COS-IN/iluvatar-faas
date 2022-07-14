@@ -20,7 +20,7 @@ async fn main() -> std::io::Result<()> {
   let config = Configuration::boxed(&"".to_string()).unwrap();
   make_logger(&config, tid, flexi_logger::WriteMode::Direct);
 
-  let server = Controller::new(config);
+  let server = Controller::new(config.clone());
   let server_data = Data::new(server);
 
   info!("[{}] Load balancer started!", tid);
@@ -36,7 +36,7 @@ async fn main() -> std::io::Result<()> {
           .service(register_function)
           .service(register_worker)
   })
-  .bind(("127.0.0.1", 8080))?
+  .bind((config.address.clone(), config.port))?
   .run()
   .await
 }

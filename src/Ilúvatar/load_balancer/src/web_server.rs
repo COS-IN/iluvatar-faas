@@ -1,20 +1,16 @@
 use crate::controller::Controller;
 use actix_web::{HttpRequest, HttpResponse, get, post};
 use actix_web::web::{Data, Json};
-use iluvatar_lib::load_balancer_api::structs::{Invoke, RegisterWorker, Prewarm, RegisterFunction};
+use iluvatar_lib::load_balancer_api::structs::json::{Invoke, RegisterWorker, Prewarm, RegisterFunction};
 use iluvatar_lib::transaction::gen_tid;
 use iluvatar_lib::utils::calculate_fqdn;
 use log::*;
 
 #[get("/ping")]
-pub async fn ping(server: Data<Controller>, _req: HttpRequest) -> HttpResponse {
+pub async fn ping(_server: Data<Controller>, _req: HttpRequest) -> HttpResponse {
   let tid = gen_tid();
   info!("[{}] new ping", tid);
-  server.index();
-  let body = format!(
-      "OK",
-  );
-  HttpResponse::Ok().body(body)
+  HttpResponse::Ok().body("PONG")
 }
 
 #[post("/invoke")]
@@ -59,13 +55,12 @@ pub async fn invoke_async_check(server: Data<Controller>, req: Json<Invoke>) -> 
 pub async fn prewarm(server: Data<Controller>, req: Json<Prewarm>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
-  info!("[{}] new prewar, {:?}", tid, req);
+  info!("[{}] new prewarm, {:?}", tid, req);
 
-  server.index();
-  let body = format!(
-      "OK",
-  );
-  HttpResponse::Ok().body(body)
+  match server.prewarm(req, &tid).await {
+    Ok(_) => HttpResponse::Accepted().body("OK"),
+    Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+  }
 }
 
 #[post("/register_function")]
@@ -79,7 +74,7 @@ pub async fn register_function(server: Data<Controller>, req: Json<RegisterFunct
     Ok(_) => HttpResponse::Ok().finish(),
     Err(e) => {
       error!("[{}] the web server got an error trying to register function {} {}", tid, fqdn, e);
-      HttpResponse::Ok().finish()
+      HttpResponse::InternalServerError().body(e.to_string())
     },
   }
 }
@@ -92,10 +87,10 @@ pub async fn register_worker(server: Data<Controller>, req: Json<RegisterWorker>
   info!("[{}] new register_worker {:?}", tid, req);
 
   match server.register_worker(req, &tid).await {
-    Ok(_) => HttpResponse::Ok().finish(),
+    Ok(_) => HttpResponse::Accepted().finish(),
     Err(e) => {
       error!("[{}] the web server got an error trying to register worker {} {}", tid, name, e);
-      HttpResponse::Ok().finish()
+      HttpResponse::InternalServerError().body(e.to_string())
     },
   }
 }

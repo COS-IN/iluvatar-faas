@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::types::MemSizeMb;
+use crate::{types::MemSizeMb, utils::port_utils::Port};
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
@@ -11,13 +11,15 @@ pub struct Configuration {
   /// address to listen on
   pub address: String,
   /// port to listen on
-  pub port: i32,
+  pub port: Port,
   /// request timeout length in seconds
   pub timeout_sec: u64,
   pub limits: FunctionLimits,
   pub logging: Logging,
   pub networking: Networking,
   pub container_resources: ContainerResources,
+  /// full URL to access the controller/load balancer, required for worker registration
+  pub load_balancer_url: String
 }
 
 #[derive(Debug, Deserialize)]

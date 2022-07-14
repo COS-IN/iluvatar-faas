@@ -1,20 +1,20 @@
 use std::{sync::Arc, collections::HashMap};
 use anyhow::Result;
 use iluvatar_lib::bail_error;
+use iluvatar_lib::worker_api::worker_comm::WorkerAPIFactory;
 use log::{info, error};
 use parking_lot::RwLock;
 use iluvatar_lib::{services::load_balance::LoadBalancer, utils::calculate_fqdn, transaction::TransactionId};
-use iluvatar_lib::load_balancer_api::structs::{RegisterWorker, RegisterFunction};
+use iluvatar_lib::load_balancer_api::structs::json::{RegisterWorker, RegisterFunction};
+use iluvatar_lib::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
 use iluvatar_lib::load_balancer_api::lb_config::LoadBalancerConfig;
-
-use super::worker_comm::WorkerAPIFactory;
 
 #[allow(unused)]
 pub struct RegistrationService {
   pub lb: LoadBalancer,
   config: LoadBalancerConfig,
-  functions: Arc<RwLock<HashMap<String, RegisterFunction>>>,
-  workers: Arc<RwLock<HashMap<String, RegisterWorker>>>,
+  functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
+  workers: Arc<RwLock<HashMap<String, Arc<RegisteredWorker>>>>,
   worker_fact: WorkerAPIFactory,
 }
 
@@ -28,6 +28,14 @@ impl RegistrationService {
       worker_fact: WorkerAPIFactory {},
     })
   }
+
+  /// Return the function if it's been registered
+  pub fn get_function(&self, fqdn: &String) -> Option<Arc<RegisteredFunction>> {
+    match self.functions.read().get(fqdn) {
+        Some(f) => Some(f.clone()),
+        None => None,
+    }
+  }
   
   /// Register a new worker
   /// Prepare it with all registered functions too
@@ -37,19 +45,30 @@ impl RegistrationService {
       bail_error!("[{}] Worker {} was already registered", tid, &worker.name);
     }
 
-    let mut api = self.worker_fact.get_worker_api(&worker, tid).await?;
+    let reg_worker = RegisteredWorker {
+      name: worker.name,
+      backend: worker.backend,
+      communication_method: worker.communication_method,
+      host: worker.host,
+      port: worker.port,
+      memory: worker.memory,
+      cpus: worker.cpus,
+    };
+    let reg_worker = Arc::new(reg_worker);
+
+    let mut api = self.worker_fact.get_worker_api(&reg_worker, tid).await?;
     for (_fqdn, function) in self.functions.read().iter() {
       match api.register(function.function_name.clone(), function.function_version.clone(), function.image_name.clone(), function.memory, function.cpus, function.parallel_invokes, tid.clone()).await {
         Ok(_) => (),
         Err(e) => {
-          error!("[{}] new worker {} failed to register function because '{}'", tid, &worker.name, e)
+          error!("[{}] new worker {} failed to register function because '{}'", tid, &reg_worker.name, e)
         },
       };
     }
 
-    self.lb.add_worker(&worker);
+    self.lb.add_worker(reg_worker.clone(), tid);
     let mut workers = self.workers.write();
-    workers.insert(worker.name.clone(), worker);
+    workers.insert(reg_worker.name.clone(), reg_worker);
 
     Ok(())
   }
@@ -82,8 +101,16 @@ impl RegistrationService {
             },
         };
       }
+      let function = RegisteredFunction {
+        function_name: function.function_name,
+        function_version: function.function_version,
+        image_name: function.image_name,
+        memory: function.memory,
+        cpus: function.cpus,
+        parallel_invokes: function.parallel_invokes
+      };
       let mut functions = self.functions.write();
-      functions.insert(fqdn.clone(), function);
+      functions.insert(fqdn.clone(), Arc::new(function));
     }
 
     info!("[{}] Function {} was registered", tid, fqdn);

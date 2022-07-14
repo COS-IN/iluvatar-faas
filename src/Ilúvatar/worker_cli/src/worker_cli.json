@@ -2,7 +2,7 @@
   "workers": [
     {
       "name": "local",
-      "address": "http://127.0.0.1",
+      "address": "127.0.0.1",
       "port": 8079
     }
   ]

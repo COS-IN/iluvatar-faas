@@ -30,6 +30,8 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: Write
 
   let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker, status);
   let addr = format!("{}:{}", server_config.address, server_config.port);
+
+  iluvatar_worker::register_rpc_to_controller(server_config.clone(), tid.clone());
   Server::builder()
       .timeout(Duration::from_secs(server_config.timeout_sec))
       .add_service(IluvatarWorkerServer::new(worker))

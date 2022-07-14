@@ -7,6 +7,7 @@ use crate::rpc::iluvatar_worker_client::IluvatarWorkerClient;
 use crate::transaction::TransactionId;
 use crate::types::MemSizeMb;
 use crate::utils::port_utils::Port;
+use anyhow::Result;
 
 #[allow(unused)]
 pub struct RCPWorkerAPI {
@@ -15,7 +16,7 @@ pub struct RCPWorkerAPI {
 
 impl RCPWorkerAPI {
   pub async fn new(address: &String, port: Port) -> Result<RCPWorkerAPI, tonic::transport::Error> {
-    let addr = format!("{}:{}", address, port);
+    let addr = format!("http://{}:{}", address, port);
     let client = IluvatarWorkerClient::connect(addr).await?;
     Ok(RCPWorkerAPI {
       client
@@ -38,9 +39,10 @@ impl Error for RPCError {
 }
 
 /// An implementation of the worker API that communicates with workers via RPC
+// TODO: handle errors in this properly
 #[async_trait]
 impl WorkerAPI for RCPWorkerAPI {
-  async fn ping(&mut self, tid: TransactionId) -> Result<String, Box<dyn std::error::Error>> {
+  async fn ping(&mut self, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(PingRequest {
       message: "Ping".to_string(),
       transaction_id: tid,
@@ -49,7 +51,7 @@ impl WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().message)
   }
 
-  async fn invoke(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn invoke(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(InvokeRequest {
       function_name: function_name,
       function_version: version,
@@ -64,7 +66,7 @@ impl WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().json_result)
   }
 
-  async fn invoke_async(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn invoke_async(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(InvokeAsyncRequest {
       function_name: function_name,
       function_version: version,
@@ -79,7 +81,7 @@ impl WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().lookup_cookie)
   }
 
-  async fn invoke_async_check(&mut self, cookie: &String, tid: TransactionId) -> Result<String, Box<dyn std::error::Error>> {
+  async fn invoke_async_check(&mut self, cookie: &String, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(InvokeAsyncLookupRequest {
       lookup_cookie: cookie.to_owned(),
       transaction_id: tid,
@@ -88,7 +90,7 @@ impl WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().json_result)
   }
 
-  async fn prewarm(&mut self, function_name: String, version: String, memory: Option<MemSizeMb>, cpu: Option<u32>, image: Option<String>, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn prewarm(&mut self, function_name: String, version: String, memory: Option<MemSizeMb>, cpu: Option<u32>, image: Option<String>, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(PrewarmRequest {
       function_name: function_name,
       function_version: version,
@@ -111,11 +113,11 @@ impl WorkerAPI for RCPWorkerAPI {
 
     match response.success {
       true => Ok("".to_string()),
-      false => Err(Box::new(RPCError { message: response.message })),
+      false => anyhow::bail!(RPCError { message: response.message }),
     }
   }
 
-  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId) -> Result<String, Box<(dyn std::error::Error + 'static)>> {
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(RegisterRequest {
       function_name,
       function_version: version,
@@ -132,13 +134,13 @@ impl WorkerAPI for RCPWorkerAPI {
     Ok(response.into_inner().function_json_result)
   }
   
-  async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse, Box<(dyn std::error::Error + 'static)>> {
+  async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse> {
     let request = tonic::Request::new(StatusRequest { transaction_id: tid, });
     let response = self.client.status(request).await?;
     Ok(response.into_inner())
   }
 
-  async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus, Box<(dyn std::error::Error + 'static)>> {
+  async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus> {
     let request = tonic::Request::new(HealthRequest { transaction_id: tid, });
     let response = self.client.health(request).await?;
     match response.into_inner().status {
@@ -146,9 +148,9 @@ impl WorkerAPI for RCPWorkerAPI {
       0 => Ok(HealthStatus::HEALTHY),
       // HealthStatus::Unhealthy
       1 => Ok(HealthStatus::UNHEALTHY),
-      i => Err(Box::new(RPCError {
+      i => anyhow::bail!(RPCError {
         message: format!("Got unexpected status of {}", i)
-      })),
+      }),
     }
   }
 }

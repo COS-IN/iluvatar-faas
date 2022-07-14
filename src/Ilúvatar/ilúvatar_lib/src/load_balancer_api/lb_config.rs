@@ -2,6 +2,8 @@ use std::sync::Arc;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
+use crate::utils::port_utils::Port;
+
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 pub struct Configuration {
@@ -10,7 +12,7 @@ pub struct Configuration {
   /// address to listen on
   pub address: String,
   /// port to listen on
-  pub port: i32,
+  pub port: Port,
   /// request timeout length in seconds
   pub timeout_sec: u64,
   /// Number of worker theads to run
