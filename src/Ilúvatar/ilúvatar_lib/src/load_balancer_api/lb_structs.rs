@@ -9,7 +9,7 @@ pub mod json {
   pub struct Invoke {
     pub function_name: String,
     pub function_version: String,
-    pub args: Vec<String>
+    pub args: Option<Vec<String>>
   }
   
   #[allow(unused)]
@@ -64,7 +64,9 @@ pub mod json {
 
 
 pub mod internal {
+  use crate::utils::calculate_fqdn;
   use super::*;
+  
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
   pub struct RegisteredWorker {
@@ -93,6 +95,7 @@ pub mod internal {
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
   pub struct RegisteredFunction {
+    pub fqdn: String,
     pub function_name: String,
     pub function_version: String,
     pub image_name: String,
@@ -104,6 +107,7 @@ pub mod internal {
   impl RegisteredFunction {
     pub fn from(req: json::RegisterFunction) -> Self {
       RegisteredFunction {
+        fqdn: calculate_fqdn(&req.function_name, &req.function_version),
         function_name: req.function_name,
         function_version: req.function_version,
         image_name: req.image_name,

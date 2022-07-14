@@ -19,20 +19,19 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
   let req = req.into_inner();
   info!("[{}] new invoke {:?}", tid, req);
 
-  server.index();
-  let body = format!(
-      "OK",
-  );
-  HttpResponse::Ok().body(body)
+  match server.invoke(req, &tid).await {
+    Ok(result) =>   HttpResponse::Ok().json(result),
+    Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+  }
 }
 
 #[post("/invoke_async")]
-pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
+pub async fn invoke_async(_server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
   info!("[{}] new invoke_async {:?}", tid, req);
 
-  server.index();
+  // server.index();
   let body = format!(
       "OK",
   );
@@ -40,11 +39,11 @@ pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpRe
 }
 
 #[get("/invoke_async_check")]
-pub async fn invoke_async_check(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
+pub async fn invoke_async_check(_server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
   info!("[{}] new invoke_async_check {:?}", tid, req);
-  server.index();
+  // server.index();
   let body = format!(
       "OK",
   );

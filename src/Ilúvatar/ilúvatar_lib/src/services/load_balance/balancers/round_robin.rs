@@ -39,8 +39,15 @@ impl LoadBalancerTrait for RoundRobinLoadBalancer {
     workers.push(worker);
   }
 
-  async fn send_invocation(&self, _tid: &TransactionId) -> Result<()> {
-    todo!()
+  async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<String> {
+    let worker_idx = self.get_next();
+    let worker = self.workers.read()[worker_idx].clone();
+    info!("[{}] invoking function {} on worker {}", tid, &func.fqdn, &worker.name);
+
+    let mut api = self.worker_fact.get_worker_api(&worker, tid).await?;
+    let result = api.invoke(func.function_name.clone(), func.function_version.clone(), json_args, None, tid.clone()).await?;
+    debug!("[{}] invocation result: {}", tid, result);
+    Ok(result)
   }
 
   fn update_worker_status(&self, _worker: &RegisteredWorker, _status: WorkerStatus, _tid: &TransactionId) {
@@ -50,7 +57,7 @@ impl LoadBalancerTrait for RoundRobinLoadBalancer {
   async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
     let worker_idx = self.get_next();
     let worker = self.workers.read()[worker_idx].clone();
-    info!("[{}] prewarming function {} on worker {}", tid, &func.function_name, &worker.name);
+    info!("[{}] prewarming function {} on worker {}", tid, &func.fqdn, &worker.name);
     let mut api = self.worker_fact.get_worker_api(&worker, tid).await?;
     let result = api.prewarm(func.function_name.clone(), func.function_version.clone(), None, None, None, tid.clone()).await?;
     debug!("[{}] prewarm result: {}", tid, result);

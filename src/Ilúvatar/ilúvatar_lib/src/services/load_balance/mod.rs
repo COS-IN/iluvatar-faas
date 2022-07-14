@@ -7,7 +7,7 @@ mod balancers;
 #[tonic::async_trait]
 pub trait LoadBalancerTrait {
   fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId);
-  async fn send_invocation(&self, tid: &TransactionId) -> Result<()>;
+  async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<String>;
   fn update_worker_status(&self, worker: &RegisteredWorker, status: WorkerStatus, tid: &TransactionId);
   async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()>;
 }

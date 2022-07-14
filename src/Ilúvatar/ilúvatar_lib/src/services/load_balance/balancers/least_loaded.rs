@@ -13,7 +13,7 @@ impl LoadBalancerTrait for LeastLoadedBalancer {
         todo!()
     }
 
-    async fn send_invocation(&self, _tid: &TransactionId) -> Result<()> {
+    async fn send_invocation(&self, _func: Arc<RegisteredFunction>, _json_args: String, _tid: &TransactionId) -> Result<String> {
         todo!()
     }
 

@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use iluvatar_lib::{services::load_balance::{get_balancer, LoadBalancer}, transaction::TransactionId, load_balancer_api::structs::json::Prewarm, utils::calculate_fqdn, bail_error};
-use iluvatar_lib::load_balancer_api::{lb_config::LoadBalancerConfig, structs::json::{RegisterWorker, RegisterFunction}};
+use iluvatar_lib::{services::load_balance::{get_balancer, LoadBalancer}, transaction::TransactionId, bail_error};
+use iluvatar_lib::utils::{calculate_fqdn, config::args_to_json};
+use iluvatar_lib::load_balancer_api::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
+use iluvatar_lib::load_balancer_api::lb_config::LoadBalancerConfig;
 use anyhow::Result;
-use log::debug;
+use log::{debug, info};
 use crate::services::{async_invoke::AsyncService, registration::RegistrationService, load_reporting::LoadService, health::HealthService};
-
 
 #[allow(unused)]
 pub struct Controller {
@@ -52,14 +53,22 @@ impl Controller {
         debug!("[{}] found function {} for prewarm", tid, &fqdn);
         self.lb.prewarm(func, tid).await
       },
-      None => bail_error!("[{}] function {} was not registered", tid, fqdn)
+      None => bail_error!("[{}] function {} was not registered; could not prewarm", tid, fqdn)
     }
   }
 
-  pub fn index(&self) {
-    println!("INDEX");
-  }
-  pub fn name(&self, name_str: &String) {
-    println!("server: {}", name_str);
+  pub async fn invoke(&self, request: Invoke, tid: &TransactionId) -> Result<String> {
+    let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
+    match self.registration_svc.get_function(&fqdn) {
+      Some(func) => {
+        info!("[{}] sending function {} to load balancer for invocation", tid, &fqdn);
+        let args = match request.args {
+            Some(args_vec) => args_to_json(args_vec),
+            None => "{}".to_string(),
+        };
+        self.lb.send_invocation(func, args, tid).await
+      },
+      None => bail_error!("[{}] function {} was not registered; could not invoke", tid, fqdn)
+    }
   }
 }
