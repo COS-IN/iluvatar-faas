@@ -7,22 +7,19 @@ use parking_lot::RwLock;
 use iluvatar_lib::{services::load_balance::LoadBalancer, utils::calculate_fqdn, transaction::TransactionId};
 use iluvatar_lib::load_balancer_api::structs::json::{RegisterWorker, RegisterFunction};
 use iluvatar_lib::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
-use iluvatar_lib::load_balancer_api::lb_config::LoadBalancerConfig;
 
 #[allow(unused)]
 pub struct RegistrationService {
   pub lb: LoadBalancer,
-  config: LoadBalancerConfig,
   functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
   workers: Arc<RwLock<HashMap<String, Arc<RegisteredWorker>>>>,
   worker_fact: WorkerAPIFactory,
 }
 
 impl RegistrationService {
-  pub fn boxed(config: LoadBalancerConfig, lb: LoadBalancer) -> Arc<Self> {
+  pub fn boxed(lb: LoadBalancer) -> Arc<Self> {
     Arc::new(RegistrationService{
       lb,
-      config,
       functions: Arc::new(RwLock::new(HashMap::new())),
       workers: Arc::new(RwLock::new(HashMap::new())),
       worker_fact: WorkerAPIFactory {},

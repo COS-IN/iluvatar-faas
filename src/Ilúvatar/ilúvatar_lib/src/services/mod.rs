@@ -36,7 +36,7 @@ impl LifecycleFactory {
 
   pub async fn get_lifecycle_service(&self, tid: &TransactionId, bridge: bool) -> Result<Arc<dyn LifecycleService>> {
     if self.config.container_resources.backend == "containerd" {
-      let netm = NamespaceManager::boxed(self.config.clone(), tid);
+      let netm = NamespaceManager::boxed(self.config.networking.clone(), tid);
       if bridge {
         netm.ensure_bridge(tid)?;
       }

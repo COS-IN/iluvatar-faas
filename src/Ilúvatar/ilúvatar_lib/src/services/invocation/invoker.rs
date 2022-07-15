@@ -1,5 +1,6 @@
 use std::{sync::{Arc, mpsc::{Receiver, channel}}, collections::HashMap, time::Duration};
-use crate::{services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}}, worker_api::config::WorkerConfig};
+use crate::worker_api::worker_config::FunctionLimits;
+use crate::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use crate::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
 use parking_lot::{RwLock, Mutex};
 use std::time::SystemTime;
@@ -14,13 +15,13 @@ pub struct InvokerService {
   pub cont_manager: Arc<ContainerManager>,
   pub async_functions: Arc<RwLock<HashMap<String, InvocationResultPtr>>>,
   pub invoke_queue: Arc<Mutex<Vec<Arc<EnqueuedInvocation>>>>,
-  pub config: WorkerConfig,
+  pub config: Arc<FunctionLimits>,
   // TODO: occasionally check if this died and re-run?
   _worker_thread: std::thread::JoinHandle<()>,
 }
 
 impl InvokerService {
-    fn new(cont_manager: Arc<ContainerManager>, config: WorkerConfig, worker_thread: std::thread::JoinHandle<()>) -> Self {
+    fn new(cont_manager: Arc<ContainerManager>, config: Arc<FunctionLimits>, worker_thread: std::thread::JoinHandle<()>) -> Self {
       InvokerService {
         cont_manager,
         async_functions: Arc::new(RwLock::new(HashMap::new())),
@@ -30,7 +31,7 @@ impl InvokerService {
       }
     }
 
-    pub fn boxed(cont_manager: Arc<ContainerManager>, tid: &TransactionId, config: WorkerConfig) -> Arc<Self> {
+    pub fn boxed(cont_manager: Arc<ContainerManager>, tid: &TransactionId, config: Arc<FunctionLimits>) -> Arc<Self> {
       let (tx, rx) = channel();
       let handle = InvokerService::start_queue_thread(rx, tid);
       let i = Arc::new(InvokerService::new(cont_manager, config, handle));
@@ -120,7 +121,7 @@ impl InvokerService {
               error!("[{}] Encountered unknown error while trying to run queued invocation '{}'", &item.tid, cause);
               // TODO: insert smartly into queue
               let mut result_ptr = item.result_ptr.lock();
-              if result_ptr.attempts >= self.config.limits.retries {
+              if result_ptr.attempts >= self.config.retries {
                 error!("[{}] Abandoning attempt to run invocation after {} errors", &item.tid, result_ptr.attempts);
                 result_ptr.duration = 0;
                 result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);

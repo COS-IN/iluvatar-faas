@@ -14,10 +14,10 @@ pub struct Configuration {
   pub port: Port,
   /// request timeout length in seconds
   pub timeout_sec: u64,
-  pub limits: FunctionLimits,
-  pub logging: Logging,
-  pub networking: Networking,
-  pub container_resources: ContainerResources,
+  pub limits: Arc<FunctionLimits>,
+  pub logging: Arc<LoggingConfig>,
+  pub networking: Arc<NetworkingConfig>,
+  pub container_resources: Arc<ContainerResources>,
   /// full URL to access the controller/load balancer, required for worker registration
   pub load_balancer_url: String
 }
@@ -64,7 +64,7 @@ pub struct FunctionLimits {
 #[allow(unused)]
 /// details about how/where to log to
 /// a symlink to the current log file will be at "./iluvatar_worker.log"
-pub struct Logging {
+pub struct LoggingConfig {
   /// the min log level
   pub level: String,
   /// directory to store logs in 
@@ -75,7 +75,7 @@ pub struct Logging {
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
-pub struct Networking {
+pub struct NetworkingConfig {
   /// bridge name to create
   pub bridge: String,
   /// path to cnitool executable
@@ -94,7 +94,6 @@ pub struct Networking {
   pub hardware_interface: String,
 }
 
-
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
@@ -106,14 +105,13 @@ impl Configuration {
           std::path::Path::new(&path).exists()
         })
         .map(|path| File::with_name(path))
-        .collect::<Vec<_>>())
-      .build()?;
-    let mut cfg: Configuration = s.try_deserialize()?;
-    if cleaning {
+        .collect::<Vec<_>>());
+    let s = match cleaning {
+      false => s.build()?,
       // disable network pool during cleaning
-      cfg.networking.use_pool = false;
-    }
-    Ok(cfg)
+      true => s.set_override("networking.use_pool", false)?.build()?,
+    };
+    s.try_deserialize()
   }
 
   pub fn boxed(cleaning: bool, config_fpath: &String) -> Result<WorkerConfig, ConfigError> {

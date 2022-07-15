@@ -1,5 +1,5 @@
 use crate::services::network::network_structs::{ContdNamespace, Namespace};
-use crate::worker_api::config::WorkerConfig;
+use crate::worker_api::worker_config::NetworkingConfig;
 use std::sync::Arc;
 use std::collections::HashMap;
 use anyhow::Result;
@@ -15,9 +15,10 @@ use guid_create::GUID;
 #[derive(Debug)]
 #[allow(unused)]
 pub struct NamespaceManager {
-  config: WorkerConfig,
+  config: Arc<NetworkingConfig>,
   net_conf_path: String,
   pool: NamespacePool,
+  // TODO: have this struct keep a pointer to its worker thread
 }
 
 type NamespacePool = Arc<Mutex<Vec<Arc<Namespace>>>>;
@@ -28,7 +29,7 @@ const NAMESPACE_IDENTIFIER: &str = "ilunns-";
 const BRIDGE_NET_ID: &str = "mk_bridge_throwaway";
 
 impl NamespaceManager {
-  fn new(config: WorkerConfig) -> NamespaceManager {
+  fn new(config: Arc<NetworkingConfig>) -> NamespaceManager {
     return NamespaceManager {
       config,
       net_conf_path: utils::file::TEMP_DIR.to_string(),
@@ -36,11 +37,11 @@ impl NamespaceManager {
     }
   }
 
-  pub fn boxed(config: WorkerConfig, tid: &TransactionId) -> Arc<NamespaceManager> {
+  pub fn boxed(config: Arc<NetworkingConfig>, tid: &TransactionId) -> Arc<NamespaceManager> {
     let ns = Arc::new(NamespaceManager::new(config.clone()));
     debug!("[{}] creating namespace manager", tid);
 
-    if config.networking.use_pool {
+    if config.use_pool {
       let cln = ns.clone();
       info!("[{}] launching namespace pool monitor thread", tid);
       let _handle = tokio::spawn(async move {
@@ -50,10 +51,10 @@ impl NamespaceManager {
     ns
   }
 
-  async fn monitor_pool(config: WorkerConfig, nm: Arc<NamespaceManager>) {
+  async fn monitor_pool(config: Arc<NetworkingConfig>, nm: Arc<NamespaceManager>) {
     let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
     loop {
-      'inner: while nm.pool_size() < config.networking.pool_size {
+      'inner: while nm.pool_size() < config.pool_size {
         let ns = match nm.create_namespace(&nm.generate_net_namespace_name(), tid) {
             Ok(ns) => ns,
             Err(e) => {
@@ -66,7 +67,7 @@ impl NamespaceManager {
             Err(e) => error!("[{}] Failed giving namespace to pool: {}", tid, e),
         };
       }
-      tokio::time::sleep(std::time::Duration::from_secs(config.networking.pool_freq_sec)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(config.pool_freq_sec)).await;
     }
   }
 
@@ -80,7 +81,7 @@ impl NamespaceManager {
     writeln!(&mut file, "{}", bridge_json)?;
 
     let mut env: HashMap<String, String> = env::vars().collect();
-    env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
+    env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
     env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
 
     let name = BRIDGE_NET_ID.to_string();
@@ -99,8 +100,8 @@ impl NamespaceManager {
       return Ok(());
     }
 
-    let output = execute_cmd(&self.config.networking.cnitool, 
-                  &vec!["add", &self.config.networking.cni_name.as_str(), &nspth.as_str()],
+    let output = execute_cmd(&self.config.cnitool, 
+                  &vec!["add", &self.config.cni_name.as_str(), &nspth.as_str()],
                   Some(&env), tid);
     debug!("[{}] Output from creating network bridge: '{:?}'", tid, output);
     match output {
@@ -120,7 +121,7 @@ impl NamespaceManager {
 
     // https://unix.stackexchange.com/questions/248504/bridged-interfaces-do-not-have-internet-access
     match execute_cmd("/usr/sbin/iptables", 
-      &vec!["-t", "nat", "-A", "POSTROUTING", "-o" , &self.config.networking.hardware_interface, "-j", "MASQUERADE"], None, tid) {
+      &vec!["-t", "nat", "-A", "POSTROUTING", "-o" , &self.config.hardware_interface, "-j", "MASQUERADE"], None, tid) {
         Ok(_) => debug!("[{}] Setting nat on hardware interface succeded", tid),
         Err(_) => panic!("[{}] Setting nat on hardware interface failed", tid),
       };
@@ -130,7 +131,7 @@ impl NamespaceManager {
       Err(_) => panic!("[{}] Setting conntrack failed", tid),
     };
     match execute_cmd("/usr/sbin/iptables", 
-      &vec!["-A", "FORWARD", "-i", &self.config.networking.bridge, "-o", &self.config.networking.hardware_interface, "-j", "ACCEPT"], None, tid) {
+      &vec!["-A", "FORWARD", "-i", &self.config.bridge, "-o", &self.config.hardware_interface, "-j", "ACCEPT"], None, tid) {
       Ok(_) => debug!("[{}] Forwarding bridge to interface succeded", tid),
       Err(_) => panic!("[{}] Forwarding bridge to interface failed", tid),
     };
@@ -140,11 +141,11 @@ impl NamespaceManager {
 
   fn bridge_exists(&self, nspth: &String, tid: &TransactionId) -> Result<bool> {
     let mut env: HashMap<String, String> = env::vars().collect();
-    env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
+    env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
     env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
 
-    let output = execute_cmd(&self.config.networking.cnitool, 
-      &vec!["check", &self.config.networking.cni_name.as_str(), &nspth.as_str()],
+    let output = execute_cmd(&self.config.cnitool, 
+      &vec!["check", &self.config.cni_name.as_str(), &nspth.as_str()],
       Some(&env), tid);
     match output {
         Ok(output) => {
@@ -210,14 +211,14 @@ impl NamespaceManager {
   fn create_namespace(&self, name: &String, tid: &TransactionId) -> Result<Namespace> {
     info!("[{}] Creating new namespace: {}", tid, name);
     let mut env: HashMap<String, String> = env::vars().collect();
-    env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
+    env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
     env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
   
     let nspth = NamespaceManager::net_namespace(name);
     NamespaceManager::create_namespace_internal(&name, tid)?;
 
-    let out = execute_cmd(&self.config.networking.cnitool, 
-                          &vec!["add", &self.config.networking.cni_name.as_str(), &nspth.as_str()],
+    let out = execute_cmd(&self.config.cnitool, 
+                          &vec!["add", &self.config.cni_name.as_str(), &nspth.as_str()],
                           Some(&env), tid)?;
 
     match serde_json::from_slice(&out.stdout) {
@@ -235,7 +236,7 @@ impl NamespaceManager {
 
   pub fn get_namespace(&self, tid: &TransactionId) -> Result<Arc<Namespace>> {
     let mut locked = self.pool.lock();
-    if self.config.networking.use_pool && locked.len() > 0 {
+    if self.config.use_pool && locked.len() > 0 {
       match locked.pop() {
         Some(ns) =>{
           debug!("[{}] Assigning namespace {}", tid, ns.name);
@@ -260,7 +261,7 @@ impl NamespaceManager {
 
   pub fn return_namespace(&self, ns: Arc<Namespace>, tid: &TransactionId) -> Result<()> {
     debug!("[{}] Namespace {} being returned", tid, ns.name);
-    if self.config.networking.use_pool {  
+    if self.config.use_pool {  
       let mut locked = self.pool.lock();
       locked.push(ns);
       return Ok(());
@@ -295,17 +296,15 @@ impl NamespaceManager {
         self.delete_namespace(&split[0].to_string(), tid)?;
       }
     }
-    // sudo NETCONFPATH=/tmp/ilúvatar_worker/ CNI_PATH=/opt/cni/bin /home/alex/.gopth/bin/cnitool del il_worker_br /run/netns/mk_bridge_throwaway
-    // sudo ip link delete IlWorkBr0 type bridge
     
     let nspth = NamespaceManager::net_namespace(&BRIDGE_NET_ID.to_string());
     let mut env: HashMap<String, String> = env::vars().collect();
-    env.insert(CNI_PATH_VAR.to_string(), self.config.networking.cni_plugin_bin.clone());
+    env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
     env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
-    let _output = execute_cmd(&self.config.networking.cnitool, 
-      &vec!["del", &self.config.networking.cni_name.as_str(), &nspth.as_str()],
+    let _output = execute_cmd(&self.config.cnitool, 
+      &vec!["del", &self.config.cni_name.as_str(), &nspth.as_str()],
       Some(&env), tid)?;
-    let _out = execute_cmd("/bin/ip", &vec!["link", "delete", &self.config.networking.bridge, "type", "bridge"], Some(&env), tid)?;
+    let _out = execute_cmd("/bin/ip", &vec!["link", "delete", &self.config.bridge, "type", "bridge"], Some(&env), tid)?;
       
     Ok(())
   }

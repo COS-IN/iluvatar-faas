@@ -1,22 +1,20 @@
 use std::{sync::Arc, collections::HashMap};
 use iluvatar_lib::bail_error;
 use iluvatar_lib::{worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId};
-use iluvatar_lib::load_balancer_api::{lb_config::LoadBalancerConfig, structs::internal::RegisteredWorker, lb_errors::MissingAsyncCookieError};
+use iluvatar_lib::load_balancer_api::{structs::internal::RegisteredWorker, lb_errors::MissingAsyncCookieError};
 use log::*;
 use parking_lot::RwLock;
 use anyhow::Result;
 
 #[allow(unused)]
 pub struct AsyncService {
-  config: LoadBalancerConfig,
   async_invokes: RwLock<HashMap<String, Arc<RegisteredWorker>>>,
   worker_fact: WorkerAPIFactory,
 }
 
 impl AsyncService {
-  pub fn boxed(config: LoadBalancerConfig) -> Arc<Self> {
+  pub fn boxed() -> Arc<Self> {
     Arc::new(AsyncService {
-      config,
       async_invokes: RwLock::new(HashMap::new()),
       worker_fact: WorkerAPIFactory {},
     })

@@ -16,8 +16,8 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: Write
   let factory = LifecycleFactory::new(server_config.clone());
   let lifecycle = factory.get_lifecycle_service(tid, true).await?;
 
-  let container_man = ContainerManager::boxed(server_config.clone(), lifecycle.clone()).await?;
-  let invoker = InvokerService::boxed(container_man.clone(), tid, server_config.clone());
+  let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone()).await?;
+  let invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone());
 
   for i in 0..100 {
     let req = RegisterRequest {

@@ -14,7 +14,7 @@ lazy_static = "1.4.0"
 anyhow = "1.0.13"
 log = "0.4.17"
 guid-create = "0.2.0"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0.81"
 parking_lot = "0.12.1"
 config = "0.13.1"

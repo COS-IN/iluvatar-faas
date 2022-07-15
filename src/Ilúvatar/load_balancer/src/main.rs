@@ -18,7 +18,7 @@ async fn main() -> std::io::Result<()> {
   let tid: &TransactionId = &LOAD_BALANCER_TID;
 
   let config = Configuration::boxed(&"".to_string()).unwrap();
-  make_logger(&config, tid, flexi_logger::WriteMode::Direct);
+  make_logger(config.logging.clone(), tid, flexi_logger::WriteMode::Direct);
 
   let server = Controller::new(config.clone());
   let server_data = Data::new(server);

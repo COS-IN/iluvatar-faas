@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::{load_balancer_api::{lb_config::LoadBalancerConfig, structs::internal::{RegisteredWorker, RegisteredFunction, WorkerStatus}}, transaction::TransactionId};
+use crate::{load_balancer_api::{lb_config::ControllerConfig, structs::internal::{RegisteredWorker, RegisteredFunction, WorkerStatus}}, transaction::TransactionId};
 use anyhow::Result;
 
 mod balancers;
@@ -21,7 +21,7 @@ pub trait LoadBalancerTrait {
 
 pub type LoadBalancer = Arc<dyn LoadBalancerTrait + Send + Sync + 'static>;
 
-pub fn get_balancer(config: &LoadBalancerConfig) -> Result<LoadBalancer> {
+pub fn get_balancer(config: &ControllerConfig) -> Result<LoadBalancer> {
   if config.load_balancer.algorithm == "RoundRobin" {
     Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new()))
   }
