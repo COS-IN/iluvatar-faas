@@ -1,27 +1,30 @@
 use std::sync::Arc;
 use dashmap::DashMap;
-use iluvatar_lib::{services::load_balance::LoadBalancer, worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId, load_balancer_api::structs::internal::{RegisteredWorker, WorkerStatus}, ilúvatar_api::HealthStatus};
+use crate::{worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId, load_balancer_api::structs::internal::{RegisteredWorker, WorkerStatus}, ilúvatar_api::HealthStatus};
 use log::{warn, debug, info};
 use std::time::Duration;
 
-use super::registration::RegistrationService;
-
 #[allow(unused)]
 pub struct HealthService {
-  reg_funcs: Arc<RegistrationService>,
-  lb: LoadBalancer,
   worker_fact: WorkerAPIFactory,
   worker_statuses: Arc<DashMap<String, WorkerStatus>>,
 }
 
 impl HealthService {
-  pub fn boxed(reg_funcs: Arc<RegistrationService>, lb: LoadBalancer) -> Arc<Self> {
+  pub fn boxed() -> Arc<Self> {
     Arc::new(HealthService {
-      reg_funcs,
-      lb,
       worker_fact: WorkerAPIFactory {},
       worker_statuses: Arc::new(DashMap::new())
     })
+  }
+
+  pub fn is_healthy(&self, worker: &Arc<RegisteredWorker>) -> bool {
+    match self.worker_statuses.get(&worker.name) {
+      Some(stat) => {
+        stat.value() == &WorkerStatus::HEALTHY
+      },
+      None => false,
+    }
   }
 
   /// returns true if the status is changed, or the worker was not seen before and is unhealthy
@@ -68,7 +71,7 @@ impl HealthService {
   pub fn schedule_health_check(&self, svc: Arc<HealthService>, worker: Arc<RegisteredWorker>, tid: &TransactionId, in_secs: Option<Duration>) {
     debug!("[{}] scheduling future health check for worker '{}'", tid, worker.name);
     tokio::spawn(async move {
-      let tid: &TransactionId = &iluvatar_lib::transaction::HEALTH_TID;
+      let tid: &TransactionId = &crate::transaction::HEALTH_TID;
       let dur = match in_secs {
         Some(t) => t,
         // default check an unhealthy invoker in 30 seconds
@@ -86,7 +89,6 @@ impl HealthService {
   pub async fn update_worker_health(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> bool {
     let new_status = self.get_worker_health(worker, tid).await;
     if self.status_changed(worker, tid, &new_status) {
-      self.lb.update_worker_status(worker, &new_status, tid);
       self.update_status(worker, tid, &new_status)
     }
     new_status != WorkerStatus::HEALTHY

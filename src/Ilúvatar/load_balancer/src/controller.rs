@@ -1,19 +1,19 @@
 use std::{sync::Arc, time::Duration};
 
-use iluvatar_lib::{services::load_balance::{get_balancer, LoadBalancer}, transaction::TransactionId, bail_error};
+use iluvatar_lib::{services::{load_balance::{get_balancer, LoadBalancer}, ControllerHealthService}, transaction::TransactionId, bail_error};
 use iluvatar_lib::utils::{calculate_fqdn, config::args_to_json};
 use iluvatar_lib::load_balancer_api::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
 use iluvatar_lib::load_balancer_api::lb_config::ControllerConfig;
 use anyhow::Result;
 use log::{debug, info, error};
-use crate::services::{async_invoke::AsyncService, registration::RegistrationService, load_reporting::LoadService, health::HealthService};
+use crate::services::{async_invoke::AsyncService, registration::RegistrationService, load_reporting::LoadService};
 
 #[allow(unused)]
 pub struct Controller {
   config: ControllerConfig,
   lb: LoadBalancer,
   async_svc: Arc<AsyncService>,
-  health_svc: Arc<HealthService>,
+  health_svc: Arc<ControllerHealthService>,
   load_svc: Arc<LoadService>,
   registration_svc: Arc<RegistrationService>
 }
@@ -21,10 +21,10 @@ unsafe impl Send for Controller{}
 
 impl Controller {
   pub fn new(config: ControllerConfig) -> Self {
-    let lb: LoadBalancer = get_balancer(&config).unwrap();
+    let health_svc = ControllerHealthService::boxed();
+    let lb: LoadBalancer = get_balancer(&config, health_svc.clone()).unwrap();
     let reg_svc = RegistrationService::boxed(lb.clone());
     let async_svc = AsyncService::boxed();
-    let health_svc = HealthService::boxed(reg_svc.clone(), lb.clone());
     let load_svc = LoadService::boxed(reg_svc.clone());
     Controller {
       config,

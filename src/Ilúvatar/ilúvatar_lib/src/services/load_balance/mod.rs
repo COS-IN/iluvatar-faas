@@ -1,6 +1,8 @@
 use std::sync::Arc;
-use crate::{load_balancer_api::{lb_config::ControllerConfig, structs::internal::{RegisteredWorker, RegisteredFunction, WorkerStatus}}, transaction::TransactionId};
 use anyhow::Result;
+use crate::{load_balancer_api::lb_config::ControllerConfig, transaction::TransactionId};
+use crate::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
+use crate::services::ControllerHealthService;
 
 mod balancers;
 
@@ -14,17 +16,15 @@ pub trait LoadBalancerTrait {
   /// Start an async invocation on a server
   /// Return the marker cookie for it, and the worker it was launched on
   async fn send_async_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(String, Arc<RegisteredWorker>)>;
-  /// Update the liveliness stats of the given worker
-  fn update_worker_status(&self, worker: &Arc<RegisteredWorker>, status: &WorkerStatus, tid: &TransactionId);
   /// Prewarm the given function somewhere
   async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()>;
 }
 
 pub type LoadBalancer = Arc<dyn LoadBalancerTrait + Send + Sync + 'static>;
 
-pub fn get_balancer(config: &ControllerConfig) -> Result<LoadBalancer> {
+pub fn get_balancer(config: &ControllerConfig, health_svc: Arc<ControllerHealthService>) -> Result<LoadBalancer> {
   if config.load_balancer.algorithm == "RoundRobin" {
-    Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new()))
+    Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(health_svc)))
   }
   else if config.load_balancer.algorithm == "LeastLoaded" {
     Ok(Arc::new(balancers::least_loaded::LeastLoadedBalancer {}))
