@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use iluvatar_lib::services::WorkerHealthService;
 use iluvatar_lib::services::invocation::invoker::InvokerService;
 use iluvatar_lib::services::status::status_service::StatusService;
 use tonic::{Request, Response, Status};
@@ -14,15 +15,17 @@ pub struct IluvatarWorkerImpl {
   config: WorkerConfig,
   invoker: Arc<InvokerService>,
   status: Arc<StatusService>,
+  health: Arc<WorkerHealthService>,
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>, status: Arc<StatusService>) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>, status: Arc<StatusService>, health: Arc<WorkerHealthService>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
       container_manager,
       config,
       invoker,
-      status
+      status,
+      health
     }
   }
 }
@@ -184,10 +187,9 @@ impl IluvatarWorker for IluvatarWorkerImpl {
 
   async fn health(&self,
     request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
-      info!("[{}] Handling health request", request.into_inner().transaction_id);
-      let reply = HealthResponse {
-        status: RpcHealthStatus::Healthy as i32
-      };
+      let request = request.into_inner();
+      info!("[{}] Handling health request", request.transaction_id);
+      let reply = self.health.check_health(&request.transaction_id).await;
       Ok(Response::new(reply))
     }
 }

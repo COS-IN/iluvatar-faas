@@ -14,21 +14,22 @@ use iluvatar_lib::utils::config::get_val;
 use log::*;
 use anyhow::Result;
 use tonic::transport::Server;
-use iluvatar_lib::services::{LifecycleFactory};
+use iluvatar_lib::services::{LifecycleFactory, WorkerHealthService};
 use flexi_logger::WriteMode;
 
 async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: WriteMode) -> Result<()> {
   let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, mode);
   debug!("[{}] loaded configuration = {:?}", tid, server_config);
 
-  let factory = LifecycleFactory::new(server_config.clone());
+  let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone());
   let lifecycle = factory.get_lifecycle_service(tid, true).await?;
 
   let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone()).await?;
   let invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone());
   let status = StatusService::boxed(container_man.clone(), invoker.clone()).await;
+  let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
 
-  let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker, status);
+  let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker, status, health);
   let addr = format!("{}:{}", server_config.address, server_config.port);
 
   iluvatar_worker::register_rpc_to_controller(server_config.clone(), tid.clone());
@@ -44,7 +45,7 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
   let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, WriteMode::Direct);
   debug!("[{}] loaded configuration = {:?}", tid, server_config);
 
-  let factory = LifecycleFactory::new(server_config.clone());
+  let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone());
   let lifecycle = factory.get_lifecycle_service(tid, false).await?;
 
   let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone()).await?;
