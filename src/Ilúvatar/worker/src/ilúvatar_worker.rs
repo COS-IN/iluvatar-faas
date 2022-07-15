@@ -8,6 +8,10 @@ use iluvatar_lib::worker_api::config::WorkerConfig;
 use iluvatar_lib::services::containers::containermanager::ContainerManager;
 use log::*;
 
+use tracing::instrument; 
+use tracing::debug;
+
+#[derive(Debug)]
 #[allow(unused)]
 pub struct IluvatarWorkerImpl {
   container_manager: Arc<ContainerManager>,
@@ -26,10 +30,13 @@ impl IluvatarWorkerImpl {
     }
   }
 }
- 
+
+
 #[tonic::async_trait]
 impl IluvatarWorker for IluvatarWorkerImpl {
-  async fn ping(
+    
+    #[tracing::instrument]
+    async fn ping(
       &self,
       request: Request<PingRequest>,
   ) -> Result<Response<PingResponse>, Status> {
@@ -37,10 +44,11 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       let reply = PingResponse {
           message: format!("Pong").into(),
       };
-
+      debug!("in ping");
       Ok(Response::new(reply))
   }
 
+  #[tracing::instrument]  
   async fn invoke(&self,
     request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
       let request = request.into_inner();
@@ -67,6 +75,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       }
     }
 
+  #[tracing::instrument]  
   async fn invoke_async(&self,
     request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
       let request = request.into_inner();
@@ -89,6 +98,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       }
     }
 
+  #[tracing::instrument]      
   async fn invoke_async_check(&self, request: Request<InvokeAsyncLookupRequest>) -> Result<Response<InvokeResponse>, Status> {
     let request = request.into_inner();
     info!("[{}] Handling invoke async check", request.transaction_id);
@@ -108,6 +118,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     }
   }
 
+  #[tracing::instrument]  
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();
@@ -133,6 +144,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       }
     }
 
+  #[tracing::instrument]  
   async fn register(&self,
     request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
       let request = request.into_inner();
@@ -157,8 +169,9 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           Ok(Response::new(reply))        
         },
       }
-    }
-
+  }
+    
+  #[tracing::instrument]  
   async fn status(&self,
     request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
       let request = request.into_inner();
@@ -173,8 +186,9 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           }))
         },
       }
-    }
-
+  }
+    
+  #[tracing::instrument]  
   async fn health(&self,
     request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
       info!("[{}] Handling health request", request.into_inner().transaction_id);

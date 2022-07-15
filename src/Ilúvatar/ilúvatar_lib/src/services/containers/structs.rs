@@ -5,8 +5,11 @@ use inotify::{Inotify, WatchMask};
 use parking_lot::{RwLock, Mutex};
 
 use crate::services::containers::containermanager::ContainerManager;
-use log::{debug};
+//use log::{debug};
 use anyhow::{Result, Context};
+use tracing::instrument; 
+use tracing::{debug, info,warn};
+use log::error; 
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -31,6 +34,7 @@ pub struct Container {
   mem_usage: RwLock<MemSizeMb>,
   pub healthy: Mutex<bool>
 }
+
 
 #[allow(unused)]
 impl Container {

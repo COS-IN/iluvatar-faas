@@ -8,6 +8,7 @@ use anyhow::Result;
 use log::*;
 use crate::rpc::StatusResponse;
 
+#[derive(Debug)]
 pub struct StatusService {
   container_manager: Arc<ContainerManager>, 
   invoker_service: Arc<InvokerService>

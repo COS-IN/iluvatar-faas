@@ -133,8 +133,7 @@
               {"allow":true,"type":"c","major":5,"minor":1,"access":"rwm"}
           ],
           "memory": {
-            "limit": "$MEMLIMIT",
-            "swap": "$SWAPLIMIT"
+            "limit": "$MEMLIMIT"
           },
           "cpu": {
             "shares": "$CPUSHARES"
