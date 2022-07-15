@@ -26,7 +26,7 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: Write
 
   let container_man = ContainerManager::boxed(server_config.clone(), lifecycle.clone()).await?;
   let invoker = InvokerService::boxed(container_man.clone(), tid, server_config.clone());
-  let status = StatusService::boxed(container_man.clone(), invoker.clone());
+  let status = StatusService::boxed(container_man.clone(), invoker.clone()).await;
 
   let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker, status);
   let addr = format!("{}:{}", server_config.address, server_config.port);

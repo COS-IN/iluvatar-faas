@@ -17,6 +17,7 @@ use super::structs::{Container, RegisteredFunction, ContainerLock};
 type ContainerList = Arc<RwLock<Vec<Arc<Container>>>>;
 type ContainerPool = HashMap<String, ContainerList>;
 
+#[derive(Debug)]
 pub struct ContainerManager {
   registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
   active_containers: Arc<RwLock<ContainerPool>>,
@@ -81,6 +82,12 @@ impl ContainerManager {
 
   pub fn free_memory(&self) -> MemSizeMb {
     self.config.container_resources.memory_mb - *self.used_mem_mb.lock()
+  }
+  pub fn used_memory(&self) -> MemSizeMb {
+    *self.used_mem_mb.lock()
+  }
+  pub fn total_memory(&self) -> MemSizeMb {
+    self.config.container_resources.memory_mb
   }
 
   pub fn free_cores(&self) -> u32 {

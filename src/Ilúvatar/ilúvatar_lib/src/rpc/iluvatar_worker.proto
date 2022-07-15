@@ -83,6 +83,7 @@ message StatusResponse {
   int64 cpu_id = 7;
   int64 cpu_wa = 8;
   double load_avg_1minute = 9;
+  uint32 num_system_cores = 10;
 }
 
 message HealthRequest {

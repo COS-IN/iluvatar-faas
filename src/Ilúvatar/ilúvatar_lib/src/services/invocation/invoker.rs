@@ -9,6 +9,7 @@ use guid_create::GUID;
 use log::*;
 use super::invoker_structs::{QueueFuture, EnqueuedInvocation, InvocationResultPtr};
 
+#[derive(Debug)]
 pub struct InvokerService {
   pub cont_manager: Arc<ContainerManager>,
   pub async_functions: Arc<RwLock<HashMap<String, InvocationResultPtr>>>,

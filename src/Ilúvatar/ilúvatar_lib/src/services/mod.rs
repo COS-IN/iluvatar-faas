@@ -14,7 +14,7 @@ pub mod status;
 pub mod load_balance;
 
 #[async_trait]
-pub trait LifecycleService: Send + Sync {
+pub trait LifecycleService: Send + Sync + std::fmt::Debug {
   async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container>;
   async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container>;
   async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;

@@ -165,16 +165,21 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
       let request = request.into_inner();
       info!("[{}] Handling status request", request.transaction_id);
-      match self.status.get_status(&request.transaction_id) {
-        Ok(stat) => Ok(Response::new(stat)),
-        Err(e) => {
-          error!("[{}] Getting status of worker failed {}", request.transaction_id, e);
-          Ok(Response::new(StatusResponse {
-            success: false,
-            ..Default::default()
-          }))
-        },
-      }
+      let stat = self.status.get_status(&request.transaction_id);
+
+      let resp = StatusResponse { 
+        success: true, 
+        queue_len: stat.queue_len,
+        used_mem: stat.used_mem,
+        total_mem: stat.total_mem,
+        cpu_us: stat.cpu_us,
+        cpu_sy: stat.cpu_sy,
+        cpu_id: stat.cpu_id,
+        cpu_wa: stat.cpu_wa,
+        load_avg_1minute: stat.load_avg_1minute,
+        num_system_cores: stat.num_system_cores
+      };
+      Ok(Response::new(resp))
     }
 
   async fn health(&self,
