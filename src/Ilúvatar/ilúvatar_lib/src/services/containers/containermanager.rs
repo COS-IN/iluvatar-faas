@@ -7,6 +7,7 @@ use crate::types::MemSizeMb;
 use crate::utils::calculate_fqdn;
 use crate::worker_api::worker_config::{FunctionLimits, ContainerResources};
 use anyhow::{Result, bail};
+use dashmap::DashMap;
 use log::*;
 use std::cmp::Ordering;
 use std::collections::HashMap; 
@@ -19,7 +20,7 @@ type ContainerPool = HashMap<String, ContainerList>;
 
 #[derive(Debug)]
 pub struct ContainerManager {
-  registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
+  registered_functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,
   active_containers: Arc<RwLock<ContainerPool>>,
   limits_config: Arc<FunctionLimits>, 
   resources: Arc<ContainerResources>,
@@ -33,7 +34,7 @@ pub struct ContainerManager {
 impl ContainerManager {
   pub async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<ContainerManager> {
     Ok(ContainerManager {
-      registered_functions: Arc::new(RwLock::new(HashMap::new())),
+      registered_functions: Arc::new(DashMap::new()),
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       limits_config,
       resources,
@@ -367,24 +368,16 @@ impl ContainerManager {
 
   /// Returns the function registration identified by `fqdn` if it exists, an error otherwise
   fn get_registration(&self, fqdn: &String) -> Result<Arc<RegisteredFunction>> {
-    { // read lock
-      let acquired_reg = self.registered_functions.read();
-      match acquired_reg.get(fqdn) {
-        Some(val) => Ok(val.clone()),
-        None => anyhow::bail!("Function {} was not registered!", fqdn),
-      }
+    match self.registered_functions.get(fqdn) {
+      Some(val) => Ok(val.clone()),
+      None => anyhow::bail!("Function {} was not registered!", fqdn),
     }
   }
 
-  /// check_registration
-  /// 
   /// Returns an error if the function identified by `fqdn`
   fn check_registration(&self, fqdn: &String) -> Result<()> {
-    { // read lock
-      let acquired_reg = self.registered_functions.read();
-      if acquired_reg.contains_key(fqdn) {
-        anyhow::bail!("Function {} is already registered!", fqdn);
-      }
+    if self.registered_functions.contains_key(fqdn) {
+      anyhow::bail!("Function {} is already registered!", fqdn);
     }
     Ok(())
   }
@@ -422,10 +415,7 @@ impl ContainerManager {
     };
 
     debug!("[{}] Adding new registration to registered_functions map: {} {}", tid, function_name, function_version);
-    { // write lock on registered_functions
-      let mut acquired_reg = self.registered_functions.write();
-      acquired_reg.insert(fqdn.clone(), Arc::new(registration));
-    }
+    self.registered_functions.insert(fqdn.clone(), Arc::new(registration));
     debug!("[{}] Adding new registration to active_containers map: {} {}", tid, function_name, function_version);
     { // write lock on active_containers
       let mut conts = self.active_containers.write();

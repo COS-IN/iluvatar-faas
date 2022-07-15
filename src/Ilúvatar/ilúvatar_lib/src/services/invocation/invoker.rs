@@ -1,8 +1,9 @@
-use std::{sync::{Arc, mpsc::{Receiver, channel}}, collections::HashMap, time::Duration};
+use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration};
 use crate::worker_api::worker_config::FunctionLimits;
 use crate::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use crate::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
-use parking_lot::{RwLock, Mutex};
+use dashmap::DashMap;
+use parking_lot::Mutex;
 use std::time::SystemTime;
 use anyhow::Result;
 use reqwest;
@@ -13,7 +14,7 @@ use super::invoker_structs::{QueueFuture, EnqueuedInvocation, InvocationResultPt
 #[derive(Debug)]
 pub struct InvokerService {
   pub cont_manager: Arc<ContainerManager>,
-  pub async_functions: Arc<RwLock<HashMap<String, InvocationResultPtr>>>,
+  pub async_functions: Arc<DashMap<String, InvocationResultPtr>>,
   pub invoke_queue: Arc<Mutex<Vec<Arc<EnqueuedInvocation>>>>,
   pub config: Arc<FunctionLimits>,
   // TODO: occasionally check if this died and re-run?
@@ -24,7 +25,7 @@ impl InvokerService {
     fn new(cont_manager: Arc<ContainerManager>, config: Arc<FunctionLimits>, worker_thread: std::thread::JoinHandle<()>) -> Self {
       InvokerService {
         cont_manager,
-        async_functions: Arc::new(RwLock::new(HashMap::new())),
+        async_functions: Arc::new(DashMap::new()),
         invoke_queue: Arc::new(Mutex::new(Vec::new())),
         config,
         _worker_thread: worker_thread,
@@ -195,23 +196,20 @@ impl InvokerService {
       }
     }
 
-    /// invoke_async
     /// Sets up an asyncronous invocation of the function
     /// Returns a lookup cookie the request can be found at
     pub fn invoke_async(&self, request: InvokeAsyncRequest) -> Result<String> {
       debug!("[{}] Inserting async invocation", request.transaction_id);
       let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
-      let mut async_functions_lock = self.async_functions.write();
       let cookie = GUID::rand().to_string();
-      async_functions_lock.insert(cookie.clone(), fut.result);
+      self.async_functions.insert(cookie.clone(), fut.result);
       Ok(cookie)
     }
 
     /// returns the async invoke entry if it exists
     /// None otherwise
     fn get_async_entry(&self, cookie: &String) -> Option<InvocationResultPtr> {
-      let async_functions_lock = self.async_functions.read();
-      let i = async_functions_lock.get(cookie);
+      let i = self.async_functions.get(cookie);
       match i {
           Some(i) => Some(i.clone()),
           None => None,
@@ -220,8 +218,7 @@ impl InvokerService {
 
     /// removes the async invoke entry from the tracked invocations
     fn remove_async_entry(&self, cookie: &String) {
-      let mut async_functions_lock = self.async_functions.write();
-      async_functions_lock.remove(cookie);
+      self.async_functions.remove(cookie);
     }
 
     /// polls the invocation status

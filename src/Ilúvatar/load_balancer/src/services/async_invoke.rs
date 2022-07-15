@@ -1,21 +1,21 @@
 use std::{sync::Arc, collections::HashMap};
+use dashmap::DashMap;
 use iluvatar_lib::bail_error;
 use iluvatar_lib::{worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId};
 use iluvatar_lib::load_balancer_api::{structs::internal::RegisteredWorker, lb_errors::MissingAsyncCookieError};
 use log::*;
-use parking_lot::RwLock;
 use anyhow::Result;
 
 #[allow(unused)]
 pub struct AsyncService {
-  async_invokes: RwLock<HashMap<String, Arc<RegisteredWorker>>>,
+  async_invokes: Arc<DashMap<String, Arc<RegisteredWorker>>>,
   worker_fact: WorkerAPIFactory,
 }
 
 impl AsyncService {
   pub fn boxed() -> Arc<Self> {
     Arc::new(AsyncService {
-      async_invokes: RwLock::new(HashMap::new()),
+      async_invokes: Arc::new(DashMap::new()),
       worker_fact: WorkerAPIFactory {},
     })
   }
@@ -23,20 +23,7 @@ impl AsyncService {
   /// start tracking an async invocation on a worker
   pub fn register_async_invocation(&self, cookie: String, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
     debug!("[{}] Registering async invocation: {} and worker: {}", tid, &cookie, &worker.name);
-    let mut async_invokes = self.async_invokes.write();
-    async_invokes.insert(cookie, worker);
-  }
-
-  fn get_worker(&self, cookie: &String) -> Option<Arc<RegisteredWorker>> {
-    match self.async_invokes.read().get(cookie) {
-      Some(f) => Some(f.clone()),
-      None => None,
-    }
-  }
-
-  fn remove_tracker(&self, cookie: &String) {
-    let mut async_invokes = self.async_invokes.write();
-    async_invokes.remove(cookie);
+    self.async_invokes.insert(cookie, worker);
   }
 
   /// Checks the worker for the status of the async invocation
@@ -44,11 +31,11 @@ impl AsyncService {
   /// Relies on informational json set by [this function](iluvatar_lib::services::invocation::invoker::InvokerService::invoke_async_check)
   pub async fn check_async_invocation(&self, cookie: String, tid: &TransactionId) -> Result<Option<String>> {
     debug!("[{}] Checking async invocation: {}", tid, &cookie);
-    if let Some(worker) = self.get_worker(&cookie) {
-      let mut api = self.worker_fact.get_worker_api(&worker, tid).await?;
+    if let Some(worker) = self.async_invokes.get(&cookie) {
+      let mut api = self.worker_fact.get_worker_api(&worker.value(), tid).await?;
       let result = api.invoke_async_check(&cookie, tid.clone()).await?;
       if result.success {
-        self.remove_tracker(&cookie);
+        self.async_invokes.remove(&cookie);
         return Ok(Some(result.json_result));
       } else {
         let json: HashMap<String, String> = match serde_json::from_str(&result.json_result) {
