@@ -85,7 +85,10 @@ impl WorkerHealthService {
           },
         }
       },
-      Err(_) => self.unhealthy(),
+      Err(e) => { 
+        warn!("[{}] Got an error trying to run health function invocation: '{}'", tid, e);
+        self.unhealthy()
+      },
     }
   }
 }
