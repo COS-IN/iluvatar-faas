@@ -112,6 +112,7 @@ pub mod internal {
     }
   }
 
+  #[derive(Debug, Clone, PartialEq, Eq)]
   pub enum WorkerStatus {
     HEALTHY,
     UNHEALTHY,

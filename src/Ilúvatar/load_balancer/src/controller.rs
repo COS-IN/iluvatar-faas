@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use iluvatar_lib::{services::load_balance::{get_balancer, LoadBalancer}, transaction::TransactionId, bail_error};
 use iluvatar_lib::utils::{calculate_fqdn, config::args_to_json};
@@ -42,7 +42,8 @@ impl Controller {
   }
 
   pub async fn register_worker(&self, worker: RegisterWorker, tid: &TransactionId) -> Result<()> {
-    self.registration_svc.register_worker(worker, tid).await?;
+    let worker = self.registration_svc.register_worker(worker, tid).await?;
+    self.health_svc.schedule_health_check(self.health_svc.clone(), worker, tid, Some(Duration::from_secs(5)));
     Ok(())
   }
 

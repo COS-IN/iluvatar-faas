@@ -2,6 +2,7 @@ use crate::{transaction::TransactionId, types::MemSizeMb};
 use crate::rpc::{StatusResponse, InvokeResponse};
 use anyhow::Result;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum HealthStatus {
   HEALTHY,
   UNHEALTHY,

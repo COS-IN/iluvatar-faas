@@ -37,7 +37,7 @@ impl RegistrationService {
   /// Register a new worker
   /// Prepare it with all registered functions too
   /// Send to load balancer
-  pub async fn register_worker(&self, worker: RegisterWorker, tid: &TransactionId) -> Result<()> {
+  pub async fn register_worker(&self, worker: RegisterWorker, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {
     if self.worker_registered(&worker.name) {
       bail_error!("[{}] Worker {} was already registered", tid, &worker.name);
     }
@@ -55,8 +55,8 @@ impl RegistrationService {
       };
     }
     self.lb.add_worker(reg_worker.clone(), tid);
-    self.workers.insert(reg_worker.name.clone(), reg_worker);
-    Ok(())
+    self.workers.insert(reg_worker.name.clone(), reg_worker.clone());
+    Ok(reg_worker)
   }
 
   /// check if worker has been registered already
@@ -94,8 +94,8 @@ impl RegistrationService {
     Ok(())
   }
 
-  /// Get a lock-free iterator over all the currently registered workers
-  pub fn iter_workers(&self) {
-    todo!()
+  /// Get a lock-free iterable over all the currently registered workers
+  pub fn iter_workers(&self) -> Vec<Arc<RegisteredWorker>> {
+    self.workers.iter().map(|w| w.value().clone()).collect()
   }
 }

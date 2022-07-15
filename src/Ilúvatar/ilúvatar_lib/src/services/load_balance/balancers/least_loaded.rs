@@ -17,7 +17,7 @@ impl LoadBalancerTrait for LeastLoadedBalancer {
     todo!()
   }
 
-  fn update_worker_status(&self, _worker: &RegisteredWorker, _status: WorkerStatus, _tid: &TransactionId) {
+  fn update_worker_status(&self, _worker: &Arc<RegisteredWorker>, _status: &WorkerStatus, _tid: &TransactionId) {
     todo!()
   }
 
