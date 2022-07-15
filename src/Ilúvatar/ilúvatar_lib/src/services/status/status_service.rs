@@ -85,11 +85,11 @@ impl StatusService {
   fn nproc(&self, tid: &TransactionId) -> u32 {
     match execute_cmd("/usr/bin/nproc", &vec!["--all"], None, tid) {
       Ok(out) => {
-        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stdout = String::from_utf8_lossy(&out.stdout).replace("\n", "");
         let nprocs = match stdout.parse::<u32>() {
           Ok(r) => r,
           Err(e) => {
-            error!("[{}] error parsing u16 from nproc {}: {}", tid, stdout, e);
+            error!("[{}] error parsing u32 from nproc: '{}': {}", tid, stdout, e);
             0
           },
         };

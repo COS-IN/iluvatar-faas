@@ -15,6 +15,7 @@ pub struct InvokerService {
   pub async_functions: Arc<RwLock<HashMap<String, InvocationResultPtr>>>,
   pub invoke_queue: Arc<Mutex<Vec<Arc<EnqueuedInvocation>>>>,
   pub config: WorkerConfig,
+  // TODO: occasionally check if this died and re-run?
   _worker_thread: std::thread::JoinHandle<()>,
 }
 
