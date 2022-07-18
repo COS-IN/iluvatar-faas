@@ -54,6 +54,9 @@ impl Configuration {
         })
         .map(|path| File::with_name(path))
         .collect::<Vec<_>>())
+      .add_source(config::Environment::with_prefix("ILUVATAR_CONTROLLER")
+        .try_parsing(true)
+        .separator("__"))
       .build()?;
     Ok(s.try_deserialize()?)
   }

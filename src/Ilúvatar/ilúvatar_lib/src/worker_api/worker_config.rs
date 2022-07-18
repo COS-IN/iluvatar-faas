@@ -105,7 +105,10 @@ impl Configuration {
           std::path::Path::new(&path).exists()
         })
         .map(|path| File::with_name(path))
-        .collect::<Vec<_>>());
+        .collect::<Vec<_>>())
+      .add_source(config::Environment::with_prefix("ILUVATAR_WORKER")
+          .try_parsing(true)
+          .separator("__"));
     let s = match cleaning {
       false => s.build()?,
       // disable network pool during cleaning
