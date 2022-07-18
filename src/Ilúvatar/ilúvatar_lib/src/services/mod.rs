@@ -1,10 +1,7 @@
 use std::sync::Arc;
-
 use tonic::async_trait;
 use anyhow::Result;
-
-use crate::{types::MemSizeMb, transaction::TransactionId, worker_api::config::WorkerConfig};
-
+use crate::{types::MemSizeMb, transaction::TransactionId, worker_api::worker_config::{ContainerResources, NetworkingConfig}};
 use self::{containers::{structs::{Container, RegisteredFunction}, containerdlife::ContainerdLifecycle}, network::{network_structs::Namespace, namespace_manager::NamespaceManager}};
 
 pub mod containers;
@@ -12,6 +9,10 @@ pub mod invocation;
 pub mod network;
 pub mod status;
 pub mod load_balance;
+pub mod worker_health;
+pub use worker_health::WorkerHealthService as WorkerHealthService;
+pub mod controller_health;
+pub use controller_health::HealthService as ControllerHealthService;
 
 #[async_trait]
 pub trait LifecycleService: Send + Sync + std::fmt::Debug {
@@ -24,19 +25,21 @@ pub trait LifecycleService: Send + Sync + std::fmt::Debug {
 }
 
 pub struct LifecycleFactory {
-  config: WorkerConfig
+  containers: Arc<ContainerResources>,
+  networking: Arc<NetworkingConfig>,
 }
 
 impl LifecycleFactory {
-  pub fn new(config: WorkerConfig) -> Self {
+  pub fn new(containers: Arc<ContainerResources>, networking: Arc<NetworkingConfig>) -> Self {
     LifecycleFactory {
-      config
+      containers,
+      networking
     }
   }
 
   pub async fn get_lifecycle_service(&self, tid: &TransactionId, bridge: bool) -> Result<Arc<dyn LifecycleService>> {
-    if self.config.container_resources.backend == "containerd" {
-      let netm = NamespaceManager::boxed(self.config.clone(), tid);
+    if self.containers.backend == "containerd" {
+      let netm = NamespaceManager::boxed(self.networking.clone(), tid);
       if bridge {
         netm.ensure_bridge(tid)?;
       }
@@ -44,10 +47,10 @@ impl LifecycleFactory {
       let mut lifecycle = ContainerdLifecycle::new(netm);
       lifecycle.connect().await?;
       Ok(Arc::new(lifecycle))
-    } else if self.config.container_resources.backend == "docker" {
+    } else if self.containers.backend == "docker" {
       todo!();
     } else {
-      panic!("Unknown lifecycle backend '{}'", self.config.container_resources.backend);
+      panic!("Unknown lifecycle backend '{}'", self.containers.backend);
     }
   }
 }

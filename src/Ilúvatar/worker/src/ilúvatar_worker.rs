@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use iluvatar_lib::services::WorkerHealthService;
 use iluvatar_lib::services::invocation::invoker::InvokerService;
 use iluvatar_lib::services::status::status_service::StatusService;
 use tonic::{Request, Response, Status};
@@ -18,15 +19,17 @@ pub struct IluvatarWorkerImpl {
   config: WorkerConfig,
   invoker: Arc<InvokerService>,
   status: Arc<StatusService>,
+  health: Arc<WorkerHealthService>,
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>, status: Arc<StatusService>) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>, status: Arc<StatusService>, health: Arc<WorkerHealthService>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
       container_manager,
       config,
       invoker,
-      status
+      status,
+      health
     }
   }
 }
@@ -86,13 +89,15 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok( cookie ) => {
           let reply = InvokeAsyncResponse {
             lookup_cookie: cookie,
+            success: true
           };
           Ok(Response::new(reply))
         },
         Err(e) => {
           error!("Failed to launch an async invocation with error '{}'", e);
           Ok(Response::new(InvokeAsyncResponse {
-            lookup_cookie: "".to_string()
+            lookup_cookie: "".to_string(),
+            success: false
           }))
         },
       }
@@ -176,25 +181,30 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
       let request = request.into_inner();
       info!("[{}] Handling status request", request.transaction_id);
-      match self.status.get_status(&request.transaction_id) {
-        Ok(stat) => Ok(Response::new(stat)),
-        Err(e) => {
-          error!("[{}] Getting status of worker failed {}", request.transaction_id, e);
-          Ok(Response::new(StatusResponse {
-            success: false,
-            ..Default::default()
-          }))
-        },
-      }
-  }
-    
-  #[tracing::instrument]  
+
+      let stat = self.status.get_status(&request.transaction_id);
+
+      let resp = StatusResponse { 
+        success: true, 
+        queue_len: stat.queue_len,
+        used_mem: stat.used_mem,
+        total_mem: stat.total_mem,
+        cpu_us: stat.cpu_us,
+        cpu_sy: stat.cpu_sy,
+        cpu_id: stat.cpu_id,
+        cpu_wa: stat.cpu_wa,
+        load_avg_1minute: stat.load_avg_1minute,
+        num_system_cores: stat.num_system_cores
+      };
+      Ok(Response::new(resp))
+    }
+
+
   async fn health(&self,
     request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
-      info!("[{}] Handling health request", request.into_inner().transaction_id);
-      let reply = HealthResponse {
-        status: RpcHealthStatus::Healthy as i32
-      };
+      let request = request.into_inner();
+      info!("[{}] Handling health request", request.transaction_id);
+      let reply = self.health.check_health(&request.transaction_id).await;
       Ok(Response::new(reply))
     }
 }

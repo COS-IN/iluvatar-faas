@@ -5,13 +5,14 @@ use crate::rpc::{RegisterRequest, PrewarmRequest};
 use crate::transaction::{TransactionId, CTR_MGR_WORKER_TID};
 use crate::types::MemSizeMb;
 use crate::utils::calculate_fqdn;
+use crate::worker_api::worker_config::{FunctionLimits, ContainerResources};
 use anyhow::{Result, bail};
-//use log::*;
+use dashmap::DashMap;
+use log::*;
 use std::cmp::Ordering;
 use std::collections::HashMap; 
 use std::sync::Arc;
 use parking_lot::{RwLock, Mutex};
-use crate::worker_api::config::WorkerConfig;
 use super::structs::{Container, RegisteredFunction, ContainerLock};
 use tracing::{info, warn,debug};
 use log::error; 
@@ -21,23 +22,26 @@ type ContainerPool = HashMap<String, ContainerList>;
 
 #[derive(Debug)]
 pub struct ContainerManager {
-  registered_functions: Arc<RwLock<HashMap<String, Arc<RegisteredFunction>>>>,
+  registered_functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,
   active_containers: Arc<RwLock<ContainerPool>>,
-  config: WorkerConfig,
+  limits_config: Arc<FunctionLimits>, 
+  resources: Arc<ContainerResources>,
   used_mem_mb: Arc<Mutex<MemSizeMb>>,
   running_funcs: Arc<Mutex<u32>>,
   cont_lifecycle: Arc<dyn LifecycleService>,
   prioritized_list: ContainerList,
+  // TODO: have this struct keep a pointer to its worker thread
 }
 
 impl ContainerManager {
-    
   #[tracing::instrument]  
-  pub async fn new(config: WorkerConfig, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<ContainerManager> {
+  pub async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<ContainerManager> {
+
     Ok(ContainerManager {
-      registered_functions: Arc::new(RwLock::new(HashMap::new())),
+      registered_functions: Arc::new(DashMap::new()),
       active_containers: Arc::new(RwLock::new(HashMap::new())),
-      config,
+      limits_config,
+      resources,
       used_mem_mb: Arc::new(Mutex::new(0)),
       running_funcs: Arc::new(Mutex::new(0)),
       cont_lifecycle,
@@ -45,8 +49,8 @@ impl ContainerManager {
     })
   }
 
-  pub async fn boxed(config: WorkerConfig, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<Arc<ContainerManager>> {
-    let cm = Arc::new(ContainerManager::new(config.clone(), cont_lifecycle).await?);
+  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<Arc<ContainerManager>> {
+    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle).await?);
     let cm_clone = cm.clone();
     // run on an OS thread here
     // If this thread crashes, we'll never know and the worker will not have a good time
@@ -60,19 +64,19 @@ impl ContainerManager {
         },
       };
       debug!("[{}] container manager worker started", tid);
-      worker_rt.block_on(ContainerManager::monitor_pool(config, cm_clone));
+      worker_rt.block_on(ContainerManager::monitor_pool(resources, cm_clone));
     });
     Ok(cm)
   }
 
-  async fn monitor_pool(config: WorkerConfig, cm: Arc<ContainerManager>) {
+  async fn monitor_pool(resources: Arc<ContainerResources>, cm: Arc<ContainerManager>) {
     let tid: &TransactionId = &CTR_MGR_WORKER_TID;
     loop {
       cm.update_memory_usages(tid).await;
 
       cm.compute_eviction_priorities(tid);
-      if config.container_resources.memory_buffer_mb > 0 {
-        let reclaim = config.container_resources.memory_buffer_mb - cm.free_memory();
+      if resources.memory_buffer_mb > 0 {
+        let reclaim = resources.memory_buffer_mb - cm.free_memory();
         if reclaim > 0 {
           match cm.reclaim_memory(reclaim, tid).await {
             Ok(_) => {},
@@ -80,16 +84,22 @@ impl ContainerManager {
           };
         }
       }
-      std::thread::sleep(std::time::Duration::from_secs(config.container_resources.pool_freq_sec));
+      std::thread::sleep(std::time::Duration::from_secs(resources.pool_freq_sec));
     }
   }
 
   pub fn free_memory(&self) -> MemSizeMb {
-    self.config.container_resources.memory_mb - *self.used_mem_mb.lock()
+    self.resources.memory_mb - *self.used_mem_mb.lock()
+  }
+  pub fn used_memory(&self) -> MemSizeMb {
+    *self.used_mem_mb.lock()
+  }
+  pub fn total_memory(&self) -> MemSizeMb {
+    self.resources.memory_mb
   }
 
   pub fn free_cores(&self) -> u32 {
-    self.config.container_resources.cores - *self.running_funcs.lock()
+    self.resources.cores - *self.running_funcs.lock()
   }
 
   async fn update_memory_usages(&self, tid: &TransactionId) {
@@ -153,7 +163,7 @@ impl ContainerManager {
     match cont {
         Ok(cont) =>  {
           let mut running_funcs = self.running_funcs.lock();
-          if self.config.container_resources.cores > 0 && *running_funcs < self.config.container_resources.cores {
+          if self.resources.cores > 0 && *running_funcs < self.resources.cores {
             *running_funcs += 1;
           } else {
             debug!("[{}] Not enough available cores to run something right now", tid);
@@ -224,7 +234,7 @@ impl ContainerManager {
     let mut m = container.mutex.lock();
     *m += 1;
     let mut running_funcs = self.running_funcs.lock();
-    if self.config.container_resources.cores > 0 && *running_funcs >= self.config.container_resources.cores {
+    if self.resources.cores > 0 && *running_funcs >= self.resources.cores {
       *running_funcs -= 1;
     }
   }
@@ -266,8 +276,8 @@ impl ContainerManager {
     // TODO: cpu and mem prewarm request overrides registration?
     {
       let mut curr_mem = self.used_mem_mb.lock();
-      if *curr_mem + reg.memory > self.config.container_resources.memory_mb {
-        let avail = self.config.container_resources.memory_mb-*curr_mem;
+      if *curr_mem + reg.memory > self.resources.memory_mb {
+        let avail = self.resources.memory_mb-*curr_mem;
         debug!("[{}] Can't launch container due to insufficient memory. needed: {}; used: {}; available: {}", tid, reg.memory-avail, *curr_mem, avail);
         anyhow::bail!(InsufficientMemoryError{ needed: reg.memory-avail, used: *curr_mem, available: avail });
       } else {
@@ -286,7 +296,7 @@ impl ContainerManager {
         },
     };
 
-    match cont.wait_startup(self.config.container_resources.startup_timeout_ms, tid).await {
+    match cont.wait_startup(self.resources.startup_timeout_ms, tid).await {
         Ok(_) => (),
         Err(e) => {
           {
@@ -370,24 +380,16 @@ impl ContainerManager {
 
   /// Returns the function registration identified by `fqdn` if it exists, an error otherwise
   fn get_registration(&self, fqdn: &String) -> Result<Arc<RegisteredFunction>> {
-    { // read lock
-      let acquired_reg = self.registered_functions.read();
-      match acquired_reg.get(fqdn) {
-        Some(val) => Ok(val.clone()),
-        None => anyhow::bail!("Function {} was not registered!", fqdn),
-      }
+    match self.registered_functions.get(fqdn) {
+      Some(val) => Ok(val.clone()),
+      None => anyhow::bail!("Function {} was not registered!", fqdn),
     }
   }
 
-  /// check_registration
-  /// 
   /// Returns an error if the function identified by `fqdn`
   fn check_registration(&self, fqdn: &String) -> Result<()> {
-    { // read lock
-      let acquired_reg = self.registered_functions.read();
-      if acquired_reg.contains_key(fqdn) {
-        anyhow::bail!("Function {} is already registered!", fqdn);
-      }
+    if self.registered_functions.contains_key(fqdn) {
+      anyhow::bail!("Function {} is already registered!", fqdn);
     }
     Ok(())
   }
@@ -399,10 +401,10 @@ impl ContainerManager {
     if function_version.len() < 1 {
       anyhow::bail!("Invalid function version");
     }
-    if memory < self.config.limits.mem_min_mb || memory > self.config.limits.mem_max_mb {
+    if memory < self.limits_config.mem_min_mb || memory > self.limits_config.mem_max_mb {
       anyhow::bail!("Illegal memory allocation request");
     }
-    if cpus < 1 || cpus > self.config.limits.cpu_max {
+    if cpus < 1 || cpus > self.limits_config.cpu_max {
       anyhow::bail!("Illegal cpu allocation request");
     }
     if parallel_invokes != 1 {
@@ -425,10 +427,7 @@ impl ContainerManager {
     };
 
     debug!("[{}] Adding new registration to registered_functions map: {} {}", tid, function_name, function_version);
-    { // write lock on registered_functions
-      let mut acquired_reg = self.registered_functions.write();
-      acquired_reg.insert(fqdn.clone(), Arc::new(registration));
-    }
+    self.registered_functions.insert(fqdn.clone(), Arc::new(registration));
     debug!("[{}] Adding new registration to active_containers map: {} {}", tid, function_name, function_version);
     { // write lock on active_containers
       let mut conts = self.active_containers.write();
@@ -504,10 +503,10 @@ impl ContainerManager {
         }
       }
     }
-    let comparator = match self.config.container_resources.eviction.as_str() {
+    let comparator = match self.resources.eviction.as_str() {
       "LRU" => ContainerManager::lru_eviction,
       _ => { 
-          error!("[{}] Unkonwn eviction algorithm '{}'", tid, self.config.container_resources.eviction);
+          error!("[{}] Unkonwn eviction algorithm '{}'", tid, self.resources.eviction);
           return;
       }
     };

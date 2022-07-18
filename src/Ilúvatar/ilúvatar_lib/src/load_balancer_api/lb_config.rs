@@ -2,6 +2,8 @@ use std::sync::Arc;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
+use crate::utils::port_utils::Port;
+
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 pub struct Configuration {
@@ -10,20 +12,20 @@ pub struct Configuration {
   /// address to listen on
   pub address: String,
   /// port to listen on
-  pub port: i32,
+  pub port: Port,
   /// request timeout length in seconds
   pub timeout_sec: u64,
   /// Number of worker theads to run
   pub num_workers: u64,
-  pub logging: Logging,
-  pub load_balancer: LoadBalancing,
+  pub logging: Arc<LoggingConfig>,
+  pub load_balancer: Arc<LoadBalancingConfig>,
 }
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 /// details about how/where to log to
 ///   a symlink to the current log file will be at "./iluvatar_load_balancer.log" or "/tmp/ilúvatar/iluvatar_load_balancer.log"
 ///   based on build configuration
-pub struct Logging {
+pub struct LoggingConfig {
   /// the min log level
   pub level: String,
   /// directory to store logs in 
@@ -35,12 +37,12 @@ pub struct Logging {
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
 /// configuration for the load balancer
-pub struct LoadBalancing {
+pub struct LoadBalancingConfig {
   /// the load balancing algorithm to use
   pub algorithm: String,
 }
 
-pub type LoadBalancerConfig = Arc<Configuration>;
+pub type ControllerConfig = Arc<Configuration>;
 
 impl Configuration {
   pub fn new(config_fpath: &String) -> Result<Self, ConfigError> {
@@ -52,11 +54,14 @@ impl Configuration {
         })
         .map(|path| File::with_name(path))
         .collect::<Vec<_>>())
+      .add_source(config::Environment::with_prefix("ILUVATAR_CONTROLLER")
+        .try_parsing(true)
+        .separator("__"))
       .build()?;
     Ok(s.try_deserialize()?)
   }
 
-  pub fn boxed(config_fpath: &String) -> Result<LoadBalancerConfig, ConfigError> {
+  pub fn boxed(config_fpath: &String) -> Result<ControllerConfig, ConfigError> {
     Ok(Arc::new(Configuration::new(config_fpath)?))
   }
 }
