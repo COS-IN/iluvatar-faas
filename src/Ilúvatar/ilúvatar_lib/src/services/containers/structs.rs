@@ -22,7 +22,6 @@ pub struct Container {
   //    run multiple tasks in each? -> what about port setup then?
   //    web server handles parallelism?
   pub mutex: Mutex<u32>,
-  // TODO: reference to function somehow?
   pub fqdn: String,
   pub function: Arc<RegisteredFunction>,
   last_used: RwLock<SystemTime>,
