@@ -13,6 +13,7 @@ pub fn make_logger(server_config: &WorkerConfig, tid: &TransactionId, log_mode: 
     iluvatar_lib::utils::file::temp_file_pth("iluvatar_worker", "log")
   };
   let path = std::fs::canonicalize(server_config.logging.directory.as_str()).unwrap();
+  std::fs::create_dir_all(&path).unwrap();
   Logger::try_with_str(server_config.logging.level.as_str()).unwrap()
     .log_to_file(FileSpec::default()
                     .directory(path)

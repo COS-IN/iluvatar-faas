@@ -14,6 +14,7 @@ pub fn make_logger(config: Arc<LoggingConfig>, tid: &TransactionId, log_mode: Wr
     iluvatar_lib::utils::file::temp_file_pth("iluvatar_load_balancer", "log")
   };
   let path = std::fs::canonicalize(config.directory.as_str()).unwrap();
+  std::fs::create_dir_all(&path).unwrap();
   Logger::try_with_str(config.level.as_str()).unwrap()
     .log_to_file(FileSpec::default()
                     .directory(path)

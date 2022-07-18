@@ -12,7 +12,7 @@
   },
   "logging": {
     "level": "debug",
-    "directory": "./logs",
+    "directory": "/tmp/ilúvatar/logs",
     "basename": "worker"
   },
   "container_resources": {

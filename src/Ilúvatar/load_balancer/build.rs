@@ -19,6 +19,6 @@ fn copy_file(infile: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-  copy_file(Path::new("worker.json")).unwrap();
+  copy_file(Path::new("load_balancer.json")).unwrap();
   Ok(())
 }
