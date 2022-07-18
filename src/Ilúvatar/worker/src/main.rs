@@ -16,9 +16,15 @@ use anyhow::Result;
 use tonic::transport::Server;
 use iluvatar_lib::services::{LifecycleFactory, WorkerHealthService};
 use flexi_logger::WriteMode;
+use tracing::{info, Level};
+use tracing_subscriber;
+use tracing_subscriber::FmtSubscriber;
+use tracing_flame::FlameLayer;
+use tracing_subscriber::{prelude::*, fmt};
+use tracing_subscriber::fmt::format::FmtSpan;
 
 async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: WriteMode) -> Result<()> {
-  let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, mode);
+  //let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, mode);
   debug!("[{}] loaded configuration = {:?}", tid, server_config);
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone());
@@ -42,7 +48,7 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: Write
 }
 
 async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
-  let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, WriteMode::Direct);
+  //let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, WriteMode::Direct);
   debug!("[{}] loaded configuration = {:?}", tid, server_config);
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone());
@@ -54,6 +60,18 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
   Ok(())
 }
 
+// fn setup_global_subscriber() -> impl Drop {
+//     let fmt_layer = fmt::Layer::default();
+
+//     let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+
+//     tracing_subscriber::registry()
+//         .with(fmt_layer)
+//         .with(flame_layer)
+//         .init();
+//     _guard
+// }
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   iluvatar_lib::utils::file::ensure_temp_dir()?;
@@ -62,6 +80,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let args = parse();
   let config_pth = get_val("config", &args)?;
 
+//  setup_global_subscriber();
+    
+  // let subscriber = FmtSubscriber::builder()
+  //   // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
+  //   // will be written to stdout.
+  //   .with_max_level(Level::TRACE)
+  //   .with_span_events(FmtSpan::FULL)
+  //   // completes the builder.
+  //   .finish();
+
+    tracing_subscriber::fmt().with_max_level(Level::DEBUG).with_span_events(FmtSpan::FULL).init();  
+
+ //   tracing::subscriber::set_global_default(subscriber)     .expect("setting default subscriber failed");
+    
+  //tracing_subscriber::fmt::init();
+    
   match args.subcommand() {
     ("clean", Some(_)) => {
       let server_config = Configuration::boxed(true, &config_pth).unwrap();

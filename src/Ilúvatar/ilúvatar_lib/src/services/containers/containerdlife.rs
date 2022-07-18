@@ -12,7 +12,7 @@ use crate::types::MemSizeMb;
 use crate::utils::file::{try_remove_pth, temp_file, temp_file_pth};
 use crate::utils::cgroup::cgroup_namespace;
 use crate::utils::port::Port;
-use log::{debug, warn, info};
+//use log::{debug, warn, info};
 use crate::bail_error;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;
@@ -38,6 +38,9 @@ use crate::services::network::network_structs::Namespace;
 // use std::io::Write;
 
 use super::structs::RegisteredFunction;
+use tracing::instrument;
+use tracing::{info, warn, debug}; 
+use log::error ;
 
 #[derive(Debug)]
 pub struct ContainerdLifecycle {
@@ -85,7 +88,7 @@ impl ContainerdLifecycle {
         .replace("$PORT", &port.to_string())
         .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
-        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
+//        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
         .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
         .replace("$CGROUPSPATH", &cgroup_namespace(container_id));
     Any {
@@ -232,6 +235,8 @@ impl ContainerdLifecycle {
     try_remove_pth(&temp_file_pth(container_id, "stderr"), tid);
   }
 }
+
+
 
 #[async_trait]
 impl LifecycleService for ContainerdLifecycle {

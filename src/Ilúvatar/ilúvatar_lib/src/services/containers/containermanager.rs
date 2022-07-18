@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::{RwLock, Mutex};
 use super::structs::{Container, RegisteredFunction, ContainerLock};
+use tracing::{info, warn,debug};
+use log::error; 
 
 type ContainerList = Arc<RwLock<Vec<Arc<Container>>>>;
 type ContainerPool = HashMap<String, ContainerList>;
@@ -32,7 +34,9 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
+  #[tracing::instrument]  
   pub async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<ContainerManager> {
+
     Ok(ContainerManager {
       registered_functions: Arc::new(DashMap::new()),
       active_containers: Arc::new(RwLock::new(HashMap::new())),
@@ -144,7 +148,9 @@ impl ContainerManager {
   /// acquire_container
   /// get a lock on a container for the specified function
   /// will start a function if one is not available
-  /// Can return a custom InsufficientCoresError if an invocation cannot be started now
+    /// Can return a custom InsufficientCoresError if an invocation cannot be started now
+
+  #[tracing::instrument]
   pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     let cont = self.try_acquire_container(fqdn, tid);
     let cont = match cont {
@@ -169,6 +175,7 @@ impl ContainerManager {
     }
   }
 
+  #[tracing::instrument]  
   fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     let conts = self.active_containers.read();
     let opt = conts.get(fqdn);
@@ -197,6 +204,7 @@ impl ContainerManager {
     }
   }
 
+  #[tracing::instrument]  
   async fn cold_start<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     let container = self.launch_container(fqdn, tid).await?;
     {
@@ -208,6 +216,7 @@ impl ContainerManager {
     Ok(ContainerLock::new(container.clone(), self, tid))
   }
 
+  #[tracing::instrument]  
   fn try_lock_container<'a>(&'a self, container: &Arc<Container>, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     unsafe {
       if *container.mutex.data_ptr() > 0 && *container.healthy.lock() {
@@ -230,6 +239,7 @@ impl ContainerManager {
     }
   }
 
+  #[tracing::instrument]  
   async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Container> {
     let reg = match self.get_registration(&fqdn) {
       Ok(r) => r,
@@ -261,6 +271,7 @@ impl ContainerManager {
     }
   }
 
+  #[tracing::instrument]  
   async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     // TODO: cpu and mem prewarm request overrides registration?
     {
@@ -323,7 +334,8 @@ impl ContainerManager {
   /// 
   /// # Errors
   /// Can error if not already registered and full info isn't provided
-  /// Other errors caused by starting/registered the function apply
+    /// Other errors caused by starting/registered the function apply
+  #[tracing::instrument]  
   pub async fn prewarm(&self, request: &PrewarmRequest) -> Result<()> {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     let reg = match self.get_registration(&fqdn) {
