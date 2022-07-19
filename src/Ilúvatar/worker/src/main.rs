@@ -11,21 +11,19 @@ use iluvatar_worker::args::parse;
 use iluvatar_worker::ilúvatar_worker::IluvatarWorkerImpl;
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_lib::utils::config::get_val;
-use log::*;
 use anyhow::Result;
 use tonic::transport::Server;
 use iluvatar_lib::services::{LifecycleFactory, WorkerHealthService};
-use flexi_logger::WriteMode;
-use tracing::{info, Level};
+use tracing::{info, debug, Level};
 use tracing_subscriber;
-use tracing_subscriber::FmtSubscriber;
+// use tracing_subscriber::FmtSubscriber;
 use tracing_flame::FlameLayer;
 use tracing_subscriber::{prelude::*, fmt};
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_appender;
 
-async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: WriteMode) -> Result<()> {
-  //let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, mode);
-  debug!("[{}] loaded configuration = {:?}", tid, server_config);
+async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
+  debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone());
   let lifecycle = factory.get_lifecycle_service(tid, true).await?;
@@ -49,7 +47,7 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: Write
 
 async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
   //let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, WriteMode::Direct);
-  debug!("[{}] loaded configuration = {:?}", tid, server_config);
+  debug!(tid=?tid, config=?server_config, "loaded configuration");
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone());
   let lifecycle = factory.get_lifecycle_service(tid, false).await?;
@@ -80,35 +78,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let args = parse();
   let config_pth = get_val("config", &args)?;
 
-//  setup_global_subscriber();
-    
-  // let subscriber = FmtSubscriber::builder()
-  //   // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
-  //   // will be written to stdout.
-  //   .with_max_level(Level::TRACE)
-  //   .with_span_events(FmtSpan::FULL)
-  //   // completes the builder.
-  //   .finish();
+  let file_appender = tracing_appender::rolling::never("/tmp/ilúvatar", "prefix.log");
+  let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    tracing_subscriber::fmt().with_max_level(Level::DEBUG).with_span_events(FmtSpan::FULL).init();  
-
- //   tracing::subscriber::set_global_default(subscriber)     .expect("setting default subscriber failed");
-    
-  //tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .json()
+        .with_max_level(Level::DEBUG)
+        .with_span_events(FmtSpan::FULL)
+        .with_writer(non_blocking)
+        .init();  
     
   match args.subcommand() {
     ("clean", Some(_)) => {
       let server_config = Configuration::boxed(true, &config_pth).unwrap();
-      clean(server_config, tid).await?;      
-    },
+      clean(server_config, tid).await?;
+      },
     (_,_) => { 
       let server_config = Configuration::boxed(false, &config_pth).unwrap();
-      let mut write_mode = WriteMode::Async;
-      if args.is_present("direct-logs") {
-        write_mode = WriteMode::Direct;
-      }
-    
-      run(server_config, tid, write_mode).await?;
+      run(server_config, tid).await?;
      },
   };
   Ok(())

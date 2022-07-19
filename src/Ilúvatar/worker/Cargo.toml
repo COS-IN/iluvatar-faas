@@ -28,8 +28,9 @@ reqwest = { version = "0.11.11", features = ["json"] }
 inotify = "0.10.0"
 clap = "2"
 tracing = "0.1"
-tracing-subscriber = "0.2"
+tracing-subscriber = { version = "0.3", features = ["json", "tracing-log", "parking_lot"] }
 tracing-flame="*"
+tracing-appender = "0.2.2"
 
 [dev-dependencies]
 rstest = "0.13.0"
