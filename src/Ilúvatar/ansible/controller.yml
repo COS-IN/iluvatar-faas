@@ -1,0 +1,6 @@
+- hosts: controller
+
+  tasks:
+  - name: run controller executable
+    ansible.builtin.command:
+      cmd: /home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_worker

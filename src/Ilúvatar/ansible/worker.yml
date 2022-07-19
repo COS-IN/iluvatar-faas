@@ -1,0 +1,34 @@
+- hosts: workers
+
+  tasks:
+  - name: Get running worker process
+    shell: "ps -ef | grep -v grep | grep -w iluvatar_worker | awk '{print $2}'"
+    register: running_worker
+    when: deploy
+
+  - name: Kill running worker process
+    shell: "kill {{ item }}"
+    with_items: "{{ running_worker.stdout_lines }}"
+    become: yes
+    when: deploy
+
+  - name: clean host
+    ansible.builtin.command: 
+      argv: 
+        - /home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_worker
+        - -c 
+        - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
+        - clean
+    become: yes
+    when: deploy
+
+  - name: run worker executable
+    ansible.builtin.command: 
+      argv: 
+        - /home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_worker
+        - -c 
+        - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
+    become: yes
+    async: 2592000               # 60*60*24*30 – 1 month
+    poll: 0
+    when: deploy
