@@ -1,6 +1,0 @@
-vars:
-  deploy: false
-
-- import_playbook: controller.yml
-
-- import_playbook: worker.yml

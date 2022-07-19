@@ -1,11 +1,5 @@
-- name: start Ilúvatar system
-  hosts: all
+#
 
-  tasks:
-    - name: set mode
-      ansible.builtin.set_fact:
-        mode: deploy  
+- import_playbook: controller.yml
 
-    - import_playbook: controller.yml
-
-    - import_playbook: worker.yml
+- import_playbook: worker.yml
