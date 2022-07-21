@@ -3,13 +3,9 @@ use crate::{bail_error, transaction::TransactionId, types::MemSizeMb, services::
 use crate::utils::{port::Port, file::temp_file_pth, calculate_invoke_uri, calculate_base_uri};
 use inotify::{Inotify, WatchMask};
 use parking_lot::{RwLock, Mutex};
-
 use crate::services::containers::containermanager::ContainerManager;
-//use log::{debug};
 use anyhow::{Result, Context};
-use tracing::instrument; 
-use tracing::{debug, info,warn};
-use log::error; 
+use tracing::{debug};
 
 #[derive(Debug)]
 #[allow(unused)]

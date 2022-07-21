@@ -8,13 +8,12 @@ use crate::utils::calculate_fqdn;
 use crate::worker_api::worker_config::{FunctionLimits, ContainerResources};
 use anyhow::{Result, bail};
 use dashmap::DashMap;
-use log::*;
 use std::cmp::Ordering;
 use std::collections::HashMap; 
 use std::sync::Arc;
 use parking_lot::{RwLock, Mutex};
 use super::structs::{Container, RegisteredFunction, ContainerLock};
-use tracing::{info, warn,debug};
+use tracing::{info, warn, debug};
 use log::error; 
 
 type ContainerList = Arc<RwLock<Vec<Arc<Container>>>>;

@@ -7,10 +7,7 @@ use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_lib::rpc::*;
 use iluvatar_lib::worker_api::config::WorkerConfig;
 use iluvatar_lib::services::containers::containermanager::ContainerManager;
-use log::*;
-
-use tracing::instrument; 
-use tracing::debug;
+use tracing::{debug, info, error};
 
 #[derive(Debug)]
 #[allow(unused)]

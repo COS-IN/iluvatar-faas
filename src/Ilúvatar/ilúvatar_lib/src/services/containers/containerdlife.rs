@@ -35,12 +35,8 @@ use std::process::Command;
 use crate::services::containers::structs::{Container, Task};
 use crate::services::network::namespace_manager::NamespaceManager;
 use crate::services::network::network_structs::Namespace;
-// use std::io::Write;
-
 use super::structs::RegisteredFunction;
-use tracing::instrument;
 use tracing::{info, warn, debug}; 
-use log::error ;
 
 #[derive(Debug)]
 pub struct ContainerdLifecycle {

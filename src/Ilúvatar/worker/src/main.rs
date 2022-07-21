@@ -14,11 +14,10 @@ use iluvatar_lib::utils::config::get_val;
 use anyhow::Result;
 use tonic::transport::Server;
 use iluvatar_lib::services::{LifecycleFactory, WorkerHealthService};
-use tracing::{info, debug, Level};
+use tracing::metadata::LevelFilter;
+use tracing::{debug};
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber;
-// use tracing_subscriber::FmtSubscriber;
-use tracing_flame::FlameLayer;
-use tracing_subscriber::{prelude::*, fmt};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_appender;
 
@@ -46,7 +45,6 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<(
 }
 
 async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
-  //let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, WriteMode::Direct);
   debug!(tid=?tid, config=?server_config, "loaded configuration");
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone());
@@ -58,17 +56,18 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
   Ok(())
 }
 
-// fn setup_global_subscriber() -> impl Drop {
-//     let fmt_layer = fmt::Layer::default();
+fn start_tracing(server_config: Arc<Configuration>) -> Result<WorkerGuard> {
+  let file_appender = tracing_appender::rolling::never(server_config.logging.directory.clone(), server_config.logging.basename.clone());
+  let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-//     let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
-
-//     tracing_subscriber::registry()
-//         .with(fmt_layer)
-//         .with(flame_layer)
-//         .init();
-//     _guard
-// }
+  tracing_subscriber::fmt()
+    .json()
+    .with_max_level(server_config.logging.level.parse::<LevelFilter>()?)
+    .with_span_events(FmtSpan::FULL)
+    .with_writer(non_blocking)
+    .init();
+  Ok(_guard)
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -77,24 +76,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   let args = parse();
   let config_pth = get_val("config", &args)?;
-
-  let file_appender = tracing_appender::rolling::never("/tmp/ilúvatar", "prefix.log");
-  let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-    tracing_subscriber::fmt()
-        .json()
-        .with_max_level(Level::DEBUG)
-        .with_span_events(FmtSpan::FULL)
-        .with_writer(non_blocking)
-        .init();  
     
   match args.subcommand() {
     ("clean", Some(_)) => {
       let server_config = Configuration::boxed(true, &config_pth).unwrap();
+      let _guard = start_tracing(server_config.clone())?;
       clean(server_config, tid).await?;
       },
     (_,_) => { 
       let server_config = Configuration::boxed(false, &config_pth).unwrap();
+      let _guard = start_tracing(server_config.clone())?;
       run(server_config, tid).await?;
      },
   };
