@@ -153,7 +153,7 @@ impl StatusService {
     });
     info!("[{}] current load status: {:?}", tid, new_status);
 
-    self.graphite.publish_metric("worker.load.loadavg", minute_load_avg.to_string(), tid, format!("machine={};type=worker", self.worker_name));
+    self.graphite.publish_metric("worker.load.loadavg", (minute_load_avg / nprocs as f64).to_string(), tid, format!("machine={};type=worker", self.worker_name));
 
     let mut current_status = self.current_status.lock();
     *current_status = new_status;

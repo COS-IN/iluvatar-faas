@@ -25,7 +25,7 @@ async fn main() -> std::io::Result<()> {
   let config = Configuration::boxed(&config_pth).unwrap();
   make_logger(config.logging.clone(), tid, flexi_logger::WriteMode::Direct);
 
-  let server = Controller::new(config.clone());
+  let server = Controller::new(config.clone(), tid);
   let server_data = Data::new(server);
 
   info!("[{}] Load balancer started!", tid);

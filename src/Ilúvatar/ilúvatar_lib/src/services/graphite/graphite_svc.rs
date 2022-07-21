@@ -35,6 +35,10 @@ impl GraphiteService {
     }
   }
 
+  pub fn boxed(config: Arc<GraphiteConfig>) -> Arc<Self> {
+    Arc::new(GraphiteService::new(config))
+  }
+
   fn publish_udp(&self, msg: String, tid: &TransactionId) {
     let socket = match UdpSocket::bind("127.0.0.1:9999") {
       Ok(s) => s,
@@ -84,25 +88,32 @@ impl GraphiteService {
     }
   }
 
-  pub async fn get_latest_metric<'a, T>(&self, metric: String, by_tag: &str, tid: &TransactionId) -> HashMap<String, T>  // {
+  pub async fn get_latest_metric<'a, T>(&self, metric: &str, by_tag: &str, tid: &TransactionId) -> HashMap<String, T>  // {
     where T : Default, T : serde::de::DeserializeOwned, T: Copy {
     let client = reqwest::Client::new();
-    let url = format!("{}:{}/render?target={}&format=json&noNullPoints=true&from=-360s", self.config.address, self.config.api_port, metric);
+    let url = format!("http://{}:{}/render?format=json&noNullPoints=true&from=-360s&target=seriesByTag('name={}')", self.config.address, self.config.api_port, metric);
     let mut ret = HashMap::new();
 
     match client.get(url)
       .send()
       .await {
         Ok(r) => {
-          let parsed = match r.json::<GraphiteResponse<T>>().await {
+          let text = match r.text().await {
+            Ok(t) => t,
+            Err(e) => {
+              warn!("[{}] Failed to read graphite response because: {}", tid, e);
+              return ret;
+            },
+          };
+          let parsed = match serde_json::from_str::<GraphiteResponse<T>>(&text) {
             Ok(p) => p,
             Err(e) => {
-              warn!("[{}] Failed to parse graphite response because: {}", tid, e);
-              return Default::default()
+              warn!("[{}] Failed to parse graphite response because: {}; response: {:?}", tid, e, text);
+              return ret
             },
           };
 
-          for metric in parsed.data {
+          for metric in parsed {
             let tagged = match metric.tags.get(by_tag) {
               Some(t) => t,
               None => {
