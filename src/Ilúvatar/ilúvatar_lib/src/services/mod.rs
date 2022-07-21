@@ -13,6 +13,7 @@ pub mod worker_health;
 pub use worker_health::WorkerHealthService as WorkerHealthService;
 pub mod controller_health;
 pub use controller_health::HealthService as ControllerHealthService;
+pub mod graphite;
 
 #[async_trait]
 pub trait LifecycleService: Send + Sync + std::fmt::Debug {

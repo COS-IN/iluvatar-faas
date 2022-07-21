@@ -5,6 +5,8 @@ use std::thread::JoinHandle;
 use log::*;
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
+use crate::services::graphite::GraphiteConfig;
+use crate::services::graphite::graphite_svc::GraphiteService;
 use crate::services::invocation::invoker::InvokerService;
 use crate::transaction::TransactionId;
 use crate::utils::execute_cmd;
@@ -17,10 +19,12 @@ pub struct StatusService {
   invoker_service: Arc<InvokerService>,
   current_status: Mutex<Arc<WorkerStatus>>,
   worker_thread: JoinHandle<()>,
+  graphite: GraphiteService,
+  worker_name: String,
 }
 
 impl StatusService {
-  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<InvokerService>) -> Arc<Self> {
+  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<InvokerService>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String) -> Arc<Self> {
     let (tx, rx) = channel();
     let handle = StatusService::launch_worker_thread(rx);
 
@@ -38,7 +42,9 @@ impl StatusService {
         load_avg_1minute: 0.0,
         num_system_cores: 0,
       })),
-      worker_thread: handle
+      worker_thread: handle,
+      graphite: GraphiteService::new(graphite_cfg),
+      worker_name,
     });
     tx.send(ret.clone()).unwrap();
     ret
@@ -146,6 +152,8 @@ impl StatusService {
       num_system_cores: nprocs
     });
     info!("[{}] current load status: {:?}", tid, new_status);
+
+    self.graphite.publish_metric("worker.load.loadavg", minute_load_avg.to_string(), tid, format!("machine={};type=worker", self.worker_name));
 
     let mut current_status = self.current_status.lock();
     *current_status = new_status;

@@ -14,3 +14,4 @@ parking_lot = "0.12.1"
 serde_json = "1.0.81"
 dashmap = "5.3.4"
 tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util"] }
+clap = "2"

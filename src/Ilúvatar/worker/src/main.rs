@@ -15,7 +15,6 @@ use log::*;
 use anyhow::Result;
 use tonic::transport::Server;
 use iluvatar_lib::services::{LifecycleFactory, WorkerHealthService};
-use flexi_logger::WriteMode;
 use tracing::{info, Level};
 use tracing_subscriber;
 use tracing_subscriber::FmtSubscriber;
@@ -23,8 +22,7 @@ use tracing_flame::FlameLayer;
 use tracing_subscriber::{prelude::*, fmt};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: WriteMode) -> Result<()> {
-  //let _logger = iluvatar_worker::logging::make_logger(&server_config, tid, mode);
+async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
   debug!("[{}] loaded configuration = {:?}", tid, server_config);
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone());
@@ -32,7 +30,7 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId, mode: Write
 
   let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone()).await?;
   let invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone());
-  let status = StatusService::boxed(container_man.clone(), invoker.clone()).await;
+  let status = StatusService::boxed(container_man.clone(), invoker.clone(), server_config.graphite.clone(), server_config.name.clone()).await;
   let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
 
   let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker, status, health);
@@ -103,12 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     },
     (_,_) => { 
       let server_config = Configuration::boxed(false, &config_pth).unwrap();
-      let mut write_mode = WriteMode::Async;
-      if args.is_present("direct-logs") {
-        write_mode = WriteMode::Direct;
-      }
-    
-      run(server_config, tid, write_mode).await?;
+      run(server_config, tid).await?;
      },
   };
   Ok(())

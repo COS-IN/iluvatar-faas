@@ -11,5 +11,11 @@
   },
   "load_balancer": {
     "algorithm": "RoundRobin"
+  },
+  "graphite": {
+    "address": "localhost",
+    "api_port": "80",
+    "graphite_port": "2003",
+    "graphite_udp": true
   }
 }

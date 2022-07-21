@@ -1561,6 +1561,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "anyhow",
+ "clap",
  "dashmap",
  "flexi_logger",
  "iluvatar_lib",
@@ -1579,7 +1580,6 @@ dependencies = [
  "clap",
  "config",
  "containerd-client",
- "flexi_logger",
  "guid-create",
  "hex",
  "iluvatar_lib",
