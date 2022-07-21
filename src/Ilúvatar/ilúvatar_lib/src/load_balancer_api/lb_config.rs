@@ -2,7 +2,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
-use crate::{utils::port_utils::Port, services::graphite::GraphiteConfig};
+use crate::{utils::port_utils::Port, services::graphite::GraphiteConfig, logging::LoggingConfig};
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
@@ -20,19 +20,6 @@ pub struct Configuration {
   pub logging: Arc<LoggingConfig>,
   pub load_balancer: Arc<LoadBalancingConfig>,
   pub graphite: Arc<GraphiteConfig>,
-}
-#[derive(Debug, Deserialize)]
-#[allow(unused)]
-/// details about how/where to log to
-///   a symlink to the current log file will be at "./iluvatar_load_balancer.log" or "/tmp/ilúvatar/iluvatar_load_balancer.log"
-///   based on build configuration
-pub struct LoggingConfig {
-  /// the min log level
-  pub level: String,
-  /// directory to store logs in 
-  pub directory: String,
-  /// log filename start string
-  pub basename: String
 }
 
 #[derive(Debug, Deserialize)]

@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::{types::MemSizeMb, utils::port_utils::Port, services::graphite::GraphiteConfig};
+use crate::{types::MemSizeMb, utils::port_utils::Port, services::graphite::GraphiteConfig, logging::LoggingConfig};
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
@@ -59,19 +59,6 @@ pub struct FunctionLimits {
   /// number of retries before giving up on an invocation
   /// Setting to 0 means no retries
   pub retries: u32
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(unused)]
-/// details about how/where to log to
-/// a symlink to the current log file will be at "./iluvatar_worker.log"
-pub struct LoggingConfig {
-  /// the min log level
-  pub level: String,
-  /// directory to store logs in 
-  pub directory: String,
-  /// log filename start string
-  pub basename: String
 }
 
 #[derive(Debug, Deserialize)]

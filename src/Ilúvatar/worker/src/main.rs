@@ -2,6 +2,7 @@ extern crate iluvatar_worker;
 
 use std::sync::Arc;
 use std::time::Duration;
+use iluvatar_lib::logging::start_tracing;
 use iluvatar_lib::services::invocation::invoker::InvokerService;
 use iluvatar_lib::services::status::status_service::StatusService;
 use iluvatar_lib::transaction::{TransactionId, STARTUP_TID};
@@ -14,12 +15,7 @@ use iluvatar_lib::utils::config::get_val;
 use anyhow::Result;
 use tonic::transport::Server;
 use iluvatar_lib::services::{LifecycleFactory, WorkerHealthService};
-use tracing::metadata::LevelFilter;
 use tracing::{debug};
-use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber;
-use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_appender;
 
 async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
   debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
@@ -56,19 +52,6 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
   Ok(())
 }
 
-fn start_tracing(server_config: Arc<Configuration>) -> Result<WorkerGuard> {
-  let file_appender = tracing_appender::rolling::never(server_config.logging.directory.clone(), server_config.logging.basename.clone());
-  let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-  tracing_subscriber::fmt()
-    .json()
-    .with_max_level(server_config.logging.level.parse::<LevelFilter>()?)
-    .with_span_events(FmtSpan::FULL)
-    .with_writer(non_blocking)
-    .init();
-  Ok(_guard)
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   iluvatar_lib::utils::file::ensure_temp_dir()?;
@@ -80,12 +63,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   match args.subcommand() {
     ("clean", Some(_)) => {
       let server_config = Configuration::boxed(true, &config_pth).unwrap();
-      let _guard = start_tracing(server_config.clone())?;
+      let _guard = start_tracing(server_config.logging.clone())?;
       clean(server_config, tid).await?;
       },
     (_,_) => { 
       let server_config = Configuration::boxed(false, &config_pth).unwrap();
-      let _guard = start_tracing(server_config.clone())?;
+      let _guard = start_tracing(server_config.logging.clone())?;
       run(server_config, tid).await?;
      },
   };
