@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::{types::MemSizeMb, utils::port_utils::Port};
+use crate::{types::MemSizeMb, utils::port_utils::Port, services::graphite::GraphiteConfig};
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
@@ -19,7 +19,8 @@ pub struct Configuration {
   pub networking: Arc<NetworkingConfig>,
   pub container_resources: Arc<ContainerResources>,
   /// full URL to access the controller/load balancer, required for worker registration
-  pub load_balancer_url: String
+  pub load_balancer_url: String,
+  pub graphite: Arc<GraphiteConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,7 +99,7 @@ pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
   pub fn new(cleaning: bool, config_fpath: &String) -> Result<Self, ConfigError> {
-    let sources = vec!["worker/src/worker.json", config_fpath.as_str(), "worker/src/worker.dev.json"];
+    let sources = vec!["worker/src/worker.json", "worker/src/worker.dev.json", config_fpath.as_str()];
     let s = Config::builder()
       .add_source(
         sources.iter().filter(|path| {

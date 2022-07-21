@@ -1,0 +1,43 @@
+- hosts: workers
+  vars:
+    controller_group: "{{ groups['controller'] }}"
+    controller: "{{ controller_group[0] }}"
+    controller_host: "{{ hostvars[ controller ].ansible_host }}"
+
+  tasks:
+  - name: Get running worker process
+    shell: "ps -ef | grep -v grep | grep -w iluvatar_worker | awk '{print $2}'"
+    register: running_worker
+
+  # - name: find controller
+  #   debug:
+  #     msg: "{{ hostvars[ controller ].ansible_host }}"
+
+  - name: Kill running worker process
+    shell: "kill {{ item }}"
+    with_items: "{{ running_worker.stdout_lines }}"
+    become: yes
+
+  - name: clean host
+    ansible.builtin.command: 
+      argv: 
+        - /home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_worker
+        - -c 
+        - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
+        - clean
+    become: yes
+
+  - name: run worker executable
+    ansible.builtin.command: 
+      argv: 
+        - /home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_worker
+        - -c 
+        - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
+    become: yes
+    async: 2592000               # 60*60*24*30 – 1 month
+    poll: 0
+    when: mode != "clean"
+    environment:
+      "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
+      "ILUVATAR_WORKER__port": "8079"
+      "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller_host }}:8089"

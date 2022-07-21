@@ -11,7 +11,7 @@ use log::*;
 pub async fn ping(_server: Data<Controller>, _req: HttpRequest) -> HttpResponse {
   let tid = gen_tid();
   info!("[{}] new ping", tid);
-  HttpResponse::Ok().body("PONG")
+  HttpResponse::Ok().body("PONG\n")
 }
 
 #[post("/invoke")]
@@ -42,6 +42,7 @@ pub async fn invoke_async_check(server: Data<Controller>, req: Json<InvokeAsyncL
   let tid = gen_tid();
   let req = req.into_inner();
   info!("[{}] new invoke_async_check {:?}", tid, req);
+  
   match server.check_async_invocation(req.lookup_cookie, &tid).await {
     Ok(some) => {
       if let Some(json) = some {
@@ -77,8 +78,8 @@ pub async fn register_function(server: Data<Controller>, req: Json<RegisterFunct
   let tid = gen_tid();
   let req = req.into_inner();
   let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
-
   info!("[{}] new register_function {:?}", tid, req);
+
   match server.register_function(req, &tid).await {
     Ok(_) => HttpResponse::Ok().finish(),
     Err(e) => {

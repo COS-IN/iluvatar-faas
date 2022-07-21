@@ -1,0 +1,38 @@
+- hosts: controller
+  vars:
+    host_group: "{{ groups['controller'] }}"
+    host_group_size: "{{ host_group | length }}"
+
+  tasks:
+  - name: limit count
+    ansible.builtin.assert:
+      that: host_group_size == "1"
+      fail_msg: "Can only support one controller"
+      success_msg: "Good on number of controllers, got {{ host_group_size }}"
+
+  - name: Get running controller process
+    shell: "ps -ef | grep -v grep | grep -w iluvatar_load_balancer | awk '{print $2}'"
+    register: running_lb
+
+  - name: Kill running controller process
+    shell: "kill {{ item }}"
+    with_items: "{{ running_lb.stdout_lines }}"
+    become: yes
+
+  - name: print hosts
+    debug:
+      msg: "hostvars: {{ groups }}"
+
+  - name: run controller executable
+    ansible.builtin.command: 
+      argv: 
+        - /home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_load_balancer
+        - -c 
+        - /home/alex/repos/efaas/src/Ilúvatar/load_balancer/src/load_balancer.json
+    become: yes
+    async: 2592000               # 60*60*24*30 – 1 month
+    poll: 0
+    when: mode != "clean"
+    environment:
+      "ILUVATAR_CONTROLLER__name": "{{ inventory_hostname }}"
+      "ILUVATAR_CONTROLLER__port": "8089"

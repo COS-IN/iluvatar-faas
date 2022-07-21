@@ -2,7 +2,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
-use crate::utils::port_utils::Port;
+use crate::{utils::port_utils::Port, services::graphite::GraphiteConfig};
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
@@ -19,6 +19,7 @@ pub struct Configuration {
   pub num_workers: u64,
   pub logging: Arc<LoggingConfig>,
   pub load_balancer: Arc<LoadBalancingConfig>,
+  pub graphite: Arc<GraphiteConfig>,
 }
 #[derive(Debug, Deserialize)]
 #[allow(unused)]

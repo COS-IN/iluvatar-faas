@@ -30,7 +30,7 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<(
 
   let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone()).await?;
   let invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone());
-  let status = StatusService::boxed(container_man.clone(), invoker.clone()).await;
+  let status = StatusService::boxed(container_man.clone(), invoker.clone(), server_config.graphite.clone(), server_config.name.clone()).await;
   let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
 
   let worker = IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker, status, health);

@@ -27,20 +27,20 @@ impl HealthService {
     }
   }
 
-  /// returns true if the status is changed, or the worker was not seen before and is unhealthy
+  /// returns true if the status is changed, or the worker was not seen before
   fn status_changed(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &WorkerStatus) -> bool {
     match self.worker_statuses.get(&worker.name) {
       Some(stat) => {
         info!("[{}] worker '{}' changed status to {}", tid, worker.name, tid);
         stat.value() == status
       },
-      None => status == &WorkerStatus::UNHEALTHY,
+      None => true,
     }
   }
 
   /// updates the stored status of the worker
   fn update_status(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &WorkerStatus) {
-    debug!("[{}] updating worker '{}' status to {}", tid, worker.name, tid);
+    debug!("[{}] updating worker '{}' status to {:#?}", tid, worker.name, status);
     self.worker_statuses.insert(worker.name.clone(), status.clone());
   }
 

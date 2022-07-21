@@ -20,9 +20,9 @@ pub struct Controller {
 unsafe impl Send for Controller{}
 
 impl Controller {
-  pub fn new(config: ControllerConfig) -> Self {
+  pub fn new(config: ControllerConfig, tid: &TransactionId) -> Self {
     let health_svc = ControllerHealthService::boxed();
-    let lb: LoadBalancer = get_balancer(&config, health_svc.clone()).unwrap();
+    let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid).unwrap();
     let reg_svc = RegistrationService::boxed(lb.clone());
     let async_svc = AsyncService::boxed();
     let load_svc = LoadService::boxed(reg_svc.clone());

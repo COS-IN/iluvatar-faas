@@ -56,6 +56,7 @@ impl RegistrationService {
     }
     self.lb.add_worker(reg_worker.clone(), tid);
     self.workers.insert(reg_worker.name.clone(), reg_worker.clone());
+    info!("[{}] worker '{}' successfully registered", tid, reg_worker.name);
     Ok(reg_worker)
   }
 
