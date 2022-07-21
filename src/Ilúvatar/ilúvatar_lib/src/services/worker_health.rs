@@ -2,7 +2,7 @@ use std::sync::Arc;
 use crate::{rpc::{RegisterRequest, InvokeRequest, HealthResponse}, transaction::TransactionId};
 use super::{invocation::invoker::InvokerService, containers::containermanager::ContainerManager};
 use anyhow::Result;
-use log::warn;
+use tracing::warn;
 
 const TEST_FUNC_NAME: &str = "worker-health-test";
 const TEST_FUNC_VERSION: &str = "1.0.0";

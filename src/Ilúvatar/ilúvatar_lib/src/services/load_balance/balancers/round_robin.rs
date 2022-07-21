@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
+use tracing::{info, warn, debug};
 use crate::services::ControllerHealthService;
 use crate::{services::load_balance::LoadBalancerTrait, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredFunction, RegisteredWorker};
-use log::*;
 use crate::worker_api::worker_comm::WorkerAPIFactory;
 
 pub struct RoundRobinLoadBalancer {

@@ -5,7 +5,7 @@ use inotify::{Inotify, WatchMask};
 use parking_lot::{RwLock, Mutex};
 use crate::services::containers::containermanager::ContainerManager;
 use anyhow::{Result, Context};
-use tracing::{debug};
+use tracing::{debug, error, warn};
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -63,7 +63,7 @@ impl Container {
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {
-        log::error!("[{}] error reading container '{}' stdout: {}", tid, self.container_id, e);
+        error!("[{}] error reading container '{}' stdout: {}", tid, self.container_id, e);
         format!("STDOUT_READ_ERROR: {}", e)
       },
     }
@@ -76,7 +76,7 @@ impl Container {
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {
-        log::error!("[{}] error reading container '{}' stdout: {}", tid, self.container_id, e);
+        error!("[{}] error reading container '{}' stdout: {}", tid, self.container_id, e);
         format!("STDERR_READ_ERROR: {}", e)
       },
     }
@@ -144,7 +144,7 @@ impl Container {
     let contents = match fs::read_to_string(format!("/proc/{}/statm", self.task.pid)) {
         Ok(c) => c,
         Err(e) => { 
-          log::warn!("[{}] Error trying to read container '{}' /proc/<pid>/statm: {}", e, self.container_id, tid);
+          warn!("[{}] Error trying to read container '{}' /proc/<pid>/statm: {}", e, self.container_id, tid);
           *self.healthy.lock() = false;
           *self.mem_usage.write() = self.function.memory; 
           return *self.mem_usage.read(); 
@@ -158,7 +158,7 @@ impl Container {
       // multiply page size in bytes by number pages, then convert to mb
       Ok(size_pages) => (size_pages * 4096) / (1024*1024),
       Err(e) => {
-        log::warn!("[{}] Error trying to parse vmrss of '{}': {}", e, vmrss, tid);
+        warn!("[{}] Error trying to parse vmrss of '{}': {}", e, vmrss, tid);
         self.function.memory
       },
     };

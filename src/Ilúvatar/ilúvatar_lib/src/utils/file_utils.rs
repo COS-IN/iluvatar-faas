@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::warn;
+use tracing::warn;
 
 use crate::transaction::TransactionId;
 

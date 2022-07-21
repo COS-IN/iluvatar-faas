@@ -4,7 +4,7 @@ use crate::worker_api::worker_comm::WorkerAPIFactory;
 use crate::{services::load_balance::LoadBalancerTrait, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredFunction, RegisteredWorker};
 use anyhow::Result;
-use log::{info, debug, error};
+use tracing::{info, debug, error};
 use parking_lot::RwLock;
 use crate::services::ControllerHealthService;
 

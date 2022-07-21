@@ -13,8 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::{RwLock, Mutex};
 use super::structs::{Container, RegisteredFunction, ContainerLock};
-use tracing::{info, warn, debug};
-use log::error; 
+use tracing::{info, warn, debug, error};
 
 type ContainerList = Arc<RwLock<Vec<Arc<Container>>>>;
 type ContainerPool = HashMap<String, ContainerList>;

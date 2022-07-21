@@ -5,7 +5,7 @@ use iluvatar_lib::load_balancer_api::lb_errors::MissingAsyncCookieError;
 use iluvatar_lib::load_balancer_api::structs::json::{Invoke, RegisterWorker, Prewarm, RegisterFunction, InvokeAsyncLookup};
 use iluvatar_lib::transaction::gen_tid;
 use iluvatar_lib::utils::calculate_fqdn;
-use log::*;
+use tracing::{info, error};
 
 #[get("/ping")]
 pub async fn ping(_server: Data<Controller>, _req: HttpRequest) -> HttpResponse {

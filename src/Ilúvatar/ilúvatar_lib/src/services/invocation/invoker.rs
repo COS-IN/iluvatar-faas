@@ -4,11 +4,11 @@ use crate::services::containers::{containermanager::ContainerManager, structs::{
 use crate::{rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse}, utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use tracing::{debug, error, warn, info};
 use std::time::SystemTime;
 use anyhow::Result;
 use reqwest;
 use guid_create::GUID;
-use log::*;
 use super::invoker_structs::{QueueFuture, EnqueuedInvocation, InvocationResultPtr};
 
 #[derive(Debug)]

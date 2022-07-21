@@ -3,7 +3,7 @@ use std::io::Write;
 use std::sync::Arc;
 use std::net::{UdpSocket, TcpStream};
 use std::time::{SystemTime, UNIX_EPOCH};
-use log::{error, debug, warn};
+use tracing::{error, debug, warn};
 use crate::transaction::TransactionId;
 use super::{GraphiteConfig, GraphiteResponse};
 

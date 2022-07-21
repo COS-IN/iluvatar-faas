@@ -3,7 +3,7 @@ use dashmap::DashMap;
 use iluvatar_lib::bail_error;
 use iluvatar_lib::{worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId};
 use iluvatar_lib::load_balancer_api::{structs::internal::RegisteredWorker, lb_errors::MissingAsyncCookieError};
-use log::*;
+use tracing::{warn, debug};
 use anyhow::Result;
 
 #[allow(unused)]

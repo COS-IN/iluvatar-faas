@@ -5,7 +5,7 @@ use iluvatar_lib::utils::{calculate_fqdn, config::args_to_json};
 use iluvatar_lib::load_balancer_api::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
 use iluvatar_lib::load_balancer_api::lb_config::ControllerConfig;
 use anyhow::Result;
-use log::{debug, info, error};
+use tracing::{info, debug, error};
 use crate::services::{async_invoke::AsyncService, registration::RegistrationService, load_reporting::LoadService};
 
 #[allow(unused)]

@@ -12,7 +12,7 @@ use crate::transaction::TransactionId;
 use crate::bail_error;
 use std::collections::HashMap;
 use std::process::{Command, Output};
-use log::*;
+use tracing::debug;
 use anyhow::Result;
 
 /// get the fully qualified domain name for a function from its name and version

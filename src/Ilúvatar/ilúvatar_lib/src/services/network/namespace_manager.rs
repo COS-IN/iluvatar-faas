@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use std::env;
 use std::fs::File;
 use std::io::Write;
-use log::*;
+use tracing::{info, debug, error};
 use guid_create::GUID;
 
 #[derive(Debug)]

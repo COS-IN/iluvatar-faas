@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use iluvatar_lib::{worker_api::worker_config::Configuration, transaction::TransactionId, load_balancer_api::register_worker};
-use log::{debug, info, error};
+use tracing::{debug, info, error};
 
 #[path ="./ilúvatar_worker.rs"]
 pub mod ilúvatar_worker;

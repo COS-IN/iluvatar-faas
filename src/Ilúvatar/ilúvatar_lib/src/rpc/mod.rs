@@ -1,5 +1,5 @@
 tonic::include_proto!("iluvatar_worker");
-use log::{error, debug};
+use tracing::{error, debug};
 use tonic::transport::Channel;
 use std::error::Error;
 use crate::bail_error;

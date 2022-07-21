@@ -12,7 +12,6 @@ use crate::types::MemSizeMb;
 use crate::utils::file::{try_remove_pth, temp_file, temp_file_pth};
 use crate::utils::cgroup::cgroup_namespace;
 use crate::utils::port::Port;
-//use log::{debug, warn, info};
 use crate::bail_error;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;

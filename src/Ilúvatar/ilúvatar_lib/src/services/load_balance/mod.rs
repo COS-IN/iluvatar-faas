@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use anyhow::Result;
-use log::debug;
+use tracing::debug;
 use crate::{load_balancer_api::lb_config::ControllerConfig, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
 use crate::services::ControllerHealthService;

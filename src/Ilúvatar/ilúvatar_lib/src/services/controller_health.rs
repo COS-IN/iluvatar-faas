@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use dashmap::DashMap;
 use crate::{worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId, load_balancer_api::structs::internal::{RegisteredWorker, WorkerStatus}, ilúvatar_api::HealthStatus};
-use log::{warn, debug, info};
+use tracing::{warn, debug, info};
 use std::time::Duration;
 
 #[allow(unused)]

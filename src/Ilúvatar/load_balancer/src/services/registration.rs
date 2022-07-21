@@ -3,7 +3,7 @@ use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_lib::bail_error;
 use iluvatar_lib::worker_api::worker_comm::WorkerAPIFactory;
-use log::{info, error};
+use tracing::{info, error};
 use iluvatar_lib::{services::load_balance::LoadBalancer, utils::calculate_fqdn, transaction::TransactionId};
 use iluvatar_lib::load_balancer_api::structs::json::{RegisterWorker, RegisterFunction};
 use iluvatar_lib::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};

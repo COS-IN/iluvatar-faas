@@ -79,7 +79,7 @@ impl std::future::Future for QueueFuture {
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
       let mut result = self.result.lock();
-      log::debug!("Polling future");
+      tracing::debug!("Polling future");
       if result.completed {
         Poll::Ready(self.result.clone())
       }

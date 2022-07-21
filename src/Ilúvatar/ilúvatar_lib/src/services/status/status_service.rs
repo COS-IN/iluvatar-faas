@@ -2,7 +2,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread::JoinHandle;
-use log::*;
+use tracing::{info, debug, error};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::graphite::GraphiteConfig;
