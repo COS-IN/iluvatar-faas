@@ -3,7 +3,7 @@ use std::io::Write;
 use std::sync::Arc;
 use std::net::{UdpSocket, TcpStream};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{error, debug, warn};
+use tracing::{error, debug, warn, trace};
 use crate::transaction::TransactionId;
 use super::{GraphiteConfig, GraphiteResponse};
 
@@ -22,7 +22,6 @@ macro_rules! format_metric {
   };
 }
 
-#[allow(unused)]
 #[derive(Debug)]
 pub struct GraphiteService {
   config: Arc<GraphiteConfig>
@@ -43,55 +42,57 @@ impl GraphiteService {
     let socket = match UdpSocket::bind("127.0.0.1:9999") {
       Ok(s) => s,
       Err(e) => {
-        error!("[{}] udp bind failed because {}", tid, e);
+        error!(tid=%tid, "udp bind failed because {}", e);
         return;
       },
     };
 
-    match socket.send_to(msg.as_bytes(), &format!("{}:{}", self.config.address, self.config.graphite_port)) {
+    match socket.send_to(msg.as_bytes(), &format!("{}:{}", self.config.address, self.config.ingestion_port)) {
       Ok(_) => (),
       Err(e) => {
-        error!("[{}] udp send failed because {}", tid, e);
+        error!(tid=%tid, "udp send failed because {}", e);
       },
     };
   }
 
   fn publish_tcp(&self, msg: String, tid: &TransactionId) {
-    let addr = format!("{}:{}", self.config.address, self.config.graphite_port);
-    debug!("[{}] opening connection to '{}'", tid, addr);
+    let addr = format!("{}:{}", self.config.address, self.config.ingestion_port);
+    debug!(tid=%tid, "opening connection to '{}'", addr);
     let mut socket = match TcpStream::connect(addr) {
       Ok(s) => s,
       Err(e) => {
-        error!("[{}] tcp connect failed because {}", tid, e);
+        error!(tid=%tid, "tcp connect failed because {}", e);
         return;
       },
     };
     
-    debug!("[{}] pushing '{}'", tid, msg);
     match socket.write(msg.as_bytes()) {
       Ok(r) => {
-        debug!("[{}] wrote '{}' bytes", tid, r)
+        trace!(tid=%tid, "wrote '{}' bytes",  r)
       },
       Err(e) => {
-        error!("[{}] tcp write failed because {}", tid, e);
+        error!(tid=%tid, "tcp write failed because {}",  e);
       },
     };
   }
 
   pub fn publish_metric(&self, metric: &str, value: String, tid: &TransactionId, tags: String) {
-    debug!("[{}] pushing metric {}", tid, metric);
     let msg = format_metric!(metric, value, tags, tid);
-    if self.config.graphite_udp {
+    if self.config.ingestion_udp {
+      debug!(tid=%tid, data=%msg, "udp pushing message");
       self.publish_udp(msg, tid);
     } else {
+      debug!(tid=%tid, data=%msg, "tcp pushing metric");
       self.publish_tcp(msg, tid);
     }
   }
 
-  pub async fn get_latest_metric<'a, T>(&self, metric: &str, by_tag: &str, tid: &TransactionId) -> HashMap<String, T>  // {
+  pub async fn get_latest_metric<'a, T>(&self, metric: &str, by_tag: &str, tid: &TransactionId) -> HashMap<String, T>
     where T : Default, T : serde::de::DeserializeOwned, T: Copy {
     let client = reqwest::Client::new();
     let url = format!("http://{}:{}/render?format=json&noNullPoints=true&from=-360s&target=seriesByTag('name={}')", self.config.address, self.config.api_port, metric);
+    debug!(tid=%tid, query=%url, "querying graphite render");
+
     let mut ret = HashMap::new();
 
     match client.get(url)
@@ -101,14 +102,14 @@ impl GraphiteService {
           let text = match r.text().await {
             Ok(t) => t,
             Err(e) => {
-              warn!("[{}] Failed to read graphite response because: {}", tid, e);
+              warn!(tid=%tid, "Failed to read graphite response because: {}", e);
               return ret;
             },
           };
           let parsed = match serde_json::from_str::<GraphiteResponse<T>>(&text) {
             Ok(p) => p,
             Err(e) => {
-              warn!("[{}] Failed to parse graphite response because: {}; response: {:?}", tid, e, text);
+              warn!(tid=%tid, "Failed to parse graphite response because: {}; response: {:?}", e, text);
               return ret
             },
           };
@@ -117,7 +118,7 @@ impl GraphiteService {
             let tagged = match metric.tags.get(by_tag) {
               Some(t) => t,
               None => {
-                warn!("[{}] Metric did not have tag! tag: {}", tid, by_tag);
+                warn!(tid=%tid, "Metric did not have tag! tag: {}", by_tag);
                 continue;
               },
             };
@@ -132,7 +133,7 @@ impl GraphiteService {
           }
         },
         Err(e) =>{
-          warn!("[{}] Failed to get graphite response because: {}", tid, e);
+          warn!(tid=%tid, "Failed to get graphite response because: {}", e);
         },
       };
     ret

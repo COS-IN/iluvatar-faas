@@ -34,6 +34,8 @@
     environment:
       "ILUVATAR_CONTROLLER__name": "{{ controller.host }}"
       "ILUVATAR_CONTROLLER__port": "{{ controller.port }}"
+      "ILUVATAR_CONTROLLER__graphite__address" : "{{ graphite.address }}"
+      "ILUVATAR_CONTROLLER__graphite__api_port" : "{{ graphite.api_port }}"
 
   - name: wait until the controller on this host is up and running
     uri:

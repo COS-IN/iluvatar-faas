@@ -3,6 +3,8 @@ graphite:
   container_name: "iluvatar_graphite"
   api_port: 8000
   ingestion_port: 2003
+  ingestion_udp: false
+  address: localhost
 
 controller:
   # controller: "{{ groups['controller']|first }}"

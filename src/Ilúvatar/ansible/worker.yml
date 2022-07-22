@@ -41,6 +41,9 @@
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
       "ILUVATAR_WORKER__port": "{{ worker.port }}"
       "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:8089"
+      "ILUVATAR_WORKER__graphite__address" : "{{ graphite.address }}"
+      "ILUVATAR_WORKER__graphite__ingestion_port" : "{{ graphite.ingestion_port }}"
+      "ILUVATAR_WORKER__graphite__ingestion_udp" : "{{ graphite.ingestion_udp }}"
 
   - name: print expected
     debug:

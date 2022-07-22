@@ -35,11 +35,16 @@
       ports:
         - "{{ graphite.api_port }}:80"
         - "{{ graphite.ingestion_port }}:2003"
+        - "2004:2004"
+        - "2023:2023"
+        - "2024:2024"
+        - "8125:8125/udp"
+        - "8126:8126"
 
   - name: wait until graphite is up and running
     uri:
       url:
-        "http://{{ansible_host}}:{{graphite.api_port}}"
+        "http://{{ ansible_host }}:{{graphite.api_port}}"
       validate_certs: "no"
     register: result
     until: result.status == 200

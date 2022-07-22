@@ -10,12 +10,12 @@
     "basename": "load_balancer"
   },
   "load_balancer": {
-    "algorithm": "RoundRobin"
+    "algorithm": "LeastLoaded"
   },
   "graphite": {
     "address": "localhost",
     "api_port": "80",
-    "graphite_port": "2003",
-    "graphite_udp": true
+    "ingestion_port": "2003",
+    "ingestion_udp": false
   }
 }

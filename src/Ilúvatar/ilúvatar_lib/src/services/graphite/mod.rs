@@ -11,9 +11,9 @@ pub struct GraphiteConfig {
   /// Port API is listening on
   api_port: Port,
   /// ingestion port
-  graphite_port: Port,
+  ingestion_port: Port,
   /// Is it listening on UDP? true: yes
-  graphite_udp: bool
+  ingestion_udp: bool
 }
 
 // [{"target": "worker.load.loadavg", "tags": {"name": "worker.load.loadavg"}, "datapoints": [[3.81, 1658417660], [4.29, 1658417670]]}]

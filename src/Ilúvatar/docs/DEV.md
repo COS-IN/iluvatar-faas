@@ -25,5 +25,10 @@ Any error encountered during startup should cause an exit.
 ### Logging
 
 ALL functions that log something **must** take a `&iluvatar_lib::transaction::TransactionId` paramater, typically named `tid`.
-This `TransactionId` **must** be placed at the beginning of any log message using the format `[{}] `.
 Maintaining this `TransactionId` across the execution path of a request will enable efficient correlation of events in the system.
+This `TransactionId` **must** be placed in log messages.
+The `tracing` crate enables json and structured logging, future log messages should pass the `TransactionId` via a `tid` argument.
+This looks like:
+```rust
+debug!(tid=%tid, query=%url, "querying graphite render");
+```

@@ -37,14 +37,14 @@ impl LeastLoadedBalancer{
   }
 
   fn start_status_thread(rx: Receiver<Arc<LeastLoadedBalancer>>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
-    debug!("[{}] Launching LeastLoadedBalancer thread", tid);
+    debug!(tid=%tid, "Launching LeastLoadedBalancer thread");
     // run on an OS thread here so we don't get blocked by our userland threading runtime
     std::thread::spawn(move || {
       let tid: &TransactionId = &LEAST_LOADED_TID;
       let svc: Arc<LeastLoadedBalancer> = match rx.recv() {
           Ok(svc) => svc,
           Err(_) => {
-            error!("[{}] least loaded service thread failed to receive service from channel!", tid);
+            error!(tid=%tid, "least loaded service thread failed to receive service from channel!");
             return;
           },
         };
@@ -56,7 +56,7 @@ impl LeastLoadedBalancer{
           },
         };
 
-        debug!("[{}] least loaded worker started", tid);
+        debug!(tid=%tid, "least loaded worker started");
         worker_rt.block_on(svc.monitor_worker_status(tid));
       }
     )
@@ -65,7 +65,7 @@ impl LeastLoadedBalancer{
   async fn monitor_worker_status(&self, tid: &TransactionId) {
     loop {
       let update = self.get_status_update(tid).await;
-      info!("[{}] latest worker update: {:?}", tid, update);
+      info!(tid=%tid, update=?update, "latest worker update");
       std::thread::sleep(Duration::from_secs(5));
     }
   }
@@ -78,7 +78,7 @@ impl LeastLoadedBalancer{
 #[tonic::async_trait]
 impl LoadBalancerTrait for LeastLoadedBalancer {
   fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
-    info!("[{}] Registering new worker {} in RoundRobin load balancer", tid, &worker.name);
+    info!(tid=%tid, worker=%worker.name, "Registering new worker in RoundRobin load balancer");
     let mut workers = self.workers.write();
     workers.push(worker);
   }

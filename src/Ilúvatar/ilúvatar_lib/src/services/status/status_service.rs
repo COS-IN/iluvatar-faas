@@ -57,11 +57,11 @@ impl StatusService {
       let status_svc = match rx.recv() {
         Ok(svc) => svc,
         Err(_) => {
-          error!("[{}] status service thread failed to receive service from channel!", tid);
+          error!(tid=%tid, "status service thread failed to receive service from channel!");
           return;
         },
       };
-      debug!("[{}] status service worker started", tid);
+      debug!(tid=%tid, "status service worker started");
       loop {
         status_svc.update_status(tid);
         std::thread::sleep(std::time::Duration::from_secs(5));
@@ -78,11 +78,11 @@ impl StatusService {
         let sy: i64 = self.parse(lines[lines.len()-4], tid);
         let id: i64 = self.parse(lines[lines.len()-3], tid);
         let wa: i64 = self.parse(lines[lines.len()-2], tid);
-        debug!("[{}] vmstat {} {} {} {}", tid, us, sy, id, wa);
+        debug!(tid=%tid, "vmstat {} {} {} {}", us, sy, id, wa);
         (us, sy, id, wa)
       },
       Err(e) => {
-        error!("[{}] unable to call vmstat because {}", tid, e);
+        error!(tid=%tid, "unable to call vmstat because {}", e);
         (-1,-1,-1,-1)
       },
     }
@@ -95,15 +95,15 @@ impl StatusService {
         let nprocs = match stdout.parse::<u32>() {
           Ok(r) => r,
           Err(e) => {
-            error!("[{}] error parsing u32 from nproc: '{}': {}", tid, stdout, e);
+            error!(tid=%tid, "error parsing u32 from nproc: '{}': {}", stdout, e);
             0
           },
         };
-        debug!("[{}] nprocs result: {}", tid, nprocs);
+        debug!(tid=%tid, "nprocs result: {}", nprocs);
         nprocs
       },
       Err(e) => {
-        error!("[{}] unable to call nproc because {}", tid, e);
+        error!(tid=%tid, "unable to call nproc because {}", e);
         0
       },
     }
@@ -119,15 +119,15 @@ impl StatusService {
         let minute_load_avg =  match min.parse::<f64>() {
             Ok(r) => r,
             Err(e) => {
-              error!("[{}] error parsing float from uptime {}: {}", tid, min, e);
+              error!(tid=%tid, "error parsing float from uptime {}: {}", min, e);
               -1.0
             },
           };
-        debug!("[{}] uptime {}", tid, minute_load_avg);
+        debug!(tid=%tid, "uptime {}", minute_load_avg);
         minute_load_avg
       },
       Err(e) => {
-        error!("[{}] unable to call uptime because {}", tid, e);
+        error!(tid=%tid, "unable to call uptime because {}", e);
         -1.0
       },
     }
@@ -151,7 +151,7 @@ impl StatusService {
       load_avg_1minute: minute_load_avg,
       num_system_cores: nprocs
     });
-    info!("[{}] current load status: {:?}", tid, new_status);
+    info!(tid=%tid, status=?new_status,"current load status");
 
     self.graphite.publish_metric("worker.load.loadavg", (minute_load_avg / nprocs as f64).to_string(), tid, format!("machine={};type=worker", self.worker_name));
 
@@ -164,7 +164,7 @@ impl StatusService {
     match string.parse::<i64>() {
       Ok(r) => r,
       Err(e) => {
-        error!("[{}] error parsing {}: {}", tid, string, e);
+        error!(tid=%tid, "error parsing {}: {}", string, e);
         -1
       },
     }
@@ -172,7 +172,7 @@ impl StatusService {
 
   /// Returns the status and load of the worker
   pub fn get_status(&self, tid: &TransactionId) -> Arc<WorkerStatus> {
-    debug!("[{}] getting current worker status", tid);
+    debug!(tid=%tid, "getting current worker status");
     self.current_status.lock().clone()
   }
 }
