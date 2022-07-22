@@ -10,7 +10,7 @@ use anyhow::{Result, bail};
 use dashmap::DashMap;
 use std::cmp::Ordering;
 use std::collections::HashMap; 
-use std::sync::Arc;
+use std::sync::{Arc, mpsc::{Receiver, channel}};
 use parking_lot::{RwLock, Mutex};
 use super::structs::{Container, RegisteredFunction, ContainerLock};
 use tracing::{info, warn, debug, error};
@@ -28,12 +28,12 @@ pub struct ContainerManager {
   running_funcs: Arc<Mutex<u32>>,
   cont_lifecycle: Arc<dyn LifecycleService>,
   prioritized_list: ContainerList,
-  // TODO: have this struct keep a pointer to its worker thread
+  _worker_thread: std::thread::JoinHandle<()>,
 }
 
 impl ContainerManager {
   #[tracing::instrument]  
-  pub async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<ContainerManager> {
+  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>) -> Result<ContainerManager> {
 
     Ok(ContainerManager {
       registered_functions: Arc::new(DashMap::new()),
@@ -44,16 +44,33 @@ impl ContainerManager {
       running_funcs: Arc::new(Mutex::new(0)),
       cont_lifecycle,
       prioritized_list: Arc::new(RwLock::new(Vec::new())),
+      _worker_thread: worker_thread,
     })
   }
 
-  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>) -> Result<Arc<ContainerManager>> {
-    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle).await?);
-    let cm_clone = cm.clone();
+  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<Arc<ContainerManager>> {
+    let (tx, rx) = channel();
+    let worker = ContainerManager::start_thread(rx, tid);
+
+    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, worker).await?);
+    tx.send(cm.clone()).unwrap();
+    Ok(cm)
+  }
+
+  fn start_thread(rx: Receiver<Arc<ContainerManager>>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
+    debug!("[{}] Launching ContainerManager thread", tid);
     // run on an OS thread here
     // If this thread crashes, we'll never know and the worker will not have a good time
-    let _handle = std::thread::spawn(move || {
+    std::thread::spawn(move || {
       let tid: &TransactionId = &CTR_MGR_WORKER_TID;
+      let cm: Arc<ContainerManager> = match rx.recv() {
+        Ok(cm) => cm,
+        Err(_) => {
+          error!("[{}] invoker service thread failed to receive service from channel!", tid);
+          return;
+        },
+      };
+
       let worker_rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => { 
@@ -62,27 +79,26 @@ impl ContainerManager {
         },
       };
       debug!("[{}] container manager worker started", tid);
-      worker_rt.block_on(ContainerManager::monitor_pool(resources, cm_clone));
-    });
-    Ok(cm)
+      worker_rt.block_on(cm.monitor_pool());
+    })
   }
 
-  async fn monitor_pool(resources: Arc<ContainerResources>, cm: Arc<ContainerManager>) {
+  async fn monitor_pool(&self) {
     let tid: &TransactionId = &CTR_MGR_WORKER_TID;
     loop {
-      cm.update_memory_usages(tid).await;
+      self.update_memory_usages(tid).await;
 
-      cm.compute_eviction_priorities(tid);
-      if resources.memory_buffer_mb > 0 {
-        let reclaim = resources.memory_buffer_mb - cm.free_memory();
+      self.compute_eviction_priorities(tid);
+      if self.resources.memory_buffer_mb > 0 {
+        let reclaim = self.resources.memory_buffer_mb - self.free_memory();
         if reclaim > 0 {
-          match cm.reclaim_memory(reclaim, tid).await {
+          match self.reclaim_memory(reclaim, tid).await {
             Ok(_) => {},
             Err(e) => error!("[{}] Error while trying to remove containers '{}'", tid, e),
           };
         }
       }
-      std::thread::sleep(std::time::Duration::from_secs(resources.pool_freq_sec));
+      std::thread::sleep(std::time::Duration::from_secs(self.resources.pool_freq_sec));
     }
   }
 

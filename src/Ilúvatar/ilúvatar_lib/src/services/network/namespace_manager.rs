@@ -2,7 +2,9 @@ use crate::services::network::network_structs::{ContdNamespace, Namespace};
 use crate::worker_api::worker_config::NetworkingConfig;
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::mpsc::channel;
 use anyhow::Result;
+use tokio::task::JoinHandle;
 use crate::transaction::{TransactionId, NAMESPACE_POOL_WORKER_TID};
 use crate::{utils, bail_error, utils::execute_cmd};
 use parking_lot::Mutex;
@@ -18,7 +20,7 @@ pub struct NamespaceManager {
   config: Arc<NetworkingConfig>,
   net_conf_path: String,
   pool: NamespacePool,
-  // TODO: have this struct keep a pointer to its worker thread
+  _worker_thread: Option<JoinHandle<()>>,
 }
 
 type NamespacePool = Arc<Mutex<Vec<Arc<Namespace>>>>;
@@ -29,45 +31,59 @@ const NAMESPACE_IDENTIFIER: &str = "ilunns-";
 const BRIDGE_NET_ID: &str = "mk_bridge_throwaway";
 
 impl NamespaceManager {
-  fn new(config: Arc<NetworkingConfig>) -> NamespaceManager {
+  fn new(config: Arc<NetworkingConfig>, worker_thread: Option<JoinHandle<()>>) -> NamespaceManager {
     return NamespaceManager {
       config,
       net_conf_path: utils::file::TEMP_DIR.to_string(),
       pool: Arc::new(Mutex::new(Vec::new())),
+      _worker_thread: worker_thread,
     }
   }
 
   pub fn boxed(config: Arc<NetworkingConfig>, tid: &TransactionId) -> Arc<NamespaceManager> {
-    let ns = Arc::new(NamespaceManager::new(config.clone()));
+    let (tx, rx) = channel();
     debug!("[{}] creating namespace manager", tid);
 
-    if config.use_pool {
-      let cln = ns.clone();
-      info!("[{}] launching namespace pool monitor thread", tid);
-      let _handle = tokio::spawn(async move {
-        NamespaceManager::monitor_pool(config, cln).await;
-      });
-    }
+    let thread = match config.use_pool {
+      false => None,
+      true => {
+        info!("[{}] launching namespace pool monitor thread", tid);
+        Some(tokio::spawn(async move {
+          let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
+          let nm: Arc<NamespaceManager> = match rx.recv() {
+            Ok(cm) => cm,
+            Err(_) => {
+              error!("[{}] invoker service thread failed to receive service from channel!", tid);
+              return;
+            },
+          };
+          nm.monitor_pool().await;
+        }))
+      }
+    };
+
+    let ns = Arc::new(NamespaceManager::new(config.clone(), thread));
+    tx.send(ns.clone()).unwrap();
     ns
   }
 
-  async fn monitor_pool(config: Arc<NetworkingConfig>, nm: Arc<NamespaceManager>) {
+  async fn monitor_pool(&self) {
     let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
     loop {
-      'inner: while nm.pool_size() < config.pool_size {
-        let ns = match nm.create_namespace(&nm.generate_net_namespace_name(), tid) {
+      'inner: while self.pool_size() < self.config.pool_size {
+        let ns = match self.create_namespace(&self.generate_net_namespace_name(), tid) {
             Ok(ns) => ns,
             Err(e) => {
               error!("[{}] Failed creating namespace in monitor: {}", tid, e);
               break 'inner;
             },
         };
-        match nm.return_namespace(Arc::new(ns), tid) {
+        match self.return_namespace(Arc::new(ns), tid) {
             Ok(_) => {},
             Err(e) => error!("[{}] Failed giving namespace to pool: {}", tid, e),
         };
       }
-      tokio::time::sleep(std::time::Duration::from_secs(config.pool_freq_sec)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(self.config.pool_freq_sec)).await;
     }
   }
 
@@ -88,12 +104,12 @@ impl NamespaceManager {
 
     if ! self.namespace_exists(&name) {
       debug!("[{}] Namespace '{}' does not exists, making", tid, name);
-      NamespaceManager::create_namespace_internal(&name, tid)?;
+      self.create_namespace_internal(&name, tid)?;
     } else {
       debug!("[{}] Namespace '{}' already exists, skipping", tid, name);
     }
 
-    let nspth = NamespaceManager::net_namespace(&name);
+    let nspth = self.net_namespace(&name);
 
     if self.bridge_exists(&nspth, tid)? {
       debug!("[{}] Bridge already exists, skipping", tid);
@@ -163,16 +179,16 @@ impl NamespaceManager {
     }
   }
   
-  pub fn net_namespace(name: &String) -> String {
+  pub fn net_namespace(&self, name: &String) -> String {
     format!("/run/netns/{}", name)
   }
 
   pub fn namespace_exists(&self, name: &String) -> bool {
-    let nspth = NamespaceManager::net_namespace(name);
+    let nspth = self.net_namespace(name);
     std::path::Path::new(&nspth).exists()
   }
   
-  fn create_namespace_internal(name: &String, tid: &TransactionId) -> Result<()> {
+  fn create_namespace_internal(&self, name: &String, tid: &TransactionId) -> Result<()> {
     let out = match execute_cmd("/bin/ip", &vec!["netns", "add", name], None, tid) {
               Ok(out) => out,
               Err(e) => bail_error!("[{}] Failed to launch 'ip netns add' command with error '{:?}'", tid, e)
@@ -190,11 +206,10 @@ impl NamespaceManager {
     }
   }
 
-  /// cleanup_addresses
   /// The addresses returned by the bridge plugin of cnitool will have subnet information
   /// E.g. 10.10.0.3/16
   /// We don't need it and can discard it here
-  fn cleanup_addresses(ns: &mut ContdNamespace) {
+  fn cleanup_addresses(&self, ns: &mut ContdNamespace) {
     for ip in &mut ns.ips[..] {
       if ip.address.contains("/") {
         let v: Vec<&str> = ip.address.split("/").collect();
@@ -214,8 +229,8 @@ impl NamespaceManager {
     env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
     env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
   
-    let nspth = NamespaceManager::net_namespace(name);
-    NamespaceManager::create_namespace_internal(&name, tid)?;
+    let nspth = self.net_namespace(name);
+    self.create_namespace_internal(&name, tid)?;
 
     let out = execute_cmd(&self.config.cnitool, 
                           &vec!["add", &self.config.cni_name.as_str(), &nspth.as_str()],
@@ -223,7 +238,7 @@ impl NamespaceManager {
 
     match serde_json::from_slice(&out.stdout) {
         Ok(mut ns) => {
-          NamespaceManager::cleanup_addresses(&mut ns);
+          self.cleanup_addresses(&mut ns);
           debug!("[{}] Namespace '{}' created. Output: '{:?}'", tid, &name, ns);
           Ok(Namespace {
             name: name.to_string(),
@@ -297,7 +312,7 @@ impl NamespaceManager {
       }
     }
     
-    let nspth = NamespaceManager::net_namespace(&BRIDGE_NET_ID.to_string());
+    let nspth = self.net_namespace(&BRIDGE_NET_ID.to_string());
     let mut env: HashMap<String, String> = env::vars().collect();
     env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
     env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
