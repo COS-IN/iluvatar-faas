@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use client::services::v1::containers_client::ContainersClient;
 use client::services::v1::tasks_client::TasksClient;
 use client::tonic::Code;
@@ -14,7 +14,7 @@ use crate::utils::cgroup::cgroup_namespace;
 use crate::utils::port::Port;
 use crate::bail_error;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
-use anyhow::Result;
+use anyhow::{Result, Context};
 use sha2::{Sha256, Digest};
 use client::types::Descriptor;
 use containerd_client as client;
@@ -31,11 +31,10 @@ use client::with_namespace;
 use containerd_client::tonic::Request;
 use prost_types::Any;
 use std::process::Command;
-use crate::services::containers::structs::{Container, Task};
+use crate::services::containers::structs::{Container, Task, RegisteredFunction};
 use crate::services::network::namespace_manager::NamespaceManager;
-use crate::services::network::network_structs::Namespace;
-use super::structs::RegisteredFunction;
-use tracing::{info, warn, debug}; 
+use tracing::{info, warn, debug, error}; 
+use inotify::{Inotify, WatchMask};
 
 #[derive(Debug)]
 pub struct ContainerdLifecycle {
@@ -74,7 +73,7 @@ impl ContainerdLifecycle {
   /// get the default container spec
   fn spec(&self, host_addr: &str, port: Port, mem_limit_mb: MemSizeMb, cpus: u32, net_ns_name: &String, container_id: &String) -> Any {
     // https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
-    let spec = include_str!("../../resources/container_spec.json");
+    let spec = include_str!("../../../resources/container_spec.json");
     let spec = spec
         .to_string()
         .replace("$ROOTFS", "rootfs")
@@ -229,152 +228,16 @@ impl ContainerdLifecycle {
     try_remove_pth(&temp_file_pth(container_id, "stdout"), tid);
     try_remove_pth(&temp_file_pth(container_id, "stderr"), tid);
   }
-}
 
-
-
-#[async_trait]
-impl LifecycleService for ContainerdLifecycle {
-  /// Create a container using the given image in the specified namespace
-  /// Does not start any process in it
-  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
-    let port = 8080;
-
-    let cid = format!("{}-{}", fqdn, GUID::rand());
-    let ns = self.namespace_manager.get_namespace(tid)?;
-    debug!("[{}] Assigning namespace {} to container {}", tid, ns.name, cid);
-
-    let address = &ns.namespace.ips[0].address;
-
-    let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name, &cid);
-    let mut labels: HashMap<String, String> = HashMap::new();
-    labels.insert("owner".to_string(), "iluvatar_worker".to_string());
-
-    let container = Containerd_Container {
-      id: cid.to_string(),
-      image: image_name.to_string(),
-      runtime: Some(Runtime {
-          name: "io.containerd.runc.v2".to_string(),
-          options: None,
-      }),
-      spec: Some(spec),
-      created_at: None,
-      updated_at: None,
-      extensions: HashMap::new(),
-      labels: labels,
-      snapshot_key: "".to_string(),
-      snapshotter: "".to_string(),
-    };
-    let mut client = ContainersClient::new(self.channel());
-    let req = CreateContainerRequest {
-      container: Some(container),
-    };
-    let req = with_namespace!(req, namespace);
-
-    let resp =  match client
-        .create(req)
-        .await {
-            Ok(resp) => resp,
-            Err(e) => {
-              bail_error!("[{}] Containerd failed to create container with error: {}", tid, e);
-            },
-        };
-
-    debug!("[{}] Container: created {:?}", tid, resp);
-
-    let mounts = self.load_mounts(&cid, &reg.snapshot_base, tid).await?;
-
-    let req = CreateTaskRequest {
-        container_id: cid.clone(),
-        rootfs: mounts,
-        checkpoint: None,
-        options: None,
-        stdin: temp_file(&cid, "stdin")?,
-        stdout: temp_file(&cid, "stdout")?,
-        stderr: temp_file(&cid, "stderr")?,
-        terminal: false,
-    };
-    let req = with_namespace!(req, namespace);
-  
-    let mut client = TasksClient::new(self.channel());
-    match client.create(req).await {
-        Ok(t) => {
-          debug!("[{}] Task: created {:?}", tid, t);
-          let task = Task {
-            pid: t.into_inner().pid,
-            container_id: Some(cid.clone()),
-            running: false
-          };
-          Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg, ns))
-        },
-        Err(e) => {
-          self.remove_container(&cid, &ns, namespace, tid).await?;
-          bail_error!("[{}] Create task failed with: {}", tid, e);
-        },
-    }
-  }
-
-  /// Ensures that the specified image is available on the machine
-  async fn ensure_image(&self, image_name: &String) -> Result<()> {
-    let output = Command::new("ctr")
-          .args(["images", "pull", image_name.as_str()])
-          .output();
-    match output {
-      Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
-      Ok(output) => {
-        if let Some(status) = output.status.code() {
-          if status == 0 {
-            Ok(())
-          } else {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to pull the image '{}' with exit code of '{}', stdout '{}', stderr '{}'", image_name, output.status, stdout, stderr)
-          }
-        } else {
-          let stdout = String::from_utf8_lossy(&output.stdout);
-          let stderr = String::from_utf8_lossy(&output.stderr);
-          anyhow::bail!("Failed to pull the image '{}' with unkonwn exit code, stdout '{}', stderr '{}'", image_name, stdout, stderr)
-        }
-      },
-    }
-  }
-
-  /// creates and starts the entrypoint for a container based on the given image
-  /// Run inside the specified namespace
-  /// returns a new, unique ID representing it
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
-    info!("[{}] Creating container from image '{}', in namespace '{}'", tid, image_name, namespace);
-    let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
-    let mut client = TasksClient::new(self.channel());
-  
-    let req = StartRequest {
-      container_id: container.container_id.clone(),
-      ..Default::default()
-    };
-    let req = with_namespace!(req, namespace);
-  
-    match client.start(req).await {
-        Ok(r) => {
-          debug!("Task {}: {:?} started", container.container_id, r);
-          container.task.running = true;
-          Ok(container)
-        },
-        Err(e) => bail_error!("[{}] Starting task failed with {}", tid, e),
-    }
-  }
-
-  /// Removed the specified container in the containerd namespace
-  async fn remove_container(&self, container_id: &String, net_namespace: &Arc<Namespace>, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+  async fn remove_container_internal(&self, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
     info!("[{}] Removing container '{}'", tid, container_id);
     let mut client = TasksClient::new(self.channel());
-
     self.kill_task(&mut client, container_id, ctd_namespace, tid).await?;
-
+    tokio::time::sleep(Duration::from_millis(5)).await;
     self.delete_task(&mut client, container_id, ctd_namespace, tid).await?;
 
     let mut client = ContainersClient::new(self.channel());
     self.delete_containerd_container(&mut client, container_id, ctd_namespace, tid).await?;
-    self.namespace_manager.return_namespace(net_namespace.clone(), tid)?;
     self.delete_container_resources(container_id, tid);
 
     info!("[{}] Container: {:?} deleted", tid, container_id);
@@ -462,6 +325,163 @@ impl LifecycleService for ContainerdLifecycle {
     debug!("[{}] load {} diff digest {}", tid, image, prev_digest);
     Ok(prev_digest)
   }
+
+  /// Ensures that the specified image is available on the machine
+  async fn ensure_image(&self, image_name: &String) -> Result<()> {
+    let output = Command::new("ctr")
+          .args(["images", "pull", image_name.as_str()])
+          .output();
+    match output {
+      Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
+      Ok(output) => {
+        if let Some(status) = output.status.code() {
+          if status == 0 {
+            Ok(())
+          } else {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to pull the image '{}' with exit code of '{}', stdout '{}', stderr '{}'", image_name, output.status, stdout, stderr)
+          }
+        } else {
+          let stdout = String::from_utf8_lossy(&output.stdout);
+          let stderr = String::from_utf8_lossy(&output.stderr);
+          anyhow::bail!("Failed to pull the image '{}' with unkonwn exit code, stdout '{}', stderr '{}'", image_name, stdout, stderr)
+        }
+      },
+    }
+  }
+  
+}
+
+#[async_trait]
+impl LifecycleService for ContainerdLifecycle {
+  /// Create a container using the given image in the specified namespace
+  /// Does not start any process in it
+  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+    let port = 8080;
+
+    let cid = format!("{}-{}", fqdn, GUID::rand());
+    let ns = self.namespace_manager.get_namespace(tid)?;
+    debug!("[{}] Assigning namespace {} to container {}", tid, ns.name, cid);
+
+    let address = &ns.namespace.ips[0].address;
+
+    let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name, &cid);
+    let mut labels: HashMap<String, String> = HashMap::new();
+    labels.insert("owner".to_string(), "iluvatar_worker".to_string());
+
+    let container = Containerd_Container {
+      id: cid.to_string(),
+      image: image_name.to_string(),
+      runtime: Some(Runtime {
+          name: "io.containerd.runc.v2".to_string(),
+          options: None,
+      }),
+      spec: Some(spec),
+      created_at: None,
+      updated_at: None,
+      extensions: HashMap::new(),
+      labels: labels,
+      snapshot_key: "".to_string(),
+      snapshotter: "".to_string(),
+    };
+    let mut client = ContainersClient::new(self.channel());
+    let req = CreateContainerRequest {
+      container: Some(container),
+    };
+    let req = with_namespace!(req, namespace);
+
+    let resp =  match client
+        .create(req)
+        .await {
+            Ok(resp) => resp,
+            Err(e) => {
+              bail_error!("[{}] Containerd failed to create container with error: {}", tid, e);
+            },
+        };
+
+    debug!("[{}] Container: created {:?}", tid, resp);
+
+    let mounts = self.load_mounts(&cid, &reg.snapshot_base, tid).await?;
+
+    let req = CreateTaskRequest {
+        container_id: cid.clone(),
+        rootfs: mounts,
+        checkpoint: None,
+        options: None,
+        stdin: temp_file(&cid, "stdin")?,
+        stdout: temp_file(&cid, "stdout")?,
+        stderr: temp_file(&cid, "stderr")?,
+        terminal: false,
+    };
+    let req = with_namespace!(req, namespace);
+  
+    let mut client = TasksClient::new(self.channel());
+    match client.create(req).await {
+      Ok(t) => {
+        debug!("[{}] Task: created {:?}", tid, t);
+        let task = Task {
+          pid: t.into_inner().pid,
+          container_id: Some(cid.clone()),
+          running: false
+        };
+        Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg, ns))
+      },
+      Err(e) => {
+        self.remove_container_internal(&cid, namespace, tid).await?;
+        self.namespace_manager.return_namespace(ns, tid)?;
+        bail_error!("[{}] Create task failed with: {}", tid, e);
+        },
+    }
+  }
+
+  /// creates and starts the entrypoint for a container based on the given image
+  /// Run inside the specified namespace
+  /// returns a new, unique ID representing it
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Arc<Container>> {
+    info!("[{}] Creating container from image '{}', in namespace '{}'", tid, image_name, namespace);
+    let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
+    let mut client = TasksClient::new(self.channel());
+  
+    let req = StartRequest {
+      container_id: container.container_id.clone(),
+      ..Default::default()
+    };
+    let req = with_namespace!(req, namespace);
+  
+    match client.start(req).await {
+        Ok(r) => {
+          debug!("Task {}: {:?} started", container.container_id, r);
+          container.task.running = true;
+          Ok(Arc::new(container))
+        },
+        Err(e) => bail_error!("[{}] Starting task failed with {}", tid, e),
+    }
+  }
+
+  /// Removed the specified container in the containerd namespace
+  async fn remove_container(&self, container: Arc<Container>, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+    self.remove_container_internal(&container.container_id, ctd_namespace, tid).await?;
+    self.namespace_manager.return_namespace(container.namespace.clone(), tid)?;
+
+    info!("[{}] Container: {:?} deleted", tid, &container.container_id);
+    Ok(())
+  }
+
+  /// Read through an image's digest to find it's snapshot base
+  async fn prepare_function_registration(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, _fqdn: &String, tid: &TransactionId) -> Result<RegisteredFunction> {
+    self.ensure_image(&image_name).await?;
+    let snapshot_base = self.search_image_digest(&image_name, "default", tid).await?;
+    Ok(RegisteredFunction {
+      function_name: function_name.clone(),
+      function_version: function_version.clone(),
+      image_name: image_name.clone(),
+      memory,
+      cpus,
+      snapshot_base,
+      parallel_invokes,
+    })
+  }
   
   async fn clean_containers(&self, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
     info!("[{}] Cleaning containers in namespace {}", tid, ctd_namespace);
@@ -479,23 +499,102 @@ impl LifecycleService for ContainerdLifecycle {
               bail_error!("[{}] Containerd failed to list containers with error: {}", tid, e);
             },
         };
-    let mut task_client = TasksClient::new(self.channel());
-
     debug!("[{}] Container list response {:?}", tid, resp);
     for container in resp.into_inner().containers.iter() {
       let container_id = &container.id;
       info!("[{}] Removing container {}", tid, container_id);
-
-      self.kill_task(&mut task_client, container_id, ctd_namespace, tid).await?;
-
-      tokio::time::sleep(Duration::from_millis(5)).await;
-
-      self.delete_task(&mut task_client, container_id, ctd_namespace, tid).await?;
-      self.delete_containerd_container(&mut ctr_client, container_id, ctd_namespace, tid).await?;
-      self.delete_container_resources(container_id, tid);
+      self.remove_container_internal(container_id, ctd_namespace, tid).await?;
     }
 
     self.namespace_manager.clean(tid)?;
     Ok(())
+  }
+
+  async fn wait_startup(&self, container: &Arc<Container>, timout_ms: u64, tid: &TransactionId) -> Result<()> {
+    debug!("[{}] Waiting for startup of container {}", tid, &container.container_id);
+    let stderr = self.stderr_pth(&container);
+
+    let start = SystemTime::now();
+
+    let mut inotify = Inotify::init().context("Init inotify watch failed")?;
+    let dscriptor = inotify
+        .add_watch(&stderr, WatchMask::MODIFY).context("Adding inotify watch failed")?;
+    let mut buffer = [0; 256];
+
+    loop {
+      match inotify.read_events(&mut buffer) {
+        Ok(_events) => {
+          // stderr was written to, gunicorn server is either up or crashed
+          inotify.rm_watch(dscriptor).context("Deleting inotify watch failed")?;
+          break;
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+          if start.elapsed()?.as_millis() as u64 >= timout_ms {
+            let stdout = self.read_stdout(&container, tid);
+            let stderr = self.read_stderr(&container, tid);
+            bail_error!("[{}] Timeout while reading inotify events for container {}; stdout: '{}'; stderr '{}'", tid, &container.container_id, stdout, stderr);
+          }
+        },
+        _ => bail_error!("[{}] Error while reading inotify events for container {}", &tid, container.container_id),
+      };
+      tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+    }
+    Ok(())
+  }
+
+  fn update_memory_usage_mb(&self, container: &Arc<Container>, tid: &TransactionId) -> MemSizeMb {
+    let contents = match std::fs::read_to_string(format!("/proc/{}/statm", container.task.pid)) {
+      Ok(c) => c,
+      Err(e) => { 
+        warn!("[{}] Error trying to read container '{}' /proc/<pid>/statm: {}", e, container.container_id, tid);
+        *container.healthy.lock() = false;
+        *container.mem_usage.write() = container.function.memory; 
+        return *container.mem_usage.read(); 
+      },
+    };
+    let split: Vec<&str> = contents.split(" ").collect();
+    // https://linux.die.net/man/5/proc
+    // virtual memory resident set size
+    let vmrss = split[1];
+    *container.mem_usage.write() = match vmrss.parse::<MemSizeMb>() {
+      // multiply page size in bytes by number pages, then convert to mb
+      Ok(size_pages) => (size_pages * 4096) / (1024*1024),
+      Err(e) => {
+        warn!("[{}] Error trying to parse vmrss of '{}': {}", e, vmrss, tid);
+        container.function.memory
+      },
+    };
+    *container.mem_usage.read()
+  }
+
+  fn stdout_pth(&self, container: &Arc<Container>) -> String {
+    temp_file_pth(&container.container_id, "stdout")
+  }
+  fn stderr_pth(&self, container: &Arc<Container>) -> String {
+    temp_file_pth(&container.container_id, "stderr")
+  }
+  fn stdin_pth(&self, container: &Arc<Container>) -> String {
+    temp_file_pth(&container.container_id, "stdin")
+  }
+
+  fn read_stdout(&self, container: &Arc<Container>, tid: &TransactionId) -> String {
+    let path = self.stdout_pth(&container);
+    match std::fs::read_to_string(path) {
+      Ok(s) => str::replace(&s, "\n", "\\n"),
+      Err(e) =>  {
+        error!("[{}] error reading container '{}' stdout: {}", tid, container.container_id, e);
+        format!("STDOUT_READ_ERROR: {}", e)
+      },
+    }
+  }
+  fn read_stderr(&self, container: &Arc<Container>, tid: &TransactionId) -> String {
+    let path = self.stderr_pth(&container);
+    match std::fs::read_to_string(path) {
+      Ok(s) => str::replace(&s, "\n", "\\n"),
+      Err(e) =>  {
+        error!("[{}] error reading container '{}' stderr: {}", tid, container.container_id, e);
+        format!("STDERR_READ_ERROR: {}", e)
+      },
+    }
   }
 }

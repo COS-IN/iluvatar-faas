@@ -127,7 +127,7 @@ impl ContainerManager {
         for container in read_lock.iter() {
           if *container.healthy.lock() {
             let old_usage = container.curr_mem_usage();
-            let new_usage = container.update_memory_usage_mb(tid);
+            let new_usage = self.cont_lifecycle.update_memory_usage_mb(container, tid);
             let diff = new_usage - old_usage;
             debug!("[{}] container '{}' new: {}; old: {}; diff:{}", tid, container.container_id, new_usage, old_usage, diff);
             sum_change += diff;
@@ -140,8 +140,8 @@ impl ContainerManager {
     }
 
     for container in to_remove {
-      let stdout = container.read_stdout(tid);
-      let stderr = container.read_stderr(tid);
+      let stdout = self.cont_lifecycle.read_stdout(&container, tid);
+      let stderr = self.cont_lifecycle.read_stderr(&container, tid);
       warn!("[{}] Removing an unhealthy container {} stdout: '{}' stderr: '{}'", tid, container.container_id, stdout, stderr);
       match self.remove_container(container.clone(), true, tid).await {
         Ok(_) => (),
@@ -226,8 +226,8 @@ impl ContainerManager {
       let mut m = container.mutex.lock();
       *m -= 1;
     }
-    let container = self.add_container_to_pool(fqdn, container)?;
-    Ok(ContainerLock::new(container.clone(), self, tid))
+    self.add_container_to_pool(fqdn, container.clone())?;
+    Ok(ContainerLock::new(container, self, tid))
   }
 
   #[tracing::instrument]  
@@ -254,18 +254,17 @@ impl ContainerManager {
   }
 
   #[tracing::instrument]  
-  async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Container> {
+  async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Arc<Container>> {
     let reg = match self.get_registration(&fqdn) {
       Ok(r) => r,
       Err(_) => {
         anyhow::bail!("Function {} was not registered! Cannot launch a container for it", fqdn);
       },
     };
-    let container = self.launch_container_internal(&reg, tid).await?;
-    Ok(container)
+    self.launch_container_internal(&reg, tid).await
   }
 
-  fn add_container_to_pool(&self, fqdn: &String, container: Container) -> Result<Arc<Container>> {
+  fn add_container_to_pool(&self, fqdn: &String, container: Arc<Container>) -> Result<()> {
     // acquire read lock to see if that function already has a pool entry
     let conts = self.active_containers.read();
     if conts.contains_key(fqdn) {
@@ -273,9 +272,8 @@ impl ContainerManager {
       match pool {
           Some(pool) => {
             let mut locked_pool = pool.write();
-            let ret = Arc::new(container);
-            locked_pool.push(ret.clone());
-            return Ok(ret);
+            locked_pool.push(container.clone());
+            return Ok(());
           },
           None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", fqdn),
       }
@@ -286,7 +284,7 @@ impl ContainerManager {
   }
 
   #[tracing::instrument]  
-  async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Arc<Container>> {
     // TODO: cpu and mem prewarm request overrides registration?
     {
       let mut curr_mem = self.used_mem_mb.lock();
@@ -310,13 +308,13 @@ impl ContainerManager {
         },
     };
 
-    match cont.wait_startup(self.resources.startup_timeout_ms, tid).await {
+    match self.cont_lifecycle.wait_startup(&cont, self.resources.startup_timeout_ms, tid).await {
         Ok(_) => (),
         Err(e) => {
           {
             *self.used_mem_mb.lock() -= reg.memory;
           }
-          match self.cont_lifecycle.remove_container(&cont.container_id, &cont.namespace, "default", tid).await {
+          match self.cont_lifecycle.remove_container(cont, "default", tid).await {
             Ok(_) => { return Err(e); },
             Err(inner_e) => anyhow::bail!("Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'", e, inner_e),
           };
@@ -330,7 +328,7 @@ impl ContainerManager {
   /// 
   /// Does a best effort to ensure a container is launched
   /// If various known errors happen, it will re-try to start it
-  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Arc<Container>> {
     match self.try_launch_container(&reg, tid).await {
             Ok(c) => Ok(c),
             Err(cause) => 
@@ -428,17 +426,7 @@ impl ContainerManager {
       anyhow::bail!("Illegal characters in function name: cannot container any \\,/");
     }
 
-    self.cont_lifecycle.ensure_image(&image_name).await?;
-    let snapshot_base = self.cont_lifecycle.search_image_digest(&image_name, "default", tid).await?;
-    let registration = RegisteredFunction {
-      function_name: function_name.clone(),
-      function_version: function_version.clone(),
-      image_name: image_name.clone(),
-      memory,
-      cpus,
-      snapshot_base,
-      parallel_invokes,
-    };
+    let registration = self.cont_lifecycle.prepare_function_registration(function_name, function_version, image_name, memory, cpus, parallel_invokes, fqdn, tid).await?;
 
     debug!("[{}] Adding new registration to registered_functions map: {} {}", tid, function_name, function_version);
     self.registered_functions.insert(fqdn.clone(), Arc::new(registration));
@@ -475,7 +463,7 @@ impl ContainerManager {
             let dropped_cont = wlocked_pool.remove(pos);
             *self.used_mem_mb.lock() -= dropped_cont.curr_mem_usage();
           }
-          self.cont_lifecycle.remove_container(&container.container_id, &container.namespace, "default", tid).await?;
+          self.cont_lifecycle.remove_container(container, "default", tid).await?;
           return Ok(());
         } else {
           anyhow::bail!("Was unable to find container {} to remove it", container.container_id);
