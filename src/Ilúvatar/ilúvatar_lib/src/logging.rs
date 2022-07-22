@@ -23,7 +23,13 @@ pub fn start_tracing(config: Arc<LoggingConfig>) -> Result<WorkerGuard> {
     _ => {
       let fname = format!("{}.log", config.basename.clone());
       let dir = std::fs::canonicalize(config.directory.clone())?;
-      println!("Logging to {}/{}", dir.to_str().unwrap(), fname);
+      let full_path = std::path::Path::new(&dir).join(&fname);
+
+      println!("Logging to {}", full_path.to_str().unwrap());
+      if full_path.exists() {
+        std::fs::remove_file(full_path).unwrap();
+      }
+
       let appender = tracing_appender::rolling::never(dir, fname);
       tracing_appender::non_blocking(appender)
     }
