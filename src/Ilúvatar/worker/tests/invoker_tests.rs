@@ -133,9 +133,9 @@ mod invoke_async {
                 assert!(result.duration_ms > 0, "Duration should not be <= 0!");
                 break
               } else {
-                if result.json_result == "{ 'Error': 'Invocation not found' }" || result.json_result == "{ 'Error': 'No result was captured' }" {
+                if result.json_result == "{ \"Error\": \"Invocation not found\" }" || result.json_result == "{ \"Error\": \"No result was captured\" }" {
                   panic!("Async invocation check after check: {:?}", result);
-                } else if result.json_result == "{ 'Status': 'Invocation not completed' }" {
+                } else if result.json_result == "{ \"Status\": \"Invocation not completed\" }" {
                   // keep waiting on invocation
                   tokio::time::sleep(Duration::from_millis(100)).await;
                   count += 1;
@@ -190,9 +190,9 @@ mod invoke_async {
                 assert!(result.duration_ms > 0, "Duration should not be <= 0!");
                 break
               } else {
-                if result.json_result == "{ 'Error': 'Invocation not found' }" || result.json_result == "{ 'Error': 'No result was captured' }" {
+                if result.json_result == "{ \"Error\": \"Invocation not found\" }" || result.json_result == "{ \"Error\": \"No result was captured\" }" {
                   panic!("Async invocation check after check: {:?}", result);
-                } else if result.json_result == "{ 'Status': 'Invocation not completed' }" {
+                } else if result.json_result == "{ \"Status\": \"Invocation not completed\" }" {
                   // keep waiting on invocation
                   tokio::time::sleep(Duration::from_millis(100)).await;
                   count += 1;

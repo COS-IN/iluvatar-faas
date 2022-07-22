@@ -33,5 +33,12 @@
     "pool_size": 10,
     "pool_freq_sec": 1,
     "hardware_interface": "enp4s0"
+  },
+  "load_balancer_url": "http://localhost:8078",
+  "graphite": {
+    "address": "localhost",
+    "api_port": "80",
+    "ingestion_port": "2003",
+    "ingestion_udp": false
   }
 }

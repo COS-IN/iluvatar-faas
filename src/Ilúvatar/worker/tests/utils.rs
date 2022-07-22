@@ -19,7 +19,7 @@ macro_rules! invoker_svc {
       let factory = LifecycleFactory::new(cfg.container_resources.clone(), cfg.networking.clone());
       let lifecycle = factory.get_lifecycle_service(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycke: {}", e));
 
-      let cm = Arc::new(ContainerManager::new(cfg.limits.clone(), cfg.container_resources.clone(), lifecycle.clone()).await.unwrap());
+      let cm = ContainerManager::boxed(cfg.limits.clone(), cfg.container_resources.clone(), lifecycle.clone(), &TEST_TID).await.unwrap();
       let invoker = InvokerService::boxed(cm.clone(), &TEST_TID, cfg.limits.clone());
       (cfg, cm, invoker)
     }
