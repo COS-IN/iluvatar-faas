@@ -8,31 +8,34 @@ use tracing::debug;
 
 #[derive(Debug)]
 #[allow(unused)]
+// TODO: move this behind a trait for simulation
 pub struct Container {
   pub container_id: String,
+  /// The containerd task in the container
   pub task: Task,
   pub port: Port,
   pub address: String,
   pub invoke_uri: String,
   pub base_uri: String,
   /// Mutex guard used to limit number of open requests to a single container
-  // TODO: implement real in-container parallelism
-  //    run multiple tasks in each? -> what about port setup then?
-  //    web server handles parallelism?
   pub mutex: Mutex<u32>,
   pub fqdn: String,
+  /// the associated function inside the container
   pub function: Arc<RegisteredFunction>,
   last_used: RwLock<SystemTime>,
+  /// The namespace container has been put in
   pub namespace: Arc<Namespace>,
+  /// number of invocations a container has performed
   invocations: Mutex<u32>,
+  /// Most recently clocked memory usage
   pub mem_usage: RwLock<MemSizeMb>,
+  /// Is container healthy?
   pub healthy: Mutex<bool>
 }
 
 
 #[allow(unused)]
 impl Container {
-
   pub fn new(container_id: String, task: Task, port: Port, address: String, parallel_invokes: u32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>) -> Self {
     let invoke_uri = calculate_invoke_uri(&address, port);
     let base_uri = calculate_base_uri(&address, port);
