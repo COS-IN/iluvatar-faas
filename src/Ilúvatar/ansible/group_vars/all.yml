@@ -1,0 +1,16 @@
+graphite:
+  docker_image: graphiteapp/graphite-statsd:latest
+  container_name: "iluvatar_graphite"
+  api_port: 8000
+  ingestion_port: 2003
+
+controller:
+  # controller: "{{ groups['controller']|first }}"
+  host: "{{ hostvars[ groups['controller']|first ].ansible_host }}"
+  port: 8089
+  bin_name: "iluvatar_load_balancer"
+
+worker:
+  port: 8070
+  bin_name: "iluvatar_worker"
+

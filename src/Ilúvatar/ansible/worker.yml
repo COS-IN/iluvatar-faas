@@ -1,12 +1,12 @@
 - hosts: workers
   vars:
-    controller_group: "{{ groups['controller'] }}"
-    controller: "{{ controller_group[0] }}"
-    controller_host: "{{ hostvars[ controller ].ansible_host }}"
+    expected: "Connection failure: [Errno 104] Connection reset by peer"
+  vars_files:
+    - group_vars/all.yml
 
   tasks:
   - name: Get running worker process
-    shell: "ps -ef | grep -v grep | grep -w iluvatar_worker | awk '{print $2}'"
+    shell: "ps -ef | grep -v grep | grep -w {{ worker.bin_name }} | awk '{print $2}'"
     register: running_worker
 
   # - name: find controller
@@ -21,7 +21,7 @@
   - name: clean host
     ansible.builtin.command: 
       argv: 
-        - /home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_worker
+        - "/home/alex/repos/efaas/src/Ilúvatar/target/debug/{{ worker.bin_name }}"
         - -c 
         - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
         - clean
@@ -30,7 +30,7 @@
   - name: run worker executable
     ansible.builtin.command: 
       argv: 
-        - /home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_worker
+        - "/home/alex/repos/efaas/src/Ilúvatar/target/debug/{{ worker.bin_name }}"
         - -c 
         - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
     become: yes
@@ -39,5 +39,23 @@
     when: mode != "clean"
     environment:
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__port": "8079"
-      "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller_host }}:8089"
+      "ILUVATAR_WORKER__port": "{{ worker.port }}"
+      "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:8089"
+
+  - name: print expected
+    debug:
+      msg: "expected: {{ expected }}"
+
+  - name: wait until the worker on this host is up and running
+    ansible.builtin.uri:
+      url:
+        "http://{{ansible_host}}:{{worker.port}}/ping"
+      validate_certs: "no"
+      # RPC server doesn't accept basic HTTP connections
+      # but we can try connecting to it once it's up and know it's alive
+      status_code: [-1, 0.9, 1.1]
+    register: result
+    until: result.msg == expected
+    retries: 10
+    delay: 10
+    when: mode != "clean"

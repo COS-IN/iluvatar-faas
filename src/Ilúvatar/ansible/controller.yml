@@ -2,6 +2,8 @@
   vars:
     host_group: "{{ groups['controller'] }}"
     host_group_size: "{{ host_group | length }}"
+  vars_files:
+    - group_vars/all.yml
 
   tasks:
   - name: limit count
@@ -11,7 +13,7 @@
       success_msg: "Good on number of controllers, got {{ host_group_size }}"
 
   - name: Get running controller process
-    shell: "ps -ef | grep -v grep | grep -w iluvatar_load_balancer | awk '{print $2}'"
+    shell: "ps -ef | grep -v grep | grep -w {{ controller.bin_name }} | awk '{print $2}'"
     register: running_lb
 
   - name: Kill running controller process
@@ -19,14 +21,10 @@
     with_items: "{{ running_lb.stdout_lines }}"
     become: yes
 
-  - name: print hosts
-    debug:
-      msg: "hostvars: {{ groups }}"
-
   - name: run controller executable
     ansible.builtin.command: 
       argv: 
-        - /home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_load_balancer
+        - "/home/alex/repos/efaas/src/Ilúvatar/target/debug/{{ controller.bin_name }}"
         - -c 
         - /home/alex/repos/efaas/src/Ilúvatar/load_balancer/src/load_balancer.json
     become: yes
@@ -34,5 +32,16 @@
     poll: 0
     when: mode != "clean"
     environment:
-      "ILUVATAR_CONTROLLER__name": "{{ inventory_hostname }}"
-      "ILUVATAR_CONTROLLER__port": "8089"
+      "ILUVATAR_CONTROLLER__name": "{{ controller.host }}"
+      "ILUVATAR_CONTROLLER__port": "{{ controller.port }}"
+
+  - name: wait until the controller on this host is up and running
+    uri:
+      url:
+        "http://{{ansible_host}}:{{controller.port}}/ping"
+      validate_certs: "no"
+    register: result
+    until: result.status == 200
+    retries: 10
+    delay: 10
+    when: mode != "clean"
