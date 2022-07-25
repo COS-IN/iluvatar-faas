@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use tracing::warn;
 
@@ -35,7 +37,16 @@ pub fn try_remove_pth(pth: &String, tid: &TransactionId) {
 }
 
 /// Make sure the temp dir to use exists
+pub fn ensure_dir(dir: &PathBuf) -> Result<()> {
+  match std::fs::create_dir_all(dir) {
+    Ok(_) => Ok(()),
+    Err(e) => anyhow::bail!("Failed to create temp dir: {}", e),
+  }
+}
+
+/// Make sure the temp dir to use exists
 pub fn ensure_temp_dir() -> Result<()> {
-  std::fs::create_dir_all(TEMP_DIR)?;
-  Ok(())
+  let bf = PathBuf::new();
+  let bf = bf.join(TEMP_DIR);
+  ensure_dir(&bf)
 }

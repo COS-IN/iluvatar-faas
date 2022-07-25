@@ -7,7 +7,6 @@ use parking_lot::Mutex;
 use tracing::{debug, error, warn, info};
 use std::time::SystemTime;
 use anyhow::Result;
-use reqwest;
 use guid_create::GUID;
 use super::invoker_structs::{QueueFuture, EnqueuedInvocation, InvocationResultPtr};
 
@@ -169,27 +168,12 @@ impl InvokerService {
       let fqdn = calculate_fqdn(&function_name, &function_version);
       match self.cont_manager.acquire_container(&fqdn, tid).await {
         Ok(ctr_lock) => {
-          let client = reqwest::Client::new();
           let start = SystemTime::now();
-          let result = match client.post(&ctr_lock.container.invoke_uri)
-            .body(json_args.to_owned())
-            .header("Content-Type", "application/json")
-            .send()
-            .await {
-                Ok(r) => r,
-                Err(e) =>{
-                  self.cont_manager.mark_unhealthy(&ctr_lock.container, tid);
-                  bail_error!("[{}] HTTP error when trying to connect to container '{}'", tid, e);
-                },
-            };
+          let data = ctr_lock.invoke(json_args).await?;
           let duration = match start.elapsed() {
             Ok(dur) => dur,
             Err(e) => bail_error!("[{}] timer error recording invocation duration '{}'", tid, e),
           }.as_millis() as u64;
-          let data = match result.text().await {
-            Ok(r) => r,
-            Err(e) => bail_error!("[{}] Error reading text data from container http response '{}'", tid, e),
-          };
           Ok((data, duration))
         },
         Err(cause) => Err(cause),

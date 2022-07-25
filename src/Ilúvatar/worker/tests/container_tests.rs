@@ -9,6 +9,8 @@ use iluvatar_lib::utils::calculate_fqdn;
 use iluvatar_lib::worker_api::worker_config::{WorkerConfig, Configuration};
 use iluvatar_lib::transaction::TEST_TID;
 use iluvatar_lib::services::{invocation::invoker::InvokerService};
+use iluvatar_lib::services::containers::structs::cast;
+use iluvatar_lib::services::containers::containerd::containerdstructs::ContainerdContainer;
 
 #[cfg(test)]
 mod registration {
@@ -212,9 +214,11 @@ mod prewarm {
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
     let c = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-    assert_eq!(c.container.task.running, true);
-    assert_eq!(c.container.function.function_name, "test");
-    assert_eq!(c.container.function.function_version, "0.1.1");
+    // let cast_c = c.container.clone() as Arc<ContainerdContainer>; 
+    let cast_container = cast::<ContainerdContainer>(&c.container, &TEST_TID).unwrap();
+    assert_eq!(cast_container.task.running, true);
+    assert_eq!(c.container.function().function_name, "test");
+    assert_eq!(c.container.function().function_version, "0.1.1");
   }
 }
 
@@ -240,7 +244,7 @@ use reqwest;
     let c1 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
 
     let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten cold-start container");
-    assert_ne!(c1.container.container_id, c2.container.container_id);
+    assert_ne!(c1.container.container_id(), c2.container.container_id());
   }
 
   #[tokio::test]
@@ -265,6 +269,10 @@ use reqwest;
     }
   }
 
+  fn cust_test(arg: Arc<dyn std::any::Any + Send + Sync + 'static>) -> Arc<dyn std::any::Any + Send + Sync + 'static> {
+    arg
+  }
+
   #[tokio::test]
   async fn container_alive() {
     let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
@@ -279,9 +287,12 @@ use reqwest;
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
     let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
+    let c3 = cust_test(c2.container);
+
+    let cast_container = cast::<ContainerdContainer>(&c2.container, &TEST_TID).unwrap();
 
     let client = reqwest::Client::new();
-    let result = client.get(&c2.container.base_uri)
+    let result = client.get(&cast_container.base_uri)
       .send()
       .await.unwrap();
       assert_eq!(result.status(), 200);
@@ -312,9 +323,10 @@ mod remove_container {
     drop(c1);
 
     cm.remove_container(c1_cont.clone(), true, &TEST_TID).await.unwrap_or_else(|e| panic!("remove container failed: {:?}", e));
+    let cast_container = cast::<ContainerdContainer>(&c1_cont, &TEST_TID).unwrap();
 
     let client = reqwest::Client::new();
-    let result = client.get(&c1_cont.base_uri)
+    let result = client.get(&cast_container.base_uri)
       .send()
       .await;
     match result {
@@ -333,7 +345,7 @@ mod remove_container {
     // assert_ne!(result.status(), 111, "unexpected return status for container {:?}", c1_cont);
 
     let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
-    assert_ne!(c1_cont.container_id, c2.container.container_id, "Second container should have different ID because container is gone");
+    assert_ne!(c1_cont.container_id(), c2.container.container_id(), "Second container should have different ID because container is gone");
   }
 
 }

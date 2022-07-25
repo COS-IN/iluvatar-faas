@@ -92,7 +92,10 @@ impl NamespaceManager {
 
     let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "json");
 
-    let mut file = File::create(temp_file)?;
+    let mut file = match File::create(temp_file) {
+      Ok(f) => f,
+      Err(e) => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
+    };
     let bridge_json = include_str!("../../resources/cni/il_worker_br.json");
     writeln!(&mut file, "{}", bridge_json)?;
 
@@ -236,16 +239,17 @@ impl NamespaceManager {
                           &vec!["add", &self.config.cni_name.as_str(), &nspth.as_str()],
                           Some(&env), tid)?;
 
-    match serde_json::from_slice(&out.stdout) {
-        Ok(mut ns) => {
-          self.cleanup_addresses(&mut ns);
-          debug!("[{}] Namespace '{}' created. Output: '{:?}'", tid, &name, ns);
-          Ok(Namespace {
-            name: name.to_string(),
-            namespace: ns
-          })
-        },
-        Err(e) => bail_error!("[{}] JSON error in create_namespace: {}", tid, e),
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    match serde_json::from_str(&stdout) {
+      Ok(mut ns) => {
+        self.cleanup_addresses(&mut ns);
+        debug!("[{}] Namespace '{}' created. Output: '{:?}'", tid, &name, ns);
+        Ok(Namespace {
+          name: name.to_string(),
+          namespace: ns
+        })
+      },
+      Err(e) => bail_error!("[{}] JSON error in create_namespace '{}', output: '{}'", tid, e, stdout),
     }
   }
 

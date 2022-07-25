@@ -1,5 +1,6 @@
 pub mod structs;
 pub mod containermanager;
-mod lifecycles;
-pub use lifecycles::containerdlife::ContainerdLifecycle;
-pub use lifecycles::simulator::SimulatorLifecycle;
+#[path ="./containerd/containerdlife.rs"]
+pub mod containerd;
+#[path ="./simulation/simulatorlife.rs"]
+pub mod simulation;

@@ -1,8 +1,10 @@
-use std::sync::Arc;
+use std::{sync::Arc, path::PathBuf};
 use tracing::metadata::LevelFilter;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt::format::FmtSpan;
 use anyhow::Result;
+
+use crate::utils::file_utils::ensure_dir;
 
 #[derive(Debug, serde::Deserialize)]
 #[allow(unused)]
@@ -22,9 +24,12 @@ pub fn start_tracing(config: Arc<LoggingConfig>) -> Result<WorkerGuard> {
     "" => tracing_appender::non_blocking(std::io::stdout()),
     _ => {
       let fname = format!("{}.log", config.basename.clone());
+      let buff = PathBuf::new();
+      ensure_dir(&buff.join(&config.directory))?;
       let dir = std::fs::canonicalize(config.directory.clone())?;
-      let full_path = std::path::Path::new(&dir).join(&fname);
+      ensure_dir(&dir)?;
 
+      let full_path = std::path::Path::new(&dir).join(&fname);
       println!("Logging to {}", full_path.to_str().unwrap());
       if full_path.exists() {
         std::fs::remove_file(full_path).unwrap();

@@ -7,6 +7,7 @@ use client::tonic::Code;
 use guid_create::GUID;
 use tonic::async_trait;
 use crate::services::LifecycleService;
+use crate::services::containers::containerd::containerdstructs::{Task, ContainerdContainer};
 use crate::transaction::TransactionId;
 use crate::types::MemSizeMb;
 use crate::utils::file::{try_remove_pth, temp_file, temp_file_pth};
@@ -31,10 +32,12 @@ use client::with_namespace;
 use containerd_client::tonic::Request;
 use prost_types::Any;
 use std::process::Command;
-use crate::services::containers::structs::{Container, Task, RegisteredFunction};
+use crate::services::containers::structs::{Container, RegisteredFunction};
 use crate::services::network::namespace_manager::NamespaceManager;
 use tracing::{info, warn, debug, error}; 
 use inotify::{Inotify, WatchMask};
+
+pub mod containerdstructs;
 
 #[derive(Debug)]
 pub struct ContainerdLifecycle {
@@ -351,13 +354,9 @@ impl ContainerdLifecycle {
     }
   }
   
-}
-
-#[async_trait]
-impl LifecycleService for ContainerdLifecycle {
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<ContainerdContainer> {
     let port = 8080;
 
     let cid = format!("{}-{}", fqdn, GUID::rand());
@@ -425,20 +424,23 @@ impl LifecycleService for ContainerdLifecycle {
           container_id: Some(cid.clone()),
           running: false
         };
-        Ok(Container::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg, ns))
+        Ok(ContainerdContainer::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg, ns))
       },
       Err(e) => {
         self.remove_container_internal(&cid, namespace, tid).await?;
         self.namespace_manager.return_namespace(ns, tid)?;
         bail_error!("[{}] Create task failed with: {}", tid, e);
-        },
+      },
     }
   }
+}
 
+#[async_trait]
+impl LifecycleService<ContainerdContainer> for ContainerdLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Arc<Container>> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     info!("[{}] Creating container from image '{}', in namespace '{}'", tid, image_name, namespace);
     let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
     let mut client = TasksClient::new(self.channel());
@@ -460,7 +462,8 @@ impl LifecycleService for ContainerdLifecycle {
   }
 
   /// Removed the specified container in the containerd namespace
-  async fn remove_container(&self, container: Arc<Container>, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+  async fn remove_container(&self, container: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+    let container = crate::services::containers::structs::cast::<ContainerdContainer>(&container, tid)?;
     self.remove_container_internal(&container.container_id, ctd_namespace, tid).await?;
     self.namespace_manager.return_namespace(container.namespace.clone(), tid)?;
 
@@ -510,8 +513,8 @@ impl LifecycleService for ContainerdLifecycle {
     Ok(())
   }
 
-  async fn wait_startup(&self, container: &Arc<Container>, timout_ms: u64, tid: &TransactionId) -> Result<()> {
-    debug!("[{}] Waiting for startup of container {}", tid, &container.container_id);
+  async fn wait_startup(&self, container: &Container, timout_ms: u64, tid: &TransactionId) -> Result<()> {
+    debug!("[{}] Waiting for startup of container {}", tid, &container.container_id());
     let stderr = self.stderr_pth(&container);
 
     let start = SystemTime::now();
@@ -532,67 +535,74 @@ impl LifecycleService for ContainerdLifecycle {
           if start.elapsed()?.as_millis() as u64 >= timout_ms {
             let stdout = self.read_stdout(&container, tid);
             let stderr = self.read_stderr(&container, tid);
-            bail_error!("[{}] Timeout while reading inotify events for container {}; stdout: '{}'; stderr '{}'", tid, &container.container_id, stdout, stderr);
+            bail_error!("[{}] Timeout while reading inotify events for container {}; stdout: '{}'; stderr '{}'", tid, &container.container_id(), stdout, stderr);
           }
         },
-        _ => bail_error!("[{}] Error while reading inotify events for container {}", &tid, container.container_id),
+        _ => bail_error!("[{}] Error while reading inotify events for container {}", &tid, container.container_id()),
       };
       tokio::time::sleep(std::time::Duration::from_micros(100)).await;
     }
     Ok(())
   }
 
-  fn update_memory_usage_mb(&self, container: &Arc<Container>, tid: &TransactionId) -> MemSizeMb {
-    let contents = match std::fs::read_to_string(format!("/proc/{}/statm", container.task.pid)) {
+  fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
+    let cast_container = match crate::services::containers::structs::cast::<ContainerdContainer>(&container, tid) {
       Ok(c) => c,
       Err(e) => { 
-        warn!("[{}] Error trying to read container '{}' /proc/<pid>/statm: {}", e, container.container_id, tid);
-        *container.healthy.lock() = false;
-        *container.mem_usage.write() = container.function.memory; 
-        return *container.mem_usage.read(); 
+        warn!("[{}] Error casting container to ContainerdContainer; error: {}", tid, e);
+        return container.get_curr_mem_usage() 
+      },
+    };
+    let contents = match std::fs::read_to_string(format!("/proc/{}/statm", cast_container.task.pid)) {
+      Ok(c) => c,
+      Err(e) => { 
+        warn!("[{}] Error trying to read container '{}' /proc/<pid>/statm: {}", e, cast_container.container_id, tid);
+        container.mark_unhealthy();
+        container.set_curr_mem_usage(cast_container.function.memory);
+        return container.get_curr_mem_usage(); 
       },
     };
     let split: Vec<&str> = contents.split(" ").collect();
     // https://linux.die.net/man/5/proc
     // virtual memory resident set size
     let vmrss = split[1];
-    *container.mem_usage.write() = match vmrss.parse::<MemSizeMb>() {
+    container.set_curr_mem_usage(match vmrss.parse::<MemSizeMb>() {
       // multiply page size in bytes by number pages, then convert to mb
       Ok(size_pages) => (size_pages * 4096) / (1024*1024),
       Err(e) => {
         warn!("[{}] Error trying to parse vmrss of '{}': {}", e, vmrss, tid);
-        container.function.memory
+        cast_container.function.memory
       },
-    };
-    *container.mem_usage.read()
+    });
+    container.get_curr_mem_usage()
   }
 
-  fn stdout_pth(&self, container: &Arc<Container>) -> String {
-    temp_file_pth(&container.container_id, "stdout")
+  fn stdout_pth(&self, container: &Container) -> String {
+    temp_file_pth(&container.container_id(), "stdout")
   }
-  fn stderr_pth(&self, container: &Arc<Container>) -> String {
-    temp_file_pth(&container.container_id, "stderr")
+  fn stderr_pth(&self, container: &Container) -> String {
+    temp_file_pth(&container.container_id(), "stderr")
   }
-  fn stdin_pth(&self, container: &Arc<Container>) -> String {
-    temp_file_pth(&container.container_id, "stdin")
+  fn stdin_pth(&self, container: &Container) -> String {
+    temp_file_pth(&container.container_id(), "stdin")
   }
 
-  fn read_stdout(&self, container: &Arc<Container>, tid: &TransactionId) -> String {
+  fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
     let path = self.stdout_pth(&container);
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {
-        error!("[{}] error reading container '{}' stdout: {}", tid, container.container_id, e);
+        error!("[{}] error reading container '{}' stdout: {}", tid, container.container_id(), e);
         format!("STDOUT_READ_ERROR: {}", e)
       },
     }
   }
-  fn read_stderr(&self, container: &Arc<Container>, tid: &TransactionId) -> String {
+  fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
     let path = self.stderr_pth(&container);
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {
-        error!("[{}] error reading container '{}' stderr: {}", tid, container.container_id, e);
+        error!("[{}] error reading container '{}' stderr: {}", tid, container.container_id(), e);
         format!("STDERR_READ_ERROR: {}", e)
       },
     }

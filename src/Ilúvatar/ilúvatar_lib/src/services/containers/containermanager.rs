@@ -15,7 +15,7 @@ use parking_lot::{RwLock, Mutex};
 use super::structs::{Container, RegisteredFunction, ContainerLock};
 use tracing::{info, warn, debug, error};
 
-type ContainerList = Arc<RwLock<Vec<Arc<Container>>>>;
+type ContainerList = Arc<RwLock<Vec<Container>>>;
 type ContainerPool = HashMap<String, ContainerList>;
 
 #[derive(Debug)]
@@ -125,11 +125,11 @@ impl ContainerManager {
         let read_lock = cont_list.read();
         let mut sum_change = 0;
         for container in read_lock.iter() {
-          if *container.healthy.lock() {
-            let old_usage = container.curr_mem_usage();
+          if container.is_healthy() {
+            let old_usage = container.get_curr_mem_usage();
             let new_usage = self.cont_lifecycle.update_memory_usage_mb(container, tid);
             let diff = new_usage - old_usage;
-            debug!("[{}] container '{}' new: {}; old: {}; diff:{}", tid, container.container_id, new_usage, old_usage, diff);
+            debug!("[{}] container '{}' new: {}; old: {}; diff:{}", tid, container.container_id(), new_usage, old_usage, diff);
             sum_change += diff;
           } else {
             to_remove.push(container.clone());
@@ -142,7 +142,7 @@ impl ContainerManager {
     for container in to_remove {
       let stdout = self.cont_lifecycle.read_stdout(&container, tid);
       let stderr = self.cont_lifecycle.read_stderr(&container, tid);
-      warn!("[{}] Removing an unhealthy container {} stdout: '{}' stderr: '{}'", tid, container.container_id, stdout, stderr);
+      warn!("[{}] Removing an unhealthy container {} stdout: '{}' stderr: '{}'", tid, container.container_id(), stdout, stderr);
       match self.remove_container(container.clone(), true, tid).await {
         Ok(_) => (),
         Err(cause) => {
@@ -200,7 +200,7 @@ impl ContainerManager {
           for container in pool.iter() {
             match self.try_lock_container(container, tid) {
               Some(c) => {
-                debug!("[{}] Container '{}' acquired", tid, c.container.container_id);
+                debug!("[{}] Container '{}' acquired", tid, c.container.container_id());
                 c.container.touch();
                 return Some(c)
               },
@@ -221,32 +221,28 @@ impl ContainerManager {
   #[tracing::instrument]  
   async fn cold_start<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     let container = self.launch_container(fqdn, tid).await?;
-    {
-      // claim this for ourselves before it touches the pool
-      let mut m = container.mutex.lock();
-      *m -= 1;
-    }
+    // claim this for ourselves before it touches the pool
+    container.acquire();
+
     self.add_container_to_pool(fqdn, container.clone())?;
     Ok(ContainerLock::new(container, self, tid))
   }
 
   #[tracing::instrument]  
-  fn try_lock_container<'a>(&'a self, container: &Arc<Container>, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
-    unsafe {
-      if *container.mutex.data_ptr() > 0 && *container.healthy.lock() {
-        let mut m = container.mutex.lock();
-        if *m > 0 {
-          *m -= 1;
-          return Some(ContainerLock::new(container.clone(), self, tid));
-        }
+  fn try_lock_container<'a>(&'a self, container: &Container, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
+    if container.try_acquire() {
+      if container.is_healthy() {
+        return Some(ContainerLock::new(container.clone(), self, tid));
+      }
+      else {
+        container.release();
       }
     }
     None
   }
 
-  pub fn return_container(&self, container: &Arc<Container>) {
-    let mut m = container.mutex.lock();
-    *m += 1;
+  pub fn return_container(&self, container: &Container) {
+    container.release();
     let mut running_funcs = self.running_funcs.lock();
     if self.resources.cores > 0 && *running_funcs >= self.resources.cores {
       *running_funcs -= 1;
@@ -254,7 +250,7 @@ impl ContainerManager {
   }
 
   #[tracing::instrument]  
-  async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Arc<Container>> {
+  async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Container> {
     let reg = match self.get_registration(&fqdn) {
       Ok(r) => r,
       Err(_) => {
@@ -264,7 +260,7 @@ impl ContainerManager {
     self.launch_container_internal(&reg, tid).await
   }
 
-  fn add_container_to_pool(&self, fqdn: &String, container: Arc<Container>) -> Result<()> {
+  fn add_container_to_pool(&self, fqdn: &String, container: Container) -> Result<()> {
     // acquire read lock to see if that function already has a pool entry
     let conts = self.active_containers.read();
     if conts.contains_key(fqdn) {
@@ -284,7 +280,7 @@ impl ContainerManager {
   }
 
   #[tracing::instrument]  
-  async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Arc<Container>> {
+  async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     // TODO: cpu and mem prewarm request overrides registration?
     {
       let mut curr_mem = self.used_mem_mb.lock();
@@ -299,28 +295,28 @@ impl ContainerManager {
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
     let cont = self.cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, tid).await;
     let cont = match cont {
-        Ok(cont) => {
-          cont
-        },
-        Err(e) => {
-          *self.used_mem_mb.lock() -= reg.memory;
-          return Err(e);
-        },
+      Ok(cont) => {
+        cont
+      },
+      Err(e) => {
+        *self.used_mem_mb.lock() -= reg.memory;
+        return Err(e);
+      },
     };
 
     match self.cont_lifecycle.wait_startup(&cont, self.resources.startup_timeout_ms, tid).await {
-        Ok(_) => (),
-        Err(e) => {
-          {
-            *self.used_mem_mb.lock() -= reg.memory;
-          }
-          match self.cont_lifecycle.remove_container(cont, "default", tid).await {
-            Ok(_) => { return Err(e); },
-            Err(inner_e) => anyhow::bail!("Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'", e, inner_e),
-          };
-        },
+      Ok(_) => (),
+      Err(e) => {
+        {
+          *self.used_mem_mb.lock() -= reg.memory;
+        }
+        match self.cont_lifecycle.remove_container(cont, "default", tid).await {
+          Ok(_) => { return Err(e); },
+          Err(inner_e) => anyhow::bail!("Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'", e, inner_e),
+        };
+      },
     };
-    info!("[{}] container '{}' with image '{}' was launched", tid, cont.container_id, reg.image_name);
+    info!("[{}] container '{}' with image '{}' was launched", tid, cont.container_id(), reg.image_name);
     Ok(cont)
   }
 
@@ -328,7 +324,7 @@ impl ContainerManager {
   /// 
   /// Does a best effort to ensure a container is launched
   /// If various known errors happen, it will re-try to start it
-  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Arc<Container>> {
+  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     match self.try_launch_container(&reg, tid).await {
             Ok(c) => Ok(c),
             Err(cause) => 
@@ -439,37 +435,33 @@ impl ContainerManager {
     Ok(())
   }
 
-  pub fn mark_unhealthy(&self, container: &Arc<Container>, tid: &TransactionId) {
-    info!("[{}] Marking container '{}' as unhealthy", tid, container.container_id);
-    *container.healthy.lock() = false;
+  pub fn mark_unhealthy(&self, container: &Container, tid: &TransactionId) {
+    info!("[{}] Marking container '{}' as unhealthy", tid, container.container_id());
+    container.mark_unhealthy();
   }
 
-  pub async fn remove_container(&self, container: Arc<Container>, lock_check: bool, tid: &TransactionId) -> Result<()> {
-    if lock_check {
-      let mut cont_lock = container.mutex.lock();
-      if *cont_lock != container.function.parallel_invokes {
-        bail!(ContainerLockedError{})
-      }
-      *cont_lock = 0;
+  pub async fn remove_container(&self, container: Container, lock_check: bool, tid: &TransactionId) -> Result<()> {
+    if lock_check && container.being_held() {
+      bail!(ContainerLockedError{})
     }
 
-    match self.get_container_vec(&container.fqdn) {
+    match self.get_container_vec(&container.fqdn()) {
       Some(pool) => {
         let (pos, pool_len) = self.find_container_pos(&container, pool.clone());
         if pos < pool_len {
-          info!("[{}] Removing container {}", tid, &container.container_id);
+          info!("[{}] Removing container {}", tid, &container.container_id());
           {
             let mut wlocked_pool = pool.write();
             let dropped_cont = wlocked_pool.remove(pos);
-            *self.used_mem_mb.lock() -= dropped_cont.curr_mem_usage();
+            *self.used_mem_mb.lock() -= dropped_cont.get_curr_mem_usage();
           }
           self.cont_lifecycle.remove_container(container, "default", tid).await?;
           return Ok(());
         } else {
-          anyhow::bail!("Was unable to find container {} to remove it", container.container_id);
+          anyhow::bail!("Was unable to find container {} to remove it", container.container_id());
         }
       },
-      None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", container.fqdn),
+      None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", container.fqdn()),
     }
   }
 
@@ -481,9 +473,9 @@ impl ContainerManager {
     let mut reclaimed: MemSizeMb = 0;
     let mut to_remove = Vec::new();
     for container in self.prioritized_list.read().iter() {
-      if self.try_seize_container(container) {
+      if container.try_seize() {
         to_remove.push(container.clone());
-        reclaimed += container.curr_mem_usage();
+        reclaimed += container.get_curr_mem_usage();
         if reclaimed >= amount_mb {
           break;
         }
@@ -517,25 +509,16 @@ impl ContainerManager {
     *lock = ordered;
   }
 
-  fn lru_eviction(c1: &Arc<Container>, c2: &Arc<Container>) -> Ordering {
+  fn lru_eviction(c1: &Container, c2: &Container) -> Ordering {
     c1.last_used().cmp(&c2.last_used())
   }
 
-  fn try_seize_container(&self, container: &Arc<Container>) -> bool {
-    let mut cont_lock = container.mutex.lock();
-    if *cont_lock != container.function.parallel_invokes {
-      return false;
-    }
-    *cont_lock = 0;
-    true
-  }
-
-  fn find_container_pos(&self, container: &Arc<Container>, pool: ContainerList) -> (usize,usize) {
+  fn find_container_pos(&self, container: &Container, pool: ContainerList) -> (usize,usize) {
     let rlocked_pool = pool.read();
     let pool_len = rlocked_pool.len();
     let mut pos = pool_len + 100;
     for (i, iter_cont) in rlocked_pool.iter().enumerate() {
-      if container.container_id == iter_cont.container_id {
+      if container.container_id() == iter_cont.container_id() {
         pos = i;
         break;
       }

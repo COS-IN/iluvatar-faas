@@ -1,91 +1,74 @@
+use std::any::Any;
 use std::{sync::Arc, time::SystemTime};
-use crate::{transaction::TransactionId, types::MemSizeMb, services::network::network_structs::Namespace};
-use crate::utils::{port::Port, calculate_invoke_uri, calculate_base_uri};
-use parking_lot::{RwLock, Mutex};
+use crate::{transaction::TransactionId, types::MemSizeMb};
 use crate::services::containers::containermanager::ContainerManager;
 use anyhow::Result;
 use tracing::debug;
 
-#[derive(Debug)]
-#[allow(unused)]
-// TODO: move this behind a trait for simulation
-pub struct Container {
-  pub container_id: String,
-  /// The containerd task in the container
-  pub task: Task,
-  pub port: Port,
-  pub address: String,
-  pub invoke_uri: String,
-  pub base_uri: String,
-  /// Mutex guard used to limit number of open requests to a single container
-  pub mutex: Mutex<u32>,
-  pub fqdn: String,
-  /// the associated function inside the container
-  pub function: Arc<RegisteredFunction>,
-  last_used: RwLock<SystemTime>,
-  /// The namespace container has been put in
-  pub namespace: Arc<Namespace>,
-  /// number of invocations a container has performed
-  invocations: Mutex<u32>,
-  /// Most recently clocked memory usage
-  pub mem_usage: RwLock<MemSizeMb>,
-  /// Is container healthy?
-  pub healthy: Mutex<bool>
+#[tonic::async_trait]
+pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
+  // type Implementer;
+
+  async fn invoke(&self, json_args: &String, tid: &TransactionId) -> Result<String>;
+
+  /// indicate that the container as been "used" or internal datatsructures should be updated such that it has
+  fn touch(&self);
+  /// the unique ID for this container
+  fn container_id(&self) -> &String;
+  /// The time at which the container last served an invocation
+  fn last_used(&self) -> SystemTime;
+  /// Number of invocations this container has served
+  fn invocations(&self) -> u32;
+  /// Current memory usage of this container
+  fn get_curr_mem_usage(&self) -> MemSizeMb;
+  /// Update the memory usage of this container
+  fn set_curr_mem_usage(&self, usage: MemSizeMb);
+  /// the function this container serves
+  fn function(&self) -> Arc<RegisteredFunction>;
+  /// the fully qualified domain name of the function
+  fn fqdn(&self) -> &String;
+
+  /// true if the container is healthy
+  fn is_healthy(&self) -> bool;
+  /// set the container as unhealthy
+  fn mark_unhealthy(&self);
+
+  /// acquire a lock for invocation
+  fn acquire(&self);
+  /// true if a lock was acquired
+  fn try_acquire(&self) -> bool;
+  /// release invocation lock
+  fn release(&self);
+  /// return true if all locks for invocations can be acquired
+  fn try_seize(&self) -> bool;
+  /// return true if anyone has a lock for invocation
+  fn being_held(&self) -> bool;
 }
 
-
-#[allow(unused)]
-impl Container {
-  pub fn new(container_id: String, task: Task, port: Port, address: String, parallel_invokes: u32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>) -> Self {
-    let invoke_uri = calculate_invoke_uri(&address, port);
-    let base_uri = calculate_base_uri(&address, port);
-    Container {
-      container_id,
-      task,
-      port,
-      address,
-      invoke_uri,
-      base_uri,
-      mutex: Mutex::new(parallel_invokes),
-      fqdn: fqdn.clone(),
-      function: function.clone(),
-      last_used: RwLock::new(SystemTime::now()),
-      namespace: ns,
-      invocations: Mutex::new(0),
-      mem_usage: RwLock::new(function.memory),
-      healthy: Mutex::new(true),
-    }
-  }
-
-  pub fn touch(&self) {
-    let mut lock = self.last_used.write();
-    *lock = SystemTime::now();
-    *self.invocations.lock() += 1;
-  }
-
-  pub fn last_used(&self) -> SystemTime {
-    *self.last_used.read()
-  }
-
-  pub fn invocations(&self) -> u32 {
-    *self.invocations.lock()
-  }
-
-  pub fn curr_mem_usage(&self) -> MemSizeMb {
-    *self.mem_usage.read()
+/// 
+pub fn cast<'a, T>(c: &'a Container, tid: &TransactionId) -> Result<&'a T>
+  where T : ContainerT {
+  match c.as_any().downcast_ref::<T>() {
+    Some(i) => Ok(i),
+    None => {
+      anyhow::bail!("[{}] Failed to cast ContainerT type {} to {:?}", tid, std::any::type_name::<Container>(), std::any::type_name::<T>());
+    },
   }
 }
 
-#[derive(Debug)]
-#[allow(unused)]
-pub struct Task {
-  pub pid: u32,
-  pub container_id: Option<String>,
-  pub running: bool,
+pub trait ToAny: 'static {
+  fn as_any(&self) -> &dyn Any;
+}
+impl<T: 'static> ToAny for T {
+  fn as_any(&self) -> &dyn Any {
+      self
+  }
 }
 
+// pub type Container = Arc<dyn ContainerT>;
+pub type Container = Arc<super::containerd::containerdstructs::ContainerdContainer>;
+
 #[derive(Debug)]
-#[allow(unused)]
 pub struct RegisteredFunction {
   pub function_name: String,
   pub function_version: String,
@@ -97,24 +80,28 @@ pub struct RegisteredFunction {
 }
 
 pub struct ContainerLock<'a> {
-  pub container: Arc<Container>,
+  pub container: Container,
   container_mrg: &'a ContainerManager,
   transaction_id: &'a TransactionId,
 }
 
 impl<'a> ContainerLock<'a> {
-  pub fn new(container: Arc<Container>, container_mrg: &'a ContainerManager, tid: &'a TransactionId) -> Self {
+  pub fn new(container: Container, container_mrg: &'a ContainerManager, tid: &'a TransactionId) -> Self {
     ContainerLock {
       container,
       container_mrg,
       transaction_id: tid
     }
   }
+
+  pub async fn invoke(&self, json_args: &String) -> Result<String> {
+    self.container.invoke(json_args, self.transaction_id).await
+  }
 }
 
 impl<'a> Drop for ContainerLock<'a> {
   fn drop(&mut self) {
-    debug!("[{}] Dropping container lock for '{}'!", self.transaction_id, self.container.container_id);
+    debug!("[{}] Dropping container lock for '{}'!", self.transaction_id, self.container.container_id());
     self.container_mrg.return_container(&self.container);
   }
 }
