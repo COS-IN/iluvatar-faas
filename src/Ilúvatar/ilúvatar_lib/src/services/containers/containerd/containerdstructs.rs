@@ -63,6 +63,8 @@ impl ContainerdContainer {
 #[tonic::async_trait]
 impl ContainerT for ContainerdContainer {
   async fn invoke(&self, json_args: &String, tid: &TransactionId) -> anyhow::Result<String> {
+    *self.invocations.lock() += 1;
+
     self.touch();
     let client = reqwest::Client::new();
     let result = match client.post(&self.invoke_uri)
@@ -97,7 +99,6 @@ impl ContainerT for ContainerdContainer {
   fn touch(&self) {
     let mut lock = self.last_used.write();
     *lock = SystemTime::now();
-    *self.invocations.lock() += 1;
   }
 
   fn get_curr_mem_usage(&self) -> MemSizeMb {

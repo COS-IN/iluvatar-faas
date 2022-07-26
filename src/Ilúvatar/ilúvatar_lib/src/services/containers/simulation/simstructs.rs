@@ -14,9 +14,9 @@ pub struct SimulatorContainer {
   pub fqdn: String,
   /// the associated function inside the container
   pub function: Arc<RegisteredFunction>,
-  last_used: RwLock<SystemTime>,
+  pub last_used: RwLock<SystemTime>,
   /// number of invocations a container has performed
-  invocations: Mutex<u32>,
+  pub invocations: Mutex<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +38,8 @@ pub struct SimulationResult {
 #[tonic::async_trait]
 impl ContainerT for SimulatorContainer {
   async fn invoke(&self, json_args: &String, tid: &TransactionId) ->  Result<String> {
+    *self.invocations.lock() += 1;
+
     // just sleep for a while based on data from json args
     let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
       Ok(d) => d,
@@ -59,7 +61,6 @@ impl ContainerT for SimulatorContainer {
   fn touch(&self) {
     let mut lock = self.last_used.write();
     *lock = SystemTime::now();
-    *self.invocations.lock() += 1;
   }
 
   fn container_id(&self) ->  &String {
