@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tonic::async_trait;
 use anyhow::Result;
 use crate::{types::MemSizeMb, transaction::TransactionId, worker_api::worker_config::{ContainerResources, NetworkingConfig}};
-use self::{containers::{structs::{Container, RegisteredFunction, ContainerT}, containerd::{ContainerdLifecycle, containerdstructs::ContainerdContainer}}, network::namespace_manager::NamespaceManager};
+use self::{containers::{structs::{Container, RegisteredFunction}, containerd::ContainerdLifecycle}, network::namespace_manager::NamespaceManager};
 
 pub mod containers;
 pub mod invocation;
@@ -16,13 +16,10 @@ pub use controller_health::HealthService as ControllerHealthService;
 pub mod graphite;
 
 #[async_trait]
-pub trait LifecycleService<C = Container>: Send + Sync + std::fmt::Debug {
-  /// Create a container, but do not start it / the process inside it
-  // async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container>;
-
+pub trait LifecycleService: Send + Sync + std::fmt::Debug {
   /// Return a container that has been started with the given settings
   /// NOTE: you will have to ask the lifetime again to wait on the container to be started up
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<C>;
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container>;
 
   /// removes a specific container, and all the related resources
   async fn remove_container(&self, container_id: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;
@@ -40,11 +37,11 @@ pub trait LifecycleService<C = Container>: Send + Sync + std::fmt::Debug {
   /// Update the current resident memory size of the container
   fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb;
 
-  fn stdout_pth(&self, container: &Container) -> String;
-  fn stderr_pth(&self, container: &Container) -> String;
-  fn stdin_pth(&self, container: &Container) -> String;
-
+  /// get the contents of the container's stdout as a string
+  /// or an error message string if something went wrong
   fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String;
+  /// get the contents of the container's stderr as a string
+  /// or an error message string if something went wrong
   fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String;
 }
 

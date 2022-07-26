@@ -269,10 +269,6 @@ use reqwest;
     }
   }
 
-  fn cust_test(arg: Arc<dyn std::any::Any + Send + Sync + 'static>) -> Arc<dyn std::any::Any + Send + Sync + 'static> {
-    arg
-  }
-
   #[tokio::test]
   async fn container_alive() {
     let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
@@ -287,7 +283,6 @@ use reqwest;
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
     let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
-    let c3 = cust_test(c2.container);
 
     let cast_container = cast::<ContainerdContainer>(&c2.container, &TEST_TID).unwrap();
 

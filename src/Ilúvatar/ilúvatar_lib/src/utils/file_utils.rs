@@ -13,14 +13,15 @@ pub fn temp_file_pth(with_tail: &str, with_extension: &str) -> String {
   format!("{}/{}.{}", TEMP_DIR, with_tail, with_extension)
 }
 
+/// Create a temp file and return the path to it
 pub fn temp_file(with_tail: &str, with_extension: &str) -> std::io::Result<String> {
   let pth = temp_file_pth(with_tail, with_extension);
   touch(&pth)?;
   Ok(pth)
 }
 
-// A simple implementation of `% touch path` (ignores existing files)
-fn touch(path: &String) -> std::io::Result<()> {
+/// A simple implementation of `% touch path` (ignores existing files)
+pub fn touch(path: &String) -> std::io::Result<()> {
   match std::fs::OpenOptions::new().create(true).write(true).open(path) {
       Ok(_) => Ok(()),
       Err(e) => Err(e),

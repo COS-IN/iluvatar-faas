@@ -10,7 +10,7 @@ use crate::services::LifecycleService;
 use crate::services::containers::containerd::containerdstructs::{Task, ContainerdContainer};
 use crate::transaction::TransactionId;
 use crate::types::MemSizeMb;
-use crate::utils::file::{try_remove_pth, temp_file, temp_file_pth};
+use crate::utils::file::{try_remove_pth, temp_file_pth, touch};
 use crate::utils::cgroup::cgroup_namespace;
 use crate::utils::port::Port;
 use crate::bail_error;
@@ -227,9 +227,9 @@ impl ContainerdLifecycle {
   }
 
   fn delete_container_resources(&self, container_id: &String, tid: &TransactionId) {
-    try_remove_pth(&temp_file_pth(container_id, "stdin"), tid);
-    try_remove_pth(&temp_file_pth(container_id, "stdout"), tid);
-    try_remove_pth(&temp_file_pth(container_id, "stderr"), tid);
+    try_remove_pth(&self.stdin_pth(container_id), tid);
+    try_remove_pth(&self.stdout_pth(container_id), tid);
+    try_remove_pth(&self.stderr_pth(container_id), tid);
   }
 
   async fn remove_container_internal(&self, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
@@ -403,14 +403,20 @@ impl ContainerdLifecycle {
 
     let mounts = self.load_mounts(&cid, &reg.snapshot_base, tid).await?;
 
+    let stdin = self.stdin_pth(&cid);
+    touch(&stdin)?;
+    let stdout = self.stdout_pth(&cid);
+    touch(&stdout)?;
+    let stderr = self.stderr_pth(&cid);
+    touch(&stderr)?;
     let req = CreateTaskRequest {
         container_id: cid.clone(),
         rootfs: mounts,
         checkpoint: None,
         options: None,
-        stdin: temp_file(&cid, "stdin")?,
-        stdout: temp_file(&cid, "stdout")?,
-        stderr: temp_file(&cid, "stderr")?,
+        stdin: stdin,
+        stdout: stdout,
+        stderr: stderr,
         terminal: false,
     };
     let req = with_namespace!(req, namespace);
@@ -433,10 +439,20 @@ impl ContainerdLifecycle {
       },
     }
   }
+
+  fn stdout_pth(&self, container_id: &String) -> String {
+    temp_file_pth(container_id, "stdout")
+  }
+  fn stderr_pth(&self, container_id: &String) -> String {
+    temp_file_pth(container_id, "stderr")
+  }
+  fn stdin_pth(&self, container_id: &String) -> String {
+    temp_file_pth(container_id, "stdin")
+  }
 }
 
 #[async_trait]
-impl LifecycleService<ContainerdContainer> for ContainerdLifecycle {
+impl LifecycleService for ContainerdLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
@@ -515,7 +531,7 @@ impl LifecycleService<ContainerdContainer> for ContainerdLifecycle {
 
   async fn wait_startup(&self, container: &Container, timout_ms: u64, tid: &TransactionId) -> Result<()> {
     debug!("[{}] Waiting for startup of container {}", tid, &container.container_id());
-    let stderr = self.stderr_pth(&container);
+    let stderr = self.stderr_pth(&container.container_id());
 
     let start = SystemTime::now();
 
@@ -535,6 +551,10 @@ impl LifecycleService<ContainerdContainer> for ContainerdLifecycle {
           if start.elapsed()?.as_millis() as u64 >= timout_ms {
             let stdout = self.read_stdout(&container, tid);
             let stderr = self.read_stderr(&container, tid);
+            if stderr.len() > 0 {
+              warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for container start, but stderr was written to?");
+              return Ok(())
+            }
             bail_error!("[{}] Timeout while reading inotify events for container {}; stdout: '{}'; stderr '{}'", tid, &container.container_id(), stdout, stderr);
           }
         },
@@ -577,18 +597,8 @@ impl LifecycleService<ContainerdContainer> for ContainerdLifecycle {
     container.get_curr_mem_usage()
   }
 
-  fn stdout_pth(&self, container: &Container) -> String {
-    temp_file_pth(&container.container_id(), "stdout")
-  }
-  fn stderr_pth(&self, container: &Container) -> String {
-    temp_file_pth(&container.container_id(), "stderr")
-  }
-  fn stdin_pth(&self, container: &Container) -> String {
-    temp_file_pth(&container.container_id(), "stdin")
-  }
-
   fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
-    let path = self.stdout_pth(&container);
+    let path = self.stdout_pth(&container.container_id());
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {
@@ -598,7 +608,7 @@ impl LifecycleService<ContainerdContainer> for ContainerdLifecycle {
     }
   }
   fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
-    let path = self.stderr_pth(&container);
+    let path = self.stderr_pth(&container.container_id());
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {

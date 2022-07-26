@@ -151,3 +151,9 @@ impl ContainerT for ContainerdContainer {
     *self.mutex.lock() != self.function().parallel_invokes
   }
 }
+
+impl crate::services::containers::structs::ToAny for ContainerdContainer {
+  fn as_any(&self) -> &dyn std::any::Any {
+      self
+  }
+}

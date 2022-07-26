@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::{sync::Arc, time::SystemTime};
 use crate::{transaction::TransactionId, types::MemSizeMb};
 use crate::services::containers::containermanager::ContainerManager;
@@ -7,8 +6,7 @@ use tracing::debug;
 
 #[tonic::async_trait]
 pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
-  // type Implementer;
-
+  /// Invoke the function within the container, passing the json args to it
   async fn invoke(&self, json_args: &String, tid: &TransactionId) -> Result<String>;
 
   /// indicate that the container as been "used" or internal datatsructures should be updated such that it has
@@ -45,9 +43,10 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
   fn being_held(&self) -> bool;
 }
 
-/// 
+/// Cast a container pointer to a concrete type
+/// ```let contd: &ContainerdContainer = cast::<ContainerdContainer>(&container, tid)```
 pub fn cast<'a, T>(c: &'a Container, tid: &TransactionId) -> Result<&'a T>
-  where T : ContainerT {
+  where T : ContainerT + ToAny {
   match c.as_any().downcast_ref::<T>() {
     Some(i) => Ok(i),
     None => {
@@ -56,17 +55,12 @@ pub fn cast<'a, T>(c: &'a Container, tid: &TransactionId) -> Result<&'a T>
   }
 }
 
+/// A trait ContainerT implementers must also implement to enable casting back to the concrete type
 pub trait ToAny: 'static {
-  fn as_any(&self) -> &dyn Any;
-}
-impl<T: 'static> ToAny for T {
-  fn as_any(&self) -> &dyn Any {
-      self
-  }
+  fn as_any(&self) -> &dyn std::any::Any;
 }
 
-// pub type Container = Arc<dyn ContainerT>;
-pub type Container = Arc<super::containerd::containerdstructs::ContainerdContainer>;
+pub type Container = Arc<dyn ContainerT>;
 
 #[derive(Debug)]
 pub struct RegisteredFunction {
@@ -79,6 +73,7 @@ pub struct RegisteredFunction {
   pub parallel_invokes: u32,
 }
 
+/// A struct denoting that the owner has a lock on the container to invoke with
 pub struct ContainerLock<'a> {
   pub container: Container,
   container_mrg: &'a ContainerManager,
@@ -94,11 +89,13 @@ impl<'a> ContainerLock<'a> {
     }
   }
 
+  /// ask the internal container to invoke the function
   pub async fn invoke(&self, json_args: &String) -> Result<String> {
     self.container.invoke(json_args, self.transaction_id).await
   }
 }
 
+/// Automatically release the lock on the container when the lock is dropped
 impl<'a> Drop for ContainerLock<'a> {
   fn drop(&mut self) {
     debug!("[{}] Dropping container lock for '{}'!", self.transaction_id, self.container.container_id());
@@ -107,6 +104,7 @@ impl<'a> Drop for ContainerLock<'a> {
 }
 
 #[derive(Debug)]
+/// An container start failed because the system did not have enough memory
 pub struct InsufficientMemoryError {
   pub needed: MemSizeMb,
   pub used: MemSizeMb,
@@ -123,6 +121,7 @@ impl std::error::Error for InsufficientMemoryError {
 }
 
 #[derive(Debug)]
+/// An container start failed because the system did not have enough CPU cores
 pub struct InsufficientCoresError {
 }
 impl std::fmt::Display for InsufficientCoresError {
@@ -136,6 +135,7 @@ impl std::error::Error for InsufficientCoresError {
 }
 
 #[derive(Debug)]
+/// An container start failed with a platform error
 pub struct ContainerStartupError {
   pub message: String
 }
@@ -150,6 +150,7 @@ impl std::error::Error for ContainerStartupError {
 }
 
 #[derive(Debug)]
+/// Unable to complete an action because another has a lock on the container
 pub struct ContainerLockedError {
 }
 impl std::fmt::Display for ContainerLockedError {
