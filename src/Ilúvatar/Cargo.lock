@@ -3423,6 +3423,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "worker_load"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "config",
+ "futures",
+ "iluvatar_lib",
+ "prost 0.10.4",
+ "serde",
+ "tokio",
+ "tonic 0.7.2",
+]
+
+[[package]]
 name = "yaml-rust"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

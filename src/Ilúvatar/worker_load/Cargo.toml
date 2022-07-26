@@ -1,0 +1,18 @@
+[package]
+name = "worker_load"
+version = "0.1.0"
+edition = "2021"
+authors = ["Alex Fuerst alfuerst@iu.edu"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iluvatar_lib = { path = "../ilúvatar_lib" }
+config = "0.13.1"
+serde = { version = "1.0", features = ["derive"] }
+clap = "2"
+tonic = "0.7.2"
+prost = "0.10"
+tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util"] }
+anyhow = "1.0.13"
+futures = "0.3.21"

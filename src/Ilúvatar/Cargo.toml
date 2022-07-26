@@ -9,6 +9,7 @@
 members = [
   "worker",
   "worker_cli",
+  "worker_load",
   "ilúvatar_lib",
   "load_balancer"
 ]
