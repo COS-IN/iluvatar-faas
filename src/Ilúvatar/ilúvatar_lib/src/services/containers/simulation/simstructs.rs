@@ -39,7 +39,6 @@ pub struct SimulationResult {
 impl ContainerT for SimulatorContainer {
   async fn invoke(&self, json_args: &String, tid: &TransactionId) ->  Result<String> {
     // just sleep for a while based on data from json args
-    // TODO: get info in here if function was pre-warmed
     let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
       Ok(d) => d,
       Err(e) => bail_error!("[{}] unable to deserialize run time information because of: {}", tid, e),
