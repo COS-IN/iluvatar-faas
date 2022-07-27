@@ -64,7 +64,7 @@ data = sorted(overhead_ms_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [np.mean(y) for _,y in data]
 ax.plot(xs, ys)
-save_fname = os.path.join("overheads.png")
+save_fname = os.path.join(args.path, "overheads.png")
 
 ax.set_title("Average platform overhead per-invocation as clients increase")
 ax.set_ylabel("Platform overhead (ms)")
@@ -82,7 +82,7 @@ data = sorted(overhead_pct_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [np.mean(y) for _,y in data]
 ax.plot(xs, ys)
-save_fname = os.path.join("overheads_pct.png")
+save_fname = os.path.join(args.path, "overheads_pct.png")
 
 ax.set_title("Average percent of invocation time caused by platform overhead as clients increase")
 ax.set_ylabel("Platform overhead")
@@ -100,7 +100,7 @@ data = sorted(latency_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [np.mean(y) for _,y in data]
 ax.plot(xs, ys)
-save_fname = os.path.join("latency.png")
+save_fname = os.path.join(args.path, "latency.png")
 
 ax.set_title("Average invocation latency as clients increase")
 ax.set_ylabel("Invocation Latency (ms)")
@@ -118,7 +118,7 @@ data = sorted(latency_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [len(y) for _,y in data]
 ax.plot(xs, ys)
-save_fname = os.path.join("throughput.png")
+save_fname = os.path.join(args.path, "throughput.png")
 
 ax.set_title("Total throughput as clients increase")
 ax.set_ylabel("Invocations")
@@ -136,7 +136,7 @@ data = sorted(latency_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [len(y)/x for x,y in data]
 ax.plot(xs, ys)
-save_fname = os.path.join("avg_throughput.png")
+save_fname = os.path.join(args.path, "avg_throughput.png")
 
 ax.set_title("Per-client throughput as clients increase")
 ax.set_ylabel("Invocations per thread")
