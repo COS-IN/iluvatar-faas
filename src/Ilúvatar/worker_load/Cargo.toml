@@ -10,6 +10,7 @@ authors = ["Alex Fuerst alfuerst@iu.edu"]
 iluvatar_lib = { path = "../ilúvatar_lib" }
 config = "0.13.1"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.81"
 clap = "2"
 tonic = "0.7.2"
 prost = "0.10"

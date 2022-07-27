@@ -9,7 +9,8 @@ pub fn parse() -> ArgMatches<'static> {
     .args_from_usage("
         -p, --port=[PORT]           'Port worker is listening on'
         -h, --host=[NAME]           'Host worker is on'
-        -o, --out=[FILE]            'File to output results to'")
+        -o, --out=[FOLDER]          'Folder to output results to'
+        -i, --iterations=[ITERS]    'Number of times to run experiment'")
     .subcommand(SubCommand::with_name("scaling")
                 .about("Test scaling of worker with increasing amount of requests")
                 .arg(Arg::with_name("threads")

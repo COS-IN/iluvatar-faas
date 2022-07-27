@@ -3433,6 +3433,7 @@ dependencies = [
  "iluvatar_lib",
  "prost 0.10.4",
  "serde",
+ "serde_json",
  "tokio",
  "tonic 0.7.2",
 ]
