@@ -10,7 +10,6 @@ use anyhow::Result;
 use guid_create::GUID;
 use super::invoker_structs::{QueueFuture, EnqueuedInvocation, InvocationResultPtr};
 
-#[derive(Debug)]
 pub struct InvokerService {
   pub cont_manager: Arc<ContainerManager>,
   pub async_functions: Arc<DashMap<String, InvocationResultPtr>>,

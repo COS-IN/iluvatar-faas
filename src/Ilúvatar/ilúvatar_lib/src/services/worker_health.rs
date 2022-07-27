@@ -25,7 +25,6 @@ struct TestBody {
   latency: f64
 }
 
-#[derive(Debug)]
 pub struct WorkerHealthService {
   invoker_svc: Arc<InvokerService>
 }

@@ -11,12 +11,29 @@ use crate::utils::file_utils::ensure_dir;
 /// details about how/where to log to
 pub struct LoggingConfig {
   /// the min log level
+  /// see [tracing_core::metadata::LevelFilter]
   pub level: String,
   /// directory to store logs in
   /// logs to stdout if empty
   pub directory: String,
   /// log filename start string
-  pub basename: String
+  pub basename: String,
+  /// how to log spans 
+  /// look at for details [tracing_subscriber::fmt::format]
+  pub spanning: String,
+}
+
+fn str_to_span(spanning: &String) -> FmtSpan {
+  match spanning.to_lowercase().as_str() {
+    "new" => FmtSpan::NEW,
+    "enter" => FmtSpan::ENTER,
+    "exit" => FmtSpan::EXIT,
+    "close" => FmtSpan::CLOSE,
+    "none" => FmtSpan::NONE,
+    "active" => FmtSpan::ACTIVE,
+    "full" => FmtSpan::FULL,
+    _ => panic!("Unknown spanning value {}", spanning),
+  }
 }
 
 pub fn start_tracing(config: Arc<LoggingConfig>) -> Result<WorkerGuard> {
@@ -42,12 +59,12 @@ pub fn start_tracing(config: Arc<LoggingConfig>) -> Result<WorkerGuard> {
 
   let builder = tracing_subscriber::fmt()
     .with_max_level(config.level.parse::<LevelFilter>()?)
-    .with_span_events(FmtSpan::FULL)
+    .with_span_events(str_to_span(&config.spanning))
     .with_writer(non_blocking);
 
   match config.directory.as_str() {
     "" => builder.init(),
-    _ => builder.json().init(),
+    _ => builder.json().with_span_list(false).init(),
   };
   
   Ok(_guard)

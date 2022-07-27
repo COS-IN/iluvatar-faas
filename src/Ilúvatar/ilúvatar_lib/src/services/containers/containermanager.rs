@@ -18,7 +18,6 @@ use tracing::{info, warn, debug, error};
 type ContainerList = Arc<RwLock<Vec<Container>>>;
 type ContainerPool = HashMap<String, ContainerList>;
 
-#[derive(Debug)]
 pub struct ContainerManager {
   registered_functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,
   active_containers: Arc<RwLock<ContainerPool>>,
@@ -32,7 +31,6 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-  #[tracing::instrument]  
   async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>) -> Result<ContainerManager> {
 
     Ok(ContainerManager {
@@ -83,6 +81,7 @@ impl ContainerManager {
     })
   }
 
+  #[tracing::instrument(skip(self))]
   async fn monitor_pool(&self) {
     let tid: &TransactionId = &CTR_MGR_WORKER_TID;
     loop {
@@ -161,9 +160,8 @@ impl ContainerManager {
   /// acquire_container
   /// get a lock on a container for the specified function
   /// will start a function if one is not available
-    /// Can return a custom InsufficientCoresError if an invocation cannot be started now
-
-  #[tracing::instrument]
+  /// Can return a custom InsufficientCoresError if an invocation cannot be started now
+  #[tracing::instrument(skip(self))]
   pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     let cont = self.try_acquire_container(fqdn, tid);
     let cont = match cont {
@@ -188,7 +186,7 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument]  
+  #[tracing::instrument(skip(self))]  
   fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     let conts = self.active_containers.read();
     let opt = conts.get(fqdn);
@@ -217,7 +215,7 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument]  
+  #[tracing::instrument(skip(self))]  
   async fn cold_start<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     let container = self.launch_container(fqdn, tid).await?;
     // claim this for ourselves before it touches the pool
@@ -227,7 +225,7 @@ impl ContainerManager {
     Ok(ContainerLock::new(container, self, tid))
   }
 
-  #[tracing::instrument]  
+  #[tracing::instrument(skip(self))]  
   fn try_lock_container<'a>(&'a self, container: &Container, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     if container.try_acquire() {
       if container.is_healthy() {
@@ -248,7 +246,7 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument]  
+  #[tracing::instrument(skip(self))]  
   async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Container> {
     let reg = match self.get_registration(&fqdn) {
       Ok(r) => r,
@@ -278,7 +276,7 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument]  
+  #[tracing::instrument(skip(self))]  
   async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     // TODO: cpu and mem prewarm request overrides registration?
     let curr_mem = *self.used_mem_mb.read();
@@ -340,7 +338,7 @@ impl ContainerManager {
   /// # Errors
   /// Can error if not already registered and full info isn't provided
     /// Other errors caused by starting/registered the function apply
-  #[tracing::instrument]  
+  #[tracing::instrument(skip(self))]  
   pub async fn prewarm(&self, request: &PrewarmRequest) -> Result<()> {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     let reg = match self.get_registration(&fqdn) {
@@ -356,17 +354,7 @@ impl ContainerManager {
         },
     };
 
-    let container = match self.launch_container_internal(&reg, &request.transaction_id).await {
-        Ok(c) => Ok(c),
-        Err(cause) => {
-            if let Some(mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
-              self.reclaim_memory(mem_err.needed, &request.transaction_id).await?;
-              self.launch_container_internal(&reg, &request.transaction_id).await
-            } else {
-              Err(cause)
-            }
-          },
-    }?;
+    let container = self.launch_container_internal(&reg, &request.transaction_id).await?;
     self.add_container_to_pool(&fqdn, container)?;
     info!("[{}] function '{}' was successfully prewarmed", &request.transaction_id, fqdn);
     Ok(())

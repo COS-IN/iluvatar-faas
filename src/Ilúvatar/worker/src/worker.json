@@ -13,7 +13,8 @@
   "logging": {
     "level": "debug",
     "directory": "/tmp/ilúvatar/logs",
-    "basename": "worker"
+    "basename": "worker",
+    "spanning": "FULL"
   },
   "container_resources": {
     "memory_mb": 20480,

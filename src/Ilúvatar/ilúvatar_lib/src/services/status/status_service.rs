@@ -12,7 +12,6 @@ use crate::transaction::TransactionId;
 use crate::utils::execute_cmd;
 use super::WorkerStatus;
 
-#[derive(Debug)]
 #[allow(unused)]
 pub struct StatusService {
   container_manager: Arc<ContainerManager>, 
