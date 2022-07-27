@@ -11,7 +11,7 @@ use dashmap::DashMap;
 use std::cmp::Ordering;
 use std::collections::HashMap; 
 use std::sync::{Arc, mpsc::{Receiver, channel}};
-use parking_lot::{RwLock, Mutex};
+use parking_lot::RwLock;
 use super::structs::{Container, RegisteredFunction, ContainerLock};
 use tracing::{info, warn, debug, error};
 
@@ -24,8 +24,8 @@ pub struct ContainerManager {
   active_containers: Arc<RwLock<ContainerPool>>,
   limits_config: Arc<FunctionLimits>, 
   resources: Arc<ContainerResources>,
-  used_mem_mb: Arc<Mutex<MemSizeMb>>,
-  running_funcs: Arc<Mutex<u32>>,
+  used_mem_mb: Arc<RwLock<MemSizeMb>>,
+  running_funcs: Arc<RwLock<u32>>,
   cont_lifecycle: Arc<dyn LifecycleService>,
   prioritized_list: ContainerList,
   _worker_thread: std::thread::JoinHandle<()>,
@@ -40,8 +40,8 @@ impl ContainerManager {
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       limits_config,
       resources,
-      used_mem_mb: Arc::new(Mutex::new(0)),
-      running_funcs: Arc::new(Mutex::new(0)),
+      used_mem_mb: Arc::new(RwLock::new(0)),
+      running_funcs: Arc::new(RwLock::new(0)),
       cont_lifecycle,
       prioritized_list: Arc::new(RwLock::new(Vec::new())),
       _worker_thread: worker_thread,
@@ -103,22 +103,21 @@ impl ContainerManager {
   }
 
   pub fn free_memory(&self) -> MemSizeMb {
-    self.resources.memory_mb - *self.used_mem_mb.lock()
+    self.resources.memory_mb - *self.used_mem_mb.read()
   }
   pub fn used_memory(&self) -> MemSizeMb {
-    *self.used_mem_mb.lock()
+    *self.used_mem_mb.read()
   }
   pub fn total_memory(&self) -> MemSizeMb {
     self.resources.memory_mb
   }
-
   pub fn free_cores(&self) -> u32 {
-    self.resources.cores - *self.running_funcs.lock()
+    self.resources.cores - *self.running_funcs.read()
   }
 
   async fn update_memory_usages(&self, tid: &TransactionId) {
     debug!("[{}] updating container memory usages", tid);
-    let old_total_mem = *self.used_mem_mb.lock();
+    let old_total_mem = *self.used_mem_mb.read();
     let mut to_remove = vec![];
     unsafe {
       for (_fqdn, cont_list) in (*self.active_containers.data_ptr()).iter() {
@@ -135,7 +134,7 @@ impl ContainerManager {
             to_remove.push(container.clone());
           }
         }
-        *self.used_mem_mb.lock() += sum_change;
+        *self.used_mem_mb.write() += sum_change;
       }
     }
 
@@ -155,7 +154,7 @@ impl ContainerManager {
       };
     }
 
-    let new_total_mem = *self.used_mem_mb.lock();
+    let new_total_mem = *self.used_mem_mb.read();
     debug!("[{}] Total container memory usage old: {}; new: {}", tid, old_total_mem, new_total_mem);
   }
 
@@ -176,7 +175,7 @@ impl ContainerManager {
     };
     match cont {
         Ok(cont) =>  {
-          let mut running_funcs = self.running_funcs.lock();
+          let mut running_funcs = self.running_funcs.write();
           if self.resources.cores > 0 && *running_funcs < self.resources.cores {
             *running_funcs += 1;
           } else {
@@ -243,7 +242,7 @@ impl ContainerManager {
 
   pub fn return_container(&self, container: &Container) {
     container.release();
-    let mut running_funcs = self.running_funcs.lock();
+    let mut running_funcs = self.running_funcs.write();
     if self.resources.cores > 0 && *running_funcs >= self.resources.cores {
       *running_funcs -= 1;
     }
@@ -282,15 +281,13 @@ impl ContainerManager {
   #[tracing::instrument]  
   async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     // TODO: cpu and mem prewarm request overrides registration?
-    {
-      let mut curr_mem = self.used_mem_mb.lock();
-      if *curr_mem + reg.memory > self.resources.memory_mb {
-        let avail = self.resources.memory_mb-*curr_mem;
-        debug!("[{}] Can't launch container due to insufficient memory. needed: {}; used: {}; available: {}", tid, reg.memory-avail, *curr_mem, avail);
-        anyhow::bail!(InsufficientMemoryError{ needed: reg.memory-avail, used: *curr_mem, available: avail });
-      } else {
-        *curr_mem += reg.memory;
-      }
+    let curr_mem = *self.used_mem_mb.read();
+    if curr_mem + reg.memory > self.resources.memory_mb {
+      let avail = self.resources.memory_mb-curr_mem;
+      debug!("[{}] Can't launch container due to insufficient memory. needed: {}; used: {}; available: {}", tid, reg.memory-avail, curr_mem, avail);
+      anyhow::bail!(InsufficientMemoryError{ needed: reg.memory-avail, used: curr_mem, available: avail });
+    } else {
+      *self.used_mem_mb.write() += reg.memory;
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
     let cont = self.cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, tid).await;
@@ -299,7 +296,7 @@ impl ContainerManager {
         cont
       },
       Err(e) => {
-        *self.used_mem_mb.lock() -= reg.memory;
+        *self.used_mem_mb.write() -= reg.memory;
         return Err(e);
       },
     };
@@ -308,7 +305,7 @@ impl ContainerManager {
       Ok(_) => (),
       Err(e) => {
         {
-          *self.used_mem_mb.lock() -= reg.memory;
+          *self.used_mem_mb.write() -= reg.memory;
         }
         match self.cont_lifecycle.remove_container(cont, "default", tid).await {
           Ok(_) => { return Err(e); },
@@ -453,7 +450,7 @@ impl ContainerManager {
           {
             let mut wlocked_pool = pool.write();
             let dropped_cont = wlocked_pool.remove(pos);
-            *self.used_mem_mb.lock() -= dropped_cont.get_curr_mem_usage();
+            *self.used_mem_mb.write() -= dropped_cont.get_curr_mem_usage();
           }
           self.cont_lifecycle.remove_container(container, "default", tid).await?;
           return Ok(());

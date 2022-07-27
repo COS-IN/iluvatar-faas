@@ -26,32 +26,33 @@ runtimes = 0
 invocation_cnt = 0
 
 for file in os.listdir(args.path):
-  path = os.path.join(args.path, file)
-  num_threads, iteration = file[:-len(".json")].split("-")
-  num_threads = int(num_threads)
-  iteration = int(iteration)
-  # print(path, num_threads, iteration)
-  with open(path, 'r') as f:
-    data = json.load(f)
-  for entry in data:
-    thread_id = entry["thread_id"]
-    registration = entry["registration"]
-    errors = entry["errors"]
-    invocations = entry["data"]
-    
-    registration_data[num_threads].append(registration["duration_ms"])
-    for invoke in invocations:
-      duration_ms = invoke["duration_ms"]
-      latency_data[num_threads].append(duration_ms)
+  if "json" in file:
+    path = os.path.join(args.path, file)
+    num_threads, iteration = file[:-len(".json")].split("-")
+    num_threads = int(num_threads)
+    iteration = int(iteration)
+    # print(path, num_threads, iteration)
+    with open(path, 'r') as f:
+      data = json.load(f)
+    for entry in data:
+      thread_id = entry["thread_id"]
+      registration = entry["registration"]
+      errors = entry["errors"]
+      invocations = entry["data"]
       
-      runtime_ms = invoke["json"]["body"]["latency"] * 1000
-      runtimes += runtime_ms
-      invocation_cnt += 1
-      overhead_ms = duration_ms - runtime_ms
-      overhead_pct = overhead_ms / duration_ms
+      registration_data[num_threads].append(registration["duration_ms"])
+      for invoke in invocations:
+        duration_ms = invoke["duration_ms"]
+        latency_data[num_threads].append(duration_ms)
+        
+        runtime_ms = invoke["json"]["body"]["latency"] * 1000
+        runtimes += runtime_ms
+        invocation_cnt += 1
+        overhead_ms = duration_ms - runtime_ms
+        overhead_pct = overhead_ms / duration_ms
 
-      overhead_ms_data[num_threads].append(overhead_ms)
-      overhead_pct_data[num_threads].append(overhead_pct)
+        overhead_ms_data[num_threads].append(overhead_ms)
+        overhead_pct_data[num_threads].append(overhead_pct)
 
 print("average runtime:", runtimes/invocation_cnt )
 

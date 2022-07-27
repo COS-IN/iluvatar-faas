@@ -18,12 +18,13 @@ pub fn scaling(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   ensure_dir(&std::path::PathBuf::new().join(&folder))?;
   let iterations: u64 = get_val("iterations", &main_args)?;
 
-  let thread_cnt: usize = get_val("threads", &sub_args)?;
+  let thread_start: usize = get_val("start", &sub_args)?;
+  let thread_end: usize = get_val("end", &sub_args)?;
   let duration_sec: u64 = get_val("duration", &sub_args)?;
 
 
   for i in 0..iterations {
-    for threads in 1..(thread_cnt+1) {
+    for threads in thread_start..(thread_end+1) {
       println!("\n Running with {} threads", threads);
       let result = run_one_scaling_test(threads, host.clone(), port, duration_sec);
       let to_write = match serde_json::to_string::<Vec<ThreadResult>>(&result) {
