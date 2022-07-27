@@ -52,5 +52,6 @@ pub struct Body {
   pub cold: bool,
   pub start: f64,
   pub end: f64,
+  /// python runtime latency in seconds
   pub latency: f64,
 }
