@@ -11,10 +11,11 @@
     "retries": 1
   },
   "logging": {
-    "level": "debug",
+    "level": "info",
     "directory": "/tmp/ilúvatar/logs",
     "basename": "worker",
-    "spanning": "FULL"
+    "spanning": "FULL",
+    "flame": ""
   },
   "container_resources": {
     "memory_mb": 20480,

@@ -7,7 +7,9 @@
   "logging": {
     "level": "debug",
     "directory": "/tmp/ilúvatar/logs",
-    "basename": "load_balancer"
+    "basename": "load_balancer",
+    "spanning": "FULL",
+    "flame": ""
   },
   "load_balancer": {
     "algorithm": "LeastLoaded"

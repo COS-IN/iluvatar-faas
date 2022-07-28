@@ -141,6 +141,7 @@ impl InvokerService {
     }
 
     /// Insert an invocation request into the queue and return a QueueFuture for it's execution result
+    #[tracing::instrument(skip(self))]
     fn enqueue_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> QueueFuture {
       debug!("[{}] Enqueueing invocation", tid);
       let fut = QueueFuture::new();
@@ -152,6 +153,7 @@ impl InvokerService {
 
     /// synchronously run an invocation
     /// returns the json result and duration as a tuple
+    #[tracing::instrument(skip(self))]
     pub async fn invoke(&self, request: InvokeRequest) -> Result<(String, u64)> {
       let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone()).await;
       info!("[{}] Invocation complete", request.transaction_id);

@@ -28,7 +28,6 @@ inotify = "0.10.0"
 clap = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "tracing-log", "parking_lot"] }
-tracing-flame="*"
 tracing-appender = "0.2.2"
 
 [dev-dependencies]
