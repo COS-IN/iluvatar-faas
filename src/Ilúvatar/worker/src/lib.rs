@@ -2,10 +2,7 @@ use std::sync::Arc;
 use iluvatar_lib::{worker_api::worker_config::Configuration, transaction::TransactionId, load_balancer_api::register_worker};
 use tracing::{debug, info, error};
 
-#[path ="./ilúvatar_worker.rs"]
-pub mod ilúvatar_worker;
 pub mod args;
-
 
 pub fn register_rpc_to_controller(server_config: Arc<Configuration>, tid: TransactionId) {
   let _ = tokio::spawn(async move {

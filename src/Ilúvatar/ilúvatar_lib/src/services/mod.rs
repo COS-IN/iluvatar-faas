@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tonic::async_trait;
 use anyhow::Result;
 use crate::{types::MemSizeMb, transaction::TransactionId, worker_api::worker_config::{ContainerResources, NetworkingConfig}};
-use self::{containers::{structs::{Container, RegisteredFunction}, containerd::ContainerdLifecycle}, network::namespace_manager::NamespaceManager};
+use self::{containers::{structs::{Container, RegisteredFunction}, containerd::ContainerdLifecycle, simulation::SimulatorLifecycle}, network::namespace_manager::NamespaceManager};
 
 pub mod containers;
 pub mod invocation;
@@ -70,7 +70,9 @@ impl LifecycleFactory {
       Ok(Arc::new(lifecycle))
     } else if self.containers.backend == "docker" {
       todo!();
-    } else {
+    }  else if self.containers.backend == "simulation" {
+      Ok(Arc::new(SimulatorLifecycle::new()))
+    }else {
       panic!("Unknown lifecycle backend '{}'", self.containers.backend);
     }
   }

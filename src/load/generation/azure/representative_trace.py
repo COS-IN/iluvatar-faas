@@ -6,10 +6,12 @@ from math import ceil
 import argparse
 
 argparser = argparse.ArgumentParser()
-argparser.add_argument("--out-folder", '-o')
-argparser.add_argument("--data-path", '-d')
-argparser.add_argument("--num-funcs", '-n', type=int)
-argparser.add_argument("--force", '-f', action='store_true')
+argparser.add_argument("--out-folder", '-o', help="The folder to store the output csv files into")
+argparser.add_argument("--data-path", '-d', help="The folder where the azure dataset has been downloaded to")
+argparser.add_argument("--num-funcs", '-n', type=int, help="Number of functions to sample for the trace")
+argparser.add_argument("--force", '-f', action='store_true', help="Overwrite an existing trace that has the same number of functions")
+argparser.add_argument("--min-start", '-s', type=int, help="The minute to start the trace at", default=60)
+argparser.add_argument("--min-end", '-e', type=int, help="The minute to end the trace at", default=120)
 args = argparser.parse_args()
 
 dataset = join_day_one(args.data_path)
@@ -31,7 +33,7 @@ if not os.path.exists(metadata_save_pth) or args.force:
     chosen = choose_from.sample(per_qant)
 
     for index, row in chosen.iterrows():
-      traced_row, (func_name, cold_dur, warm_dur, mem) = trace_row(index, row, function_id)
+      traced_row, (func_name, cold_dur, warm_dur, mem) = trace_row(index, row, function_id, args.min_start, args.min_end)
       trace += traced_row
       function_metadata.append((func_name, cold_dur, warm_dur, mem, function_id))
       function_id += 1

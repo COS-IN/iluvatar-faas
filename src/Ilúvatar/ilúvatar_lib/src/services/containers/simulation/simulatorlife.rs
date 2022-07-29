@@ -7,7 +7,7 @@ use guid_create::GUID;
 use parking_lot::{Mutex, RwLock};
 use tracing::warn;
 
-mod simstructs;
+pub mod simstructs;
 
 #[derive(Debug)]
 pub struct SimulatorLifecycle {

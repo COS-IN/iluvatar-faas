@@ -1,6 +1,6 @@
 use std::{time::{Duration, SystemTime}, sync::Arc};
 
-use clap::ArgMatches;
+use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
 use iluvatar_lib::{utils::{config::get_val, port_utils::Port, file_utils::ensure_dir}, rpc::RCPWorkerAPI, ilúvatar_api::WorkerAPI, transaction::{gen_tid, TransactionId}};
 use tokio::sync::Barrier;
@@ -9,6 +9,33 @@ use crate::utils::{self, InvocationResult, ThreadResult, HelloResult, Registrati
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+
+pub fn trace_args<'a>(app: App<'a, 'a>) -> App<'a, 'a> {
+  app.subcommand(SubCommand::with_name("scaling")
+    .about("Test scaling of worker with increasing amount of requests")
+    .arg(Arg::with_name("start")
+      .short("s")
+      .long("start")
+      .help("Number of threads to start")
+      .required(false)
+      .takes_value(true)
+      .default_value("1"))
+    .arg(Arg::with_name("end")
+      .short("e")
+      .long("end")
+      .help("Number of threads to reach")
+      .required(false)
+      .takes_value(true)
+      .default_value("1"))
+    .arg(Arg::with_name("duration")
+      .short("d")
+      .long("duration")
+      .help("Duration in seconds before increasing load")
+      .required(false)
+      .takes_value(true)
+      .default_value("5"))
+  )
+}
 
 pub fn scaling(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   // let worker_name: String = get_val("worker", &main_args)?;

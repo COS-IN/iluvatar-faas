@@ -16,4 +16,5 @@ lazy_static::lazy_static! {
   pub static ref STATUS_WORKER_TID: TransactionId = "Status".to_string();
   pub static ref HEALTH_TID: TransactionId = "HealthCheck".to_string();
   pub static ref LEAST_LOADED_TID: TransactionId = "LeastLoadedLB".to_string();
+  pub static ref SIMULATION_START_TID: TransactionId = "SimulationStartup".to_string();
 }

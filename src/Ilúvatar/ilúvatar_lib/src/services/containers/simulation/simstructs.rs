@@ -19,12 +19,12 @@ pub struct SimulatorContainer {
   pub invocations: Mutex<u32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[allow(unused)]
 /// struct used to control "invocation" pattern of simulated function
 pub struct SimulationInvocation {
-  pub warm_time_duration_ms: u64,
-  pub cold_time_duration_ms: u64,
+  pub warm_dur_ms: u64,
+  pub cold_dur_ms: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -33,12 +33,12 @@ pub struct SimulationInvocation {
 pub struct SimulationResult {
   pub was_cold: bool,
   pub duration_ms: u64,
+  pub function_name: String,
 }
 
 #[tonic::async_trait]
 impl ContainerT for SimulatorContainer {
   async fn invoke(&self, json_args: &String, tid: &TransactionId) ->  Result<String> {
-    *self.invocations.lock() += 1;
 
     // just sleep for a while based on data from json args
     let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
@@ -47,13 +47,15 @@ impl ContainerT for SimulatorContainer {
     };
 
     let (duration_ms, was_cold) = match self.invocations() {
-      0 => (data.cold_time_duration_ms, true),
-      _ => (data.warm_time_duration_ms, false)
+      0 => (data.cold_dur_ms, true),
+      _ => (data.warm_dur_ms, false)
     };
+    *self.invocations.lock() += 1;
     tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
     let ret = SimulationResult {
       was_cold,
-      duration_ms
+      duration_ms,
+      function_name: self.function.function_name.clone()
     };
     Ok(serde_json::to_string(&ret)?)
   }

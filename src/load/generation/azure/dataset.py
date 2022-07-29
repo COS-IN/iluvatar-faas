@@ -47,14 +47,14 @@ def join_day_one(datapath: str):
   joined = joined[joined["percentile_Average_25"]>0]
   return joined
 
-def trace_row(func_name, row, function_id):
+def trace_row(func_name, row, function_id, min_start=0, min_end=1440):
   secs_p_min = 60
   milis_p_sec = 1000
   trace = list()
   cold_dur = int(row["Maximum"])
   warm_dur = int(row["percentile_Average_25"])
   mem = int(row["divvied"])
-  for minute, invocs in enumerate(row[buckets]):
+  for minute, invocs in enumerate(row[buckets[min_start:min_end]]):
     start = minute * secs_p_min * milis_p_sec
     if invocs == 0:
       continue
