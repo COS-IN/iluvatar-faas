@@ -59,7 +59,6 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
   let mut handles: Vec<JoinHandle<Result<(u64, InvokeResponse)>>> = Vec::new();
-  // let mut handles = Vec::new();
 
   println!("starting simulation run");
 
@@ -92,7 +91,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
     };
     let cln = worker.clone();
     handles.push(threaded_rt.spawn(async move {
-      let (_reg_start, reg_dur, reg_out) = crate::utils::time(cln.invoke(Request::new(req))).await?;
+      let (reg_dur, reg_out) = crate::utils::time(cln.invoke(Request::new(req))).await?;
       Ok((reg_dur, reg_out?.into_inner()))
     }));
   }

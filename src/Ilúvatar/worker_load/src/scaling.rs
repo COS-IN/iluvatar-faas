@@ -5,7 +5,7 @@ use anyhow::Result;
 use iluvatar_lib::{utils::{config::get_val, port_utils::Port, file_utils::ensure_dir}, rpc::RCPWorkerAPI, ilúvatar_api::WorkerAPI, transaction::{gen_tid, TransactionId}};
 use tokio::sync::Barrier;
 use tokio::runtime::Builder;
-use crate::utils::{self, InvocationResult, ThreadResult, HelloResult, RegistrationResult};
+use crate::utils::{self, InvocationResult, ThreadResult, RealInvokeResult, RegistrationResult};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -132,7 +132,7 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
   let image = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
   let tid: TransactionId = gen_tid();
 
-  let (_reg_start, reg_dur, reg_out) = utils::time(api.register(name.clone(), version.clone(), image, 75, 1, 1, tid.clone())
+  let (reg_dur, reg_out) = utils::time(api.register(name.clone(), version.clone(), image, 75, 1, 1, tid.clone())
   ).await?;
   let reg_result = match reg_out {
     Ok(s) => RegistrationResult {
@@ -149,7 +149,7 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
   let mut data = Vec::new();
   let mut errors = 0;
   loop {
-    let (_invok_start, invok_dur, invok_out) = match utils::time(api.invoke(name.clone(), version.clone(), "{\"name\":\"TESTING\"}".to_string(), None, tid.clone())
+    let (invok_dur, invok_out) = match utils::time(api.invoke(name.clone(), version.clone(), "{\"name\":\"TESTING\"}".to_string(), None, tid.clone())
     ).await {
       Ok(r) => r,
       Err(_) => {
@@ -159,7 +159,7 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
     };
     
     let body = match invok_out {
-      Ok(r) => match serde_json::from_str::<HelloResult>(&r) {
+      Ok(r) => match serde_json::from_str::<RealInvokeResult>(&r) {
         Ok(b) => b,
         Err(_) => {
           errors = errors + 1;

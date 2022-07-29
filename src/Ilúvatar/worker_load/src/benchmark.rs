@@ -1,0 +1,147 @@
+use std::{collections::HashMap, fs::File, path::Path, io::Write};
+
+use clap::{ArgMatches, App, SubCommand, Arg};
+use anyhow::Result;
+use iluvatar_lib::{utils::{config::get_val, port_utils::Port}, rpc::RCPWorkerAPI, ilúvatar_api::WorkerAPI, transaction::{gen_tid, TransactionId}};
+use tokio::runtime::Builder;
+
+use crate::utils::{self, RealInvokeResult};
+
+pub fn trace_args<'a>(app: App<'a, 'a>) -> App<'a, 'a> {
+  app.subcommand(SubCommand::with_name("benchmark")
+    .about("Run a trace through the system")
+    .arg(Arg::with_name("target")
+        .short("t")
+        .long("target")
+        .help("Target for the load, either 'worker' or 'controller'")
+        .required(false)
+        .takes_value(true)
+        .default_value("worker"))
+    .arg(Arg::with_name("functions-dir")
+        .long("functions-dir")
+        .help("The directory with all the functions to be benchmarked inside it, each in their own folder")
+        .required(true)
+        .takes_value(true))
+  )
+}
+
+pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
+  let directory: String = get_val("functions-dir", &sub_args)?;
+  let port: Port = get_val("port", &main_args)?;
+  let host: String = get_val("host", &main_args)?;
+  let folder: String = get_val("out", &main_args)?;
+  let mut functions = Vec::new();
+
+  let paths = std::fs::read_dir(directory)?;
+  for path in paths {
+    functions.push(path?.file_name().to_str().unwrap().to_string());
+  }
+
+  println!("Benchmarking functions: {:?}", functions);
+
+  let threaded_rt = Builder::new_multi_thread()
+      .enable_all()
+      .build().unwrap();
+
+  threaded_rt.block_on(run_benchmarks(host, port, functions, folder))?;
+  Ok(())
+}
+
+pub async fn run_benchmarks(host: String, port: Port, functions: Vec<String>, out_folder: String) -> Result<()> {
+  let mut api = RCPWorkerAPI::new(&host, port).await?;
+  let mut warm_results = HashMap::new();
+  let mut warm_over_results = HashMap::new();
+  let mut cold_results = HashMap::new();
+  let mut cold_over_results = HashMap::new();
+
+  for function in &functions {
+    println!("{}", function);
+
+    let mut warm_data = Vec::new();
+    let mut warm_over_data = Vec::new();
+    let mut cold_data = Vec::new();
+    let mut cold_over_data = Vec::new();
+    for iter in 1..5 {
+      let name = format!("{}-bench-{}", function, iter);
+      let version = format!("0.0.{}", iter);
+      let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
+      let tid: TransactionId = gen_tid();
+      let (_reg_dur, reg_out) = utils::time(
+        api.register(name.clone(), version.to_string(), image, 1024, 1, 1, tid.clone())
+      ).await?;
+      match reg_out {
+        Ok(_) => (),
+        Err(e) => anyhow::bail!("registration of {} failed because {}", function, e),
+      };
+
+      for _ in 0..3 {
+        let (invok_dur, invok_out) = match utils::time(api.invoke(name.clone(), version.clone(), "{}".to_string(), None, tid.clone())
+        ).await {
+          Ok(r) => r,
+          Err(e) => {
+            println!("Timing error: {}", e);
+            continue;
+          },
+        };
+        let invok_dur = invok_dur as f64;
+        match invok_out {
+          Ok(r) => match serde_json::from_str::<RealInvokeResult>(&r) {
+            Ok(b) => {
+              if b.body.cold {
+                cold_data.push(invok_dur);
+                cold_over_data.push(invok_dur - (b.body.latency * 1000.0));
+              } else {
+                warm_data.push(invok_dur);
+                warm_over_data.push(invok_dur -(b.body.latency * 1000.0));
+              }
+            },
+            Err(e) => {
+              println!("Deserialization error: {}; {}", e, r);
+              continue;
+            },
+          },
+          Err(e) => {
+            println!("Invocation error: {}", e);
+            continue;
+          },
+        };
+      }
+    }
+    warm_results.insert(function, warm_data);
+    warm_over_results.insert(function, warm_over_data);
+    cold_results.insert(function, cold_data);
+    cold_over_results.insert(function, cold_over_data);
+  }
+
+  let p = Path::new(&out_folder).join(format!("function_benchmarks.csv"));
+  let mut f = match File::create(p) {
+    Ok(f) => f,
+    Err(e) => {
+      anyhow::bail!("Failed to create output file because {}", e);
+    }
+  };
+
+  let to_write = format!("name,warm,warmoverhead,cold,coldoverhead\n");
+  match f.write_all(to_write.as_bytes()) {
+    Ok(_) => (),
+    Err(e) => {
+      anyhow::bail!("Failed to write json of result because {}", e);
+    }
+  };
+
+  for func in warm_results.keys() {
+    let warm: f64 = warm_results.get(func).unwrap().iter().sum();
+    let warm_over: f64 = warm_over_results.get(func).unwrap().iter().sum();
+    let cold: f64 = cold_results.get(func).unwrap().iter().sum();
+    let cold_over: f64 = cold_over_results.get(func).unwrap().iter().sum();
+    let to_write = format!("{},{},{},{},{}\n", func, warm, warm_over, cold, cold_over);
+    match f.write_all(to_write.as_bytes()) {
+      Ok(_) => (),
+      Err(e) => {
+        println!("Failed to write json of result because {}", e);
+      }
+    };
+  }
+
+  Ok(())
+}

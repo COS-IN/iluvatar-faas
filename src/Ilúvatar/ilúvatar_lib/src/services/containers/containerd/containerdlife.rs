@@ -133,6 +133,9 @@ impl ContainerdLifecycle {
       match self.try_delete_task(client, container_id, ctd_namespace, tid).await {
         Ok(_) => Ok(()),
         Err(_) => {
+          // Sometimes not even the additional sleep time is enough for process to exit
+          //    Perhaps a backoff on a side thread?
+          //    Or just allow a synchronous delete, and assume the cleanup thread / action is doing this, not on the critical path
           // sleep a little and hope the process has terminated in that time
           tokio::time::sleep(Duration::from_millis(2)).await;
           match self.try_delete_task(client, container_id, ctd_namespace, tid).await {

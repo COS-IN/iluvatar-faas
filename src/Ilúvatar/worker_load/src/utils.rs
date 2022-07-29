@@ -2,8 +2,8 @@ use std::{time::SystemTime, future::Future};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-///
-pub async fn time<F, Out>(func: F) -> Result<(SystemTime,u64,Out)>
+/// Run an async task, and return how long it took to return
+pub async fn time<F, Out>(func: F) -> Result<(u64,Out)>
   where
   F: Future<Output = Out>, {
 
@@ -16,7 +16,7 @@ pub async fn time<F, Out>(func: F) -> Result<(SystemTime,u64,Out)>
     Err(e) => anyhow::bail!("timer error recording invocation duration: '{}'", e),
   }.as_millis() as u64;
 
-  return Ok( (start, duration_ms, ret) );
+  return Ok( (duration_ms, ret) );
 }
 
 pub struct ThreadError {
@@ -32,7 +32,7 @@ pub struct ThreadResult {
 }
 #[derive(Serialize,Deserialize)]
 pub struct InvocationResult {
-  pub json: HelloResult,
+  pub json: RealInvokeResult,
   pub duration_ms: u64
 }
 #[derive(Serialize,Deserialize)]
@@ -43,7 +43,7 @@ pub struct RegistrationResult {
 
 // {"body": {"greeting": greeting, "cold":was_cold, "start":start, "end":end, "latency": end-start} }
 #[derive(Serialize,Deserialize)]
-pub struct HelloResult {
+pub struct RealInvokeResult {
   pub body: Body
 }
 #[derive(Serialize,Deserialize)]
