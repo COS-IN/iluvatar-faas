@@ -33,3 +33,14 @@ This way the json logging will be very easy to handle offline.
 And we no longer have to format log messages with variables and `TransactionId`'s
 For details, see (dev docs)[./docs/DEV.md]
 
+## Time-skipping simulation
+
+Can we enable time-skipping when running in a simulation context?
+All function invocations are just `tokio::time::sleep().await`
+The background threads use either that, or the `std::thread::sleep()` if using an OS thread.
+The simulation can be sped up by "jumping" the current time to the next instance in which an action will be performed.
+
+If we can put a layer between how the Future system polls results, and move the clock ahead to match, this could work.
+But that's either 
+1. A lot of work
+1. Maybe not possible

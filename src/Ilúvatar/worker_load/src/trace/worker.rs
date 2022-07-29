@@ -1,6 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, path::Path, fs::File, io::Write};
 use anyhow::Result;
-use iluvatar_lib::{utils::config::get_val, worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, transaction::TransactionId, services::containers::simulation::simstructs::SimulationInvocation};
+use iluvatar_lib::{utils::config::get_val, worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, services::containers::simulation::simstructs::SimulationResult};
+use iluvatar_lib::{transaction::TransactionId, services::containers::simulation::simstructs::SimulationInvocation};
 use clap::ArgMatches;
 use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
@@ -40,7 +41,7 @@ pub fn trace_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
   }
 }
 
-fn simulated_worker(_main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
+fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let config_pth: String = get_val("worker-config", &sub_args)?;
   let server_config = iluvatar_lib::worker_api::worker_config::Configuration::boxed(false, &config_pth).unwrap();
   let tid: &TransactionId = &iluvatar_lib::transaction::SIMULATION_START_TID;
@@ -56,8 +57,9 @@ fn simulated_worker(_main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()
   let metadata = super::load_metadata(metadata_pth)?;
   register_functions(&metadata, worker.clone(), &threaded_rt)?;
 
-  let mut trace_rdr = csv::Reader::from_path(trace_pth)?;
-  let mut handles: Vec<JoinHandle<Result<Response<InvokeResponse>, Status>>> = Vec::new();
+  let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
+  let mut handles: Vec<JoinHandle<Result<(u64, InvokeResponse)>>> = Vec::new();
+  // let mut handles = Vec::new();
 
   println!("starting simulation run");
 
@@ -90,13 +92,46 @@ fn simulated_worker(_main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()
     };
     let cln = worker.clone();
     handles.push(threaded_rt.spawn(async move {
-      cln.invoke(Request::new(req)).await
+      let (_reg_start, reg_dur, reg_out) = crate::utils::time(cln.invoke(Request::new(req))).await?;
+      Ok((reg_dur, reg_out?.into_inner()))
     }));
   }
 
+  let pth = Path::new(&trace_pth);
+  let output_folder: String = get_val("out", &main_args)?;
+  let p = Path::new(&output_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
+  let mut f = match File::create(p) {
+    Ok(f) => f,
+    Err(e) => {
+      anyhow::bail!("Failed to create output file because {}", e);
+    }
+  };
+  let to_write = format!("success,function_name,was_cold,worker_duration_ms,code_duration_ms,e2e_duration_ms\n");
+  match f.write_all(to_write.as_bytes()) {
+    Ok(_) => (),
+    Err(e) => {
+      anyhow::bail!("Failed to write json of result because {}", e);
+    }
+  };
+
   for h in handles {
-    let result = threaded_rt.block_on(h)??;
-    println!("{:?}", result);
+    match threaded_rt.block_on(h) {
+      Ok(r) => match r {
+        Ok( (e2e_dur, resp) ) => {
+          let result = serde_json::from_str::<SimulationResult>(&resp.json_result)?;
+          let to_write = format!("{},{},{},{},{},{}\n", resp.success, result.function_name, result.was_cold, resp.duration_ms, result.duration_ms, e2e_dur);
+          match f.write_all(to_write.as_bytes()) {
+            Ok(_) => (),
+            Err(e) => {
+              println!("Failed to write result because {}", e);
+              continue;
+            }
+          };
+        },
+        Err(e) => println!("Status error from invoke: {}", e),
+      },
+      Err(thread_e) => println!("Joining error: {}", thread_e),
+    };
   }
 
   Ok(())
