@@ -7,11 +7,12 @@ apt-get install -y curl runc bridge-utils iptables
 ARCH=amd64
 GO_VERSION=1.18.3
 
-if [[ $(ctr --version) != 0 ]]; then
+if [[ $(go version) != 0 ]]; then
 
   tar="go${GO_VERSION}.linux-${ARCH}.tar.gz"
 
   wget https://go.dev/dl/${tar}
+  rm -rf /usr/local/go/
   tar -C /usr/local -xzf ${tar}
   rm ${tar}
 

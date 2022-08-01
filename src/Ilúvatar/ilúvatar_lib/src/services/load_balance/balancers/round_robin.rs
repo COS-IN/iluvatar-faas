@@ -67,8 +67,8 @@ impl LoadBalancerTrait for RoundRobinLoadBalancer {
         anyhow::bail!(e)
       },
     };
-    debug!("[{}] invocation result: {}", tid, result);
-    Ok(result)
+    debug!("[{}] invocation result: {}", tid, result.json_result);
+    Ok(result.json_result)
   }
 
   async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {

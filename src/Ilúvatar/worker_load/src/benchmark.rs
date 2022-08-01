@@ -5,7 +5,7 @@ use anyhow::Result;
 use iluvatar_lib::{utils::{config::get_val, port_utils::Port}, rpc::RCPWorkerAPI, ilúvatar_api::WorkerAPI, transaction::{gen_tid, TransactionId}};
 use tokio::runtime::Builder;
 
-use crate::utils::{self, RealInvokeResult};
+use crate::utils::*;
 
 pub fn trace_args<'a>(app: App<'a, 'a>) -> App<'a, 'a> {
   app.subcommand(SubCommand::with_name("benchmark")
@@ -66,43 +66,35 @@ pub async fn run_benchmarks(host: String, port: Port, functions: Vec<String>, ou
       let version = format!("0.0.{}", iter);
       let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
       let tid: TransactionId = gen_tid();
-      let (_reg_dur, reg_out) = utils::time(
-        api.register(name.clone(), version.to_string(), image, 1024, 1, 1, tid.clone())
-      ).await?;
+      let (reg_out, _reg_dur) = api.register(name.clone(), version.to_string(), image, 2048, 1, 1, tid.clone()).timed().await;
       match reg_out {
         Ok(_) => (),
         Err(e) => anyhow::bail!("registration of {} failed because {}", function, e),
       };
 
-      for _ in 0..3 {
-        let (invok_dur, invok_out) = match utils::time(api.invoke(name.clone(), version.clone(), "{}".to_string(), None, tid.clone())
-        ).await {
-          Ok(r) => r,
-          Err(e) => {
-            println!("Timing error: {}", e);
-            continue;
-          },
-        };
-        let invok_dur = invok_dur as f64;
+      'inner: for _ in 0..3 {
+        let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), "{}".to_string(), None, tid.clone()).timed().await;
+        let invok_lat = invok_lat.as_millis() as f64;
         match invok_out {
-          Ok(r) => match serde_json::from_str::<RealInvokeResult>(&r) {
+          Ok(r) => match serde_json::from_str::<RealInvokeResult>(&r.json_result) {
             Ok(b) => {
+              let func_exec_ms = b.body.latency * 1000.0;
               if b.body.cold {
-                cold_data.push(invok_dur);
-                cold_over_data.push(invok_dur - (b.body.latency * 1000.0));
+                cold_data.push(invok_lat);
+                cold_over_data.push(invok_lat - func_exec_ms);
               } else {
-                warm_data.push(invok_dur);
-                warm_over_data.push(invok_dur -(b.body.latency * 1000.0));
+                warm_data.push(invok_lat);
+                warm_over_data.push(invok_lat - func_exec_ms);
               }
             },
             Err(e) => {
-              println!("Deserialization error: {}; {}", e, r);
-              continue;
+              println!("Deserialization error: {}; {}", e, r.json_result);
+              break 'inner;
             },
           },
           Err(e) => {
             println!("Invocation error: {}", e);
-            continue;
+            break 'inner;
           },
         };
       }

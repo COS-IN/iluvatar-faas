@@ -3494,6 +3494,7 @@ dependencies = [
  "csv",
  "futures",
  "iluvatar_lib",
+ "pin-project",
  "prost 0.10.4",
  "serde",
  "serde_json",

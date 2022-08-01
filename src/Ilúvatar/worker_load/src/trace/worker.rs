@@ -7,6 +7,8 @@ use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
 use iluvatar_lib::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse, InvokeResponse};
 use tonic::{Request, Status, Response};
+use crate::utils::TimedExt;
+
 use super::{Function, CsvInvocation};
 
 fn register_functions(funcs: &HashMap<u64, Function>, worker: Arc<IluvatarWorkerImpl>, rt: &Runtime) -> Result<()> {
@@ -91,8 +93,8 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
     };
     let cln = worker.clone();
     handles.push(threaded_rt.spawn(async move {
-      let (reg_dur, reg_out) = crate::utils::time(cln.invoke(Request::new(req))).await?;
-      Ok((reg_dur, reg_out?.into_inner()))
+      let (reg_out, reg_dur) = cln.invoke(Request::new(req)).timed().await;
+      Ok((reg_dur.as_millis() as u64, reg_out?.into_inner()))
     }));
   }
 

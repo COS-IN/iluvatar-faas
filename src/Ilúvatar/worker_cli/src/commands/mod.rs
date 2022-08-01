@@ -22,7 +22,7 @@ pub async fn invoke(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<(
   let memory = get_val_opt("memory", &args);
 
   let ret = api.invoke(function_name, version, arguments, memory, gen_tid()).await.unwrap();
-  println!("{}", ret);
+  println!("{:?}", ret);
   Ok(())
 }
 

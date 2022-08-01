@@ -57,7 +57,7 @@ impl WorkerAPI for RCPWorkerAPI {
     }
   }
 
-  async fn invoke(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<String> {
+  async fn invoke(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<InvokeResponse> {
     let request = tonic::Request::new(InvokeRequest {
       function_name: function_name,
       function_version: version,
@@ -69,7 +69,7 @@ impl WorkerAPI for RCPWorkerAPI {
       transaction_id: tid
     });
     match self.client.invoke(request).await {
-      Ok(response) => Ok(response.into_inner().json_result),
+      Ok(response) => Ok(response.into_inner()),
       Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:invoke]".to_string() }),
     }
   }

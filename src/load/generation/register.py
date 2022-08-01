@@ -8,7 +8,6 @@ import numpy as np
 import pickle
 
 argparser = argparse.ArgumentParser()
-argparser.add_argument("--test", '-t')
 argparser.add_argument("--clipth", '-c', default="/home/alex/repos/efaas/src/Ilúvatar/target/debug/iluvatar_worker_cli", required=False)
 argparser.add_argument("--worker", '-w', default="local", required=False)
 
