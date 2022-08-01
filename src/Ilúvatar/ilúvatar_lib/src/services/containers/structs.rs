@@ -90,6 +90,7 @@ impl<'a> ContainerLock<'a> {
   }
 
   /// ask the internal container to invoke the function
+  #[tracing::instrument(skip(self, json_args))]
   pub async fn invoke(&self, json_args: &String) -> Result<String> {
     self.container.invoke(json_args, self.transaction_id).await
   }

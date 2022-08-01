@@ -15,7 +15,13 @@ import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser(description='')
 parser.add_argument("--path", required=True, type=str)
+parser.add_argument("--out", required=False, type=str)
 args = parser.parse_args()
+
+if args.out is None:
+  out_dir = args.path
+else :
+  out_dir = args.out
 
 registration_data = defaultdict(list)
 latency_data = defaultdict(list)
@@ -64,8 +70,9 @@ fig.set_size_inches(5, 3)
 data = sorted(overhead_ms_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [np.mean(y) for _,y in data]
-ax.plot(xs, ys)
-save_fname = os.path.join(args.path, "overheads.png")
+print(np.min(ys))
+ax.plot(xs, ys, label="Ilúvatar")
+save_fname = os.path.join(out_dir, "overheads.png")
 
 ax.set_title("Average platform overhead per-invocation as clients increase")
 ax.set_ylabel("Platform overhead (ms)")
@@ -82,8 +89,8 @@ fig.set_size_inches(5, 3)
 data = sorted(overhead_pct_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [np.mean(y) for _,y in data]
-ax.plot(xs, ys)
-save_fname = os.path.join(args.path, "overheads_pct.png")
+ax.plot(xs, ys, label="Ilúvatar")
+save_fname = os.path.join(out_dir, "overheads_pct.png")
 
 ax.set_title("Average percent of invocation time caused by platform overhead as clients increase")
 ax.set_ylabel("Platform overhead")
@@ -100,8 +107,9 @@ fig.set_size_inches(5, 3)
 data = sorted(latency_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [np.mean(y) for _,y in data]
-ax.plot(xs, ys)
-save_fname = os.path.join(args.path, "latency.png")
+print(np.min(ys))
+ax.plot(xs, ys, label="Ilúvatar")
+save_fname = os.path.join(out_dir, "latency.png")
 
 ax.set_title("Average invocation latency as clients increase")
 ax.set_ylabel("Invocation Latency (ms)")
@@ -118,8 +126,8 @@ fig.set_size_inches(5, 3)
 data = sorted(latency_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [len(y) for _,y in data]
-ax.plot(xs, ys)
-save_fname = os.path.join(args.path, "throughput.png")
+ax.plot(xs, ys, label="Ilúvatar")
+save_fname = os.path.join(out_dir, "throughput.png")
 
 ax.set_title("Total throughput as clients increase")
 ax.set_ylabel("Invocations")
@@ -136,8 +144,8 @@ fig.set_size_inches(5, 3)
 data = sorted(latency_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [len(y)/x for x,y in data]
-ax.plot(xs, ys)
-save_fname = os.path.join(args.path, "avg_throughput.png")
+ax.plot(xs, ys, label="Ilúvatar")
+save_fname = os.path.join(out_dir, "avg_throughput.png")
 
 ax.set_title("Per-client throughput as clients increase")
 ax.set_ylabel("Invocations per thread")

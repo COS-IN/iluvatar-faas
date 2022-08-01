@@ -130,19 +130,19 @@ impl ContainerdLifecycle {
   }
 
   async fn delete_task(&self, client: &mut TasksClient<Channel>, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+    let start = SystemTime::now();
+    let timeout = Duration::from_secs(10);
+    loop {
       match self.try_delete_task(client, container_id, ctd_namespace, tid).await {
-        Ok(_) => Ok(()),
-        Err(_) => {
-          // Sometimes not even the additional sleep time is enough for process to exit
-          //    Perhaps a backoff on a side thread?
-          //    Or just allow a synchronous delete, and assume the cleanup thread / action is doing this, not on the critical path
+        Ok(_) => return Ok(()),
+        Err(e2) => {
+          if start.elapsed()? > timeout {
+            bail_error!("[{}] Deleting task in container '{}' failed with error: {}", tid, container_id, e2);
+          }
           // sleep a little and hope the process has terminated in that time
-          tokio::time::sleep(Duration::from_millis(2)).await;
-          match self.try_delete_task(client, container_id, ctd_namespace, tid).await {
-            Ok(_) => Ok(()),
-            Err(e2) => bail_error!("[{}] Deleting task in container '{}' failed with error: {}", tid, container_id, e2),
+          tokio::time::sleep(Duration::from_millis(5)).await;
         }
-      },
+      };
     }
   }
 
@@ -227,11 +227,11 @@ impl ContainerdLifecycle {
     try_remove_pth(&self.stderr_pth(container_id), tid);
   }
 
+  #[tracing::instrument(skip(self))]
   async fn remove_container_internal(&self, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
     info!("[{}] Removing container '{}'", tid, container_id);
     let mut client = TasksClient::new(self.channel());
     self.kill_task(&mut client, container_id, ctd_namespace, tid).await?;
-    tokio::time::sleep(Duration::from_millis(5)).await;
     self.delete_task(&mut client, container_id, ctd_namespace, tid).await?;
 
     let mut client = ContainersClient::new(self.channel());
@@ -451,6 +451,7 @@ impl LifecycleService for ContainerdLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
+  #[tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus))]
   async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     info!("[{}] Creating container from image '{}', in namespace '{}'", tid, image_name, namespace);
     let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
@@ -524,7 +525,8 @@ impl LifecycleService for ContainerdLifecycle {
     Ok(())
   }
 
-  async fn wait_startup(&self, container: &Container, timout_ms: u64, tid: &TransactionId) -> Result<()> {
+  #[tracing::instrument(skip(self, container, timeout_ms))]
+  async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
     debug!("[{}] Waiting for startup of container {}", tid, &container.container_id());
     let stderr = self.stderr_pth(&container.container_id());
 
@@ -543,7 +545,7 @@ impl LifecycleService for ContainerdLifecycle {
           break;
         },
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-          if start.elapsed()?.as_millis() as u64 >= timout_ms {
+          if start.elapsed()?.as_millis() as u64 >= timeout_ms {
             let stdout = self.read_stdout(&container, tid);
             let stderr = self.read_stderr(&container, tid);
             if stderr.len() > 0 {
@@ -560,6 +562,7 @@ impl LifecycleService for ContainerdLifecycle {
     Ok(())
   }
 
+  #[tracing::instrument(skip(self, container))]
   fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
     let cast_container = match crate::services::containers::structs::cast::<ContainerdContainer>(&container, tid) {
       Ok(c) => c,

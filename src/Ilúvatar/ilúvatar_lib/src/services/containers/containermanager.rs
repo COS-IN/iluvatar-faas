@@ -114,6 +114,7 @@ impl ContainerManager {
     self.resources.cores - *self.running_funcs.read()
   }
 
+  #[tracing::instrument(skip(self))]
   async fn update_memory_usages(&self, tid: &TransactionId) {
     debug!("[{}] updating container memory usages", tid);
     let old_total_mem = *self.used_mem_mb.read();
@@ -161,7 +162,7 @@ impl ContainerManager {
   /// get a lock on a container for the specified function
   /// will start a function if one is not available
   /// Can return a custom InsufficientCoresError if an invocation cannot be started now
-  #[tracing::instrument(skip(self))]
+  #[tracing::instrument(skip(self, fqdn))]
   pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     let cont = self.try_acquire_container(fqdn, tid);
     let cont = match cont {
@@ -186,7 +187,7 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument(skip(self))]  
+  #[tracing::instrument(skip(self, fqdn))]  
   fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     let conts = self.active_containers.read();
     let opt = conts.get(fqdn);
@@ -215,7 +216,7 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument(skip(self))]  
+  #[tracing::instrument(skip(self, fqdn))]  
   async fn cold_start<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     let container = self.launch_container(fqdn, tid).await?;
     // claim this for ourselves before it touches the pool
@@ -225,7 +226,7 @@ impl ContainerManager {
     Ok(ContainerLock::new(container, self, tid))
   }
 
-  #[tracing::instrument(skip(self))]  
+  #[tracing::instrument(skip(self, container))]  
   fn try_lock_container<'a>(&'a self, container: &Container, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     if container.try_acquire() {
       if container.is_healthy() {
@@ -238,6 +239,7 @@ impl ContainerManager {
     None
   }
 
+  #[tracing::instrument(skip(self, container))]
   pub fn return_container(&self, container: &Container) {
     container.release();
     let mut running_funcs = self.running_funcs.write();
@@ -246,7 +248,7 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument(skip(self))]  
+  #[tracing::instrument(skip(self, fqdn))]  
   async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Container> {
     let reg = match self.get_registration(&fqdn) {
       Ok(r) => r,
@@ -257,6 +259,7 @@ impl ContainerManager {
     self.launch_container_internal(&reg, tid).await
   }
 
+  #[tracing::instrument(skip(self, fqdn, container))]
   fn add_container_to_pool(&self, fqdn: &String, container: Container) -> Result<()> {
     // acquire read lock to see if that function already has a pool entry
     let conts = self.active_containers.read();
@@ -276,7 +279,7 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument(skip(self))]  
+  #[tracing::instrument(skip(self, reg))]  
   async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     // TODO: cpu and mem prewarm request overrides registration?
     let curr_mem = *self.used_mem_mb.read();
@@ -319,6 +322,7 @@ impl ContainerManager {
   /// 
   /// Does a best effort to ensure a container is launched
   /// If various known errors happen, it will re-try to start it
+  #[tracing::instrument(skip(self, reg))]
   async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     match self.try_launch_container(&reg, tid).await {
             Ok(c) => Ok(c),
@@ -337,8 +341,8 @@ impl ContainerManager {
   /// 
   /// # Errors
   /// Can error if not already registered and full info isn't provided
-    /// Other errors caused by starting/registered the function apply
-  #[tracing::instrument(skip(self))]  
+  /// Other errors caused by starting/registered the function apply
+  #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
   pub async fn prewarm(&self, request: &PrewarmRequest) -> Result<()> {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     let reg = match self.get_registration(&fqdn) {
@@ -425,6 +429,7 @@ impl ContainerManager {
     container.mark_unhealthy();
   }
 
+  #[tracing::instrument(skip(self, container, lock_check))]
   pub async fn remove_container(&self, container: Container, lock_check: bool, tid: &TransactionId) -> Result<()> {
     if lock_check && container.being_held() {
       bail!(ContainerLockedError{})
@@ -450,6 +455,7 @@ impl ContainerManager {
     }
   }
 
+  #[tracing::instrument(skip(self, amount_mb))]
   async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
     debug!("[{}] Trying to reclaim {} memory", tid, amount_mb);
     if amount_mb <= 0 {
