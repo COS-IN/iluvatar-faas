@@ -1,5 +1,5 @@
 use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration, collections::HashMap};
-use crate::{services::graphite::graphite_svc::GraphiteService, transaction::LEAST_LOADED_TID, bail_error, load_balancer_api::load_reporting::LoadService};
+use crate::{services::graphite::graphite_svc::GraphiteService, transaction::LEAST_LOADED_TID, bail_error, load_balancer_api::load_reporting::LoadService, send_invocation, prewarm, send_async_invocation};
 use crate::worker_api::worker_comm::WorkerAPIFactory;
 use crate::{services::load_balance::LoadBalancerTrait, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredFunction, RegisteredWorker};
@@ -104,48 +104,16 @@ impl LoadBalancerTrait for LeastLoadedBalancer {
 
   async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<String> {
     let worker = self.get_worker(tid)?;
-    info!("[{}] invoking function {} on worker {}", tid, &func.fqdn, &worker.name);
-
-    let mut api = self.worker_fact.get_worker_api(&worker, tid).await?;
-    let result = match api.invoke(func.function_name.clone(), func.function_version.clone(), json_args, None, tid.clone()).await {
-      Ok(r) => r,
-      Err(e) => {
-        self.health.schedule_health_check(self.health.clone(), worker, tid, Some(Duration::from_secs(1)));
-        anyhow::bail!(e)
-      },
-    };
-    debug!("[{}] invocation result: {}", tid, result.json_result);
-    Ok(result.json_result)
+    send_invocation!(func, json_args, tid, self.worker_fact, self.health, worker)
   }
 
   async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
     let worker = self.get_worker(tid)?;
-    info!("[{}] prewarming function {} on worker {}", tid, &func.fqdn, &worker.name);
-    let mut api = self.worker_fact.get_worker_api(&worker, tid).await?;
-    let result = match api.prewarm(func.function_name.clone(), func.function_version.clone(), None, None, None, tid.clone()).await {
-      Ok(r) => r,
-      Err(e) => {
-        self.health.schedule_health_check(self.health.clone(), worker, tid, Some(Duration::from_secs(1)));
-        anyhow::bail!(e)
-      }
-    };
-    debug!("[{}] prewarm result: {}", tid, result);
-    Ok(())
+    prewarm!(func, tid, self.worker_fact, self.health, worker)
   }
 
   async fn send_async_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(String, Arc<RegisteredWorker>)> {
     let worker = self.get_worker(tid)?;
-    info!("[{}] invoking function async {} on worker {}", tid, &func.fqdn, &worker.name);
-
-    let mut api = self.worker_fact.get_worker_api(&worker, tid).await?;
-    let result = match api.invoke_async(func.function_name.clone(), func.function_version.clone(), json_args, None, tid.clone()).await {
-      Ok(r) => r,
-      Err(e) => {
-        self.health.schedule_health_check(self.health.clone(), worker, tid, Some(Duration::from_secs(1)));
-        anyhow::bail!(e)
-      },
-    };
-    debug!("[{}] invocation result: {}", tid, result);
-    Ok( (result, worker) )
+    send_async_invocation!(func, json_args, tid, self.worker_fact, self.health, worker)
   }
 }
