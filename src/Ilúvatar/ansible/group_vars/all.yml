@@ -15,7 +15,7 @@ controller:
   port: 8089
   bin_name: "iluvatar_load_balancer"
   config_name: "load_balancer.json"
-  algorithm: "{{ controller_algorithm | default(RoundRobin) }}"
+  algorithm: "{{ controller_algorithm | default('RoundRobin') }}"
 
 worker:
   port: 8070

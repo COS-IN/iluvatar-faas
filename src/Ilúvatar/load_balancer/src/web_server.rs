@@ -21,7 +21,7 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
   info!("[{}] new invoke {:?}", tid, req);
 
   match server.invoke(req, &tid).await {
-    Ok(result) =>   HttpResponse::Ok().json(result),
+    Ok(result) =>   HttpResponse::Ok().body(result),
     Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
   }
 }
