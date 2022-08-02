@@ -4,6 +4,8 @@
     host_group: "{{ groups['workers'] }}"
     worker_index_base: 0
     assigned_port: "{{ (worker.port + host_group.index(inventory_hostname)) }}"
+    exe_dest: "/tmp/{{ worker.bin_name }}"
+    config_dest: "/tmp/{{ inventory_hostname }}.json"
   vars_files:
     - group_vars/all.yml
 
@@ -31,12 +33,24 @@
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
 
+  - name: copy worker executable
+    ansible.builtin.copy:
+      src: "{{ilúvatar_home}}/target/release/{{worker.bin_name}}"
+      dest: "{{exe_dest}}"
+      mode: "preserve"
+
+  - name: copy worker config
+    ansible.builtin.copy:
+      src: "{{ilúvatar_home}}/target/release/{{worker.config_name}}"
+      dest: "{{config_dest}}"
+      mode: "preserve"
+
   - name: clean localhost
     ansible.builtin.command: 
       argv: 
-        - "/home/alex/repos/efaas/src/Ilúvatar/target/debug/{{ worker.bin_name }}"
+        - "{{exe_dest}}"
         - -c 
-        - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
+        - "{{config_dest}}"
         - clean
     become: yes
     when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
@@ -45,18 +59,18 @@
   - name: clean distrib host
     ansible.builtin.command: 
       argv: 
-        - "/home/alex/repos/efaas/src/Ilúvatar/target/debug/{{ worker.bin_name }}"
+        - "{{exe_dest}}"
         - -c 
-        - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
+        - "{{config_dest}}"
         - clean
     become: yes
 
   - name: run worker executable
     ansible.builtin.command: 
       argv: 
-        - "/home/alex/repos/efaas/src/Ilúvatar/target/debug/{{ worker.bin_name }}"
+        - "{{exe_dest}}"
         - -c 
-        - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
+        - "{{config_dest}}"
     become: yes
     async: 2592000               # 60*60*24*30 – 1 month
     poll: 0
@@ -66,14 +80,10 @@
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
       "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
       "ILUVATAR_WORKER__logging__level": "debug"
-      "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:8089"
+      "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:{{ controller.port }}"
       "ILUVATAR_WORKER__graphite__address" : "{{ graphite.address }}"
       "ILUVATAR_WORKER__graphite__ingestion_port" : "{{ graphite.ingestion_port }}"
       "ILUVATAR_WORKER__graphite__ingestion_udp" : "{{ graphite.ingestion_udp }}"
-
-  # - name: print expected
-  #   debug:
-  #     msg: "expected: {{ expected }}"
 
   - name: wait until the worker on this host is up and running
     ansible.builtin.uri:

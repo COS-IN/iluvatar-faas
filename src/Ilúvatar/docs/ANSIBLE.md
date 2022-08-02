@@ -1,5 +1,9 @@
 # Ansible
 
+## Environment Variables
+
+`ILU_HOME` - can be set to specify the folder where the ansible structure is.
+This must be specified, or the commands must be executed in that directory.
 
 ## Setup
 

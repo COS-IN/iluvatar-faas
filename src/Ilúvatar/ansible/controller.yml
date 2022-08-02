@@ -2,6 +2,8 @@
   vars:
     host_group: "{{ groups['controller'] }}"
     host_group_size: "{{ host_group | length }}"
+    exe_dest: "/tmp/{{ controller.bin_name }}"
+    config_dest: "/tmp/{{ controller.config_name }}"
   vars_files:
     - group_vars/all.yml
 
@@ -12,6 +14,10 @@
       fail_msg: "Can only support one controller"
       success_msg: "Good on number of controllers, got {{ host_group_size }}"
 
+  # - name: print paths
+  #   debug:
+  #     msg: "exe src: {{ilúvatar_home}}/target/release/{{controller.bin_name}}"
+
   - name: Get running controller process
     shell: "ps -ef | grep -v grep | grep -w {{ controller.bin_name }} | awk '{print $2}'"
     register: running_lb
@@ -21,12 +27,24 @@
     with_items: "{{ running_lb.stdout_lines }}"
     become: yes
 
+  - name: copy controller executable
+    ansible.builtin.copy:
+      src: "{{ilúvatar_home}}/target/release/{{controller.bin_name}}"
+      dest: "{{exe_dest}}"
+      mode: "preserve"
+
+  - name: copy controller config
+    ansible.builtin.copy:
+      src: "{{ilúvatar_home}}/target/release/{{controller.config_name}}"
+      dest: "{{config_dest}}"
+      mode: "preserve"
+
   - name: run controller executable
     ansible.builtin.command: 
       argv: 
-        - "/home/alex/repos/efaas/src/Ilúvatar/target/debug/{{ controller.bin_name }}"
+        - "{{exe_dest}}"
         - -c 
-        - /home/alex/repos/efaas/src/Ilúvatar/load_balancer/src/load_balancer.json
+        - "{{config_dest}}"
     become: yes
     async: 2592000               # 60*60*24*30 – 1 month
     poll: 0
