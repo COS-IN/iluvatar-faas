@@ -11,6 +11,7 @@ controller:
   host: "{{ hostvars[ groups['controller']|first ].ansible_host }}"
   port: 8089
   bin_name: "iluvatar_load_balancer"
+  algorithm: "{{ controller_algorithm | default(RoundRobin) }}"
 
 worker:
   port: 8070

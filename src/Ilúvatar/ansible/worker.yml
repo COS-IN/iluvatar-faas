@@ -1,6 +1,9 @@
 - hosts: workers
   vars:
     expected: "Connection failure: [Errno 104] Connection reset by peer"
+    host_group: "{{ groups['workers'] }}"
+    worker_index_base: 0
+    assigned_port: "{{ (worker.port + host_group.index(inventory_hostname)) }}"
   vars_files:
     - group_vars/all.yml
 
@@ -9,16 +12,37 @@
     shell: "ps -ef | grep -v grep | grep -w {{ worker.bin_name }} | awk '{print $2}'"
     register: running_worker
 
-  # - name: find controller
+  # - name: debug print
+  #   when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+  #   run_once: true
   #   debug:
-  #     msg: "{{ hostvars[ controller ].ansible_host }}"
+  #     msg: "{{ ansible_host }}"
 
-  - name: Kill running worker process
+  - name: Kill running worker process on localhost
     shell: "kill {{ item }}"
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
+    when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+    run_once: true
 
-  - name: clean host
+  - name: Kill running worker process distrib
+    shell: "kill {{ item }}"
+    when: ansible_host != "127.0.0.1" and ansible_host != "localhost"
+    with_items: "{{ running_worker.stdout_lines }}"
+    become: yes
+
+  - name: clean localhost
+    ansible.builtin.command: 
+      argv: 
+        - "/home/alex/repos/efaas/src/Ilúvatar/target/debug/{{ worker.bin_name }}"
+        - -c 
+        - /home/alex/repos/efaas/src/Ilúvatar/worker/src/worker.json
+        - clean
+    become: yes
+    when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+    run_once: true
+
+  - name: clean distrib host
     ansible.builtin.command: 
       argv: 
         - "/home/alex/repos/efaas/src/Ilúvatar/target/debug/{{ worker.bin_name }}"
@@ -39,20 +63,22 @@
     when: mode != "clean"
     environment:
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__port": "{{ worker.port }}"
+      "ILUVATAR_WORKER__port": "{{ assigned_port }}"
+      "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
+      "ILUVATAR_WORKER__logging__level": "debug"
       "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:8089"
       "ILUVATAR_WORKER__graphite__address" : "{{ graphite.address }}"
       "ILUVATAR_WORKER__graphite__ingestion_port" : "{{ graphite.ingestion_port }}"
       "ILUVATAR_WORKER__graphite__ingestion_udp" : "{{ graphite.ingestion_udp }}"
 
-  - name: print expected
-    debug:
-      msg: "expected: {{ expected }}"
+  # - name: print expected
+  #   debug:
+  #     msg: "expected: {{ expected }}"
 
   - name: wait until the worker on this host is up and running
     ansible.builtin.uri:
       url:
-        "http://{{ansible_host}}:{{worker.port}}/ping"
+        "http://{{ansible_host}}:{{assigned_port}}/ping"
       validate_certs: "no"
       # RPC server doesn't accept basic HTTP connections
       # but we can try connecting to it once it's up and know it's alive
@@ -60,5 +86,5 @@
     register: result
     until: result.msg == expected
     retries: 10
-    delay: 10
+    delay: 5
     when: mode != "clean"
