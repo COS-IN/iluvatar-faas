@@ -87,9 +87,22 @@ impl NamespaceManager {
     }
   }
 
+  /// makes sure the bridge necessary for container networking
   pub fn ensure_bridge(&self, tid: &TransactionId) -> Result<()> {
     info!("[{}] Ensuring network bridge", tid);
+    // multiple workers on one machine can compete over this
+    // catch an error if we aren't the race winner and try again, will do nothing if bridge exists
+    match self.try_ensure_bridge(tid) {
+      Ok(_) => Ok(()),
+      Err(_) => {
+        debug!("[{}] retrying network bridge creation", tid);
+        std::thread::sleep(std::time::Duration::from_secs(self.config.pool_freq_sec));
+        self.try_ensure_bridge(tid)
+      },
+    }
+  }
 
+  fn try_ensure_bridge(&self, tid: &TransactionId) -> Result<()> {
     let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "json");
 
     let mut file = match File::create(temp_file) {
@@ -127,14 +140,14 @@ impl NamespaceManager {
       Ok(output) => {
         if let Some(status) = output.status.code() {
           if status != 0 {
-            panic!("[{}] Failed to create bridge with exit code '{}' and error '{:?}'", tid, status, output);
+            anyhow::bail!("[{}] Failed to create bridge with exit code '{}' and error '{:?}'", tid, status, output);
           }
         } else {
-          panic!("[{}] Failed to create bridge with no exit code and error '{:?}'", tid, output);
+          anyhow::bail!("[{}] Failed to create bridge with no exit code and error '{:?}'", tid, output);
         }
       },
       Err(e) => {
-        panic!("[{}] Failed to create bridge with error '{:?}'", tid, e);
+        anyhow::bail!("[{}] Failed to create bridge with error '{:?}'", tid, e);
       },
     };
 
@@ -154,7 +167,6 @@ impl NamespaceManager {
       Ok(_) => debug!("[{}] Forwarding bridge to interface succeded", tid),
       Err(_) => panic!("[{}] Forwarding bridge to interface failed", tid),
     };
-
     Ok(())
   }
 
