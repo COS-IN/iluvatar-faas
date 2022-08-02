@@ -79,7 +79,6 @@
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
       "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__logging__level": "debug"
       "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:{{ controller.port }}"
       "ILUVATAR_WORKER__graphite__address" : "{{ graphite.address }}"
       "ILUVATAR_WORKER__graphite__ingestion_port" : "{{ graphite.ingestion_port }}"
