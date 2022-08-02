@@ -1,12 +1,12 @@
 use std::{sync::Arc, time::Duration};
 
-use iluvatar_lib::{services::{load_balance::{get_balancer, LoadBalancer}, ControllerHealthService}, transaction::TransactionId, bail_error};
+use iluvatar_lib::{services::{load_balance::{get_balancer, LoadBalancer}, ControllerHealthService, graphite::graphite_svc::GraphiteService}, transaction::TransactionId, bail_error, load_balancer_api::{registration::RegistrationService, load_reporting::LoadService}};
 use iluvatar_lib::utils::{calculate_fqdn, config::args_to_json};
 use iluvatar_lib::load_balancer_api::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
 use iluvatar_lib::load_balancer_api::lb_config::ControllerConfig;
 use anyhow::Result;
 use tracing::{info, debug, error};
-use crate::services::{async_invoke::AsyncService, registration::RegistrationService, load_reporting::LoadService};
+use crate::services::async_invoke::AsyncService;
 
 #[allow(unused)]
 pub struct Controller {
@@ -22,10 +22,11 @@ unsafe impl Send for Controller{}
 impl Controller {
   pub fn new(config: ControllerConfig, tid: &TransactionId) -> Self {
     let health_svc = ControllerHealthService::boxed();
-    let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid).unwrap();
+    let graphite_svc = GraphiteService::boxed(config.graphite.clone());
+    let load_svc = LoadService::boxed(graphite_svc.clone(), tid);
+    let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, graphite_svc, load_svc.clone()).unwrap();
     let reg_svc = RegistrationService::boxed(lb.clone());
     let async_svc = AsyncService::boxed();
-    let load_svc = LoadService::boxed(reg_svc.clone());
     Controller {
       config,
       lb,

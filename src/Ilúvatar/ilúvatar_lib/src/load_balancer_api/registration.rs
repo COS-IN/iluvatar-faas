@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_lib::bail_error;
-use iluvatar_lib::worker_api::worker_comm::WorkerAPIFactory;
+use crate::bail_error;
+use crate::worker_api::worker_comm::WorkerAPIFactory;
 use tracing::{info, error};
-use iluvatar_lib::{services::load_balance::LoadBalancer, utils::calculate_fqdn, transaction::TransactionId};
-use iluvatar_lib::load_balancer_api::structs::json::{RegisterWorker, RegisterFunction};
-use iluvatar_lib::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
+use crate::{services::load_balance::LoadBalancer, utils::calculate_fqdn, transaction::TransactionId};
+use crate::load_balancer_api::structs::json::{RegisterWorker, RegisterFunction};
+use crate::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
 
 #[allow(unused)]
 pub struct RegistrationService {

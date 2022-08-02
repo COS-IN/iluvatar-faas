@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use anyhow::Result;
 use tracing::debug;
+use crate::load_balancer_api::load_reporting::LoadService;
 use crate::{load_balancer_api::lb_config::ControllerConfig, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
 use crate::services::ControllerHealthService;
@@ -25,15 +26,14 @@ pub trait LoadBalancerTrait {
 
 pub type LoadBalancer = Arc<dyn LoadBalancerTrait + Send + Sync + 'static>;
 
-pub fn get_balancer(config: &ControllerConfig, health_svc: Arc<ControllerHealthService>, tid: &TransactionId) -> Result<LoadBalancer> {
+pub fn get_balancer(config: &ControllerConfig, health_svc: Arc<ControllerHealthService>, tid: &TransactionId, graphite: Arc<GraphiteService>, load: Arc<LoadService>) -> Result<LoadBalancer> {
   if config.load_balancer.algorithm == "RoundRobin" {
     debug!("[{}] starting round robin balancer", tid);
     Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(health_svc)))
   }
   else if config.load_balancer.algorithm == "LeastLoaded" {
     debug!("[{}] starting least loaded balancer", tid);
-    let graphite_svc = GraphiteService::boxed(config.graphite.clone());
-    Ok(balancers::least_loaded::LeastLoadedBalancer::boxed(health_svc, graphite_svc, tid))
+    Ok(balancers::least_loaded::LeastLoadedBalancer::boxed(health_svc, graphite, load, tid))
   }
   else {
     anyhow::bail!("Unimplemented load balancing algorithm {}", config.load_balancer.algorithm)

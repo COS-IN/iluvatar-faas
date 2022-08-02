@@ -1,9 +1,10 @@
 use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration, collections::HashMap};
-use crate::{services::graphite::graphite_svc::GraphiteService, transaction::LEAST_LOADED_TID, bail_error};
+use crate::{services::graphite::graphite_svc::GraphiteService, transaction::LEAST_LOADED_TID, bail_error, load_balancer_api::load_reporting::LoadService};
 use crate::worker_api::worker_comm::WorkerAPIFactory;
 use crate::{services::load_balance::LoadBalancerTrait, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredFunction, RegisteredWorker};
 use anyhow::Result;
+use tokio::task::JoinHandle;
 use tracing::{info, debug, error, warn};
 use parking_lot::RwLock;
 use crate::services::ControllerHealthService;
@@ -14,34 +15,35 @@ pub struct LeastLoadedBalancer {
   worker_fact: WorkerAPIFactory,
   health: Arc<ControllerHealthService>,
   graphite: Arc<GraphiteService>,
-  _worker_thread: std::thread::JoinHandle<()>,
+  _worker_thread: JoinHandle<()>,
   assigned_worker: RwLock<Option<Arc<RegisteredWorker>>>,
+  load: Arc<LoadService>,
 }
 
-impl LeastLoadedBalancer{
-  fn new(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, worker_thread: std::thread::JoinHandle<()>) -> Self {
+impl LeastLoadedBalancer {
+  fn new(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, worker_thread: JoinHandle<()>, load: Arc<LoadService>) -> Self {
     LeastLoadedBalancer {
       workers: RwLock::new(HashMap::new()),
       worker_fact: WorkerAPIFactory {},
       health,
       graphite,
       _worker_thread: worker_thread,
-      assigned_worker: RwLock::new(None)
+      assigned_worker: RwLock::new(None),
+      load,
     }
   }
 
-  pub fn boxed(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, tid: &TransactionId) -> Arc<Self> {
+  pub fn boxed(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, load: Arc<LoadService>, tid: &TransactionId) -> Arc<Self> {
     let (tx, rx) = channel();
     let t = LeastLoadedBalancer::start_status_thread(rx, tid);
-    let i = Arc::new(LeastLoadedBalancer::new(health, graphite, t));
+    let i = Arc::new(LeastLoadedBalancer::new(health, graphite, t, load));
     tx.send(i.clone()).unwrap();
     i
   }
 
-  fn start_status_thread(rx: Receiver<Arc<LeastLoadedBalancer>>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
+  fn start_status_thread(rx: Receiver<Arc<LeastLoadedBalancer>>, tid: &TransactionId) -> JoinHandle<()> {
     debug!(tid=%tid, "Launching LeastLoadedBalancer thread");
-    // run on an OS thread here so we don't get blocked by our userland threading runtime
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
       let tid: &TransactionId = &LEAST_LOADED_TID;
       let svc: Arc<LeastLoadedBalancer> = match rx.recv() {
           Ok(svc) => svc,
@@ -50,46 +52,35 @@ impl LeastLoadedBalancer{
             return;
           },
         };
-        let worker_rt = match tokio::runtime::Runtime::new() {
-          Ok(rt) => rt,
-          Err(e) => { 
-            error!("[{}] least loaded worker tokio thread runtime failed to start {}", tid, e);
-            return ();
-          },
-        };
-
         debug!(tid=%tid, "least loaded worker started");
-        worker_rt.block_on(svc.monitor_worker_status(tid));
+        loop {
+          let worker = svc.find_least_loaded(); 
+          match svc.workers.read().get(&worker) {
+            Some(w) => {
+              *svc.assigned_worker.write() = Some(w.clone());
+            },
+            None => warn!(tid=%tid, worker=%worker, "Cannot update least loaded worker because it is not registered"),
+          };
+          info!(tid=%tid, worker=%worker, "new least loaded worker");
+          tokio::time::sleep(Duration::from_secs(1)).await;
+        }
       }
     )
   }
 
-  async fn monitor_worker_status(&self, tid: &TransactionId) {
-    loop {
-      let mut least_ld = f64::MAX;
-      let mut worker = &"".to_string();
-      let update = self.get_status_update(tid).await;
-      for (k, v) in update.iter() {
-        if v < &least_ld {
-          worker = k;
-          least_ld = *v;
+  fn find_least_loaded(&self) -> String {
+    let mut least_ld = f64::MAX;
+    let mut worker = &"".to_string();
+    let workers = self.workers.read();
+    for worker_name in workers.keys() {
+      if let Some(worker_load) = self.load.get_worker(worker_name) {
+        if worker_load < least_ld {
+          worker = worker_name;
+          least_ld = worker_load;
         }
       }
-
-      match self.workers.read().get(worker) {
-        Some(w) => {
-          *self.assigned_worker.write() = Some(w.clone());
-        },
-        None => warn!(tid=%tid, worker=%worker, "Cannot update least loaded worker because it is not registered"),
-      }
-
-      info!(tid=%tid, update=?update, "latest worker update");
-      std::thread::sleep(Duration::from_secs(1));
     }
-  }
-
-  async fn get_status_update(&self, tid: &TransactionId) -> HashMap<String, f64> {
-    self.graphite.get_latest_metric("worker.load.loadavg", "machine", tid).await
+    worker.clone()
   }
 
   fn get_worker(&self, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {

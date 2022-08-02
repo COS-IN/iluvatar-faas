@@ -4,6 +4,8 @@ pub mod lb_structs;
 pub use lb_structs as structs;
 pub mod lb_errors;
 pub use lb_errors as errors;
+pub mod load_reporting;
+pub mod registration;
 
 use anyhow::Result;
 use reqwest::StatusCode;
