@@ -13,16 +13,16 @@ pub struct RegistrationService {
   pub lb: LoadBalancer,
   functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,
   workers: Arc<DashMap<String, Arc<RegisteredWorker>>>,
-  worker_fact: WorkerAPIFactory,
+  worker_fact: Arc<WorkerAPIFactory>,
 }
 
 impl RegistrationService {
-  pub fn boxed(lb: LoadBalancer) -> Arc<Self> {
+  pub fn boxed(lb: LoadBalancer, worker_fact: Arc<WorkerAPIFactory>) -> Arc<Self> {
     Arc::new(RegistrationService{
       lb,
       functions: Arc::new(DashMap::new()),
       workers: Arc::new(DashMap::new()),
-      worker_fact: WorkerAPIFactory {},
+      worker_fact,
     })
   }
 

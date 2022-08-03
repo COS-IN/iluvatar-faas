@@ -12,16 +12,16 @@ use crate::worker_api::worker_comm::WorkerAPIFactory;
 pub struct RoundRobinLoadBalancer {
   workers: RwLock<Vec<Arc<RegisteredWorker>>>,
   next: Mutex<usize>,
-  worker_fact: WorkerAPIFactory,
+  worker_fact: Arc<WorkerAPIFactory>,
   health: Arc<ControllerHealthService>,
 }
 
 impl RoundRobinLoadBalancer {
-  pub fn new(health: Arc<ControllerHealthService>) -> Self {
+  pub fn new(health: Arc<ControllerHealthService>, worker_fact: Arc<WorkerAPIFactory>) -> Self {
     RoundRobinLoadBalancer {
       workers: RwLock::new(Vec::new()),
       next: Mutex::new(0),
-      worker_fact: WorkerAPIFactory {},
+      worker_fact,
       health,
     }
   }

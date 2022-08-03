@@ -12,7 +12,7 @@ use crate::services::ControllerHealthService;
 #[allow(unused)]
 pub struct LeastLoadedBalancer {
   workers: RwLock<HashMap<String, Arc<RegisteredWorker>>>,
-  worker_fact: WorkerAPIFactory,
+  worker_fact: Arc<WorkerAPIFactory>,
   health: Arc<ControllerHealthService>,
   graphite: Arc<GraphiteService>,
   _worker_thread: JoinHandle<()>,
@@ -21,10 +21,10 @@ pub struct LeastLoadedBalancer {
 }
 
 impl LeastLoadedBalancer {
-  fn new(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, worker_thread: JoinHandle<()>, load: Arc<LoadService>) -> Self {
+  fn new(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, worker_thread: JoinHandle<()>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>) -> Self {
     LeastLoadedBalancer {
       workers: RwLock::new(HashMap::new()),
-      worker_fact: WorkerAPIFactory {},
+      worker_fact,
       health,
       graphite,
       _worker_thread: worker_thread,
@@ -33,10 +33,10 @@ impl LeastLoadedBalancer {
     }
   }
 
-  pub fn boxed(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, load: Arc<LoadService>, tid: &TransactionId) -> Arc<Self> {
+  pub fn boxed(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, tid: &TransactionId) -> Arc<Self> {
     let (tx, rx) = channel();
     let t = LeastLoadedBalancer::start_status_thread(rx, tid);
-    let i = Arc::new(LeastLoadedBalancer::new(health, graphite, t, load));
+    let i = Arc::new(LeastLoadedBalancer::new(health, graphite, t, load, worker_fact));
     tx.send(i.clone()).unwrap();
     i
   }

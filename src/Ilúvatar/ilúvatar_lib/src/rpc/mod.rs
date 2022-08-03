@@ -26,6 +26,12 @@ impl RCPWorkerAPI {
       client
     })
   }
+
+  pub fn clone(&self) -> RCPWorkerAPI {
+    RCPWorkerAPI {
+      client: self.client.clone()
+    }
+  }
 }
 
 #[derive(Debug)]

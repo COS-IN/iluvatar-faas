@@ -6,14 +6,14 @@ use std::time::Duration;
 
 #[allow(unused)]
 pub struct HealthService {
-  worker_fact: WorkerAPIFactory,
+  worker_fact: Arc<WorkerAPIFactory>,
   worker_statuses: Arc<DashMap<String, WorkerStatus>>,
 }
 
 impl HealthService {
-  pub fn boxed() -> Arc<Self> {
+  pub fn boxed(worker_fact: Arc<WorkerAPIFactory>) -> Arc<Self> {
     Arc::new(HealthService {
-      worker_fact: WorkerAPIFactory {},
+      worker_fact,
       worker_statuses: Arc::new(DashMap::new())
     })
   }

@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use iluvatar_lib::{services::{load_balance::{get_balancer, LoadBalancer}, ControllerHealthService, graphite::graphite_svc::GraphiteService}, transaction::TransactionId, bail_error, load_balancer_api::{registration::RegistrationService, load_reporting::LoadService}};
+use iluvatar_lib::{services::{load_balance::{get_balancer, LoadBalancer}, ControllerHealthService, graphite::graphite_svc::GraphiteService}, transaction::TransactionId, bail_error, load_balancer_api::{registration::RegistrationService, load_reporting::LoadService}, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_lib::utils::{calculate_fqdn, config::args_to_json};
 use iluvatar_lib::load_balancer_api::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
 use iluvatar_lib::load_balancer_api::lb_config::ControllerConfig;
@@ -21,12 +21,13 @@ unsafe impl Send for Controller{}
 
 impl Controller {
   pub fn new(config: ControllerConfig, tid: &TransactionId) -> Self {
-    let health_svc = ControllerHealthService::boxed();
+    let worker_fact = WorkerAPIFactory::boxed();
+    let health_svc = ControllerHealthService::boxed(worker_fact.clone());
     let graphite_svc = GraphiteService::boxed(config.graphite.clone());
     let load_svc = LoadService::boxed(graphite_svc.clone(), config.load_balancer.clone(), tid);
-    let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, graphite_svc, load_svc.clone()).unwrap();
-    let reg_svc = RegistrationService::boxed(lb.clone());
-    let async_svc = AsyncService::boxed();
+    let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, graphite_svc, load_svc.clone(), worker_fact.clone()).unwrap();
+    let reg_svc = RegistrationService::boxed(lb.clone(), worker_fact.clone());
+    let async_svc = AsyncService::boxed(worker_fact.clone());
     Controller {
       config,
       lb,

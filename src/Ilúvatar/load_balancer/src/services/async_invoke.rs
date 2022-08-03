@@ -9,14 +9,14 @@ use anyhow::Result;
 #[allow(unused)]
 pub struct AsyncService {
   async_invokes: Arc<DashMap<String, Arc<RegisteredWorker>>>,
-  worker_fact: WorkerAPIFactory,
+  worker_fact: Arc<WorkerAPIFactory>,
 }
 
 impl AsyncService {
-  pub fn boxed() -> Arc<Self> {
+  pub fn boxed(worker_fact: Arc<WorkerAPIFactory>) -> Arc<Self> {
     Arc::new(AsyncService {
       async_invokes: Arc::new(DashMap::new()),
-      worker_fact: WorkerAPIFactory {},
+      worker_fact
     })
   }
 
