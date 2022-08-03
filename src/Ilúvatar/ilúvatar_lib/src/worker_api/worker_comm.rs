@@ -4,6 +4,9 @@ use anyhow::Result;
 use dashmap::DashMap;
 
 pub struct WorkerAPIFactory {
+  /// cache of RPC connections to workers
+  /// We can clone them for faster connection
+  /// better than opening a new one
   rpc_apis: Arc<DashMap<String, RCPWorkerAPI>>,
 }
 
