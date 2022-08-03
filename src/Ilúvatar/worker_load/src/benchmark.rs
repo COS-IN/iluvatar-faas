@@ -169,12 +169,13 @@ pub async fn bebenchmark_controller(host: String, port: Port, functions: Vec<Str
       anyhow::bail!("Failed to write json of result because {}", e);
     }
   };
-
-  for func in warm_results.keys() {
-    let warm: f64 = warm_results.get(func).unwrap().iter().sum();
-    let warm_over: f64 = warm_over_results.get(func).unwrap().iter().sum();
-    let cold: f64 = cold_results.get(func).unwrap().iter().sum();
-    let cold_over: f64 = cold_over_results.get(func).unwrap().iter().sum();
+  let mut keys = warm_results.keys().cloned().cloned().collect::<Vec<String>>();
+  keys.sort();
+  for func in keys {
+    let warm: f64 = warm_results.get(&func).unwrap().iter().sum();
+    let warm_over: f64 = warm_over_results.get(&func).unwrap().iter().sum();
+    let cold: f64 = cold_results.get(&func).unwrap().iter().sum();
+    let cold_over: f64 = cold_over_results.get(&func).unwrap().iter().sum();
     let to_write = format!("{},{},{},{},{}\n", func, warm, warm_over, cold, cold_over);
     match f.write_all(to_write.as_bytes()) {
       Ok(_) => (),
@@ -260,12 +261,14 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
       anyhow::bail!("Failed to write json of result because {}", e);
     }
   };
+  let mut keys = warm_results.keys().cloned().cloned().collect::<Vec<String>>();
+  keys.sort();
 
-  for func in warm_results.keys() {
-    let warm: f64 = warm_results.get(func).unwrap().iter().sum();
-    let warm_over: f64 = warm_over_results.get(func).unwrap().iter().sum();
-    let cold: f64 = cold_results.get(func).unwrap().iter().sum();
-    let cold_over: f64 = cold_over_results.get(func).unwrap().iter().sum();
+  for func in keys {
+    let warm: f64 = warm_results.get(&func).unwrap().iter().sum();
+    let warm_over: f64 = warm_over_results.get(&func).unwrap().iter().sum();
+    let cold: f64 = cold_results.get(&func).unwrap().iter().sum();
+    let cold_over: f64 = cold_over_results.get(&func).unwrap().iter().sum();
     let to_write = format!("{},{},{},{},{}\n", func, warm, warm_over, cold, cold_over);
     match f.write_all(to_write.as_bytes()) {
       Ok(_) => (),
