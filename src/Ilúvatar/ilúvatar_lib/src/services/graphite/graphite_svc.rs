@@ -38,7 +38,7 @@ impl GraphiteService {
     Arc::new(GraphiteService::new(config))
   }
 
-  fn publish_udp(&self, msg: String, tid: &TransactionId) {
+  fn publish_udp(&self, metrics: &Vec<String>, values: Vec<String>, tid: &TransactionId, tags: String) {
     let socket = match UdpSocket::bind("127.0.0.1:9999") {
       Ok(s) => s,
       Err(e) => {
@@ -46,16 +46,20 @@ impl GraphiteService {
         return;
       },
     };
-
-    match socket.send_to(msg.as_bytes(), &format!("{}:{}", self.config.address, self.config.ingestion_port)) {
-      Ok(_) => (),
-      Err(e) => {
-        error!(tid=%tid, "udp send failed because {}", e);
-      },
-    };
+    for i in 0..metrics.len() {
+      let metric = &metrics[i];
+      let value = &values[i];
+      let msg = format_metric!(metric, value, tags, tid);
+      match socket.send_to(msg.as_bytes(), &format!("{}:{}", self.config.address, self.config.ingestion_port)) {
+        Ok(_) => (),
+        Err(e) => {
+          error!(tid=%tid, "udp send failed because {}", e);
+        },
+      };
+    }
   }
 
-  fn publish_tcp(&self, msg: String, tid: &TransactionId) {
+  fn publish_tcp(&self, metrics: &Vec<String>, values: Vec<String>, tid: &TransactionId, tags: String) {
     let addr = format!("{}:{}", self.config.address, self.config.ingestion_port);
     debug!(tid=%tid, "opening connection to '{}'", addr);
     let mut socket = match TcpStream::connect(addr) {
@@ -65,26 +69,33 @@ impl GraphiteService {
         return;
       },
     };
-    
-    match socket.write(msg.as_bytes()) {
-      Ok(r) => {
-        trace!(tid=%tid, "wrote '{}' bytes",  r)
-      },
-      Err(e) => {
-        error!(tid=%tid, "tcp write failed because {}",  e);
-      },
-    };
+    for i in 0..metrics.len() {
+      let metric = &metrics[i];
+      let value = &values[i];
+      let msg = format_metric!(metric, value, tags, tid);
+      match socket.write(msg.as_bytes()) {
+        Ok(r) => {
+          trace!(tid=%tid, "wrote '{}' bytes",  r)
+        },
+        Err(e) => {
+          error!(tid=%tid, "tcp write failed because {}",  e);
+        },
+      };  
+    }
+  }
+
+  pub fn publish_metrics(&self, metrics: &Vec<String>, values: Vec<String>, tid: &TransactionId, tags: String) {
+    if self.config.ingestion_udp {
+      debug!(tid=%tid, metrics=?metrics, values=?values, "udp pushing message");
+      self.publish_udp(metrics, values, tid, tags);
+    } else {
+      debug!(tid=%tid, metrics=?metrics, values=?values, "tcp pushing metric");
+      self.publish_tcp(metrics, values, tid, tags);
+    }
   }
 
   pub fn publish_metric(&self, metric: &str, value: String, tid: &TransactionId, tags: String) {
-    let msg = format_metric!(metric, value, tags, tid);
-    if self.config.ingestion_udp {
-      debug!(tid=%tid, data=%msg, "udp pushing message");
-      self.publish_udp(msg, tid);
-    } else {
-      debug!(tid=%tid, data=%msg, "tcp pushing metric");
-      self.publish_tcp(msg, tid);
-    }
+    self.publish_metrics(&vec![metric.to_string()], vec![value.to_string()], tid, tags)
   }
 
   pub async fn get_latest_metric<'a, T>(&self, metric: &str, by_tag: &str, tid: &TransactionId) -> HashMap<String, T>

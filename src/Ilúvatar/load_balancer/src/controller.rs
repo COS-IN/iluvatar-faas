@@ -23,7 +23,7 @@ impl Controller {
   pub fn new(config: ControllerConfig, tid: &TransactionId) -> Self {
     let health_svc = ControllerHealthService::boxed();
     let graphite_svc = GraphiteService::boxed(config.graphite.clone());
-    let load_svc = LoadService::boxed(graphite_svc.clone(), tid);
+    let load_svc = LoadService::boxed(graphite_svc.clone(), config.load_balancer.clone(), tid);
     let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, graphite_svc, load_svc.clone()).unwrap();
     let reg_svc = RegistrationService::boxed(lb.clone());
     let async_svc = AsyncService::boxed();

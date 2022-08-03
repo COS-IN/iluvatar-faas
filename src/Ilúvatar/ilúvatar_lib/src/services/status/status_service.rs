@@ -20,6 +20,7 @@ pub struct StatusService {
   worker_thread: JoinHandle<()>,
   graphite: GraphiteService,
   worker_name: String,
+  metrics: Vec<String>,
 }
 
 impl StatusService {
@@ -44,6 +45,9 @@ impl StatusService {
       worker_thread: handle,
       graphite: GraphiteService::new(graphite_cfg),
       worker_name,
+      metrics: vec!["worker.load.loadavg".to_string(), "worker.load.cpu".to_string(), 
+                    "worker.load.queue".to_string(), "worker.load.mem_pct".to_string(), 
+                    "worker.load.used_mem".to_string()]
     });
     tx.send(ret.clone()).unwrap();
     ret
@@ -138,11 +142,14 @@ impl StatusService {
     let (us, sy, id, wa) = self.vmstat(tid);
     let minute_load_avg = self.uptime(tid);
     let nprocs = self.nproc(tid);
+    let queue_len = self.invoker_service.queue_len() as i64;
+    let used_mem = self.container_manager.used_memory();
+    let total_mem = self.container_manager.total_memory();
 
     let new_status = Arc::new(WorkerStatus {
-      queue_len: self.invoker_service.queue_len() as i64,
-      used_mem: self.container_manager.used_memory(),
-      total_mem: self.container_manager.total_memory(),
+      queue_len,
+      used_mem,
+      total_mem,
       cpu_us: us,
       cpu_sy: sy,
       cpu_id: id,
@@ -152,7 +159,11 @@ impl StatusService {
     });
     info!(tid=%tid, status=?new_status,"current load status");
 
-    self.graphite.publish_metric("worker.load.loadavg", (minute_load_avg / nprocs as f64).to_string(), tid, format!("machine={};type=worker", self.worker_name));
+    let tags = format!("machine={};type=worker", self.worker_name);
+    let values = vec![(minute_load_avg / nprocs as f64).to_string(), (us+sy).to_string(),
+                                    queue_len.to_string(), (used_mem as f64 / total_mem as f64).to_string(), 
+                                    used_mem.to_string()];
+    self.graphite.publish_metrics(&self.metrics, values, tid, tags);
 
     let mut current_status = self.current_status.lock();
     *current_status = new_status;

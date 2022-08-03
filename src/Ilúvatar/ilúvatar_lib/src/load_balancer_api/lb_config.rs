@@ -28,6 +28,9 @@ pub struct Configuration {
 pub struct LoadBalancingConfig {
   /// the load balancing algorithm to use
   pub algorithm: String,
+  /// the load metric to use
+  ///   only relevant to those algorithms that use it
+  pub load_metric: String,
 }
 
 pub type ControllerConfig = Arc<Configuration>;

@@ -5,21 +5,25 @@ use tokio::task::JoinHandle;
 use tracing::{info, debug, error};
 use parking_lot::RwLock;
 
+use super::lb_config::LoadBalancingConfig;
+
 #[allow(unused)]
 pub struct LoadService {
   _worker_thread: JoinHandle<()>,
   graphite: Arc<GraphiteService>,
   workers: RwLock<HashMap<String, f64>>,
+  config: Arc<LoadBalancingConfig>,
 }
 
 impl LoadService {
-  pub fn boxed(graphite: Arc<GraphiteService>, tid: &TransactionId) -> Arc<Self> {
+  pub fn boxed(graphite: Arc<GraphiteService>, config: Arc<LoadBalancingConfig>, tid: &TransactionId) -> Arc<Self> {
     let (tx, rx) = channel();
     let t = LoadService::start_thread(rx, tid);
     let ret = Arc::new(LoadService {
       _worker_thread: t,
       graphite,
       workers: RwLock::new(HashMap::new()),
+      config,
     });
     tx.send(ret.clone()).unwrap();
 
