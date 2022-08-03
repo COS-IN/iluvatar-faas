@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use tracing::warn;
+use tracing::{warn, error};
 
 use crate::transaction::TransactionId;
 
@@ -31,10 +31,20 @@ pub fn touch(path: &String) -> std::io::Result<()> {
 /// Tries to remove the specified directory
 /// Swallows any failure
 pub fn try_remove_pth(pth: &String, tid: &TransactionId) {
-  match std::fs::remove_dir(pth) {
-    Ok(_) => {},
-    Err(_) => warn!("[{}] Unable to remove directory {}", tid, pth),
-  };
+  let path = std::path::Path::new(&pth);
+  if path.is_file() {
+    match std::fs::remove_file(pth) {
+      Ok(_) => {},
+      Err(_) => warn!("[{}] Unable to remove file {}", tid, pth),
+    };  
+  } else if path.is_dir() {
+    match std::fs::remove_dir(pth) {
+      Ok(_) => {},
+      Err(_) => warn!("[{}] Unable to remove directory {}", tid, pth),
+    };
+  } else {
+    error!("[{}] Unknown path type to delete {}", tid, pth)
+  }
 }
 
 /// Make sure the temp dir to use exists
