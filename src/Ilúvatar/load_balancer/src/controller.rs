@@ -89,7 +89,7 @@ impl Controller {
             Ok(cookie)
           },
           Err(e) => {
-            error!("[{}] async invocation failed because: {}", tid, e);
+            error!(tid=%tid, error=%e, "async invocation failed");
             Err(e)
           },
         }

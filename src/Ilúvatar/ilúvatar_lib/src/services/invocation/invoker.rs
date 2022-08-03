@@ -48,7 +48,7 @@ impl InvokerService {
         let invoker_svc: Arc<InvokerService> = match rx.recv() {
             Ok(svc) => svc,
             Err(_) => {
-              error!("[{}] invoker service thread failed to receive service from channel!", tid);
+              error!(tid=%tid, "Invoker service thread failed to receive service from channel!");
               return;
             },
           };
@@ -64,7 +64,7 @@ impl InvokerService {
       let worker_rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => { 
-          error!("[{}] tokio thread runtime failed to start {}", tid, e);
+          error!(tid=%tid, error=%e, "Tokio thread runtime failed to start");
           return ();
         },
       };
@@ -118,11 +118,11 @@ impl InvokerService {
               let mut queue = self.invoke_queue.lock();
               queue.insert(0, item.clone());
             } else {
-              error!("[{}] Encountered unknown error while trying to run queued invocation '{}'", &item.tid, cause);
+              error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
               // TODO: insert smartly into queue
               let mut result_ptr = item.result_ptr.lock();
               if result_ptr.attempts >= self.config.retries {
-                error!("[{}] Abandoning attempt to run invocation after {} errors", &item.tid, result_ptr.attempts);
+                error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
                 result_ptr.duration = 0;
                 result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
                 result_ptr.completed = true;

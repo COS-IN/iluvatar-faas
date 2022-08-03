@@ -83,7 +83,7 @@ pub async fn register_function(server: Data<Controller>, req: Json<RegisterFunct
   match server.register_function(req, &tid).await {
     Ok(_) => HttpResponse::Ok().finish(),
     Err(e) => {
-      error!("[{}] the web server got an error trying to register function {} {}", tid, fqdn, e);
+      error!(tid=%tid, fqdn=%fqdn, error=%e, "The web server got an error trying to register function");
       HttpResponse::InternalServerError().body(e.to_string())
     },
   }
@@ -99,7 +99,7 @@ pub async fn register_worker(server: Data<Controller>, req: Json<RegisterWorker>
   match server.register_worker(req, &tid).await {
     Ok(_) => HttpResponse::Accepted().finish(),
     Err(e) => {
-      error!("[{}] the web server got an error trying to register worker {} {}", tid, name, e);
+      error!(tid=%tid, worker=%name, error=%e, "The web server got an error trying to register worker");
       HttpResponse::InternalServerError().body(e.to_string())
     },
   }

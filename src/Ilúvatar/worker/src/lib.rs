@@ -18,7 +18,7 @@ pub fn register_rpc_to_controller(server_config: Arc<Configuration>, tid: Transa
 
       match result {
         Ok(_) => info!("[{}] worker successfully registered with controller", tid),
-        Err(e) => error!("[{}] worker registration failed because '{}'", tid, e),
+        Err(e) => error!(tid=%tid, error=%e, "Worker registration failed"),
       }
     }
   );

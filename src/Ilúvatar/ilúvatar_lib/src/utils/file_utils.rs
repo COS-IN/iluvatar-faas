@@ -43,7 +43,7 @@ pub fn try_remove_pth(pth: &String, tid: &TransactionId) {
       Err(_) => warn!(tid=%tid, path=%pth, "Unable to remove directory"),
     };
   } else {
-    error!("[{}] Unknown path type to delete {}", tid, pth)
+    error!(tid=%tid, path=%pth, "Unknown path type to delete")
   }
 }
 

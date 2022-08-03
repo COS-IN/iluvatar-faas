@@ -49,9 +49,7 @@ impl RegistrationService {
       let function = item.value();
       match api.register(function.function_name.clone(), function.function_version.clone(), function.image_name.clone(), function.memory, function.cpus, function.parallel_invokes, tid.clone()).await {
         Ok(_) => (),
-        Err(e) => {
-          error!("[{}] new worker {} failed to register function because '{}'", tid, &reg_worker.name, e)
-        },
+        Err(e) => error!(tid=%tid, worker=%reg_worker.name, error=%e, "New worker failed to register function"),
       };
     }
     self.lb.add_worker(reg_worker.clone(), tid);
@@ -82,9 +80,7 @@ impl RegistrationService {
         let mut api = self.worker_fact.get_worker_api(&worker, tid).await?;
         match api.register(function.function_name.clone(), function.function_version.clone(), function.image_name.clone(), function.memory, function.cpus, function.parallel_invokes, tid.clone()).await {
             Ok(_) => (),
-            Err(e) => {
-              error!("[{}] worker {} failed to register new function because '{}'", tid, &worker.name, e)
-            },
+            Err(e) => error!(tid=%tid, worker=%worker.name, error=%e, "Worker failed to register new function"),
         };
       }
       let function = Arc::new(RegisteredFunction::from(function));

@@ -92,7 +92,7 @@ impl WorkerAPI for RCPWorkerAPI {
           debug!(tid=%tid, "Async invoke succeeded");
           Ok(response.lookup_cookie)
         } else {
-          error!("[{}] Async invoke failed", tid);
+          error!(tid=%tid, "Async invoke failed");
           anyhow::bail!("Async invoke failed")
         }    
       },

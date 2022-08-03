@@ -601,7 +601,7 @@ impl LifecycleService for ContainerdLifecycle {
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {
-        error!("[{}] error reading container '{}' stdout: {}", tid, container.container_id(), e);
+        error!(tid=%tid, container_id=%container.container_id(), error=%e, "Error reading container");
         format!("STDOUT_READ_ERROR: {}", e)
       },
     }
@@ -611,7 +611,7 @@ impl LifecycleService for ContainerdLifecycle {
     match std::fs::read_to_string(path) {
       Ok(s) => str::replace(&s, "\n", "\\n"),
       Err(e) =>  {
-        error!("[{}] error reading container '{}' stderr: {}", tid, container.container_id(), e);
+        error!(tid=%tid, container_id=%container.container_id(), error=%e, "Error reading container");
         format!("STDERR_READ_ERROR: {}", e)
       },
     }

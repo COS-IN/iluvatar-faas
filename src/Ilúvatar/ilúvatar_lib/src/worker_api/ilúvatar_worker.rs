@@ -108,7 +108,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok(Response::new(resp))
       },
       Err(e) => {
-        error!("[{}] Failed to check async invocation status '{}'", request.transaction_id, e);
+        error!(tid=%request.transaction_id, error=%e, "Failed to check async invocation status");
         Ok(Response::new(InvokeResponse {
           json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
           success: false,
@@ -134,7 +134,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           Ok(Response::new(resp))    
         },
         Err(e) => {
-          error!("[{}] Prewarm failed with error: {}", request.transaction_id, e);
+          error!(tid=%request.transaction_id, error=%e, "Container prewarm failed");
           let resp = PrewarmResponse {
             success: false,
             message: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
@@ -161,7 +161,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           Ok(Response::new(reply))        
         },
         Err(msg) => {
-          error!("[{}] Register failed with error {}", request.transaction_id, msg);
+          error!(tid=%request.transaction_id, error=%msg, "Registration failed");
           let reply = RegisterResponse {
             success: false,
             function_json_result: format!("{{\"Error\": \"Error during registration of '{}': '{:?}\"}}", request.function_name, msg).into(),

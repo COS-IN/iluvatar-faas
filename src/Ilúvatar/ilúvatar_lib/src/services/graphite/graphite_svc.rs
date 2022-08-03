@@ -13,7 +13,7 @@ macro_rules! format_metric {
       let time = match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(t) => t.as_secs(),
         Err(e) => {
-          error!("[{}] udp time check failed because {}", $tid, e);
+          error!(tid=%$tid, error=%e, "udp time check failed");
           return;
         },
       };

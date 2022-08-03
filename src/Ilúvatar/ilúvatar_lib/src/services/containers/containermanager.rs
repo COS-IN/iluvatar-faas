@@ -63,8 +63,8 @@ impl ContainerManager {
       let tid: &TransactionId = &CTR_MGR_WORKER_TID;
       let cm: Arc<ContainerManager> = match rx.recv() {
         Ok(cm) => cm,
-        Err(_) => {
-          error!("[{}] invoker service thread failed to receive service from channel!", tid);
+        Err(e) => {
+          error!(tid=%tid, error=%e, "Invoker service thread failed to receive service from channel!");
           return;
         },
       };
@@ -72,7 +72,7 @@ impl ContainerManager {
       let worker_rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => { 
-          error!("[{}] tokio thread runtime failed to start {}", tid, e);
+          error!(tid=%tid, error=%e, "Tokio thread runtime failed to start");
           return ();
         },
       };
@@ -93,7 +93,7 @@ impl ContainerManager {
         if reclaim > 0 {
           match self.reclaim_memory(reclaim, tid).await {
             Ok(_) => {},
-            Err(e) => error!("[{}] Error while trying to remove containers '{}'", tid, e),
+            Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
           };
         }
       }
@@ -146,9 +146,9 @@ impl ContainerManager {
         Ok(_) => (),
         Err(cause) => {
           if let Some(_core_err) = cause.downcast_ref::<ContainerLockedError>() {
-            error!("[{}] tried to remove an unhealthy container someone was using", tid);
+            error!(tid=%tid, "Tried to remove an unhealthy container someone was using");
           } else {
-            error!("[{}] got an unknown error trying to remove an unhealthy container '{}'", tid, cause);
+            error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container");
           }
         },
       };
@@ -210,7 +210,7 @@ impl ContainerManager {
       },
       None => {
         // 'should' not get here
-        error!("[{}] fqdn '{}' has not been registered", tid, fqdn);
+        error!(tid=%tid, fqdn=%fqdn, "Tried to acquire a container for an fqdn that has not been registered");
         None
       },
     }
@@ -491,7 +491,7 @@ impl ContainerManager {
     let comparator = match self.resources.eviction.as_str() {
       "LRU" => ContainerManager::lru_eviction,
       _ => { 
-          error!("[{}] Unkonwn eviction algorithm '{}'", tid, self.resources.eviction);
+          error!(tid=%tid, algorithm=%self.resources.eviction, "Unkonwn eviction algorithm");
           return;
       }
     };

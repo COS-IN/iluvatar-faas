@@ -53,7 +53,7 @@ impl NamespaceManager {
           let nm: Arc<NamespaceManager> = match rx.recv() {
             Ok(cm) => cm,
             Err(_) => {
-              error!("[{}] invoker service thread failed to receive service from channel!", tid);
+              error!(tid=%tid, "Invoker service thread failed to receive service from channel!");
               return;
             },
           };
@@ -74,13 +74,13 @@ impl NamespaceManager {
         let ns = match self.create_namespace(&self.generate_net_namespace_name(), tid) {
             Ok(ns) => ns,
             Err(e) => {
-              error!("[{}] Failed creating namespace in monitor: {}", tid, e);
+              error!(tid=%tid, error=%e, "Failed creating namespace in monitor");
               break 'inner;
             },
         };
         match self.return_namespace(Arc::new(ns), tid) {
             Ok(_) => {},
-            Err(e) => error!("[{}] Failed giving namespace to pool: {}", tid, e),
+            Err(e) => error!(tid=%tid, error=%e, "Failed giving namespace to pool"),
         };
       }
       tokio::time::sleep(std::time::Duration::from_secs(self.config.pool_freq_sec)).await;
