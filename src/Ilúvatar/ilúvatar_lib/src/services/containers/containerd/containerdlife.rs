@@ -107,12 +107,12 @@ impl ContainerdLifecycle {
   }
   
   /// get the mount points for a container's (id) snapshot base
-  async fn load_mounts(&self, id: &str, snapshot_base: &String, tid: &TransactionId) -> Result<Vec<containerd_client::types::Mount>> {
+  async fn load_mounts(&self, cid: &str, snapshot_base: &String, tid: &TransactionId) -> Result<Vec<containerd_client::types::Mount>> {
     let view_snapshot_req = PrepareSnapshotRequest {
         // TODO: be picky about snapshotter?
         // https://github.com/containerd/containerd/tree/main/docs/snapshotters
         snapshotter: "overlayfs".to_string(),
-        key: id.to_owned(),
+        key: cid.to_owned(),
         parent: snapshot_base.clone(),
         labels: HashMap::new(),
     };
@@ -122,7 +122,7 @@ impl ContainerdLifecycle {
         .await;
     if let Ok(rsp) = rsp {
       let rsp = rsp.into_inner();
-      debug!("[{}] got mounts {} {}", tid, id, rsp.mounts.len());
+      debug!(tid=%tid, container_id=%cid, mounts=?rsp.mounts, "got mounts");
       Ok(rsp.mounts)
     } else {
       bail_error!("[{}] Failed to prepare snapshot and load mounts: {:?}", tid, rsp);
@@ -159,7 +159,7 @@ impl ContainerdLifecycle {
         .await;
     match &resp {
       Ok(_) => {
-        debug!("[{}] Delete task response {:?}", tid, resp);
+        debug!(tid=%tid, response=?resp, "Delete task response");
         Ok(())
       },
       Err(e) => {
@@ -199,7 +199,7 @@ impl ContainerdLifecycle {
           }
         },
     };
-    debug!("[{}] Kill task response {:?}", tid, resp);
+    debug!(tid=%tid, response=?resp, "Kill task response");
     Ok(())
   }
 
@@ -209,7 +209,7 @@ impl ContainerdLifecycle {
     };
     let req = with_namespace!(req, ctd_namespace);
 
-    let _resp = match client
+    let resp = match client
         .delete(req)
         .await {
             Ok(resp) => resp,
@@ -217,7 +217,7 @@ impl ContainerdLifecycle {
               bail_error!("[{}] Delete container failed with error {}", tid, e);
             },
         };
-    debug!("[{}] Delete container response {:?}", tid, _resp);
+    debug!(tid=%tid, response=?resp, "Delete container response");
     Ok(())
   }
 
@@ -253,7 +253,7 @@ impl ContainerdLifecycle {
           bail_error!("[{}] Failed to prepare snapshot and load mounts: {:?}", tid, e);
         },
     };
-    debug!("[{}] image resp = {:?}", tid, rsp);
+    debug!(tid=%tid,response=?rsp, "image response");
     let (image_digest, media_type) = if let Some(image) = rsp.image {
       image.target
             .ok_or_else(|| anyhow::anyhow!("Could not find image digest"))
@@ -262,7 +262,7 @@ impl ContainerdLifecycle {
       anyhow::bail!("Could not find image")
     };
   
-    debug!("[{}] got image {} info {:?}", tid, image, image_digest);
+    debug!(tid=%tid, image=%image, digest=?image_digest, "got image digest");
   
     // Step 2. get image content manifests
     let content = self.read_content(namespace, image_digest).await?;
@@ -273,7 +273,7 @@ impl ContainerdLifecycle {
             Ok(s) => s,
             Err(e) => bail_error!("[{}] JSON error getting ImageIndex: {}", tid, e),
         };
-        debug!("[{}] config ImageIndex = {:?}", tid, config_index);
+        debug!(tid=%tid, index=?config_index, "config ImageIndex");
       
         let manifest_item = config_index
               .manifests()
@@ -284,7 +284,7 @@ impl ContainerdLifecycle {
               })
               .ok_or_else(|| anyhow::anyhow!("fail to load specific manifest"))?.digest().to_owned();
         
-        debug!("[{}] Acquired manifest item: {}", tid, manifest_item);
+        debug!(tid=%tid, manifest=?manifest_item, "Acquired manifest item");
         // Step 3. load image manifest from specific platform filter
         let layer_item: ImageManifest = match serde_json::from_slice(&self.read_content(namespace, manifest_item).await?) {
             Ok(s) => s,
@@ -294,7 +294,7 @@ impl ContainerdLifecycle {
       },
       "application/vnd.docker.distribution.manifest.v2+json" => {
         let config_index: ImageManifest = serde_json::from_slice(&content)?;
-        debug!("[{}] config ImageManifest = {:?}", tid, config_index);
+        debug!(tid=%tid, manifest=?config_index, "config ImageManifest");
         config_index.config().to_owned()  
       }
       _ => anyhow::bail!("Don't know how to handle unknown image media type '{}'", media_type)
@@ -307,7 +307,7 @@ impl ContainerdLifecycle {
           Err(e) => bail_error!("[{}] JSON error getting ImageConfiguration: {}", tid, e),
       };
   
-    debug!("[{}] Loaded ImageConfiguration: {:?}", tid, config);
+    debug!(tid=%tid, config=?config, "Loaded ImageConfiguration");
 
     // Step 6. calculate finalize digest
     let mut iter = config.rootfs().diff_ids().iter();
@@ -320,7 +320,7 @@ impl ContainerdLifecycle {
         let sha = hex::encode(hasher.finalize());
         prev_digest = format!("sha256:{}", sha)
     }
-    debug!("[{}] load {} diff digest {}", tid, image, prev_digest);
+    debug!(tid=%tid, image=%image, digest=%prev_digest, "loaded diff digest");
     Ok(prev_digest)
   }
 
@@ -356,7 +356,7 @@ impl ContainerdLifecycle {
 
     let cid = format!("{}-{}", fqdn, GUID::rand());
     let ns = self.namespace_manager.get_namespace(tid)?;
-    debug!("[{}] Assigning namespace {} to container {}", tid, ns.name, cid);
+    debug!(tid=%tid, namespace=%ns.name, containerid=%cid, "Assigning namespace to container");
 
     let address = &ns.namespace.ips[0].address;
 
@@ -394,7 +394,7 @@ impl ContainerdLifecycle {
             },
         };
 
-    debug!("[{}] Container: created {:?}", tid, resp);
+    debug!(tid=%tid, response=?resp, "Container created");
 
     let mounts = self.load_mounts(&cid, &reg.snapshot_base, tid).await?;
 
@@ -419,9 +419,10 @@ impl ContainerdLifecycle {
     let mut client = TasksClient::new(self.channel());
     match client.create(req).await {
       Ok(t) => {
-        debug!("[{}] Task: created {:?}", tid, t);
+        let t = t.into_inner();
+        debug!(tid=%tid, task=?t, "Task created");
         let task = Task {
-          pid: t.into_inner().pid,
+          pid: t.pid,
           container_id: Some(cid.clone()),
           running: false
         };
@@ -514,7 +515,7 @@ impl LifecycleService for ContainerdLifecycle {
               bail_error!("[{}] Containerd failed to list containers with error: {}", tid, e);
             },
         };
-    debug!("[{}] Container list response {:?}", tid, resp);
+    debug!(tid=%tid, response=?resp, "Container list response");
     for container in resp.into_inner().containers.iter() {
       let container_id = &container.id;
       info!("[{}] Removing container {}", tid, container_id);
@@ -527,7 +528,7 @@ impl LifecycleService for ContainerdLifecycle {
 
   #[tracing::instrument(skip(self, container, timeout_ms))]
   async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
-    debug!("[{}] Waiting for startup of container {}", tid, &container.container_id());
+    debug!(tid=%tid, container_id=%container.container_id(), "Waiting for startup of container");
     let stderr = self.stderr_pth(&container.container_id());
 
     let start = SystemTime::now();

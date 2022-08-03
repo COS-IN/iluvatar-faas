@@ -99,7 +99,7 @@ impl<'a> ContainerLock<'a> {
 /// Automatically release the lock on the container when the lock is dropped
 impl<'a> Drop for ContainerLock<'a> {
   fn drop(&mut self) {
-    debug!("[{}] Dropping container lock for '{}'!", self.transaction_id, self.container.container_id());
+    debug!(tid=%self.transaction_id, container_id=%self.container.container_id(), "Dropping container lock");
     self.container_mrg.return_container(&self.container);
   }
 }

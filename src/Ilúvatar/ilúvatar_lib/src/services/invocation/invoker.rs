@@ -39,7 +39,7 @@ impl InvokerService {
     }
 
     fn start_queue_thread(rx: Receiver<Arc<InvokerService>>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
-      debug!("[{}] Launching InvokerService queue thread", tid);
+      debug!(tid=%tid, "Launching InvokerService queue thread");
       // TODO: smartly manage the queue, not just FIFO?
       // run on an OS thread here so we don't get blocked by out userland threading runtime
       // If this thread crashes, we'll never know and the worker will deadlock
@@ -52,7 +52,7 @@ impl InvokerService {
               return;
             },
           };
-          debug!("[{}] invoker worker started", tid);
+          debug!(tid=%tid, "invoker worker started");
           invoker_svc.monitor_queue(tid, invoker_svc.clone());
         }
       )
@@ -60,7 +60,7 @@ impl InvokerService {
 
     /// loops forever on the invocation queue, running things when there are sufficient resources
     fn monitor_queue(&self, tid:&TransactionId, invoker_svc: Arc<InvokerService>) {
-      debug!("[{}] invoker worker loop starting", tid);
+      debug!(tid=%tid, "invoker worker loop starting");
       let worker_rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => { 
@@ -73,7 +73,7 @@ impl InvokerService {
           let mut queue = self.invoke_queue.lock();
           if queue.len() > 0 {
             let item = queue.remove(0);
-            debug!("[{}] Dequeueing item", &item.tid);
+            debug!(tid=%item.tid, "Dequeueing item");
             self.spawn_tokio_worker(&worker_rt, invoker_svc.clone(), item);
           }
         } else {
@@ -92,7 +92,7 @@ impl InvokerService {
     /// runs the specific invocation on a new tokio worker thread
     fn spawn_tokio_worker(&self, runtime: &tokio::runtime::Runtime, invoker_svc: Arc<InvokerService>, item: Arc<EnqueuedInvocation>) {
       let _handle = runtime.spawn(async move {
-        debug!("[{}] Launching invocation thread for queued item", &item.tid);
+        debug!(tid=%item.tid, "Launching invocation thread for queued item");
         invoker_svc.invocation_worker_thread(item).await;
       });
     }
@@ -105,12 +105,12 @@ impl InvokerService {
             result_ptr.duration = res.1;
             result_ptr.result_json = res.0;
             result_ptr.completed = true;
-            debug!("[{}] queued invocation completed successfully", &item.tid);
+            debug!(tid=%item.tid, "queued invocation completed successfully");
           },
           Err(cause) =>
           {
             if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
-              debug!("[{}] Insufficient cores to run item right now", &item.tid);
+              debug!(tid=%item.tid, "Insufficient cores to run item right now");
               let mut queue = self.invoke_queue.lock();
               queue.insert(0, item.clone());
             } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
@@ -128,7 +128,7 @@ impl InvokerService {
                 result_ptr.completed = true;
               } else {
                 result_ptr.attempts += 1;
-                debug!("[{}] re-queueing invocation attempt with {} errors", &item.tid, result_ptr.attempts);
+                debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
                 let mut queue = self.invoke_queue.lock();
                 queue.push(item.clone());
               }
@@ -144,7 +144,7 @@ impl InvokerService {
     /// Insert an invocation request into the queue and return a QueueFuture for it's execution result
     #[tracing::instrument(skip(self, function_name, function_version, json_args))]
     fn enqueue_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> QueueFuture {
-      debug!("[{}] Enqueueing invocation", tid);
+      debug!(tid=%tid, "Enqueueing invocation");
       let fut = QueueFuture::new();
       let enqueue = Arc::new(EnqueuedInvocation::new(function_name, function_version, json_args, tid, fut.result.clone()));
       let mut invoke_queue = self.invoke_queue.lock();
@@ -166,7 +166,7 @@ impl InvokerService {
     /// returns the json result and duration as a tuple
     #[tracing::instrument(skip(self, function_name, function_version, json_args))]
     async fn invoke_internal(&self, function_name: &String, function_version: &String, json_args: &String, tid: &TransactionId) -> Result<(String, u64)> {
-      debug!("[{}] Internal invocation starting", tid);
+      debug!(tid=%tid, "Internal invocation starting");
 
       let fqdn = calculate_fqdn(&function_name, &function_version);
       match self.cont_manager.acquire_container(&fqdn, tid).await {
@@ -187,7 +187,7 @@ impl InvokerService {
     /// Returns a lookup cookie the request can be found at
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
     pub fn invoke_async(&self, request: InvokeAsyncRequest) -> Result<String> {
-      debug!("[{}] Inserting async invocation", request.transaction_id);
+      debug!(tid=%request.transaction_id, "Inserting async invocation");
       let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
       let cookie = GUID::rand().to_string();
       self.async_functions.insert(cookie.clone(), fut.result);

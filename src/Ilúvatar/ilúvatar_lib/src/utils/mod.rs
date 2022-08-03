@@ -31,7 +31,7 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
 /// Executes the specified executable with args and environment
 /// cmd_pth **must** be an absolute path
 pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> {
-  debug!("[{}] executing command '{}' with args '{:?}' and environment '{:?}'", tid, cmd_pth, args, env);
+  debug!(tid=%tid, command=cmd_pth, args=?args, environment=?env, "executing host command");
   if ! std::path::Path::new(&cmd_pth).exists() {
     bail_error!("[{}] command '{}' does not exists", tid, cmd_pth);
   }

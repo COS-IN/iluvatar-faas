@@ -52,7 +52,7 @@ impl Controller {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     match self.registration_svc.get_function(&fqdn) {
       Some(func) => {
-        debug!("[{}] found function {} for prewarm", tid, &fqdn);
+        debug!(tid=%tid, fqdn=%fqdn, "found function for prewarm");
         self.lb.prewarm(func, tid).await
       },
       None => bail_error!("[{}] function {} was not registered; could not prewarm", tid, fqdn)

@@ -40,7 +40,7 @@ impl HealthService {
 
   /// updates the stored status of the worker
   fn update_status(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &WorkerStatus) {
-    debug!("[{}] updating worker '{}' status to {:#?}", tid, worker.name, status);
+    debug!(tid=%tid, name=%worker.name, status=?status, "updating worker status");
     self.worker_statuses.insert(worker.name.clone(), status.clone());
   }
 
@@ -69,7 +69,7 @@ impl HealthService {
   /// check the health of a worker in the future
   /// optional to check in a specific time
   pub fn schedule_health_check(&self, svc: Arc<HealthService>, worker: Arc<RegisteredWorker>, tid: &TransactionId, in_secs: Option<Duration>) {
-    debug!("[{}] scheduling future health check for worker '{}'", tid, worker.name);
+    debug!(tid=%tid, name=%worker.name, "scheduling future health check for worker");
     tokio::spawn(async move {
       let tid: &TransactionId = &crate::transaction::HEALTH_TID;
       let dur = match in_secs {

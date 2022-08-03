@@ -6,7 +6,7 @@ pub mod args;
 
 pub fn register_rpc_to_controller(server_config: Arc<Configuration>, tid: TransactionId) {
   let _ = tokio::spawn(async move {
-      debug!("[{}] Controller registration thread started", tid);
+      debug!(tid=%tid, "Controller registration thread started");
 
       // allow RPC server time to start up
       tokio::time::sleep(std::time::Duration::from_secs(5)).await;

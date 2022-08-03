@@ -15,7 +15,7 @@ macro_rules! send_invocation {
           anyhow::bail!(e)
         },
       };
-      debug!("[{}] invocation result: {}", $tid, result.json_result);
+      debug!(tid=%$tid, json=%result.json_result, "invocation result");
       Ok(result.json_result)
     }
   };
@@ -34,7 +34,7 @@ macro_rules! prewarm {
           anyhow::bail!(e)
         }
       };
-      debug!("[{}] prewarm result: {}", $tid, result);
+      debug!(tid=%$tid, result=?result, "prewarm result");
       Ok(())
     }
   }
@@ -54,7 +54,7 @@ macro_rules! send_async_invocation {
           anyhow::bail!(e)
         },
       };
-      debug!("[{}] invocation result: {}", $tid, result);
+      debug!(tid=%$tid, result=%result, "invocation result");
       Ok( (result, $worker) )
     }
   }

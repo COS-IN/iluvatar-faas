@@ -89,7 +89,7 @@ impl WorkerAPI for RCPWorkerAPI {
       Ok(response) => {
         let response = response.into_inner();
         if response.success {
-          debug!("[{}] Async invoke succeeded", tid);
+          debug!(tid=%tid, "Async invoke succeeded");
           Ok(response.lookup_cookie)
         } else {
           error!("[{}] Async invoke failed", tid);

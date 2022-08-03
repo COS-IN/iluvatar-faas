@@ -42,7 +42,7 @@ impl NamespaceManager {
 
   pub fn boxed(config: Arc<NetworkingConfig>, tid: &TransactionId) -> Arc<NamespaceManager> {
     let (tx, rx) = channel();
-    debug!("[{}] creating namespace manager", tid);
+    debug!(tid=%tid, "creating namespace manager");
 
     let thread = match config.use_pool {
       false => None,
@@ -95,7 +95,7 @@ impl NamespaceManager {
     match self.try_ensure_bridge(tid) {
       Ok(_) => Ok(()),
       Err(_) => {
-        debug!("[{}] retrying network bridge creation", tid);
+        debug!(tid=%tid, "retrying network bridge creation");
         std::thread::sleep(std::time::Duration::from_secs(self.config.pool_freq_sec));
         self.try_ensure_bridge(tid)
       },
@@ -119,23 +119,23 @@ impl NamespaceManager {
     let name = BRIDGE_NET_ID.to_string();
 
     if ! self.namespace_exists(&name) {
-      debug!("[{}] Namespace '{}' does not exists, making", tid, name);
+      debug!(tid=%tid, namespace=%name, "Namespace does not exists, making");
       self.create_namespace_internal(&name, tid)?;
     } else {
-      debug!("[{}] Namespace '{}' already exists, skipping", tid, name);
+      debug!(tid=%tid, namespace=%name, "Namespace already exists, skipping");
     }
 
     let nspth = self.net_namespace(&name);
 
     if self.bridge_exists(&nspth, tid)? {
-      debug!("[{}] Bridge already exists, skipping", tid);
+      debug!(tid=%tid, "Bridge already exists, skipping");
       return Ok(());
     }
 
     let output = execute_cmd(&self.config.cnitool, 
                   &vec!["add", &self.config.cni_name.as_str(), &nspth.as_str()],
                   Some(&env), tid);
-    debug!("[{}] Output from creating network bridge: '{:?}'", tid, output);
+    debug!(tid=%tid, output=?output, "Output from creating network bridge");
     match output {
       Ok(output) => {
         if let Some(status) = output.status.code() {
@@ -154,17 +154,17 @@ impl NamespaceManager {
     // https://unix.stackexchange.com/questions/248504/bridged-interfaces-do-not-have-internet-access
     match execute_cmd("/usr/sbin/iptables", 
       &vec!["-t", "nat", "-A", "POSTROUTING", "-o" , &self.config.hardware_interface, "-j", "MASQUERADE"], None, tid) {
-        Ok(_) => debug!("[{}] Setting nat on hardware interface succeded", tid),
+        Ok(_) => debug!(tid=%tid, "Setting nat on hardware interface succeded"),
         Err(_) => panic!("[{}] Setting nat on hardware interface failed", tid),
       };
     match execute_cmd("/usr/sbin/iptables", 
     &vec!["-A", "FORWARD", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"], None, tid) {
-      Ok(_) => debug!("[{}] Setting conntrack succeded", tid),
+      Ok(_) => debug!(tid=%tid, "Setting conntrack succeded"),
       Err(_) => panic!("[{}] Setting conntrack failed", tid),
     };
     match execute_cmd("/usr/sbin/iptables", 
       &vec!["-A", "FORWARD", "-i", &self.config.bridge, "-o", &self.config.hardware_interface, "-j", "ACCEPT"], None, tid) {
-      Ok(_) => debug!("[{}] Forwarding bridge to interface succeded", tid),
+      Ok(_) => debug!(tid=%tid, "Forwarding bridge to interface succeded"),
       Err(_) => panic!("[{}] Forwarding bridge to interface failed", tid),
     };
     Ok(())
@@ -209,7 +209,7 @@ impl NamespaceManager {
               Err(e) => bail_error!("[{}] Failed to launch 'ip netns add' command with error '{:?}'", tid, e)
             };
 
-    debug!("[{}] internal create namespace '{}' via ip: '{:?}'", tid, name, out);
+    debug!(tid=%tid, namespace=%name, output=?out, "internal create namespace via ip");
     if let Some(status) = out.status.code() {
       if status == 0 {
         return Ok(());
@@ -255,7 +255,7 @@ impl NamespaceManager {
     match serde_json::from_str(&stdout) {
       Ok(mut ns) => {
         self.cleanup_addresses(&mut ns);
-        debug!("[{}] Namespace '{}' created. Output: '{:?}'", tid, &name, ns);
+        debug!(tid=%tid, namespace=%name, containerd_namespace=?ns, "Namespace created");
         Ok(Namespace {
           name: name.to_string(),
           namespace: ns
@@ -270,13 +270,13 @@ impl NamespaceManager {
     if self.config.use_pool && locked.len() > 0 {
       match locked.pop() {
         Some(ns) =>{
-          debug!("[{}] Assigning namespace {}", tid, ns.name);
+          debug!(tid=%tid, namespace=%ns.name, "Assigning namespace");
           return Ok(ns);
         },
         None => bail_error!("[{}] Namespace pool of length {} should have had thing in it", tid, locked.len()),
       }
     } else {
-      debug!("[{}] Creating new namespace, pool is empty", tid);
+      debug!(tid=%tid, "Creating new namespace, pool is empty");
       let ns = Arc::new(self.create_namespace(&self.generate_net_namespace_name(), tid)?);
       return Ok(ns);
     }
@@ -291,7 +291,7 @@ impl NamespaceManager {
   }
 
   pub fn return_namespace(&self, ns: Arc<Namespace>, tid: &TransactionId) -> Result<()> {
-    debug!("[{}] Namespace {} being returned", tid, ns.name);
+    debug!(tid=%tid, namespace=%ns.name, "Namespace being returned");
     if self.config.use_pool {  
       let mut locked = self.pool.lock();
       locked.push(ns);
@@ -304,7 +304,7 @@ impl NamespaceManager {
   fn delete_namespace(&self, name: &String, tid: &TransactionId) -> Result<()> {
     let out = execute_cmd("/bin/ip", &vec!["netns", "delete", name], None, tid)?;
 
-    debug!("[{}] internal delete namespace '{}' via ip: '{:?}'", tid, name, out);
+    debug!(tid=%tid, namespace=%name, output=?out, "internal delete namespace via ip");
     if let Some(status) = out.status.code() {
       if status == 0 {
         return Ok(());

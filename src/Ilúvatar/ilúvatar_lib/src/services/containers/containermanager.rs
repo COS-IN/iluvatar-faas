@@ -56,7 +56,7 @@ impl ContainerManager {
   }
 
   fn start_thread(rx: Receiver<Arc<ContainerManager>>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
-    debug!("[{}] Launching ContainerManager thread", tid);
+    debug!(tid=%tid, "Launching ContainerManager thread");
     // run on an OS thread here
     // If this thread crashes, we'll never know and the worker will not have a good time
     std::thread::spawn(move || {
@@ -76,7 +76,7 @@ impl ContainerManager {
           return ();
         },
       };
-      debug!("[{}] container manager worker started", tid);
+      debug!(tid=%tid, "container manager worker started");
       worker_rt.block_on(cm.monitor_pool());
     })
   }
@@ -116,7 +116,7 @@ impl ContainerManager {
 
   #[tracing::instrument(skip(self))]
   async fn update_memory_usages(&self, tid: &TransactionId) {
-    debug!("[{}] updating container memory usages", tid);
+    debug!(tid=%tid, "updating container memory usages");
     let old_total_mem = *self.used_mem_mb.read();
     let mut to_remove = vec![];
     unsafe {
@@ -128,7 +128,7 @@ impl ContainerManager {
             let old_usage = container.get_curr_mem_usage();
             let new_usage = self.cont_lifecycle.update_memory_usage_mb(container, tid);
             let diff = new_usage - old_usage;
-            debug!("[{}] container '{}' new: {}; old: {}; diff:{}", tid, container.container_id(), new_usage, old_usage, diff);
+            debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
             sum_change += diff;
           } else {
             to_remove.push(container.clone());
@@ -155,7 +155,7 @@ impl ContainerManager {
     }
 
     let new_total_mem = *self.used_mem_mb.read();
-    debug!("[{}] Total container memory usage old: {}; new: {}", tid, old_total_mem, new_total_mem);
+    debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Total container memory usage");
   }
 
   /// acquire_container
@@ -178,7 +178,7 @@ impl ContainerManager {
           if self.resources.cores > 0 && *running_funcs < self.resources.cores {
             *running_funcs += 1;
           } else {
-            debug!("[{}] Not enough available cores to run something right now", tid);
+            debug!(tid=%tid, "Not enough available cores to run something right now");
             anyhow::bail!(InsufficientCoresError{})
           }
           Ok(cont)
@@ -198,7 +198,7 @@ impl ContainerManager {
           for container in pool.iter() {
             match self.try_lock_container(container, tid) {
               Some(c) => {
-                debug!("[{}] Container '{}' acquired", tid, c.container.container_id());
+                debug!(tid=%tid, container_id=%c.container.container_id(), "Container  acquired");
                 c.container.touch();
                 return Some(c)
               },
@@ -285,7 +285,7 @@ impl ContainerManager {
     let curr_mem = *self.used_mem_mb.read();
     if curr_mem + reg.memory > self.resources.memory_mb {
       let avail = self.resources.memory_mb-curr_mem;
-      debug!("[{}] Can't launch container due to insufficient memory. needed: {}; used: {}; available: {}", tid, reg.memory-avail, curr_mem, avail);
+      debug!(tid=%tid, needed=reg.memory-avail, used=curr_mem, available=avail, "Can't launch container due to insufficient memory");
       anyhow::bail!(InsufficientMemoryError{ needed: reg.memory-avail, used: curr_mem, available: avail });
     } else {
       *self.used_mem_mb.write() += reg.memory;
@@ -413,9 +413,9 @@ impl ContainerManager {
 
     let registration = self.cont_lifecycle.prepare_function_registration(function_name, function_version, image_name, memory, cpus, parallel_invokes, fqdn, tid).await?;
 
-    debug!("[{}] Adding new registration to registered_functions map: {} {}", tid, function_name, function_version);
+    debug!(tid=%tid, function_name=%function_name, function_version=%function_version, "Adding new registration to registered_functions map");
     self.registered_functions.insert(fqdn.clone(), Arc::new(registration));
-    debug!("[{}] Adding new registration to active_containers map: {} {}", tid, function_name, function_version);
+    debug!(tid=%tid, function_name=%function_name, function_version=%function_version, "Adding new registration to active_containers map");
     { // write lock on active_containers
       let mut conts = self.active_containers.write();
       conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
@@ -457,7 +457,7 @@ impl ContainerManager {
 
   #[tracing::instrument(skip(self, amount_mb))]
   async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
-    debug!("[{}] Trying to reclaim {} memory", tid, amount_mb);
+    debug!(tid=%tid, amount=amount_mb, "Trying to reclaim memory");
     if amount_mb <= 0 {
       bail!("Cannot reclaim '{}' amount of memory", amount_mb);
     }
@@ -479,7 +479,7 @@ impl ContainerManager {
   }
 
   fn compute_eviction_priorities(&self, tid: &TransactionId) {
-    debug!("[{}] Computing eviction priorities", tid);
+    debug!(tid=%tid, "Computing eviction priorities");
     let mut ordered = Vec::new();
     unsafe {
       for (_fqdn, cont_list) in (*self.active_containers.data_ptr()).iter() {
