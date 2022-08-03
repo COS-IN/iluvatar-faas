@@ -63,7 +63,7 @@ impl LoadService {
   }
 
   async fn get_status_update(&self, tid: &TransactionId) -> HashMap<String, f64> {
-    self.graphite.get_latest_metric("worker.load.loadavg", "machine", tid).await
+    self.graphite.get_latest_metric(&self.config.load_metric.as_str(), "machine", tid).await
   }
 
   pub fn get_worker(&self, name: &String) -> Option<f64> {
