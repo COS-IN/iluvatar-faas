@@ -114,7 +114,7 @@ impl InvokerService {
               let mut queue = self.invoke_queue.lock();
               queue.insert(0, item.clone());
             } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
-              warn!("[{}] Insufficient memory to run item right now", &item.tid);
+              warn!(tid=%item.tid, "Insufficient memory to run item right now");
               let mut queue = self.invoke_queue.lock();
               queue.insert(0, item.clone());
             } else {

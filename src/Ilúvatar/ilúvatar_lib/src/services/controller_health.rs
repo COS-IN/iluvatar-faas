@@ -50,7 +50,7 @@ impl HealthService {
     let mut api = match self.worker_fact.get_worker_api(&worker, tid).await {
       Ok(api) => api,
       Err(e) => {
-        warn!("[{}] couldn't connect to worker '{}' for health check {}", tid, worker.name, e);
+        warn!(tid=%tid, worker=%worker.name, error=%e, "Couldn't connect to worker for health check");
         return WorkerStatus::OFFLINE;
       },
     };
@@ -60,7 +60,7 @@ impl HealthService {
         HealthStatus::UNHEALTHY => WorkerStatus::UNHEALTHY,
       },
       Err(e) => {
-        warn!("[{}] error when checking worker '{}' health {}", tid, worker.name, e);
+        warn!(tid=%tid, worker=%worker.name, error=%e, "Error when checking worker health");
         WorkerStatus::UNHEALTHY
       },
     }

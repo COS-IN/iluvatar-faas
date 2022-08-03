@@ -68,7 +68,7 @@ impl LifecycleService for SimulatorLifecycle {
     let cast_container = match crate::services::containers::structs::cast::<SimulatorContainer>(&container, tid) {
       Ok(c) => c,
       Err(e) => { 
-        warn!("[{}] Error casting container to ContainerdContainer; error: {}", tid, e);
+        warn!(tid=%tid, error=%e, "Error casting container to ContainerdContainer");
         return container.get_curr_mem_usage();
       },
     };

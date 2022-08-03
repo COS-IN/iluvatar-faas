@@ -141,7 +141,7 @@ impl ContainerManager {
     for container in to_remove {
       let stdout = self.cont_lifecycle.read_stdout(&container, tid);
       let stderr = self.cont_lifecycle.read_stderr(&container, tid);
-      warn!("[{}] Removing an unhealthy container {} stdout: '{}' stderr: '{}'", tid, container.container_id(), stdout, stderr);
+      warn!(tid=%tid, container_id=%container.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
       match self.remove_container(container.clone(), true, tid).await {
         Ok(_) => (),
         Err(cause) => {
@@ -348,7 +348,7 @@ impl ContainerManager {
     let reg = match self.get_registration(&fqdn) {
         Ok(r) => r,
         Err(_) => {
-          warn!("[{}] function {} was attempted to be prewarmed before registering. Attempting register...", request.transaction_id, fqdn);
+          warn!(tid=%request.transaction_id, fqdn=%fqdn, "Function was attempted to be prewarmed before registering. Attempting register...");
           match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn, &request.transaction_id).await {
             Ok(_) => self.get_registration(&fqdn)?,
             Err(sub_e) => {

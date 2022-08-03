@@ -75,18 +75,18 @@ impl WorkerHealthService {
             if obj.body.greeting == format!("Hello {} from python!", TEST_FUNC_ARG) {
               self.healthy()
             } else {
-              warn!("[{}] Received message from health function was incorrect: {}", tid, obj.body.greeting);
+              warn!(tid=%tid, greeting=%obj.body.greeting, "Received message from health function was incorrect");
               self.unhealthy()
             }
           },
           Err(e) => {
-            warn!("[{}] Got invalid json from health function invocation: '{}' error: '{}'", tid, json, e);
+            warn!(tid=%tid, json=%json, error=%e, "Got invalid json from health function invocation");
             self.unhealthy()
           },
         }
       },
       Err(e) => { 
-        warn!("[{}] Got an error trying to run health function invocation: '{}'", tid, e);
+        warn!(tid=%tid, error=%e, "Got an error trying to run health function invocation");
         self.unhealthy()
       },
     }

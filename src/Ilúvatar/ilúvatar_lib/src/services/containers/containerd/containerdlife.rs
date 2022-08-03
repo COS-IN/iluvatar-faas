@@ -166,7 +166,7 @@ impl ContainerdLifecycle {
         match e.code() {
           // task crashed and was removed
           Code::NotFound => {
-            warn!("[{}] Task for container '{}' was missing when it was attempted to be delete. Usually the process crashed", tid, container_id);
+            warn!(tid=%tid, container_id=%container_id, "Task for container was missing when it was attempted to be delete. Usually the process crashed");
             Ok(())
           },
           _ => anyhow::bail!("[{}] Attempt to delete task in container '{}' failed with error: {}", tid, container_id, e),
@@ -193,7 +193,7 @@ impl ContainerdLifecycle {
         Err(e) => {
           if e.code() == Code::NotFound {
             // task crashed and was removed
-            warn!("[{}] Task for container '{}' was missing when it was attempted to be killed", tid, container_id);
+            warn!(tid=%tid, container_id=%container_id, "Task for container was missing when it was attempted to be killed");
           } else {
             bail_error!("[{}] Attempt to kill task in container '{}' failed with error: {}", tid, container_id, e);
           }
@@ -568,14 +568,14 @@ impl LifecycleService for ContainerdLifecycle {
     let cast_container = match crate::services::containers::structs::cast::<ContainerdContainer>(&container, tid) {
       Ok(c) => c,
       Err(e) => { 
-        warn!("[{}] Error casting container to ContainerdContainer; error: {}", tid, e);
+        warn!(tid=%tid, error=%e, "Error casting container to ContainerdContainer");
         return container.get_curr_mem_usage() 
       },
     };
     let contents = match std::fs::read_to_string(format!("/proc/{}/statm", cast_container.task.pid)) {
       Ok(c) => c,
       Err(e) => { 
-        warn!("[{}] Error trying to read container '{}' /proc/<pid>/statm: {}", e, cast_container.container_id, tid);
+        warn!(tid=%tid, error=%e, container_id=%cast_container.container_id, "Error trying to read container /proc/<pid>/statm");
         container.mark_unhealthy();
         container.set_curr_mem_usage(cast_container.function.memory);
         return container.get_curr_mem_usage(); 
@@ -589,7 +589,7 @@ impl LifecycleService for ContainerdLifecycle {
       // multiply page size in bytes by number pages, then convert to mb
       Ok(size_pages) => (size_pages * 4096) / (1024*1024),
       Err(e) => {
-        warn!("[{}] Error trying to parse vmrss of '{}': {}", e, vmrss, tid);
+        warn!(tid=%tid, error=%e, vmrss=%vmrss, "Error trying to parse virtual memory resource set size");
         cast_container.function.memory
       },
     });

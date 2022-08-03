@@ -39,7 +39,7 @@ impl RoundRobinLoadBalancer {
         return worker.clone();
       } else {
         if i >= self.workers.read().len() {
-          warn!("[{}] Could not find a healthy worker!", tid);
+          warn!(tid=%tid, "Could not find a healthy worker!");
           return worker.clone();
         }
       }

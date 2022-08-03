@@ -59,7 +59,7 @@ impl AsyncService {
         }
       }
     } else {
-      warn!("[{}] unable to find async cookie {}", tid, cookie);
+      warn!(tid=%tid,cookie=%cookie, "unable to find async cookie");
       anyhow::bail!(MissingAsyncCookieError{})
     }
   }
