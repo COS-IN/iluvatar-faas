@@ -21,23 +21,27 @@
   - name: Get running controller process
     shell: "ps -ef | grep -v grep | grep -w {{ controller.bin_name }} | awk '{print $2}'"
     register: running_lb
+    when: mode == "clean"
 
   - name: Kill running controller process
     shell: "kill {{ item }}"
     with_items: "{{ running_lb.stdout_lines }}"
     become: yes
+    when: mode == "clean"
 
   - name: copy controller executable
     ansible.builtin.copy:
       src: "{{ilúvatar_home}}/target/release/{{controller.bin_name}}"
       dest: "{{exe_dest}}"
       mode: "preserve"
+    when: mode == "deploy"
 
   - name: copy controller config
     ansible.builtin.copy:
       src: "{{ilúvatar_home}}/target/release/{{controller.config_name}}"
       dest: "{{config_dest}}"
       mode: "preserve"
+    when: mode == "deploy"
 
   - name: run controller executable
     ansible.builtin.command: 
@@ -48,7 +52,7 @@
     become: yes
     async: 2592000               # 60*60*24*30 – 1 month
     poll: 0
-    when: mode != "clean"
+    when: mode == "deploy"
     environment:
       "ILUVATAR_CONTROLLER__name": "{{ controller.host }}"
       "ILUVATAR_CONTROLLER__port": "{{ controller.port }}"
@@ -65,4 +69,4 @@
     until: result.status == 200
     retries: 10
     delay: 5
-    when: mode != "clean"
+    when: mode == "deploy"

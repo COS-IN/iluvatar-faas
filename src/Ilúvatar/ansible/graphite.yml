@@ -17,14 +17,15 @@
     register: result
     until: (result.rc == 0)
     retries: 2
-    when: mode != "clean"
+    when: mode == "deploy"
 
   - name: Remove container
     docker_container:
       name: "{{ graphite.container_name }}"
       state: absent
+    when: mode == "clean"
 
-  - name: start controller
+  - name: start graphite container
     docker_container:
       # https://graphite.readthedocs.io/en/latest/install.html?highlight=docker#docker
       name: "{{ graphite.container_name }}"
@@ -40,6 +41,7 @@
         - "2024:2024"
         - "8125:8125/udp"
         - "8126:8126"
+    when: mode == "deploy"
 
   - name: wait until graphite is up and running
     uri:
@@ -50,4 +52,4 @@
     until: result.status == 200
     retries: 10
     delay: 10
-    when: mode != "clean"
+    when: mode == "deploy"

@@ -13,6 +13,7 @@
   - name: Get running worker process
     shell: "ps -ef | grep -v grep | grep -w {{ worker.bin_name }} | awk '{print $2}'"
     register: running_worker
+    when: mode == "clean"
 
   # - name: debug print
   #   when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
@@ -24,12 +25,12 @@
     shell: "kill {{ item }}"
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
-    when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+    when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
     run_once: true
 
   - name: Kill running worker process distrib
     shell: "kill {{ item }}"
-    when: ansible_host != "127.0.0.1" and ansible_host != "localhost"
+    when: (ansible_host != "127.0.0.1" and ansible_host != "localhost") and mode == "clean"
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
 
@@ -53,7 +54,7 @@
         - "{{config_dest}}"
         - clean
     become: yes
-    when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+    when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
     run_once: true
 
   - name: clean distrib host
@@ -64,6 +65,7 @@
         - "{{config_dest}}"
         - clean
     become: yes
+    when: mode == "clean"
 
   - name: run worker executable
     ansible.builtin.command: 
@@ -74,7 +76,7 @@
     become: yes
     async: 2592000               # 60*60*24*30 – 1 month
     poll: 0
-    when: mode != "clean"
+    when: mode == "deploy"
     environment:
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
@@ -96,4 +98,4 @@
     until: result.msg == expected
     retries: 10
     delay: 5
-    when: mode != "clean"
+    when: mode == "deploy"
