@@ -116,6 +116,6 @@ def main(args):
         #     s3_client.upload_file(upload_path, output_bucket, upload_path.split("/")[FILE_NAME_INDEX])
 
         end = time()
-        return {"body": { "latency":latency, "cold":was_cold, "start":start, "end":end }}
+        return {"body": { "latency":end-start, "cold":was_cold, "start":start, "end":end }}
     except Exception as e:
         return {"body": { "cust_error":traceback.format_exc(), "msg":msg, "cold":was_cold }}

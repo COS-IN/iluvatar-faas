@@ -43,6 +43,7 @@ def predict(img_local_path):
 
 def main(args):
     global cold
+    start = time()
     was_cold = cold
     cold = False
     # return {"body": { "latency":-1, "msg":msg, "cold":was_cold }}
@@ -62,11 +63,11 @@ def main(args):
         model_path = tmp + '{}{}'.format(uuid.uuid4(), model_object_key)
         # s3_client.download_file(model_bucket, model_object_key, model_path)
             
-        latency, result, start, end = predict(download_path)
+        infer_latency, result, infer_start, infer_end = predict(download_path)
             
         _tmp_dic = {x[1]: {'N': str(x[2])} for x in result[0]}
-
-        return {"body": { "latency":latency, "msg":msg, "cold":was_cold, "start":start, "end":end }}
+        end = time()
+        return {"body": { "latency":end-start, "msg":msg, "cold":was_cold, "start":start, "end":end, "infer_latency":infer_latency }}
     except Exception as e:
         err = "whelp"
         try:
