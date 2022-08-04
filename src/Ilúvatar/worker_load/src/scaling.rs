@@ -1,11 +1,10 @@
 use std::{time::{Duration, SystemTime}, sync::Arc};
-
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
-use iluvatar_lib::{utils::{config::get_val, port_utils::Port, file_utils::ensure_dir, timing::TimedExt}, rpc::RCPWorkerAPI, ilúvatar_api::WorkerAPI, transaction::{gen_tid, TransactionId}};
+use iluvatar_lib::utils::{config::get_val, port_utils::Port, file_utils::ensure_dir};
 use tokio::sync::Barrier;
 use tokio::runtime::Builder;
-use crate::utils::{InvocationResult, ThreadResult, RealInvokeResult, RegistrationResult};
+use crate::utils::{InvocationResult, ThreadResult, RegistrationResult, worker_register, worker_invoke};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -123,22 +122,16 @@ fn run_one_scaling_test(thread_cnt: usize, host: String, port: Port, duration_se
 }
 
 async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usize, barrier: Arc<Barrier>) -> Result<ThreadResult> {
-  let mut api = RCPWorkerAPI::new(&host, port).await?;
-
   barrier.wait().await;
 
   let name = format!("scaling-{}", thread_id);
   let version = format!("0.0.{}", thread_id);
   let image = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
-  let tid: TransactionId = gen_tid();
-
-  let (reg_out, reg_dur) = api.register(name.clone(), version.clone(), image, 75, 1, 1, tid.clone())
-  .timed().await;
-  let reg_result = match reg_out {
-    Ok(s) => RegistrationResult {
+  let (reg_result, tid) = match worker_register(&name, &version, &image, 512, &host, port).await {
+    Ok((s, reg_dur, tid)) => (RegistrationResult {
       duration_ms: reg_dur.as_millis() as u64,
       result: s
-    },
+    }, tid),
     Err(e) => anyhow::bail!("thread {} registration failed because {}", thread_id, e),
   };
   
@@ -149,27 +142,19 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
   let mut data = Vec::new();
   let mut errors = 0;
   loop {
-    let (invok_out, invok_dur) = api.invoke(name.clone(), version.clone(), "{\"name\":\"TESTING\"}".to_string(), None, tid.clone()).timed().await;
-    let invok_out = match invok_out {
-      Ok(r) => r,
+    match worker_invoke(&name, &version, &host, port, &tid, Some("{\"name\":\"TESTING\"}".to_string())).await {
+      Ok( (_response, invok_out, invok_lat) ) => {
+        let res = InvocationResult {
+          duration_ms: invok_lat,
+          json: invok_out
+        };
+        data.push(res);
+      },
       Err(_) => {
         errors = errors + 1;
         continue;
       },
     };
-    
-    let body = match serde_json::from_str::<RealInvokeResult>(&invok_out.json_result) {
-      Ok(b) => b,
-      Err(_) => {
-        errors = errors + 1;
-        continue;
-      },
-    };
-    let res = InvocationResult {
-      duration_ms: invok_dur.as_millis() as u64,
-      json: body
-    };
-    data.push(res);
 
     if start.elapsed()? > stopping {
       break;

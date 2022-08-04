@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs::File, path::Path, io::Write};
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
-use iluvatar_lib::{utils::{config::get_val, port_utils::Port, timing::TimedExt}, rpc::RCPWorkerAPI, ilúvatar_api::WorkerAPI, transaction::{gen_tid, TransactionId}, load_balancer_api::lb_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult}};
+use iluvatar_lib::utils::{config::get_val, port_utils::Port};
 use serde::Serialize;
 use tokio::runtime::Builder;
 use crate::utils::*;
@@ -115,7 +115,6 @@ pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Res
 }
 
 pub async fn benchmark_controller(host: String, port: Port, functions: Vec<String>, out_folder: String, cold_repeats: u32, warm_repeats: u32) -> Result<()> {
-  let client = reqwest::Client::new();
   let mut full_data = BenchmarkStore::new();
 
   for function in &functions {
@@ -125,92 +124,42 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
       let name = format!("{}-bench-{}", function, iter);
       let version = format!("0.0.{}", iter);
       let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
-      let req = RegisterFunction {
-        function_name: name.clone(),
-        function_version: version.clone(),
-        image_name: image,
-        memory: 512,
-        cpus: 1,
-        parallel_invokes: 1
-      };
 
-      let (reg_out, _reg_dur) =  client.post(format!("http://{}:{}/register_function", &host, port))
-        .json(&req)
-        .header("Content-Type", "application/json")
-        .send()
-        .timed()
-        .await;
-      match reg_out {
-        Ok(r) => {
-          let status = r.status();
-          if status == reqwest::StatusCode::OK {
-            ()
-          } else {
-            let text = r.text().await?;
-            println!("Got unexpected HTTP status when registering function with the load balancer '{}'; text: {}", status, text);
-            continue;
-          }
-        },
-        Err(e) =>{
-          println!("HTTP error when trying to register function with the load balancer '{}'", e);continue;
-        },
+      let _reg_dur = match crate::utils::controller_register(&name, &version, &image, 512, &host, port).await {
+        Ok(d) => d,
+        Err(e) => {
+          println!("{}", e);
+          continue;
+        }
       };
 
       'inner: for _ in 0..warm_repeats {
-        let req = Invoke {
-          function_name: name.clone(),
-          function_version: version.clone(),
-          args: None
-        };
-        let (invok_out, invok_lat) =  client.post(format!("http://{}:{}/invoke", &host, port))
-          .json(&req)
-          .header("Content-Type", "application/json")
-          .send()
-          .timed()
-          .await;
-        let invok_lat = invok_lat.as_millis() as f64;
-        match invok_out {
-          Ok(r) => 
-          {
-            let txt = match r.text().await {
-                Ok(t) => t,
-                Err(e) => {
-                  println!("Get text error: {};", e);
-                  break 'inner;
-                },
-            };
-            match serde_json::from_str::<ControllerInvokeResult>(&txt) {
-              Ok(api_result) => match serde_json::from_str::<RealInvokeResult>(&api_result.json_result) {
-                Ok(b) => {
-                  let func_exec_ms = b.body.latency * 1000.0;
-                  if b.body.cold {
-                    func_data.cold_results.push(invok_lat);
-                    func_data.cold_over_results.push(invok_lat - func_exec_ms);
-                    func_data.cold_worker_duration_ms.push(api_result.worker_duration_ms);
-                    func_data.cold_invoke_duration_ms.push(api_result.invoke_duration_ms);
-                  } else {
-                    func_data.warm_results.push(invok_lat);
-                    func_data.warm_over_results.push(invok_lat - func_exec_ms);
-                    func_data.warm_worker_duration_ms.push(api_result.worker_duration_ms);
-                    func_data.warm_invoke_duration_ms.push(api_result.invoke_duration_ms);
-                  }
-                },
-                Err(e) => {
-                  println!("RealInvokeResult Deserialization error: {}; {}", e, &api_result.json_result);
-                  break 'inner;
-                },
-              },
-              Err(e) => {
-                println!("InvokeResult Deserialization error: {}; {}", e, &txt);
-                break 'inner;
-              },
-            }
-          }
+        match crate::utils::controller_invoke(&name, &version, &host, port, None).await {
+          Ok( (api_result, invok_lat) ) => match serde_json::from_str::<FunctionExecOutput>(&api_result.json_result) {
+            Ok(b) => {
+              let func_exec_ms = b.body.latency * 1000.0;
+              if b.body.cold {
+                func_data.cold_results.push(invok_lat);
+                func_data.cold_over_results.push(invok_lat - func_exec_ms);
+                func_data.cold_worker_duration_ms.push(api_result.worker_duration_ms);
+                func_data.cold_invoke_duration_ms.push(api_result.invoke_duration_ms);
+              } else {
+                func_data.warm_results.push(invok_lat);
+                func_data.warm_over_results.push(invok_lat - func_exec_ms);
+                func_data.warm_worker_duration_ms.push(api_result.worker_duration_ms);
+                func_data.warm_invoke_duration_ms.push(api_result.invoke_duration_ms);
+              }
+            },
+            Err(e) => {
+              println!("RealInvokeResult Deserialization error: {}; {}", e, &api_result.json_result);
+              break 'inner;
+            },
+          },
           Err(e) => {
-            println!("Invocation error: {}", e);
+            println!("{}", e);
             break 'inner;
           },
-        };
+        }
       }
     }
     full_data.data.insert(function.clone(), func_data);
@@ -235,7 +184,6 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
 }
 
 pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, out_folder: String, cold_repeats: u32, warm_repeats: u32) -> Result<()> {
-  let mut api = RCPWorkerAPI::new(&host, port).await?;
   let mut full_data = BenchmarkStore::new();
 
   for function in &functions {
@@ -245,39 +193,33 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
       let name = format!("{}-bench-{}", function, iter);
       let version = format!("0.0.{}", iter);
       let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
-      let tid: TransactionId = gen_tid();
-      let (reg_out, _reg_dur) = api.register(name.clone(), version.to_string(), image, 2048, 1, 1, tid.clone()).timed().await;
-      match reg_out {
-        Ok(_) => (),
-        Err(e) => anyhow::bail!("registration of {} failed because {}", function, e),
+      let (_s, _reg_dur, tid) = match worker_register(&name, &version, &image, 512, &host, port).await {
+        Ok(r) => r,
+        Err(e) => {
+          println!("{}", e);
+          continue;
+        },
       };
 
       'inner: for _ in 0..warm_repeats {
-        let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), "{}".to_string(), None, tid.clone()).timed().await;
-        let invok_lat_f = invok_lat.as_millis() as f64;
-        match invok_out {
-          Ok(r) => match serde_json::from_str::<RealInvokeResult>(&r.json_result) {
-            Ok(b) => {
-              let func_exec_ms = b.body.latency * 1000.0;
-              if b.body.cold {
-                func_data.cold_results.push(invok_lat_f);
-                func_data.cold_over_results.push(invok_lat_f - func_exec_ms);
-                func_data.cold_worker_duration_ms.push(r.duration_ms);
-                func_data.cold_invoke_duration_ms.push(invok_lat.as_millis() as u64);
-              } else {
-                func_data.warm_results.push(invok_lat_f);
-                func_data.warm_over_results.push(invok_lat_f - func_exec_ms);
-                func_data.warm_worker_duration_ms.push(r.duration_ms);
-                func_data.warm_invoke_duration_ms.push(invok_lat.as_millis() as u64);
-              }
-            },
-            Err(e) => {
-              println!("Deserialization error: {}; {}", e, r.json_result);
-              break 'inner;
-            },
+        match worker_invoke(&name, &version, &host, port, &tid, None).await {
+          Ok( (response, invok_out, invok_lat) ) => {
+            let invok_lat_f = invok_lat as f64;
+            let func_exec_ms = invok_out.body.latency * 1000.0;
+            if invok_out.body.cold {
+              func_data.cold_results.push(invok_lat_f);
+              func_data.cold_over_results.push(invok_lat_f - func_exec_ms);
+              func_data.cold_worker_duration_ms.push(response.duration_ms);
+              func_data.cold_invoke_duration_ms.push(invok_lat);
+            } else {
+              func_data.warm_results.push(invok_lat_f);
+              func_data.warm_over_results.push(invok_lat_f - func_exec_ms);
+              func_data.warm_worker_duration_ms.push(response.duration_ms);
+              func_data.warm_invoke_duration_ms.push(invok_lat);
+            }
           },
           Err(e) => {
-            println!("Invocation error: {}", e);
+            println!("{}", e);
             break 'inner;
           },
         };
