@@ -8,7 +8,7 @@ filename = "azurefunctions-dataset2019.tar.xz"
 tar_url = "https://azurecloudpublicdataset2.blob.core.windows.net/azurepublicdatasetv2/azurefunctions_dataset2019/{}".format(filename)
 
 argparser = argparse.ArgumentParser()
-argparser.add_argument("--out-folder", '-o')
+argparser.add_argument("--out-folder", '-o', required=True)
 
 args = argparser.parse_args()
 

@@ -74,8 +74,8 @@ def divive_by_func_num(row, grouped_by_app):
 
 if __name__ == '__main__':
   argparser = argparse.ArgumentParser()
-  argparser.add_argument("--out-folder", '-o')
-  argparser.add_argument("--data-path", '-d')
+  argparser.add_argument("--out-folder", '-o', required=True)
+  argparser.add_argument("--data-path", '-d', required=True)
   args = argparser.parse_args()
   store = args.out_folder
 
