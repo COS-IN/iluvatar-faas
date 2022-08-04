@@ -13,7 +13,7 @@ lazy_static::lazy_static! {
 async fn register_functions(funcs: &HashMap<u64, Function>, host: &String, port: Port) -> Result<()> {
   for (_k, v) in funcs.into_iter() {
     // TODO: this and memory
-    let image = format!("docker.io/alfuerst/hello-iluvatar-action:latest");
+    let image = format!("docker.io/alfuerst/lookbusy-iluvatar-action:latest");
     let _reg_dur = controller_register(&v.func_name, &VERSION, &image, v.mem_mb, host, port).await?;
   }
   Ok(())
@@ -26,17 +26,15 @@ pub fn trace_controller(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result
     "live" => controller_trace_live(main_args, sub_args)?,
     _ => anyhow::bail!("Unknown setup for trace run '{}'; only supports 'simulation' and 'live'", setup)
   }
+}
 
+fn controller_trace_sim(_main_args: &ArgMatches, _sub_args: &ArgMatches) -> Result<()> {
   let config_pth: String = get_val("worker-config", &sub_args)?;
   let _worker_config = iluvatar_lib::worker_api::worker_config::Configuration::boxed(false, &config_pth).unwrap();
 
   let config_pth: String = get_val("controller-config", &sub_args)?;
   let _controller_config = iluvatar_lib::load_balancer_api::lb_config::Configuration::boxed(&config_pth).unwrap();
   todo!();
-}
-
-fn controller_trace_sim(_main_args: &ArgMatches, _sub_args: &ArgMatches) -> Result<()> {
-  todo!()
 }
 
 fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
@@ -51,7 +49,6 @@ fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Resul
 
   threaded_rt.block_on(register_functions(&metadata, &host, port))?;
 
-
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
   let mut handles: Vec<JoinHandle<(Result<(ControllerInvokeResult, f64)>, String)>> = Vec::new();
 
@@ -63,6 +60,7 @@ fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Resul
     let func = metadata.get(&invoke.function_id).unwrap();
     let h_c = host.clone();
     let f_c = func.func_name.clone();
+    let args = vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)];
     loop {
       match start.elapsed(){
         Ok(t) => {
@@ -74,7 +72,7 @@ fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Resul
       }
     };
     handles.push(threaded_rt.spawn(async move {
-      (controller_invoke(&f_c, &VERSION, &h_c, port, None).await, f_c)
+      (controller_invoke(&f_c, &VERSION, &h_c, port, Some(args)).await, f_c)
     }));
   }
 
