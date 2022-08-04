@@ -3,10 +3,43 @@ use std::{collections::HashMap, fs::File, path::Path, io::Write};
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
 use iluvatar_lib::{utils::{config::get_val, port_utils::Port}, rpc::RCPWorkerAPI, ilúvatar_api::WorkerAPI, transaction::{gen_tid, TransactionId}, load_balancer_api::lb_structs::json::{RegisterFunction, Invoke}};
+use serde::Serialize;
 use tokio::runtime::Builder;
-use crate::utils::TimedExt;
-
 use crate::utils::*;
+
+#[derive(Serialize)]
+struct BenchmarkStore {
+  /// map of function name to data
+  data: HashMap<String, FunctionStore>,
+}
+impl BenchmarkStore {
+  pub fn new() -> Self {
+    BenchmarkStore {
+      data: HashMap::new()
+    }
+  }
+}
+#[derive(Serialize)]
+struct FunctionStore {
+  /// list of warm latencies
+  pub warm_results: Vec<f64>,
+  /// list of warm overhead times
+  pub warm_over_results: Vec<f64>,
+  /// list of cold latencies
+  pub cold_results: Vec<f64>,
+  /// list of cold overhead times
+  pub cold_over_results: Vec<f64>,
+}
+impl FunctionStore {
+  pub fn new() -> Self {
+    FunctionStore {
+      warm_results: Vec::new(),
+      warm_over_results: Vec::new(),
+      cold_results: Vec::new(),
+      cold_over_results: Vec::new(),
+    }
+  }
+}
 
 pub fn trace_args<'a>(app: App<'a, 'a>) -> App<'a, 'a> {
   app.subcommand(SubCommand::with_name("benchmark")
@@ -54,19 +87,12 @@ pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Res
 
 pub async fn bebenchmark_controller(host: String, port: Port, functions: Vec<String>, out_folder: String) -> Result<()> {
   let client = reqwest::Client::new();
-  let mut warm_results = HashMap::new();
-  let mut warm_over_results = HashMap::new();
-  let mut cold_results = HashMap::new();
-  let mut cold_over_results = HashMap::new();
+  let mut full_data = BenchmarkStore::new();
 
   for function in &functions {
+    let mut func_data = FunctionStore::new();
     println!("{}", function);
-
-    let mut warm_data = Vec::new();
-    let mut warm_over_data = Vec::new();
-    let mut cold_data = Vec::new();
-    let mut cold_over_data = Vec::new();
-    for iter in 1..5 {
+    for iter in 0..10 {
       let name = format!("{}-bench-{}", function, iter);
       let version = format!("0.0.{}", iter);
       let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
@@ -101,7 +127,7 @@ pub async fn bebenchmark_controller(host: String, port: Port, functions: Vec<Str
         },
       };
 
-      'inner: for _ in 0..3 {
+      'inner: for _ in 0..4 {
         let req = Invoke {
           function_name: name.clone(),
           function_version: version.clone(),
@@ -128,11 +154,11 @@ pub async fn bebenchmark_controller(host: String, port: Port, functions: Vec<Str
               Ok(b) => {
                 let func_exec_ms = b.body.latency * 1000.0;
                 if b.body.cold {
-                  cold_data.push(invok_lat);
-                  cold_over_data.push(invok_lat - func_exec_ms);
+                  func_data.cold_results.push(invok_lat);
+                  func_data.cold_over_results.push(invok_lat - func_exec_ms);
                 } else {
-                  warm_data.push(invok_lat);
-                  warm_over_data.push(invok_lat - func_exec_ms);
+                  func_data.warm_results.push(invok_lat);
+                  func_data.warm_over_results.push(invok_lat - func_exec_ms);
                 }
               },
               Err(e) => {
@@ -148,13 +174,10 @@ pub async fn bebenchmark_controller(host: String, port: Port, functions: Vec<Str
         };
       }
     }
-    warm_results.insert(function, warm_data);
-    warm_over_results.insert(function, warm_over_data);
-    cold_results.insert(function, cold_data);
-    cold_over_results.insert(function, cold_over_data);
+    full_data.data.insert(function.clone(), func_data);
   }
 
-  let p = Path::new(&out_folder).join(format!("controller_function_benchmarks.csv"));
+  let p = Path::new(&out_folder).join(format!("controller_function_benchmarks.json"));
   let mut f = match File::create(p) {
     Ok(f) => f,
     Err(e) => {
@@ -162,47 +185,24 @@ pub async fn bebenchmark_controller(host: String, port: Port, functions: Vec<Str
     }
   };
 
-  let to_write = format!("name,warm,warmoverhead,cold,coldoverhead\n");
+  let to_write = serde_json::to_string(&full_data)?;
   match f.write_all(to_write.as_bytes()) {
     Ok(_) => (),
     Err(e) => {
-      anyhow::bail!("Failed to write json of result because {}", e);
+      println!("Failed to write json of result because {}", e);
     }
   };
-  let mut keys = warm_results.keys().cloned().cloned().collect::<Vec<String>>();
-  keys.sort();
-  for func in keys {
-    let warm: f64 = warm_results.get(&func).unwrap().iter().sum();
-    let warm_over: f64 = warm_over_results.get(&func).unwrap().iter().sum();
-    let cold: f64 = cold_results.get(&func).unwrap().iter().sum();
-    let cold_over: f64 = cold_over_results.get(&func).unwrap().iter().sum();
-    let to_write = format!("{},{},{},{},{}\n", func, warm, warm_over, cold, cold_over);
-    match f.write_all(to_write.as_bytes()) {
-      Ok(_) => (),
-      Err(e) => {
-        println!("Failed to write json of result because {}", e);
-      }
-    };
-  }
-
   Ok(())
 }
 
 pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, out_folder: String) -> Result<()> {
   let mut api = RCPWorkerAPI::new(&host, port).await?;
-  let mut warm_results = HashMap::new();
-  let mut warm_over_results = HashMap::new();
-  let mut cold_results = HashMap::new();
-  let mut cold_over_results = HashMap::new();
+  let mut full_data = BenchmarkStore::new();
 
   for function in &functions {
     println!("{}", function);
-
-    let mut warm_data = Vec::new();
-    let mut warm_over_data = Vec::new();
-    let mut cold_data = Vec::new();
-    let mut cold_over_data = Vec::new();
-    for iter in 1..5 {
+    let mut func_data = FunctionStore::new();
+    for iter in 0..10 {
       let name = format!("{}-bench-{}", function, iter);
       let version = format!("0.0.{}", iter);
       let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
@@ -213,7 +213,7 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
         Err(e) => anyhow::bail!("registration of {} failed because {}", function, e),
       };
 
-      'inner: for _ in 0..3 {
+      'inner: for _ in 0..4 {
         let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), "{}".to_string(), None, tid.clone()).timed().await;
         let invok_lat = invok_lat.as_millis() as f64;
         match invok_out {
@@ -221,11 +221,11 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
             Ok(b) => {
               let func_exec_ms = b.body.latency * 1000.0;
               if b.body.cold {
-                cold_data.push(invok_lat);
-                cold_over_data.push(invok_lat - func_exec_ms);
+                func_data.cold_results.push(invok_lat);
+                func_data.cold_over_results.push(invok_lat - func_exec_ms);
               } else {
-                warm_data.push(invok_lat);
-                warm_over_data.push(invok_lat - func_exec_ms);
+                func_data.warm_results.push(invok_lat);
+                func_data.warm_over_results.push(invok_lat - func_exec_ms);
               }
             },
             Err(e) => {
@@ -240,43 +240,22 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
         };
       }
     }
-    warm_results.insert(function, warm_data);
-    warm_over_results.insert(function, warm_over_data);
-    cold_results.insert(function, cold_data);
-    cold_over_results.insert(function, cold_over_data);
+    full_data.data.insert(function.clone(), func_data);
   }
 
-  let p = Path::new(&out_folder).join(format!("function_benchmarks.csv"));
+  let p = Path::new(&out_folder).join(format!("worker_function_benchmarks.json"));
   let mut f = match File::create(p) {
     Ok(f) => f,
     Err(e) => {
       anyhow::bail!("Failed to create output file because {}", e);
     }
   };
-
-  let to_write = format!("name,warm,warmoverhead,cold,coldoverhead\n");
+  let to_write = serde_json::to_string(&full_data)?;
   match f.write_all(to_write.as_bytes()) {
     Ok(_) => (),
     Err(e) => {
-      anyhow::bail!("Failed to write json of result because {}", e);
+      println!("Failed to write json of result because {}", e);
     }
   };
-  let mut keys = warm_results.keys().cloned().cloned().collect::<Vec<String>>();
-  keys.sort();
-
-  for func in keys {
-    let warm: f64 = warm_results.get(&func).unwrap().iter().sum();
-    let warm_over: f64 = warm_over_results.get(&func).unwrap().iter().sum();
-    let cold: f64 = cold_results.get(&func).unwrap().iter().sum();
-    let cold_over: f64 = cold_over_results.get(&func).unwrap().iter().sum();
-    let to_write = format!("{},{},{},{},{}\n", func, warm, warm_over, cold, cold_over);
-    match f.write_all(to_write.as_bytes()) {
-      Ok(_) => (),
-      Err(e) => {
-        println!("Failed to write json of result because {}", e);
-      }
-    };
-  }
-
   Ok(())
 }
