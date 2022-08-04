@@ -3,7 +3,8 @@ use anyhow::Result;
 use iluvatar_lib::{utils::config::get_val, types::MemSizeMb};
 use clap::{ArgMatches, App, SubCommand, Arg};
 
-mod worker;
+mod worker_trace;
+mod controller_trace;
 
 pub fn trace_args<'a>(app: App<'a, 'a>) -> App<'a, 'a> {
   app.subcommand(SubCommand::with_name("trace")
@@ -50,8 +51,8 @@ pub fn run_trace(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let target: String = get_val("target", &sub_args)?;
 
   match target.as_str() {
-    "worker" => worker::trace_worker(main_args, sub_args),
-    "controller" => trace_controller(main_args, sub_args),
+    "worker" => worker_trace::trace_worker(main_args, sub_args),
+    "controller" => controller_trace::trace_controller(main_args, sub_args),
     _ => anyhow::bail!("Unknown simulation targe {}!", target),
   }
 }
@@ -79,13 +80,4 @@ fn load_metadata(path: String) -> Result<HashMap<u64, Function>> {
     ret.insert(func.function_id, func);
   }
   Ok(ret)
-}
-
-fn trace_controller(_main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let config_pth: String = get_val("worker-config", &sub_args)?;
-  let _worker_config = iluvatar_lib::worker_api::worker_config::Configuration::boxed(false, &config_pth).unwrap();
-
-  let config_pth: String = get_val("controller-config", &sub_args)?;
-  let _controller_config = iluvatar_lib::load_balancer_api::lb_config::Configuration::boxed(&config_pth).unwrap();
-  todo!();
 }

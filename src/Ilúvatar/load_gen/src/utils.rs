@@ -40,6 +40,9 @@ pub struct Body {
   pub latency: f64,
 }
 
+/// Run an invocation against the controller
+/// Return the [iluvatar_lib::load_balancer_api::lb_structs::json::ControllerInvokeResult] result after parsing
+/// also return the latency in milliseconds of the request
 pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>) -> Result<(ControllerInvokeResult, f64)> {
   let client = reqwest::Client::new();
   let req = Invoke {

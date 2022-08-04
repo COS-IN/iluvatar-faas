@@ -201,7 +201,7 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
         },
       };
 
-      'inner: for _ in 0..warm_repeats {
+      for _ in 0..warm_repeats {
         match worker_invoke(&name, &version, &host, port, &tid, None).await {
           Ok( (response, invok_out, invok_lat) ) => {
             let invok_lat_f = invok_lat as f64;
@@ -220,7 +220,7 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
           },
           Err(e) => {
             println!("{}", e);
-            break 'inner;
+            continue;
           },
         };
       }
