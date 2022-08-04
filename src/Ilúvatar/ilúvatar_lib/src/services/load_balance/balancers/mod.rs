@@ -8,7 +8,8 @@ macro_rules! send_invocation {
       info!("[{}] invoking function {} on worker {}", $tid, &$func.fqdn, &$worker.name);
 
       let mut api = $worker_fact.get_worker_api(&$worker, $tid).await?;
-      let result = match api.invoke($func.function_name.clone(), $func.function_version.clone(), $json_args, None, $tid.clone()).await {
+      let (result, duration) = api.invoke($func.function_name.clone(), $func.function_version.clone(), $json_args, None, $tid.clone()).timed().await;
+      let result = match result {
         Ok(r) => r,
         Err(e) => {
           $health.schedule_health_check($health.clone(), $worker, $tid, Some(Duration::from_secs(1)));
@@ -16,7 +17,7 @@ macro_rules! send_invocation {
         },
       };
       debug!(tid=%$tid, json=%result.json_result, "invocation result");
-      Ok(result.json_result)
+      Ok( (result, duration) )
     }
   };
 }
@@ -27,7 +28,8 @@ macro_rules! prewarm {
     {
       info!("[{}] prewarming function {} on worker {}", $tid, &$func.fqdn, &$worker.name);
       let mut api = $worker_fact.get_worker_api(&$worker, $tid).await?;
-      let result = match api.prewarm($func.function_name.clone(), $func.function_version.clone(), None, None, None, $tid.clone()).await {
+      let (result, duration) = api.prewarm($func.function_name.clone(), $func.function_version.clone(), None, None, None, $tid.clone()).timed().await;
+      let result = match result {
         Ok(r) => r,
         Err(e) => {
           $health.schedule_health_check($health.clone(), $worker, $tid, Some(Duration::from_secs(1)));
@@ -35,7 +37,7 @@ macro_rules! prewarm {
         }
       };
       debug!(tid=%$tid, result=?result, "prewarm result");
-      Ok(())
+      Ok(duration)
     }
   }
 }
@@ -47,7 +49,8 @@ macro_rules! send_async_invocation {
       info!("[{}] invoking function async {} on worker {}", $tid, &$func.fqdn, &$worker.name);
 
       let mut api = $worker_fact.get_worker_api(&$worker, $tid).await?;
-      let result = match api.invoke_async($func.function_name.clone(), $func.function_version.clone(), $json_args, None, $tid.clone()).await {
+      let (result, duration) = api.invoke_async($func.function_name.clone(), $func.function_version.clone(), $json_args, None, $tid.clone()).timed().await;
+      let result = match result {
         Ok(r) => r,
         Err(e) => {
           $health.schedule_health_check($health.clone(), $worker, $tid, Some(Duration::from_secs(1)));
@@ -55,7 +58,7 @@ macro_rules! send_async_invocation {
         },
       };
       debug!(tid=%$tid, result=%result, "invocation result");
-      Ok( (result, $worker) )
+      Ok( (result, $worker, duration) )
     }
   }
 }

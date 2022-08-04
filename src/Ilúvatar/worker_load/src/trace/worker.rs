@@ -1,13 +1,12 @@
 use std::{collections::HashMap, sync::Arc, path::Path, fs::File, io::Write};
 use anyhow::Result;
-use iluvatar_lib::{utils::config::get_val, worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, services::containers::simulation::simstructs::SimulationResult};
+use iluvatar_lib::{utils::{config::get_val, timing::TimedExt}, worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, services::containers::simulation::simstructs::SimulationResult};
 use iluvatar_lib::{transaction::TransactionId, services::containers::simulation::simstructs::SimulationInvocation};
 use clap::ArgMatches;
 use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
 use iluvatar_lib::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse, InvokeResponse};
 use tonic::{Request, Status, Response};
-use crate::utils::TimedExt;
 
 use super::{Function, CsvInvocation};
 

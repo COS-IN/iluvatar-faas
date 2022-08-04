@@ -14,10 +14,26 @@ pub mod json {
   
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
-  pub struct InvokeResult {
+  pub struct ControllerInvokeResult {
+    /// json returned by the function
     pub json_result: String,
+    /// latency of the invocation as recorded by the controller
+    pub worker_duration_ms: u64,
+    /// false if there was no platform error
+    ///   could still have an internal error in the function
+    pub success: bool,
+    /// latency of the invocation as recorded by the worker
+    pub invoke_duration_ms: u64
   }
-    
+  #[allow(unused)]
+  #[derive(Deserialize, Serialize, Debug)]
+  pub struct AsyncInvokeResult {
+    /// lookup cookie to query the function result
+    pub cookie: String,
+    /// latency of the invocation as recorded by the controller
+    pub worker_duration_ms: u64,
+  }
+
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
   pub struct InvokeAsyncLookup {

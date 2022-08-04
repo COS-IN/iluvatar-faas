@@ -8,6 +8,8 @@ use tokio::task::JoinHandle;
 use tracing::{info, debug, error, warn};
 use parking_lot::RwLock;
 use crate::services::ControllerHealthService;
+use crate::utils::timing::TimedExt;
+use crate::rpc::InvokeResponse;
 
 #[allow(unused)]
 pub struct LeastLoadedBalancer {
@@ -102,17 +104,17 @@ impl LoadBalancerTrait for LeastLoadedBalancer {
     workers.insert(worker.name.clone(), worker);
   }
 
-  async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<String> {
+  async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(InvokeResponse, Duration)> {
     let worker = self.get_worker(tid)?;
     send_invocation!(func, json_args, tid, self.worker_fact, self.health, worker)
   }
 
-  async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
+  async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Duration> {
     let worker = self.get_worker(tid)?;
     prewarm!(func, tid, self.worker_fact, self.health, worker)
   }
 
-  async fn send_async_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(String, Arc<RegisteredWorker>)> {
+  async fn send_async_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(String, Arc<RegisteredWorker>, Duration)> {
     let worker = self.get_worker(tid)?;
     send_async_invocation!(func, json_args, tid, self.worker_fact, self.health, worker)
   }

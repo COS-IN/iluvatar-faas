@@ -2,10 +2,10 @@ use std::{time::{Duration, SystemTime}, sync::Arc};
 
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
-use iluvatar_lib::{utils::{config::get_val, port_utils::Port, file_utils::ensure_dir}, rpc::RCPWorkerAPI, ilúvatar_api::WorkerAPI, transaction::{gen_tid, TransactionId}};
+use iluvatar_lib::{utils::{config::get_val, port_utils::Port, file_utils::ensure_dir, timing::TimedExt}, rpc::RCPWorkerAPI, ilúvatar_api::WorkerAPI, transaction::{gen_tid, TransactionId}};
 use tokio::sync::Barrier;
 use tokio::runtime::Builder;
-use crate::utils::{InvocationResult, ThreadResult, RealInvokeResult, RegistrationResult, TimedExt};
+use crate::utils::{InvocationResult, ThreadResult, RealInvokeResult, RegistrationResult};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;

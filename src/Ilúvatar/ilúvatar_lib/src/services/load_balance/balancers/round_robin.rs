@@ -7,7 +7,9 @@ use crate::{send_invocation, prewarm, send_async_invocation};
 use crate::services::ControllerHealthService;
 use crate::{services::load_balance::LoadBalancerTrait, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredFunction, RegisteredWorker};
-use crate::worker_api::worker_comm::WorkerAPIFactory;
+use crate::{worker_api::worker_comm::WorkerAPIFactory};
+use crate::utils::timing::TimedExt;
+use crate::rpc::InvokeResponse;
 
 pub struct RoundRobinLoadBalancer {
   workers: RwLock<Vec<Arc<RegisteredWorker>>>,
@@ -56,17 +58,17 @@ impl LoadBalancerTrait for RoundRobinLoadBalancer {
     workers.push(worker);
   }
 
-  async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<String> {
+  async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(InvokeResponse, Duration)> {
     let worker = self.get_next(tid);
     send_invocation!(func, json_args, tid, self.worker_fact, self.health, worker)
   }
 
-  async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
+  async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Duration> {
     let worker = self.get_next(tid);
     prewarm!(func, tid, self.worker_fact, self.health, worker)
   }
 
-  async fn send_async_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(String, Arc<RegisteredWorker>)> {
+  async fn send_async_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(String, Arc<RegisteredWorker>, Duration)> {
     let worker = self.get_next(tid);
     send_async_invocation!(func, json_args, tid, self.worker_fact, self.health, worker)
   }

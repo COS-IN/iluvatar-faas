@@ -1,9 +1,9 @@
 use std::{sync::Arc, time::Duration};
-
 use iluvatar_lib::{services::{load_balance::{get_balancer, LoadBalancer}, ControllerHealthService, graphite::graphite_svc::GraphiteService}, transaction::TransactionId, bail_error, load_balancer_api::{registration::RegistrationService, load_reporting::LoadService}, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_lib::utils::{calculate_fqdn, config::args_to_json};
 use iluvatar_lib::load_balancer_api::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
 use iluvatar_lib::load_balancer_api::lb_config::ControllerConfig;
+use iluvatar_lib::rpc::InvokeResponse;
 use anyhow::Result;
 use tracing::{info, debug, error};
 use crate::services::async_invoke::AsyncService;
@@ -49,7 +49,7 @@ impl Controller {
     Ok(())
   }
 
-  pub async fn prewarm(&self, request: Prewarm, tid: &TransactionId) -> Result<()> {
+  pub async fn prewarm(&self, request: Prewarm, tid: &TransactionId) -> Result<Duration> {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     match self.registration_svc.get_function(&fqdn) {
       Some(func) => {
@@ -60,7 +60,7 @@ impl Controller {
     }
   }
 
-  pub async fn invoke(&self, request: Invoke, tid: &TransactionId) -> Result<String> {
+  pub async fn invoke(&self, request: Invoke, tid: &TransactionId) -> Result<(InvokeResponse, Duration)> {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     match self.registration_svc.get_function(&fqdn) {
       Some(func) => {
@@ -75,7 +75,7 @@ impl Controller {
     }
   }
 
-  pub async fn invoke_async(&self, request: Invoke, tid: &TransactionId) -> Result<String> {
+  pub async fn invoke_async(&self, request: Invoke, tid: &TransactionId) -> Result<(String, Duration)> {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     match self.registration_svc.get_function(&fqdn) {
       Some(func) => {
@@ -85,9 +85,9 @@ impl Controller {
             None => "{}".to_string(),
         };
         match self.lb.send_async_invocation(func, args, tid).await {
-          Ok( (cookie, worker) ) => {
+          Ok( (cookie, worker, duration) ) => {
             self.async_svc.register_async_invocation(cookie.clone(), worker, tid);
-            Ok(cookie)
+            Ok( (cookie, duration) )
           },
           Err(e) => {
             error!(tid=%tid, error=%e, "async invocation failed");

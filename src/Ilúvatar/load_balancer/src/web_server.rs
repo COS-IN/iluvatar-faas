@@ -2,6 +2,7 @@ use crate::controller::Controller;
 use actix_web::{HttpRequest, HttpResponse, get, post};
 use actix_web::web::{Data, Json};
 use iluvatar_lib::load_balancer_api::lb_errors::MissingAsyncCookieError;
+use iluvatar_lib::load_balancer_api::lb_structs::json::{ControllerInvokeResult, AsyncInvokeResult};
 use iluvatar_lib::load_balancer_api::structs::json::{Invoke, RegisterWorker, Prewarm, RegisterFunction, InvokeAsyncLookup};
 use iluvatar_lib::transaction::gen_tid;
 use iluvatar_lib::utils::calculate_fqdn;
@@ -20,10 +21,18 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
   let req = req.into_inner();
   info!("[{}] new invoke {:?}", tid, req);
 
-  match server.invoke(req, &tid).await {
-    Ok(result) =>   HttpResponse::Ok().body(result),
-    Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
-  }
+  let (result, duration) = match server.invoke(req, &tid).await {
+    Ok(d) => d,
+    Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+  };
+  let ret = ControllerInvokeResult {
+    json_result: result.json_result,
+    worker_duration_ms: duration.as_millis() as u64,
+    success: result.success,
+    invoke_duration_ms: result.duration_ms,
+  };
+
+  HttpResponse::Ok().json(ret)
 }
 
 #[post("/invoke_async")]
@@ -32,7 +41,10 @@ pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpRe
   let req = req.into_inner();
   info!("[{}] new invoke_async {:?}", tid, req);
   match server.invoke_async(req, &tid).await {
-    Ok(cookie) => HttpResponse::Created().body(cookie),
+    Ok( (cookie, duration) ) => HttpResponse::Created().json(AsyncInvokeResult {
+      cookie,
+      worker_duration_ms: duration.as_millis() as u64,
+    }),
     Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
   }
 }

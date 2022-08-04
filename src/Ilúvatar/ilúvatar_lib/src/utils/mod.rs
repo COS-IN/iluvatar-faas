@@ -6,6 +6,8 @@ pub mod config_utils;
 pub use config_utils as config;
 pub mod cgroup_utils;
 pub use cgroup_utils as cgroup;
+pub mod timing_utils;
+pub use timing_utils as timing; 
 
 use crate::utils::port::Port;
 use crate::transaction::TransactionId;
