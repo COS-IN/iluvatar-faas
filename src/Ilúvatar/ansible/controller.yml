@@ -2,8 +2,8 @@
   vars:
     host_group: "{{ groups['controller'] }}"
     host_group_size: "{{ host_group | length }}"
-    exe_dest: "/tmp/{{ controller.bin_name }}"
-    config_dest: "/tmp/{{ controller.config_name }}"
+    exe_dest: "/tmp/ilúvatar/{{ controller.bin_name }}"
+    config_dest: "/tmp/ilúvatar/{{ controller.config_name }}"
   vars_files:
     - group_vars/all.yml
 
@@ -35,6 +35,7 @@
       dest: "{{exe_dest}}"
       mode: "preserve"
     when: mode == "deploy"
+    become: yes
 
   - name: copy controller config
     ansible.builtin.copy:
@@ -42,6 +43,7 @@
       dest: "{{config_dest}}"
       mode: "preserve"
     when: mode == "deploy"
+    become: yes
 
   - name: run controller executable
     ansible.builtin.command: 

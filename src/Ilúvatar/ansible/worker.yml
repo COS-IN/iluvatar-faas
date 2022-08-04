@@ -4,8 +4,8 @@
     host_group: "{{ groups['workers'] }}"
     worker_index_base: 0
     assigned_port: "{{ (worker.port + host_group.index(inventory_hostname)) }}"
-    exe_dest: "/tmp/{{ worker.bin_name }}"
-    config_dest: "/tmp/{{ inventory_hostname }}.json"
+    exe_dest: "/tmp/ilúvatar/{{ worker.bin_name }}"
+    config_dest: "/tmp/ilúvatar/{{ inventory_hostname }}.json"
   vars_files:
     - group_vars/all.yml
 
@@ -15,11 +15,11 @@
     register: running_worker
     when: mode == "clean"
 
-  # - name: debug print
-  #   when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
-  #   run_once: true
-  #   debug:
-  #     msg: "{{ ansible_host }}"
+  - name: debug print
+    # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+    run_once: true
+    debug:
+      msg: "{{ exe_dest }}"
 
   - name: Kill running worker process on localhost
     shell: "kill {{ item }}"
@@ -39,12 +39,14 @@
       src: "{{ilúvatar_home}}/target/release/{{worker.bin_name}}"
       dest: "{{exe_dest}}"
       mode: "preserve"
+    become: yes
 
   - name: copy worker config
     ansible.builtin.copy:
       src: "{{ilúvatar_home}}/target/release/{{worker.config_name}}"
       dest: "{{config_dest}}"
       mode: "preserve"
+    become: yes
 
   - name: clean localhost
     ansible.builtin.command: 

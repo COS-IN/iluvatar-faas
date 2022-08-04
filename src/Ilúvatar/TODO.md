@@ -1,5 +1,10 @@
 # TODOs:
 
+## Graphite data
+
+After an experiment, it would be great to have the data stored in graphite be extracted and stored alongside results.
+We can match up timestamps and metrics to plot things together.
+
 ## snapshot overlay bug
 
 Inside `containerlife`, happens very rarely
