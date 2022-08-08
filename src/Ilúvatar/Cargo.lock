@@ -1544,7 +1544,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "iluvatar_load_balancer"
+name = "iluvatar_worker_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "config",
+ "iluvatar_lib",
+ "prost 0.10.4",
+ "serde",
+ "tokio",
+ "tonic 0.7.2",
+]
+
+[[package]]
+name = "ilúvatar_controller"
 version = "0.1.0"
 dependencies = [
  "actix-web",
@@ -1562,7 +1576,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "iluvatar_worker"
+name = "ilúvatar_load_gen"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "config",
+ "csv",
+ "futures",
+ "iluvatar_lib",
+ "lazy_static",
+ "prost 0.10.4",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tonic 0.7.2",
+]
+
+[[package]]
+name = "ilúvatar_worker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1589,20 +1622,6 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "iluvatar_worker_cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "config",
- "iluvatar_lib",
- "prost 0.10.4",
- "serde",
- "tokio",
- "tonic 0.7.2",
 ]
 
 [[package]]
@@ -1744,25 +1763,6 @@ name = "linked-hash-map"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fb9b38af92608140b86b693604b9ffcc5824240a484d1ecd4795bacb2fe88f3"
-
-[[package]]
-name = "load_gen"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "config",
- "csv",
- "futures",
- "iluvatar_lib",
- "lazy_static",
- "prost 0.10.4",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tonic 0.7.2",
-]
 
 [[package]]
 name = "local-channel"

@@ -1,5 +1,5 @@
 [package]
-name = "iluvatar_load_balancer"
+name = "ilúvatar_controller"
 version = "0.1.0"
 edition = "2021"
 authors = ["Alex Fuerst alfuerst@iu.edu"]

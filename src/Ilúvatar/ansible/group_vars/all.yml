@@ -13,11 +13,11 @@ controller:
   # controller: "{{ groups['controller']|first }}"
   host: "{{ hostvars[ groups['controller']|first ].ansible_host }}"
   port: 8089
-  bin_name: "iluvatar_load_balancer"
-  config_name: "load_balancer.json"
+  bin_name: "ilúvatar_controller"
+  config_name: "controller.json"
   algorithm: "{{ controller_algorithm | default('RoundRobin') }}"
 
 worker:
   port: 8070
-  bin_name: "iluvatar_worker"
+  bin_name: "ilúvatar_worker"
   config_name: "worker.json"

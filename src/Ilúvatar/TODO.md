@@ -31,13 +31,6 @@ Document the ability to disable them via config.
 
 Pass the span to the invoker queue to continue it's chain through the worker thread.
 
-## Log Tracing
-
-Move all our log statements to use the structured log approach.
-This way the json logging will be very easy to handle offline.
-And we no longer have to format log messages with variables and `TransactionId`'s
-For details, see (dev docs)[./docs/DEV.md]
-
 ## Time-skipping simulation
 
 Can we enable time-skipping when running in a simulation context?

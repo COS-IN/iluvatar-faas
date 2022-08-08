@@ -7,11 +7,11 @@
 # authors = ["Alex Fuerst alfuerst@iu.edu"]
 
 members = [
-  "worker",
-  "worker_cli",
-  "load_gen",
+  "ilúvatar_worker",
+  "ilúvatar_worker_cli",
+  "ilúvatar_load_gen",
   "ilúvatar_lib",
-  "load_balancer"
+  "ilúvatar_controller"
 ]
 
 [profile.dev]

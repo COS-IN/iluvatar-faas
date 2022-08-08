@@ -1,0 +1,45 @@
+{
+  "name": "local",
+  "address": "127.0.0.1",
+  "port": 8079,
+  "timeout_sec": 6000,
+  "limits" : {
+    "timeout_sec": 6000,
+    "mem_min_mb": 5,
+    "mem_max_mb": 2048,
+    "cpu_max": 10,
+    "retries": 0
+  },
+  "logging": {
+    "level": "info",
+    "directory": "/tmp/ilúvatar/logs",
+    "basename": "worker",
+    "spanning": "NONE",
+    "flame": ""
+  },
+  "container_resources": {
+    "memory_mb": 10240,
+    "cores": 16,
+    "eviction": "LRU",
+    "startup_timeout_ms": 10000,
+    "memory_buffer_mb": 1024,
+    "pool_freq_sec": 5,
+    "backend": "containerd"
+  },
+  "networking": {
+    "bridge": "IlWorkBr0",
+    "cnitool": "/home/alex/.gopth/bin/cnitool",
+    "cni_plugin_bin": "/opt/cni/bin",
+    "cni_name": "il_worker_br",
+    "use_pool": true,
+    "pool_size": 10,
+    "pool_freq_sec": 1,
+    "hardware_interface": "enp4s0"
+  },
+  "graphite": {
+    "address": "localhost",
+    "api_port": "80",
+    "ingestion_port": "2003",
+    "ingestion_udp": false
+  }
+}

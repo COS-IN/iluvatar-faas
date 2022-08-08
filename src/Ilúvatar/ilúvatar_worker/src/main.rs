@@ -1,5 +1,3 @@
-extern crate iluvatar_worker;
-
 use std::sync::Arc;
 use std::time::Duration;
 use iluvatar_lib::logging::start_tracing;
@@ -8,7 +6,7 @@ use iluvatar_lib::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_lib::worker_api::config::Configuration;
 use iluvatar_lib::services::containers::containermanager::ContainerManager;
 use iluvatar_lib::worker_api::create_worker;
-use iluvatar_worker::args::parse;
+use crate::utils::{parse, register_rpc_to_controller};
 use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_lib::utils::config::get_val;
 use anyhow::Result;
@@ -16,13 +14,15 @@ use tonic::transport::Server;
 use iluvatar_lib::services::LifecycleFactory;
 use tracing::{debug};
 
+pub mod utils;
+
 async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
   debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
 
   let worker = create_worker(server_config.clone(), tid).await?;
   let addr = format!("{}:{}", server_config.address, server_config.port);
 
-  iluvatar_worker::register_rpc_to_controller(server_config.clone(), tid.clone());
+  register_rpc_to_controller(server_config.clone(), tid.clone());
   Server::builder()
       .timeout(Duration::from_secs(server_config.timeout_sec))
       .add_service(IluvatarWorkerServer::new(worker))
