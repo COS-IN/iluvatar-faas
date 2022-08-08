@@ -39,7 +39,7 @@ impl RegistrationService {
   /// Send to load balancer
   pub async fn register_worker(&self, worker: RegisterWorker, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {
     if self.worker_registered(&worker.name) {
-      bail_error!("[{}] Worker {} was already registered", tid, &worker.name);
+      bail_error!(tid=%tid, worker=%worker.name, "Worker was already registered");
     }
 
     let reg_worker = Arc::new(RegisteredWorker::from(worker));
@@ -72,7 +72,7 @@ impl RegistrationService {
   pub async fn register_function(&self, function: RegisterFunction, tid: &TransactionId) -> Result<()> {
     let fqdn = calculate_fqdn(&function.function_name, &function.function_version);
     if self.function_registered(&fqdn) {
-      bail_error!("[{}] Function {} was already registered", tid, fqdn);
+      bail_error!(tid=%tid, fqdn=%fqdn, "Function was already registered");
     }
     else {
       for item in self.workers.iter() {

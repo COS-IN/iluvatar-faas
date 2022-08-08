@@ -43,7 +43,7 @@ impl ContainerT for SimulatorContainer {
     // just sleep for a while based on data from json args
     let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
       Ok(d) => d,
-      Err(e) => bail_error!("[{}] unable to deserialize run time information because of: {}", tid, e),
+      Err(e) => bail_error!(tid=%tid, error=%e, "Unable to deserialize run time information"),
     };
 
     let (duration_ms, was_cold) = match self.invocations() {

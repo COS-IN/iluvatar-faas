@@ -34,14 +34,14 @@ impl WorkerAPIFactory {
         None => {
           let api = match RCPWorkerAPI::new(&worker.host, worker.port).await {
             Ok(api) => api,
-            Err(e) => bail_error!("[{}] unable to create API for worker '{}' because '{}'", tid, worker.name, e),
+            Err(e) => bail_error!(tid=%tid, worker=%worker.name, error=%e, "Unable to create API for worker"),
           };
           self.rpc_apis.insert(worker.name.clone(), api.clone());
           Ok(Box::new(api))
         },
       }
     } else {
-      bail_error!("[{}] unknown worker communication method {}", tid, worker.communication_method);
+      bail_error!(tid=%tid, mathod=%worker.communication_method, "Unknown worker communication method");
     }
   }
 }

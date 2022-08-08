@@ -35,7 +35,7 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
 pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> {
   debug!(tid=%tid, command=cmd_pth, args=?args, environment=?env, "executing host command");
   if ! std::path::Path::new(&cmd_pth).exists() {
-    bail_error!("[{}] command '{}' does not exists", tid, cmd_pth);
+    bail_error!(tid=%tid, command=%cmd_pth, "Command does not exists");
   }
   let mut cmd = Command::new(cmd_pth);
   cmd.args(args);
@@ -44,7 +44,7 @@ pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String,
   }
   match cmd.output() {
         Ok(out) => Ok(out),
-        Err(e) => bail_error!("[{}] running command '{}' failed with error '{:?}'", tid, cmd_pth, e)
+        Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Running command failed")
       }
 }
 

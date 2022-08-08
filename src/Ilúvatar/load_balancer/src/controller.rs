@@ -56,7 +56,7 @@ impl Controller {
         debug!(tid=%tid, fqdn=%fqdn, "found function for prewarm");
         self.lb.prewarm(func, tid).await
       },
-      None => bail_error!("[{}] function {} was not registered; could not prewarm", tid, fqdn)
+      None => bail_error!(tid=%tid, fqdn=%fqdn, "Function was not registered; could not prewarm")
     }
   }
 
@@ -71,7 +71,7 @@ impl Controller {
         };
         self.lb.send_invocation(func, args, tid).await
       },
-      None => bail_error!("[{}] function {} was not registered; could not invoke", tid, fqdn)
+      None => bail_error!(tid=%tid, fqdn=%fqdn, "Function was not registered; could not invoke")
     }
   }
 
@@ -95,7 +95,7 @@ impl Controller {
           },
         }
       },
-      None => bail_error!("[{}] function {} was not registered; could not invoke", tid, fqdn)
+      None => bail_error!(tid=%tid, fqdn=%fqdn, "Function was not registered; could not invoke async")
     }
   }
 

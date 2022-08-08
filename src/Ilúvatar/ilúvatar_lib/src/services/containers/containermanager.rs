@@ -351,9 +351,7 @@ impl ContainerManager {
           warn!(tid=%request.transaction_id, fqdn=%fqdn, "Function was attempted to be prewarmed before registering. Attempting register...");
           match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn, &request.transaction_id).await {
             Ok(_) => self.get_registration(&fqdn)?,
-            Err(sub_e) => {
-              bail_error!("[{}] Prewarm of function {} was not registered because it was not registered! Attempted registration failed because '{}'", &request.transaction_id, fqdn, sub_e);
-            }
+            Err(sub_e) => bail_error!(tid=%request.transaction_id, fqdn=%fqdn, error=%sub_e, "Prewarm of function was registered because it was not registered! Attempted registration failed")
           }
         },
     };

@@ -89,9 +89,7 @@ impl LeastLoadedBalancer {
     let lck = self.assigned_worker.read();
     match &*lck {
       Some(w) => Ok(w.clone()),
-      None => {
-        bail_error!("[{}] No worker has been assigned to least loaded variable yet", tid);
-      },
+      None => bail_error!(tid=%tid, "No worker has been assigned to least loaded variable yet"),
     }
   }
 }

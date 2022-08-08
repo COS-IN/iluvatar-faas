@@ -206,7 +206,7 @@ impl NamespaceManager {
   fn create_namespace_internal(&self, name: &String, tid: &TransactionId) -> Result<()> {
     let out = match execute_cmd("/bin/ip", &vec!["netns", "add", name], None, tid) {
               Ok(out) => out,
-              Err(e) => bail_error!("[{}] Failed to launch 'ip netns add' command with error '{:?}'", tid, e)
+              Err(e) => bail_error!(tid=%tid, error=%e, "Failed to launch 'ip netns add' command")
             };
 
     debug!(tid=%tid, namespace=%name, output=?out, "internal create namespace via ip");
@@ -214,10 +214,10 @@ impl NamespaceManager {
       if status == 0 {
         return Ok(());
       } else {
-        bail_error!("[{}] Failed to create internal namespace with exit code '{}' and error '{:?}'", tid, status, out)
+        bail_error!(tid=%tid, status=?status, stdout=?out, "Failed to create internal namespace")
       }
     } else {
-      bail_error!("[{}] Failed to create internal namespace with no exit code and error '{:?}'", tid, out)
+      bail_error!(tid=%tid, stdout=?out, "Failed to create internal namespace with no exit code")
     }
   }
 
@@ -261,7 +261,7 @@ impl NamespaceManager {
           namespace: ns
         })
       },
-      Err(e) => bail_error!("[{}] JSON error in create_namespace '{}', output: '{}'", tid, e, stdout),
+      Err(e) => bail_error!(tid=%tid, error=%e, stdout=%stdout, "JSON error in create_namespace"),
     }
   }
 
@@ -273,7 +273,7 @@ impl NamespaceManager {
           debug!(tid=%tid, namespace=%ns.name, "Assigning namespace");
           return Ok(ns);
         },
-        None => bail_error!("[{}] Namespace pool of length {} should have had thing in it", tid, locked.len()),
+        None => bail_error!(tid=%tid, length=%locked.len(), "Namespace pool of should have had a thing in it"),
       }
     } else {
       debug!(tid=%tid, "Creating new namespace, pool is empty");
@@ -307,12 +307,12 @@ impl NamespaceManager {
     debug!(tid=%tid, namespace=%name, output=?out, "internal delete namespace via ip");
     if let Some(status) = out.status.code() {
       if status == 0 {
-        return Ok(());
+        Ok(())
       } else {
-        bail_error!("[{}] Failed to delete namespace with exit code '{}' and error '{:?}'", tid, status, out)
+        bail_error!(tid=%tid, stdout=?out, status=?status, "Failed to delete namespace")
       }
     } else {
-      bail_error!("[{}] Failed to delete delete with no exit code and error '{:?}'", tid, out)
+      bail_error!(tid=%tid, stdout=?out, "Failed to delete delete with no exit code")
     }
   }
 

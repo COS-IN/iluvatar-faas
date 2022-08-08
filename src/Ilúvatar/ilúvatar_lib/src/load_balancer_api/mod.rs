@@ -38,11 +38,9 @@ pub async fn register_worker(name: &String, communication_method: &String, backe
             Ok(())
           } else {
             let text = r.text().await?;
-            bail_error!("[{}] Got unexpected HTTP status when registering worker with the load balancer '{}'; text: {}", tid, status, text);
+            bail_error!(tid=%tid, status=?status, text=%text, "Got unexpected HTTP status when registering worker with the load balancer")
           }
         },
-        Err(e) =>{
-          bail_error!("[{}] HTTP error when trying to register worker with the load balancer '{}'", tid, e);
-        },
+        Err(e) => bail_error!(tid=%tid, error=?e, "HTTP error when trying to register worker with the load balancer"),
     }
 }

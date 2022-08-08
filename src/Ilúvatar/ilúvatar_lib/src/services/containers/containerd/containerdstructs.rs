@@ -76,12 +76,12 @@ impl ContainerT for ContainerdContainer {
         Ok(r) => r,
         Err(e) =>{
           self.mark_unhealthy();
-          bail_error!("[{}] HTTP error when trying to connect to container {} : '{}'", tid, self.container_id, e);
+          bail_error!(tid=%tid, error=%e, container_id=%self.container_id, "HTTP error when trying to connect to container");
         },
       };
     match result.text().await {
       Ok(r) => Ok(r),
-      Err(e) => bail_error!("[{}] Error reading text data from container {} http response '{}'", tid, self.container_id, e),
+      Err(e) => bail_error!(tid=%tid, error=%e, container_id=%self.container_id, "Error reading text data from container"),
     }
   }
 

@@ -175,7 +175,7 @@ impl InvokerService {
           let data = ctr_lock.invoke(json_args).await?;
           let duration = match start.elapsed() {
             Ok(dur) => dur,
-            Err(e) => bail_error!("[{}] timer error recording invocation duration '{}'", tid, e),
+            Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
           }.as_millis() as u64;
           Ok((data, duration))
         },

@@ -125,7 +125,7 @@ impl ContainerdLifecycle {
       debug!(tid=%tid, container_id=%cid, mounts=?rsp.mounts, "got mounts");
       Ok(rsp.mounts)
     } else {
-      bail_error!("[{}] Failed to prepare snapshot and load mounts: {:?}", tid, rsp);
+      bail_error!(tid=%tid, response=?rsp, "Failed to prepare snapshot and load mounts")
     }
   }
 
@@ -137,7 +137,7 @@ impl ContainerdLifecycle {
         Ok(_) => return Ok(()),
         Err(e2) => {
           if start.elapsed()? > timeout {
-            bail_error!("[{}] Deleting task in container '{}' failed with error: {}", tid, container_id, e2);
+            bail_error!(tid=%tid, container_id=%container_id, error=%e2, "Deleting task in container failed");
           }
           // sleep a little and hope the process has terminated in that time
           tokio::time::sleep(Duration::from_millis(5)).await;
@@ -195,7 +195,7 @@ impl ContainerdLifecycle {
             // task crashed and was removed
             warn!(tid=%tid, container_id=%container_id, "Task for container was missing when it was attempted to be killed");
           } else {
-            bail_error!("[{}] Attempt to kill task in container '{}' failed with error: {}", tid, container_id, e);
+            bail_error!(tid=%tid, container_id=%container_id, error=%e, "Attempt to kill task in container failed");
           }
         },
     };
@@ -213,9 +213,7 @@ impl ContainerdLifecycle {
         .delete(req)
         .await {
             Ok(resp) => resp,
-            Err(e) => {
-              bail_error!("[{}] Delete container failed with error {}", tid, e);
-            },
+            Err(e) => bail_error!(tid=%tid, error=%e, "Delete container failed"),
         };
     debug!(tid=%tid, response=?resp, "Delete container response");
     Ok(())
@@ -249,9 +247,7 @@ impl ContainerdLifecycle {
     let mut cli = ImagesClient::new(self.channel());
     let rsp = match cli.get(with_namespace!(get_image_req, namespace)).await {
         Ok(rsp) => rsp.into_inner(),
-        Err(e) => {
-          bail_error!("[{}] Failed to prepare snapshot and load mounts: {:?}", tid, e);
-        },
+        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to prepare snapshot and load mounts"),
     };
     debug!(tid=%tid,response=?rsp, "image response");
     let (image_digest, media_type) = if let Some(image) = rsp.image {
@@ -271,7 +267,7 @@ impl ContainerdLifecycle {
       "application/vnd.docker.distribution.manifest.list.v2+json" => {
         let config_index: ImageIndex = match serde_json::from_slice(&content) {
             Ok(s) => s,
-            Err(e) => bail_error!("[{}] JSON error getting ImageIndex: {}", tid, e),
+            Err(e) => bail_error!(tid=%tid, error=%e, "JSON error getting ImageIndex"),
         };
         debug!(tid=%tid, index=?config_index, "config ImageIndex");
       
@@ -288,7 +284,7 @@ impl ContainerdLifecycle {
         // Step 3. load image manifest from specific platform filter
         let layer_item: ImageManifest = match serde_json::from_slice(&self.read_content(namespace, manifest_item).await?) {
             Ok(s) => s,
-            Err(e) => bail_error!("[{}] JSON error getting ImageManifest: {}", tid, e),
+            Err(e) => bail_error!(tid=%tid, error=%e, "JSON error getting ImageManifest"),
         };
         layer_item.config().to_owned()
       },
@@ -304,7 +300,7 @@ impl ContainerdLifecycle {
     let config: ImageConfiguration = match 
         serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_owned()).await?) {
           Ok(s) => s,
-          Err(e) => bail_error!("[{}] JSON error getting ImageConfiguration: {}", tid, e),
+          Err(e) => bail_error!(tid=%tid, error=%e, "JSON error getting ImageConfiguration"),
       };
   
     debug!(tid=%tid, config=?config, "Loaded ImageConfiguration");
@@ -390,7 +386,7 @@ impl ContainerdLifecycle {
         .await {
             Ok(resp) => resp,
             Err(e) => {
-              bail_error!("[{}] Containerd failed to create container with error: {}", tid, e);
+              bail_error!(tid=%tid, error=%e, "Containerd failed to create container");
             },
         };
 
@@ -431,7 +427,7 @@ impl ContainerdLifecycle {
       Err(e) => {
         self.remove_container_internal(&cid, namespace, tid).await?;
         self.namespace_manager.return_namespace(ns, tid)?;
-        bail_error!("[{}] Create task failed with: {}", tid, e);
+        bail_error!(tid=%tid, error=%e, "Create task failed");
       },
     }
   }
@@ -470,7 +466,7 @@ impl LifecycleService for ContainerdLifecycle {
           container.task.running = true;
           Ok(Arc::new(container))
         },
-        Err(e) => bail_error!("[{}] Starting task failed with {}", tid, e),
+        Err(e) => bail_error!(tid=%tid, error=%e, "Starting task failed"),
     }
   }
 
@@ -512,7 +508,7 @@ impl LifecycleService for ContainerdLifecycle {
         .await {
             Ok(resp) => resp,
             Err(e) => {
-              bail_error!("[{}] Containerd failed to list containers with error: {}", tid, e);
+              bail_error!(tid=%tid, error=%e, "Containerd failed to list containers");
             },
         };
     debug!(tid=%tid, response=?resp, "Container list response");
@@ -553,10 +549,10 @@ impl LifecycleService for ContainerdLifecycle {
               warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for container start, but stderr was written to?");
               return Ok(())
             }
-            bail_error!("[{}] Timeout while reading inotify events for container {}; stdout: '{}'; stderr '{}'", tid, &container.container_id(), stdout, stderr);
+            bail_error!(tid=%tid, container_id=%container.container_id(), stdout=%stdout, stderr=%stderr, "Timeout while reading inotify events for container");
           }
         },
-        _ => bail_error!("[{}] Error while reading inotify events for container {}", &tid, container.container_id()),
+        _ => bail_error!(tid=%tid, container_id=%container.container_id(), "Error while reading inotify events for container"),
       };
       tokio::time::sleep(std::time::Duration::from_micros(100)).await;
     }

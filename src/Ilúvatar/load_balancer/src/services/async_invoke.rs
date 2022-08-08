@@ -40,7 +40,7 @@ impl AsyncService {
       } else {
         let json: HashMap<String, String> = match serde_json::from_str(&result.json_result) {
             Ok(r) => r,
-            Err(e) => bail_error!("[{}] Got an error trying to deserialize async check message {}", tid, e),
+            Err(e) => bail_error!(tid=%tid, error=%e, "Got an error trying to deserialize async check message"),
         };
         match json.get("Status") {
           // if we have this key then the invocation is still running
@@ -53,7 +53,7 @@ impl AsyncService {
             Some(err_msg) => anyhow::bail!(err_msg.clone()),
             None => {
               // really should never get here
-              bail_error!("[{}] Got an unknown json response from checking async invocation status: {}", tid, result.json_result);
+              bail_error!(tid=%tid, json=%result.json_result, "Got an unknown json response from checking async invocation status");
             },
           }
         }

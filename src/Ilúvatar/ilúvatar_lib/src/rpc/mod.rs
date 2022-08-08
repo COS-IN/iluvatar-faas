@@ -140,7 +140,7 @@ impl WorkerAPI for RCPWorkerAPI {
         let response = response.into_inner();
         match response.success {
           true => Ok("".to_string()),
-          false => bail_error!("[{}] Prewarm request failed because: {}", tid, response.message),
+          false => bail_error!(tid=%tid, message=%response.message, "Prewarm request failed"),
         }
       },
       Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:prewarm]".to_string() }),

@@ -23,7 +23,7 @@ fn is_port_free(port_num: Port) -> bool {
 pub fn new_port() -> Result<Port> {
   let mut lock = match NEXT_PORT_MUTEX.lock() {
     Ok(l) => l,
-    Err(e) => bail_error!("failed to get lock because {}", e),
+    Err(e) => bail_error!(error=%e, "Failed to get lock"),
   };
   let mut try_port = *lock;
   while ! is_port_free(try_port) {

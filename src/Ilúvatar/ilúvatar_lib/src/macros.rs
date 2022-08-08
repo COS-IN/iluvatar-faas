@@ -1,9 +1,19 @@
 #[macro_export]
+macro_rules! last {
+  ([$single:tt] $($rest:tt)*) => { 
+    $single // base case
+  };
+  ([$first:tt $($rest:tt)*] $($reversed:tt)*) => { 
+    $crate::last!([$($rest)*] $first $($reversed)*)  // recursion
+  };
+}
+
+#[macro_export]
 macro_rules! bail_error {
-  ($msg:expr, $($arg:tt)* ) => {
+  ($($arg:tt)+) => {
     {
-      tracing::error!($msg, $($arg)*);
-      anyhow::bail!($msg, $($arg)*)
+      tracing::error!($($arg)+);
+      anyhow::bail!($crate::last!([$($arg)+]))
     }
   };
 }
