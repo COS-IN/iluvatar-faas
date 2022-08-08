@@ -15,7 +15,7 @@ port = os.environ.get("__IL_PORT", 8080)
 host = os.environ.get("__IL_HOST", "0.0.0.0")
 
 app = Flask(__name__)
-app.config["SERVER_NAME"] = "{}:{}".format(host, port)
+# app.config["SERVER_NAME"] = "{}:{}".format(host, port)
 print(host, port)
 
 @app.route('/')

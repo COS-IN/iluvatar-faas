@@ -7,7 +7,8 @@ RUN apt-get update -y && apt-get upgrade -y && apt-get install wget build-essent
       && python3 -m pip install --upgrade pip && python3 -m pip install flask gunicorn
 
 RUN wget http://www.devin.com/lookbusy/download/lookbusy-1.4.tar.gz && tar -xvf lookbusy-1.4.tar.gz \
-  && rm lookbusy-1.4.tar.gz && cd ./lookbusy-1.4 && ./configure && make && make install && apt-get remove wget build-essential -y
+  && rm lookbusy-1.4.tar.gz && cd ./lookbusy-1.4 && ./configure && make && make install && cd .. && \
+  apt-get remove wget build-essential -y && apt-get clean && rm -rf ./lookbusy-1.4
 
 WORKDIR /app
 COPY *.py ./

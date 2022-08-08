@@ -22,13 +22,13 @@ async fn register_functions(funcs: &HashMap<u64, Function>, host: &String, port:
 pub fn trace_controller(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let setup: String = get_val("setup", &sub_args)?;
   match setup.as_str() {
-    "simulation" => controller_trace_sim(main_args, sub_args)?,
-    "live" => controller_trace_live(main_args, sub_args)?,
+    "simulation" => controller_trace_sim(main_args, sub_args),
+    "live" => controller_trace_live(main_args, sub_args),
     _ => anyhow::bail!("Unknown setup for trace run '{}'; only supports 'simulation' and 'live'", setup)
   }
 }
 
-fn controller_trace_sim(_main_args: &ArgMatches, _sub_args: &ArgMatches) -> Result<()> {
+fn controller_trace_sim(_main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let config_pth: String = get_val("worker-config", &sub_args)?;
   let _worker_config = iluvatar_lib::worker_api::worker_config::Configuration::boxed(false, &config_pth).unwrap();
 

@@ -1,34 +1,43 @@
 from time import time, sleep
-import os
-import subprocess
+import subprocess, signal
 
 cold = True
 
 def main(args):
-    global cold
-    was_cold = cold
-    cold = False
-    cold_run_ms = int(args.get("cold_run", 2000))
-    warm_run_ms = int(args.get("warm_run", 1000))
-    mem_mb = int(args.get("mem_mb", 128))
+  start = time()
+  global cold
+  was_cold = cold
+  cold = False
+  cold_run_ms = float(args.get("cold_run", 2000))
+  warm_run_ms = float(args.get("warm_run", 1000))
+  mem_mb = int(args.get("mem_mb", 128))
 
-    start = time()
-    
-    mem_util = "--mem-util={}MB".format(mem_mb)
-    if was_cold:
-        timeout = cold_run_ms / 1000
-    else:
-        timeout = warm_run_ms / 1000
-    print(mem_util, timeout)
+  mem_util = "--mem-util={}MB".format(mem_mb)
+  if was_cold:
+    timeout = cold_run_ms / 1000.0
+  else:
+    timeout = warm_run_ms / 1000.0
 
-    run = time()
-    wsk = subprocess.Popen(args=["lookbusy", "--ncpus=1", mem_util, "--cpu-util=25-75"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
-    sleep(timeout)
-    wsk.kill()
+  # this will vary the CPU utilization from 25-100 several times before we exit
+  peak = int(timeout/4)
+  period = int(timeout/2)
+  if peak >= 1:
+    period="--cpu-curve-period={}".format(int(timeout/2))
+    peak="--cpu-curve-peak={}".format(int(timeout/4))
+    mode="--cpu-mode=curve"
+    util="--cpu-util=25-100"
+  else:
+    period=""
+    peak=""
+    mode="--cpu-mode=fixed"
+    util="--cpu-util=75"
+  lookbusy = subprocess.Popen(args=["lookbusy", "--ncpus=1", mem_util, util, mode, period, peak])
+  sleep(timeout)
+  lookbusy.send_signal(signal.SIGINT)
 
-    latency = time() - start
+  latency = time() - start
 
-    return {"body": {'latency': latency, "cold":was_cold}}
+  return {"body": {'latency': latency, "cold":was_cold}}
 
 if __name__ == "__main__":
-    print(main({}))
+  print(main({}))
