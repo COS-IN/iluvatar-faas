@@ -64,7 +64,7 @@ impl Controller {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     match self.registration_svc.get_function(&fqdn) {
       Some(func) => {
-        info!("[{}] sending function {} to load balancer for invocation", tid, &fqdn);
+        info!(tid=%tid, fqdn=%fqdn, "Sending function to load balancer for invocation");
         let args = match request.args {
             Some(args_vec) => args_to_json(args_vec),
             None => "{}".to_string(),
@@ -79,7 +79,7 @@ impl Controller {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     match self.registration_svc.get_function(&fqdn) {
       Some(func) => {
-        info!("[{}] sending function {} to load balancer for invocation", tid, &fqdn);
+        info!(tid=%tid, fqdn=%fqdn, "Sending function to load balancer for async invocation");
         let args = match request.args {
             Some(args_vec) => args_to_json(args_vec),
             None => "{}".to_string(),

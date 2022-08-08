@@ -229,7 +229,7 @@ impl ContainerdLifecycle {
 
   #[tracing::instrument(skip(self))]
   async fn remove_container_internal(&self, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
-    info!("[{}] Removing container '{}'", tid, container_id);
+    info!(tid=%tid, container_id=%container_id, "Removing container");
     let mut client = TasksClient::new(self.channel());
     self.kill_task(&mut client, container_id, ctd_namespace, tid).await?;
     self.delete_task(&mut client, container_id, ctd_namespace, tid).await?;
@@ -238,7 +238,7 @@ impl ContainerdLifecycle {
     self.delete_containerd_container(&mut client, container_id, ctd_namespace, tid).await?;
     self.delete_container_resources(container_id, tid);
 
-    info!("[{}] Container: {:?} deleted", tid, container_id);
+    info!(tid=%tid, container_id=%container_id, "Container deleted");
     Ok(())
   }
 
@@ -454,7 +454,7 @@ impl LifecycleService for ContainerdLifecycle {
   /// returns a new, unique ID representing it
   #[tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus))]
   async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
-    info!("[{}] Creating container from image '{}', in namespace '{}'", tid, image_name, namespace);
+    info!(tid=%tid, image=%image_name, namespace=%namespace, "Creating container from image");
     let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
     let mut client = TasksClient::new(self.channel());
   
@@ -480,7 +480,7 @@ impl LifecycleService for ContainerdLifecycle {
     self.remove_container_internal(&container.container_id, ctd_namespace, tid).await?;
     self.namespace_manager.return_namespace(container.namespace.clone(), tid)?;
 
-    info!("[{}] Container: {:?} deleted", tid, &container.container_id);
+    info!(tid=%tid, container_id=%container.container_id, "Container deleted");
     Ok(())
   }
 
@@ -500,7 +500,7 @@ impl LifecycleService for ContainerdLifecycle {
   }
   
   async fn clean_containers(&self, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
-    info!("[{}] Cleaning containers in namespace {}", tid, ctd_namespace);
+    info!(tid=%tid, namespace=%ctd_namespace, "Cleaning containers in namespace");
     let mut ctr_client = ContainersClient::new(self.channel());
     let req = ListContainersRequest {
       filters: vec!["labels.\"owner\"==iluvatar_worker".to_string()],
@@ -518,7 +518,7 @@ impl LifecycleService for ContainerdLifecycle {
     debug!(tid=%tid, response=?resp, "Container list response");
     for container in resp.into_inner().containers.iter() {
       let container_id = &container.id;
-      info!("[{}] Removing container {}", tid, container_id);
+      info!(tid=%tid, container_id=%container_id, "Removing container");
       self.remove_container_internal(container_id, ctd_namespace, tid).await?;
     }
 

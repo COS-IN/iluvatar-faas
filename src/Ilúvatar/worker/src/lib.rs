@@ -17,7 +17,7 @@ pub fn register_rpc_to_controller(server_config: Arc<Configuration>, tid: Transa
         &server_config.load_balancer_url, &tid).await;
 
       match result {
-        Ok(_) => info!("[{}] worker successfully registered with controller", tid),
+        Ok(_) => info!(tid=%tid, "Worker successfully registered with controller"),
         Err(e) => error!(tid=%tid, error=%e, "Worker registration failed"),
       }
     }

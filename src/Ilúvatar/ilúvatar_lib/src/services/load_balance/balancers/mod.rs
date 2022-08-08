@@ -5,7 +5,7 @@ pub mod least_loaded;
 macro_rules! send_invocation {
   ($func:expr, $json_args:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr) => {
     {
-      info!("[{}] invoking function {} on worker {}", $tid, &$func.fqdn, &$worker.name);
+      info!(tid=%$tid, fqdn=%$func.fqdn, wprler=%$worker.name, "invoking function on worker");
 
       let mut api = $worker_fact.get_worker_api(&$worker, $tid).await?;
       let (result, duration) = api.invoke($func.function_name.clone(), $func.function_version.clone(), $json_args, None, $tid.clone()).timed().await;
@@ -26,7 +26,7 @@ macro_rules! send_invocation {
 macro_rules! prewarm {
   ($func:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr) => {
     {
-      info!("[{}] prewarming function {} on worker {}", $tid, &$func.fqdn, &$worker.name);
+      info!(tid=%$tid, fqdn=%$func.fqdn, worker=%$worker.name, "prewarming function on worker");
       let mut api = $worker_fact.get_worker_api(&$worker, $tid).await?;
       let (result, duration) = api.prewarm($func.function_name.clone(), $func.function_version.clone(), None, None, None, $tid.clone()).timed().await;
       let result = match result {
@@ -46,7 +46,7 @@ macro_rules! prewarm {
 macro_rules! send_async_invocation {
   ($func:expr, $json_args:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr) => {
     {
-      info!("[{}] invoking function async {} on worker {}", $tid, &$func.fqdn, &$worker.name);
+      info!(tid=%$tid, fqdn=%$func.fqdn, worker=%$worker.name, "invoking function async on worker");
 
       let mut api = $worker_fact.get_worker_api(&$worker, $tid).await?;
       let (result, duration) = api.invoke_async($func.function_name.clone(), $func.function_version.clone(), $json_args, None, $tid.clone()).timed().await;

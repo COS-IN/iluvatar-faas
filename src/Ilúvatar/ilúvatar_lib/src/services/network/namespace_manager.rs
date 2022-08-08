@@ -47,7 +47,7 @@ impl NamespaceManager {
     let thread = match config.use_pool {
       false => None,
       true => {
-        info!("[{}] launching namespace pool monitor thread", tid);
+        info!(tid=%tid, "Launching namespace pool monitor thread");
         Some(tokio::spawn(async move {
           let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
           let nm: Arc<NamespaceManager> = match rx.recv() {
@@ -89,7 +89,7 @@ impl NamespaceManager {
 
   /// makes sure the bridge necessary for container networking
   pub fn ensure_bridge(&self, tid: &TransactionId) -> Result<()> {
-    info!("[{}] Ensuring network bridge", tid);
+    info!(tid=%tid, "Ensuring network bridge");
     // multiple workers on one machine can compete over this
     // catch an error if we aren't the race winner and try again, will do nothing if bridge exists
     match self.try_ensure_bridge(tid) {
@@ -239,7 +239,7 @@ impl NamespaceManager {
   }
   
   fn create_namespace(&self, name: &String, tid: &TransactionId) -> Result<Namespace> {
-    info!("[{}] Creating new namespace: {}", tid, name);
+    info!(tid=%tid, namespace=%name, "Creating new namespace");
     let mut env: HashMap<String, String> = env::vars().collect();
     env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
     env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
@@ -317,7 +317,7 @@ impl NamespaceManager {
   }
 
   pub fn clean(&self, tid: &TransactionId) -> Result<()> {
-    info!("[{}] Deleting all owned namespaces", tid);
+    info!(tid=%tid, "Deleting all owned namespaces");
     let out = execute_cmd("/bin/ip", &vec!["netns"], None, tid)?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let lines = stdout.split("\n");

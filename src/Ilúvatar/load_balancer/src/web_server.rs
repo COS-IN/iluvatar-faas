@@ -11,7 +11,7 @@ use tracing::{info, error};
 #[get("/ping")]
 pub async fn ping(_server: Data<Controller>, _req: HttpRequest) -> HttpResponse {
   let tid = gen_tid();
-  info!("[{}] new ping", tid);
+  info!(tid=%tid, "New ping");
   HttpResponse::Ok().body("PONG\n")
 }
 
@@ -19,7 +19,7 @@ pub async fn ping(_server: Data<Controller>, _req: HttpRequest) -> HttpResponse 
 pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
-  info!("[{}] new invoke {:?}", tid, req);
+  info!(tid=%tid, request=?req, "new invoke");
 
   let (result, duration) = match server.invoke(req, &tid).await {
     Ok(d) => d,
@@ -39,7 +39,7 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
 pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
-  info!("[{}] new invoke_async {:?}", tid, req);
+  info!(tid=%tid, request=?req, "New invoke_async");
   match server.invoke_async(req, &tid).await {
     Ok( (cookie, duration) ) => HttpResponse::Created().json(AsyncInvokeResult {
       cookie,
@@ -53,7 +53,7 @@ pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpRe
 pub async fn invoke_async_check(server: Data<Controller>, req: Json<InvokeAsyncLookup>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
-  info!("[{}] new invoke_async_check {:?}", tid, req);
+  info!(tid=%tid, request=?req, "New invoke_async_check");
   
   match server.check_async_invocation(req.lookup_cookie, &tid).await {
     Ok(some) => {
@@ -77,7 +77,7 @@ pub async fn invoke_async_check(server: Data<Controller>, req: Json<InvokeAsyncL
 pub async fn prewarm(server: Data<Controller>, req: Json<Prewarm>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
-  info!("[{}] new prewarm, {:?}", tid, req);
+  info!(tid=%tid, request=?req, "New prewarm");
 
   match server.prewarm(req, &tid).await {
     Ok(_) => HttpResponse::Accepted().body("OK"),
@@ -90,7 +90,7 @@ pub async fn register_function(server: Data<Controller>, req: Json<RegisterFunct
   let tid = gen_tid();
   let req = req.into_inner();
   let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
-  info!("[{}] new register_function {:?}", tid, req);
+  info!(tid=%tid, request=?req, "New register_function");
 
   match server.register_function(req, &tid).await {
     Ok(_) => HttpResponse::Ok().finish(),
@@ -106,7 +106,7 @@ pub async fn register_worker(server: Data<Controller>, req: Json<RegisterWorker>
   let tid = gen_tid();
   let req = req.into_inner();
   let name = req.name.clone();
-  info!("[{}] new register_worker {:?}", tid, req);
+  info!(tid=%tid, request=?req, "New register_worker");
 
   match server.register_worker(req, &tid).await {
     Ok(_) => HttpResponse::Accepted().finish(),

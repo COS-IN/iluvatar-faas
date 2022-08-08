@@ -54,7 +54,7 @@ impl RegistrationService {
     }
     self.lb.add_worker(reg_worker.clone(), tid);
     self.workers.insert(reg_worker.name.clone(), reg_worker.clone());
-    info!("[{}] worker '{}' successfully registered", tid, reg_worker.name);
+    info!(tid=%tid, worker=%reg_worker.name, "worker successfully registered");
     Ok(reg_worker)
   }
 
@@ -87,7 +87,7 @@ impl RegistrationService {
       self.functions.insert(fqdn.clone(), function);
     }
 
-    info!("[{}] Function {} was registered", tid, fqdn);
+    info!(tid=%tid, fqdn=%fqdn, "Function was registered");
     Ok(())
   }
 

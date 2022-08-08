@@ -26,7 +26,7 @@ async fn main() -> std::io::Result<()> {
   let server = Controller::new(config.clone(), tid);
   let server_data = Data::new(server);
 
-  info!("[{}] Load balancer started!", tid);
+  info!(tid=%tid, "Controller started!");
 
   HttpServer::new(move || {
       App::new()

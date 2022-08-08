@@ -314,7 +314,7 @@ impl ContainerManager {
         };
       },
     };
-    info!("[{}] container '{}' with image '{}' was launched", tid, cont.container_id(), reg.image_name);
+    info!(tid=%tid, image=%reg.image_name, container_id=%cont.container_id(), "container was launched");
     Ok(cont)
   }
 
@@ -360,7 +360,7 @@ impl ContainerManager {
 
     let container = self.launch_container_internal(&reg, &request.transaction_id).await?;
     self.add_container_to_pool(&fqdn, container)?;
-    info!("[{}] function '{}' was successfully prewarmed", &request.transaction_id, fqdn);
+    info!(tid=%request.transaction_id, fqdn=%fqdn, "function was successfully prewarmed");
     Ok(())
   }
 
@@ -413,19 +413,19 @@ impl ContainerManager {
 
     let registration = self.cont_lifecycle.prepare_function_registration(function_name, function_version, image_name, memory, cpus, parallel_invokes, fqdn, tid).await?;
 
-    debug!(tid=%tid, function_name=%function_name, function_version=%function_version, "Adding new registration to registered_functions map");
+    debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to registered_functions map");
     self.registered_functions.insert(fqdn.clone(), Arc::new(registration));
-    debug!(tid=%tid, function_name=%function_name, function_version=%function_version, "Adding new registration to active_containers map");
+    debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to active_containers map");
     { // write lock on active_containers
       let mut conts = self.active_containers.write();
       conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
     }
-    info!("[{}] function '{}'; version '{}' was successfully registered", tid, function_name, function_version);
+    info!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "function was successfully registered");
     Ok(())
   }
 
   pub fn mark_unhealthy(&self, container: &Container, tid: &TransactionId) {
-    info!("[{}] Marking container '{}' as unhealthy", tid, container.container_id());
+    info!(tid=%tid, container_id=%container.container_id(), "Marking container as unhealthy");
     container.mark_unhealthy();
   }
 
@@ -439,7 +439,7 @@ impl ContainerManager {
       Some(pool) => {
         let (pos, pool_len) = self.find_container_pos(&container, pool.clone());
         if pos < pool_len {
-          info!("[{}] Removing container {}", tid, &container.container_id());
+          info!(tid=%tid, container_id=%container.container_id(), "Removing container");
           {
             let mut wlocked_pool = pool.write();
             let dropped_cont = wlocked_pool.remove(pos);

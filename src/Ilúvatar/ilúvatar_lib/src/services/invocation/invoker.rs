@@ -157,7 +157,7 @@ impl InvokerService {
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
     pub async fn invoke(&self, request: InvokeRequest) -> Result<(String, u64)> {
       let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone()).await;
-      info!("[{}] Invocation complete", request.transaction_id);
+      info!(tid=%request.transaction_id, "Invocation complete");
       let fut = fut.lock();
       Ok( (fut.result_json.clone(), fut.duration) )
     }

@@ -50,7 +50,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn invoke(&self,
     request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
       let request = request.into_inner();
-      info!("[{}] Handling invocation request {} {}", request.transaction_id, request.function_name, request.function_version);
+      info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling invocation request");
       let resp = self.invoker.invoke(request).await;
 
       match resp {
@@ -77,7 +77,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn invoke_async(&self,
     request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
       let request = request.into_inner();
-      info!("[{}] Handling async invocation request {} {}", request.transaction_id, request.function_name, request.function_version);
+      info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling async invocation request");
       let resp = self.invoker.invoke_async(request);
 
       match resp {
@@ -101,7 +101,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   #[tracing::instrument(skip(self))]
   async fn invoke_async_check(&self, request: Request<InvokeAsyncLookupRequest>) -> Result<Response<InvokeResponse>, Status> {
     let request = request.into_inner();
-    info!("[{}] Handling invoke async check", request.transaction_id);
+    info!(tid=%request.transaction_id, "Handling invoke async check");
     let resp = self.invoker.invoke_async_check(&request.lookup_cookie);
     match resp {
       Ok( resp ) => {
@@ -122,7 +122,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();
-      info!("[{}] Handling prewarm request {} {}", request.transaction_id, request.function_name, request.function_version);
+      info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling prewarm request");
       let container_id = self.container_manager.prewarm(&request).await;
 
       match container_id {
@@ -148,8 +148,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn register(&self,
     request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
       let request = request.into_inner();
-      info!("[{}] Handling register request {} {}", request.transaction_id, request.function_name, request.function_version);
-
+      info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling register request");
       let reg_result = self.container_manager.register(&request).await;
 
       match reg_result {
@@ -175,7 +174,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn status(&self,
     request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
       let request = request.into_inner();
-      info!("[{}] Handling status request", request.transaction_id);
+      info!(tid=%request.transaction_id, "Handling status request");
 
       let stat = self.status.get_status(&request.transaction_id);
 
@@ -198,7 +197,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn health(&self,
     request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
       let request = request.into_inner();
-      info!("[{}] Handling health request", request.transaction_id);
+      info!(tid=%request.transaction_id, "Handling health request");
       let reply = self.health.check_health(&request.transaction_id).await;
       Ok(Response::new(reply))
     }

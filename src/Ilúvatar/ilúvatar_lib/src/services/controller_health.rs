@@ -31,7 +31,7 @@ impl HealthService {
   fn status_changed(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &WorkerStatus) -> bool {
     match self.worker_statuses.get(&worker.name) {
       Some(stat) => {
-        info!("[{}] worker '{}' changed status to {}", tid, worker.name, tid);
+        info!(tid=%tid, worker=%worker.name, status=?status, "worker changed status to");
         stat.value() == status
       },
       None => true,

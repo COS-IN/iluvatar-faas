@@ -53,7 +53,7 @@ impl RoundRobinLoadBalancer {
 #[tonic::async_trait]
 impl LoadBalancerTrait for RoundRobinLoadBalancer {
   fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
-    info!("[{}] Registering new worker {} in RoundRobin load balancer", tid, &worker.name);
+    info!(tid=%tid, worker=%worker.name, "Registering new worker in RoundRobin load balancer");
     let mut workers = self.workers.write();
     workers.push(worker);
   }
