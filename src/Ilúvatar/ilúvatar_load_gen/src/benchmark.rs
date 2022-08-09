@@ -2,14 +2,14 @@ use std::{collections::HashMap, fs::File, path::Path, io::Write};
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
 use iluvatar_lib::utils::{config::get_val, port_utils::Port};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use tokio::runtime::Builder;
 use crate::utils::*;
 
-#[derive(Serialize)]
-struct BenchmarkStore {
+#[derive(Serialize, Deserialize)]
+pub struct BenchmarkStore {
   /// map of function name to data
-  data: HashMap<String, FunctionStore>,
+  pub data: HashMap<String, FunctionStore>,
 }
 impl BenchmarkStore {
   pub fn new() -> Self {
@@ -18,8 +18,8 @@ impl BenchmarkStore {
     }
   }
 }
-#[derive(Serialize)]
-struct FunctionStore {
+#[derive(Serialize, Deserialize)]
+pub struct FunctionStore {
   /// list of warm latencies
   pub warm_results: Vec<f64>,
   /// list of warm overhead times
