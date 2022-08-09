@@ -1,5 +1,5 @@
 [package]
-name = "iluvatar_worker_cli"
+name = "ilúvatar_worker_cli"
 version = "0.1.0"
 edition = "2021"
 authors = ["Alex Fuerst alfuerst@iu.edu"]

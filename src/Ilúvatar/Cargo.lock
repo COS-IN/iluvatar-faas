@@ -1544,20 +1544,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iluvatar_worker_cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "config",
- "iluvatar_lib",
- "prost 0.10.4",
- "serde",
- "tokio",
- "tonic 0.7.2",
-]
-
-[[package]]
 name = "ilúvatar_controller"
 version = "0.1.0"
 dependencies = [
@@ -1622,6 +1608,20 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ilúvatar_worker_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "config",
+ "iluvatar_lib",
+ "prost 0.10.4",
+ "serde",
+ "tokio",
+ "tonic 0.7.2",
 ]
 
 [[package]]

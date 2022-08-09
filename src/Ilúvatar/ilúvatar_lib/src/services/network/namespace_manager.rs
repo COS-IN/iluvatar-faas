@@ -87,6 +87,14 @@ impl NamespaceManager {
     }
   }
 
+  /// the environment variables to run the cni tool with 
+  fn cmd_environment(&self) -> HashMap<String, String> {
+    let mut env: HashMap<String, String> = env::vars().collect();
+    env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
+    env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
+    env
+  }
+
   /// makes sure the bridge necessary for container networking
   pub fn ensure_bridge(&self, tid: &TransactionId) -> Result<()> {
     info!(tid=%tid, "Ensuring network bridge");
@@ -103,7 +111,7 @@ impl NamespaceManager {
   }
 
   fn try_ensure_bridge(&self, tid: &TransactionId) -> Result<()> {
-    let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "json");
+    let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "conf");
 
     let mut file = match File::create(temp_file) {
       Ok(f) => f,
@@ -112,10 +120,7 @@ impl NamespaceManager {
     let bridge_json = include_str!("../../resources/cni/il_worker_br.json");
     writeln!(&mut file, "{}", bridge_json)?;
 
-    let mut env: HashMap<String, String> = env::vars().collect();
-    env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
-    env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
-
+    let env = self.cmd_environment();
     let name = BRIDGE_NET_ID.to_string();
 
     if ! self.namespace_exists(&name) {
@@ -171,10 +176,7 @@ impl NamespaceManager {
   }
 
   fn bridge_exists(&self, nspth: &String, tid: &TransactionId) -> Result<bool> {
-    let mut env: HashMap<String, String> = env::vars().collect();
-    env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
-    env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
-
+    let env = self.cmd_environment();
     let output = execute_cmd(&self.config.cnitool, 
       &vec!["check", &self.config.cni_name.as_str(), &nspth.as_str()],
       Some(&env), tid);
@@ -240,10 +242,7 @@ impl NamespaceManager {
   
   fn create_namespace(&self, name: &String, tid: &TransactionId) -> Result<Namespace> {
     info!(tid=%tid, namespace=%name, "Creating new namespace");
-    let mut env: HashMap<String, String> = env::vars().collect();
-    env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
-    env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
-  
+    let env = self.cmd_environment();
     let nspth = self.net_namespace(name);
     self.create_namespace_internal(&name, tid)?;
 
@@ -261,7 +260,7 @@ impl NamespaceManager {
           namespace: ns
         })
       },
-      Err(e) => bail_error!(tid=%tid, error=%e, stdout=%stdout, "JSON error in create_namespace"),
+      Err(e) => bail_error!(tid=%tid, error=%e, output=?out, "JSON error in create_namespace"),
     }
   }
 
@@ -329,9 +328,7 @@ impl NamespaceManager {
     }
     
     let nspth = self.net_namespace(&BRIDGE_NET_ID.to_string());
-    let mut env: HashMap<String, String> = env::vars().collect();
-    env.insert(CNI_PATH_VAR.to_string(), self.config.cni_plugin_bin.clone());
-    env.insert(NETCONFPATH_VAR.to_string(), self.net_conf_path.to_string());
+    let env = self.cmd_environment();
     let _output = execute_cmd(&self.config.cnitool, 
       &vec!["del", &self.config.cni_name.as_str(), &nspth.as_str()],
       Some(&env), tid)?;

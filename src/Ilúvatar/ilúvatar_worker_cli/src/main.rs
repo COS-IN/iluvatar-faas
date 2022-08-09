@@ -1,7 +1,7 @@
-extern crate iluvatar_worker_cli;
-use iluvatar_worker_cli::cli_config::{CliSettings, args::parse};
+pub mod commands;
+pub mod args;
+use args::parse;
 use iluvatar_lib::utils::config::get_val;
-use iluvatar_worker_cli::commands;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let args = parse();
 
   let worker_name = get_val("worker", &args)?;
-  let settings = CliSettings::new(&args).unwrap();
+  let settings = args::CliSettings::new(&args).unwrap();
   let worker = settings.get_worker(worker_name).unwrap();
 
   match args.subcommand() {

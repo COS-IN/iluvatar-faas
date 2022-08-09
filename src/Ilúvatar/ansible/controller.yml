@@ -2,8 +2,9 @@
   vars:
     host_group: "{{ groups['controller'] }}"
     host_group_size: "{{ host_group | length }}"
-    exe_dest: "/tmp/ilúvatar/{{ controller.bin_name }}"
-    config_dest: "/tmp/ilúvatar/{{ controller.config_name }}"
+    bin_dir: "/tmp/ilúvatar/bin"
+    exe_dest: "{{bin_dir}}/{{ controller.bin_name }}"
+    config_dest: "{{bin_dir}}/{{ controller.config_name }}"
   vars_files:
     - group_vars/all.yml
 
@@ -28,6 +29,13 @@
     with_items: "{{ running_lb.stdout_lines }}"
     become: yes
     when: mode == "clean"
+    
+  - name: Create bin directory
+    file:
+      path: "{{bin_dir}}"
+      state: directory
+      recurse: yes
+    become: yes
 
   - name: copy controller executable
     ansible.builtin.copy:

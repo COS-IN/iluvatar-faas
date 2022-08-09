@@ -4,8 +4,9 @@
     host_group: "{{ groups['workers'] }}"
     worker_index_base: 0
     assigned_port: "{{ (worker.port + host_group.index(inventory_hostname)) }}"
-    exe_dest: "/tmp/ilúvatar/{{ worker.bin_name }}"
-    config_dest: "/tmp/ilúvatar/{{ inventory_hostname }}.json"
+    bin_dir: "/tmp/ilúvatar/bin"
+    exe_dest: "{{bin_dir}}/{{ worker.bin_name }}"
+    config_dest: "{{bin_dir}}/{{ inventory_hostname }}.json"
   vars_files:
     - group_vars/all.yml
 
@@ -34,6 +35,13 @@
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
 
+  - name: Create bin directory
+    file:
+      path: "{{bin_dir}}"
+      state: directory
+      recurse: yes
+    become: yes
+      
   - name: copy worker executable
     ansible.builtin.copy:
       src: "{{ilúvatar_home}}/target/release/{{worker.bin_name}}"
