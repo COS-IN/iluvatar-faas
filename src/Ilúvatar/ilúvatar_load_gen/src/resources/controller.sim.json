@@ -13,7 +13,8 @@
     "flame": ""
   },
   "load_balancer": {
-    "algorithm": "LeastLoaded"
+    "algorithm": "RoundRobin",
+    "load_metric": "worker.load.loadavg"
   },
   "graphite": {
     "address": "localhost",

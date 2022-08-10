@@ -67,7 +67,7 @@ impl WorkerAPI for RPCWorkerAPI {
     });
     match self.client.ping(request).await {
       Ok(response) => Ok(response.into_inner().message),
-      Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:ping]".to_string() }),
+      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:ping]".to_string())),
     }
   }
 
@@ -84,7 +84,7 @@ impl WorkerAPI for RPCWorkerAPI {
     });
     match self.client.invoke(request).await {
       Ok(response) => Ok(response.into_inner()),
-      Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:invoke]".to_string() }),
+      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:invoke]".to_string())),
     }
   }
 
@@ -110,7 +110,7 @@ impl WorkerAPI for RPCWorkerAPI {
           anyhow::bail!("Async invoke failed")
         }    
       },
-      Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:invoke_async]".to_string() }),
+      Err(e) => bail!(RPCError::new( e.to_string(), "[RCPWorkerAPI:invoke_async]".to_string())),
     }
   }
 
@@ -121,7 +121,7 @@ impl WorkerAPI for RPCWorkerAPI {
     });
     match self.client.invoke_async_check(request).await {
       Ok(response) => Ok(response.into_inner()),
-      Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:invoke_async_check]".to_string() }),
+      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:invoke_async_check]".to_string())),
     }
   }
 
@@ -151,7 +151,7 @@ impl WorkerAPI for RPCWorkerAPI {
           false => bail_error!(tid=%tid, message=%response.message, "Prewarm request failed"),
         }
       },
-      Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:prewarm]".to_string() }),
+      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:prewarm]".to_string())),
     }
   }
 
@@ -170,7 +170,7 @@ impl WorkerAPI for RPCWorkerAPI {
     });
     match self.client.register(request).await {
       Ok(response) => Ok(response.into_inner().function_json_result),
-      Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:register]".to_string() }),
+      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:register]".to_string())),
     }
   }
   
@@ -178,7 +178,7 @@ impl WorkerAPI for RPCWorkerAPI {
     let request = tonic::Request::new(StatusRequest { transaction_id: tid, });
     match self.client.status(request).await {
       Ok(response) => Ok(response.into_inner()),
-      Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:status]".to_string() }),
+      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:status]".to_string())),
     }
   }
 
@@ -196,7 +196,7 @@ impl WorkerAPI for RPCWorkerAPI {
           }),
         }  
       },
-      Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:register]".to_string() }),
+      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:register]".to_string())),
     }
   }
 }

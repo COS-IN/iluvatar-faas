@@ -1,9 +1,9 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write};
 use anyhow::Result;
-use iluvatar_lib::{utils::{config::get_val, port::Port}, transaction::{TransactionId, SIMULATION_START_TID}};
+use iluvatar_lib::{utils::{config::get_val, port::Port}, transaction::{TransactionId, SIMULATION_START_TID}, load_balancer_api::{lb_structs::json::RegisterFunction, web_server::register_function}};
 use iluvatar_lib::load_balancer_api::{lb_structs::json::ControllerInvokeResult, controller::Controller};
 use actix_web::web::Json;
-use iluvatar_lib::load_balancer_api::web_server::invoke;
+use iluvatar_lib::load_balancer_api::web_server::{invoke, register_worker};
 use iluvatar_lib::load_balancer_api::structs::json::Invoke;
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
@@ -82,19 +82,67 @@ pub fn trace_controller(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result
 }
 
 fn controller_trace_sim(_main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let config_pth: String = get_val("worker-config", &sub_args)?;
-  let _worker_config = iluvatar_lib::worker_api::worker_config::Configuration::boxed(false, &config_pth).unwrap();
+  let threaded_rt = Builder::new_multi_thread()
+      .enable_all()
+      .build().unwrap();
+  let worker_config_pth: String = get_val("worker-config", &sub_args)?;
+  let num_workers: usize = get_val("workers", &sub_args)?;
+  let controller_config_pth: String = get_val("controller-config", &sub_args)?;
+    
+  threaded_rt.block_on(run_trace_sim(worker_config_pth, controller_config_pth, num_workers))
+}
 
-  let config_pth: String = get_val("controller-config", &sub_args)?;
-  let controller_config = iluvatar_lib::load_balancer_api::lb_config::Configuration::boxed(&config_pth).unwrap();
+pub async fn run_trace_sim(worker_config_pth: String, controller_config_pth: String, num_workers: usize) -> Result<()> {
   let tid: &TransactionId = &SIMULATION_START_TID;
+  let worker_config = iluvatar_lib::worker_api::worker_config::Configuration::boxed(false, &worker_config_pth).unwrap();
+  let controller_config = iluvatar_lib::load_balancer_api::lb_config::Configuration::boxed(&controller_config_pth).unwrap();
 
   let server = Controller::new(controller_config.clone(), tid);
   let server_data = actix_web::web::Data::new(server);
-  let i = Invoke{function_name:"".to_string(), function_version:"".to_string(), args:None};
-  let _response = invoke(server_data, Json{0:i});
-  // TODO: finish this
 
+  for i in 0..num_workers {
+    let r = iluvatar_lib::load_balancer_api::lb_structs::json::RegisterWorker {
+      name: format!("worker_{}", i),
+      backend: "simulation".to_string(),
+      communication_method: "simulation".to_string(),
+      host: worker_config_pth.clone(),
+      port: 0,
+      memory: worker_config.container_resources.memory_mb,
+      cpus: worker_config.container_resources.cores,
+    };
+    println!("Registering worker {}", i);
+    let response = register_worker(server_data.clone(), Json{0:r}).await;
+    if ! response.status().is_success() {
+      let text = response.body();
+      anyhow::bail!("Registering simulated worker failed with '{:?}' '{:?}", response.headers(), text)
+    }
+  }
+
+  let r = RegisterFunction {
+    function_name: "test".to_string(),
+    function_version: "1".to_string(),
+    image_name: "".to_string(),
+    memory: 100,
+    cpus: 1,
+    parallel_invokes: 1
+  };
+  println!("Registering function");
+  let response = register_function(server_data.clone(), Json{0:r}).await;
+  if ! response.status().is_success() {
+    let text = response.body();
+    anyhow::bail!("Registration failed with '{:?}' '{:?}", response.headers(), text)
+  }
+
+  let i = Invoke{function_name:"test".to_string(), function_version:"1".to_string(), args:Some(vec!["warm_dur_ms=100".to_string(), "cold_dur_ms=100".to_string()])};
+  println!("running function invocation");
+  let response = invoke(server_data, Json{0:i}).await;
+  if ! response.status().is_success() {
+    let text = response.body();
+    anyhow::bail!("Invocation failed with '{:?}' '{:?}", response.headers(), text)
+  }
+  println!("end of controller sim trace");
+  // TODO: finish this by feeding trace through controller
+  // TODO: also this function never exits...
   Ok(())
 }
 
