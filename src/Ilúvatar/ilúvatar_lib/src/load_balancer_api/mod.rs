@@ -6,6 +6,9 @@ pub mod lb_errors;
 pub use lb_errors as errors;
 pub mod load_reporting;
 pub mod registration;
+pub mod web_server;
+pub mod controller;
+pub mod async_invoke;
 
 use anyhow::Result;
 use reqwest::StatusCode;

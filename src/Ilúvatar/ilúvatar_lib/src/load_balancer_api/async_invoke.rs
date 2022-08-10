@@ -1,8 +1,8 @@
 use std::{sync::Arc, collections::HashMap};
 use dashmap::DashMap;
-use iluvatar_lib::bail_error;
-use iluvatar_lib::{worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId};
-use iluvatar_lib::load_balancer_api::{structs::internal::RegisteredWorker, lb_errors::MissingAsyncCookieError};
+use crate::bail_error;
+use crate::{worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId};
+use crate::load_balancer_api::{structs::internal::RegisteredWorker, lb_errors::MissingAsyncCookieError};
 use tracing::{warn, debug};
 use anyhow::Result;
 

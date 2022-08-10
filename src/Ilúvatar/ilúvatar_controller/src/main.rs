@@ -4,13 +4,8 @@ use iluvatar_lib::transaction::{LOAD_BALANCER_TID, TransactionId};
 use iluvatar_lib::utils::config_utils::get_val;
 use tracing::info;
 use crate::args::parse;
-use crate::controller::Controller;
-use crate::web_server::*;
-use iluvatar_lib::load_balancer_api::config::Configuration;
+use iluvatar_lib::load_balancer_api::{controller::Controller, config::Configuration, web_server::*};
 
-pub mod web_server;
-pub mod controller;
-pub mod services;
 pub mod args;
 
 #[actix_web::main]
