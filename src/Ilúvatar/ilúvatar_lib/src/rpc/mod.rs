@@ -11,24 +11,24 @@ use crate::utils::port_utils::Port;
 use anyhow::{Result, bail};
 
 #[allow(unused)]
-pub struct RCPWorkerAPI {
+pub struct RPCWorkerAPI {
   client: IluvatarWorkerClient<Channel>
 }
 
-impl RCPWorkerAPI {
-  pub async fn new(address: &String, port: Port) -> Result<RCPWorkerAPI> {
+impl RPCWorkerAPI {
+  pub async fn new(address: &String, port: Port) -> Result<RPCWorkerAPI> {
     let addr = format!("http://{}:{}", address, port);
     let client = match IluvatarWorkerClient::connect(addr).await {
         Ok(c) => c,
         Err(e) => bail!(RPCError { message: e.to_string(), source: "[RCPWorkerAPI:new]".to_string() }),
     };
-    Ok(RCPWorkerAPI {
+    Ok(RPCWorkerAPI {
       client
     })
   }
 
-  pub fn clone(&self) -> RCPWorkerAPI {
-    RCPWorkerAPI {
+  pub fn clone(&self) -> RPCWorkerAPI {
+    RPCWorkerAPI {
       client: self.client.clone()
     }
   }
@@ -38,6 +38,14 @@ impl RCPWorkerAPI {
 pub struct RPCError {
   message: String,
   source: String
+}
+impl RPCError {
+  pub fn new(message: String, source: String) -> Self {
+    RPCError {
+      message,
+      source
+    }
+  }
 }
 impl std::fmt::Display for RPCError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -51,7 +59,7 @@ impl Error for RPCError {
 
 /// An implementation of the worker API that communicates with workers via RPC
 #[tonic::async_trait]
-impl WorkerAPI for RCPWorkerAPI {
+impl WorkerAPI for RPCWorkerAPI {
   async fn ping(&mut self, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(PingRequest {
       message: "Ping".to_string(),

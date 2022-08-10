@@ -4,6 +4,7 @@
   "port": 8078,
   "timeout_sec": 6000,
   "num_workers": 8,
+  "simulation": true,
   "logging": {
     "level": "debug",
     "directory": "/tmp/ilúvatar/logs",

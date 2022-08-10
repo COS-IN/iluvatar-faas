@@ -17,6 +17,8 @@ pub struct Configuration {
   pub timeout_sec: u64,
   /// Number of worker theads to run
   pub num_workers: u64,
+  /// Is this controller running as a simulation?
+  pub simulation: bool,
   pub logging: Arc<LoggingConfig>,
   pub load_balancer: Arc<LoadBalancingConfig>,
   pub graphite: Arc<GraphiteConfig>,

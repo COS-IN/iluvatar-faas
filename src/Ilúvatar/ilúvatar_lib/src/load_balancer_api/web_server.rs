@@ -14,8 +14,10 @@ pub async fn ping(_server: Data<Controller>, _req: HttpRequest) -> HttpResponse 
   info!(tid=%tid, "New ping");
   HttpResponse::Ok().body("PONG\n")
 }
-
 #[post("/invoke")]
+pub async fn invoke_api(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
+  invoke(server, req).await
+}
 pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
@@ -31,11 +33,13 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
     success: result.success,
     invoke_duration_ms: result.duration_ms,
   };
-
   HttpResponse::Ok().json(ret)
 }
 
 #[post("/invoke_async")]
+pub async fn invoke_async_api(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
+  invoke_async(server, req).await
+}
 pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
@@ -50,11 +54,13 @@ pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpRe
 }
 
 #[get("/invoke_async_check")]
+pub async fn invoke_async_check_api(server: Data<Controller>, req: Json<InvokeAsyncLookup>) -> HttpResponse {
+  invoke_async_check(server, req).await
+}
 pub async fn invoke_async_check(server: Data<Controller>, req: Json<InvokeAsyncLookup>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
   info!(tid=%tid, request=?req, "New invoke_async_check");
-  
   match server.check_async_invocation(req.lookup_cookie, &tid).await {
     Ok(some) => {
       if let Some(json) = some {
@@ -74,6 +80,9 @@ pub async fn invoke_async_check(server: Data<Controller>, req: Json<InvokeAsyncL
 }
 
 #[post("/prewarm")]
+pub async fn prewarm_api(server: Data<Controller>, req: Json<Prewarm>) -> HttpResponse {
+  prewarm(server, req).await
+}
 pub async fn prewarm(server: Data<Controller>, req: Json<Prewarm>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
@@ -86,6 +95,9 @@ pub async fn prewarm(server: Data<Controller>, req: Json<Prewarm>) -> HttpRespon
 }
 
 #[post("/register_function")]
+pub async fn register_function_api(server: Data<Controller>, req: Json<RegisterFunction>) -> HttpResponse {
+  register_function(server, req).await
+}
 pub async fn register_function(server: Data<Controller>, req: Json<RegisterFunction>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();
@@ -102,6 +114,9 @@ pub async fn register_function(server: Data<Controller>, req: Json<RegisterFunct
 }
 
 #[post("/register_worker")]
+pub async fn register_worker_api(server: Data<Controller>, req: Json<RegisterWorker>) -> HttpResponse {
+  register_worker(server, req).await
+}
 pub async fn register_worker(server: Data<Controller>, req: Json<RegisterWorker>) -> HttpResponse {
   let tid = gen_tid();
   let req = req.into_inner();

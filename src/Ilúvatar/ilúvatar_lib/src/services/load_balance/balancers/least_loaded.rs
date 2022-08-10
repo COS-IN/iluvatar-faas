@@ -1,5 +1,5 @@
 use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration, collections::HashMap};
-use crate::{services::graphite::graphite_svc::GraphiteService, transaction::LEAST_LOADED_TID, bail_error, load_balancer_api::load_reporting::LoadService, send_invocation, prewarm, send_async_invocation};
+use crate::{transaction::LEAST_LOADED_TID, bail_error, load_balancer_api::load_reporting::LoadService, send_invocation, prewarm, send_async_invocation};
 use crate::worker_api::worker_comm::WorkerAPIFactory;
 use crate::{services::load_balance::LoadBalancerTrait, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredFunction, RegisteredWorker};
@@ -16,29 +16,27 @@ pub struct LeastLoadedBalancer {
   workers: RwLock<HashMap<String, Arc<RegisteredWorker>>>,
   worker_fact: Arc<WorkerAPIFactory>,
   health: Arc<ControllerHealthService>,
-  graphite: Arc<GraphiteService>,
   _worker_thread: JoinHandle<()>,
   assigned_worker: RwLock<Option<Arc<RegisteredWorker>>>,
   load: Arc<LoadService>,
 }
 
 impl LeastLoadedBalancer {
-  fn new(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, worker_thread: JoinHandle<()>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>) -> Self {
+  fn new(health: Arc<ControllerHealthService>, worker_thread: JoinHandle<()>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>) -> Self {
     LeastLoadedBalancer {
       workers: RwLock::new(HashMap::new()),
       worker_fact,
       health,
-      graphite,
       _worker_thread: worker_thread,
       assigned_worker: RwLock::new(None),
       load,
     }
   }
 
-  pub fn boxed(health: Arc<ControllerHealthService>, graphite: Arc<GraphiteService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, tid: &TransactionId) -> Arc<Self> {
+  pub fn boxed(health: Arc<ControllerHealthService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, tid: &TransactionId) -> Arc<Self> {
     let (tx, rx) = channel();
     let t = LeastLoadedBalancer::start_status_thread(rx, tid);
-    let i = Arc::new(LeastLoadedBalancer::new(health, graphite, t, load, worker_fact));
+    let i = Arc::new(LeastLoadedBalancer::new(health, t, load, worker_fact));
     tx.send(i.clone()).unwrap();
     i
   }

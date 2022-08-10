@@ -71,8 +71,6 @@ pub mod json {
   }
 }
 
-
-
 pub mod internal {
   use crate::utils::calculate_fqdn;
   use super::*;

@@ -13,15 +13,16 @@ pub use worker_config as config;
 pub mod worker_comm;
 #[path ="./ilúvatar_worker.rs"]
 pub mod ilúvatar_worker;
+pub mod sim_worker;
 
-pub async fn create_worker(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
-  let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone());
+pub async fn create_worker(worker_config: Arc<Configuration>, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
+  let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone());
   let lifecycle = factory.get_lifecycle_service(tid, true).await?;
 
-  let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone(), tid).await?;
-  let invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone());
-  let status = StatusService::boxed(container_man.clone(), invoker.clone(), server_config.graphite.clone(), server_config.name.clone()).await;
+  let container_man = ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), lifecycle.clone(), tid).await?;
+  let invoker = InvokerService::boxed(container_man.clone(), tid, worker_config.limits.clone());
+  let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone()).await;
   let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
 
-  Ok(IluvatarWorkerImpl::new(server_config.clone(), container_man, invoker, status, health))
+  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health))
 }

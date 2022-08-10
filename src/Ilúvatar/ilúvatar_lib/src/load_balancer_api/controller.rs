@@ -24,8 +24,8 @@ impl Controller {
     let worker_fact = WorkerAPIFactory::boxed();
     let health_svc = ControllerHealthService::boxed(worker_fact.clone());
     let graphite_svc = GraphiteService::boxed(config.graphite.clone());
-    let load_svc = LoadService::boxed(graphite_svc.clone(), config.load_balancer.clone(), tid);
-    let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, graphite_svc, load_svc.clone(), worker_fact.clone()).unwrap();
+    let load_svc = LoadService::boxed(graphite_svc, config.load_balancer.clone(), tid, worker_fact.clone(), config.simulation);
+    let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()).unwrap();
     let reg_svc = RegistrationService::boxed(lb.clone(), worker_fact.clone());
     let async_svc = AsyncService::boxed(worker_fact.clone());
     Controller {

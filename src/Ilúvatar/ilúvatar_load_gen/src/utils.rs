@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use iluvatar_lib::{load_balancer_api::lb_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult}, utils::{timing::TimedExt, port::Port}, transaction::{gen_tid, TransactionId}, types::MemSizeMb, rpc::{RCPWorkerAPI, InvokeResponse}, ilúvatar_api::WorkerAPI};
+use iluvatar_lib::{load_balancer_api::lb_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult}, utils::{timing::TimedExt, port::Port}, transaction::{gen_tid, TransactionId}, types::MemSizeMb, rpc::{RPCWorkerAPI, InvokeResponse}, ilúvatar_api::WorkerAPI};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
@@ -113,7 +113,7 @@ pub async fn controller_register(name: &String, version: &String, image: &String
 
 pub async fn worker_register(name: &String, version: &String, image: &String, memory: MemSizeMb, host: &String, port: Port) -> Result<(String, Duration, TransactionId)> {
   let tid: TransactionId = gen_tid();
-  let mut api = RCPWorkerAPI::new(&host, port).await?;
+  let mut api = RPCWorkerAPI::new(&host, port).await?;
   let (reg_out, reg_dur) = api.register(name.clone(), version.clone(), image.clone(), memory, 1, 1, tid.clone()).timed().await;
   match reg_out {
     Ok(s) => Ok( (s,reg_dur,tid) ),
@@ -126,7 +126,7 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
     Some(a) => a,
     None => "{}".to_string(),
   };
-  let mut api = RCPWorkerAPI::new(&host, port).await?;
+  let mut api = RPCWorkerAPI::new(&host, port).await?;
   let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), args, None, tid.clone()).timed().await;
   match invok_out {
     Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {

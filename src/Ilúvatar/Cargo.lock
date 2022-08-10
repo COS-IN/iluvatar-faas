@@ -1514,6 +1514,7 @@ dependencies = [
 name = "iluvatar_lib"
 version = "0.1.0"
 dependencies = [
+ "actix-web",
  "anyhow",
  "clap",
  "config",
@@ -1565,6 +1566,7 @@ dependencies = [
 name = "ilúvatar_load_gen"
 version = "0.1.0"
 dependencies = [
+ "actix-web",
  "anyhow",
  "clap",
  "config",

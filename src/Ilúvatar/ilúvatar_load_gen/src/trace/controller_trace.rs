@@ -1,6 +1,10 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write};
 use anyhow::Result;
-use iluvatar_lib::{utils::{config::get_val, port::Port}, load_balancer_api::lb_structs::json::ControllerInvokeResult};
+use iluvatar_lib::{utils::{config::get_val, port::Port}, transaction::{TransactionId, SIMULATION_START_TID}};
+use iluvatar_lib::load_balancer_api::{lb_structs::json::ControllerInvokeResult, controller::Controller};
+use actix_web::web::Json;
+use iluvatar_lib::load_balancer_api::web_server::invoke;
+use iluvatar_lib::load_balancer_api::structs::json::Invoke;
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
 use crate::{utils::{controller_register, controller_invoke, FunctionExecOutput}, trace::CsvInvocation, benchmark::BenchmarkStore};
@@ -35,8 +39,8 @@ fn match_trace_to_img(func: &Function, data: &Vec<(String, f64)>) -> String {
   format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen)
 }
 
-async fn register_functions(funcs: &HashMap<u64, Function>, host: &String, port: Port, mode: &str, func_data: Result<String>) -> Result<()> {
-  let data = match mode {
+async fn register_functions(funcs: &HashMap<u64, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>) -> Result<()> {
+  let data = match load_type {
     "lookbusy" => Vec::new(),
     "functions" => {
       let func_data = func_data?;
@@ -54,13 +58,13 @@ async fn register_functions(funcs: &HashMap<u64, Function>, host: &String, port:
         Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
       }
     },
-    _ => panic!("Bad invocation mode: {}", mode),
+    _ => panic!("Bad invocation load type: {}", load_type),
   };
   for (_fid, func) in funcs.into_iter() {
-    let image = match mode {
+    let image = match load_type {
       "lookbusy" => format!("docker.io/alfuerst/lookbusy-iluvatar-action:latest"),
       "functions" => match_trace_to_img(func, &data),
-      _ => panic!("Bad invocation mode: {}", mode),
+      _ => panic!("Bad invocation load type: {}", load_type),
     };
     println!("{}, {}", func.func_name, image);
     let _reg_dur = controller_register(&func.func_name, &VERSION, &image, func.mem_mb+50, host, port).await?;
@@ -82,22 +86,30 @@ fn controller_trace_sim(_main_args: &ArgMatches, sub_args: &ArgMatches) -> Resul
   let _worker_config = iluvatar_lib::worker_api::worker_config::Configuration::boxed(false, &config_pth).unwrap();
 
   let config_pth: String = get_val("controller-config", &sub_args)?;
-  let _controller_config = iluvatar_lib::load_balancer_api::lb_config::Configuration::boxed(&config_pth).unwrap();
-  todo!();
+  let controller_config = iluvatar_lib::load_balancer_api::lb_config::Configuration::boxed(&config_pth).unwrap();
+  let tid: &TransactionId = &SIMULATION_START_TID;
+
+  let server = Controller::new(controller_config.clone(), tid);
+  let server_data = actix_web::web::Data::new(server);
+  let i = Invoke{function_name:"".to_string(), function_version:"".to_string(), args:None};
+  let _response = invoke(server_data, Json{0:i});
+  // TODO: finish this
+
+  Ok(())
 }
 
-fn prepare_function(func: &Function, mode: &str) -> Vec<String> {
-  match mode {
+fn prepare_function(func: &Function, load_type: &str) -> Vec<String> {
+  match load_type {
     "lookbusy" => vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)],
     "functions" => vec![],
-    _ => panic!("Bad invocation mode: {}", mode),
+    _ => panic!("Bad invocation load type: {}", load_type),
   }
 }
 
 fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let trace_pth: String = get_val("input", &sub_args)?;
   let metadata_pth: String = get_val("metadata", &sub_args)?;
-  let mode: String = get_val("load-type", &sub_args)?;
+  let load_type: String = get_val("load-type", &sub_args)?;
   let func_data: Result<String> = get_val("function-data", &sub_args);
   let port: Port = get_val("port", &main_args)?;
   let host: String = get_val("host", &main_args)?;
@@ -106,7 +118,7 @@ fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Resul
       .enable_all()
       .build().unwrap();
 
-  threaded_rt.block_on(register_functions(&metadata, &host, port, &mode, func_data))?;
+  threaded_rt.block_on(register_functions(&metadata, &host, port, &load_type, func_data))?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
   let mut handles: Vec<JoinHandle<(Result<(ControllerInvokeResult, f64)>, String)>> = Vec::new();
@@ -115,17 +127,17 @@ fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Resul
 
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
-    let invoke: CsvInvocation = result?;
-    let func = metadata.get(&invoke.function_id).unwrap();
+    let invocation: CsvInvocation = result?;
+    let func = metadata.get(&invocation.function_id).unwrap();
     let h_c = host.clone();
     let f_c = func.func_name.clone();
-    let args = prepare_function(func, &mode);
+    let args = prepare_function(func, &load_type);
     
     loop {
       match start.elapsed() {
         Ok(t) => {
           let ms = t.as_millis() as u64;
-          if ms >= invoke.invoke_time_ms {
+          if ms >= invocation.invoke_time_ms {
             break;
           }
           std::thread::sleep(Duration::from_millis(ms/2));
@@ -174,7 +186,7 @@ fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Resul
             }
           };
         },
-        Err(e) => println!("Status error from invoke: {}", e),
+        Err(e) => println!("Status error from invocation: {}", e),
       },
       Err(thread_e) => println!("Joining error: {}", thread_e),
     };

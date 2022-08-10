@@ -1,8 +1,8 @@
 use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration, collections::HashMap};
-use crate::services::graphite::graphite_svc::GraphiteService;
+use crate::{services::graphite::graphite_svc::GraphiteService, worker_api::worker_comm::WorkerAPIFactory};
 use crate::{transaction::TransactionId, transaction::LOAD_MONITOR_TID};
 use tokio::task::JoinHandle;
-use tracing::{info, debug, error};
+use tracing::{info, debug, error, warn};
 use parking_lot::RwLock;
 
 use super::lb_config::LoadBalancingConfig;
@@ -13,10 +13,12 @@ pub struct LoadService {
   graphite: Arc<GraphiteService>,
   workers: RwLock<HashMap<String, f64>>,
   config: Arc<LoadBalancingConfig>,
+  fact: Arc<WorkerAPIFactory>,
+  simulation: bool
 }
 
 impl LoadService {
-  pub fn boxed(graphite: Arc<GraphiteService>, config: Arc<LoadBalancingConfig>, tid: &TransactionId) -> Arc<Self> {
+  pub fn boxed(graphite: Arc<GraphiteService>, config: Arc<LoadBalancingConfig>, tid: &TransactionId, fact: Arc<WorkerAPIFactory>, simulation: bool) -> Arc<Self> {
     let (tx, rx) = channel();
     let t = LoadService::start_thread(rx, tid);
     let ret = Arc::new(LoadService {
@@ -24,6 +26,8 @@ impl LoadService {
       graphite,
       workers: RwLock::new(HashMap::new()),
       config,
+      fact, 
+      simulation,
     });
     tx.send(ret.clone()).unwrap();
 
@@ -49,8 +53,42 @@ impl LoadService {
   }
 
   async fn monitor_worker_status(&self, tid: &TransactionId) {
+    if self.simulation {
+      self.mointor_simulation(tid).await;
+    } else {
+      self.monitor_live(tid).await;
+    }
+  }
+
+  async fn mointor_simulation(&self, tid: &TransactionId) {
     loop {
-      let update = self.get_status_update(tid).await;
+      let mut update = HashMap::new();
+      let workers = self.fact.get_cached_workers();
+      for (name, mut worker) in workers {
+        let status = match worker.status(tid.to_string()).await {
+          Ok(s) => s,
+          Err(e) => {
+            warn!(error=%e, tid=%tid, "Unable to get status of simulation worker");
+            continue;
+          },
+        };
+        match self.config.load_metric.as_str() {
+          // TODO: this load won't be right (in simulation!!)
+          "worker.load.loadavg" => update.insert(name, status.load_avg_1minute),
+          _ => todo!()
+        };
+      }
+      
+      info!(tid=%tid, update=?update, "latest worker update");
+      *self.workers.write() = update;
+
+      std::thread::sleep(Duration::from_secs(1));
+    }
+  }
+
+  async fn monitor_live(&self, tid: &TransactionId) {
+    loop {
+      let update = self.get_live_update(tid).await;
       let mut data = self.workers.read().clone();
       for (k, v) in update.iter() {
         data.insert(k.clone(), *v);
@@ -62,7 +100,7 @@ impl LoadService {
     }
   }
 
-  async fn get_status_update(&self, tid: &TransactionId) -> HashMap<String, f64> {
+  async fn get_live_update(&self, tid: &TransactionId) -> HashMap<String, f64> {
     self.graphite.get_latest_metric(&self.config.load_metric.as_str(), "machine", tid).await
   }
 
