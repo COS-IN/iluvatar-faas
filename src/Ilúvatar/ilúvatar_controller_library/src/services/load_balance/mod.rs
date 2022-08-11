@@ -3,14 +3,13 @@ use std::time::Duration;
 use anyhow::Result;
 use iluvatar_worker_library::rpc::InvokeResponse;
 use tracing::debug;
-use crate::load_balancer_api::load_reporting::LoadService;
 use iluvatar_library::transaction::TransactionId;
-use crate::load_balancer_api::lb_config::ControllerConfig;
-use crate::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
-use crate::load_balancer_api::controller_health::ControllerHealthService;
+use crate::controller::controller_config::ControllerConfig;
+use crate::controller::structs::internal::{RegisteredWorker, RegisteredFunction};
 
+use super::controller_health::ControllerHealthService;
+use super::load_reporting::LoadService;
 use super::worker_comm::WorkerAPIFactory;
-// use crate::rpc::InvokeResponse;
 mod balancers;
 
 #[tonic::async_trait]

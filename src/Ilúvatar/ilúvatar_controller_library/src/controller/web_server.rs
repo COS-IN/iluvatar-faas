@@ -1,9 +1,9 @@
-use crate::load_balancer_api::controller::Controller;
+use crate::controller::controller::Controller;
 use actix_web::{HttpRequest, HttpResponse, get, post};
 use actix_web::web::{Data, Json};
-use crate::load_balancer_api::lb_errors::MissingAsyncCookieError;
-use crate::load_balancer_api::lb_structs::json::{ControllerInvokeResult, AsyncInvokeResult};
-use crate::load_balancer_api::structs::json::{Invoke, RegisterWorker, Prewarm, RegisterFunction, InvokeAsyncLookup};
+use crate::controller::controller_errors::MissingAsyncCookieError;
+use crate::controller::controller_structs::json::{ControllerInvokeResult, AsyncInvokeResult};
+use crate::controller::structs::json::{Invoke, RegisterWorker, Prewarm, RegisterFunction, InvokeAsyncLookup};
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::utils::calculate_fqdn;
 use tracing::{info, error};

@@ -3,11 +3,11 @@ use std::time::Duration;
 use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
 use tracing::{info, warn, debug};
+use crate::services::controller_health::ControllerHealthService;
 use crate::services::worker_comm::WorkerAPIFactory;
 use crate::{send_invocation, prewarm, send_async_invocation};
-use crate::load_balancer_api::controller_health::ControllerHealthService;
 use crate::services::load_balance::LoadBalancerTrait;
-use crate::load_balancer_api::structs::internal::{RegisteredFunction, RegisteredWorker};
+use crate::controller::structs::internal::{RegisteredFunction, RegisteredWorker};
 use iluvatar_library::{utils::timing::TimedExt, transaction::TransactionId};
 use iluvatar_worker_library::rpc::InvokeResponse;
 

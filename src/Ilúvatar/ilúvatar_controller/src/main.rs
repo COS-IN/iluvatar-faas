@@ -4,7 +4,7 @@ use iluvatar_library::transaction::{LOAD_BALANCER_TID, TransactionId};
 use iluvatar_library::utils::config_utils::get_val;
 use tracing::info;
 use crate::args::parse;
-use iluvatar_controller_library::load_balancer_api::{controller::Controller, config::Configuration, web_server::*};
+use iluvatar_controller_library::controller::{controller::Controller, config::Configuration, web_server::*};
 
 pub mod args;
 

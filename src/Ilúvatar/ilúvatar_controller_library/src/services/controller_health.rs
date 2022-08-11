@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use dashmap::DashMap;
 use iluvatar_worker_library::worker_api::HealthStatus;
-use crate::{load_balancer_api::structs::internal::{RegisteredWorker, WorkerStatus}, services::worker_comm::WorkerAPIFactory};
+use crate::{controller::structs::internal::{RegisteredWorker, WorkerStatus}, services::worker_comm::WorkerAPIFactory};
 use iluvatar_library::transaction::TransactionId;
 use tracing::{warn, debug, info};
 use std::time::Duration;

@@ -1,6 +1,6 @@
 use std::time::Duration;
 use iluvatar_worker_library::{rpc::{RPCWorkerAPI, InvokeResponse}, worker_api::WorkerAPI};
-use iluvatar_controller_library::load_balancer_api::lb_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult};
+use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult};
 use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::{gen_tid, TransactionId}, types::MemSizeMb};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;

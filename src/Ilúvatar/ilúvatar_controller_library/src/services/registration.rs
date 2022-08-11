@@ -4,8 +4,8 @@ use dashmap::DashMap;
 use iluvatar_library::{bail_error, utils::calculate_fqdn, transaction::TransactionId};
 use tracing::{info, error};
 use crate::services::load_balance::LoadBalancer;
-use crate::load_balancer_api::structs::json::{RegisterWorker, RegisterFunction};
-use crate::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
+use crate::controller::structs::json::{RegisterWorker, RegisterFunction};
+use crate::controller::structs::internal::{RegisteredWorker, RegisteredFunction};
 use crate::services::worker_comm::WorkerAPIFactory;
 
 #[allow(unused)]

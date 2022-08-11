@@ -4,10 +4,7 @@ use iluvatar_library::{transaction::TransactionId, transaction::LOAD_MONITOR_TID
 use tokio::task::JoinHandle;
 use tracing::{info, debug, error, warn};
 use parking_lot::{RwLock, Mutex};
-
-use crate::services::worker_comm::WorkerAPIFactory;
-
-use super::lb_config::LoadBalancingConfig;
+use crate::{services::worker_comm::WorkerAPIFactory, controller::controller_config::LoadBalancingConfig};
 
 #[allow(unused)]
 pub struct LoadService {

@@ -4,7 +4,7 @@ use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_worker_library::{rpc::RPCWorkerAPI, worker_api::{ilúvatar_worker::IluvatarWorkerImpl, WorkerAPI, sim_worker::SimWorkerAPI, create_worker}};
 
-use crate::load_balancer_api::structs::internal::RegisteredWorker;
+use crate::controller::structs::internal::RegisteredWorker;
 
 pub struct WorkerAPIFactory {
   /// cache of RPC connections to workers

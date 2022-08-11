@@ -1,17 +1,18 @@
 use std::{sync::Arc, time::Duration};
+use crate::services::async_invoke::AsyncService;
+use crate::services::controller_health::{ControllerHealthService, SimHealthService, HealthService};
 use crate::services::load_balance::{get_balancer, LoadBalancer};
+use crate::services::load_reporting::LoadService;
+use crate::services::registration::RegistrationService;
 use crate::services::worker_comm::WorkerAPIFactory;
 use iluvatar_library::graphite::graphite_svc::GraphiteService;
 use iluvatar_library::{transaction::TransactionId, bail_error};
-use crate::load_balancer_api::{registration::RegistrationService, load_reporting::LoadService, controller_health::ControllerHealthService};
 use iluvatar_library::utils::{calculate_fqdn, config::args_to_json};
-use crate::load_balancer_api::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
-use crate::load_balancer_api::lb_config::ControllerConfig;
+use crate::controller::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
+use crate::controller::controller_config::ControllerConfig;
 use iluvatar_worker_library::rpc::InvokeResponse;
 use anyhow::Result;
 use tracing::{info, debug, error};
-use crate::load_balancer_api::async_invoke::AsyncService;
-use super::controller_health::{HealthService, SimHealthService};
 
 #[allow(unused)]
 pub struct Controller {
@@ -36,7 +37,6 @@ impl Controller {
       true => SimHealthService::boxed(),
       false => HealthService::boxed(worker_fact.clone()),
     };
-    // let health_svc = HealthService::boxed(worker_fact.clone());
     let graphite_svc = GraphiteService::boxed(config.graphite.clone());
     let load_svc = LoadService::boxed(graphite_svc, config.load_balancer.clone(), tid, worker_fact.clone(), config.simulation);
     let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()).unwrap();

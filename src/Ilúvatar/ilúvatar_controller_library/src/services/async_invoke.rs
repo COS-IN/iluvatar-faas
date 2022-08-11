@@ -2,7 +2,7 @@ use std::{sync::Arc, collections::HashMap};
 use dashmap::DashMap;
 use iluvatar_library::bail_error;
 use iluvatar_library::transaction::TransactionId;
-use crate::{load_balancer_api::{structs::internal::RegisteredWorker, lb_errors::MissingAsyncCookieError}, services::worker_comm::WorkerAPIFactory};
+use crate::{controller::{structs::internal::RegisteredWorker, controller_errors::MissingAsyncCookieError}, services::worker_comm::WorkerAPIFactory};
 use tracing::{warn, debug};
 use anyhow::Result;
 

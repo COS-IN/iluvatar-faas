@@ -2,10 +2,10 @@ use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::Fi
 use anyhow::Result;
 use iluvatar_library::{utils::{config::get_val, timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID}};
 use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationResult};
-use iluvatar_controller_library::load_balancer_api::{lb_structs::json::{ControllerInvokeResult, RegisterFunction}, web_server::register_function, controller::Controller};
+use iluvatar_controller_library::controller::{controller_structs::json::{ControllerInvokeResult, RegisterFunction}, web_server::register_function, controller::Controller};
 use actix_web::{web::{Json, Data}, body::MessageBody};
-use iluvatar_controller_library::load_balancer_api::web_server::{invoke, register_worker};
-use iluvatar_controller_library::load_balancer_api::structs::json::Invoke;
+use iluvatar_controller_library::controller::web_server::{invoke, register_worker};
+use iluvatar_controller_library::controller::structs::json::Invoke;
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
 use crate::trace::CsvInvocation;
@@ -18,7 +18,7 @@ lazy_static::lazy_static! {
 
 async fn register_workers(num_workers: usize, server_data: &Data<Controller>, worker_config_pth: &String, worker_config: &Arc<WorkerConfig>) -> Result<()> {
   for i in 0..num_workers {
-    let r = iluvatar_controller_library::load_balancer_api::lb_structs::json::RegisterWorker {
+    let r = iluvatar_controller_library::controller::controller_structs::json::RegisterWorker {
       name: format!("worker_{}", i),
       backend: "simulation".to_string(),
       communication_method: "simulation".to_string(),
@@ -88,7 +88,7 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
 
   let tid: &TransactionId = &SIMULATION_START_TID;
   let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(false, &worker_config_pth).unwrap();
-  let controller_config = iluvatar_controller_library::load_balancer_api::lb_config::Configuration::boxed(&controller_config_pth).unwrap();
+  let controller_config = iluvatar_controller_library::controller::controller_config::Configuration::boxed(&controller_config_pth).unwrap();
   let _guard = iluvatar_library::logging::start_tracing(controller_config.logging.clone())?;
 
   let server = threaded_rt.block_on(async { Controller::new(controller_config.clone(), tid) });

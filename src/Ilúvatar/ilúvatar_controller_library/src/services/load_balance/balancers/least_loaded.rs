@@ -1,15 +1,14 @@
 use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration, collections::HashMap};
-use crate::{load_balancer_api::load_reporting::LoadService, send_invocation, prewarm, send_async_invocation, services::worker_comm::WorkerAPIFactory};
+use crate::{send_invocation, prewarm, send_async_invocation, services::{worker_comm::WorkerAPIFactory, controller_health::ControllerHealthService, load_reporting::LoadService}};
 use crate::services::load_balance::LoadBalancerTrait;
 use iluvatar_library::{transaction::TransactionId, transaction::LEAST_LOADED_TID, bail_error};
-use crate::load_balancer_api::structs::internal::{RegisteredFunction, RegisteredWorker};
+use crate::controller::structs::internal::{RegisteredFunction, RegisteredWorker};
 use anyhow::Result;
 use tokio::task::JoinHandle;
 use tracing::{info, debug, error, warn};
 use parking_lot::RwLock;
 use iluvatar_library::utils::timing::TimedExt;
 use iluvatar_worker_library::rpc::InvokeResponse;
-use crate::load_balancer_api::controller_health::ControllerHealthService;
 
 #[allow(unused)]
 pub struct LeastLoadedBalancer {

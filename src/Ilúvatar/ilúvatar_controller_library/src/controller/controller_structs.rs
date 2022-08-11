@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-
 use iluvatar_library::utils::port_utils::Port;
 
 pub mod json {
