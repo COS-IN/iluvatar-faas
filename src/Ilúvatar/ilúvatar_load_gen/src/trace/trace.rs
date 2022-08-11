@@ -4,7 +4,8 @@ use iluvatar_lib::{utils::config::get_val, types::MemSizeMb};
 use clap::{ArgMatches, App, SubCommand, Arg};
 
 mod worker_trace;
-mod controller_trace;
+mod controller_live;
+mod controller_sim;
 
 pub fn trace_args<'a>(app: App<'a, 'a>) -> App<'a, 'a> {
   app.subcommand(SubCommand::with_name("trace")
@@ -72,7 +73,14 @@ pub fn run_trace(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
 
   match target.as_str() {
     "worker" => worker_trace::trace_worker(main_args, sub_args),
-    "controller" => controller_trace::trace_controller(main_args, sub_args),
+    "controller" => {
+      let setup: String = get_val("setup", &sub_args)?;
+      match setup.as_str() {
+        "simulation" => controller_sim::controller_trace_sim(main_args, sub_args),
+        "live" => controller_live::controller_trace_live(main_args, sub_args),
+        _ => anyhow::bail!("Unknown setup for trace run '{}'; only supports 'simulation' and 'live'", setup)
+      }
+    },
     _ => anyhow::bail!("Unknown simulation targe {}!", target),
   }
 }

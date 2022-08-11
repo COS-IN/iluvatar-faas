@@ -23,8 +23,14 @@ pub struct SimulatorContainer {
 #[allow(unused)]
 /// struct used to control "invocation" pattern of simulated function
 pub struct SimulationInvocation {
+  #[serde(deserialize_with = "cust_deserialize")]
   pub warm_dur_ms: u64,
+  #[serde(deserialize_with = "cust_deserialize")]
   pub cold_dur_ms: u64,
+}
+/// custom deserialized on this, beceause sometimes values for [SimulationInvocation] are strings, not actually [u64]
+fn cust_deserialize<'de, D>(deser: D) -> Result<u64, D::Error> where D: serde::Deserializer<'de> {
+  String::deserialize(deser)?.parse::<u64>().map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -39,11 +45,10 @@ pub struct SimulationResult {
 #[tonic::async_trait]
 impl ContainerT for SimulatorContainer {
   async fn invoke(&self, json_args: &String, tid: &TransactionId) ->  Result<String> {
-
     // just sleep for a while based on data from json args
     let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
       Ok(d) => d,
-      Err(e) => bail_error!(tid=%tid, error=%e, "Unable to deserialize run time information"),
+      Err(e) => bail_error!(tid=%tid, error=%e, args=%json_args, "Unable to deserialize run time information"),
     };
 
     let (duration_ms, was_cold) = match self.invocations() {
@@ -132,6 +137,6 @@ impl ContainerT for SimulatorContainer {
 
 impl crate::services::containers::structs::ToAny for SimulatorContainer {
   fn as_any(&self) -> &dyn std::any::Any {
-      self
+    self
   }
 }
