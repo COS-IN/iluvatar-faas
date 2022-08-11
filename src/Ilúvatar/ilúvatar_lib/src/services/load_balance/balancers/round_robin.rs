@@ -4,7 +4,7 @@ use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
 use tracing::{info, warn, debug};
 use crate::{send_invocation, prewarm, send_async_invocation};
-use crate::services::ControllerHealthService;
+use crate::load_balancer_api::controller_health::ControllerHealthService;
 use crate::{services::load_balance::LoadBalancerTrait, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredFunction, RegisteredWorker};
 use crate::{worker_api::worker_comm::WorkerAPIFactory};
@@ -15,11 +15,11 @@ pub struct RoundRobinLoadBalancer {
   workers: RwLock<Vec<Arc<RegisteredWorker>>>,
   next: Mutex<usize>,
   worker_fact: Arc<WorkerAPIFactory>,
-  health: Arc<ControllerHealthService>,
+  health: Arc<dyn ControllerHealthService>,
 }
 
 impl RoundRobinLoadBalancer {
-  pub fn new(health: Arc<ControllerHealthService>, worker_fact: Arc<WorkerAPIFactory>) -> Self {
+  pub fn new(health: Arc<dyn ControllerHealthService>, worker_fact: Arc<WorkerAPIFactory>) -> Self {
     RoundRobinLoadBalancer {
       workers: RwLock::new(Vec::new()),
       next: Mutex::new(0),

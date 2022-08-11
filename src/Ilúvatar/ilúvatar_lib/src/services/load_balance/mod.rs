@@ -6,7 +6,7 @@ use crate::load_balancer_api::load_reporting::LoadService;
 use crate::worker_api::worker_comm::WorkerAPIFactory;
 use crate::{load_balancer_api::lb_config::ControllerConfig, transaction::TransactionId};
 use crate::load_balancer_api::structs::internal::{RegisteredWorker, RegisteredFunction};
-use crate::services::ControllerHealthService;
+use crate::load_balancer_api::controller_health::ControllerHealthService;
 use crate::rpc::InvokeResponse;
 mod balancers;
 
@@ -30,7 +30,7 @@ pub trait LoadBalancerTrait {
 
 pub type LoadBalancer = Arc<dyn LoadBalancerTrait + Send + Sync + 'static>;
 
-pub fn get_balancer(config: &ControllerConfig, health_svc: Arc<ControllerHealthService>, tid: &TransactionId, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>) -> Result<LoadBalancer> {
+pub fn get_balancer(config: &ControllerConfig, health_svc: Arc<dyn ControllerHealthService>, tid: &TransactionId, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>) -> Result<LoadBalancer> {
   if config.load_balancer.algorithm == "RoundRobin" {
     debug!(tid=%tid, "starting round robin balancer");
     Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(health_svc, worker_fact)))

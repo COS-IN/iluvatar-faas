@@ -96,6 +96,7 @@ pub async fn run_trace_sim(worker_config_pth: String, controller_config_pth: Str
   let tid: &TransactionId = &SIMULATION_START_TID;
   let worker_config = iluvatar_lib::worker_api::worker_config::Configuration::boxed(false, &worker_config_pth).unwrap();
   let controller_config = iluvatar_lib::load_balancer_api::lb_config::Configuration::boxed(&controller_config_pth).unwrap();
+  let _guard = iluvatar_lib::logging::start_tracing(controller_config.logging.clone())?;
 
   let server = Controller::new(controller_config.clone(), tid);
   let server_data = actix_web::web::Data::new(server);
@@ -132,6 +133,8 @@ pub async fn run_trace_sim(worker_config_pth: String, controller_config_pth: Str
     let text = response.body();
     anyhow::bail!("Registration failed with '{:?}' '{:?}", response.headers(), text)
   }
+
+  tokio::time::sleep(Duration::from_secs(10)).await;
 
   let i = Invoke{function_name:"test".to_string(), function_version:"1".to_string(), args:Some(vec!["warm_dur_ms=100".to_string(), "cold_dur_ms=100".to_string()])};
   println!("running function invocation");

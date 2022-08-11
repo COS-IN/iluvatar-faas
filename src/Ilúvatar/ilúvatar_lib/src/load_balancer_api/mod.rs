@@ -9,12 +9,10 @@ pub mod registration;
 pub mod web_server;
 pub mod controller;
 pub mod async_invoke;
-
+pub mod controller_health;
 use anyhow::Result;
 use reqwest::StatusCode;
-
 use crate::{transaction::TransactionId, bail_error, utils::port_utils::Port};
-
 use self::lb_structs::json::RegisterWorker;
 
 /// Send worker details to the load balancer to register 

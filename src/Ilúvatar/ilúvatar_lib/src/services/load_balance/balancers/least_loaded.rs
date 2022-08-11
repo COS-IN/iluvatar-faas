@@ -7,22 +7,22 @@ use anyhow::Result;
 use tokio::task::JoinHandle;
 use tracing::{info, debug, error, warn};
 use parking_lot::RwLock;
-use crate::services::ControllerHealthService;
 use crate::utils::timing::TimedExt;
 use crate::rpc::InvokeResponse;
+use crate::load_balancer_api::controller_health::ControllerHealthService;
 
 #[allow(unused)]
 pub struct LeastLoadedBalancer {
   workers: RwLock<HashMap<String, Arc<RegisteredWorker>>>,
   worker_fact: Arc<WorkerAPIFactory>,
-  health: Arc<ControllerHealthService>,
+  health: Arc<dyn ControllerHealthService>,
   _worker_thread: JoinHandle<()>,
   assigned_worker: RwLock<Option<Arc<RegisteredWorker>>>,
   load: Arc<LoadService>,
 }
 
 impl LeastLoadedBalancer {
-  fn new(health: Arc<ControllerHealthService>, worker_thread: JoinHandle<()>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>) -> Self {
+  fn new(health: Arc<dyn ControllerHealthService>, worker_thread: JoinHandle<()>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>) -> Self {
     LeastLoadedBalancer {
       workers: RwLock::new(HashMap::new()),
       worker_fact,
@@ -33,7 +33,7 @@ impl LeastLoadedBalancer {
     }
   }
 
-  pub fn boxed(health: Arc<ControllerHealthService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, tid: &TransactionId) -> Arc<Self> {
+  pub fn boxed(health: Arc<dyn ControllerHealthService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, tid: &TransactionId) -> Arc<Self> {
     let (tx, rx) = channel();
     let t = LeastLoadedBalancer::start_status_thread(rx, tid);
     let i = Arc::new(LeastLoadedBalancer::new(health, t, load, worker_fact));
@@ -58,10 +58,12 @@ impl LeastLoadedBalancer {
           match svc.workers.read().get(&worker) {
             Some(w) => {
               *svc.assigned_worker.write() = Some(w.clone());
+              info!(tid=%tid, worker=%worker, "new least loaded worker");
             },
-            None => warn!(tid=%tid, worker=%worker, "Cannot update least loaded worker because it is not registered"),
+            None => {
+              warn!(tid=%tid, worker=%worker, "Cannot update least loaded worker because it was not registered, or no worker has been registered");
+            },
           };
-          info!(tid=%tid, worker=%worker, "new least loaded worker");
           tokio::time::sleep(Duration::from_secs(1)).await;
         }
       }
@@ -96,6 +98,9 @@ impl LeastLoadedBalancer {
 impl LoadBalancerTrait for LeastLoadedBalancer {
   fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
     info!(tid=%tid, worker=%worker.name, "Registering new worker in LeastLoaded load balancer");
+    if self.assigned_worker.read().is_none() {
+      *self.assigned_worker.write() = Some(worker.clone());
+    }
     let mut workers = self.workers.write();
     workers.insert(worker.name.clone(), worker);
   }

@@ -1,5 +1,7 @@
 use std::{sync::Arc, time::Duration};
-use crate::{services::{load_balance::{get_balancer, LoadBalancer}, ControllerHealthService, graphite::graphite_svc::GraphiteService}, transaction::TransactionId, bail_error, load_balancer_api::{registration::RegistrationService, load_reporting::LoadService}, worker_api::worker_comm::WorkerAPIFactory};
+use crate::services::{load_balance::{get_balancer, LoadBalancer}, graphite::graphite_svc::GraphiteService};
+use crate::{transaction::TransactionId, bail_error, worker_api::worker_comm::WorkerAPIFactory};
+use crate::load_balancer_api::{registration::RegistrationService, load_reporting::LoadService, controller_health::ControllerHealthService};
 use crate::utils::{calculate_fqdn, config::args_to_json};
 use crate::load_balancer_api::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
 use crate::load_balancer_api::lb_config::ControllerConfig;
@@ -7,22 +9,32 @@ use crate::rpc::InvokeResponse;
 use anyhow::Result;
 use tracing::{info, debug, error};
 use crate::load_balancer_api::async_invoke::AsyncService;
+use super::controller_health::{HealthService, SimHealthService};
 
 #[allow(unused)]
 pub struct Controller {
   config: ControllerConfig,
   lb: LoadBalancer,
   async_svc: Arc<AsyncService>,
-  health_svc: Arc<ControllerHealthService>,
+  health_svc: Arc<dyn ControllerHealthService>,
   load_svc: Arc<LoadService>,
   registration_svc: Arc<RegistrationService>
 }
 unsafe impl Send for Controller{}
+impl Drop for Controller {
+  fn drop(&mut self) {
+    self.load_svc.kill_thread();
+  }
+}
 
 impl Controller {
   pub fn new(config: ControllerConfig, tid: &TransactionId) -> Self {
     let worker_fact = WorkerAPIFactory::boxed();
-    let health_svc = ControllerHealthService::boxed(worker_fact.clone());
+    let health_svc: Arc<dyn ControllerHealthService>= match config.simulation {
+      true => SimHealthService::boxed(),
+      false => HealthService::boxed(worker_fact.clone()),
+    };
+    // let health_svc = HealthService::boxed(worker_fact.clone());
     let graphite_svc = GraphiteService::boxed(config.graphite.clone());
     let load_svc = LoadService::boxed(graphite_svc, config.load_balancer.clone(), tid, worker_fact.clone(), config.simulation);
     let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()).unwrap();

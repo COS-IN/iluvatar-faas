@@ -8,12 +8,12 @@
   "logging": {
     "level": "debug",
     "directory": "/tmp/ilúvatar/logs",
-    "basename": "load_balancer",
+    "basename": "controller_sim",
     "spanning": "FULL",
     "flame": ""
   },
   "load_balancer": {
-    "algorithm": "RoundRobin",
+    "algorithm": "LeastLoaded",
     "load_metric": "worker.load.loadavg"
   },
   "graphite": {

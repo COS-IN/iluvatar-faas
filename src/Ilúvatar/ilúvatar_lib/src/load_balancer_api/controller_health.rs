@@ -1,10 +1,21 @@
 use std::sync::Arc;
 use dashmap::DashMap;
-use crate::{worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId, load_balancer_api::structs::internal::{RegisteredWorker, WorkerStatus}, ilúvatar_api::HealthStatus};
+use crate::load_balancer_api::structs::internal::{RegisteredWorker, WorkerStatus};
+use crate::{worker_api::worker_comm::WorkerAPIFactory, transaction::TransactionId, ilúvatar_api::HealthStatus};
 use tracing::{warn, debug, info};
 use std::time::Duration;
 
-#[allow(unused)]
+#[tonic::async_trait]
+pub trait ControllerHealthService: Send + Sync {
+  /// check the health of a worker in the future
+  /// optional to check in a specific time
+  fn schedule_health_check(&self, svc: Arc<dyn ControllerHealthService>, worker: Arc<RegisteredWorker>, tid: &TransactionId, in_secs: Option<Duration>);
+  /// returns true if the worker is healthy
+  fn is_healthy(&self, worker: &Arc<RegisteredWorker>) -> bool;
+  /// returns true if health needs to be checked again in the future
+  async fn update_worker_health(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> bool;
+}
+
 pub struct HealthService {
   worker_fact: Arc<WorkerAPIFactory>,
   worker_statuses: Arc<DashMap<String, WorkerStatus>>,
@@ -16,15 +27,6 @@ impl HealthService {
       worker_fact,
       worker_statuses: Arc::new(DashMap::new())
     })
-  }
-
-  pub fn is_healthy(&self, worker: &Arc<RegisteredWorker>) -> bool {
-    match self.worker_statuses.get(&worker.name) {
-      Some(stat) => {
-        stat.value() == &WorkerStatus::HEALTHY
-      },
-      None => false,
-    }
   }
 
   /// returns true if the status is changed, or the worker was not seen before
@@ -65,10 +67,28 @@ impl HealthService {
       },
     }
   }
+}
 
-  /// check the health of a worker in the future
-  /// optional to check in a specific time
-  pub fn schedule_health_check(&self, svc: Arc<HealthService>, worker: Arc<RegisteredWorker>, tid: &TransactionId, in_secs: Option<Duration>) {
+#[tonic::async_trait]
+impl ControllerHealthService for HealthService {
+  fn is_healthy(&self, worker: &Arc<RegisteredWorker>) -> bool {
+    match self.worker_statuses.get(&worker.name) {
+      Some(stat) => {
+        stat.value() == &WorkerStatus::HEALTHY
+      },
+      None => false,
+    }
+  }
+
+  async fn update_worker_health(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> bool {
+    let new_status = self.get_worker_health(worker, tid).await;
+    if self.status_changed(worker, tid, &new_status) {
+      self.update_status(worker, tid, &new_status)
+    }
+    new_status != WorkerStatus::HEALTHY
+  }
+
+  fn schedule_health_check(&self, svc: Arc<dyn ControllerHealthService>, worker: Arc<RegisteredWorker>, tid: &TransactionId, in_secs: Option<Duration>) {
     debug!(tid=%tid, name=%worker.name, "scheduling future health check for worker");
     tokio::spawn(async move {
       let tid: &TransactionId = &crate::transaction::HEALTH_TID;
@@ -84,13 +104,22 @@ impl HealthService {
       }
     });
   }
+}
 
-  /// returns true if health needs to be checked again in the future
-  pub async fn update_worker_health(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> bool {
-    let new_status = self.get_worker_health(worker, tid).await;
-    if self.status_changed(worker, tid, &new_status) {
-      self.update_status(worker, tid, &new_status)
-    }
-    new_status != WorkerStatus::HEALTHY
+pub struct SimHealthService {}
+impl SimHealthService {
+  pub fn boxed() -> Arc<Self> {
+    Arc::new(SimHealthService{})
+  }
+}
+#[tonic::async_trait]
+#[allow(unused)]
+impl ControllerHealthService for SimHealthService {
+  fn schedule_health_check(&self, svc: Arc<dyn ControllerHealthService>, worker: Arc<RegisteredWorker>, tid: &TransactionId, in_secs: Option<Duration>) {}
+  fn is_healthy(&self, worker: &Arc<RegisteredWorker>) -> bool {
+    true
+  }
+  async fn update_worker_health(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> bool {
+    false
   }
 }
