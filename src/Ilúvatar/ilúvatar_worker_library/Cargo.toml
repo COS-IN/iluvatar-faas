@@ -1,0 +1,35 @@
+[package]
+name = "iluvatar_worker_library"
+version = "0.1.0"
+edition = "2021"
+authors = ["Alex Fuerst alfuerst@iu.edu"]
+
+[dependencies]
+iluvatar_library = { path = "../ilúvatar_library" }
+tonic = "0.7.2"
+prost = "0.10"
+tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util"] }
+lazy_static = "1.4.0"
+anyhow = "1.0.13"
+guid-create = "0.2.0"
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0.81"
+parking_lot = "0.12.1"
+config = "0.13.1"
+inotify = "0.10.0"
+containerd-client = "0.2.0"
+prost-types = "0.9.0"
+oci-spec = "0.5.1"
+sha2="0.10.2"
+hex = "0.4.3"
+clap = "2"
+reqwest = { version = "0.11.11", features = ["json"] }
+dashmap = "5.3.4"
+tracing = "0.1"
+actix-web = "4"
+
+[build-dependencies]
+tonic-build = "0.7.2"
+
+[dev-dependencies]
+rstest = "0.13.0"

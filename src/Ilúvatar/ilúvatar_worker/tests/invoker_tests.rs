@@ -2,12 +2,12 @@
 pub mod utils;
 
 use std::sync::Arc;
-use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
-use iluvatar_lib::rpc::InvokeRequest;
-use iluvatar_lib::transaction::TEST_TID;
-use iluvatar_lib::worker_api::worker_config::{WorkerConfig, Configuration};
-use iluvatar_lib::services::{containers::containermanager::ContainerManager, invocation::invoker::InvokerService};
-use iluvatar_lib::services::LifecycleFactory;
+use iluvatar_worker_library::rpc::{RegisterRequest, PrewarmRequest, InvokeAsyncRequest};
+use iluvatar_worker_library::rpc::InvokeRequest;
+use iluvatar_library::transaction::TEST_TID;
+use iluvatar_worker_library::worker_api::worker_config::{WorkerConfig, Configuration};
+use iluvatar_worker_library::services::{containers::containermanager::ContainerManager, invocation::invoker::InvokerService};
+use iluvatar_worker_library::services::{containers::LifecycleFactory};
 
 #[cfg(test)]
 mod invoke {
@@ -87,7 +87,6 @@ mod invoke {
 mod invoke_async {
   use core::panic;
   use std::time::Duration;
-  use iluvatar_lib::rpc::InvokeAsyncRequest;
   use super::*;
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

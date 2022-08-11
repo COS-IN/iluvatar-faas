@@ -14,7 +14,7 @@ macro_rules! assert_error {
 macro_rules! invoker_svc {
   () => {
     {
-      iluvatar_lib::utils::file::ensure_temp_dir().unwrap();
+      iluvatar_library::utils::file::ensure_temp_dir().unwrap();
       let cfg = Configuration::boxed(false, &"tests/resources/worker.dev.json".to_string()).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
       let factory = LifecycleFactory::new(cfg.container_resources.clone(), cfg.networking.clone());
       let lifecycle = factory.get_lifecycle_service(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycke: {}", e));

@@ -10,8 +10,10 @@ members = [
   "ilúvatar_worker",
   "ilúvatar_worker_cli",
   "ilúvatar_load_gen",
-  "ilúvatar_lib",
-  "ilúvatar_controller"
+  "ilúvatar_controller_library",
+  "ilúvatar_controller",
+  "ilúvatar_library",
+  "ilúvatar_worker_library"
 ]
 
 [profile.dev]

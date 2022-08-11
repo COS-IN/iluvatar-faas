@@ -1,7 +1,7 @@
 pub mod commands;
 pub mod args;
 use args::parse;
-use iluvatar_lib::utils::config::get_val;
+use iluvatar_library::utils::config::get_val;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

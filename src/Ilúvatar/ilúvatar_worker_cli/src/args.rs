@@ -2,7 +2,7 @@ extern crate clap;
 use clap::{ArgMatches, App, SubCommand, Arg};
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
-use iluvatar_lib::utils::{config::get_val, port_utils::Port};
+use iluvatar_library::utils::{config::get_val, port_utils::Port};
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]

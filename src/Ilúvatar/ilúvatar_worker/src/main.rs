@@ -1,17 +1,16 @@
 use std::sync::Arc;
 use std::time::Duration;
-use iluvatar_lib::logging::start_tracing;
-use iluvatar_lib::services::invocation::invoker::InvokerService;
-use iluvatar_lib::transaction::{TransactionId, STARTUP_TID};
-use iluvatar_lib::worker_api::config::Configuration;
-use iluvatar_lib::services::containers::containermanager::ContainerManager;
-use iluvatar_lib::worker_api::create_worker;
+use iluvatar_library::logging::start_tracing;
+use iluvatar_worker_library::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
+use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
+use iluvatar_worker_library::worker_api::config::Configuration;
+use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
+use iluvatar_worker_library::worker_api::create_worker;
 use crate::utils::{parse, register_rpc_to_controller};
-use iluvatar_lib::rpc::iluvatar_worker_server::IluvatarWorkerServer;
-use iluvatar_lib::utils::config::get_val;
+use iluvatar_worker_library::rpc::iluvatar_worker_server::IluvatarWorkerServer;
+use iluvatar_library::utils::config::get_val;
 use anyhow::Result;
 use tonic::transport::Server;
-use iluvatar_lib::services::LifecycleFactory;
 use tracing::{debug};
 
 pub mod utils;
@@ -45,7 +44,7 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  iluvatar_lib::utils::file::ensure_temp_dir()?;
+  iluvatar_library::utils::file::ensure_temp_dir()?;
   let tid: &TransactionId = &STARTUP_TID;
 
   let args = parse();

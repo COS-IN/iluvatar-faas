@@ -1511,7 +1511,48 @@ dependencies = [
 ]
 
 [[package]]
-name = "iluvatar_lib"
+name = "iluvatar_controller_library"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "anyhow",
+ "clap",
+ "config",
+ "dashmap",
+ "iluvatar_library",
+ "iluvatar_worker_library",
+ "lazy_static",
+ "parking_lot",
+ "reqwest",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tonic 0.7.2",
+ "tracing",
+]
+
+[[package]]
+name = "iluvatar_library"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "guid-create",
+ "lazy_static",
+ "pin-project",
+ "reqwest",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-appender",
+ "tracing-flame",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "iluvatar_worker_library"
 version = "0.1.0"
 dependencies = [
  "actix-web",
@@ -1522,12 +1563,11 @@ dependencies = [
  "dashmap",
  "guid-create",
  "hex",
+ "iluvatar_library",
  "inotify",
  "lazy_static",
- "log",
  "oci-spec",
  "parking_lot",
- "pin-project",
  "prost 0.10.4",
  "prost-types 0.9.0",
  "reqwest",
@@ -1539,9 +1579,6 @@ dependencies = [
  "tonic 0.7.2",
  "tonic-build 0.7.2",
  "tracing",
- "tracing-appender",
- "tracing-flame",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1549,17 +1586,10 @@ name = "ilúvatar_controller"
 version = "0.1.0"
 dependencies = [
  "actix-web",
- "anyhow",
  "clap",
- "dashmap",
- "iluvatar_lib",
- "log",
- "parking_lot",
- "serde_json",
- "tokio",
+ "iluvatar_controller_library",
+ "iluvatar_library",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1572,7 +1602,9 @@ dependencies = [
  "config",
  "csv",
  "futures",
- "iluvatar_lib",
+ "iluvatar_controller_library",
+ "iluvatar_library",
+ "iluvatar_worker_library",
  "lazy_static",
  "prost 0.10.4",
  "reqwest",
@@ -1589,27 +1621,14 @@ dependencies = [
  "anyhow",
  "async-std",
  "clap",
- "config",
- "containerd-client",
- "guid-create",
- "hex",
- "iluvatar_lib",
- "inotify",
- "log",
- "oci-spec",
- "parking_lot",
- "prost 0.10.4",
- "prost-types 0.9.0",
+ "iluvatar_library",
+ "iluvatar_worker_library",
  "reqwest",
  "rstest",
  "serde",
- "serde_json",
- "sha2",
  "tokio",
  "tonic 0.7.2",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1619,7 +1638,8 @@ dependencies = [
  "anyhow",
  "clap",
  "config",
- "iluvatar_lib",
+ "iluvatar_library",
+ "iluvatar_worker_library",
  "prost 0.10.4",
  "serde",
  "tokio",

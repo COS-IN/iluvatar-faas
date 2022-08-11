@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write};
 use anyhow::Result;
-use iluvatar_lib::utils::{config::get_val, port::Port};
-use iluvatar_lib::load_balancer_api::{lb_structs::json::ControllerInvokeResult};
+use iluvatar_library::utils::{config::get_val, port::Port};
+use iluvatar_controller_library::load_balancer_api::{lb_structs::json::ControllerInvokeResult};
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
 use crate::{utils::{controller_register, controller_invoke, FunctionExecOutput}, trace::CsvInvocation, benchmark::BenchmarkStore};

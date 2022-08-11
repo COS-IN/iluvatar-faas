@@ -2,15 +2,15 @@
 pub mod utils;
 
 use std::sync::Arc;
-use iluvatar_lib::rpc::{RegisterRequest, PrewarmRequest};
-use iluvatar_lib::services::containers::containermanager::ContainerManager;
-use iluvatar_lib::services::LifecycleFactory;
-use iluvatar_lib::utils::calculate_fqdn;
-use iluvatar_lib::worker_api::worker_config::{WorkerConfig, Configuration};
-use iluvatar_lib::transaction::TEST_TID;
-use iluvatar_lib::services::{invocation::invoker::InvokerService};
-use iluvatar_lib::services::containers::structs::cast;
-use iluvatar_lib::services::containers::containerd::containerdstructs::ContainerdContainer;
+use iluvatar_worker_library::rpc::{RegisterRequest, PrewarmRequest};
+use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
+use iluvatar_library::utils::calculate_fqdn;
+use iluvatar_worker_library::worker_api::worker_config::{WorkerConfig, Configuration};
+use iluvatar_library::transaction::TEST_TID;
+use iluvatar_worker_library::services::{invocation::invoker::InvokerService};
+use iluvatar_worker_library::services::containers::structs::cast;
+use iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer;
+use iluvatar_worker_library::services::{containers::LifecycleFactory};
 
 #[cfg(test)]
 mod registration {
@@ -225,8 +225,8 @@ mod prewarm {
 #[cfg(test)]
 mod get_container {
   use super::*;
-  use iluvatar_lib::transaction::TEST_TID;
-use reqwest;
+  use iluvatar_library::transaction::TEST_TID;
+  use reqwest;
 
   #[tokio::test]
   async fn cant_double_acquire() {

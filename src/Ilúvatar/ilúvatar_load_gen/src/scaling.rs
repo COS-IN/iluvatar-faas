@@ -1,7 +1,7 @@
 use std::{time::{Duration, SystemTime}, sync::Arc};
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
-use iluvatar_lib::utils::{config::get_val, port_utils::Port, file_utils::ensure_dir};
+use iluvatar_library::utils::{config::get_val, port_utils::Port, file_utils::ensure_dir};
 use tokio::sync::Barrier;
 use tokio::runtime::Builder;
 use crate::utils::{InvocationResult, ThreadResult, RegistrationResult, worker_register, worker_invoke};

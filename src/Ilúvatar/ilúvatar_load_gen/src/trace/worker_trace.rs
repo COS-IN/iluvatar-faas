@@ -1,11 +1,12 @@
 use std::{collections::HashMap, sync::Arc, path::Path, fs::File, io::Write};
 use anyhow::Result;
-use iluvatar_lib::{utils::{config::get_val, timing::TimedExt}, worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, services::containers::simulation::simstructs::SimulationResult};
-use iluvatar_lib::{transaction::TransactionId, services::containers::simulation::simstructs::SimulationInvocation};
+use iluvatar_library::{utils::{config::get_val, timing::TimedExt}, transaction::{TransactionId, gen_tid}};
+use iluvatar_worker_library::{worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, services::containers::simulation::simstructs::SimulationResult};
+use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationInvocation};
 use clap::ArgMatches;
 use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
-use iluvatar_lib::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse, InvokeResponse};
+use iluvatar_worker_library::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse, InvokeResponse};
 use tonic::{Request, Status, Response};
 
 use super::{Function, CsvInvocation};
@@ -20,7 +21,7 @@ fn register_functions(funcs: &HashMap<u64, Function>, worker: Arc<IluvatarWorker
       memory: v.mem_mb,
       cpus: 1, 
       parallel_invokes: 1,
-      transaction_id : iluvatar_lib::transaction::gen_tid()
+      transaction_id : gen_tid()
     };
     let cln = worker.clone();
     handles.push(rt.spawn(async move {
@@ -44,13 +45,13 @@ pub fn trace_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
 
 fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let config_pth: String = get_val("worker-config", &sub_args)?;
-  let server_config = iluvatar_lib::worker_api::worker_config::Configuration::boxed(false, &config_pth).unwrap();
-  let tid: &TransactionId = &iluvatar_lib::transaction::SIMULATION_START_TID;
+  let server_config = iluvatar_worker_library::worker_api::worker_config::Configuration::boxed(false, &config_pth).unwrap();
+  let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
   let threaded_rt = Builder::new_multi_thread()
                         .enable_all()
                         .build().unwrap();
 
-  let _guard = iluvatar_lib::logging::start_tracing(server_config.logging.clone())?;
+  let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone())?;
   let worker = Arc::new(threaded_rt.block_on(create_worker(server_config.clone(), tid))?);
 
   let trace_pth: String = get_val("input", &sub_args)?;
@@ -78,7 +79,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
       function_version: "0.0.1".to_string(),
       memory: func.mem_mb,
       json_args: serde_json::to_string(&args)?,
-      transaction_id: iluvatar_lib::transaction::gen_tid()
+      transaction_id: gen_tid()
     };
     loop {
       match start.elapsed(){

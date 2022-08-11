@@ -1,9 +1,8 @@
 use crate::args::Worker;
-use iluvatar_lib::utils::config::{get_val, get_val_opt, get_val_mult, args_to_json};
+use iluvatar_library::utils::config::{get_val, get_val_opt, get_val_mult, args_to_json};
 use clap::ArgMatches;
-use iluvatar_lib::rpc::RPCWorkerAPI;
-use iluvatar_lib::transaction::gen_tid;
-use iluvatar_lib::ilúvatar_api::{WorkerAPI, HealthStatus};
+use iluvatar_worker_library::{rpc::RPCWorkerAPI, worker_api::{WorkerAPI, HealthStatus}};
+use iluvatar_library::transaction::gen_tid;
 use anyhow::Result;
 
 pub async fn ping(worker: Box<Worker>) -> Result<()> {

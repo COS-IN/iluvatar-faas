@@ -1,5 +1,6 @@
 use std::sync::Arc;
-use iluvatar_lib::{worker_api::worker_config::Configuration, transaction::TransactionId, load_balancer_api::register_worker};
+use iluvatar_library::{transaction::TransactionId, api_register::register_worker};
+use iluvatar_worker_library::worker_api::worker_config::Configuration;
 use tracing::{debug, info, error};
 use clap::{ArgMatches, App, SubCommand, Arg};
 

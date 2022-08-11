@@ -1,0 +1,112 @@
+use std::sync::Arc;
+use iluvatar_library::{types::MemSizeMb, utils::port_utils::Port, logging::LoggingConfig};
+use iluvatar_library::graphite::GraphiteConfig;
+use serde::Deserialize;
+use config::{Config, ConfigError, File};
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+pub struct Configuration {
+  /// name for the server
+  pub name: String,
+  /// address to listen on
+  pub address: String,
+  /// port to listen on
+  pub port: Port,
+  /// request timeout length in seconds
+  pub timeout_sec: u64,
+  pub limits: Arc<FunctionLimits>,
+  pub logging: Arc<LoggingConfig>,
+  pub networking: Arc<NetworkingConfig>,
+  pub container_resources: Arc<ContainerResources>,
+  /// full URL to access the controller/load balancer, required for worker registration
+  pub load_balancer_url: String,
+  pub graphite: Arc<GraphiteConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+/// total resources the worker is allowed to allocate to conainers
+pub struct ContainerResources {
+  /// total memory pool in MB
+  pub memory_mb: MemSizeMb,
+  /// number of cores it can use, i.e. number of concurrent functions allowed at once
+  pub cores: u32,
+  /// eviciton algorithm to use
+  pub eviction: String,
+  /// timeout on container startup before error
+  pub startup_timeout_ms: u64,
+  /// amount of memory the container pool monitor will try and maintain as a buffer (eager eviction)
+  pub memory_buffer_mb: MemSizeMb,
+  /// how often the container pool monitor will run, in seconds
+  pub pool_freq_sec: u64,
+  /// container backend to use: 
+  /// containerd, docker (not implemented yet)
+  pub backend: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+/// limits to place on an individual invocaiton
+pub struct FunctionLimits {
+  /// minimum memory allocation allowed
+  pub mem_min_mb: MemSizeMb,
+  /// maximum memory allocation allowed
+  pub mem_max_mb: MemSizeMb,
+  /// maximum cpu allocation allowed
+  pub cpu_max: u32,
+  /// invocation length timeout
+  pub timeout_sec: u64,
+  /// number of retries before giving up on an invocation
+  /// Setting to 0 means no retries
+  pub retries: u32
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(unused)]
+pub struct NetworkingConfig {
+  /// bridge name to create
+  pub bridge: String,
+  /// path to cnitool executable
+  pub cnitool: String,
+  /// directory with cnitool plugins
+  pub cni_plugin_bin: String,
+  /// name of cni json file for bridge setup
+  pub cni_name: String,
+  /// use a pool of network namespaces
+  pub use_pool: bool,
+  /// number of free namspaces to keep in the pool
+  pub pool_size: usize,
+  /// frequency of namespace pool monitor runs
+  pub pool_freq_sec: u64,
+  /// network interface to attach bridge to
+  pub hardware_interface: String,
+}
+
+pub type WorkerConfig = Arc<Configuration>;
+
+impl Configuration {
+  pub fn new(cleaning: bool, config_fpath: &String) -> Result<Self, ConfigError> {
+    let sources = vec!["worker/src/worker.json", "worker/src/worker.dev.json", config_fpath.as_str()];
+    let s = Config::builder()
+      .add_source(
+        sources.iter().filter(|path| {
+          std::path::Path::new(&path).exists()
+        })
+        .map(|path| File::with_name(path))
+        .collect::<Vec<_>>())
+      .add_source(config::Environment::with_prefix("ILUVATAR_WORKER")
+          .try_parsing(true)
+          .separator("__"));
+    let s = match cleaning {
+      false => s.build()?,
+      // disable network pool during cleaning
+      true => s.set_override("networking.use_pool", false)?.build()?,
+    };
+    s.try_deserialize()
+  }
+
+  pub fn boxed(cleaning: bool, config_fpath: &String) -> Result<WorkerConfig, ConfigError> {
+    Ok(Arc::new(Configuration::new(cleaning, config_fpath)?))
+  }
+}

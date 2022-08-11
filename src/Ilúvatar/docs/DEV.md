@@ -24,7 +24,7 @@ Any error encountered during startup should cause an exit.
 
 ### Logging
 
-ALL functions that log something **must** take a `&iluvatar_lib::transaction::TransactionId` paramater, typically named `tid`.
+ALL functions that log something **must** take a `&iluvatar_library::transaction::TransactionId` paramater, typically named `tid`.
 Maintaining this `TransactionId` across the execution path of a request will enable efficient correlation of events in the system.
 This `TransactionId` **must** be placed in log messages.
 The `tracing` crate enables json and structured logging, future log messages should pass the `TransactionId` via a `tid` argument.

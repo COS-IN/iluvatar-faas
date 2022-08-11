@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use anyhow::Result;
-use iluvatar_lib::{utils::config::get_val, types::MemSizeMb};
+use iluvatar_library::{utils::config::get_val, types::MemSizeMb};
 use clap::{ArgMatches, App, SubCommand, Arg};
 
 mod worker_trace;
