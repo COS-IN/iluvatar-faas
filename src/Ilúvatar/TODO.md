@@ -25,7 +25,7 @@ Inside `containerlife`, happens very rarely
 
 ## Span Tracing 
 
-Put `#[tracing::instrument(skip(self))]` on all the functions that handle Ilúvatar worker and controller important paths.
+Put `#[tracing::instrument(skip(self), fields(tid=%tid))]` on all the functions that handle Ilúvatar worker and controller important paths.
 Make sure nothing big is being logged, to maintain performance.
 Document the ability to disable them via config.
 

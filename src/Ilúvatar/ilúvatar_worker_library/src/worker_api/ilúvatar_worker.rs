@@ -32,7 +32,7 @@ impl IluvatarWorkerImpl {
 #[tonic::async_trait]
 impl IluvatarWorker for IluvatarWorkerImpl {
     
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn ping(
       &self,
       request: Request<PingRequest>,
@@ -45,7 +45,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       Ok(Response::new(reply))
   }
 
-  #[tracing::instrument(skip(self))]
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
   async fn invoke(&self,
     request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
       let request = request.into_inner();
@@ -72,7 +72,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       }
     }
 
-  #[tracing::instrument(skip(self))]
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
   async fn invoke_async(&self,
     request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
       let request = request.into_inner();
@@ -97,11 +97,11 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       }
     }
 
-  #[tracing::instrument(skip(self))]
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
   async fn invoke_async_check(&self, request: Request<InvokeAsyncLookupRequest>) -> Result<Response<InvokeResponse>, Status> {
     let request = request.into_inner();
     info!(tid=%request.transaction_id, "Handling invoke async check");
-    let resp = self.invoker.invoke_async_check(&request.lookup_cookie);
+    let resp = self.invoker.invoke_async_check(&request.lookup_cookie, &request.transaction_id);
     match resp {
       Ok( resp ) => {
         Ok(Response::new(resp))
@@ -117,7 +117,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     }
   }
 
-  #[tracing::instrument(skip(self))]
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
   async fn prewarm(&self,
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();
@@ -143,7 +143,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       }
     }
 
-  #[tracing::instrument(skip(self))]
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
   async fn register(&self,
     request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
       let request = request.into_inner();
@@ -169,7 +169,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       }
   }
     
-  #[tracing::instrument(skip(self))]
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
   async fn status(&self,
     request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
       let request = request.into_inner();
@@ -193,7 +193,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       Ok(Response::new(resp))
     }
 
-  #[tracing::instrument(skip(self))]
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
   async fn health(&self,
     request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
       let request = request.into_inner();

@@ -124,7 +124,7 @@ mod invoke_async {
       Ok( cookie ) => {
         assert_ne!(cookie, "");
         loop {
-          let result = invok_svc.invoke_async_check(&cookie);
+          let result = invok_svc.invoke_async_check(&cookie, &"testTID".to_string());
           match result {
             Ok(result) => {
               if result.success {
@@ -181,7 +181,7 @@ mod invoke_async {
       Ok( cookie ) => {
         assert_ne!(cookie, "");
         loop {
-          let result = invok_svc.invoke_async_check(&cookie);
+          let result = invok_svc.invoke_async_check(&cookie, &"testTID".to_string());
           match result {
             Ok(result) => {
               if result.success {

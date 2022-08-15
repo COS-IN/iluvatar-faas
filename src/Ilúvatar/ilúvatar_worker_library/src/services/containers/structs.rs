@@ -90,7 +90,7 @@ impl<'a> ContainerLock<'a> {
   }
 
   /// ask the internal container to invoke the function
-  #[tracing::instrument(skip(self, json_args))]
+  #[tracing::instrument(skip(self, json_args), fields(tid=%self.transaction_id))]
   pub async fn invoke(&self, json_args: &String) -> Result<String> {
     self.container.invoke(json_args, self.transaction_id).await
   }
@@ -100,7 +100,7 @@ impl<'a> ContainerLock<'a> {
 impl<'a> Drop for ContainerLock<'a> {
   fn drop(&mut self) {
     debug!(tid=%self.transaction_id, container_id=%self.container.container_id(), "Dropping container lock");
-    self.container_mrg.return_container(&self.container);
+    self.container_mrg.return_container(&self.container, &self.transaction_id);
   }
 }
 
