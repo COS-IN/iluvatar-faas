@@ -84,12 +84,12 @@ message StatusResponse {
   int64 cpu_wa = 8;
   double load_avg_1minute = 9;
   uint32 num_system_cores = 10;
+  uint32 num_running_funcs = 11;
 }
 
 message HealthRequest {
   string transaction_id = 1;
 }
-
 
 enum RpcHealthStatus {
   HEALTHY = 0;
@@ -98,7 +98,6 @@ enum RpcHealthStatus {
 message HealthResponse {
   RpcHealthStatus status = 1;
 }
-
 
 service IluvatarWorker {
   rpc ping(PingRequest) returns (PingResponse) {}

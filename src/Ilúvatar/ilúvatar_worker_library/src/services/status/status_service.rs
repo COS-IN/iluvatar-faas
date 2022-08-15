@@ -40,6 +40,7 @@ impl StatusService {
         cpu_wa: 0,
         load_avg_1minute: 0.0,
         num_system_cores: 0,
+        num_running_funcs: 0,
       })),
       worker_thread: handle,
       graphite: GraphiteService::new(graphite_cfg),
@@ -144,6 +145,7 @@ impl StatusService {
     let queue_len = self.invoker_service.queue_len() as i64;
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();
+    let running = self.container_manager.running_functions();
 
     let new_status = Arc::new(WorkerStatus {
       queue_len,
@@ -154,7 +156,8 @@ impl StatusService {
       cpu_id: id,
       cpu_wa: wa,
       load_avg_1minute: minute_load_avg,
-      num_system_cores: nprocs
+      num_system_cores: nprocs,
+      num_running_funcs: running
     });
     info!(tid=%tid, status=?new_status,"current load status");
 

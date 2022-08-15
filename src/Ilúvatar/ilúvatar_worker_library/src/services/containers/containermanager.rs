@@ -111,7 +111,10 @@ impl ContainerManager {
     self.resources.memory_mb
   }
   pub fn free_cores(&self) -> u32 {
-    self.resources.cores - *self.running_funcs.read()
+    self.resources.cores - self.running_functions()
+  }
+  pub fn running_functions(&self) -> u32 {
+    *self.running_funcs.read()
   }
 
   #[tracing::instrument(skip(self))]

@@ -187,7 +187,8 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         cpu_id: stat.cpu_id,
         cpu_wa: stat.cpu_wa,
         load_avg_1minute: stat.load_avg_1minute,
-        num_system_cores: stat.num_system_cores
+        num_system_cores: stat.num_system_cores,
+        num_running_funcs: stat.num_running_funcs
       };
       Ok(Response::new(resp))
     }

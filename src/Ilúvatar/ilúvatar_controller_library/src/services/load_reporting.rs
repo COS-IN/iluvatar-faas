@@ -76,9 +76,12 @@ impl LoadService {
           },
         };
         match self.config.load_metric.as_str() {
-          // TODO: this load won't be right (in simulation!!)
-          "worker.load.loadavg" => update.insert(name, status.load_avg_1minute),
-          _ => todo!()
+          "worker.load.loadavg" => update.insert(name, (status.queue_len as f64 + status.num_running_funcs as f64) / status.num_system_cores as f64),
+          "worker.load.running" => update.insert(name, status.num_running_funcs as f64),
+          "worker.load.cpu_pct" => update.insert(name, status.num_running_funcs as f64 / status.num_system_cores as f64),
+          "worker.load.mem_pct" => update.insert(name, status.used_mem as f64 / status.total_mem as f64),
+          "worker.load.queue" => update.insert(name, status.queue_len as f64),
+          _ => { error!(tid=%tid, metric=%self.config.load_metric, "Unknown load metric"); return; }
         };
       }
       

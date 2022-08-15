@@ -25,5 +25,7 @@ pub struct WorkerStatus {
   pub load_avg_1minute: f64,
   /// The number of (logical) CPU cores on the system
   /// used to normalize the load average value
-  pub num_system_cores: u32
+  pub num_system_cores: u32,
+  /// the number of currently running functions on the system
+  pub num_running_funcs: u32,
 }
