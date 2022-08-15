@@ -13,7 +13,8 @@ members = [
   "ilúvatar_controller_library",
   "ilúvatar_controller",
   "ilúvatar_library",
-  "ilúvatar_worker_library"
+  "ilúvatar_worker_library",
+  "ilúvatar_energy_mon"
 ]
 
 [profile.dev]
