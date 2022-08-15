@@ -5,7 +5,7 @@ pub mod utils;
 pub mod trace;
 pub mod benchmark;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> anyhow::Result<()> {
   let app = config::app();
 
   let app = trace::trace_args(app);
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ("scaling", Some(sub_args)) => { scaling::scaling(&args, &sub_args) },
     ("trace", Some(sub_args)) => { trace::run_trace(&args, &sub_args) },
     ("benchmark", Some(sub_args)) => { benchmark::benchmark_functions(&args, &sub_args) },
-    (text,_) => { panic!("Unsupported command {}", text) },
+    (text,_) => anyhow::bail!("Unknown command {}, try --help", text),
   }?;
   Ok(())
 }

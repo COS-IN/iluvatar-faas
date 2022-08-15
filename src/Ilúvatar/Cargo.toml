@@ -33,3 +33,11 @@ overflow-checks=false
 incremental=false
 strip=true
 panic="abort"
+
+[profile.release.package."*"]
+opt-level=3
+debug=0
+debug-assertions=false
+overflow-checks=false
+incremental=false
+strip=true
