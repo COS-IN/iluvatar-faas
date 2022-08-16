@@ -190,8 +190,8 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
     println!("{}", function);
     let mut func_data = FunctionStore::new();
     for iter in 0..cold_repeats {
-      let name = format!("{}-bench-{}", function, iter);
-      let version = format!("0.0.{}", iter);
+      let name = function.clone();
+      let version = iter.to_string();
       let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
       let (_s, _reg_dur, _tid) = match worker_register(&name, &version, &image, 512, &host, port).await {
         Ok(r) => r,
