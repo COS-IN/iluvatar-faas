@@ -1,25 +1,23 @@
-use std::collections::HashMap;
-
 use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::utils::calculate_fqdn;
 use serde::{Deserialize, Deserializer};
 use time::OffsetDateTime;
 use time::serde::rfc3339;
 
+#[derive(Debug)]
 pub struct Span {
   pub timestamp: OffsetDateTime,
   pub level: String,
-  pub fields: HashMap<String, Field>,
+  pub fields: Field,
   pub target: String,
   pub span: SubSpan,
   pub spans: Vec<SubSpan>,
   pub name: String,
   pub uuid: String,
 }
-#[derive(Deserialize)]
-#[serde(untagged)]
-pub enum Field {
-  String(String),
-  Number(i64)
+#[derive(Deserialize, Debug)]
+pub struct Field {
+  pub message: String,
 }
 
 impl<'de> Deserialize<'de> for Span {
@@ -33,12 +31,8 @@ impl<'de> Deserialize<'de> for Span {
     let level = json.get("level").expect("level").to_string();
     let target = json.get("target").expect("target").to_string();
     let target = target.strip_prefix("\"").unwrap().strip_suffix("\"").unwrap().to_string();
-    let fields = match serde_json::from_value(json.get("fields").expect("fields").clone()) {
-      Ok(f) => f,
-      Err(e) => {
-        panic!("fields: {:?} \n error: {}", json.get("fields"), e);
-      },
-    };
+    let fields = serde_json::from_value(json.get("fields").expect("fields").clone()).unwrap();
+
     let span: SubSpan = serde_json::from_value(json.get("span").expect("span").clone()).unwrap();
     let spans = serde_json::from_value(json.get("spans").expect("spans").clone()).unwrap();
     let name = format!("{}::{}", target, span.name);
@@ -48,8 +42,24 @@ impl<'de> Deserialize<'de> for Span {
   }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct SubSpan {
   pub tid: TransactionId,
   pub name: String,
+  pub function_name: Option<String>,
+  pub function_version: Option<String>,
+  pub fqdn: Option<String>,
+}
+impl SubSpan {
+  pub fn fqdn(&self) -> Option<String> {
+    match &self.fqdn {
+      Some(f) => Some(f.clone()),
+      None => match &self.function_name {
+        Some(f_n) => {
+          Some(calculate_fqdn(f_n, self.function_version.as_ref().unwrap()))
+        },
+        None => None,
+      },
+    }
+  }
 }

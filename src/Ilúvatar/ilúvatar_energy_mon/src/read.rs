@@ -13,7 +13,7 @@ pub struct LogMonitor {
   stream_pos: u64,
   buffered_reader: BufReader<File>,
   invocation_spans: HashMap<String, Span>,
-  invocation_durations: HashMap<String, i128>,
+  invocation_durations: HashMap<String, (String, i128)>,
   worker_spans: HashMap<String, Span>,
   total_spans: u64,
   pub functions: HashSet<String>,
@@ -42,37 +42,34 @@ impl LogMonitor {
       if buff.contains("span") {
         match serde_json::from_str::<Span>(&buff) {
           Ok(span) => {
-            match span.fields.get("message").unwrap() {
-              crate::structs::Field::String(s) => match s.as_str() {
-                "enter" => (),
-                "exit" => (),
-                "close" => {
-                  match span.name.as_str() {
-                    INVOKE_ID => {self.remove_invoke_transaction(&span.uuid, &span);},
-                    REGISTER_API_ID => {
-                      overhead_ns += self.remove_worker_transaction(&span.uuid, &span, &mut timing_data);
-                    },
-                    INVOKE_API_ID => {
-                      overhead_ns += self.remove_worker_transaction(&span.uuid, &span, &mut timing_data);
-                    },
-                    // TODO: account for background work done here
-                    _ => (),
-                  };
-                },
-                "new" =>  {
-                  self.functions.insert(span.name.clone());
-                  self.total_spans += 1;
-                  match span.name.as_str() {
-                    INVOKE_ID => {self.invocation_spans.insert(span.uuid.clone(), span);},
-                    REGISTER_API_ID => {self.worker_spans.insert(span.uuid.clone(), span);},
-                    INVOKE_API_ID => {self.worker_spans.insert(span.uuid.clone(), span);},
-                    // TODO: account for background work done here
-                    _ => (),
-                  }
-                },
-                _ => (),
+            match span.fields.message.as_str() {
+              "enter" => (),
+              "exit" => (),
+              "close" => {
+                match span.name.as_str() {
+                  INVOKE_ID => {self.remove_invoke_transaction(&span.uuid, &span);},
+                  REGISTER_API_ID => {
+                    overhead_ns += self.remove_worker_transaction(&span.uuid, &span, &mut timing_data);
+                  },
+                  INVOKE_API_ID => {
+                    overhead_ns += self.remove_worker_transaction(&span.uuid, &span, &mut timing_data);
+                  },
+                  // TODO: account for background work done here
+                  _ => (),
+                };
               },
-              crate::structs::Field::Number(_) => todo!(),
+              "new" =>  {
+                self.functions.insert(span.name.clone());
+                self.total_spans += 1;
+                match span.name.as_str() {
+                  INVOKE_ID => {self.invocation_spans.insert(span.uuid.clone(), span);},
+                  REGISTER_API_ID => {self.worker_spans.insert(span.uuid.clone(), span);},
+                  INVOKE_API_ID => {self.worker_spans.insert(span.uuid.clone(), span);},
+                  // TODO: account for background work done here
+                  _ => (),
+                }
+              },
+              _ => (),
             }
           },
           Err(e) => {
@@ -93,7 +90,10 @@ impl LogMonitor {
     match found_stamp {
       Some(s) => {
         let time_ns = span.timestamp.unix_timestamp_nanos() - s.timestamp.unix_timestamp_nanos();
-        self.invocation_durations.insert(span.span.tid.clone(), time_ns);
+        match s.span.fqdn() {
+          Some(f) => {self.invocation_durations.insert(span.span.tid.clone(), (f, time_ns) );},
+          None => panic!("Span didn't have a valid FQDN: {:?}", s),
+        }
       },
       None => println!("Tried to remove {} that wasn't found", id),
     }
@@ -104,9 +104,12 @@ impl LogMonitor {
       Some(s) => {
         let time_ns = span.timestamp.unix_timestamp_nanos() - s.timestamp.unix_timestamp_nanos();
         match self.invocation_durations.get(&span.span.tid) {
-          Some(invoke_ns) => {
+          Some( (fqdn, invoke_ns) ) => {
             let overhead = time_ns - invoke_ns;
-            timing_data.insert(span.span.tid.clone(), *invoke_ns);
+            match timing_data.get_mut(fqdn) {
+              Some(v) => *v += *invoke_ns,
+              None => {timing_data.insert(fqdn.clone(), *invoke_ns);},
+            };
             overhead
           },
           None => time_ns,
