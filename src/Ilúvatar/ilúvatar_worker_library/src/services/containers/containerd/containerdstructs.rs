@@ -62,7 +62,7 @@ impl ContainerdContainer {
 
 #[tonic::async_trait]
 impl ContainerT for ContainerdContainer {
-  #[tracing::instrument(skip(self, json_args), fields(tid=%tid))]
+  #[tracing::instrument(skip(self, json_args), fields(tid=%tid), name="ContainerdContainer::invoke")]
   async fn invoke(&self, json_args: &String, tid: &TransactionId) -> anyhow::Result<String> {
     *self.invocations.lock() += 1;
 

@@ -45,6 +45,7 @@ pub struct SimulationResult {
 
 #[tonic::async_trait]
 impl ContainerT for SimulatorContainer {
+  #[tracing::instrument(skip(self, json_args), fields(tid=%tid), name="SimulatorContainer::invoke")]
   async fn invoke(&self, json_args: &String, tid: &TransactionId) ->  Result<String> {
     // just sleep for a while based on data from json args
     let data = match serde_json::from_str::<SimulationInvocation>(json_args) {

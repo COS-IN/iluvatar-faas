@@ -193,7 +193,7 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
       let name = format!("{}-bench-{}", function, iter);
       let version = format!("0.0.{}", iter);
       let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
-      let (_s, _reg_dur, tid) = match worker_register(&name, &version, &image, 512, &host, port).await {
+      let (_s, _reg_dur, _tid) = match worker_register(&name, &version, &image, 512, &host, port).await {
         Ok(r) => r,
         Err(e) => {
           println!("{}", e);
@@ -202,6 +202,7 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
       };
 
       for _ in 0..warm_repeats {
+        let tid: iluvatar_library::transaction::TransactionId = iluvatar_library::transaction::gen_tid();
         match worker_invoke(&name, &version, &host, port, &tid, None).await {
           Ok( (response, invok_out, invok_lat) ) => {
             let invok_lat_f = invok_lat as f64;
