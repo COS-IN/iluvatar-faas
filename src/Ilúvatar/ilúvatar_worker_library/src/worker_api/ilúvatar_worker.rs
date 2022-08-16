@@ -45,7 +45,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       Ok(Response::new(reply))
   }
 
-  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id, function_name=%request.get_ref().function_name, function_version=%request.get_ref().function_version))]
   async fn invoke(&self,
     request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
       let request = request.into_inner();

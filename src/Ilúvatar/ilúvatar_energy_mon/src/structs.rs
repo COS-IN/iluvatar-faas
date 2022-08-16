@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use iluvatar_library::transaction::TransactionId;
 use serde::{Deserialize, Deserializer};
 use time::OffsetDateTime;
 use time::serde::rfc3339;
@@ -5,12 +8,18 @@ use time::serde::rfc3339;
 pub struct Span {
   pub timestamp: OffsetDateTime,
   pub level: String,
-  pub fields: Fields,
+  pub fields: HashMap<String, Field>,
   pub target: String,
   pub span: SubSpan,
   pub spans: Vec<SubSpan>,
   pub name: String,
   pub uuid: String,
+}
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum Field {
+  String(String),
+  Number(i64)
 }
 
 impl<'de> Deserialize<'de> for Span {
@@ -24,7 +33,12 @@ impl<'de> Deserialize<'de> for Span {
     let level = json.get("level").expect("level").to_string();
     let target = json.get("target").expect("target").to_string();
     let target = target.strip_prefix("\"").unwrap().strip_suffix("\"").unwrap().to_string();
-    let fields = serde_json::from_value(json.get("fields").expect("fields").clone()).unwrap();
+    let fields = match serde_json::from_value(json.get("fields").expect("fields").clone()) {
+      Ok(f) => f,
+      Err(e) => {
+        panic!("fields: {:?} \n error: {}", json.get("fields"), e);
+      },
+    };
     let span: SubSpan = serde_json::from_value(json.get("span").expect("span").clone()).unwrap();
     let spans = serde_json::from_value(json.get("spans").expect("spans").clone()).unwrap();
     let name = format!("{}::{}", target, span.name);
@@ -35,12 +49,7 @@ impl<'de> Deserialize<'de> for Span {
 }
 
 #[derive(Deserialize)]
-pub struct Fields {
-  pub message: String,
-}
-
-#[derive(Deserialize)]
 pub struct SubSpan {
-  pub tid: String,
+  pub tid: TransactionId,
   pub name: String,
 }
