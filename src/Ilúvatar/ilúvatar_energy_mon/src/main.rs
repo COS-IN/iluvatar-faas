@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
   loop {
     monitor.read_log()?;
   
-    println!("{:?}", monitor.functions);
+    // println!("{:?}", monitor.functions);
 
     let rapl = rapl::RAPL::record()?;
     let (time, uj) = rapl.difference(&curr_rapl)?;

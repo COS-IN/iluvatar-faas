@@ -19,8 +19,9 @@ pub struct LoggingConfig {
   pub directory: String,
   /// log filename start string
   pub basename: String,
-  /// how to log spans 
+  /// How to log spans, in all caps
   /// look at for details [tracing_subscriber::fmt::format]
+  /// Multiple options can be passed by listing them as a list using '+' between values
   pub spanning: String,
   /// a file to put flame trace data in 
   /// See (here)[https://docs.rs/tracing-flame/latest/tracing_flame/index.html] for details
@@ -30,16 +31,20 @@ pub struct LoggingConfig {
 }
 
 fn str_to_span(spanning: &String) -> FmtSpan {
-  match spanning.to_lowercase().as_str() {
-    "new" => FmtSpan::NEW,
-    "enter" => FmtSpan::ENTER,
-    "exit" => FmtSpan::EXIT,
-    "close" => FmtSpan::CLOSE,
-    "none" => FmtSpan::NONE,
-    "active" => FmtSpan::ACTIVE,
-    "full" => FmtSpan::FULL,
-    _ => panic!("Unknown spanning value {}", spanning),
+  let mut fmt = FmtSpan::NONE;
+  for choice in spanning.split("+") {
+    fmt |= match choice {
+      "NEW" => FmtSpan::NEW,
+      "ENTER" => FmtSpan::ENTER,
+      "EXIT" => FmtSpan::EXIT,
+      "CLOSE" => FmtSpan::CLOSE,
+      "NONE" => FmtSpan::NONE,
+      "ACTIVE" => FmtSpan::ACTIVE,
+      "FULL" => FmtSpan::FULL,
+      _ => panic!("Unknown spanning value {}", choice),
+    }
   }
+  fmt
 }
 
 pub fn start_tracing(config: Arc<LoggingConfig>) -> Result<impl Drop> {

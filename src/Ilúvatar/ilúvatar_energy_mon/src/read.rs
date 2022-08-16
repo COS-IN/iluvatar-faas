@@ -34,14 +34,14 @@ impl LogMonitor {
         match serde_json::from_str::<Span>(&buff) {
           Ok(span) => {
             match span.fields.message.as_str() {
-              "new" => (),
-              "exit" => {
+              "enter" => (),
+              "exit" => (),
+              "close" => {
                 if span.name == "iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer::invoke" {
                   self.remove_transaction(&span.uuid, span.timestamp)
                 }
               },
-              "close" => (),
-              "enter" =>  {
+              "new" =>  {
                 if span.name == "iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer::invoke" {
                   self.add_transaction(span.uuid.clone(), span.timestamp);
                 }
@@ -66,7 +66,11 @@ impl LogMonitor {
   fn remove_transaction(&mut self, id: &String, stamp: OffsetDateTime) {
     let found_stamp = self.outstanding_spans.remove(id);
     match found_stamp {
-      Some(s) => println!("{} {}", id, stamp.unix_timestamp_nanos() - s.unix_timestamp_nanos()),
+      Some(s) => {
+        let time_ns = stamp.unix_timestamp_nanos() - s.unix_timestamp_nanos();
+        let time_ms = time_ns as f64 / 1000000.0;
+        println!("{} {}", id, time_ms)
+      },
       None => println!("Tried to remove {} that wasn't found", id),
     }
   }
