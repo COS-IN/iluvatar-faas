@@ -1,10 +1,9 @@
 use std::{sync::Arc, path::PathBuf};
-use tracing::metadata::LevelFilter;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 use anyhow::Result;
 use tracing_flame::FlameLayer;
-use tracing_subscriber::prelude::*;
+use tracing_subscriber::{prelude::*, Registry};
 use crate::energy::energy_layer::EnergyLayer;
 use crate::graphite::GraphiteConfig;
 use crate::utils::file_utils::ensure_dir;
@@ -73,29 +72,27 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
   };
   drops.push(Box::new(_guard));
 
+  let energy_layer = EnergyLayer::new(graphite_cfg);
+  let filter_layer = EnvFilter::builder()
+   .parse(&config.level)?;
+  let layers = Registry::default()
+    .with(filter_layer)
+    .with(energy_layer);
+  let writer_layer = tracing_subscriber::fmt::layer()
+    .with_span_events(str_to_span(&config.spanning))
+    .with_writer(non_blocking);
+
   match config.flame.as_str() {
     "" => {
-      // tracing_subscriber:;registry()
-      //   .with(EnergyLayer)
-      //   .
-
-      let builder = tracing_subscriber::fmt()
-        .with_max_level(config.level.parse::<LevelFilter>()?)
-        .with_span_events(str_to_span(&config.spanning))
-        .with_writer(non_blocking);
       match config.directory.as_str() {
-        "" => builder.init(),
-        _ => builder.json().with_span_list(true).init(),
+        "" => layers.with(writer_layer).init(),
+        _ => layers.with(writer_layer.json()).init(),
       };
     },
     _ => {
-      let filter_layer = EnvFilter::builder()
-                          .parse(&config.level)?;
       let (flame_layer, _flame_guard) = FlameLayer::with_file(&config.flame).unwrap();
-      tracing_subscriber::registry()
-        .with(filter_layer)
+      layers.with(writer_layer.json())
         .with(flame_layer)
-        .with(EnergyLayer::new(graphite_cfg))
         .init();
       drops.push(Box::new(_flame_guard));
     }
