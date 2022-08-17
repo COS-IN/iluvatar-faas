@@ -58,6 +58,7 @@ impl EnergyMonitor {
   }
 
   fn monitor_energy(&self, tid: &TransactionId) {
+    // TODO: push energy metrics to graphite
     self.graphite.publish_metrics(&vec![], vec![], tid, "".to_string());
   }
 
