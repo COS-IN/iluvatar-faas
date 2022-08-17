@@ -1538,8 +1538,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dashmap",
  "guid-create",
  "lazy_static",
+ "parking_lot",
  "pin-project",
  "reqwest",
  "rstest",

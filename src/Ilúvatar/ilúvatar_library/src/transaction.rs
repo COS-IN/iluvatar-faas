@@ -18,4 +18,5 @@ lazy_static::lazy_static! {
   pub static ref LEAST_LOADED_TID: TransactionId = "LeastLoadedLB".to_string();
   pub static ref SIMULATION_START_TID: TransactionId = "SimulationStartup".to_string();
   pub static ref LOAD_MONITOR_TID: TransactionId = "LoadMonitor".to_string();
+  pub static ref ENERGY_MONITOR_TID: TransactionId = "EnergyMonitor".to_string();
 }

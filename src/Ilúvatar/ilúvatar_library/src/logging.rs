@@ -5,7 +5,9 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use anyhow::Result;
 use tracing_flame::FlameLayer;
 use tracing_subscriber::prelude::*;
-use crate::{utils::file_utils::ensure_dir, energy::EnergyLayer};
+use crate::energy::energy_layer::EnergyLayer;
+use crate::graphite::GraphiteConfig;
+use crate::utils::file_utils::ensure_dir;
 
 #[derive(Debug, serde::Deserialize)]
 #[allow(unused)]
@@ -47,7 +49,7 @@ fn str_to_span(spanning: &String) -> FmtSpan {
   fmt
 }
 
-pub fn start_tracing(config: Arc<LoggingConfig>) -> Result<impl Drop> {
+pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfig>) -> Result<impl Drop> {
   #[allow(dyn_drop)]
   let mut drops:Vec<Box<dyn Drop>> = Vec::new();
   let (non_blocking, _guard) = match config.directory.as_str() {
@@ -93,7 +95,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>) -> Result<impl Drop> {
       tracing_subscriber::registry()
         .with(filter_layer)
         .with(flame_layer)
-        .with(EnergyLayer {})
+        .with(EnergyLayer::new(graphite_cfg))
         .init();
       drops.push(Box::new(_flame_guard));
     }

@@ -53,12 +53,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   match args.subcommand() {
     ("clean", Some(_)) => {
       let server_config = Configuration::boxed(true, &config_pth).unwrap();
-      let _guard = start_tracing(server_config.logging.clone())?;
+      let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone())?;
       clean(server_config, tid).await?;
       },
     (_,_) => { 
       let server_config = Configuration::boxed(false, &config_pth).unwrap();
-      let _guard = start_tracing(server_config.logging.clone())?;
+      let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone())?;
       run(server_config, tid).await?;
      },
   };

@@ -19,7 +19,8 @@ tracing-subscriber = { version = "0.3", features = ["json", "tracing-log", "park
 tracing-appender = "0.2.2"
 tracing-flame="0.2"
 pin-project = "1"
-
+dashmap = "5.3.4"
+parking_lot = "0.12.1"
 
 [dev-dependencies]
 rstest = "0.13.0"
