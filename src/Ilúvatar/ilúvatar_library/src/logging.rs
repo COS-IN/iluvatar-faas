@@ -5,7 +5,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use anyhow::Result;
 use tracing_flame::FlameLayer;
 use tracing_subscriber::prelude::*;
-use crate::utils::file_utils::ensure_dir;
+use crate::{utils::file_utils::ensure_dir, energy::EnergyLayer};
 
 #[derive(Debug, serde::Deserialize)]
 #[allow(unused)]
@@ -73,6 +73,10 @@ pub fn start_tracing(config: Arc<LoggingConfig>) -> Result<impl Drop> {
 
   match config.flame.as_str() {
     "" => {
+      // tracing_subscriber:;registry()
+      //   .with(EnergyLayer)
+      //   .
+
       let builder = tracing_subscriber::fmt()
         .with_max_level(config.level.parse::<LevelFilter>()?)
         .with_span_events(str_to_span(&config.spanning))
@@ -89,6 +93,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>) -> Result<impl Drop> {
       tracing_subscriber::registry()
         .with(filter_layer)
         .with(flame_layer)
+        .with(EnergyLayer {})
         .init();
       drops.push(Box::new(_flame_guard));
     }
