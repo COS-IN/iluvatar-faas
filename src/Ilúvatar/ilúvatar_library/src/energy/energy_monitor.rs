@@ -1,5 +1,5 @@
 use std::{time::SystemTime, sync::{Arc, mpsc::{Receiver, channel}}, collections::HashMap, thread::JoinHandle};
-use crate::{graphite::{graphite_svc::GraphiteService, GraphiteConfig}, transaction::TransactionId};
+use crate::{graphite::{graphite_svc::GraphiteService, GraphiteConfig}, transaction::TransactionId, energy::rapl::RAPL};
 
 use super::energy_layer::DataExtractorVisitor;
 use dashmap::DashMap;
@@ -19,6 +19,7 @@ pub struct EnergyMonitor {
   overhead_ns: Arc<RwLock<u128>>,
   graphite: Arc<GraphiteService>,
   _worker_thread: JoinHandle<()>,
+  metrics: Vec<String>,
 }
 
 impl EnergyMonitor {
@@ -34,6 +35,7 @@ impl EnergyMonitor {
       overhead_ns: Arc::new(RwLock::new(0)),
       graphite: GraphiteService::boxed(graphite_cfg),
       _worker_thread: handle,
+      metrics: vec!["worker.energy.used_uj".to_string(), "worker.energy.overhead_pct".to_string()]
     });
     tx.send(ret.clone()).unwrap();
     ret
@@ -50,16 +52,54 @@ impl EnergyMonitor {
         },
       };
       debug!(tid=%tid, "energy monitor worker started");
+      // todo: unwraps
+      let mut curr_rapl = RAPL::record().unwrap();
       loop {
-        svc.monitor_energy(tid);
         std::thread::sleep(std::time::Duration::from_secs(20));
+        let rapl = RAPL::record().unwrap();
+        let (time, uj) = rapl.difference(&curr_rapl).unwrap();
+  
+        if svc.monitor_energy(tid, time, uj) {
+          curr_rapl = rapl;
+        };
       }
     })
   }
 
-  fn monitor_energy(&self, tid: &TransactionId) {
+  fn monitor_energy(&self, tid: &TransactionId, _time: u128, uj: u128) -> bool {
+    let (invocation_durations, overhead) = self.get_data();
+    if invocation_durations.len() == 0 {
+      return false;
+    }
+    let mut function_data = HashMap::new();
+    let mut tot_time_ns = overhead;
+
+    for (_tid, (fqdn, time_ns)) in invocation_durations.iter() {
+      match function_data.get_mut(&fqdn.as_str()) {
+        Some(time) => {
+          *time += time_ns;
+          tot_time_ns += time_ns;
+        },
+        None => {
+          function_data.insert(fqdn.as_str(), *time_ns);
+          tot_time_ns += time_ns;
+        },
+      }
+    }
+
+    let overhead_pct = overhead as f64 / tot_time_ns as f64;
+    println!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time_ns, overhead_pct);
+    // let mut shares = HashMap::new();
+    // for (k,v) in function_data.iter() {
+    //   let share = *v as f64 / tot_time;
+    //   shares.insert(k.clone(), share);
+    // }
+    // println!("{:?}", shares);
+
     // TODO: push energy metrics to graphite
-    self.graphite.publish_metrics(&vec![], vec![], tid, "".to_string());
+    let values = vec![uj.to_string(), overhead_pct.to_string()];
+    self.graphite.publish_metrics(&self.metrics, values, tid, "".to_string());
+    return true;
   }
 
   fn get_reset_overhead(&self) -> u128 {

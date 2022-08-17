@@ -1,18 +1,17 @@
 use std::collections::HashMap;
 
-use iluvatar_library::utils::config::get_val;
+use iluvatar_library::{utils::config::get_val, energy::rapl::RAPL};
 use read::LogMonitor;
 
 pub mod config;
 pub mod read;
 pub mod structs;
-pub mod rapl;
 
 fn main() -> anyhow::Result<()> {
   let args = config::parse();
   let log_file: String = get_val("file", &args)?;
   let mut monitor = LogMonitor::new(&log_file)?;
-  let mut curr_rapl = rapl::RAPL::record()?;
+  let mut curr_rapl = RAPL::record()?;
 
   loop {
     let (function_data, overhead) = monitor.read_log()?;
@@ -26,7 +25,7 @@ fn main() -> anyhow::Result<()> {
       }
       println!("{:?}", shares);
   
-      let rapl = rapl::RAPL::record()?;
+      let rapl = RAPL::record()?;
       let (time, uj) = rapl.difference(&curr_rapl)?;
       println!("{} seconds; {} joules;", time / 1000000, uj / 1000000);
       curr_rapl= rapl;
