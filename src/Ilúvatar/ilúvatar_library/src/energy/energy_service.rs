@@ -11,7 +11,7 @@ const INVOKE_TARGET: &str = "iluvatar_worker_library::services::containers::cont
 
 pub type InvocationData = HashMap<String, (String, u128)>;
 
-pub struct EnergyMonitor {
+pub struct EnergyMonitorService {
   invocation_spans: DashMap<u64, DataExtractorVisitor>,
   invocation_durations: Arc<RwLock<Option<InvocationData>>>,
   worker_spans: DashMap<u64, DataExtractorVisitor>,
@@ -22,12 +22,12 @@ pub struct EnergyMonitor {
   tags: String
 }
 
-impl EnergyMonitor {
+impl EnergyMonitorService {
   pub fn boxed(graphite_cfg: Arc<GraphiteConfig>, worker_name: &String) -> Arc<Self> {
     let (tx, rx) = channel();
-    let handle = EnergyMonitor::launch_worker_thread(rx);
+    let handle = EnergyMonitorService::launch_worker_thread(rx);
 
-    let ret = Arc::new(EnergyMonitor {
+    let ret = Arc::new(EnergyMonitorService {
       invocation_spans: DashMap::new(),
       invocation_durations: Arc::new(RwLock::new(Some(HashMap::new()))),
       worker_spans: DashMap::new(),
@@ -41,7 +41,7 @@ impl EnergyMonitor {
     ret
   }
 
-  fn launch_worker_thread(rx: Receiver<Arc<EnergyMonitor>>) -> JoinHandle<()> {
+  fn launch_worker_thread(rx: Receiver<Arc<EnergyMonitorService>>) -> JoinHandle<()> {
     std::thread::spawn(move || {
       let tid: &TransactionId = &crate::transaction::ENERGY_MONITOR_TID;
       let svc = match rx.recv() {

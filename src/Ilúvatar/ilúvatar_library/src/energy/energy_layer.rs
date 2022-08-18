@@ -2,15 +2,15 @@ use std::{time::SystemTime, sync::Arc};
 use tracing::{Id, span::Attributes, field::Visit};
 use tracing_subscriber::{Layer, layer::Context};
 use crate::{utils::calculate_fqdn, graphite::GraphiteConfig};
-use super::energy_monitor::EnergyMonitor;
+use super::energy_service::EnergyMonitorService;
 
 pub struct EnergyLayer {
-  monitor: Arc<EnergyMonitor>
+  monitor: Arc<EnergyMonitorService>
 }
 impl EnergyLayer {
   pub fn new(graphite_cfg: Arc<GraphiteConfig>, worker_name: &String) -> Self {
     EnergyLayer {
-      monitor: EnergyMonitor::boxed(graphite_cfg, worker_name)
+      monitor: EnergyMonitorService::boxed(graphite_cfg, worker_name)
     }
   }
 }

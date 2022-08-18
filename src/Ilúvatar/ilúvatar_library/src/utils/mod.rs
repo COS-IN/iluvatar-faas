@@ -13,7 +13,7 @@ use crate::utils::port::Port;
 use crate::transaction::TransactionId;
 use crate::bail_error;
 use std::collections::HashMap;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Child};
 use tracing::debug;
 use anyhow::Result;
 
@@ -30,9 +30,7 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
   format!("http://{}:{}/", address, port)
 }
 
-/// Executes the specified executable with args and environment
-/// cmd_pth **must** be an absolute path
-pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> {
+fn prepare_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Command> {
   debug!(tid=%tid, command=cmd_pth, args=?args, environment=?env, "executing host command");
   if ! std::path::Path::new(&cmd_pth).exists() {
     bail_error!(tid=%tid, command=%cmd_pth, "Command does not exists");
@@ -42,12 +40,29 @@ pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String,
   if let Some(env) = env {
     cmd.envs(env);
   }
-  match cmd.output() {
-        Ok(out) => Ok(out),
-        Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Running command failed")
-      }
+  Ok(cmd)
 }
 
+/// Executes the specified executable with args and environment
+/// cmd_pth **must** be an absolute path
+pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> {
+  let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
+  match cmd.output() {
+    Ok(out) => Ok(out),
+    Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Running command failed")
+  }
+}
+
+/// Executes the specified executable with args and environment
+/// cmd_pth **must** be an absolute path
+pub fn execute_cmd_nonblocking(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Child> {
+  debug!(tid=%tid, command=cmd_pth, args=?args, environment=?env, "executing host command");
+  let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
+  match cmd.spawn() {
+    Ok(out) => Ok(out),
+    Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Spawning non-blocking command failed")
+  }
+}
 
 #[cfg(test)]
 mod tests {

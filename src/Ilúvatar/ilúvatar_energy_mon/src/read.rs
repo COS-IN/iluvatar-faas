@@ -1,13 +1,43 @@
 use anyhow::Result;
+use iluvatar_library::energy::rapl::RAPL;
+use iluvatar_library::utils::config::get_val;
 use std::collections::{HashSet, HashMap};
 use std::fs::File;
 use std::io::{Seek, SeekFrom, BufRead, BufReader};
-
+use clap::ArgMatches;
 use crate::structs::Span;
 
 const REGISTER_API_ID: &str = "iluvatar_worker_library::worker_api::ilúvatar_worker::register";
 const INVOKE_API_ID: &str = "iluvatar_worker_library::worker_api::ilúvatar_worker::invoke";
 const INVOKE_ID: &str = "iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer::invoke";
+
+pub fn analyze_logs(_matches: &ArgMatches, submatches: &ArgMatches) -> Result<()> {
+  // TODO: re-implement this
+  let log_file: String = get_val("logfile", submatches)?;
+  let mut monitor = LogMonitor::new(&log_file)?;
+  let mut curr_rapl = RAPL::record()?;
+
+  let (function_data, overhead) = monitor.read_log()?;
+  if function_data.len() > 0 {
+    let tot_time = (function_data.values().sum::<i128>() + overhead) as f64;
+    println!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time, overhead as f64 / tot_time);
+    let mut shares = HashMap::new();
+    for (k,v) in function_data.iter() {
+      let share = *v as f64 / tot_time;
+      shares.insert(k.clone(), share);
+    }
+    println!("{:?}", shares);
+
+    let rapl = RAPL::record()?;
+    let (time, uj) = rapl.difference(&curr_rapl)?;
+    println!("{} seconds; {} joules;", time / 1000000, uj / 1000000);
+    curr_rapl = rapl;
+  }
+  let rapl = RAPL::record()?;
+  let (time, uj) = rapl.difference(&curr_rapl)?;
+  println!("{} seconds; {} joules;", time / 1000000, uj / 1000000);
+  Ok(())
+}
 
 pub struct LogMonitor {
   stream_pos: u64,

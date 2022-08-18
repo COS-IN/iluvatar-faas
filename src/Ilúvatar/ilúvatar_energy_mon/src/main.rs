@@ -1,36 +1,27 @@
-use std::collections::HashMap;
-
-use iluvatar_library::{utils::config::get_val, energy::rapl::RAPL};
-use read::LogMonitor;
+use clap::ArgMatches;
+use iluvatar_library::{utils::config::get_val, transaction::{TransactionId, ENERGY_MONITOR_TID}, energy::energy_log::log_energy_usage};
+use read::analyze_logs;
+use anyhow::Result;
 
 pub mod config;
 pub mod read;
 pub mod structs;
 
 fn main() -> anyhow::Result<()> {
-  let args = config::parse();
-  let log_file: String = get_val("file", &args)?;
-  let mut monitor = LogMonitor::new(&log_file)?;
-  let mut curr_rapl = RAPL::record()?;
+  let matches = config::parse();
 
-  loop {
-    let (function_data, overhead) = monitor.read_log()?;
-    if function_data.len() > 0 {
-      let tot_time = (function_data.values().sum::<i128>() + overhead) as f64;
-      println!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time, overhead as f64 / tot_time);
-      let mut shares = HashMap::new();
-      for (k,v) in function_data.iter() {
-        let share = *v as f64 / tot_time;
-        shares.insert(k.clone(), share);
-      }
-      println!("{:?}", shares);
-  
-      let rapl = RAPL::record()?;
-      let (time, uj) = rapl.difference(&curr_rapl)?;
-      println!("{} seconds; {} joules;", time / 1000000, uj / 1000000);
-      curr_rapl= rapl;
-    }
-
-    std::thread::sleep(std::time::Duration::from_secs(15));
+  match matches.subcommand() {
+    ("analyze", Some(submatches)) => analyze_logs(&matches, submatches),
+    ("monitor", Some(submatches)) => energy_monitor(&matches, submatches),
+    (text,_) => anyhow::bail!("Unknown command {}, try --help", text),
   }
+}
+
+
+fn energy_monitor(_matches: &ArgMatches, submatches: &ArgMatches) -> Result<()> {
+  let outdir: String = get_val("outdir", submatches)?;
+  let poll_sec: u64 = get_val("poll", submatches)?;
+  let tid: &TransactionId = &ENERGY_MONITOR_TID;
+  log_energy_usage(outdir.as_str(), tid, poll_sec)?;
+  Ok(())
 }
