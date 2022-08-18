@@ -38,8 +38,11 @@ impl GraphiteService {
     Arc::new(GraphiteService::new(config))
   }
 
-  fn publish_udp(&self, metrics: &Vec<String>, values: Vec<String>, tid: &TransactionId, tags: String) {
-    let socket = match UdpSocket::bind("127.0.0.1:9999") {
+  fn publish_udp<T1, T2>(&self, metrics: &Vec<T1>, values: Vec<T2>, tid: &TransactionId, tags: T1)
+    where T1: std::fmt::Display + std::fmt::Debug,
+    T2: std::fmt::Display + std::fmt::Debug {
+    
+      let socket = match UdpSocket::bind("127.0.0.1:9999") {
       Ok(s) => s,
       Err(e) => {
         error!(tid=%tid, "udp bind failed because {}", e);
@@ -59,8 +62,11 @@ impl GraphiteService {
     }
   }
 
-  fn publish_tcp(&self, metrics: &Vec<String>, values: Vec<String>, tid: &TransactionId, tags: String) {
-    let addr = format!("{}:{}", self.config.address, self.config.ingestion_port);
+  fn publish_tcp<T1, T2>(&self, metrics: &Vec<T1>, values: Vec<T2>, tid: &TransactionId, tags: T1)
+    where T1: std::fmt::Display + std::fmt::Debug,
+    T2: std::fmt::Display + std::fmt::Debug {
+      
+      let addr = format!("{}:{}", self.config.address, self.config.ingestion_port);
     debug!(tid=%tid, "opening connection to '{}'", addr);
     let mut socket = match TcpStream::connect(addr) {
       Ok(s) => s,
@@ -84,7 +90,9 @@ impl GraphiteService {
     }
   }
 
-  pub fn publish_metrics(&self, metrics: &Vec<String>, values: Vec<String>, tid: &TransactionId, tags: String) {
+  pub fn publish_metrics<T1, T2>(&self, metrics: &Vec<T1>, values: Vec<T2>, tid: &TransactionId, tags: T1)
+  where T1: std::fmt::Display + std::fmt::Debug,
+  T2: std::fmt::Display + std::fmt::Debug {
     if self.config.ingestion_udp {
       debug!(tid=%tid, metrics=?metrics, values=?values, "udp pushing message");
       self.publish_udp(metrics, values, tid, tags);
@@ -94,8 +102,11 @@ impl GraphiteService {
     }
   }
 
-  pub fn publish_metric(&self, metric: &str, value: String, tid: &TransactionId, tags: String) {
-    self.publish_metrics(&vec![metric.to_string()], vec![value.to_string()], tid, tags)
+  pub fn publish_metric<T1, T2>(&self, metric: T1, value: T2, tid: &TransactionId, tags: T1)
+    where T1: std::fmt::Display + std::fmt::Debug,
+    T2: std::fmt::Display + std::fmt::Debug {
+
+      self.publish_metrics(&vec![metric], vec![value], tid, tags)
   }
 
   pub async fn get_latest_metric<'a, T>(&self, metric: &str, by_tag: &str, tid: &TransactionId) -> HashMap<String, T>

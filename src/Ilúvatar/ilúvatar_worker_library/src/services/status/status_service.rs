@@ -18,8 +18,8 @@ pub struct StatusService {
   current_status: Mutex<Arc<WorkerStatus>>,
   worker_thread: JoinHandle<()>,
   graphite: GraphiteService,
-  worker_name: String,
-  metrics: Vec<String>,
+  tags: String,
+  metrics: Vec<&'static str>,
 }
 
 impl StatusService {
@@ -44,10 +44,10 @@ impl StatusService {
       })),
       worker_thread: handle,
       graphite: GraphiteService::new(graphite_cfg),
-      worker_name,
-      metrics: vec!["worker.load.loadavg".to_string(), "worker.load.cpu".to_string(), 
-                    "worker.load.queue".to_string(), "worker.load.mem_pct".to_string(), 
-                    "worker.load.used_mem".to_string()]
+      tags: format!("machine={};type=worker", worker_name),
+      metrics: vec!["worker.load.loadavg", "worker.load.cpu", 
+                    "worker.load.queue", "worker.load.mem_pct", 
+                    "worker.load.used_mem"]
     });
     tx.send(ret.clone()).unwrap();
     ret
@@ -161,11 +161,10 @@ impl StatusService {
     });
     info!(tid=%tid, status=?new_status,"current load status");
 
-    let tags = format!("machine={};type=worker", self.worker_name);
-    let values = vec![(minute_load_avg / nprocs as f64).to_string(), (us+sy).to_string(),
-                                    queue_len.to_string(), (used_mem as f64 / total_mem as f64).to_string(), 
-                                    used_mem.to_string()];
-    self.graphite.publish_metrics(&self.metrics, values, tid, tags);
+    let values = vec![(minute_load_avg / nprocs as f64), (us+sy) as f64,
+                                    queue_len as f64, (used_mem as f64 / total_mem as f64), 
+                                    used_mem as f64];
+    self.graphite.publish_metrics(&self.metrics, values, tid, self.tags.as_str());
 
     let mut current_status = self.current_status.lock();
     *current_status = new_status;

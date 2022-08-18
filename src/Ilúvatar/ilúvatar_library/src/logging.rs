@@ -48,7 +48,7 @@ fn str_to_span(spanning: &String) -> FmtSpan {
   fmt
 }
 
-pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfig>) -> Result<impl Drop> {
+pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfig>, worker_name: &String) -> Result<impl Drop> {
   #[allow(dyn_drop)]
   let mut drops:Vec<Box<dyn Drop>> = Vec::new();
   let (non_blocking, _guard) = match config.directory.as_str() {
@@ -72,7 +72,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
   };
   drops.push(Box::new(_guard));
 
-  let energy_layer = EnergyLayer::new(graphite_cfg);
+  let energy_layer = EnergyLayer::new(graphite_cfg, worker_name);
   let filter_layer = EnvFilter::builder()
    .parse(&config.level)?;
   let layers = Registry::default()

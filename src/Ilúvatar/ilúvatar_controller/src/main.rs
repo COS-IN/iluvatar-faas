@@ -16,7 +16,7 @@ async fn main() -> std::io::Result<()> {
   let config_pth = get_val("config", &args).unwrap();
 
   let config = Configuration::boxed(&config_pth).unwrap();
-  let _guard = start_tracing(config.logging.clone(), config.graphite.clone()).unwrap();
+  let _guard = start_tracing(config.logging.clone(), config.graphite.clone(), &config.name).unwrap();
 
   let server = Controller::new(config.clone(), tid);
   let server_data = Data::new(server);

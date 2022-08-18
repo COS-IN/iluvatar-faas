@@ -19,11 +19,11 @@ pub struct EnergyMonitor {
   overhead_ns: Arc<RwLock<u128>>,
   graphite: Arc<GraphiteService>,
   _worker_thread: JoinHandle<()>,
-  metrics: Vec<String>,
+  tags: String
 }
 
 impl EnergyMonitor {
-  pub fn boxed(graphite_cfg: Arc<GraphiteConfig>) -> Arc<Self> {
+  pub fn boxed(graphite_cfg: Arc<GraphiteConfig>, worker_name: &String) -> Arc<Self> {
     let (tx, rx) = channel();
     let handle = EnergyMonitor::launch_worker_thread(rx);
 
@@ -35,7 +35,7 @@ impl EnergyMonitor {
       overhead_ns: Arc::new(RwLock::new(0)),
       graphite: GraphiteService::boxed(graphite_cfg),
       _worker_thread: handle,
-      metrics: vec!["worker.energy.used_uj".to_string(), "worker.energy.overhead_pct".to_string()]
+      tags: format!("machine={};type=worker", worker_name),
     });
     tx.send(ret.clone()).unwrap();
     ret
@@ -89,16 +89,14 @@ impl EnergyMonitor {
 
     let overhead_pct = overhead as f64 / tot_time_ns as f64;
     println!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time_ns, overhead_pct);
-    // let mut shares = HashMap::new();
-    // for (k,v) in function_data.iter() {
-    //   let share = *v as f64 / tot_time;
-    //   shares.insert(k.clone(), share);
-    // }
-    // println!("{:?}", shares);
-
-    // TODO: push energy metrics to graphite
-    let values = vec![uj.to_string(), overhead_pct.to_string()];
-    self.graphite.publish_metrics(&self.metrics, values, tid, "".to_string());
+    for (k,v) in function_data.iter() {
+      let share = *v as f64 / tot_time_ns as f64;
+      let energy = share * uj as f64;
+      let metric = format!("function.used_uj.{k}");
+      self.graphite.publish_metric(metric.as_str(), energy, tid, &self.tags.as_str());
+    }
+    self.graphite.publish_metric("worker.energy.used_uj", uj, tid, &self.tags.as_str());
+    self.graphite.publish_metric("worker.energy.overhead_pct", overhead_pct, tid, &self.tags.as_str());
     return true;
   }
 

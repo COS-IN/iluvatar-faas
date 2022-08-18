@@ -8,9 +8,9 @@ pub struct EnergyLayer {
   monitor: Arc<EnergyMonitor>
 }
 impl EnergyLayer {
-  pub fn new(graphite_cfg: Arc<GraphiteConfig>) -> Self {
+  pub fn new(graphite_cfg: Arc<GraphiteConfig>, worker_name: &String) -> Self {
     EnergyLayer {
-      monitor: EnergyMonitor::boxed(graphite_cfg)
+      monitor: EnergyMonitor::boxed(graphite_cfg, worker_name)
     }
   }
 }

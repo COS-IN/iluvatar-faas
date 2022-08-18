@@ -51,7 +51,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
                         .enable_all()
                         .build().unwrap();
 
-  let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), server_config.graphite.clone())?;
+  let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name)?;
   let worker = Arc::new(threaded_rt.block_on(create_worker(server_config.clone(), tid))?);
 
   let trace_pth: String = get_val("input", &sub_args)?;
