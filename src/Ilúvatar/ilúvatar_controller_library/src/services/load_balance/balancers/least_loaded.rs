@@ -53,23 +53,15 @@ impl LeastLoadedBalancer {
         };
         debug!(tid=%tid, "least loaded worker started");
         loop {
-          let worker = svc.find_least_loaded(); 
-          match svc.workers.read().get(&worker) {
-            Some(w) => {
-              *svc.assigned_worker.write() = Some(w.clone());
-              info!(tid=%tid, worker=%worker, "new least loaded worker");
-            },
-            None => {
-              warn!(tid=%tid, worker=%worker, "Cannot update least loaded worker because it was not registered, or no worker has been registered");
-            },
-          };
+          svc.find_least_loaded(tid); 
           tokio::time::sleep(Duration::from_secs(1)).await;
         }
       }
     )
   }
 
-  fn find_least_loaded(&self) -> String {
+  #[tracing::instrument(skip(self), fields(tid=%tid))]
+  fn find_least_loaded(&self, tid: &TransactionId) {
     let mut least_ld = f64::MAX;
     let mut worker = &"".to_string();
     let workers = self.workers.read();
@@ -81,7 +73,15 @@ impl LeastLoadedBalancer {
         }
       }
     }
-    worker.clone()
+    match self.workers.read().get(worker) {
+      Some(w) => {
+        *self.assigned_worker.write() = Some(w.clone());
+        info!(tid=%tid, worker=%worker, "new least loaded worker");
+      },
+      None => {
+        warn!(tid=%tid, worker=%worker, "Cannot update least loaded worker because it was not registered, or no worker has been registered");
+      },
+    };
   }
 
   fn get_worker(&self, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {

@@ -67,6 +67,7 @@ impl EnergyMonitorService {
     })
   }
 
+  #[tracing::instrument(skip(self), fields(tid=%tid))]
   fn monitor_energy(&self, tid: &TransactionId, _time: u128, uj: u128) -> bool {
     let (invocation_durations, overhead) = self.get_data();
     if invocation_durations.len() == 0 {

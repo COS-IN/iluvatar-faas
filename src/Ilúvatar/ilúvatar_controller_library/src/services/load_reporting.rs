@@ -56,60 +56,58 @@ impl LoadService {
   }
 
   async fn monitor_worker_status(&self, tid: &TransactionId, simulation: bool) {
-    if simulation {
-      self.mointor_simulation(tid).await;
-    } else {
-      self.monitor_live(tid).await;
+    loop {
+      if simulation {
+        self.mointor_simulation(tid).await;
+      } else {
+        self.monitor_live(tid).await;
+      }
+      std::thread::sleep(Duration::from_secs(1));
+      if *self.exiting.lock() {
+        return;
+      }
     }
   }
 
+  #[tracing::instrument(skip(self), fields(tid=%tid))]
   async fn mointor_simulation(&self, tid: &TransactionId) {
-    loop {
-      let mut update = HashMap::new();
-      let workers = self.fact.get_cached_workers();
-      for (name, mut worker) in workers {
-        let status = match worker.status(tid.to_string()).await {
-          Ok(s) => s,
-          Err(e) => {
-            warn!(error=%e, tid=%tid, "Unable to get status of simulation worker");
-            continue;
-          },
-        };
-        match self.config.load_metric.as_str() {
-          "worker.load.loadavg" => update.insert(name, (status.queue_len as f64 + status.num_running_funcs as f64) / status.num_system_cores as f64),
-          "worker.load.running" => update.insert(name, status.num_running_funcs as f64),
-          "worker.load.cpu_pct" => update.insert(name, status.num_running_funcs as f64 / status.num_system_cores as f64),
-          "worker.load.mem_pct" => update.insert(name, status.used_mem as f64 / status.total_mem as f64),
-          "worker.load.queue" => update.insert(name, status.queue_len as f64),
-          _ => { error!(tid=%tid, metric=%self.config.load_metric, "Unknown load metric"); return; }
-        };
-      }
-      
-      info!(tid=%tid, update=?update, "latest simulated worker update");
-      *self.workers.write() = update;
-
-      std::thread::sleep(Duration::from_secs(1));
-      if *self.exiting.lock() {
-        return;
-      }
+    let mut update = HashMap::new();
+    let workers = self.fact.get_cached_workers();
+    for (name, mut worker) in workers {
+      let status = match worker.status(tid.to_string()).await {
+        Ok(s) => s,
+        Err(e) => {
+          warn!(error=%e, tid=%tid, "Unable to get status of simulation worker");
+          continue;
+        },
+      };
+      match self.config.load_metric.as_str() {
+        "worker.load.loadavg" => update.insert(name, (status.queue_len as f64 + status.num_running_funcs as f64) / status.num_system_cores as f64),
+        "worker.load.running" => update.insert(name, status.num_running_funcs as f64),
+        "worker.load.cpu_pct" => update.insert(name, status.num_running_funcs as f64 / status.num_system_cores as f64),
+        "worker.load.mem_pct" => update.insert(name, status.used_mem as f64 / status.total_mem as f64),
+        "worker.load.queue" => update.insert(name, status.queue_len as f64),
+        _ => { error!(tid=%tid, metric=%self.config.load_metric, "Unknown load metric"); return; }
+      };
     }
+    
+    info!(tid=%tid, update=?update, "latest simulated worker update");
+    *self.workers.write() = update;
+
+    std::thread::sleep(Duration::from_secs(1));
   }
 
+  #[tracing::instrument(skip(self), fields(tid=%tid))]
   async fn monitor_live(&self, tid: &TransactionId) {
-    loop {
-      let update = self.get_live_update(tid).await;
-      let mut data = self.workers.read().clone();
-      for (k, v) in update.iter() {
-        data.insert(k.clone(), *v);
-      }
-      *self.workers.write() = data;
-
-      info!(tid=%tid, update=?update, "latest worker update");
-      std::thread::sleep(Duration::from_secs(1));
-      if *self.exiting.lock() {
-        return;
-      }
+    let update = self.get_live_update(tid).await;
+    let mut data = self.workers.read().clone();
+    for (k, v) in update.iter() {
+      data.insert(k.clone(), *v);
     }
+    *self.workers.write() = data;
+
+    info!(tid=%tid, update=?update, "latest worker update");
+    std::thread::sleep(Duration::from_secs(1));
   }
 
   async fn get_live_update(&self, tid: &TransactionId) -> HashMap<String, f64> {

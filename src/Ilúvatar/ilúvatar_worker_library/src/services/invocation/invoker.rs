@@ -75,6 +75,7 @@ impl InvokerService {
           if queue.len() > 0 {
             let item = queue.remove(0);
             debug!(tid=%item.tid, "Dequeueing item");
+            // TODO: continuity of spans here
             self.spawn_tokio_worker(&worker_rt, invoker_svc.clone(), item);
           }
         } else {

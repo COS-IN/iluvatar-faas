@@ -77,26 +77,28 @@ impl ContainerManager {
         },
       };
       debug!(tid=%tid, "container manager worker started");
-      worker_rt.block_on(cm.monitor_pool(tid.clone()));
+      worker_rt.block_on(async {
+        loop {
+          cm.monitor_pool(tid.clone()).await;
+          std::thread::sleep(std::time::Duration::from_secs(cm.resources.pool_freq_sec));
+        }
+      });
     })
   }
 
   #[tracing::instrument(skip(self), fields(tid=%tid))]
   async fn monitor_pool(&self, tid: TransactionId) {
-    loop {
-      self.update_memory_usages(&tid).await;
+    self.update_memory_usages(&tid).await;
 
-      self.compute_eviction_priorities(&tid);
-      if self.resources.memory_buffer_mb > 0 {
-        let reclaim = self.resources.memory_buffer_mb - self.free_memory();
-        if reclaim > 0 {
-          match self.reclaim_memory(reclaim, &tid).await {
-            Ok(_) => {},
-            Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
-          };
-        }
+    self.compute_eviction_priorities(&tid);
+    if self.resources.memory_buffer_mb > 0 {
+      let reclaim = self.resources.memory_buffer_mb - self.free_memory();
+      if reclaim > 0 {
+        match self.reclaim_memory(reclaim, &tid).await {
+          Ok(_) => {},
+          Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
+        };
       }
-      std::thread::sleep(std::time::Duration::from_secs(self.resources.pool_freq_sec));
     }
   }
 

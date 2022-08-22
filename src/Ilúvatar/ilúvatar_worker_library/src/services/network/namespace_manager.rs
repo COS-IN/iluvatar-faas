@@ -57,7 +57,11 @@ impl NamespaceManager {
               return;
             },
           };
-          nm.monitor_pool().await;
+          let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
+          loop {
+            nm.monitor_pool(tid).await;
+            tokio::time::sleep(std::time::Duration::from_secs(nm.config.pool_freq_sec)).await;
+          }
         }))
       }
     };
@@ -67,23 +71,20 @@ impl NamespaceManager {
     ns
   }
 
-  async fn monitor_pool(&self) {
-    let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
-    loop {
-      'inner: while self.pool_size() < self.config.pool_size {
-        let ns = match self.create_namespace(&self.generate_net_namespace_name(), tid) {
-            Ok(ns) => ns,
-            Err(e) => {
-              error!(tid=%tid, error=%e, "Failed creating namespace in monitor");
-              break 'inner;
-            },
-        };
-        match self.return_namespace(Arc::new(ns), tid) {
-            Ok(_) => {},
-            Err(e) => error!(tid=%tid, error=%e, "Failed giving namespace to pool"),
-        };
-      }
-      tokio::time::sleep(std::time::Duration::from_secs(self.config.pool_freq_sec)).await;
+  #[tracing::instrument(skip(self), fields(tid=%tid))]
+  async fn monitor_pool(&self, tid: &TransactionId) {
+    while self.pool_size() < self.config.pool_size {
+      let ns = match self.create_namespace(&self.generate_net_namespace_name(), tid) {
+        Ok(ns) => ns,
+        Err(e) => {
+          error!(tid=%tid, error=%e, "Failed creating namespace in monitor");
+          break;
+        },
+      };
+      match self.return_namespace(Arc::new(ns), tid) {
+        Ok(_) => {},
+        Err(e) => error!(tid=%tid, error=%e, "Failed giving namespace to pool"),
+      };
     }
   }
 
