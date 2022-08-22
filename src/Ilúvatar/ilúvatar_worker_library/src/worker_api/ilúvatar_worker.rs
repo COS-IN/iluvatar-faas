@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use crate::services::energy_logging::EnergyLogger;
 use crate::services::{invocation::invoker::InvokerService, worker_health::WorkerHealthService};
 use crate::services::status::status_service::StatusService;
 use tonic::{Request, Response, Status};
@@ -15,16 +16,18 @@ pub struct IluvatarWorkerImpl {
   invoker: Arc<InvokerService>,
   status: Arc<StatusService>,
   health: Arc<WorkerHealthService>,
+  energy: Arc<EnergyLogger>,
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>, status: Arc<StatusService>, health: Arc<WorkerHealthService>) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>, status: Arc<StatusService>, health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
       container_manager,
       config,
       invoker,
       status,
-      health
+      health,
+      energy
     }
   }
 }

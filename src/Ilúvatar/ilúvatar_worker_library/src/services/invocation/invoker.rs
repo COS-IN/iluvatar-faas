@@ -14,6 +14,7 @@ use super::invoker_structs::{QueueFuture, EnqueuedInvocation, InvocationResultPt
 pub struct InvokerService {
   pub cont_manager: Arc<ContainerManager>,
   pub async_functions: Arc<DashMap<String, InvocationResultPtr>>,
+  pub running_functions: Arc<DashMap<String, u32>>,
   pub invoke_queue: Arc<Mutex<Vec<Arc<EnqueuedInvocation>>>>,
   pub config: Arc<FunctionLimits>,
   // TODO: occasionally check if this died and re-run?
@@ -28,6 +29,7 @@ impl InvokerService {
         invoke_queue: Arc::new(Mutex::new(Vec::new())),
         config,
         _worker_thread: worker_thread,
+        running_functions: Arc::new(DashMap::new()),
       }
     }
 
@@ -102,40 +104,40 @@ impl InvokerService {
     #[tracing::instrument(skip(self, item), fields(tid=%item.tid))]
     async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>) {
       match self.invoke_internal(&item.function_name, &item.function_version, &item.json_args, &item.tid).await {
-          Ok(res) =>  {
+        Ok(res) =>  {
+          let mut result_ptr = item.result_ptr.lock();
+          result_ptr.duration = res.1;
+          result_ptr.result_json = res.0;
+          result_ptr.completed = true;
+          debug!(tid=%item.tid, "queued invocation completed successfully");
+        },
+        Err(cause) =>
+        {
+          if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
+            debug!(tid=%item.tid, "Insufficient cores to run item right now");
+            let mut queue = self.invoke_queue.lock();
+            queue.insert(0, item.clone());
+          } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
+            warn!(tid=%item.tid, "Insufficient memory to run item right now");
+            let mut queue = self.invoke_queue.lock();
+            queue.insert(0, item.clone());
+          } else {
+            error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+            // TODO: insert smartly into queue
             let mut result_ptr = item.result_ptr.lock();
-            result_ptr.duration = res.1;
-            result_ptr.result_json = res.0;
-            result_ptr.completed = true;
-            debug!(tid=%item.tid, "queued invocation completed successfully");
-          },
-          Err(cause) =>
-          {
-            if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
-              debug!(tid=%item.tid, "Insufficient cores to run item right now");
-              let mut queue = self.invoke_queue.lock();
-              queue.insert(0, item.clone());
-            } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
-              warn!(tid=%item.tid, "Insufficient memory to run item right now");
-              let mut queue = self.invoke_queue.lock();
-              queue.insert(0, item.clone());
+            if result_ptr.attempts >= self.config.retries {
+              error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
+              result_ptr.duration = 0;
+              result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
+              result_ptr.completed = true;
             } else {
-              error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
-              // TODO: insert smartly into queue
-              let mut result_ptr = item.result_ptr.lock();
-              if result_ptr.attempts >= self.config.retries {
-                error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
-                result_ptr.duration = 0;
-                result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
-                result_ptr.completed = true;
-              } else {
-                result_ptr.attempts += 1;
-                debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
-                let mut queue = self.invoke_queue.lock();
-                queue.push(item.clone());
-              }
+              result_ptr.attempts += 1;
+              debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
+              let mut queue = self.invoke_queue.lock();
+              queue.push(item.clone());
             }
-          },
+          }
+        },
       };
     }
 
@@ -164,6 +166,23 @@ impl InvokerService {
       Ok( (fut.result_json.clone(), fut.duration) )
     }
 
+    fn track_running(&self, tid: &TransactionId) {
+      self.running_functions.insert(tid.clone(), 1);
+    }
+    fn track_finished(&self, tid: &TransactionId) {
+      self.running_functions.remove(tid);
+    }
+    pub fn get_running(&self) -> Vec<String> {
+      let mut ret = vec![];
+      for item in self.running_functions.iter() {
+        let running = *item.value();
+        if running > 0 {
+          ret.push(item.key().clone());
+        }
+      }
+      ret
+    }
+
     /// acquires a container and invokes the function inside it
     /// returns the json result and duration as a tuple
     #[tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid))]
@@ -173,12 +192,14 @@ impl InvokerService {
       let fqdn = calculate_fqdn(&function_name, &function_version);
       match self.cont_manager.acquire_container(&fqdn, tid).await {
         Ok(ctr_lock) => {
+          self.track_running(tid);
           let start = SystemTime::now();
           let data = ctr_lock.invoke(json_args).await?;
           let duration = match start.elapsed() {
             Ok(dur) => dur,
             Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
           }.as_millis() as u64;
+          self.track_finished(tid);
           Ok((data, duration))
         },
         Err(cause) => Err(cause),

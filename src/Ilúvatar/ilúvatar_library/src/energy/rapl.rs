@@ -55,6 +55,6 @@ impl RAPL {
 }
 
 pub struct RAPLQuery {
-  start: SystemTime,
-  start_uj: u128,
+  pub start: SystemTime,
+  pub start_uj: u128,
 }

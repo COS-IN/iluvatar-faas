@@ -22,6 +22,7 @@ pub struct Configuration {
   /// full URL to access the controller/load balancer, required for worker registration
   pub load_balancer_url: String,
   pub graphite: Arc<GraphiteConfig>,
+  pub energy: Arc<EnergyConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,6 +88,14 @@ pub struct NetworkingConfig {
   pub pool_freq_sec: u64,
   /// network interface to attach bridge to
   pub hardware_interface: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EnergyConfig {
+  pub enable_rapl: bool,
+  pub enable_ipmi: bool,
+  pub log_freq_ms: u64,
+  pub file: String
 }
 
 pub type WorkerConfig = Arc<Configuration>;

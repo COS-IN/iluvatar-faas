@@ -44,5 +44,11 @@
     "api_port": "80",
     "ingestion_port": 2003,
     "ingestion_udp": false
+  },
+  "energy": {
+    "enable_rapl": true,
+    "enable_ipmi": false,
+    "log_freq_ms": 100,
+    "file": "/tmp/ilúvatar/logs/energy.csv"
   }
 }

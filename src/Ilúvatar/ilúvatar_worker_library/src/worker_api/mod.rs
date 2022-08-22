@@ -1,8 +1,7 @@
-use std::sync::Arc;
+use crate::services::energy_logging::EnergyLogger;
 use crate::services::worker_health::WorkerHealthService;
 use crate::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
 use crate::services::status::status_service::StatusService;
-use crate::worker_api::config::Configuration;
 use crate::services::containers::containermanager::ContainerManager;
 use crate::worker_api::ilúvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
@@ -11,11 +10,13 @@ use crate::rpc::{StatusResponse, InvokeResponse};
 
 pub mod worker_config;
 pub use worker_config as config;
+
+use self::worker_config::WorkerConfig;
 #[path ="./ilúvatar_worker.rs"]
 pub mod ilúvatar_worker;
 pub mod sim_worker;
 
-pub async fn create_worker(worker_config: Arc<Configuration>, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
+pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
   let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone());
   let lifecycle = factory.get_lifecycle_service(tid, true).await?;
 
@@ -23,8 +24,9 @@ pub async fn create_worker(worker_config: Arc<Configuration>, tid: &TransactionI
   let invoker = InvokerService::boxed(container_man.clone(), tid, worker_config.limits.clone());
   let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone()).await;
   let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
-
-  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health))
+  let energy = EnergyLogger::boxed(worker_config.energy.clone(), invoker.clone())?;
+  
+  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy))
 }
 
 #[derive(Debug, PartialEq, Eq)]

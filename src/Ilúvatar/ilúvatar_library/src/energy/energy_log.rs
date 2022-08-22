@@ -25,7 +25,7 @@ fn monitor_rapl(out_folder: &str, stat_duration_sec: u64) -> Result<()> {
   match f.write_all("elapsed_ns,uj\n".as_bytes()) {
     Ok(_) => (),
     Err(e) => {
-      println!("Failed to write json of result because {}", e);
+      println!("Failed to write header of result because {}", e);
     }
   };
   let rapl = RAPL::new()?;
@@ -40,7 +40,7 @@ fn monitor_rapl(out_folder: &str, stat_duration_sec: u64) -> Result<()> {
     match f.write_all(to_write.as_bytes()) {
       Ok(_) => (),
       Err(e) => {
-        println!("Failed to write json of result because {}", e);
+        println!("Failed to write csv of result because {}", e);
       }
     };
     curr_rapl = new_rapl;
