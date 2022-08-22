@@ -33,6 +33,8 @@ pub struct LoadBalancingConfig {
   /// the load metric to use
   ///   only relevant to those algorithms that use it
   pub load_metric: String,
+  /// Duration in seconds the balancer's worker thread will sleep between runs (if it has one)
+  pub thread_sleep_sec: u64
 }
 
 pub type ControllerConfig = Arc<Configuration>;

@@ -62,7 +62,7 @@ impl LoadService {
       } else {
         self.monitor_live(tid).await;
       }
-      std::thread::sleep(Duration::from_secs(1));
+      std::thread::sleep(Duration::from_secs(self.config.thread_sleep_sec));
       if *self.exiting.lock() {
         return;
       }
@@ -93,8 +93,6 @@ impl LoadService {
     
     info!(tid=%tid, update=?update, "latest simulated worker update");
     *self.workers.write() = update;
-
-    std::thread::sleep(Duration::from_secs(1));
   }
 
   #[tracing::instrument(skip(self), fields(tid=%tid))]
@@ -107,7 +105,6 @@ impl LoadService {
     *self.workers.write() = data;
 
     info!(tid=%tid, update=?update, "latest worker update");
-    std::thread::sleep(Duration::from_secs(1));
   }
 
   async fn get_live_update(&self, tid: &TransactionId) -> HashMap<String, f64> {

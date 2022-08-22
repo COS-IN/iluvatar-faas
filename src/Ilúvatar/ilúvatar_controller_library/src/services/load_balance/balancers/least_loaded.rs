@@ -1,5 +1,5 @@
 use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration, collections::HashMap};
-use crate::{send_invocation, prewarm, send_async_invocation, services::{worker_comm::WorkerAPIFactory, controller_health::ControllerHealthService, load_reporting::LoadService}};
+use crate::{send_invocation, prewarm, send_async_invocation, services::{worker_comm::WorkerAPIFactory, controller_health::ControllerHealthService, load_reporting::LoadService}, controller::controller_config::LoadBalancingConfig};
 use crate::services::load_balance::LoadBalancerTrait;
 use iluvatar_library::{transaction::TransactionId, transaction::LEAST_LOADED_TID, bail_error};
 use crate::controller::structs::internal::{RegisteredFunction, RegisteredWorker};
@@ -18,10 +18,11 @@ pub struct LeastLoadedBalancer {
   _worker_thread: JoinHandle<()>,
   assigned_worker: RwLock<Option<Arc<RegisteredWorker>>>,
   load: Arc<LoadService>,
+  config: Arc<LoadBalancingConfig>,
 }
 
 impl LeastLoadedBalancer {
-  fn new(health: Arc<dyn ControllerHealthService>, worker_thread: JoinHandle<()>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>) -> Self {
+  fn new(health: Arc<dyn ControllerHealthService>, worker_thread: JoinHandle<()>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, config: Arc<LoadBalancingConfig>) -> Self {
     LeastLoadedBalancer {
       workers: RwLock::new(HashMap::new()),
       worker_fact,
@@ -29,13 +30,14 @@ impl LeastLoadedBalancer {
       _worker_thread: worker_thread,
       assigned_worker: RwLock::new(None),
       load,
+      config,
     }
   }
 
-  pub fn boxed(health: Arc<dyn ControllerHealthService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, tid: &TransactionId) -> Arc<Self> {
+  pub fn boxed(health: Arc<dyn ControllerHealthService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, tid: &TransactionId, config: Arc<LoadBalancingConfig>) -> Arc<Self> {
     let (tx, rx) = channel();
     let t = LeastLoadedBalancer::start_status_thread(rx, tid);
-    let i = Arc::new(LeastLoadedBalancer::new(health, t, load, worker_fact));
+    let i = Arc::new(LeastLoadedBalancer::new(health, t, load, worker_fact, config));
     tx.send(i.clone()).unwrap();
     i
   }
@@ -54,7 +56,7 @@ impl LeastLoadedBalancer {
         debug!(tid=%tid, "least loaded worker started");
         loop {
           svc.find_least_loaded(tid); 
-          tokio::time::sleep(Duration::from_secs(1)).await;
+          tokio::time::sleep(Duration::from_secs(svc.config.thread_sleep_sec)).await;
         }
       }
     )

@@ -79,7 +79,7 @@ impl InvokerService {
             self.spawn_tokio_worker(&worker_rt, invoker_svc.clone(), item);
           }
         } else {
-          std::thread::sleep(Duration::from_millis(1));
+          std::thread::sleep(Duration::from_millis(self.config.queue_sleep_ms));
         }
       }
     }

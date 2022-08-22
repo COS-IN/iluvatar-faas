@@ -39,7 +39,7 @@ pub fn get_balancer(config: &ControllerConfig, health_svc: Arc<dyn ControllerHea
   }
   else if config.load_balancer.algorithm == "LeastLoaded" {
     debug!(tid=%tid, "starting least loaded balancer");
-    Ok(balancers::least_loaded::LeastLoadedBalancer::boxed(health_svc, load, worker_fact, tid))
+    Ok(balancers::least_loaded::LeastLoadedBalancer::boxed(health_svc, load, worker_fact, tid, config.load_balancer.clone()))
   }
   else {
     anyhow::bail!("Unimplemented load balancing algorithm {}", config.load_balancer.algorithm)

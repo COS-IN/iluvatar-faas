@@ -63,7 +63,9 @@ pub struct FunctionLimits {
   pub timeout_sec: u64,
   /// number of retries before giving up on an invocation
   /// Setting to 0 means no retries
-  pub retries: u32
+  pub retries: u32,
+  /// Duration in milliseconds the worker queue will sleep between checking for new invocations
+  pub queue_sleep_ms: u64
 }
 
 #[derive(Debug, Deserialize)]
