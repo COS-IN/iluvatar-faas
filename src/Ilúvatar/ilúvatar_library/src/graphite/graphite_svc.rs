@@ -66,8 +66,8 @@ impl GraphiteService {
     where T1: std::fmt::Display + std::fmt::Debug,
     T2: std::fmt::Display + std::fmt::Debug {
       
-      let addr = format!("{}:{}", self.config.address, self.config.ingestion_port);
-    debug!(tid=%tid, "opening connection to '{}'", addr);
+    let addr = format!("{}:{}", self.config.address, self.config.ingestion_port);
+    trace!(tid=%tid, "opening connection to '{}'", addr);
     let mut socket = match TcpStream::connect(addr) {
       Ok(s) => s,
       Err(e) => {
@@ -94,10 +94,10 @@ impl GraphiteService {
   where T1: std::fmt::Display + std::fmt::Debug,
   T2: std::fmt::Display + std::fmt::Debug {
     if self.config.ingestion_udp {
-      debug!(tid=%tid, metrics=?metrics, values=?values, "udp pushing message");
+      debug!(tid=%tid, metrics=?metrics, values=?values, "udp pushing metrics");
       self.publish_udp(metrics, values, tid, tags);
     } else {
-      debug!(tid=%tid, metrics=?metrics, values=?values, "tcp pushing metric");
+      debug!(tid=%tid, metrics=?metrics, values=?values, "tcp pushing metrics");
       self.publish_tcp(metrics, values, tid, tags);
     }
   }

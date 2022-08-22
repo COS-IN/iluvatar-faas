@@ -1,7 +1,7 @@
 #!bin/bash
 
 apt-get update -y
-apt-get install -y curl runc bridge-utils iptables
+apt-get install -y curl runc bridge-utils iptables zfsutils-linux
 
 ### Install go ###
 ARCH=amd64
@@ -53,6 +53,15 @@ fi
 ### Enable container forwarding
 /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
 echo "net.ipv4.conf.all.forwarding=1" | tee -a /etc/sysctl.conf
+
+
+### Set up zfs for containerd
+
+fallocate -l 10G /zfs-ilu-pool
+# optionally this can be created using whole devices, not a file
+zpool create ilu-pool /zfs-ilu-pool
+zfs create -o mountpoint=/var/lib/containerd/io.containerd.snapshotter.v1.zfs ilu-pool/containerd
+systemctl restart containerd
 
 ### Install rust ###
 

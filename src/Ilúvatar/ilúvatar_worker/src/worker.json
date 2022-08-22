@@ -24,7 +24,8 @@
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 0,
     "pool_freq_sec": 5,
-    "backend": "containerd"
+    "backend": "containerd",
+    "snapshotter": "zfs"
   },
   "networking": {
     "bridge": "IlWorkBr0",

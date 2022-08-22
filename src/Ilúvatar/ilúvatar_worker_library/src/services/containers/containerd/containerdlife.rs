@@ -4,6 +4,7 @@ use std::time::{Duration, SystemTime};
 use client::tonic::Code;
 use guid_create::GUID;
 use crate::services::containers::containerd::containerdstructs::{Task, ContainerdContainer};
+use crate::worker_api::worker_config::ContainerResources;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::MemSizeMb;
 use iluvatar_library::utils::{cgroup::cgroup_namespace, port::Port, file::{try_remove_pth, temp_file_pth, touch}};
@@ -27,7 +28,6 @@ use crate::services::containers::structs::{Container, RegisteredFunction};
 use crate::services::network::namespace_manager::NamespaceManager;
 use tracing::{info, warn, debug, error}; 
 use inotify::{Inotify, WatchMask};
-
 use super::LifecycleService;
 
 pub mod containerdstructs;
@@ -36,17 +36,19 @@ pub mod containerdstructs;
 pub struct ContainerdLifecycle {
   channel: Option<Channel>,
   namespace_manager: Arc<NamespaceManager>,
+  config: Arc<ContainerResources>
 }
 
 /// A service to handle the low-level details of containerd container lifecycles:
 ///   creation, destruction, pulling images, etc
 impl ContainerdLifecycle {
-  pub fn new(ns_man: Arc<NamespaceManager>) -> ContainerdLifecycle {
+  pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResources>) -> ContainerdLifecycle {
     ContainerdLifecycle {
       // this is threadsafe if we clone channel
       // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
       channel: None,
-      namespace_manager: ns_man
+      namespace_manager: ns_man,
+      config,
     }
   }
 
@@ -112,7 +114,7 @@ impl ContainerdLifecycle {
     let view_snapshot_req = PrepareSnapshotRequest {
         // TODO: be picky about snapshotter?
         // https://github.com/containerd/containerd/tree/main/docs/snapshotters
-        snapshotter: "overlayfs".to_string(),
+        snapshotter: self.config.snapshotter.clone(),
         key: cid.to_owned(),
         parent: snapshot_base.clone(),
         labels: HashMap::new(),
@@ -324,7 +326,7 @@ impl ContainerdLifecycle {
   /// Ensures that the specified image is available on the machine
   async fn ensure_image(&self, image_name: &String) -> Result<()> {
     let output = Command::new("ctr")
-          .args(["images", "pull", image_name.as_str()])
+          .args(["images", "pull", "--snapshotter", self.config.snapshotter.as_str(), image_name.as_str()])
           .output();
     match output {
       Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),

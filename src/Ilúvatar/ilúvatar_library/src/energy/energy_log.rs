@@ -15,6 +15,7 @@ pub fn log_energy_usage(out_folder: &str, tid: &TransactionId, stat_duration_sec
 
 fn monitor_rapl(out_folder: &str, stat_duration_sec: u64) -> Result<()> {
   let p = Path::new(&out_folder).join(format!("rapl.log"));
+  let tid: &TransactionId = &crate::transaction::ENERGY_MONITOR_TID;
   let mut f = match File::create(p) {
     Ok(f) => f,
     Err(e) => {
@@ -32,7 +33,7 @@ fn monitor_rapl(out_folder: &str, stat_duration_sec: u64) -> Result<()> {
   let mut elapsed = 0;
   loop {
     let rapl = RAPL::record()?;
-    let (time, uj) = rapl.difference(&curr_rapl)?;
+    let (time, uj) = rapl.difference(&curr_rapl, tid)?;
     elapsed += time;
     let to_write = format!("{},{}\n", elapsed, uj);
     match f.write_all(to_write.as_bytes()) {

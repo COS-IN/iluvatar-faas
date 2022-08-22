@@ -1,5 +1,6 @@
 use anyhow::Result;
 use iluvatar_library::energy::rapl::RAPL;
+use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::utils::config::get_val;
 use std::collections::{HashSet, HashMap};
 use std::fs::File;
@@ -13,6 +14,7 @@ const INVOKE_ID: &str = "iluvatar_worker_library::services::containers::containe
 
 pub fn analyze_logs(_matches: &ArgMatches, submatches: &ArgMatches) -> Result<()> {
   // TODO: re-implement this
+  let tid: &TransactionId = &iluvatar_library::transaction::ENERGY_MONITOR_TID;
   let log_file: String = get_val("logfile", submatches)?;
   let mut monitor = LogMonitor::new(&log_file)?;
   let mut curr_rapl = RAPL::record()?;
@@ -29,12 +31,12 @@ pub fn analyze_logs(_matches: &ArgMatches, submatches: &ArgMatches) -> Result<()
     println!("{:?}", shares);
 
     let rapl = RAPL::record()?;
-    let (time, uj) = rapl.difference(&curr_rapl)?;
+    let (time, uj) = rapl.difference(&curr_rapl, tid)?;
     println!("{} seconds; {} joules;", time / 1000000, uj / 1000000);
     curr_rapl = rapl;
   }
   let rapl = RAPL::record()?;
-  let (time, uj) = rapl.difference(&curr_rapl)?;
+  let (time, uj) = rapl.difference(&curr_rapl, tid)?;
   println!("{} seconds; {} joules;", time / 1000000, uj / 1000000);
   Ok(())
 }

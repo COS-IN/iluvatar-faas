@@ -64,7 +64,7 @@ impl LifecycleFactory {
         netm.ensure_bridge(tid)?;
       }
       
-      let mut lifecycle = ContainerdLifecycle::new(netm);
+      let mut lifecycle = ContainerdLifecycle::new(netm, self.containers.clone());
       lifecycle.connect().await?;
       Ok(Arc::new(lifecycle))
     } else if self.containers.backend == "docker" {

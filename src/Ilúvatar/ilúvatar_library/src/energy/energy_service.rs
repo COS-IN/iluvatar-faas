@@ -57,7 +57,7 @@ impl EnergyMonitorService {
       loop {
         std::thread::sleep(std::time::Duration::from_secs(20));
         let rapl = RAPL::record().unwrap();
-        let (time, uj) = rapl.difference(&curr_rapl).unwrap();
+        let (time, uj) = rapl.difference(&curr_rapl, tid).unwrap();
   
         if svc.monitor_energy(tid, time, uj) {
           curr_rapl = rapl;
