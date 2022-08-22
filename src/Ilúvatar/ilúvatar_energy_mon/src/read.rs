@@ -17,7 +17,8 @@ pub fn analyze_logs(_matches: &ArgMatches, submatches: &ArgMatches) -> Result<()
   let tid: &TransactionId = &iluvatar_library::transaction::ENERGY_MONITOR_TID;
   let log_file: String = get_val("logfile", submatches)?;
   let mut monitor = LogMonitor::new(&log_file)?;
-  let mut curr_rapl = RAPL::record()?;
+  let rapl = RAPL::new()?;
+  let mut curr_rapl = rapl.record()?;
 
   let (function_data, overhead) = monitor.read_log()?;
   if function_data.len() > 0 {
@@ -30,13 +31,13 @@ pub fn analyze_logs(_matches: &ArgMatches, submatches: &ArgMatches) -> Result<()
     }
     println!("{:?}", shares);
 
-    let rapl = RAPL::record()?;
-    let (time, uj) = rapl.difference(&curr_rapl, tid)?;
+    let new_rapl = rapl.record()?;
+    let (time, uj) = rapl.difference(&new_rapl, &curr_rapl, tid)?;
     println!("{} seconds; {} joules;", time / 1000000, uj / 1000000);
-    curr_rapl = rapl;
+    curr_rapl = new_rapl;
   }
-  let rapl = RAPL::record()?;
-  let (time, uj) = rapl.difference(&curr_rapl, tid)?;
+  let new_rapl = rapl.record()?;
+  let (time, uj) = rapl.difference(&new_rapl, &curr_rapl, tid)?;
   println!("{} seconds; {} joules;", time / 1000000, uj / 1000000);
   Ok(())
 }

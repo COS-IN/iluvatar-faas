@@ -28,12 +28,13 @@ fn monitor_rapl(out_folder: &str, stat_duration_sec: u64) -> Result<()> {
       println!("Failed to write json of result because {}", e);
     }
   };
+  let rapl = RAPL::new()?;
 
-  let mut curr_rapl = RAPL::record()?;
+  let mut curr_rapl = rapl.record()?;
   let mut elapsed = 0;
   loop {
-    let rapl = RAPL::record()?;
-    let (time, uj) = rapl.difference(&curr_rapl, tid)?;
+    let new_rapl = rapl.record()?;
+    let (time, uj) = rapl.difference(&new_rapl, &curr_rapl, tid)?;
     elapsed += time;
     let to_write = format!("{},{}\n", elapsed, uj);
     match f.write_all(to_write.as_bytes()) {
@@ -42,7 +43,7 @@ fn monitor_rapl(out_folder: &str, stat_duration_sec: u64) -> Result<()> {
         println!("Failed to write json of result because {}", e);
       }
     };
-    curr_rapl = rapl;
+    curr_rapl = new_rapl;
 
     std::thread::sleep(std::time::Duration::from_secs(stat_duration_sec));
   }

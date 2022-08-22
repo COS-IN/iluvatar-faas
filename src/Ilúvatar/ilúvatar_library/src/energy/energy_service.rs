@@ -52,15 +52,16 @@ impl EnergyMonitorService {
         },
       };
       debug!(tid=%tid, "energy monitor worker started");
+      let rapl = RAPL::new().unwrap();
       // todo: unwraps
-      let mut curr_rapl = RAPL::record().unwrap();
+      let mut curr_rapl = rapl.record().unwrap();
       loop {
         std::thread::sleep(std::time::Duration::from_secs(20));
-        let rapl = RAPL::record().unwrap();
-        let (time, uj) = rapl.difference(&curr_rapl, tid).unwrap();
+        let new_rapl = rapl.record().unwrap();
+        let (time, uj) = rapl.difference(&new_rapl, &curr_rapl, tid).unwrap();
   
         if svc.monitor_energy(tid, time, uj) {
-          curr_rapl = rapl;
+          curr_rapl = new_rapl;
         };
       }
     })
@@ -88,7 +89,7 @@ impl EnergyMonitorService {
     }
 
     let overhead_pct = overhead as f64 / tot_time_ns as f64;
-    println!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time_ns, overhead_pct);
+    // println!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time_ns, overhead_pct);
     for (k,v) in function_data.iter() {
       let share = *v as f64 / tot_time_ns as f64;
       let energy = share * uj as f64;
@@ -162,7 +163,7 @@ impl EnergyMonitorService {
         };
         match s.fqdn() {
           Some(f) => {
-            println!("function {f:?} completed span in {time_ns} ns");
+            // println!("function {f:?} completed span in {time_ns} ns");
             self.invocation_durations.write().as_mut().unwrap().insert(s.transaction_id.unwrap().clone(), (f, time_ns) );
           },
           None => panic!("Completed invocation span didn't have a valid FQDN: {:?}", s),
