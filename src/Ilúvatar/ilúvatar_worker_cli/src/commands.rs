@@ -12,7 +12,7 @@ pub async fn ping(worker: Box<Worker>) -> Result<()> {
   Ok(())
 }
 
-pub async fn invoke(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<()> {
+pub async fn invoke(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
 
   let function_name = get_val("name", &args)?;
@@ -25,7 +25,7 @@ pub async fn invoke(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<(
   Ok(())
 }
 
-pub async fn invoke_async(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<()> {
+pub async fn invoke_async(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
 
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;
@@ -41,7 +41,7 @@ pub async fn invoke_async(worker: Box<Worker>, args: &ArgMatches<'static>) -> Re
   Ok(())
 }
 
-pub async fn invoke_async_check(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<()> {
+pub async fn invoke_async_check(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
   let cookie = get_val("cookie", &args)?;
 
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
@@ -50,7 +50,7 @@ pub async fn invoke_async_check(worker: Box<Worker>, args: &ArgMatches<'static>)
   Ok(())
 }
 
-pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<()> {
+pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;
@@ -66,7 +66,7 @@ pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<
   Ok(())
 }
 
-pub async fn register(worker: Box<Worker>, args: &ArgMatches<'static>) -> Result<()> {
+pub async fn register(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;

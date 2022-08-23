@@ -51,16 +51,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let config_pth = get_val("config", &args)?;
     
   match args.subcommand() {
-    ("clean", Some(_)) => {
+    Some(("clean", _)) => {
       let server_config = Configuration::boxed(true, &config_pth).unwrap();
       let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name)?;
       clean(server_config, tid).await?;
       },
-    (_,_) => { 
+    Some((_,_)) => { 
       let server_config = Configuration::boxed(false, &config_pth).unwrap();
       let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name)?;
       run(server_config, tid).await?;
      },
+    None => panic!("Unknown command"),
   };
   Ok(())
 }

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use iluvatar_library::energy::EnergyConfig;
 use iluvatar_library::{types::MemSizeMb, utils::port_utils::Port, logging::LoggingConfig};
 use iluvatar_library::graphite::GraphiteConfig;
 use serde::Deserialize;
@@ -89,19 +90,6 @@ pub struct NetworkingConfig {
   pub pool_freq_sec: u64,
   /// network interface to attach bridge to
   pub hardware_interface: String,
-}
-
-#[derive(Debug, Deserialize)]
-/// Energy monitoring configuring
-pub struct EnergyConfig {
-  /// Log RAPL energy consumption
-  pub enable_rapl: bool,
-  /// Log instantaneous power usage from IPMI
-  pub enable_ipmi: bool,
-  /// Frequency of energy logging in milliseconds
-  pub log_freq_ms: u64,
-  /// File to log energy and function metrics to
-  pub file: String
 }
 
 pub type WorkerConfig = Arc<Configuration>;

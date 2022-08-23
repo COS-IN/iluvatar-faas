@@ -2,7 +2,7 @@ extern crate clap;
 
 use clap::App;
 
-pub fn app() -> App<'static, 'static> {
+pub fn app() -> App<'static> {
   App::new("myapp")
   .version("0.1.0")
   .about("Interacts with Ilúvatar workers")

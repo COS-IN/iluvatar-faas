@@ -13,15 +13,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let worker = settings.get_worker(worker_name).unwrap();
 
   match args.subcommand() {
-    ("ping", Some(_)) => { commands::ping(worker).await },
-    ("invoke", Some(_sub_m)) => { commands::invoke(worker, _sub_m).await },
-    ("invoke-async", Some(_sub_m)) => { commands::invoke_async(worker, _sub_m).await },
-    ("invoke-async-check", Some(_sub_m)) => { commands::invoke_async_check(worker, _sub_m).await },
-    ("prewarm", Some(_sub_m)) => { commands::prewarm(worker, _sub_m).await },
-    ("register", Some(_sub_m)) => { commands::register(worker, _sub_m).await },
-    ("status", Some(_sub_m)) => { commands::status(worker).await },
-    ("health", Some(_sub_m)) => { commands::health(worker).await },
-    (text,_) => { panic!("Unsupported command {}", text) },
+    Some( ("ping", _)) => { commands::ping(worker).await },
+    Some(("invoke", _sub_m)) => { commands::invoke(worker, _sub_m).await },
+    Some(("invoke-async", _sub_m)) => { commands::invoke_async(worker, _sub_m).await },
+    Some(("invoke-async-check", _sub_m)) => { commands::invoke_async_check(worker, _sub_m).await },
+    Some(("prewarm", _sub_m)) => { commands::prewarm(worker, _sub_m).await },
+    Some(("register", _sub_m)) => { commands::register(worker, _sub_m).await },
+    Some(("status", _sub_m)) => { commands::status(worker).await },
+    Some(("health", _sub_m)) => { commands::health(worker).await },
+    Some((text,_)) => { panic!("Unsupported command {}", text) },
+    None => { panic!("Unsupported command") },
   }?;
   Ok(())
 }

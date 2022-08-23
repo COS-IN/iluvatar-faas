@@ -8,5 +8,5 @@ authors = ["Alex Fuerst alfuerst@iu.edu"]
 actix-web = "4"
 iluvatar_library = { path = "../ilúvatar_library" }
 iluvatar_controller_library = { path = "../ilúvatar_controller_library" }
-clap = "2"
+clap = "3"
 tracing = "0.1"

@@ -1,15 +1,21 @@
 extern crate clap;
 
+use std::str::FromStr;
+
 use clap::{ArgMatches, value_t};
 
-pub fn get_val<'a, T: ?Sized + std::str::FromStr>(name: &'a str, args: &'a ArgMatches) -> anyhow::Result<T> {
-  match value_t!(args, name, T) {
+pub fn get_val<'a, T: ?Sized + std::str::FromStr>(name: &'a str, args: &'a ArgMatches) -> anyhow::Result<T>
+  where <T as FromStr>::Err: std::fmt::Display {
+  
+    match value_t!(args, name, T) {
     Ok(val) => Ok(val),
     Err(e) => anyhow::bail!("Got an error '{:?}' parsing '{}' from args '{:?}'", e, name, args),
   }
 }
 
-pub fn get_val_opt<'a, T: ?Sized + std::str::FromStr>(name: &'a str, args: &'a ArgMatches) -> Option<T> {
+pub fn get_val_opt<'a, T: ?Sized + std::str::FromStr>(name: &'a str, args: &'a ArgMatches) -> Option<T>
+  where <T as FromStr>::Err: std::fmt::Display {
+
   match value_t!(args, name, T) {
     Ok(val) => Some(val),
     Err(_) => None,

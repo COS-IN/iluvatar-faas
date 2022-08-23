@@ -1,7 +1,7 @@
 use anyhow::Result;
 use iluvatar_library::energy::rapl::RAPL;
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::utils::config::get_val;
+// use iluvatar_library::utils::config::get_val;
 use std::collections::{HashSet, HashMap};
 use std::fs::File;
 use std::io::{Seek, SeekFrom, BufRead, BufReader};
@@ -12,10 +12,11 @@ const REGISTER_API_ID: &str = "iluvatar_worker_library::worker_api::ilúvatar_wo
 const INVOKE_API_ID: &str = "iluvatar_worker_library::worker_api::ilúvatar_worker::invoke";
 const INVOKE_ID: &str = "iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer::invoke";
 
-pub fn analyze_logs(_matches: &ArgMatches, submatches: &ArgMatches) -> Result<()> {
+pub fn analyze_logs(_matches: &ArgMatches, _submatches: &ArgMatches) -> Result<()> {
   // TODO: re-implement this
   let tid: &TransactionId = &iluvatar_library::transaction::ENERGY_MONITOR_TID;
-  let log_file: String = get_val("logfile", submatches)?;
+  // let log_file: String = get_val("logfile", submatches)?;
+  let log_file = "".to_string();
   let mut monitor = LogMonitor::new(&log_file)?;
   let rapl = RAPL::new()?;
   let mut curr_rapl = rapl.record()?;

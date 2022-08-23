@@ -30,8 +30,10 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
   format!("http://{}:{}/", address, port)
 }
 
-fn prepare_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Command> {
-  debug!(tid=%tid, command=cmd_pth, args=?args, environment=?env, "executing host command");
+fn prepare_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Command>
+  where S: AsRef<std::ffi::OsStr> + ?Sized + std::fmt::Display {
+  
+    debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
   if ! std::path::Path::new(&cmd_pth).exists() {
     bail_error!(tid=%tid, command=%cmd_pth, "Command does not exists");
   }
@@ -45,8 +47,10 @@ fn prepare_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, Str
 
 /// Executes the specified executable with args and environment
 /// cmd_pth **must** be an absolute path
-pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> {
-  let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
+pub fn execute_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> 
+  where S: AsRef<std::ffi::OsStr> + ?Sized + std::fmt::Display {
+  
+    let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
   match cmd.output() {
     Ok(out) => Ok(out),
     Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Running command failed")
@@ -55,8 +59,10 @@ pub fn execute_cmd(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String,
 
 /// Executes the specified executable with args and environment
 /// cmd_pth **must** be an absolute path
-pub fn execute_cmd_nonblocking(cmd_pth: &str, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Child> {
-  debug!(tid=%tid, command=cmd_pth, args=?args, environment=?env, "executing host command");
+pub fn execute_cmd_nonblocking<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Child>
+  where S: AsRef<std::ffi::OsStr> + ?Sized + std::fmt::Display {
+
+  debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
   let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
   match cmd.spawn() {
     Ok(out) => Ok(out),

@@ -1,4 +1,4 @@
-use crate::services::energy_logging::EnergyLogger;
+use iluvatar_library::energy::energy_logging::EnergyLogger;
 use crate::services::worker_health::WorkerHealthService;
 use crate::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
 use crate::services::status::status_service::StatusService;
@@ -24,7 +24,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
   let invoker = InvokerService::boxed(container_man.clone(), tid, worker_config.limits.clone());
   let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone()).await;
   let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
-  let energy = EnergyLogger::boxed(worker_config.energy.clone(), invoker.clone())?;
+  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid)?;
   
   Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy))
 }

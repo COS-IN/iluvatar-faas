@@ -4,12 +4,12 @@ use iluvatar_worker_library::worker_api::worker_config::Configuration;
 use tracing::{debug, info, error};
 use clap::{ArgMatches, App, SubCommand, Arg};
 
-pub fn parse() -> ArgMatches<'static> {
+pub fn parse() -> ArgMatches {
   App::new("ilúvatar_worker")
     .version("0.1.0")
     .about("Ilúvatar worker")
     .arg(Arg::with_name("config")
-      .short("c")
+      .short('c')
       .long("config")
       .help("Path to a configuration file to use")
       .required(false)

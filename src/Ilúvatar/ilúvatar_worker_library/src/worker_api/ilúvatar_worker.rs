@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::services::energy_logging::EnergyLogger;
+use iluvatar_library::energy::energy_logging::EnergyLogger;
 use crate::services::{invocation::invoker::InvokerService, worker_health::WorkerHealthService};
 use crate::services::status::status_service::StatusService;
 use tonic::{Request, Response, Status};

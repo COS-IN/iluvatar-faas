@@ -56,11 +56,11 @@ impl FunctionStore {
   }
 }
 
-pub fn trace_args<'a>(app: App<'a, 'a>) -> App<'a, 'a> {
+pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
   app.subcommand(SubCommand::with_name("benchmark")
     .about("Benchmark functions through the system")
     .arg(Arg::with_name("target")
-        .short("t")
+        .short('t')
         .long("target")
         .help("Target for the load, either 'worker' or 'controller'")
         .required(false)

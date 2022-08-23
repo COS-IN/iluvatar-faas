@@ -9,25 +9,25 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-pub fn trace_args<'a>(app: App<'a, 'a>) -> App<'a, 'a> {
+pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
   app.subcommand(SubCommand::with_name("scaling")
     .about("Test scaling of worker with increasing amount of requests")
     .arg(Arg::with_name("start")
-      .short("s")
+      .short('s')
       .long("start")
       .help("Number of threads to start")
       .required(false)
       .takes_value(true)
       .default_value("1"))
     .arg(Arg::with_name("end")
-      .short("e")
+      .short('e')
       .long("end")
       .help("Number of threads to reach")
       .required(false)
       .takes_value(true)
       .default_value("1"))
     .arg(Arg::with_name("duration")
-      .short("d")
+      .short('d')
       .long("duration")
       .help("Duration in seconds before increasing load")
       .required(false)
