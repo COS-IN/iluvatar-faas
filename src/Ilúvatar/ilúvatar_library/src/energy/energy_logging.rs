@@ -39,11 +39,11 @@ impl EnergyLogger {
       true => {
         let perf_file = Path::new(&config.log_folder);
         let perf_file = perf_file.join("energy-perf.log");
-        let perf_stat_duration_sec = match config.perf_stat_duration_sec {
+        let perf_stat_duration_ms = match config.perf_stat_duration_ms {
           Some(t) => t,
-          None => panic!("'perf_stat_duration_sec was not supplied even though perf monitoring was enabled"),
+          None => panic!("'perf_stat_duration_ms was not supplied even though perf monitoring was enabled"),
         };
-        Some(start_perf_stat(&perf_file.to_str().unwrap(), tid, perf_stat_duration_sec)?)  
+        Some(start_perf_stat(&perf_file.to_str().unwrap(), tid, perf_stat_duration_ms)?)  
       },
       false => None
     };

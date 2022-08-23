@@ -20,9 +20,9 @@ pub struct EnergyConfig {
   #[clap(long, action)]
   pub enable_perf: bool,
 
-  /// Frequecy in seconds to track perf energy metric
+  /// Frequecy in milliseconds to track perf energy metric
   #[clap(long)]
-  pub perf_stat_duration_sec: Option<u64>,
+  pub perf_stat_duration_ms: Option<u64>,
 
   /// File path containing the IPMI password
   #[clap(long)]
