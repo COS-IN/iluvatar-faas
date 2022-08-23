@@ -1,7 +1,7 @@
 #!bin/bash
 
 apt-get update -y
-apt-get install -y curl runc bridge-utils iptables zfsutils-linux
+apt-get install -y curl runc bridge-utils iptables zfsutils-linux cmake gcc g++ libssl-dev pkg-config
 
 ### Install go ###
 ARCH=amd64

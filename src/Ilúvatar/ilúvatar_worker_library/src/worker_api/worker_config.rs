@@ -71,6 +71,7 @@ pub struct FunctionLimits {
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
+/// Networking details to connect containers to the network
 pub struct NetworkingConfig {
   /// bridge name to create
   pub bridge: String,
@@ -91,10 +92,15 @@ pub struct NetworkingConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// Energy monitoring configuring
 pub struct EnergyConfig {
+  /// Log RAPL energy consumption
   pub enable_rapl: bool,
+  /// Log instantaneous power usage from IPMI
   pub enable_ipmi: bool,
+  /// Frequency of energy logging in milliseconds
   pub log_freq_ms: u64,
+  /// File to log energy and function metrics to
   pub file: String
 }
 
