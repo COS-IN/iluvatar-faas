@@ -5,28 +5,44 @@ use std::thread::JoinHandle;
 use tracing::{debug, error};
 use anyhow::Result;
 
+pub type EnergyInjectableT = Arc<dyn Fn() -> String + Send + Sync>;
+
 pub struct EnergyLogger {
   config: Arc<EnergyConfig>,
   _worker_thread: JoinHandle<()>,
   rapl: Arc<RAPL>,
   _csv_modifiers: Vec<String>,
   _perf_child: Option<std::process::Child>,
+  headers: Option<Vec<String>>,
+  csv_injectables: Option<Vec<EnergyInjectableT>>,
 }
 
 impl EnergyLogger {
-  pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId, headers: Option<Vec<String>>, csv_injectables: Option<Vec<EnergyInjectableT>>) -> Result<Arc<Self>> {
+    match &headers {
+      Some(hs) => match &csv_injectables {
+        Some(cvs) => {
+          if cvs.len() != hs.len() {
+            panic!("Supplied 'headers' and 'csv_injectables' did not have same length")
+          }
+        },
+        None => panic!("Must supply both 'headers' and 'csv_injectables', one was 'None'"),
+      },
+      None => (),
+    };
+
+
     let (tx, rx) = channel();
     let handle = EnergyLogger::launch_worker_thread(rx);
     
     let child = match config.enable_perf {
       true => {
         let perf_file = Path::new(&config.log_folder);
-        let perf_file = perf_file.join("perf.log");
+        let perf_file = perf_file.join("energy-perf.log");
         let perf_stat_duration_sec = match config.perf_stat_duration_sec {
           Some(t) => t,
           None => panic!("'perf_stat_duration_sec was not supplied even though perf monitoring was enabled"),
         };
-        println!("starting perf");
         Some(start_perf_stat(&perf_file.to_str().unwrap(), tid, perf_stat_duration_sec)?)  
       },
       false => None
@@ -38,6 +54,8 @@ impl EnergyLogger {
       rapl: Arc::new(RAPL::new()?),
       _csv_modifiers: vec![],
       _perf_child: child,
+      headers,
+      csv_injectables
     });
     tx.send(i.clone())?;
     Ok(i)
@@ -84,7 +102,16 @@ impl EnergyLogger {
       ret.push_str("rapl,");
     }
     if self.config.enable_ipmi { 
-      ret.push_str("ipmi,");
+      ret.push_str("ipmi");
+    }
+    match &self.headers {
+      Some(v) => {
+        for h in v {
+          ret.push_str(",");
+          ret.push_str(&h);
+        }
+      },
+      None => (),
     }
     ret
   }
@@ -113,9 +140,15 @@ impl EnergyLogger {
       to_write = format!("{},{}", to_write, ipmi_uj);
     }
 
-    // TODO: enable letting injectable data into output
-    // let funcs = self.invoker.get_running();
-    // to_write = format!("{},{:?}\n", to_write, funcs);
+    match &self.csv_injectables {
+      Some(cvs) => {
+        for cvs in cvs {
+          to_write.push(',');
+          to_write.push_str(cvs().as_str());
+        }
+      },
+      None => (),
+    }
 
     to_write.push('\n');
     match file.write_all(to_write.as_bytes()) {

@@ -48,7 +48,10 @@
   "energy": {
     "enable_rapl": true,
     "enable_ipmi": false,
-    "log_freq_ms": 100,
-    "file": "/tmp/ilúvatar/logs/energy.csv"
+    "enable_perf": true,
+    "perf_stat_duration_sec": 0,
+    "ipmi_pass_file": "",
+    "log_freq_ms": 1000,
+    "log_folder": "/tmp/ilúvatar/logs/energy.csv"
   }
 }

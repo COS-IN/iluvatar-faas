@@ -182,6 +182,9 @@ impl InvokerService {
       }
       ret
     }
+    pub fn get_running_string(&self) -> String {
+      format!("{:?}", self.get_running())
+    }
 
     /// acquires a container and invokes the function inside it
     /// returns the json result and duration as a tuple

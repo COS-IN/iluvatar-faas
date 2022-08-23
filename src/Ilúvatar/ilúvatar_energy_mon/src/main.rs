@@ -9,7 +9,7 @@ fn main() -> anyhow::Result<()> {
   let tid: &TransactionId = &ENERGY_MONITOR_TID;
   let config = Arc::new(EnergyConfig::parse());
 
-  let _mon = EnergyLogger::boxed(config, tid)?;
+  let _mon = EnergyLogger::boxed(config, tid, None, None)?;
 
   loop {
     // sleep forever
