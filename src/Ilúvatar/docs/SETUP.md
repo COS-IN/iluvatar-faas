@@ -4,7 +4,7 @@
 
 ```bash
 apt-get update -y
-apt-get install -y curl runc bridge-utils iptables zfsutils-linux cmake gcc g++ libssl-dev pkg-config linux-tools-common linux-tools-`uname -r`
+apt-get install -y curl runc bridge-utils iptables zfsutils-linux cmake net-tools gcc g++ libssl-dev pkg-config linux-tools-common linux-tools-`uname -r`
 ```
 
 ## Go
@@ -69,12 +69,19 @@ mv containerd.service /usr/local/lib/systemd/system/containerd.service
 echo "net.ipv4.conf.all.forwarding=1" | tee -a /etc/sysctl.conf
 ```
 
-## ZFS
+## ZFS and file system
 
 ```bash
-fallocate -l 10G /zfs-ilu-pool
+ilu_base=/data2/ilúvatar
+# vary these based on your setup
+# make sure these make it to your config files
+mkdir -p $ilu_base/azure
+mkdir -p $ilu_base/zfs
+mkdir -p $ilu_base/logs
+
+fallocate -l 10G $ilu_base/zfs/ilu-pool
 # optionally this can be created using whole devices, not a file
-zpool create ilu-pool /zfs-ilu-pool
+zpool create ilu-pool $ilu_base/zfs/ilu-pool
 zfs create -o mountpoint=/var/lib/containerd/io.containerd.snapshotter.v1.zfs ilu-pool/containerd
 systemctl restart containerd
 ```
@@ -84,6 +91,11 @@ systemctl restart containerd
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
+
+## Config
+
+Create a `worker.dev.json` and `controller.dev.json` if you are setting up locally.
+See [config](CONFIG.md) for details on how this can be done.
 
 ## Build solution
 
