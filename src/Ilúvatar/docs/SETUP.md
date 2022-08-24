@@ -1,44 +1,49 @@
-#!bin/bash
+# Ilúvatar Setup
 
+## Linux Dependencies
+
+```bash
 apt-get update -y
 apt-get install -y curl runc bridge-utils iptables zfsutils-linux cmake gcc g++ libssl-dev pkg-config linux-tools-common linux-tools-`uname -r`
+```
 
-### Install go ###
+## Go
+
+```bash
 ARCH=amd64
 GO_VERSION=1.18.3
+tar="go${GO_VERSION}.linux-${ARCH}.tar.gz"
 
-if [[ $(go version) != 0 ]]; then
+wget https://go.dev/dl/${tar}
+rm -rf /usr/local/go/
+tar -C /usr/local -xzf ${tar}
+rm ${tar}
 
-  tar="go${GO_VERSION}.linux-${ARCH}.tar.gz"
+export PATH=$PATH:/usr/local/go/bin
+```
 
-  wget https://go.dev/dl/${tar}
-  rm -rf /usr/local/go/
-  tar -C /usr/local -xzf ${tar}
-  rm ${tar}
+## CNITool
 
-  export PATH=$PATH:/usr/local/go/bin
-
-fi
-
-### Install cnitool ###
+```bash
 go install github.com/containernetworking/cni/cnitool@latest
 gopth=$(go env GOPATH)
 mkdir -p /opt/cni/bin
 mv ${gopth}/bin/cnitool /opt/cni/bin
+```
 
+## CNI tools
 
-### Install cni tools ###
+```bash
 ARCH=amd64
 CNI_VERSION=v1.1.1
 
 mkdir -p /opt/cni/bin
 curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz | tar -xz -C /opt/cni/bin
+```
 
+## Containerd
 
-### Install containerd ###
-
-if [[ $(ctr --version) != 0 ]]; then
-
+```bash
   export VER=1.6.4
   curl -sSL https://github.com/containerd/containerd/releases/download/v$VER/containerd-$VER-linux-amd64.tar.gz > /tmp/containerd.tar.gz \
     && tar -xvf /tmp/containerd.tar.gz -C /usr/local/bin/ --strip-components=1
@@ -47,28 +52,41 @@ if [[ $(ctr --version) != 0 ]]; then
   systemctl enable containerd
   systemctl daemon-reload
   systemctl restart containerd
+  ```
 
-fi
+If `systemctl enable containerd` gives an error about masking such as "Failed to enable unit: Unit file /etc/systemd/system/containerd.service is masked."
+Run these commands, then re-run the `systemctl` commands
+```bash
+wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service
+mkdir -p /usr/local/lib/systemd/system/
+mv containerd.service /usr/local/lib/systemd/system/containerd.service
+```
 
-### Enable container forwarding
+## Container forwarding
+
+```bash
 /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
 echo "net.ipv4.conf.all.forwarding=1" | tee -a /etc/sysctl.conf
+```
 
+## ZFS
 
-### Set up zfs for containerd
-
+```bash
 fallocate -l 10G /zfs-ilu-pool
 # optionally this can be created using whole devices, not a file
 zpool create ilu-pool /zfs-ilu-pool
 zfs create -o mountpoint=/var/lib/containerd/io.containerd.snapshotter.v1.zfs ilu-pool/containerd
 systemctl restart containerd
+```
 
-### Install rust ###
+## Rust
 
-if [[ $(cargo --version) != 0 ]]; then
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+## Build solution
 
-fi
-
+```bash
 cargo build -j $(nproc --all)
+```
