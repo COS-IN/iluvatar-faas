@@ -183,7 +183,12 @@ impl InvokerService {
       ret
     }
     pub fn get_running_string(&self) -> String {
-      format!("{:?}", self.get_running())
+      let mut ret = String::new();
+      for item in self.running_functions.iter() {
+        ret.push_str(item.key().as_str());
+        ret.push(':');
+      }
+      ret
     }
 
     /// acquires a container and invokes the function inside it

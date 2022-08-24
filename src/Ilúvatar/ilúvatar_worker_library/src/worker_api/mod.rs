@@ -30,7 +30,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     InvokerService::get_running_string(&inv_cln) 
   });
   let inject = vec![i];
-  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid, Some(vec!["functions".to_string()]), Some(inject))?;
+  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid, Some(vec!["invoking_tids".to_string()]), Some(inject))?;
   
   Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy))
 }
