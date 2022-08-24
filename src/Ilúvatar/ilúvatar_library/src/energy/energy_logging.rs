@@ -4,6 +4,7 @@ use time::OffsetDateTime;
 use std::thread::JoinHandle;
 use tracing::{debug, error};
 use anyhow::Result;
+use super::ipmi::IPMI;
 
 pub type EnergyInjectableT = Arc<dyn Fn() -> String + Send + Sync>;
 
@@ -11,6 +12,7 @@ pub struct EnergyLogger {
   config: Arc<EnergyConfig>,
   _worker_thread: JoinHandle<()>,
   rapl: Arc<RAPL>,
+  ipmi: Option<IPMI>,
   _csv_modifiers: Vec<String>,
   _perf_child: Option<std::process::Child>,
   headers: Option<Vec<String>>,
@@ -48,6 +50,13 @@ impl EnergyLogger {
       false => None
     };
 
+    let ipmi = match config.enable_ipmi {
+      true => Some(IPMI::new(
+          config.ipmi_pass_file.as_ref().expect("'ipmi_pass_file was not present with ipmi enabled").clone(), 
+          config.ipmi_ip_addr.as_ref().expect("'ipmi_ip_addr was not present with ipmi enabled").clone(), tid)?),
+      false => None,
+    };
+
     let i = Arc::new(EnergyLogger {
       config,
       _worker_thread: handle,
@@ -55,7 +64,8 @@ impl EnergyLogger {
       _csv_modifiers: vec![],
       _perf_child: child,
       headers,
-      csv_injectables
+      csv_injectables,
+      ipmi,
     });
     tx.send(i.clone())?;
     Ok(i)
@@ -97,12 +107,12 @@ impl EnergyLogger {
   }
 
   fn gen_header(&self) -> String {
-    let mut ret = String::from("timestamp,");
-    if self.config.enable_rapl { 
-      ret.push_str("rapl,");
+    let mut ret = String::from("timestamp");
+    if self.config.enable_rapl {
+      ret.push_str(",rapl_uj");
     }
-    if self.config.enable_ipmi { 
-      ret.push_str("ipmi");
+    if self.config.enable_ipmi {
+      ret.push_str(",ipmi");
     }
     match &self.headers {
       Some(v) => {
@@ -113,6 +123,7 @@ impl EnergyLogger {
       },
       None => (),
     }
+    ret.push('\n');
     ret
   }
 
@@ -130,7 +141,7 @@ impl EnergyLogger {
       to_write = format!("{},{}", to_write, rapl_uj);
     }
     if self.config.enable_ipmi {
-      let ipmi_uj = match self.instant_impi() {
+      let ipmi_uj = match self.instant_impi(tid) {
         Ok(uj) => uj,
         Err(e) => {
           error!(tid=%tid, error=%e, "Unable to read ipmi value");
@@ -163,8 +174,10 @@ impl EnergyLogger {
     let reading = self.rapl.record()?;
     Ok(reading.start_uj)
   }
-  fn instant_impi(&self) -> Result<u128> {
-   todo!();
-   // TODO: ipmi support!
+  fn instant_impi(&self, tid: &TransactionId) -> Result<u128> {
+    match &self.ipmi {
+      Some(i) => i.read(tid),
+      None => anyhow::bail!("ipmi variable was non despite trying to query it!"),
+    }
   }
 }

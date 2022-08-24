@@ -9,7 +9,7 @@
     "level": "debug",
     "directory": "/tmp/ilúvatar/logs",
     "basename": "load_balancer",
-    "spanning": "FULL",
+    "spanning": "NEW+CLOSE",
     "flame": ""
   },
   "load_balancer": {

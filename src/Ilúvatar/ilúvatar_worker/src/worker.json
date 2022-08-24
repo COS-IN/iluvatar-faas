@@ -15,7 +15,7 @@
     "level": "info",
     "directory": "/tmp/ilúvatar/logs",
     "basename": "worker",
-    "spanning": "FULL",
+    "spanning": "NEW+CLOSE",
     "flame": ""
   },
   "container_resources": {
@@ -49,7 +49,7 @@
     "enable_rapl": true,
     "enable_ipmi": false,
     "enable_perf": true,
-    "perf_stat_duration_sec": 1000,
+    "perf_stat_duration_ms": 1000,
     "ipmi_pass_file": "",
     "log_freq_ms": 1000,
     "log_folder": "/tmp/ilúvatar/logs/"

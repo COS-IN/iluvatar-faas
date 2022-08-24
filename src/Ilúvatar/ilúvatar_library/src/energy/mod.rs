@@ -3,6 +3,7 @@ pub mod energy_service;
 pub mod rapl;
 pub mod perf;
 pub mod energy_logging;
+pub mod ipmi;
 
 #[derive(Debug, serde::Deserialize, clap::Parser)]
 #[clap(author, version, about)]
@@ -27,6 +28,10 @@ pub struct EnergyConfig {
   /// File path containing the IPMI password
   #[clap(long)]
   pub ipmi_pass_file: Option<String>,
+
+  /// IP Address for the local IPMI endpoint
+  #[clap(long)]
+  pub ipmi_ip_addr: Option<String>,
 
   /// Frequency of energy logging in milliseconds
   #[clap(long)]
