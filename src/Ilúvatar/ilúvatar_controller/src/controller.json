@@ -14,7 +14,8 @@
   },
   "load_balancer": {
     "algorithm": "LeastLoaded",
-    "load_metric": "worker.load.loadavg"
+    "load_metric": "worker.load.loadavg",
+    "thread_sleep_sec": 3
   },
   "graphite": {
     "address": "localhost",
