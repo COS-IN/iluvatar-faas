@@ -4,37 +4,8 @@ use iluvatar_library::utils::{config::get_val, port::Port};
 use iluvatar_controller_library::controller::{controller_structs::json::ControllerInvokeResult};
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
-use crate::{utils::{controller_register, controller_invoke, FunctionExecOutput}, trace::CsvInvocation, benchmark::BenchmarkStore};
+use crate::{utils::{controller_register, controller_invoke, FunctionExecOutput, VERSION}, benchmark::BenchmarkStore, trace::{match_trace_to_img, CsvInvocation, prepare_function_args}};
 use super::Function;
-
-lazy_static::lazy_static! {
-  pub static ref VERSION: String = "0.0.1".to_string();
-}
-
-fn safe_cmp(a:&(String, f64), b:&(String, f64)) -> std::cmp::Ordering {
-  if a.1.is_nan() && b.1.is_nan() {
-    panic!("cannot compare two nan numbers!")
-  }else if a.1.is_nan() {
-    std::cmp::Ordering::Greater
-  } else if b.1.is_nan() {
-    std::cmp::Ordering::Less
-  } else {
-    a.1.partial_cmp(&b.1).unwrap()
-  }
-}
-
-fn match_trace_to_img(func: &Function, data: &Vec<(String, f64)>) -> String {
-  let mut chosen: &String = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
-    Some(n) => &n.0,
-    None => panic!("failed to get a minimum func from {:?}", data),
-  };
-  for (name, avg_warm) in data.iter() {
-    if &(func.warm_dur_ms as f64) >= avg_warm {
-      chosen = name;
-    }
-  }
-  format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen)
-}
 
 async fn register_functions(funcs: &HashMap<u64, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>) -> Result<()> {
   let data = match load_type {
@@ -69,14 +40,6 @@ async fn register_functions(funcs: &HashMap<u64, Function>, host: &String, port:
   Ok(())
 }
 
-fn prepare_function(func: &Function, load_type: &str) -> Vec<String> {
-  match load_type {
-    "lookbusy" => vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)],
-    "functions" => vec![],
-    _ => panic!("Bad invocation load type: {}", load_type),
-  }
-}
-
 pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let trace_pth: String = get_val("input", &sub_args)?;
   let metadata_pth: String = get_val("metadata", &sub_args)?;
@@ -102,7 +65,7 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
     let func = metadata.get(&invocation.function_id).unwrap();
     let h_c = host.clone();
     let f_c = func.func_name.clone();
-    let args = prepare_function(func, &load_type);
+    let args = prepare_function_args(func, &load_type);
     
     loop {
       match start.elapsed() {
@@ -130,7 +93,7 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
       anyhow::bail!("Failed to create output file because {}", e);
     }
   };
-  let to_write = format!("success,function_name,was_cold,worker_duration_ms,invocation_duration_ms,code_duration_ms,e2e_duration_ms\n");
+  let to_write = format!("success,function_name,was_cold,worker_duration_ms,invocation_duration_ms,code_duration_asec,e2e_duration_ms\n");
   match f.write_all(to_write.as_bytes()) {
     Ok(_) => (),
     Err(e) => {

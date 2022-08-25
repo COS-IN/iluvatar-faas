@@ -8,13 +8,9 @@ use iluvatar_controller_library::controller::web_server::{invoke, register_worke
 use iluvatar_controller_library::controller::structs::json::Invoke;
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
-use crate::trace::CsvInvocation;
+use crate::{trace::CsvInvocation, utils::VERSION};
 use super::Function;
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
-
-lazy_static::lazy_static! {
-  pub static ref VERSION: String = "0.0.1".to_string();
-}
 
 async fn register_workers(num_workers: usize, server_data: &Data<Controller>, worker_config_pth: &String, worker_config: &Arc<WorkerConfig>) -> Result<()> {
   for i in 0..num_workers {

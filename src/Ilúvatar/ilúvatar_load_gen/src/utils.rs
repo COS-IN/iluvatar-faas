@@ -5,6 +5,10 @@ use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::{gen_
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
+lazy_static::lazy_static! {
+  pub static ref VERSION: String = "0.0.1".to_string();
+}
+
 pub struct ThreadError {
   pub thread_id: usize,
   pub error: anyhow::Error

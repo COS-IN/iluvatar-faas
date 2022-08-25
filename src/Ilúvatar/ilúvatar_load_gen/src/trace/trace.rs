@@ -12,7 +12,7 @@ pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
     .about("Run a trace through the system")
     .arg(Arg::with_name("setup")
         .long("setup")
-        .help("Use simulation or live system")
+        .help("Use 'simulation' or 'live' for system setup")
         .required(true)
         .takes_value(true)
         .default_value("simulation"))
@@ -85,21 +85,6 @@ pub fn run_trace(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   }
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[allow(unused)]
-struct Function {
-  pub func_name: String,
-  pub cold_dur_ms: u64,
-  pub warm_dur_ms: u64,
-  pub mem_mb: MemSizeMb,
-  pub function_id: u64,
-}
-#[derive(Debug, serde::Deserialize)]
-struct CsvInvocation {
-  function_id: u64,
-  invoke_time_ms: u64,
-}
-
 fn load_metadata(path: String) -> Result<HashMap<u64, Function>> {
   let mut rdr = csv::Reader::from_path(path)?;
   let mut ret = HashMap::new();
@@ -108,4 +93,51 @@ fn load_metadata(path: String) -> Result<HashMap<u64, Function>> {
     ret.insert(func.function_id, func);
   }
   Ok(ret)
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[allow(unused)]
+pub struct Function {
+  pub func_name: String,
+  pub cold_dur_ms: u64,
+  pub warm_dur_ms: u64,
+  pub mem_mb: MemSizeMb,
+  pub function_id: u64,
+}
+#[derive(Debug, serde::Deserialize)]
+pub struct CsvInvocation {
+  function_id: u64,
+  invoke_time_ms: u64,
+}
+pub fn safe_cmp(a:&(String, f64), b:&(String, f64)) -> std::cmp::Ordering {
+  if a.1.is_nan() && b.1.is_nan() {
+    panic!("cannot compare two nan numbers!")
+  }else if a.1.is_nan() {
+    std::cmp::Ordering::Greater
+  } else if b.1.is_nan() {
+    std::cmp::Ordering::Less
+  } else {
+    a.1.partial_cmp(&b.1).unwrap()
+  }
+}
+
+pub fn match_trace_to_img(func: &Function, data: &Vec<(String, f64)>) -> String {
+  let mut chosen: &String = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
+    Some(n) => &n.0,
+    None => panic!("failed to get a minimum func from {:?}", data),
+  };
+  for (name, avg_warm) in data.iter() {
+    if &(func.warm_dur_ms as f64) >= avg_warm {
+      chosen = name;
+    }
+  }
+  format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen)
+}
+
+fn prepare_function_args(func: &Function, load_type: &str) -> Vec<String> {
+  match load_type {
+    "lookbusy" => vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)],
+    "functions" => vec![],
+    _ => panic!("Bad invocation load type: {}", load_type),
+  }
 }
