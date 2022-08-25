@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, path::Path, fs::File, io::Write};
+use std::{collections::HashMap, sync::Arc, path::Path, fs::File, io::Write, time::Duration};
 use anyhow::Result;
 use iluvatar_library::{utils::{config::{get_val, args_to_json}, timing::TimedExt, port::Port}, transaction::{TransactionId, gen_tid}};
 use iluvatar_worker_library::{worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, services::containers::simulation::simstructs::SimulationResult};
@@ -138,7 +138,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
   Ok(())
 }
 
-async fn live_register_functions(funcs: &HashMap<u64, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>) -> Result<()> {
+fn live_register_functions(funcs: &HashMap<u64, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>, rt: &Runtime) -> Result<()> {
   let data = match load_type {
     "lookbusy" => Vec::new(),
     "functions" => {
@@ -159,16 +159,37 @@ async fn live_register_functions(funcs: &HashMap<u64, Function>, host: &String, 
     },
     _ => panic!("Bad invocation load type: {}", load_type),
   };
-  for (_fid, func) in funcs.into_iter() {
+
+  let mut func_iter = funcs.into_iter();
+  while !wait_reg(&mut func_iter, load_type, rt, port, host, &data)?  {}
+  Ok(())
+}
+
+fn wait_reg(iterator: &mut std::collections::hash_map::Iter<u64, Function>, load_type: &str, rt: &Runtime, port: Port, host: &String, data: &Vec<(String, f64)>) -> Result<bool> {
+  let mut done = false;
+  let mut handles: Vec<JoinHandle<Result<(String, Duration, TransactionId)>>> = Vec::new();
+  for _ in 0..40 {
+    let (_id, func) = match iterator.next() {
+      Some(d) => d,
+      None => {
+        done = true;
+        break;
+      },
+    };
     let image = match load_type {
       "lookbusy" => format!("docker.io/alfuerst/lookbusy-iluvatar-action:latest"),
-      "functions" => match_trace_to_img(func, &data),
+      "functions" => match_trace_to_img(func, data),
       _ => panic!("Bad invocation load type: {}", load_type),
     };
-    println!("{}, {}", func.func_name, image);
-    let _reg_dur = worker_register(&func.func_name, &VERSION, &image, func.mem_mb+50, host, port).await?;
+    let f_c = func.func_name.clone();
+    let h_c = host.clone();
+    let mb = func.mem_mb;
+    handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mb+50, h_c, port).await }));
   }
-  Ok(())
+  for h in handles {
+    let (_s,_d,_s2) = rt.block_on(h)??;
+  }
+  Ok(done)
 }
 
 fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
@@ -184,14 +205,12 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let trace_pth: String = get_val("input", &sub_args)?;
   let metadata_pth: String = get_val("metadata", &sub_args)?;
   let metadata = super::load_metadata(metadata_pth)?;
-  threaded_rt.block_on(live_register_functions(&metadata, &host, port, &load_type, func_data))?;
+  live_register_functions(&metadata, &host, port, &load_type, func_data, &threaded_rt)?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
   let mut handles: Vec<JoinHandle<(Result<(InvokeResponse, FunctionExecOutput, u64)>, String)>> = Vec::new();
 
-  println!("starting simulation run");
-  let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
-
+  println!("starting live trace run");
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
     let invoke: CsvInvocation = result?;
@@ -211,7 +230,7 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
     };
     
     handles.push(threaded_rt.spawn(async move {
-      (worker_invoke(&f_c, &VERSION, &h_c, port, &tid, Some(args)).await, f_c)
+      (worker_invoke(&f_c, &VERSION, &h_c, port, &gen_tid(), Some(args)).await, f_c)
     }));
   }
 
