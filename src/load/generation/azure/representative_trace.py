@@ -4,6 +4,7 @@ import pandas as pd
 import pickle
 from math import ceil
 import argparse
+from contextlib import suppress
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--out-folder", '-o', help="The folder to store the output csv files into", required=True)
@@ -23,7 +24,8 @@ qts = dataset["total_invocations"].quantile(quantiles)
 trace = []
 function_metadata = []
 metadata_save_pth = os.path.join(args.out_folder, "metadata-{}.csv".format(args.num_funcs))
-os.makedirs(args.out_folder)
+with suppress(FileExistsError):
+    os.makedirs(args.out_folder)
 
 if not os.path.exists(metadata_save_pth) or args.force:
   function_id = 0
