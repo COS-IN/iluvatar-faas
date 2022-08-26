@@ -49,19 +49,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   let args = parse();
   let config_pth = get_val("config", &args)?;
-    
+
   match args.subcommand() {
     Some(("clean", _)) => {
       let server_config = Configuration::boxed(true, &config_pth).unwrap();
       let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name)?;
       clean(server_config, tid).await?;
-      },
+    },
     None => { 
       let server_config = Configuration::boxed(false, &config_pth).unwrap();
       let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name)?;
       run(server_config, tid).await?;
-     },
-     Some((cmd, _)) => panic!("Unknown command {}, try --help", cmd),
+    },
+    Some((cmd, _)) => panic!("Unknown command {}, try --help", cmd),
   };
   Ok(())
 }

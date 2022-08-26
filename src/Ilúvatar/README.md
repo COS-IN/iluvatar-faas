@@ -1,47 +1,26 @@
 # Ilúvatar
 
-FaaS system goes here
+FaaS system diagram goes here
 
 ## Setup
 
-See [SETUP.md](docs/SETUP.md)
+Basic setup to build and run all items can be found here [SETUP.md](docs/SETUP.md).
 
-## CLI
+## Ilúvatar Executables
 
-### Configuration
+### Controller
 
-The cli will search along these paths for the configuration.
-Later values should override those in earlier paths
+[controller documentation](docs/CONTROLLER.md)
 
-1. worker_cli/src/worker_cli.json (based on the launch location of the cli)
-1. ~/.config/Ilúvatar/worker_cli.json
-1. A file path set using the --config flag
+### Worker
 
-More details are [here](docs/DOCS.md)
+Information on running the Ilúvatar worker can be found [here](docs/WORKER.md).
 
-### Commands
+### Worker CLI
 
-#### Ping
+Information on ad-hoc communication to an Ilúvatar worker can be found [here](docs/CLI.md).
 
-```bash
-cargo run --bin iluvatar_worker_cli -- --worker local ping
-```
+### Load Generator
 
+Advanced load generation to both controller and workers can be can be found [here](docs/LOAD.md).
 
-#### Invoke
-
-```bash
-cargo run --bin iluvatar_worker_cli -- --worker=local invoke --name=invoke
-```
-
-#### Register
-
-```bash
-cargo run --bin iluvatar_worker_cli -- --worker=local register --name=helo
-```
-
-#### Status
-
-```bash
-cargo run --bin iluvatar_worker_cli -- --worker=local status
-```

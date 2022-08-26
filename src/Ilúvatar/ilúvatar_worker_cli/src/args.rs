@@ -46,13 +46,12 @@ impl CliSettings {
 }
 
 pub fn parse() -> ArgMatches {
-  App::new("myapp")
+  App::new("ilúvatar_worker_cli")
     .version("0.1.0")
     .about("Interacts with Ilúvatar workers")
     .args_from_usage(
         "-c, --config=[FILE] 'Sets a custom config file'
-        -w, --worker=[NAME]           'Name of worker to send request to'
-        -v...                'Sets the level of verbosity'")
+        -w, --worker=[NAME]           'Name of worker to send request to'")
     .subcommand(SubCommand::with_name("ping")
                 .about("Pings a worker to check if it is up"))
                 
@@ -93,9 +92,9 @@ pub fn parse() -> ArgMatches {
                   .help("Name of function to invoke")
                   .required(true)
                   .takes_value(true))
-                .arg(Arg::with_name("arguments")
+                .arg(Arg::with_name("arg")
                   .short('a')
-                  .long("arguments")
+                  .long("arg")
                   .help("Function arguments")
                   .required(false)
                   .multiple(true)

@@ -2,7 +2,7 @@
 
 ## Worker Configuration
 
-See [this rust file](../ilúvatar_lib/src/worker_api/worker_config.rs) for details on the configuration file and its meaning.
+See [this rust file](../ilúvatar_worker_library/src/worker_api/worker_config.rs) for details on the configuration file and its meaning.
 
 Two additional path sources of config are currently supported.
 
@@ -15,7 +15,7 @@ So `config.networking.use_pool` transforms to `ILUVATAR_WORKER__networking__use_
 
 ## Controller Configuration
 
-See [this rust file](../ilúvatar_lib/src/load_balancer_api/lb_config.rs) for details on the configuration file and its meaning.
+See [this rust file](../ilúvatar_controller_library/src/controller/controller_config.rs) for details on the configuration file and its meaning.
 
 Two additional path sources of config are currently supported.
 
