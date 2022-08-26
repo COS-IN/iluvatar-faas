@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-import random
+import numpy as np
 from math import ceil
 import argparse
 
@@ -61,7 +61,7 @@ def trace_row(func_name, row, function_id, min_start=0, min_end=1440):
     elif invocs == 1:
       # if only one invocation, start randomly within that minute
       # avoid "thundering heard" of invocations at start of minute
-      start_ms = random.randint(0, (secs_p_min * milis_p_sec)-1)
+      start_ms = np.random.randint(0, (secs_p_min * milis_p_sec)-1)
       trace.append((function_id, start+start_ms))
     else:
       every = (secs_p_min*milis_p_sec) / invocs
