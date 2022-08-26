@@ -5,6 +5,10 @@ use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::{gen_
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
+lazy_static::lazy_static! {
+  pub static ref VERSION: String = "0.0.1".to_string();
+}
+
 pub struct ThreadError {
   pub thread_id: usize,
   pub error: anyhow::Error
@@ -112,10 +116,10 @@ pub async fn controller_register(name: &String, version: &String, image: &String
   }
 }
 
-pub async fn worker_register(name: &String, version: &String, image: &String, memory: MemSizeMb, host: &String, port: Port) -> Result<(String, Duration, TransactionId)> {
+pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port) -> Result<(String, Duration, TransactionId)> {
   let tid: TransactionId = gen_tid();
   let mut api = RPCWorkerAPI::new(&host, port).await?;
-  let (reg_out, reg_dur) = api.register(name.clone(), version.clone(), image.clone(), memory, 1, 1, tid.clone()).timed().await;
+  let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
   match reg_out {
     Ok(s) => Ok( (s,reg_dur,tid) ),
     Err(e) => anyhow::bail!("registration failed because {}", e),

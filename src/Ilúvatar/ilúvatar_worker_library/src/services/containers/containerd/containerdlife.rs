@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use client::tonic::Code;
+use dashmap::DashMap;
 use guid_create::GUID;
 use crate::services::containers::containerd::containerdstructs::{Task, ContainerdContainer};
 use crate::worker_api::worker_config::ContainerResources;
@@ -36,7 +37,8 @@ pub mod containerdstructs;
 pub struct ContainerdLifecycle {
   channel: Option<Channel>,
   namespace_manager: Arc<NamespaceManager>,
-  config: Arc<ContainerResources>
+  config: Arc<ContainerResources>,
+  downloaded_images: Arc<DashMap<String, bool>>,
 }
 
 /// A service to handle the low-level details of containerd container lifecycles:
@@ -49,6 +51,7 @@ impl ContainerdLifecycle {
       channel: None,
       namespace_manager: ns_man,
       config,
+      downloaded_images: Arc::new(DashMap::new()),
     }
   }
 
@@ -239,7 +242,7 @@ impl ContainerdLifecycle {
     self.delete_containerd_container(&mut client, container_id, ctd_namespace, tid).await?;
     self.delete_container_resources(container_id, tid);
 
-    info!(tid=%tid, container_id=%container_id, "Container deleted");
+    debug!(tid=%tid, container_id=%container_id, "Container deleted");
     Ok(())
   }
 
@@ -325,6 +328,9 @@ impl ContainerdLifecycle {
 
   /// Ensures that the specified image is available on the machine
   async fn ensure_image(&self, image_name: &String) -> Result<()> {
+    if self.downloaded_images.contains_key(image_name) {
+      return Ok(());
+    }
     let output = Command::new("ctr")
           .args(["images", "pull", "--snapshotter", self.config.snapshotter.as_str(), image_name.as_str()])
           .output();
@@ -333,6 +339,7 @@ impl ContainerdLifecycle {
       Ok(output) => {
         if let Some(status) = output.status.code() {
           if status == 0 {
+            self.downloaded_images.insert(image_name.clone(), true);
             Ok(())
           } else {
             let stdout = String::from_utf8_lossy(&output.stdout);

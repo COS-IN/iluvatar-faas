@@ -33,6 +33,9 @@ invocation_cnt = 0
 
 for file in os.listdir(args.path):
   if "json" in file:
+    info = file[:-len(".json")].split("-")
+    if len(info) != 2 :
+      continue
     path = os.path.join(args.path, file)
     num_threads, iteration = file[:-len(".json")].split("-")
     num_threads = int(num_threads)
