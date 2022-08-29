@@ -167,7 +167,7 @@ mod registration {
 mod prewarm {
   use super::*;
   #[tokio::test]
-  async fn no_prewarm_fails() {
+  async fn no_registration_prewarm_fails() {
     let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
     let input = PrewarmRequest {
       function_name: "test".to_string(),
@@ -179,7 +179,7 @@ mod prewarm {
       Ok(_) => panic!("registration succeeded when it should have failed!"),
       Err(e) => {
         let e_str = e.to_string();
-        if !(e_str.contains("was not registered") && e_str.contains("Attempted registration failed because")) {
+        if !(e_str.contains("was not registered") && e_str.contains("Attempted registration failed")) {
           panic!("unexpected error: {:?}", e);
         }
       },

@@ -7,22 +7,30 @@
     "timeout_sec": 6000,
     "mem_min_mb": 5,
     "mem_max_mb": 2048,
-    "cpu_max": 10,
-    "retries": 1
+    "cpu_max": 10
+  },
+  "invocation": {
+    "retries": 0,
+    "queue_sleep_ms": 1,
+    "use_queue": true
   },
   "logging": {
     "level": "debug",
-    "directory": "./logs",
-    "basename": "worker"
+    "directory": "/tmp/ilúvatar/logs",
+    "basename": "worker",
+    "spanning": "NEW+CLOSE",
+    "flame": "",
+    "span_energy_monitoring": false
   },
   "container_resources": {
-    "memory_mb": 20480,
-    "cores": 4,
+    "memory_mb": 10240,
+    "cores": 16,
     "eviction": "LRU",
     "startup_timeout_ms": 10000,
-    "memory_buffer_mb": 0,
+    "memory_buffer_mb": 1024,
     "pool_freq_sec": 5,
-    "backend": "containerd"
+    "backend": "containerd",
+    "snapshotter": "zfs"
   },
   "networking": {
     "bridge": "IlWorkBr0",
@@ -40,5 +48,14 @@
     "api_port": "80",
     "ingestion_port": "2003",
     "ingestion_udp": false
+  },
+  "energy": {
+    "enable_rapl": true,
+    "enable_ipmi": false,
+    "enable_perf": true,
+    "perf_stat_duration_ms": 1000,
+    "ipmi_pass_file": "",
+    "log_freq_ms": 1000,
+    "log_folder": "/tmp/ilúvatar/logs/"
   }
 }

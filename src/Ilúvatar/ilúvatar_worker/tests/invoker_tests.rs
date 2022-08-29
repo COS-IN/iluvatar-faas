@@ -118,7 +118,7 @@ mod invoke_async {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = invok_svc.invoke_async(req);
+    let result = InvokerService::invoke_async(invok_svc.clone(), req);
     let mut count = 0;
     match result {
       Ok( cookie ) => {
@@ -175,7 +175,7 @@ mod invoke_async {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = invok_svc.invoke_async(req);
+    let result = InvokerService::invoke_async(invok_svc.clone(), req);
     let mut count = 0;
     match result {
       Ok( cookie ) => {

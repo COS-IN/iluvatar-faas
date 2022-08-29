@@ -1,5 +1,5 @@
 use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration};
-use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
+use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}, services::invocation::invoker_structs::InvocationResult};
 use crate::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use crate::rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse};
 use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
@@ -242,12 +242,44 @@ impl InvokerService {
 
     /// Sets up an asyncronous invocation of the function
     /// Returns a lookup cookie the request can be found at
-    #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
-    pub fn invoke_async(&self, request: InvokeAsyncRequest) -> Result<String> {
+    #[tracing::instrument(skip(invoke_svc, request), fields(tid=%request.transaction_id))]
+    pub fn invoke_async(invoke_svc: Arc<Self>, request: InvokeAsyncRequest) -> Result<String> {
       debug!(tid=%request.transaction_id, "Inserting async invocation");
-      let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
       let cookie = GUID::rand().to_string();
-      self.async_functions.insert(cookie.clone(), fut.result);
+      if invoke_svc.invocation_config.use_queue {
+        let fut = invoke_svc.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
+        invoke_svc.async_functions.insert(cookie.clone(), fut.result);
+      } else {
+        let result_ptr = InvocationResult::boxed();
+        invoke_svc.async_functions.insert(cookie.clone(), result_ptr.clone());
+        let transformed = InvokeRequest {
+          function_name: request.function_name,
+          function_version: request.function_version,
+          memory: request.memory,
+          json_args: request.json_args,
+          transaction_id: request.transaction_id.clone(),
+        };
+        let cln = invoke_svc.clone();
+        tokio::spawn(async move {
+          match cln.queueless_invoke(transformed).await {
+            Ok( (json, dur) ) => {
+              let mut locked = result_ptr.lock();
+              locked.duration = dur;
+              locked.result_json = json;
+              locked.attempts = 0;
+              locked.completed = true;
+            },
+            Err(e) => {
+              error!(tid=%request.transaction_id, error=%e, "Async invocation failed with error");
+              let mut locked = result_ptr.lock();
+              locked.duration = 0;
+              locked.result_json = format!("{{ \"Error\": \"{}\" }}", e);
+              locked.attempts = 0;
+              locked.completed = true;
+            },
+          };
+        });
+      }
       Ok(cookie)
     }
 

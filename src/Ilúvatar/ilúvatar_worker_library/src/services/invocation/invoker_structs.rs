@@ -11,6 +11,17 @@ pub struct InvocationResult {
   waker: Option<Waker>,
   pub attempts: u32
 }
+impl InvocationResult {
+  pub fn boxed() -> InvocationResultPtr {
+    Arc::new(Mutex::new(InvocationResult {
+      completed: false,
+      duration: 0,
+      result_json: "".to_string(),
+      waker: None,
+      attempts: 0,
+    }))
+  }
+}
 
 pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
 
@@ -44,13 +55,7 @@ pub struct QueueFuture {
 }
 impl QueueFuture {
   pub fn new() -> Self {
-    let result = Arc::new(Mutex::new(InvocationResult {
-      completed: false,
-      duration: 0,
-      result_json: "".to_string(),
-      waker: None,
-      attempts: 0,
-    }));
+    let result = InvocationResult::boxed();
     let q = QueueFuture {
       result: result.clone(),
     };

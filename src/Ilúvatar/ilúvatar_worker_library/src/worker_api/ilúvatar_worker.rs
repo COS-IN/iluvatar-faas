@@ -80,7 +80,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
       let request = request.into_inner();
       info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling async invocation request");
-      let resp = self.invoker.invoke_async(request);
+      let resp = InvokerService::invoke_async(self.invoker.clone(), request);
 
       match resp {
         Ok( cookie ) => {
