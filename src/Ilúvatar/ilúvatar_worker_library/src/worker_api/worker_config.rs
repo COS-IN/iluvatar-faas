@@ -24,15 +24,16 @@ pub struct Configuration {
   pub load_balancer_url: String,
   pub graphite: Arc<GraphiteConfig>,
   pub energy: Arc<EnergyConfig>,
+  pub invocation: Arc<InvocationConfig>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(unused)]
 /// total resources the worker is allowed to allocate to conainers
 pub struct ContainerResources {
   /// total memory pool in MB
   pub memory_mb: MemSizeMb,
   /// number of cores it can use, i.e. number of concurrent functions allowed at once
+  /// If this is set to 0, then core allocations will not be managed
   pub cores: u32,
   /// eviciton algorithm to use
   pub eviction: String,
@@ -52,8 +53,7 @@ pub struct ContainerResources {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(unused)]
-/// limits to place on an individual invocaiton
+/// limits to place on an individual invocation
 pub struct FunctionLimits {
   /// minimum memory allocation allowed
   pub mem_min_mb: MemSizeMb,
@@ -63,15 +63,23 @@ pub struct FunctionLimits {
   pub cpu_max: u32,
   /// invocation length timeout
   pub timeout_sec: u64,
+}
+
+#[derive(Debug, Deserialize)]
+/// Internal knobs for how the [crate::services::invocation::invoker::InvokerService] works
+pub struct InvocationConfig {
   /// number of retries before giving up on an invocation
   /// Setting to 0 means no retries
   pub retries: u32,
   /// Duration in milliseconds the worker queue will sleep between checking for new invocations
-  pub queue_sleep_ms: u64
+  pub queue_sleep_ms: u64,
+  /// Use a queue to manage incoming invocations or not
+  ///   If this is 'false' then some invocations can be dropped in resource-heavy scenarios
+  ///   Consider setting [ContainerResources].cores to 0 to alleviate some sofware-based resource contstraints
+  pub use_queue: bool,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(unused)]
 /// Networking details to connect containers to the network
 pub struct NetworkingConfig {
   /// bridge name to create

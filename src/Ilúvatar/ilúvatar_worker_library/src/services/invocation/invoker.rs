@@ -1,5 +1,5 @@
 use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration};
-use crate::worker_api::worker_config::FunctionLimits;
+use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use crate::rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse};
 use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
@@ -16,27 +16,32 @@ pub struct InvokerService {
   pub async_functions: Arc<DashMap<String, InvocationResultPtr>>,
   pub running_functions: Arc<DashMap<String, u32>>,
   pub invoke_queue: Arc<Mutex<Vec<Arc<EnqueuedInvocation>>>>,
-  pub config: Arc<FunctionLimits>,
+  pub function_config: Arc<FunctionLimits>,
+  pub invocation_config: Arc<InvocationConfig>,
   // TODO: occasionally check if this died and re-run?
-  _worker_thread: std::thread::JoinHandle<()>,
+  _worker_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl InvokerService {
-    fn new(cont_manager: Arc<ContainerManager>, config: Arc<FunctionLimits>, worker_thread: std::thread::JoinHandle<()>) -> Self {
+    fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, worker_thread: Option<std::thread::JoinHandle<()>>) -> Self {
       InvokerService {
         cont_manager,
         async_functions: Arc::new(DashMap::new()),
-        invoke_queue: Arc::new(Mutex::new(Vec::new())),
-        config,
-        _worker_thread: worker_thread,
         running_functions: Arc::new(DashMap::new()),
+        invoke_queue: Arc::new(Mutex::new(Vec::new())),
+        function_config,
+        invocation_config,
+        _worker_thread: worker_thread,
       }
     }
 
-    pub fn boxed(cont_manager: Arc<ContainerManager>, tid: &TransactionId, config: Arc<FunctionLimits>) -> Arc<Self> {
+    pub fn boxed(cont_manager: Arc<ContainerManager>, tid: &TransactionId, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>) -> Arc<Self> {
       let (tx, rx) = channel();
-      let handle = InvokerService::start_queue_thread(rx, tid);
-      let i = Arc::new(InvokerService::new(cont_manager, config, handle));
+      let handle = match invocation_config.use_queue {
+        true => Some(InvokerService::start_queue_thread(rx, tid)),
+        false => None,
+      };
+      let i = Arc::new(InvokerService::new(cont_manager, function_config, invocation_config, handle));
       tx.send(i.clone()).unwrap();
       return i;
     }
@@ -79,7 +84,7 @@ impl InvokerService {
           // TODO: continuity of spans here
           self.spawn_tokio_worker(&worker_rt, invoker_svc.clone(), item);
         } else {
-          std::thread::sleep(Duration::from_millis(self.config.queue_sleep_ms));
+          std::thread::sleep(Duration::from_millis(self.invocation_config.queue_sleep_ms));
         }
       }
     }
@@ -123,7 +128,7 @@ impl InvokerService {
             error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
             // TODO: insert smartly into queue
             let mut result_ptr = item.result_ptr.lock();
-            if result_ptr.attempts >= self.config.retries {
+            if result_ptr.attempts >= self.invocation_config.retries {
               error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
               result_ptr.duration = 0;
               result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
@@ -158,10 +163,33 @@ impl InvokerService {
     /// returns the json result and duration as a tuple
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
     pub async fn invoke(&self, request: InvokeRequest) -> Result<(String, u64)> {
-      let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone()).await;
-      info!(tid=%request.transaction_id, "Invocation complete");
-      let fut = fut.lock();
-      Ok( (fut.result_json.clone(), fut.duration) )
+      if self.invocation_config.use_queue {
+        let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone()).await;
+        info!(tid=%request.transaction_id, "Invocation complete");
+        let fut = fut.lock();
+        Ok( (fut.result_json.clone(), fut.duration) )  
+      } else {
+        self.queueless_invoke(request).await
+      }
+    }
+
+    async fn queueless_invoke(&self, request: InvokeRequest) -> Result<(String, u64)> {
+      match self.invoke_internal(&request.function_name, &request.function_version, &request.json_args, &request.transaction_id).await {
+        Ok(res) =>  {
+          Ok(res)
+        },
+        Err(cause) =>
+        {
+          if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
+            warn!(tid=%request.transaction_id, "Insufficient cores to run item right now");
+          } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
+            warn!(tid=%request.transaction_id, "Insufficient memory to run item right now");
+          } else {
+            error!(tid=%request.transaction_id, error=%cause, "Encountered unknown error while trying to run queued invocation");
+          }
+          Err(cause)
+        },
+      }
     }
 
     fn track_running(&self, tid: &TransactionId) {

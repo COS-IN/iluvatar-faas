@@ -7,9 +7,12 @@
     "timeout_sec": 6000,
     "mem_min_mb": 5,
     "mem_max_mb": 2048,
-    "cpu_max": 10,
+    "cpu_max": 10
+  },
+  "invocation": {
     "retries": 0,
-    "queue_sleep_ms": 1
+    "queue_sleep_ms": 1,
+    "use_queue": true
   },
   "logging": {
     "level": "info",
