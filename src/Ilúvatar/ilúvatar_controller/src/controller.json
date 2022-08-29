@@ -6,7 +6,7 @@
   "num_workers": 8,
   "simulation": false,
   "logging": {
-    "level": "debug",
+    "level": "info",
     "directory": "/tmp/ilúvatar/logs",
     "basename": "load_balancer",
     "spanning": "NEW+CLOSE",

@@ -66,9 +66,13 @@
     environment:
       "ILUVATAR_CONTROLLER__name": "{{ controller.host }}"
       "ILUVATAR_CONTROLLER__port": "{{ controller.port }}"
+      "ILUVATAR_CONTROLLER__address": "{{ controller_address | default('localhost') }}"
+      "ILUVATAR_CONTROLLER__logging__directory" : "{{ controller_log_dir | default('/tmp/ilúvatar/logs') }}"
       "ILUVATAR_CONTROLLER__load_balancer__algorithm" : "{{ controller.algorithm }}"
+      "ILUVATAR_CONTROLLER__load_balancer__load_metric" : "{{ controller.algorithm }}"
       "ILUVATAR_CONTROLLER__graphite__address" : "{{ graphite.address }}"
       "ILUVATAR_CONTROLLER__graphite__api_port" : "{{ graphite.api_port }}"
+      "ILUVATAR_WORKER__graphite__ingestion_udp" : "{{ graphite.ingestion_udp }}"
 
   - name: wait until the controller on this host is up and running
     uri:

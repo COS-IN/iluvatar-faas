@@ -10,14 +10,13 @@ graphite:
   address: localhost
 
 controller:
-  # controller: "{{ groups['controller']|first }}"
-  host: "{{ hostvars[ groups['controller']|first ].ansible_host }}"
-  port: 8089
   bin_name: "ilúvatar_controller"
   config_name: "controller.json"
+  host: "{{ hostvars[ groups['controller']|first ].ansible_host }}"
+  port: "{{ controller_port | default(8089) }}"
   algorithm: "{{ controller_algorithm | default('RoundRobin') }}"
 
 worker:
-  port: 8070
   bin_name: "ilúvatar_worker"
   config_name: "worker.json"
+  port: "{{ worker_port | default(8070) }}"
