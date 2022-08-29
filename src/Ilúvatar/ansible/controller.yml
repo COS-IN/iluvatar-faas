@@ -77,7 +77,7 @@
   - name: wait until the controller on this host is up and running
     uri:
       url:
-        "http://{{ansible_host}}:{{controller.port}}/ping"
+        "http://{{controller_address}}:{{controller.port}}/ping"
       validate_certs: "no"
     register: result
     until: result.status == 200
