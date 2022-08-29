@@ -1,6 +1,6 @@
 # Load Generation
 
-## Commands
+## Shared Params
 
 All commands share some common paramaters.
 These must be passed *before* the command value.
@@ -20,11 +20,20 @@ ilúvatar_load_gen --help
 ilúvatar_load_gen trace --help
 ```
 
-### Scaling load
+## Scaling load
 
-// TODO: this
+This command runs an increasing number of client threads against a worker to test it's ability to scale as the number of requests come in.
+It runs a [this](../../load/functions/python3/functions/hello/main.py) simple Python function that does some simple string formatting.
+This way invocations aren't primarily limited by the CPU usage and delay of invocations running for a significant time, only by contention and time spent in the worker.
 
-### Trace load
+1. `--start`, `-s`: The number of threads to start at
+1. `--end`, `-e`: The number of threads to end at
+1. `--duration`, `-d`: How long to run before increasing the number of threads
+
+After the duration is done for each number of threads, the throughput results will be stored in a json folder in the `--out` directory.
+They will be formatted as a list of the `ThreadResult` struct described [here](../ilúvatar_load_gen/src/utils.rs).
+
+## Trace load
 
 This allows a series of predetermined function invocations to be run on either a worker or controller.
 Two csv files control what functions are run at what time, to the millisecond.
@@ -94,8 +103,29 @@ An example load call for a simulation:
 ilúvatar_load_gen -p 100 -h localhost trace --target "controller" --setup "simulation" --input "/my/trace/input.csv" --metadata "/my/trace/metadata-input.csv" --worker-config "/my/worker/config.json" --controller-config "/my/controller/config.json" --workers 3
 ```
 
-### Benchmark load
+## Benchmark load
 
---functions-dir `src/load/functions/python3/functions`
+The `benchmark` command repeatedly runs functions on a system to determine the runtime characteristics of each.
+Results of the benchmark will be stored as json, in the format specified by the `BenchmarkStore` struct [here](../ilúvatar_load_gen/src/benchmark.rs)
 
-// TODO: this
+The 
+
+1. `--functions-dir`: A directory holding the functions that are to be benchmarked.
+It is assumed that images for each already exist and are available, they are not prepared by this.
+It iterates over the sub-directories and uses their names to specify images to run.
+The easiest way is to use the `python3` functions in [this folder](../../load/functions/python3/functions) of the repository.
+
+1. `--target`, `-t`: What is the experiment targeting? 
+Specifying `worker` and it will use RPCs to communicate with a single worker directly.
+This will also generate transaction IDs internally as well. 
+Or `controller` will then use HTTP requests to communcate with a controller.
+
+1. `--cold-iters`: The number of times each function will be created new on the target. These will be cold starts of the function.
+
+1. `--warm-iters`: The number of times each function will be run after a cold iteration is started. These will be warm start of the function.
+
+
+An example load call for a worker:
+```sh
+ilúvatar_load_gen -p 100 -h localhost benchmark --target "worker" --functions-dir "src/load/functions/python3/functions" --cold-iters 5 --warm-iters 5
+```
