@@ -8,6 +8,9 @@ use super::ipmi::IPMI;
 
 pub type EnergyInjectableT = Arc<dyn Fn() -> String + Send + Sync>;
 
+/// Struct that repeatedly checks energy usage from various sources
+/// They are then stored in a timestamped log file
+/// Optionall can inject additional information to be included in each line
 pub struct EnergyLogger {
   config: Arc<EnergyConfig>,
   _worker_thread: JoinHandle<()>,
@@ -106,6 +109,7 @@ impl EnergyLogger {
     })
   }
 
+  /// Generate the header for our csv 
   fn gen_header(&self) -> String {
     let mut ret = String::from("timestamp");
     if self.config.enable_rapl {
@@ -127,6 +131,7 @@ impl EnergyLogger {
     ret
   }
 
+  /// Reads the different energy sources and writes the current staistics out to the csv file
   fn monitor_energy(&self, tid: &TransactionId, mut file: &File) {
     let now = OffsetDateTime::now_utc();
     let mut to_write = now.to_string();
@@ -170,10 +175,12 @@ impl EnergyLogger {
     };
   }
 
+  /// The current RAPL energy usage value in uj
   fn instant_rapl(&self) -> Result<u128> {
     let reading = self.rapl.record()?;
     Ok(reading.start_uj)
   }
+  /// The current IPMI energy usage value in watts
   fn instant_impi(&self, tid: &TransactionId) -> Result<u128> {
     match &self.ipmi {
       Some(i) => i.read(tid),

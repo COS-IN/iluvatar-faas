@@ -8,9 +8,13 @@ use tracing::{error, debug};
 
 const WORKER_API_TARGET: &str = "iluvatar_worker_library::worker_api::ilúvatar_worker";
 const INVOKE_TARGET: &str = "iluvatar_worker_library::services::containers::containerd::containerdstructs";
+const NAMESPACE_TARGET: &str = "luvatar_worker_library::services::network::namespace_manager";
+const CONTAINER_MGR_TARGET: &str = "iluvatar_worker_library::services::containers::containermanager";
 
 pub type InvocationData = HashMap<String, (String, u128)>;
 
+/// Struct to assign energy usage on a per-function and control-plane level
+/// These numbers are then reported to graphite
 pub struct EnergyMonitorService {
   invocation_spans: DashMap<u64, DataExtractorVisitor>,
   invocation_durations: Arc<RwLock<Option<InvocationData>>>,
@@ -52,13 +56,36 @@ impl EnergyMonitorService {
         },
       };
       debug!(tid=%tid, "energy monitor worker started");
-      let rapl = RAPL::new().unwrap();
-      // todo: unwraps
-      let mut curr_rapl = rapl.record().unwrap();
+      let rapl = match RAPL::new() {
+        Ok(r) => r,
+        Err(e) => {
+          error!(error=%e, tid=%tid, "Creating RAPL interface failed");
+          return;
+        },
+      };
+      let mut curr_rapl = match rapl.record() {
+        Ok(r) => r,
+        Err(e) => {
+          error!(error=%e, tid=%tid, "Recording RAPL information failed");
+          return;
+        },
+      };
       loop {
         std::thread::sleep(std::time::Duration::from_secs(20));
-        let new_rapl = rapl.record().unwrap();
-        let (time, uj) = rapl.difference(&new_rapl, &curr_rapl, tid).unwrap();
+        let new_rapl = match rapl.record() {
+          Ok(r) => r,
+          Err(e) => {
+            error!(error=%e, tid=%tid, "Recording RAPL information failed");
+            continue;
+          },
+        };
+        let (time, uj) = match rapl.difference(&new_rapl, &curr_rapl, tid) {
+          Ok(r) => r,
+          Err(e) => {
+            error!(error=%e, tid=%tid, "Computing RAPL change failed");
+            continue;
+          },
+        };
   
         if svc.monitor_energy(tid, time, uj) {
           curr_rapl = new_rapl;
@@ -102,6 +129,7 @@ impl EnergyMonitorService {
     return true;
   }
 
+  /// get the cumulative amount of uj used by the worker, and reset the counter
   fn get_reset_overhead(&self) -> u128 {
     let mut overhead_lock = self.overhead_ns.write();
     let ret = *overhead_lock;
@@ -109,6 +137,7 @@ impl EnergyMonitorService {
     ret
   }
 
+  /// Get the tracked uj usages by functions, and reset all the counters for them
   fn get_reset_invocations(&self) -> InvocationData {
     let mut lock = self.invocation_durations.write();
     let ret = lock.take();
@@ -116,6 +145,7 @@ impl EnergyMonitorService {
     ret.unwrap()
   }
 
+  /// Return the Invocation and worker energy usages
   pub fn get_data(&self) -> (InvocationData, u128) {
     let overhead = self.get_reset_overhead();
     let data = self.get_reset_invocations();
@@ -123,17 +153,24 @@ impl EnergyMonitorService {
   }
 
   pub fn span_create(&self, span_id: u64, data: DataExtractorVisitor, name: &str, target: &str) {
-      // TODO: account for background work done here
-      match target {
+    match target {
       INVOKE_TARGET => match name {
         "ContainerdContainer::invoke" => {self.invocation_spans.insert(span_id, data);},
-        _ => (),
+        i => println!("invoke open: {} {}", i, name),
       },
       WORKER_API_TARGET => match name {
         "register" => {self.worker_spans.insert(span_id, data);},
         "invoke" => {self.worker_spans.insert(span_id, data);},
-        _ => (),
-      }
+        i => println!("api open: {} {}", i, name),
+      },
+      NAMESPACE_TARGET => match name {
+        "monitor_pool" => {self.worker_spans.insert(span_id, data);},
+        _ => ()
+      },
+      CONTAINER_MGR_TARGET => match name {
+        "monitor_pool" => {self.worker_spans.insert(span_id, data);},
+        _ => ()
+      },
       _ => (),
     }
   }
@@ -142,14 +179,24 @@ impl EnergyMonitorService {
     // TODO: account for background work done here
     match target {
       INVOKE_TARGET => match name {
+        // TODO: include time spent in worker on invocation thread that wasn't actual invocation
+        //    avoid double-counting
         "ContainerdContainer::invoke" => {self.remove_invoke_transaction(span_id);},
-        _ => (),
+        i => println!("invoke close: {} {}", i, name),
       },
       WORKER_API_TARGET => match name {
         "register" => self.remove_worker_transaction(span_id),
         "invoke" => self.remove_worker_transaction(span_id),
-        _ => (),
-      }
+        i => println!("api close: {} {}", i, name),
+      },
+      NAMESPACE_TARGET => match name {
+        "monitor_pool" => self.remove_worker_transaction(span_id),
+        _ => ()
+      },
+      CONTAINER_MGR_TARGET => match name {
+        "monitor_pool" => self.remove_worker_transaction(span_id),
+        _ => ()
+      },
       _ => (),
     }
   }

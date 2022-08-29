@@ -29,6 +29,9 @@ pub struct LoggingConfig {
   /// If empty, do not record flame data
   /// Enabling this loses some logging information
   pub flame: String,
+  /// Use live span information to track invocation and background energy usage
+  /// These will then be reported to graphite
+  pub span_energy_monitoring: bool,
 }
 
 fn str_to_span(spanning: &String) -> FmtSpan {
@@ -72,7 +75,10 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
   };
   drops.push(Box::new(_guard));
 
-  let energy_layer = EnergyLayer::new(graphite_cfg, worker_name);
+  let energy_layer = match config.span_energy_monitoring {
+    true => Some(EnergyLayer::new(graphite_cfg, worker_name)),
+    false => None,
+  };
   let filter_layer = EnvFilter::builder()
    .parse(&config.level)?;
   let layers = Registry::default()

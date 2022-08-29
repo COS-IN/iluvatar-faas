@@ -4,6 +4,9 @@ use tracing_subscriber::{Layer, layer::Context};
 use crate::{utils::calculate_fqdn, graphite::GraphiteConfig};
 use super::energy_service::EnergyMonitorService;
 
+/// This struct to interact with the tracing subscriber.
+/// Reading span information as they are created and closed to compute energy usages.
+/// Uses [super::energy_service::EnergyMonitorService] to for energy computation and tracking
 pub struct EnergyLayer {
   monitor: Arc<EnergyMonitorService>
 }
@@ -47,6 +50,7 @@ where
 }
 
 #[derive(Debug)]
+/// A helper to extract Ilúvatar-specific information from spans, if it is present
 pub struct DataExtractorVisitor {
   pub timestamp: SystemTime,
   pub transaction_id: Option<String>,
@@ -79,7 +83,7 @@ impl DataExtractorVisitor {
 }
 
 impl Visit for DataExtractorVisitor {
-  // [String] does not match [str] type, so they will fall through to here
+  // [String] does not match [str] type, so fields we want will fall through to here
   fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
     match field.name() {
       "tid" => self.transaction_id = Some(format!("{value:?}")),

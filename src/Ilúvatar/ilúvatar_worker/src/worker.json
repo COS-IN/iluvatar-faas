@@ -16,7 +16,8 @@
     "directory": "/tmp/ilúvatar/logs",
     "basename": "worker",
     "spanning": "NEW+CLOSE",
-    "flame": ""
+    "flame": "",
+    "span_energy_monitoring": false
   },
   "container_resources": {
     "memory_mb": 20480,

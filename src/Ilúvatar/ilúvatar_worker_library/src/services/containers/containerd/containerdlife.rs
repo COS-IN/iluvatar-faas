@@ -115,7 +115,6 @@ impl ContainerdLifecycle {
   /// get the mount points for a container's (id) snapshot base
   async fn load_mounts(&self, cid: &str, snapshot_base: &String, tid: &TransactionId) -> Result<Vec<containerd_client::types::Mount>> {
     let view_snapshot_req = PrepareSnapshotRequest {
-        // TODO: be picky about snapshotter?
         // https://github.com/containerd/containerd/tree/main/docs/snapshotters
         snapshotter: self.config.snapshotter.clone(),
         key: cid.to_owned(),
