@@ -72,14 +72,12 @@ impl InvokerService {
         },
       };
       loop {
-        if self.has_resources_to_run() {
-          let mut queue = self.invoke_queue.lock();
-          if queue.len() > 0 {
-            let item = queue.remove(0);
-            debug!(tid=%item.tid, "Dequeueing item");
-            // TODO: continuity of spans here
-            self.spawn_tokio_worker(&worker_rt, invoker_svc.clone(), item);
-          }
+        let mut queue = self.invoke_queue.lock();
+        if queue.len() > 0 && self.has_resources_to_run() {
+          let item = queue.remove(0);
+          debug!(tid=%item.tid, "Dequeueing item");
+          // TODO: continuity of spans here
+          self.spawn_tokio_worker(&worker_rt, invoker_svc.clone(), item);
         } else {
           std::thread::sleep(Duration::from_millis(self.config.queue_sleep_ms));
         }
