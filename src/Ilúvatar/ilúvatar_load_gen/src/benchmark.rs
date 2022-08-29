@@ -7,6 +7,7 @@ use tokio::runtime::Builder;
 use crate::utils::*;
 
 #[derive(Serialize, Deserialize)]
+/// Stores the benchmark data from any number of functions
 pub struct BenchmarkStore {
   /// map of function name to data
   pub data: HashMap<String, FunctionStore>,
@@ -19,6 +20,7 @@ impl BenchmarkStore {
   }
 }
 #[derive(Serialize, Deserialize)]
+/// A struct to hold the benchmark results of a single function
 pub struct FunctionStore {
   /// list of warm latencies
   pub warm_results: Vec<f64>,
@@ -28,11 +30,11 @@ pub struct FunctionStore {
   pub cold_results: Vec<f64>,
   /// list of cold overhead times
   pub cold_over_results: Vec<f64>,
-  /// warm invocation latency time
+  /// warm invocation latency time, including communication time from worker
   ///   if targeting worker, recorded by benchmark
   ///   if targeting controller, recorded by controller 
   pub warm_worker_duration_ms: Vec<u64>,
-  /// cold invocation latency time recorded by benchmark 
+  /// cold invocation latency time, including communication time from worker 
   ///   if targeting worker, recorded by benchmark
   ///   if targeting controller, recorded by controller 
   pub cold_worker_duration_ms: Vec<u64>,
