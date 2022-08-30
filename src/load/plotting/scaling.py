@@ -40,7 +40,6 @@ for file in os.listdir(args.path):
     num_threads, iteration = file[:-len(".json")].split("-")
     num_threads = int(num_threads)
     iteration = int(iteration)
-    # print(path, num_threads, iteration)
     with open(path, 'r') as f:
       data = json.load(f)
     for entry in data:
@@ -63,8 +62,6 @@ for file in os.listdir(args.path):
         overhead_ms_data[num_threads].append(overhead_ms)
         overhead_pct_data[num_threads].append(overhead_pct)
 
-print("average runtime:", runtimes/invocation_cnt )
-
 ################################################################
 fig, ax = plt.subplots()
 plt.tight_layout()
@@ -73,7 +70,6 @@ fig.set_size_inches(5, 3)
 data = sorted(overhead_ms_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [np.mean(y) for _,y in data]
-print(np.min(ys))
 ax.plot(xs, ys, label="Ilúvatar")
 save_fname = os.path.join(out_dir, "overheads.png")
 
@@ -110,7 +106,6 @@ fig.set_size_inches(5, 3)
 data = sorted(latency_data.items(), key=lambda x: x[0])
 xs = [x for x,_ in data]
 ys = [np.mean(y) for _,y in data]
-print(np.min(ys))
 ax.plot(xs, ys, label="Ilúvatar")
 save_fname = os.path.join(out_dir, "latency.png")
 
