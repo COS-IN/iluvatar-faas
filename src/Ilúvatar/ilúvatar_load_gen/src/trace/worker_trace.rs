@@ -15,7 +15,7 @@ fn sim_register_functions(funcs: &HashMap<u64, Function>, worker: Arc<IluvatarWo
   let mut handles: Vec<JoinHandle<Result<Response<RegisterResponse>, Status>>> = Vec::new();
   for (_k, v) in funcs.into_iter() {
     let r = RegisterRequest {
-      function_name: v.func_name.clone(),
+      function_name: v.function_id.to_string(),
       function_version: "0.0.1".to_string(),
       image_name: "".to_string(),
       memory: v.mem_mb,
@@ -75,7 +75,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
     };
 
     let req = InvokeRequest {
-      function_name: func.func_name.clone(),
+      function_name: func.function_id.to_string(),
       function_version: "0.0.1".to_string(),
       memory: func.mem_mb,
       json_args: serde_json::to_string(&args)?,
@@ -181,7 +181,7 @@ fn wait_reg(iterator: &mut std::collections::hash_map::Iter<u64, Function>, load
       "functions" => match_trace_to_img(func, data),
       _ => panic!("Bad invocation load type: {}", load_type),
     };
-    let f_c = func.func_name.clone();
+    let f_c = func.function_id.to_string();
     let h_c = host.clone();
     let mb = func.mem_mb;
     handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mb+50, h_c, port).await }));
@@ -216,7 +216,7 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
     let invoke: CsvInvocation = result?;
     let func = metadata.get(&invoke.function_id).unwrap();
     let h_c = host.clone();
-    let f_c = func.func_name.clone();
+    let f_c = func.function_id.to_string();
     let args = args_to_json(prepare_function_args(func, &load_type));
     loop {
       match start.elapsed(){
