@@ -18,7 +18,7 @@ worker_log = os.path.join(args.logs_folder, "worker.log")
 
 def round_date(time: datetime) -> datetime:
   """
-    Rounds date time to the nearest "poll-dur-ms" from args
+    Rounds date time up to the nearest "poll-dur-ms" from args
   """
   to_remove = time.microsecond % (args.energy_freq_ms * 1000)
   whole = time.microsecond / (args.energy_freq_ms * 1000)
@@ -37,7 +37,7 @@ def load_perf_log(path: str, energy_df: pd.DataFrame) -> pd.DataFrame:
 
   # https://www.man7.org/linux/man-pages/man1/perf-stat.1.html#top_of_page
   # CSV FORMAT
-  cols = ["timestamp", "perf_watts", "unit", "event_name", "counter_runtime", "pct_time_counter_running"]
+  cols = ["timestamp", "perf_stat", "unit", "event_name", "counter_runtime", "pct_time_counter_running"]
   df = pd.read_csv(path, skiprows=2, names=cols, usecols=[i for i in range(len(cols))])
   def update_time(x) -> datetime:
     if np.isnan(x):
@@ -57,7 +57,10 @@ def load_energy_log(path) -> pd.DataFrame:
   cols = first_line.split(",")
   energy_df = pd.read_csv(path, usecols=cols, parse_dates=[1])
   energy_df["timestamp"] = energy_df["timestamp"].apply(lambda x: round_date(parse_energy_log_time(x)))
-  energy_df["running"] = [[] for _ in range(len(energy_df))]
+  # cumulative_running is every invocation that occured since the last timestep
+  energy_df["cumulative_running"] = [[] for _ in range(len(energy_df))]
+  # exact_running is those invocations that were ongoing when the energy sampling occured
+  energy_df["exact_running"] = [[] for _ in range(len(energy_df))]
   energy_df.set_index(pd.DatetimeIndex(energy_df["timestamp"]))
   return energy_df
 
@@ -97,7 +100,18 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
   def insert_to_df(df, start_t, end_t, fqdn):
     match = df[df["timestamp_l"].between(start_t, end_t)]
     for item in match.itertuples():
-      item.running.append(fqdn)
+      item.exact_running.append(fqdn)
+
+    micro_t = args.energy_freq_ms * 1000
+    rounded_start_t = round_date(start_t)
+    rounded_end_t = round_date(end_t)
+    while rounded_start_t <= rounded_end_t:
+      match = df[df["timestamp_l"] == rounded_start_t]
+      if len(match) > 1:
+        raise Exception("Got multiple matches on a single timestamp!!", rounded_start_t)
+      for item in match.itertuples():
+        item.cumulative_running.append(fqdn)
+      rounded_start_t += timedelta(microseconds=micro_t)
 
   with open(worker_log, 'r') as f:
     while True:
@@ -125,6 +139,6 @@ perf_df = load_perf_log(perf_log, energy_df)
 full_df = energy_df.join(perf_df, lsuffix="_l", rsuffix="_r")
 full_df = inject_running_into_df(full_df)
 
-print(full_df)
+# print(full_df)
 outpath = os.path.join(args.logs_folder, "combined-energy-output.csv")
 full_df.to_csv(outpath)
