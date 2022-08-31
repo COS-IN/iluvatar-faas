@@ -20,9 +20,9 @@ def round_date(time: datetime) -> datetime:
   """
     Rounds date time to the nearest "poll-dur-ms" from args
   """
-  to_remove = time.microsecond % (args.poll_dur_ms * 1000)
-  whole = time.microsecond / (args.poll_dur_ms * 1000)
-  whole = round(whole) * (args.poll_dur_ms * 1000)
+  to_remove = time.microsecond % (args.energy_freq_ms * 1000)
+  whole = time.microsecond / (args.energy_freq_ms * 1000)
+  whole = round(whole) * (args.energy_freq_ms * 1000)
   new_date = time - timedelta(microseconds=to_remove) + timedelta(microseconds=whole)
   return datetime.combine(new_date.date(), new_date.time(), timezone.utc)
 
@@ -96,8 +96,8 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
 
   def insert_to_df(df, start_t, end_t, fqdn):
     match = df[df["timestamp_l"].between(start_t, end_t)]
-    for _, item in match.iterrows():
-      item[3].append(fqdn)
+    for item in match.itertuples():
+      item.running.append(fqdn)
 
   with open(worker_log, 'r') as f:
     while True:
@@ -126,3 +126,5 @@ full_df = energy_df.join(perf_df, lsuffix="_l", rsuffix="_r")
 full_df = inject_running_into_df(full_df)
 
 print(full_df)
+outpath = os.path.join(args.logs_folder, "combined-energy-output.csv")
+full_df.to_csv(outpath)
