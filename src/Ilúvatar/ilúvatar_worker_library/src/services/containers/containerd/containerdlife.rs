@@ -5,7 +5,7 @@ use client::tonic::Code;
 use dashmap::DashMap;
 use guid_create::GUID;
 use crate::services::containers::containerd::containerdstructs::{Task, ContainerdContainer};
-use crate::worker_api::worker_config::ContainerResources;
+use crate::worker_api::worker_config::{ContainerResources, FunctionLimits};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::MemSizeMb;
 use iluvatar_library::utils::{cgroup::cgroup_namespace, port::Port, file::{try_remove_pth, temp_file_pth, touch}};
@@ -38,19 +38,21 @@ pub struct ContainerdLifecycle {
   channel: Option<Channel>,
   namespace_manager: Arc<NamespaceManager>,
   config: Arc<ContainerResources>,
+  limits_config: Arc<FunctionLimits>,
   downloaded_images: Arc<DashMap<String, bool>>,
 }
 
 /// A service to handle the low-level details of containerd container lifecycles:
 ///   creation, destruction, pulling images, etc
 impl ContainerdLifecycle {
-  pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResources>) -> ContainerdLifecycle {
+  pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResources>, limits_config: Arc<FunctionLimits>) -> ContainerdLifecycle {
     ContainerdLifecycle {
       // this is threadsafe if we clone channel
       // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
       channel: None,
       namespace_manager: ns_man,
       config,
+      limits_config,
       downloaded_images: Arc::new(DashMap::new()),
     }
   }
@@ -85,6 +87,7 @@ impl ContainerdLifecycle {
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
 //        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
         .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
+        .replace("$INVOKE_TIMEOUT", &self.limits_config.timeout_sec.to_string())
         .replace("$CGROUPSPATH", &cgroup_namespace(container_id));
     prost_types::Any {
         type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),

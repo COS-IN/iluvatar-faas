@@ -17,7 +17,7 @@ pub mod ilúvatar_worker;
 pub mod sim_worker;
 
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
-  let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone());
+  let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
   let lifecycle = factory.get_lifecycle_service(tid, true).await?;
 
   let container_man = ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), lifecycle.clone(), tid).await?;

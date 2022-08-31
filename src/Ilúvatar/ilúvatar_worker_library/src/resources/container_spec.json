@@ -14,7 +14,7 @@
             "uid": 0,
             "gid": 0
         },
-        "args": [ "/usr/local/bin/gunicorn", "server:app" ],
+        "args": [ "/usr/local/bin/gunicorn", "server:app", "--timeout", "$INVOKE_TIMEOUT" ],
         "env": [
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "TERM=xterm",

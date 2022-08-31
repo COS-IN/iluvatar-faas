@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tonic::async_trait;
 use anyhow::Result;
 use iluvatar_library::{types::MemSizeMb, transaction::TransactionId};
-use crate::{worker_api::worker_config::{ContainerResources, NetworkingConfig}};
+use crate::{worker_api::worker_config::{ContainerResources, NetworkingConfig, FunctionLimits}};
 use crate::services::{containers::{structs::{Container, RegisteredFunction}, containerd::ContainerdLifecycle, simulation::SimulatorLifecycle}};
 use crate::services::network::namespace_manager::NamespaceManager;
 
@@ -47,13 +47,15 @@ pub trait LifecycleService: Send + Sync + std::fmt::Debug {
 pub struct LifecycleFactory {
   containers: Arc<ContainerResources>,
   networking: Arc<NetworkingConfig>,
+  limits_config: Arc<FunctionLimits>,
 }
 
 impl LifecycleFactory {
-  pub fn new(containers: Arc<ContainerResources>, networking: Arc<NetworkingConfig>) -> Self {
+  pub fn new(containers: Arc<ContainerResources>, networking: Arc<NetworkingConfig>, limits_config: Arc<FunctionLimits>) -> Self {
     LifecycleFactory {
       containers,
-      networking
+      networking,
+      limits_config
     }
   }
 
@@ -64,7 +66,7 @@ impl LifecycleFactory {
         netm.ensure_bridge(tid)?;
       }
       
-      let mut lifecycle = ContainerdLifecycle::new(netm, self.containers.clone());
+      let mut lifecycle = ContainerdLifecycle::new(netm, self.containers.clone(), self.limits_config.clone());
       lifecycle.connect().await?;
       Ok(Arc::new(lifecycle))
     } else if self.containers.backend == "docker" {

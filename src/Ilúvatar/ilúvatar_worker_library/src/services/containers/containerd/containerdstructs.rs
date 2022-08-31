@@ -1,4 +1,4 @@
-use std::{time::SystemTime, sync::Arc};
+use std::{time::{SystemTime, Duration}, sync::Arc};
 
 use parking_lot::{RwLock, Mutex};
 use iluvatar_library::{types::MemSizeMb, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
@@ -62,12 +62,16 @@ impl ContainerdContainer {
 
 #[tonic::async_trait]
 impl ContainerT for ContainerdContainer {
-  #[tracing::instrument(skip(self, json_args), fields(tid=%tid, fqdn=%self.fqdn), name="ContainerdContainer::invoke")]
-  async fn invoke(&self, json_args: &String, tid: &TransactionId) -> anyhow::Result<String> {
+  #[tracing::instrument(skip(self, json_args, timeout_sec), fields(tid=%tid, fqdn=%self.fqdn), name="ContainerdContainer::invoke")]
+  async fn invoke(&self, json_args: &String, tid: &TransactionId, timeout_sec: u64) -> anyhow::Result<String> {
     *self.invocations.lock() += 1;
 
     self.touch();
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+            .pool_max_idle_per_host(0)      
+                                    // tiny buffer to allow for network delay from possibly full system
+            .connect_timeout(Duration::from_secs(timeout_sec+2))
+            .build()?;
     let result = match client.post(&self.invoke_uri)
       .body(json_args.to_owned())
       .header("Content-Type", "application/json")

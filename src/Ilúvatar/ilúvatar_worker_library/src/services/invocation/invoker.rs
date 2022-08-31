@@ -228,7 +228,7 @@ impl InvokerService {
         Ok(ctr_lock) => {
           self.track_running(tid);
           let start = SystemTime::now();
-          let data = ctr_lock.invoke(json_args).await?;
+          let data = ctr_lock.invoke(json_args, self.function_config.timeout_sec).await?;
           let duration = match start.elapsed() {
             Ok(dur) => dur,
             Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
