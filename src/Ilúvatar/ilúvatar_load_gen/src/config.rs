@@ -9,6 +9,5 @@ pub fn app() -> App<'static> {
   .args_from_usage("
       -p, --port=[PORT]           'Port controller/worker is listening on'
       -h, --host=[NAME]           'Host controller/worker is on'
-      -o, --out=[FOLDER]          'Folder to output results to'
-      -i, --iterations=[ITERS]    'Number of times to run experiment'")
+      -o, --out=[FOLDER]          'Folder to output results to'")
 }

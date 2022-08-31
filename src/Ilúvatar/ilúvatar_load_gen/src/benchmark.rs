@@ -1,9 +1,11 @@
+use std::sync::Arc;
 use std::{collections::HashMap, fs::File, path::Path, io::Write};
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
 use iluvatar_library::utils::{config::get_val, port_utils::Port};
 use serde::{Serialize, Deserialize};
-use tokio::runtime::Builder;
+use tokio::sync::Barrier;
+use tokio::runtime::{Builder, Runtime};
 use crate::utils::*;
 
 #[derive(Serialize, Deserialize)]
@@ -60,7 +62,7 @@ impl FunctionStore {
 
 pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
   app.subcommand(SubCommand::with_name("benchmark")
-    .about("Benchmark functions through the system")
+    .about("Benchmark functions through the system. Functions will be run by iteratively by themselves (or in parallel with themselves if using threads). All invocations will complete before a new function is run")
     .arg(Arg::with_name("target")
         .short('t')
         .long("target")
@@ -85,6 +87,12 @@ pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
         .required(false)
         .takes_value(true)
         .default_value("4"))
+    .arg(Arg::with_name("threads")
+        .long("threads")
+        .help("Number of threads to run the benchmark with. Each thread will run the same function in parallel")
+        .required(false)
+        .takes_value(true)
+        .default_value("1"))
   )
 }
 
@@ -96,6 +104,7 @@ pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Res
   let port: Port = get_val("port", &main_args)?;
   let host: String = get_val("host", &main_args)?;
   let folder: String = get_val("out", &main_args)?;
+  let thread_cnt = get_val("threads", &sub_args)?;
   let mut functions = Vec::new();
 
   let paths = std::fs::read_dir(directory)?;
@@ -110,7 +119,7 @@ pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Res
       .build().unwrap();
 
   match target.as_str() {
-    "worker" => threaded_rt.block_on(benchmark_worker(host, port, functions, folder, cold_repeats, warm_repeats)),
+    "worker" => benchmark_worker(&threaded_rt, host, port, functions, folder, cold_repeats, warm_repeats, thread_cnt),
     "controller" => threaded_rt.block_on(benchmark_controller(host, port, functions, folder, cold_repeats, warm_repeats)),
     _ => anyhow::bail!("Unknown benchmark target: {}", target)
   }
@@ -185,14 +194,75 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
   Ok(())
 }
 
-pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, out_folder: String, cold_repeats: u32, warm_repeats: u32) -> Result<()> {
+pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functions: Vec<String>, out_folder: String, cold_repeats: u32, warm_repeats: u32, thread_cnt: usize) -> Result<()> {
+  let barrier = Arc::new(Barrier::new(thread_cnt));
+  let mut handles = Vec::new();
+  let mut full_data = BenchmarkStore::new();
+
+  for thread_id in 0..thread_cnt {
+    let h_c = host.clone();
+    let f_c = functions.clone();
+    let b_c = barrier.clone();
+    handles.push(threaded_rt.spawn(async move { benchmark_worker_thread(h_c, port, f_c, cold_repeats, warm_repeats, thread_id, b_c).await }));
+  }
+  
+  for h in handles {
+    let mut thread_data = threaded_rt.block_on(h)??;
+    for function in functions.iter() {
+      match full_data.data.get_mut(function) {
+        Some(d) => {
+          let thread_f = thread_data.data.get_mut(function).unwrap();
+          d.cold_results.append(&mut thread_f.cold_results);
+          d.cold_over_results.append(&mut thread_f.cold_over_results);
+          d.cold_worker_duration_ms.append(&mut thread_f.cold_worker_duration_ms);
+          d.cold_invoke_duration_ms.append(&mut thread_f.cold_invoke_duration_ms);
+          d.warm_results.append(&mut thread_f.warm_results);
+          d.warm_over_results.append(&mut thread_f.warm_over_results);
+          d.warm_worker_duration_ms.append(&mut thread_f.warm_worker_duration_ms);
+          d.warm_invoke_duration_ms.append(&mut thread_f.warm_invoke_duration_ms);
+        },
+        None => {
+          let thread_f = thread_data.data.get_mut(function).unwrap();
+          let mut d = FunctionStore::new();
+          d.cold_results.append(&mut thread_f.cold_results);
+          d.cold_over_results.append(&mut thread_f.cold_over_results);
+          d.cold_worker_duration_ms.append(&mut thread_f.cold_worker_duration_ms);
+          d.cold_invoke_duration_ms.append(&mut thread_f.cold_invoke_duration_ms);
+          d.warm_results.append(&mut thread_f.warm_results);
+          d.warm_over_results.append(&mut thread_f.warm_over_results);
+          d.warm_worker_duration_ms.append(&mut thread_f.warm_worker_duration_ms);
+          d.warm_invoke_duration_ms.append(&mut thread_f.warm_invoke_duration_ms);
+          full_data.data.insert(function.clone(), d);
+        },
+      }
+    }
+  }
+
+  let p = Path::new(&out_folder).join(format!("worker_function_benchmarks.json"));
+  let mut f = match File::create(p) {
+    Ok(f) => f,
+    Err(e) => {
+      anyhow::bail!("Failed to create output file because {}", e);
+    }
+  };
+  let to_write = serde_json::to_string(&full_data)?;
+  match f.write_all(to_write.as_bytes()) {
+    Ok(_) => (),
+    Err(e) => {
+      println!("Failed to write json of result because {}", e);
+    }
+  };
+  Ok(())
+}
+
+async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String>, cold_repeats: u32, warm_repeats: u32, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<BenchmarkStore> {
   let mut full_data = BenchmarkStore::new();
 
   for function in &functions {
     println!("{}", function);
     let mut func_data = FunctionStore::new();
     for iter in 0..cold_repeats {
-      let name = function.clone();
+      let name = format!("{}.{}.{}", function, thread_cnt, iter);
       let version = iter.to_string();
       let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
       let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port).await {
@@ -202,8 +272,9 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
           continue;
         },
       };
+      barrier.wait().await;
 
-      for _ in 0..warm_repeats {
+      for _ in 0..warm_repeats+1 {
         let tid: iluvatar_library::transaction::TransactionId = iluvatar_library::transaction::gen_tid();
         match worker_invoke(&name, &version, &host, port, &tid, None).await {
           Ok( (response, invok_out, invok_lat) ) => {
@@ -230,20 +301,5 @@ pub async fn benchmark_worker(host: String, port: Port, functions: Vec<String>, 
     }
     full_data.data.insert(function.clone(), func_data);
   }
-
-  let p = Path::new(&out_folder).join(format!("worker_function_benchmarks.json"));
-  let mut f = match File::create(p) {
-    Ok(f) => f,
-    Err(e) => {
-      anyhow::bail!("Failed to create output file because {}", e);
-    }
-  };
-  let to_write = serde_json::to_string(&full_data)?;
-  match f.write_all(to_write.as_bytes()) {
-    Ok(_) => (),
-    Err(e) => {
-      println!("Failed to write json of result because {}", e);
-    }
-  };
-  Ok(())
+  Ok(full_data)
 }
