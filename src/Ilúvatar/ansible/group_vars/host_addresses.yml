@@ -1,0 +1,7 @@
+servers:
+  127.0.0.1:
+    internal_ip: 127.0.0.1
+    ipmi_ip: 127.0.0.1
+  localhost:
+    internal_ip: 127.0.0.1
+    ipmi_ip: 127.0.0.1
