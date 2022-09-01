@@ -124,6 +124,15 @@ Or `controller` will then use HTTP requests to communcate with a controller.
 
 1. `--warm-iters`: The number of times each function will be run after a cold iteration is started. These will be warm start of the function.
 
+1. `--run-time`: An alternative to the `*-iter` params. 
+Functions will be invoked in a closed loop for the specified number of seconds.
+Upon finishing, a new invocation will be sent.
+The final invocation will complete after the time expires.
+
+1. `--threads`: Run a set number of clients, all invoking the same function. 
+Clients will synchronize before starting the next function.
+Results will be combined into one file.
+
 
 An example load call for a worker:
 ```sh
