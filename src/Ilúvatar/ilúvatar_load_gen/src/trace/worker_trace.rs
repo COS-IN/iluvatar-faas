@@ -213,7 +213,7 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   println!("starting live trace run");
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
-    let invoke: CsvInvocation = result?;
+    let invoke: CsvInvocation = result.expect("Error deserializing csv invocation");
     let func = metadata.get(&invoke.function_id).unwrap();
     let h_c = host.clone();
     let f_c = func.function_id.to_string();
