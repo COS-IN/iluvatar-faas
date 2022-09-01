@@ -104,7 +104,7 @@ impl InvokerService {
       });
     }
 
-    #[tracing::instrument(skip(self, item), fields(tid=%item.tid))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
     async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>) {
       match self.invoke_internal(&item.function_name, &item.function_version, &item.json_args, &item.tid).await {
         Ok(res) =>  {
@@ -149,7 +149,7 @@ impl InvokerService {
     }
 
     /// Insert an invocation request into the queue and return a QueueFuture for it's execution result
-    #[tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
     fn enqueue_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> QueueFuture {
       debug!(tid=%tid, "Enqueueing invocation");
       let fut = QueueFuture::new();
@@ -161,7 +161,7 @@ impl InvokerService {
 
     /// synchronously run an invocation
     /// returns the json result and duration as a tuple
-    #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, request), fields(tid=%request.transaction_id)))]
     pub async fn invoke(&self, request: InvokeRequest) -> Result<(String, u64)> {
       if self.invocation_config.use_queue {
         let fut = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone()).await;
@@ -219,7 +219,7 @@ impl InvokerService {
 
     /// acquires a container and invokes the function inside it
     /// returns the json result and duration as a tuple
-    #[tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
     async fn invoke_internal(&self, function_name: &String, function_version: &String, json_args: &String, tid: &TransactionId) -> Result<(String, u64)> {
       debug!(tid=%tid, "Internal invocation starting");
 
@@ -242,7 +242,7 @@ impl InvokerService {
 
     /// Sets up an asyncronous invocation of the function
     /// Returns a lookup cookie the request can be found at
-    #[tracing::instrument(skip(invoke_svc, request), fields(tid=%request.transaction_id))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoke_svc, request), fields(tid=%request.transaction_id)))]
     pub fn invoke_async(invoke_svc: Arc<Self>, request: InvokeAsyncRequest) -> Result<String> {
       debug!(tid=%request.transaction_id, "Inserting async invocation");
       let cookie = GUID::rand().to_string();
@@ -285,8 +285,8 @@ impl InvokerService {
 
     /// returns the async invoke entry if it exists
     /// None otherwise
-    #[tracing::instrument(skip(self, cookie))]
-    fn get_async_entry(&self, cookie: &String, tid: &TransactionId) -> Option<InvocationResultPtr> {
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, cookie), fields(tid=%_tid)))]
+    fn get_async_entry(&self, cookie: &String, _tid: &TransactionId) -> Option<InvocationResultPtr> {
       let i = self.async_functions.get(cookie);
       match i {
           Some(i) => Some(i.clone()),
@@ -295,8 +295,8 @@ impl InvokerService {
     }
 
     /// removes the async invoke entry from the tracked invocations
-    #[tracing::instrument(skip(self, cookie), fields(tid=%tid))]
-    fn remove_async_entry(&self, cookie: &String, tid: &TransactionId) {
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, cookie), fields(tid=%_tid)))]
+    fn remove_async_entry(&self, cookie: &String, _tid: &TransactionId) {
       self.async_functions.remove(cookie);
     }
 
@@ -304,7 +304,7 @@ impl InvokerService {
     /// Destructively returns results if they are found
     /// returns a JSON blob of "{ "Error": "Invocation not found" }" if the invocation is not found
     /// returns a JSON blob of "{ "Status": "Invocation not completed" }" if the invocation has not completed yet
-    #[tracing::instrument(skip(self, cookie), fields(tid=%tid))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, cookie), fields(tid=%tid)))]
     pub fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
       let entry = match self.get_async_entry(cookie, tid) {
         Some(entry) => entry,

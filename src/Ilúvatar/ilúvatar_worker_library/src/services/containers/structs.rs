@@ -90,7 +90,7 @@ impl<'a> ContainerLock<'a> {
   }
 
   /// ask the internal container to invoke the function
-  #[tracing::instrument(skip(self, json_args, timeout_sec), fields(tid=%self.transaction_id), name="ContainerLock::invoke")]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args, timeout_sec), fields(tid=%self.transaction_id), name="ContainerLock::invoke"))]
   pub async fn invoke(&self, json_args: &String, timeout_sec: u64) -> Result<String> {
     self.container.invoke(json_args, self.transaction_id, timeout_sec).await
   }

@@ -32,3 +32,9 @@ The worker does not delete any resources created during it's execution on shutdo
 `clean` deletes network namespaces, containerd containers, and the network bridge that were created by previous executions of the worker.
 
 It is recommended to do this before each new start to avoid a slow sapping of resources by repeated runs.
+
+## Features
+
+The rust library ([here](../ilúvatar_worker_library/)) most of the worker code is in has a feature to enable addition span information to be captured.
+Enabling the feature `full_spans` with `iluvatar_worker_library = { path = "../ilúvatar_worker_library", features=["full_spans"] }` in the Cargo.toml will enable a large number of functions to record their spans.
+This is a compile-time flag that will increase log file size and likely affect CPU and latenct of the worker.

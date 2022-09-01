@@ -233,7 +233,7 @@ impl ContainerdLifecycle {
     try_remove_pth(&self.stderr_pth(container_id), tid);
   }
 
-  #[tracing::instrument(skip(self), fields(tid=%tid))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
   async fn remove_container_internal(&self, container_id: &String, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
     info!(tid=%tid, container_id=%container_id, "Removing container");
     let mut client = TasksClient::new(self.channel());
@@ -460,7 +460,7 @@ impl LifecycleService for ContainerdLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  #[tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
   async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     info!(tid=%tid, image=%image_name, namespace=%namespace, "Creating container from image");
     let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
@@ -534,7 +534,7 @@ impl LifecycleService for ContainerdLifecycle {
     Ok(())
   }
 
-  #[tracing::instrument(skip(self, container, timeout_ms), fields(tid=%tid))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, timeout_ms), fields(tid=%tid)))]
   async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
     debug!(tid=%tid, container_id=%container.container_id(), "Waiting for startup of container");
     let stderr = self.stderr_pth(&container.container_id());
@@ -571,7 +571,7 @@ impl LifecycleService for ContainerdLifecycle {
     Ok(())
   }
 
-  #[tracing::instrument(skip(self, container), fields(tid=%tid))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
     let cast_container = match crate::services::containers::structs::cast::<ContainerdContainer>(&container, tid) {
       Ok(c) => c,

@@ -5,14 +5,6 @@
 After an experiment, it would be great to have the data stored in graphite be extracted and stored alongside results.
 We can match up timestamps and metrics to plot things together.
 
-## Span Tracing 
-
-Put `#[tracing::instrument(skip(self), fields(tid=%tid))]` on all the functions that handle Ilúvatar worker and controller important paths.
-Make sure nothing big is being logged, to maintain performance.
-Document the ability to disable them via config.
-
-Pass the span to the invoker queue to continue it's chain through the worker thread.
-
 ## Time-skipping simulation
 
 Can we enable time-skipping when running in a simulation context?
