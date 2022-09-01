@@ -55,6 +55,7 @@
     "enable_perf": true,
     "perf_stat_duration_ms": 1000,
     "ipmi_pass_file": "",
+    "ipmi_ip_addr": "",
     "log_freq_ms": 1000,
     "log_folder": "/tmp/ilúvatar/logs/"
   }
