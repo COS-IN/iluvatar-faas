@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{SystemTime, Duration};
 use std::{collections::HashMap, fs::File, path::Path, io::Write};
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
@@ -87,6 +88,12 @@ pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
         .required(false)
         .takes_value(true)
         .default_value("4"))
+    .arg(Arg::with_name("run-time")
+        .long("run-time")
+        .help("Duration in minutes that each function will be run for, being invoked in a closed loop. An alternative to cold/warm-iters. Leaving as 0 will use iters")
+        .required(false)
+        .takes_value(true)
+        .default_value("0"))
     .arg(Arg::with_name("threads")
         .long("threads")
         .help("Number of threads to run the benchmark with. Each thread will run the same function in parallel")
@@ -99,12 +106,14 @@ pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
 pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let directory: String = get_val("functions-dir", &sub_args)?;
   let target: String = get_val("target", &sub_args)?;
-  let cold_repeats: u32 = get_val("cold-iters", &sub_args)?;
-  let warm_repeats: u32 = get_val("warm-iters", &sub_args)?;
   let port: Port = get_val("port", &main_args)?;
   let host: String = get_val("host", &main_args)?;
   let folder: String = get_val("out", &main_args)?;
   let thread_cnt = get_val("threads", &sub_args)?;
+  let cold_repeats: u32 = get_val("cold-iters", &sub_args)?;
+  let warm_repeats: u32 = get_val("warm-iters", &sub_args)?;
+  let duration = get_val("run-time", &sub_args)?;
+
   let mut functions = Vec::new();
 
   let paths = std::fs::read_dir(directory)?;
@@ -119,8 +128,13 @@ pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Res
       .build().unwrap();
 
   match target.as_str() {
-    "worker" => benchmark_worker(&threaded_rt, host, port, functions, folder, cold_repeats, warm_repeats, thread_cnt),
-    "controller" => threaded_rt.block_on(benchmark_controller(host, port, functions, folder, cold_repeats, warm_repeats)),
+    "worker" => {
+      benchmark_worker(&threaded_rt, host, port, functions, folder, cold_repeats, warm_repeats, duration, thread_cnt)
+    },
+    // TODO: implement threads, cold/warm vs timed completion for controller
+    "controller" => {
+      threaded_rt.block_on(benchmark_controller(host, port, functions, folder, cold_repeats, warm_repeats))
+    },
     _ => anyhow::bail!("Unknown benchmark target: {}", target)
   }
 }
@@ -194,7 +208,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
   Ok(())
 }
 
-pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functions: Vec<String>, out_folder: String, cold_repeats: u32, warm_repeats: u32, thread_cnt: usize) -> Result<()> {
+pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functions: Vec<String>, out_folder: String, cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize) -> Result<()> {
   let barrier = Arc::new(Barrier::new(thread_cnt));
   let mut handles = Vec::new();
   let mut full_data = BenchmarkStore::new();
@@ -203,7 +217,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functio
     let h_c = host.clone();
     let f_c = functions.clone();
     let b_c = barrier.clone();
-    handles.push(threaded_rt.spawn(async move { benchmark_worker_thread(h_c, port, f_c, cold_repeats, warm_repeats, thread_id, b_c).await }));
+    handles.push(threaded_rt.spawn(async move { benchmark_worker_thread(h_c, port, f_c, cold_repeats, warm_repeats, duration_sec, thread_id, b_c).await }));
   }
   
   for h in handles {
@@ -255,12 +269,19 @@ pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functio
   Ok(())
 }
 
-async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String>, cold_repeats: u32, warm_repeats: u32, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<BenchmarkStore> {
+async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String>, mut cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<BenchmarkStore> {
   let mut full_data = BenchmarkStore::new();
 
   for function in &functions {
     println!("{}", function);
     let mut func_data = FunctionStore::new();
+    match duration_sec {
+      0 => (),
+      _ => {
+        cold_repeats = 1;
+      }
+    };
+
     for iter in 0..cold_repeats {
       let name = format!("{}.{}.{}", function, thread_cnt, iter);
       let version = iter.to_string();
@@ -273,33 +294,53 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String
         },
       };
       barrier.wait().await;
-
-      for _ in 0..warm_repeats+1 {
-        let tid: iluvatar_library::transaction::TransactionId = iluvatar_library::transaction::gen_tid();
-        match worker_invoke(&name, &version, &host, port, &tid, None).await {
-          Ok( (response, invok_out, invok_lat) ) => {
-            let invok_lat_f = invok_lat as f64;
-            let func_exec_ms = invok_out.body.latency * 1000.0;
-            if invok_out.body.cold {
-              func_data.cold_results.push(invok_lat_f);
-              func_data.cold_over_results.push(invok_lat_f - func_exec_ms);
-              func_data.cold_worker_duration_ms.push(response.duration_ms);
-              func_data.cold_invoke_duration_ms.push(invok_lat);
-            } else {
-              func_data.warm_results.push(invok_lat_f);
-              func_data.warm_over_results.push(invok_lat_f - func_exec_ms);
-              func_data.warm_worker_duration_ms.push(response.duration_ms);
-              func_data.warm_invoke_duration_ms.push(invok_lat);
-            }
-          },
-          Err(e) => {
-            println!("{}", e);
-            continue;
-          },
-        };
+      
+      if duration_sec != 0 {
+        let timeout = Duration::from_secs(duration_sec);
+        let start = SystemTime::now();
+        while start.elapsed()? < timeout {
+          match thread_invoke(&name, &version, &host, port, &mut func_data).await {
+            Ok(_) => (),
+            Err(_) => continue,
+          };
+        }
+      } else {
+        for _ in 0..warm_repeats+1 {
+          match thread_invoke(&name, &version, &host, port, &mut func_data).await {
+            Ok(_) => (),
+            Err(_) => continue,
+          };
+        }  
       }
+      barrier.wait().await;
     }
     full_data.data.insert(function.clone(), func_data);
   }
   Ok(full_data)
+}
+
+async fn thread_invoke(name: &String, version: &String, host: &String, port: Port, func_data: &mut FunctionStore) -> Result<()> {
+  let tid: iluvatar_library::transaction::TransactionId = iluvatar_library::transaction::gen_tid();
+  match worker_invoke(&name, &version, &host, port, &tid, None).await {
+    Ok( (response, invok_out, invok_lat) ) => {
+      let invok_lat_f = invok_lat as f64;
+      let func_exec_ms = invok_out.body.latency * 1000.0;
+      if invok_out.body.cold {
+        func_data.cold_results.push(invok_lat_f);
+        func_data.cold_over_results.push(invok_lat_f - func_exec_ms);
+        func_data.cold_worker_duration_ms.push(response.duration_ms);
+        func_data.cold_invoke_duration_ms.push(invok_lat);
+      } else {
+        func_data.warm_results.push(invok_lat_f);
+        func_data.warm_over_results.push(invok_lat_f - func_exec_ms);
+        func_data.warm_worker_duration_ms.push(response.duration_ms);
+        func_data.warm_invoke_duration_ms.push(invok_lat);
+      }
+      Ok(())
+    },
+    Err(e) => {
+      println!("{}", e);
+      anyhow::bail!("{}", e)
+    },
+  }
 }
