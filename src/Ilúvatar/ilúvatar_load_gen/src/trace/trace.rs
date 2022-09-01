@@ -89,7 +89,7 @@ fn load_metadata(path: String) -> Result<HashMap<u64, Function>> {
   let mut rdr = csv::Reader::from_path(path)?;
   let mut ret = HashMap::new();
   for result in rdr.deserialize() {
-    let func: Function = result?;
+    let func: Function = result.expect("Error deserializing metadata");
     ret.insert(func.function_id, func);
   }
   Ok(ret)
