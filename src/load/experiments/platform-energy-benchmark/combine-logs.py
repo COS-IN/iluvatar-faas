@@ -5,6 +5,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, timezone
 
+"""
+A script to plot simple results from the output of the co-located `simple-energy.sh` script
+"""
+
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--logs-folder", '-l', help="The folder worker logs are stored in", required=True, type=str)
 argparser.add_argument("--energy-freq-ms", '-q', help="The frequency at which energy readings were recorded, in milliseconds", required=True, type=int)
@@ -69,9 +73,19 @@ def parse_energy_log_time(time) -> datetime:
   full, part_sec = hr.split('.')
   diff  = len(part_sec) - 6
   if diff > 0:
+    # too many significant digits
     part_sec = part_sec[:-diff]
+  elif diff < 0:
+    # too few significant digits
+    part_sec += "0"*abs(diff)
   done = "{} {}.{}{}".format(day, full, part_sec, tz)
-  return datetime.fromisoformat(done)
+  try:
+    return datetime.fromisoformat(done)
+  except Exception as e:
+    print(e)
+    print(time)
+    print(done)
+    exit(1)
 
 def load_bash_df() -> pd.DataFrame:
   data = []

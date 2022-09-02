@@ -8,6 +8,15 @@ mpl.use('Agg')
 import matplotlib.pyplot as plt
 import pandas as pd
 
+"""
+A script to plot simple results from the output of the co-located `combine-logs.py` script
+
+MUST BE RUN ON THE SAME MACHINE AS THE ORIGINAL DATA GATHERING
+"""
+
+with open("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj", "r") as f:
+  max_rapl_uj = int(f.read())
+
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--logs-folder", '-l', help="The folder worker logs are stored in", required=True, type=str)
 args = argparser.parse_args()
@@ -47,17 +56,24 @@ fig.set_size_inches(5, 3)
 
 hands = []
 
-rapl_data = [0]
+rapl_data = []
 for i in range(1, len(df["rapl_uj"])):
-  rapl_data.append(df["rapl_uj"][i] - df["rapl_uj"][i-1])
+  left = df["rapl_uj"][i-1]
+  right = df["rapl_uj"][i]
+  if right < left:
+    uj = right + (max_rapl_uj - left)
+  else:
+    uj = right - left
+  rapl_data.append(uj)
 
-# print(rapl_data)
+rapl_data.append(rapl_data[-1])
 
 hands.append(*ax.plot(df.index, rapl_data, color='blue'))
 ax2 = ax.twinx()
 hands.append(*ax2.plot(df.index, df[load_type], color='red'))
 
 ax.set_title("Rapl reported uJ as load increases")
+ax.set_yscale('log')
 ax2.set_ylabel("{} being used".format(load_type))
 ax2.yaxis.label.set_color('red')
 ax.yaxis.label.set_color('blue')
