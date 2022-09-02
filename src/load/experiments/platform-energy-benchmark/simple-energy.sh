@@ -23,6 +23,8 @@ case $i in
 esac
 done
 
+MONITOR_MS=1000
+
 if [ ! -f ./lookbusy-1.4/lookbusy ]
 then
 # set up lookbusy if missing
@@ -38,7 +40,7 @@ mkdir -p $sub_dir
 sleep 5s
 
 ../../../Ilúvatar/target/release/ilúvatar_energy_mon --enable-rapl --enable-ipmi --enable-perf --log-folder $sub_dir \
---log-freq-ms 1000 --perf-stat-duration-ms 1000 --ipmi-pass-file $IPMI_PASS --ipmi-ip-addr $IPMI_ADDR &
+--log-freq-ms $MONITOR_MS --perf-stat-duration-ms $MONITOR_MS --ipmi-pass-file $IPMI_PASS --ipmi-ip-addr $IPMI_ADDR &
 
 monitor_pid=$!
 sleep 5s
@@ -61,7 +63,7 @@ for CPUS in $(seq 1 $CORES); do
 done
 
 kill $monitor_pid
-python3 combine-logs.py --logs-folder $sub_dir --energy-freq-ms 1000
+python3 combine-logs.py --logs-folder $sub_dir --energy-freq-ms $MONITOR_MS
 python3 plot-association.py --logs-folder $sub_dir
 
 ##################################################################################################################################
@@ -72,7 +74,7 @@ mkdir -p $sub_dir
 sleep 5s
 
 ../../../Ilúvatar/target/release/ilúvatar_energy_mon --enable-rapl --enable-ipmi --enable-perf --log-folder $sub_dir \
---log-freq-ms 1000 --perf-stat-duration-ms 1000 --ipmi-pass-file $IPMI_PASS --ipmi-ip-addr $IPMI_ADDR &
+--log-freq-ms $MONITOR_MS --perf-stat-duration-ms $MONITOR_MS --ipmi-pass-file $IPMI_PASS --ipmi-ip-addr $IPMI_ADDR &
 
 monitor_pid=$!
 sleep 5s
@@ -95,5 +97,5 @@ for MEM in $(seq $step $step $stop); do
 done
 
 kill $monitor_pid
-python3 combine-logs.py --logs-folder $sub_dir --energy-freq-ms 1000
+python3 combine-logs.py --logs-folder $sub_dir --energy-freq-ms $MONITOR_MS
 python3 plot-association.py --logs-folder $sub_dir
