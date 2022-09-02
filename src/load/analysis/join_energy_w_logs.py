@@ -27,11 +27,16 @@ def round_date(time: datetime) -> datetime:
   return datetime.combine(new_date.date(), new_date.time(), timezone.utc)
 
 def load_perf_log(path: str, energy_df: pd.DataFrame) -> pd.DataFrame:
-  with open(path, 'r') as f:
+
+  try:
+    f = open(path, 'r')
     first_line = f.readline()
     start_date = first_line[len("# started on "):].strip(whitespace)
     # 'Mon Aug 29 15:04:17 2022'
     start_date = datetime.strptime(start_date, "%a %b %d %H:%M:%S %Y")
+  except FileNotFoundError as fnf:
+      return
+
   energy_timestamp = energy_df["timestamp"][5]
   hour_diff = energy_timestamp.hour - start_date.hour
 
@@ -136,9 +141,16 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
 
 energy_df = load_energy_log(energy_log)
 perf_df = load_perf_log(perf_log, energy_df)
-full_df = energy_df.join(perf_df, lsuffix="_l", rsuffix="_r")
+if perf_df != None:
+    full_df = energy_df.join(perf_df, lsuffix="_l", rsuffix="_r")
+else:
+    energy_df.rename( columns = {"timestamp":"timestamp_l"}, inplace=True )
+    full_df = energy_df
+
 full_df = inject_running_into_df(full_df)
 
 # print(full_df)
 outpath = os.path.join(args.logs_folder, "combined-energy-output.csv")
+outpath_pkl = os.path.join(args.logs_folder, "combined-energy-output.pickle")
 full_df.to_csv(outpath)
+full_df.to_pickle( outpath_pkl )
