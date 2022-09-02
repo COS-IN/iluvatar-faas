@@ -16,3 +16,8 @@ If we can put a layer between how the Future system polls results, and move the 
 But that's either 
 1. A lot of work
 1. Maybe not possible
+
+## Kill perf on shutdown
+
+Sometimes, perhaps every time, the `perf` process started [here](./ilúvatar_library/src/energy/energy_logging.rs) continues on after the parent process has exited.
+This should be killed with shutdown, no matter the reason.
