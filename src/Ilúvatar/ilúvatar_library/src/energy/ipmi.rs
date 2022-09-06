@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use tracing::trace;
 
 use crate::{utils::execute_cmd, transaction::TransactionId};
@@ -9,6 +11,11 @@ pub struct IPMI {
 
 impl IPMI {
   pub fn new(ipmi_pass_file: String, ipmi_ip_addr: String, tid: &TransactionId) -> anyhow::Result<Self> {
+    let b = Path::new(&ipmi_pass_file);
+    if ! b.exists() {
+      anyhow::bail!("IPMI password file '{}' does not exist", ipmi_pass_file)
+    }
+
     let i = IPMI {
       ipmi_pass_file,
       ipmi_ip_addr,

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
-use iluvatar_library::logging::start_tracing;
+use iluvatar_library::{logging::start_tracing, continuation::Continuation};
 use iluvatar_worker_library::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker_library::worker_api::config::Configuration;
@@ -12,32 +12,45 @@ use iluvatar_library::utils::config::get_val;
 use anyhow::Result;
 use tonic::transport::Server;
 use tracing::{debug};
+use signal_hook::{consts::signal::{SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT}, iterator::Signals};
 
 pub mod utils;
 
 async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
   debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
 
-  let worker = create_worker(server_config.clone(), tid).await?;
+  let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
+  let mut signals = Signals::new(&sigs)?;
+
+  let (worker, cont) = create_worker(server_config.clone(), tid).await?;
   let addr = format!("{}:{}", server_config.address, server_config.port);
 
   register_rpc_to_controller(server_config.clone(), tid.clone());
-  Server::builder()
+  let _j = tokio::spawn(Server::builder()
       .timeout(Duration::from_secs(server_config.timeout_sec))
       .add_service(IluvatarWorkerServer::new(worker))
-      .serve(addr.parse()?)
-      .await?;
+      .serve(addr.parse()?));
+
+  for signal in &mut signals {
+    match signal {
+      _term_sig => { // got a termination signal
+        break;
+      }
+    }
+  }
+  cont.signal_application_exit();
   Ok(())
 }
 
 async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
   debug!(tid=?tid, config=?server_config, "loaded configuration");
+  let cont = Continuation::boxed();
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone(), server_config.limits.clone());
   let lifecycle = factory.get_lifecycle_service(tid, false).await?;
 
-  let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone(), tid).await?;
-  let _invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone(), server_config.invocation.clone());
+  let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone(), tid, cont.clone()).await?;
+  let _invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone(), server_config.invocation.clone(), cont.clone());
   lifecycle.clean_containers("default", tid).await?;
   Ok(())
 }

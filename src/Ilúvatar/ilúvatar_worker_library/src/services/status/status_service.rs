@@ -2,6 +2,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread::JoinHandle;
+use iluvatar_library::continuation::Continuation;
 use iluvatar_library::cpu_interaction::CPUService;
 use tracing::{info, debug, error};
 use parking_lot::Mutex;
@@ -22,11 +23,12 @@ pub struct StatusService {
   graphite: GraphiteService,
   tags: String,
   metrics: Vec<&'static str>,
-  cpu: Arc<CPUService>
+  cpu: Arc<CPUService>,
+  continuation: Arc<Continuation>,
 }
 
 impl StatusService {
-  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<InvokerService>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<InvokerService>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, continuation: Arc<Continuation>) -> Result<Arc<Self>> {
     let (tx, rx) = channel();
     let handle = StatusService::launch_worker_thread(rx);
 
@@ -54,6 +56,7 @@ impl StatusService {
                     "worker.load.queue", "worker.load.mem_pct", 
                     "worker.load.used_mem"],
       cpu: CPUService::boxed(tid)?,
+      continuation,
     });
     tx.send(ret.clone()).unwrap();
     Ok(ret)
@@ -71,10 +74,12 @@ impl StatusService {
         },
       };
       debug!(tid=%tid, "status service worker started");
-      loop {
+      status_svc.continuation.thread_start(tid);
+      while status_svc.continuation.check_continue() {
         status_svc.update_status(tid);
         std::thread::sleep(std::time::Duration::from_secs(5));
       }
+      status_svc.continuation.thread_exit(tid);
     })
   }
 

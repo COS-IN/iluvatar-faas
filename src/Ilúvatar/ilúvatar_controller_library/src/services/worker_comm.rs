@@ -69,7 +69,8 @@ impl WorkerAPIFactory {
         Some(api) => api,
         None => {
           let worker_config = iluvatar_worker_library::worker_api::worker_config::Configuration::boxed(false, &worker.host).unwrap();
-          let api = Arc::new(create_worker(worker_config, tid).await?);
+          let (api, _cont) = create_worker(worker_config, tid).await?;
+          let api = Arc::new(api);
           self.sim_apis.insert(worker.name.clone(), api.clone());
           api
         },

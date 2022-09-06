@@ -25,7 +25,7 @@
       msg: "{{ __worker_address }}"
 
   - name: Kill running worker process on localhost
-    shell: "kill {{ item }}"
+    shell: "kill --signal SIGINT {{ item }}"
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
     when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
