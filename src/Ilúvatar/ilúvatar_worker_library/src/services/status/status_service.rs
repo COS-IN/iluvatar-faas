@@ -2,6 +2,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread::JoinHandle;
+use iluvatar_library::cpu_interaction::CPUService;
 use tracing::{info, debug, error};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
@@ -10,6 +11,7 @@ use crate::services::invocation::invoker::InvokerService;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::utils::execute_cmd;
 use super::WorkerStatus;
+use anyhow::Result;
 
 #[allow(unused)]
 pub struct StatusService {
@@ -20,10 +22,11 @@ pub struct StatusService {
   graphite: GraphiteService,
   tags: String,
   metrics: Vec<&'static str>,
+  cpu: Arc<CPUService>
 }
 
 impl StatusService {
-  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<InvokerService>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String) -> Arc<Self> {
+  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<InvokerService>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId) -> Result<Arc<Self>> {
     let (tx, rx) = channel();
     let handle = StatusService::launch_worker_thread(rx);
 
@@ -41,16 +44,19 @@ impl StatusService {
         load_avg_1minute: 0.0,
         num_system_cores: 0,
         num_running_funcs: 0,
+        hardware_cpu_freqs: vec![],
+        kernel_cpu_freqs: vec![],
       })),
       worker_thread: handle,
       graphite: GraphiteService::new(graphite_cfg),
       tags: format!("machine={};type=worker", worker_name),
       metrics: vec!["worker.load.loadavg", "worker.load.cpu", 
                     "worker.load.queue", "worker.load.mem_pct", 
-                    "worker.load.used_mem"]
+                    "worker.load.used_mem"],
+      cpu: CPUService::boxed(tid)?,
     });
     tx.send(ret.clone()).unwrap();
-    ret
+    Ok(ret)
   }
   
   fn launch_worker_thread(rx: Receiver<Arc<StatusService>>) -> JoinHandle<()> {
@@ -146,6 +152,8 @@ impl StatusService {
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();
     let running = self.container_manager.running_functions();
+    let hw_freqs = self.cpu.hardware_cpu_freqs(tid);
+    let kernel_freqs = self.cpu.kernel_cpu_freqs(tid);
 
     let new_status = Arc::new(WorkerStatus {
       queue_len,
@@ -157,7 +165,9 @@ impl StatusService {
       cpu_wa: wa,
       load_avg_1minute: minute_load_avg,
       num_system_cores: nprocs,
-      num_running_funcs: running
+      num_running_funcs: running,
+      hardware_cpu_freqs: hw_freqs,
+      kernel_cpu_freqs: kernel_freqs
     });
     info!(tid=%tid, status=?new_status,"current load status");
 

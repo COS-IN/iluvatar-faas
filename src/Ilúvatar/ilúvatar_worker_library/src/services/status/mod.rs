@@ -28,4 +28,12 @@ pub struct WorkerStatus {
   pub num_system_cores: u32,
   /// the number of currently running functions on the system
   pub num_running_funcs: u32,
+  /// the current running frequencies of all the CPUs on the worker as reported by the hardware
+  ///   Entries may be 0 if an error occured gathering information for a specific cpu
+  ///   CPU ID is the entry position
+  pub hardware_cpu_freqs: Vec<u64>,
+  /// the current running frequencies of all the CPUs on the worker as reported by the kernel
+  ///   Entries may be 0 if an error occured gathering information for a specific cpu
+  ///   CPU ID is the entry position
+  pub kernel_cpu_freqs: Vec<u64>,
 }

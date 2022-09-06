@@ -22,7 +22,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
   let container_man = ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), lifecycle.clone(), tid).await?;
   let invoker = InvokerService::boxed(container_man.clone(), tid, worker_config.limits.clone(), worker_config.invocation.clone());
-  let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone()).await;
+  let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid).await?;
   let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
 
   let inv_cln = invoker.clone();

@@ -6,3 +6,4 @@ pub mod types;
 pub mod graphite;
 pub mod api_register;
 pub mod energy;
+pub mod cpu_interaction;
