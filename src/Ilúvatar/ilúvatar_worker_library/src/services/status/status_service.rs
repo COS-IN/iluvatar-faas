@@ -174,7 +174,7 @@ impl StatusService {
       hardware_cpu_freqs: hw_freqs,
       kernel_cpu_freqs: kernel_freqs
     });
-    info!(tid=%tid, status=?new_status,"current load status");
+    info!(tid=%tid, status=%new_status,"current load status");
 
     let values = vec![(minute_load_avg / nprocs as f64), (us+sy) as f64,
                                     queue_len as f64, (used_mem as f64 / total_mem as f64), 

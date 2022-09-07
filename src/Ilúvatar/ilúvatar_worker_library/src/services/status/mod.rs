@@ -1,9 +1,11 @@
 pub mod status_service;
+use std::fmt::Display;
+
 pub use status_service::StatusService;
 
 use iluvatar_library::types::MemSizeMb;
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 /// Load metrics recorded by the local machine
 pub struct WorkerStatus {
   /// length of the invoker queue
@@ -36,4 +38,14 @@ pub struct WorkerStatus {
   ///   Entries may be 0 if an error occured gathering information for a specific cpu
   ///   CPU ID is the entry position
   pub kernel_cpu_freqs: Vec<u64>,
+}
+
+impl Display for WorkerStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      let s = match serde_json::to_string::<WorkerStatus>(self) {
+        Ok(s) => s,
+        Err(_e) => return Err(std::fmt::Error{}),
+      };
+      write!(f, "{}", s)
+    }
 }
