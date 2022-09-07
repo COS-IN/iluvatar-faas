@@ -13,7 +13,7 @@ use crate::utils::port::Port;
 use crate::transaction::TransactionId;
 use crate::bail_error;
 use std::collections::HashMap;
-use std::process::{Command, Output, Child};
+use std::process::{Command, Output, Child, Stdio};
 use tracing::debug;
 use anyhow::Result;
 
@@ -33,7 +33,7 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
 fn prepare_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Command>
   where S: AsRef<std::ffi::OsStr> + ?Sized + std::fmt::Display {
   
-    debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
+  debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
   if ! std::path::Path::new(&cmd_pth).exists() {
     bail_error!(tid=%tid, command=%cmd_pth, "Command does not exists");
   }
@@ -50,7 +50,7 @@ fn prepare_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, St
 pub fn execute_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> 
   where S: AsRef<std::ffi::OsStr> + ?Sized + std::fmt::Display {
   
-    let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
+  let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
   match cmd.output() {
     Ok(out) => Ok(out),
     Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Running command failed")
@@ -59,11 +59,16 @@ pub fn execute_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String
 
 /// Executes the specified executable with args and environment
 /// cmd_pth **must** be an absolute path
+/// All std* pipes will be sent to null for the process
 pub fn execute_cmd_nonblocking<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Child>
   where S: AsRef<std::ffi::OsStr> + ?Sized + std::fmt::Display {
 
   debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
   let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
+  cmd.stdout(Stdio::null())
+      .stdin(Stdio::null())
+      .stderr(Stdio::null());
+
   match cmd.spawn() {
     Ok(out) => Ok(out),
     Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Spawning non-blocking command failed")
