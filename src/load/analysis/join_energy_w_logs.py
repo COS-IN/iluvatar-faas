@@ -27,8 +27,13 @@ def round_date(time: datetime) -> datetime:
   return datetime.combine(new_date.date(), new_date.time(), timezone.utc)
 
 def load_perf_log(path: str, energy_df: pd.DataFrame) -> pd.DataFrame:
+  """
+    Load a perf log into a dataframe
+    The multiple reported metrics are each put into their own column
+  """
 
   try:
+    
     f = open(path, 'r')
     first_line = f.readline()
     start_date = first_line[len("# started on "):].strip(whitespace)
@@ -53,7 +58,24 @@ def load_perf_log(path: str, energy_df: pd.DataFrame) -> pd.DataFrame:
     new_date = new_date + timedelta(hours=hour_diff)
     return datetime.combine(new_date.date(), new_date.time(), timezone.utc)
   df["timestamp"] = df["timestamp"].apply(lambda x: round_date(update_time(x)))
-  df.set_index(pd.DatetimeIndex(df["timestamp"]))
+
+  df_energy_pkg = df[df["event_name"] == "power/energy-pkg/"].copy()
+  df_energy_ram = df[df["event_name"] == "power/energy-ram/"].copy()
+  df_instructions = df[df["event_name"] == "inst_retired.any"].copy()
+
+  df_energy_pkg.index = pd.DatetimeIndex(df_energy_pkg["timestamp"])
+  df_energy_pkg.rename( columns = {"perf_stat":"energy_pkg"}, inplace=True )
+
+  df_energy_ram.index = pd.DatetimeIndex(df_energy_ram["timestamp"])
+  df_energy_ram.rename( columns = {"perf_stat":"energy_ram"}, inplace=True )
+
+  df_instructions.index = pd.DatetimeIndex(df_instructions["timestamp"])
+  df_instructions.rename( columns = {"perf_stat":"retired_instructions"}, inplace=True )
+
+  df = df_energy_pkg.join(df_energy_ram["energy_ram"])
+  df = df.join(df_instructions["retired_instructions"])
+
+  df.set_index(pd.DatetimeIndex(df["timestamp"]), inplace=True)
   return df
 
 def load_energy_log(path) -> pd.DataFrame:
@@ -66,7 +88,7 @@ def load_energy_log(path) -> pd.DataFrame:
   energy_df["cumulative_running"] = [[] for _ in range(len(energy_df))]
   # exact_running is those invocations that were ongoing when the energy sampling occured
   energy_df["exact_running"] = [[] for _ in range(len(energy_df))]
-  energy_df.set_index(pd.DatetimeIndex(energy_df["timestamp"]))
+  energy_df.set_index(pd.DatetimeIndex(energy_df["timestamp"]), inplace=True)
   return energy_df
 
 def parse_energy_log_time(time) -> datetime:
@@ -74,18 +96,31 @@ def parse_energy_log_time(time) -> datetime:
   The timestamps created by the Ilúvatar energy log can have too-precise fraction seconds
   Clean them up with this helper
   """
+  if type(time) is not str:
+    raise Exception("Didnt get a string, got type({}) '{}'".format(type(time), time))
   day, hr, tz = time.split(" ")
   full, part_sec = hr.split('.')
   diff  = len(part_sec) - 6
   if diff > 0:
+    # too many significant digits
     part_sec = part_sec[:-diff]
+  elif diff < 0:
+    # too few significant digits
+    part_sec += "0"*abs(diff)
   done = "{} {}.{}{}".format(day, full, part_sec, tz)
-  return datetime.fromisoformat(done)
+  try:
+    return datetime.fromisoformat(done)
+  except Exception as e:
+    print(e)
+    print(time)
+    print(done)
+    exit(1)
 
 def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
   INVOKE_TARGET = "iluvatar_worker_library::services::containers::containerd::containerdstructs"
   INVOKE_NAME = "ContainerdContainer::invoke"  
   running = {}
+  cpu_data = []
   def timestamp(log):
     return isoparse(log["timestamp"])
 
@@ -103,7 +138,7 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
     return duration, start_t, stop_t
 
   def insert_to_df(df, start_t, end_t, fqdn):
-    match = df[df["timestamp_l"].between(start_t, end_t)]
+    match = df[df["timestamp"].between(start_t, end_t)]
     for item in match.itertuples():
       item.exact_running.append(fqdn)
 
@@ -111,7 +146,7 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
     rounded_start_t = round_date(start_t)
     rounded_end_t = round_date(end_t)
     while rounded_start_t <= rounded_end_t:
-      match = df[df["timestamp_l"] == rounded_start_t]
+      match = df[df["timestamp"] == rounded_start_t]
       if len(match) > 1:
         raise Exception("Got multiple matches on a single timestamp!!", rounded_start_t)
       for item in match.itertuples():
@@ -137,17 +172,39 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
         fqdn = log["span"]["fqdn"]
         duration, start_t, stop_t = invoke_end(log)
         insert_to_df(df, start_t, stop_t, fqdn)
+      if log["fields"]["message"] == "current load status":
+        log_t = round_date(timestamp(log))
+        data = {}
+        data["timestamp"] = log_t
+        json_log = json.loads(log["fields"]["status"])
+        data["cpu_pct"] = json_log["cpu_sy"] + json_log["cpu_us"] + json_log["cpu_wa"]
+        data["hw_cpu_hz_mean"] = np.mean(json_log["hardware_cpu_freqs"])
+        data["hw_cpu_hz_max"] = np.min(json_log["hardware_cpu_freqs"])
+        data["hw_cpu_hz_min"] = np.max(json_log["hardware_cpu_freqs"])
+        data["hw_cpu_hz_std"] = np.std(json_log["hardware_cpu_freqs"])
+
+        data["kern_cpu_hz_mean"] = np.mean(json_log["kernel_cpu_freqs"])
+        data["kern_cpu_hz_max"] = np.min(json_log["kernel_cpu_freqs"])
+        data["kern_cpu_hz_min"] = np.max(json_log["kernel_cpu_freqs"])
+        data["kern_cpu_hz_std"] = np.std(json_log["kernel_cpu_freqs"])
+        cpu_data.append(data)
+
+  cpu_df = pd.DataFrame.from_records(cpu_data, index="timestamp")
+  cpu_df = cpu_df.resample("1s").mean().interpolate()
+  df = df.join(cpu_df, lsuffix="", rsuffix="_cpu")
+
   return df
 
 energy_df = load_energy_log(energy_log)
 perf_df = load_perf_log(perf_log, energy_df)
-if perf_df != None:
-    full_df = energy_df.join(perf_df, lsuffix="_l", rsuffix="_r")
+if perf_df is not None:
+  full_df = energy_df.join(perf_df, lsuffix="", rsuffix="_perf")
 else:
-    energy_df.rename( columns = {"timestamp":"timestamp_l"}, inplace=True )
-    full_df = energy_df
+  full_df = energy_df
 
 full_df = inject_running_into_df(full_df)
+full_df.fillna(method='ffill', inplace=True)
+full_df.fillna(method='bfill', inplace=True)
 
 # print(full_df)
 outpath = os.path.join(args.logs_folder, "combined-energy-output.csv")
