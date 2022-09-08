@@ -87,7 +87,8 @@ impl StatusService {
     match execute_cmd("/usr/bin/vmstat", &vec!["1", "2", "-n", "-w"], None, tid) {
       Ok(out) => {
         let stdout = String::from_utf8_lossy(&out.stdout);
-        let lines: Vec<&str> = stdout.split("\n").collect::<Vec<&str>>()[2].split(" ").filter(|str| str.len() > 0).collect();
+        let split = stdout.split("\n").collect::<Vec<&str>>();
+        let lines: Vec<&str> = split[split.len()-2].split(" ").filter(|str| str.len() > 0).collect();
         let us: i64 = self.parse(lines[lines.len()-5], tid);
         let sy: i64 = self.parse(lines[lines.len()-4], tid);
         let id: i64 = self.parse(lines[lines.len()-3], tid);

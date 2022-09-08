@@ -7,6 +7,9 @@ from dateutil.parser import isoparse
 import json
 from datetime import datetime, timedelta, timezone
 
+with open("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj", "r") as f:
+  max_rapl_uj = int(f.read())
+
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--logs-folder", '-l', help="The folder worker logs are stored in", required=True, type=str)
 argparser.add_argument("--energy-freq-ms", '-q', help="The frequency at which energy readings were recorded, in milliseconds", required=True, type=int)
@@ -14,7 +17,6 @@ args = argparser.parse_args()
 
 energy_log = os.path.join(args.logs_folder, "energy-function.log")
 perf_log = os.path.join(args.logs_folder, "energy-perf.log")
-worker_log = os.path.join(args.logs_folder, "worker.log")
 
 def round_date(time: datetime) -> datetime:
   """
@@ -33,7 +35,6 @@ def load_perf_log(path: str, energy_df: pd.DataFrame) -> pd.DataFrame:
   """
 
   try:
-    
     f = open(path, 'r')
     first_line = f.readline()
     start_date = first_line[len("# started on "):].strip(whitespace)
@@ -89,6 +90,20 @@ def load_energy_log(path) -> pd.DataFrame:
   # exact_running is those invocations that were ongoing when the energy sampling occured
   energy_df["exact_running"] = [[] for _ in range(len(energy_df))]
   energy_df.set_index(pd.DatetimeIndex(energy_df["timestamp"]), inplace=True)
+
+  rapl_data = []
+  for i in range(1, len(energy_df["rapl_uj"])):
+    left = int(energy_df["rapl_uj"][i-1])
+    right = int(energy_df["rapl_uj"][i])
+    if right < left:
+      uj = right + (max_rapl_uj - left)
+    else:
+      uj = right - left
+    rapl_data.append(uj)
+
+  rapl_data.append(rapl_data[-1])
+  energy_df["rapl_uj_diff"] = pd.Series(rapl_data, index=energy_df.index)
+
   return energy_df
 
 def parse_energy_log_time(time) -> datetime:
@@ -153,6 +168,10 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
         item.cumulative_running.append(fqdn)
       rounded_start_t += timedelta(microseconds=micro_t)
 
+  worker_log = os.path.join(args.logs_folder, "worker.log")
+  if not os.path.exists(worker_log):
+    worker_log = os.path.join(args.logs_folder, "worker_worker1.log")
+
   with open(worker_log, 'r') as f:
     while True:
       line = f.readline()
@@ -177,7 +196,9 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
         data = {}
         data["timestamp"] = log_t
         json_log = json.loads(log["fields"]["status"])
-        data["cpu_pct"] = json_log["cpu_sy"] + json_log["cpu_us"] + json_log["cpu_wa"]
+        data["load_avg_1minute"] = json_log["load_avg_1minute"]
+        data["cpu_pct"] = int(json_log["cpu_sy"]) + int(json_log["cpu_us"]) + int(json_log["cpu_wa"])
+        print(json_log)
         data["hw_cpu_hz_mean"] = np.mean(json_log["hardware_cpu_freqs"])
         data["hw_cpu_hz_max"] = np.min(json_log["hardware_cpu_freqs"])
         data["hw_cpu_hz_min"] = np.max(json_log["hardware_cpu_freqs"])
@@ -205,6 +226,7 @@ else:
 full_df = inject_running_into_df(full_df)
 full_df.fillna(method='ffill', inplace=True)
 full_df.fillna(method='bfill', inplace=True)
+full_df.fillna(value=0, inplace=True)
 
 # print(full_df)
 outpath = os.path.join(args.logs_folder, "combined-energy-output.csv")
