@@ -198,7 +198,7 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
         json_log = json.loads(log["fields"]["status"])
         data["load_avg_1minute"] = json_log["load_avg_1minute"]
         data["cpu_pct"] = int(json_log["cpu_sy"]) + int(json_log["cpu_us"]) + int(json_log["cpu_wa"])
-        print(json_log)
+
         data["hw_cpu_hz_mean"] = np.mean(json_log["hardware_cpu_freqs"])
         data["hw_cpu_hz_max"] = np.min(json_log["hardware_cpu_freqs"])
         data["hw_cpu_hz_min"] = np.max(json_log["hardware_cpu_freqs"])
