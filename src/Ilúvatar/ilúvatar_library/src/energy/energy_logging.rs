@@ -1,5 +1,5 @@
 use std::{sync::{Arc, mpsc::{channel, Receiver}}, time::Duration, fs::File, io::Write, path::Path};
-use crate::{transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID}, energy::{rapl::RAPL, perf::start_perf_stat, EnergyConfig}, continuation::Continuation};
+use crate::{transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID}, energy::{rapl::RAPL, perf::start_perf_stat, EnergyConfig}};
 use time::OffsetDateTime;
 use std::thread::JoinHandle;
 use tracing::{debug, error};
@@ -20,11 +20,10 @@ pub struct EnergyLogger {
   _perf_child: Option<std::process::Child>,
   headers: Option<Vec<String>>,
   csv_injectables: Option<Vec<EnergyInjectableT>>,
-  continuation: Arc<Continuation>
 }
 
 impl EnergyLogger {
-  pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId, headers: Option<Vec<String>>, csv_injectables: Option<Vec<EnergyInjectableT>>, continuation: Arc<Continuation>) -> Result<Arc<Self>> {
+  pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId, headers: Option<Vec<String>>, csv_injectables: Option<Vec<EnergyInjectableT>>) -> Result<Arc<Self>> {
     match &headers {
       Some(hs) => match &csv_injectables {
         Some(cvs) => {
@@ -68,8 +67,7 @@ impl EnergyLogger {
       _perf_child: child,
       headers,
       csv_injectables,
-      ipmi,
-      continuation
+      ipmi
     });
     tx.send(i.clone())?;
     Ok(i)
@@ -103,12 +101,12 @@ impl EnergyLogger {
       };
 
       debug!(tid=%tid, "worker energy logger worker started");
-      svc.continuation.thread_start(tid);
-      while svc.continuation.check_continue() {
+      crate::continuation::GLOB_CONT_CHECK.thread_start(tid);
+      while crate::continuation::GLOB_CONT_CHECK.check_continue() {
         svc.monitor_energy(tid, &file);
         std::thread::sleep(Duration::from_millis(svc.config.log_freq_ms));
       }
-      svc.continuation.thread_exit(tid);
+      crate::continuation::GLOB_CONT_CHECK.thread_exit(tid);
     })
   }
 

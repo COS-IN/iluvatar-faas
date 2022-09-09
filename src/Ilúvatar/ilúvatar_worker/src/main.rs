@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
-use iluvatar_library::{logging::start_tracing, continuation::Continuation};
+use iluvatar_library::logging::start_tracing;
 use iluvatar_worker_library::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker_library::worker_api::config::Configuration;
@@ -22,7 +22,7 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<(
   let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
   let mut signals = Signals::new(&sigs)?;
 
-  let (worker, cont) = create_worker(server_config.clone(), tid).await?;
+  let worker = create_worker(server_config.clone(), tid).await?;
   let addr = format!("{}:{}", server_config.address, server_config.port);
 
   register_rpc_to_controller(server_config.clone(), tid.clone());
@@ -38,19 +38,18 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<(
       }
     }
   }
-  cont.signal_application_exit();
+  iluvatar_library::continuation::GLOB_CONT_CHECK.signal_application_exit(tid);
   Ok(())
 }
 
 async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
   debug!(tid=?tid, config=?server_config, "loaded configuration");
-  let cont = Continuation::boxed();
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone(), server_config.limits.clone());
   let lifecycle = factory.get_lifecycle_service(tid, false).await?;
 
-  let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone(), tid, cont.clone()).await?;
-  let _invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone(), server_config.invocation.clone(), cont.clone());
+  let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone(), tid).await?;
+  let _invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone(), server_config.invocation.clone());
   lifecycle.clean_containers("default", tid).await?;
   Ok(())
 }

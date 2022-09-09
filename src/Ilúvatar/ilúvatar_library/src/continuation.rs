@@ -1,9 +1,13 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
 
 use parking_lot::RwLock;
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::transaction::TransactionId;
+
+lazy_static::lazy_static! {
+  pub static ref GLOB_CONT_CHECK: Continuation = Continuation::new();
+}
 
 pub struct Continuation {
   signal: Arc<RwLock<bool>>,
@@ -11,17 +15,18 @@ pub struct Continuation {
 }
 
 impl Continuation {
-  pub fn boxed() -> Arc<Self> {
-    Arc::new(Continuation {
+  fn new() -> Self {
+    Continuation {
       signal: Arc::new(RwLock::new(true)),
       outstanding_threads: Arc::new(RwLock::new(0)),
-    })
+    }
   }
 
   /// signal to all waiting threads that they should exit
   /// return after all are complete, or after a timeout
-  pub fn signal_application_exit(&self) {
+  pub fn signal_application_exit(&self, tid: &TransactionId) {
     *self.signal.write() = false;
+    info!(tid=%tid, "Signalling worker exit");
     let start = SystemTime::now();
     while *self.outstanding_threads.read() > 0 {
       let t = match start.elapsed() {

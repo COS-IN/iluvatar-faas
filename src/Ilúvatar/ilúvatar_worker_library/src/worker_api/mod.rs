@@ -1,6 +1,4 @@
-use std::sync::Arc;
 use std::vec;
-use iluvatar_library::continuation::Continuation;
 use iluvatar_library::energy::energy_logging::{EnergyLogger, EnergyInjectableT};
 use crate::services::worker_health::WorkerHealthService;
 use crate::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
@@ -18,15 +16,13 @@ pub use worker_config as config;
 pub mod ilúvatar_worker;
 pub mod sim_worker;
 
-pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<(IluvatarWorkerImpl, Arc<Continuation>)> {
-  let cont = Continuation::boxed();
-
+pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
   let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
   let lifecycle = factory.get_lifecycle_service(tid, true).await?;
 
-  let container_man = ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), lifecycle.clone(), tid, cont.clone()).await?;
-  let invoker = InvokerService::boxed(container_man.clone(), tid, worker_config.limits.clone(), worker_config.invocation.clone(), cont.clone());
-  let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid, cont.clone()).await?;
+  let container_man = ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), lifecycle.clone(), tid).await?;
+  let invoker = InvokerService::boxed(container_man.clone(), tid, worker_config.limits.clone(), worker_config.invocation.clone());
+  let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid).await?;
   let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
 
   let inv_cln = invoker.clone();
@@ -34,9 +30,9 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     InvokerService::get_running_string(&inv_cln) 
   });
   let inject = vec![i];
-  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid, Some(vec!["invoking_tids".to_string()]), Some(inject), cont.clone())?;
+  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid, Some(vec!["invoking_tids".to_string()]), Some(inject))?;
   
-  Ok( (IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy), cont) )
+  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy))
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -2,7 +2,7 @@ use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration};
 use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}, services::invocation::invoker_structs::InvocationResult};
 use crate::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use crate::rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse};
-use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error, continuation::Continuation};
+use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use tracing::{debug, error, warn, info};
@@ -20,11 +20,10 @@ pub struct InvokerService {
   pub invocation_config: Arc<InvocationConfig>,
   // TODO: occasionally check if this died and re-run?
   _worker_thread: Option<std::thread::JoinHandle<()>>,
-  continuation: Arc<Continuation>,
 }
 
 impl InvokerService {
-    fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, worker_thread: Option<std::thread::JoinHandle<()>>, continuation: Arc<Continuation>) -> Self {
+    fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, worker_thread: Option<std::thread::JoinHandle<()>>) -> Self {
       InvokerService {
         cont_manager,
         async_functions: Arc::new(DashMap::new()),
@@ -33,17 +32,16 @@ impl InvokerService {
         function_config,
         invocation_config,
         _worker_thread: worker_thread,
-        continuation,
       }
     }
 
-    pub fn boxed(cont_manager: Arc<ContainerManager>, tid: &TransactionId, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, continuation: Arc<Continuation>) -> Arc<Self> {
+    pub fn boxed(cont_manager: Arc<ContainerManager>, tid: &TransactionId, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>) -> Arc<Self> {
       let (tx, rx) = channel();
       let handle = match invocation_config.use_queue {
         true => Some(InvokerService::start_queue_thread(rx, tid)),
         false => None,
       };
-      let i = Arc::new(InvokerService::new(cont_manager, function_config, invocation_config, handle, continuation));
+      let i = Arc::new(InvokerService::new(cont_manager, function_config, invocation_config, handle));
       tx.send(i.clone()).unwrap();
       return i;
     }
@@ -78,8 +76,8 @@ impl InvokerService {
           return ();
         },
       };
-      self.continuation.thread_start(tid);
-      while self.continuation.check_continue() {
+      iluvatar_library::continuation::GLOB_CONT_CHECK.thread_start(tid);
+      while iluvatar_library::continuation::GLOB_CONT_CHECK.check_continue() {
         let mut queue = self.invoke_queue.lock();
         if queue.len() > 0 && self.has_resources_to_run() {
           let item = queue.remove(0);
@@ -90,7 +88,7 @@ impl InvokerService {
           std::thread::sleep(Duration::from_millis(self.invocation_config.queue_sleep_ms));
         }
       }
-      self.continuation.thread_exit(tid);
+      iluvatar_library::continuation::GLOB_CONT_CHECK.thread_exit(tid);
     }
 
     /// has_resources_to_run

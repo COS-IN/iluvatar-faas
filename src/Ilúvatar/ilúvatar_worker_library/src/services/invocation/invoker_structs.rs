@@ -63,7 +63,7 @@ impl QueueFuture {
     std::thread::spawn(move || {
       loop {
         // TODO: another way or better sleep time?
-        std::thread::sleep(Duration::from_nanos(100));
+        std::thread::sleep(Duration::from_micros(100));
         let mut shared_state = result.lock();
         // Signal that the timer has completed and wake up the last
         // task on which the future was polled, if one exists.

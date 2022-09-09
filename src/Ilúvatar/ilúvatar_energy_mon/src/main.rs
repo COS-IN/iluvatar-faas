@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use iluvatar_library::{transaction::{TransactionId, ENERGY_MONITOR_TID}, energy::{EnergyConfig, energy_logging::EnergyLogger}, continuation::Continuation};
+use iluvatar_library::{transaction::{TransactionId, ENERGY_MONITOR_TID}, energy::{EnergyConfig, energy_logging::EnergyLogger}};
 use clap::Parser;
 use signal_hook::{consts::signal::{SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT}, iterator::Signals};
 
@@ -12,9 +12,8 @@ fn main() -> anyhow::Result<()> {
 
   let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
   let mut signals = Signals::new(&sigs)?;
-  let cont = Continuation::boxed();
 
-  let _mon = EnergyLogger::boxed(config, tid, None, None, cont.clone())?;
+  let _mon = EnergyLogger::boxed(config, tid, None, None)?;
 
   'outer: for signal in &mut signals {
     match signal {
@@ -23,7 +22,7 @@ fn main() -> anyhow::Result<()> {
       }
     }
   }
-  cont.signal_application_exit();
+  iluvatar_library::continuation::GLOB_CONT_CHECK.signal_application_exit(tid);
 
   Ok(())
 }

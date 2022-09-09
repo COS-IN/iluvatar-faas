@@ -1,6 +1,5 @@
 use crate::services::containers::structs::{InsufficientMemoryError, InsufficientCoresError, ContainerLockedError};
 use iluvatar_library::bail_error;
-use iluvatar_library::continuation::Continuation;
 use crate::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID};
 use iluvatar_library::types::MemSizeMb;
@@ -29,11 +28,10 @@ pub struct ContainerManager {
   cont_lifecycle: Arc<dyn LifecycleService>,
   prioritized_list: ContainerList,
   _worker_thread: std::thread::JoinHandle<()>,
-  continuation: Arc<Continuation>,
 }
 
 impl ContainerManager {
-  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>, continuation: Arc<Continuation>) -> Result<ContainerManager> {
+  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>) -> Result<ContainerManager> {
 
     Ok(ContainerManager {
       registered_functions: Arc::new(DashMap::new()),
@@ -44,16 +42,15 @@ impl ContainerManager {
       running_funcs: Arc::new(RwLock::new(0)),
       cont_lifecycle,
       prioritized_list: Arc::new(RwLock::new(Vec::new())),
-      _worker_thread: worker_thread,
-      continuation
+      _worker_thread: worker_thread
     })
   }
 
-  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, tid: &TransactionId, continuation: Arc<Continuation>) -> Result<Arc<ContainerManager>> {
+  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<Arc<ContainerManager>> {
     let (tx, rx) = channel();
     let worker = ContainerManager::start_thread(rx, tid);
 
-    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, worker, continuation).await?);
+    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, worker).await?);
     tx.send(cm.clone()).unwrap();
     Ok(cm)
   }
@@ -81,12 +78,12 @@ impl ContainerManager {
       };
       debug!(tid=%tid, "container manager worker started");
       worker_rt.block_on(async {
-        cm.continuation.thread_start(tid);
-        while cm.continuation.check_continue() {
+        iluvatar_library::continuation::GLOB_CONT_CHECK.thread_start(tid);
+        while iluvatar_library::continuation::GLOB_CONT_CHECK.check_continue() {
           cm.monitor_pool(tid.clone()).await;
           std::thread::sleep(std::time::Duration::from_secs(cm.resources.pool_freq_sec));
         }
-        cm.continuation.thread_exit(tid);
+        iluvatar_library::continuation::GLOB_CONT_CHECK.thread_exit(tid);
       });
     })
   }
