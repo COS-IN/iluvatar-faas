@@ -7,9 +7,6 @@ from dateutil.parser import isoparse
 import json
 from datetime import datetime, timedelta, timezone
 
-with open("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj", "r") as f:
-  max_rapl_uj = int(f.read())
-
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--logs-folder", '-l', help="The folder worker logs are stored in", required=True, type=str)
 argparser.add_argument("--energy-freq-ms", '-q', help="The frequency at which energy readings were recorded, in milliseconds", required=True, type=int)
