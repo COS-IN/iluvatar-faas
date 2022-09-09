@@ -13,10 +13,19 @@ with open("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_rang
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--logs-folder", '-l', help="The folder worker logs are stored in", required=True, type=str)
 argparser.add_argument("--energy-freq-ms", '-q', help="The frequency at which energy readings were recorded, in milliseconds", required=True, type=int)
+argparser.add_argument("--max-rapl", '-m', help="File that contains man energy range for rapl in uj", default="none", type=str)
 args = argparser.parse_args()
 
 energy_log = os.path.join(args.logs_folder, "energy-function.log")
 perf_log = os.path.join(args.logs_folder, "energy-perf.log")
+
+
+if args.max_rapl == "none":
+    with open("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj", "r") as f:
+      max_rapl_uj = int(f.read())
+else:
+    with open(args.max_rapl, "r") as f:
+      max_rapl_uj = int(f.read())
 
 def round_date(time: datetime) -> datetime:
   """
