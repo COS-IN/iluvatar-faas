@@ -50,12 +50,11 @@
     "ingestion_udp": false
   },
   "energy": {
-    "enable_rapl": true,
-    "enable_ipmi": false,
-    "enable_perf": true,
-    "perf_stat_duration_ms": 1000,
+    "perf_freq_ms": 1000,
+    "rapl_freq_ms": 1000,
+    "ipmi_freq_ms": 0,
     "ipmi_pass_file": "",
-    "log_freq_ms": 1000,
+    "ipmi_ip_addr": "",
     "log_folder": "/tmp/ilúvatar/logs/"
   }
 }

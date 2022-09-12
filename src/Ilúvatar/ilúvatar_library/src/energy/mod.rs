@@ -10,20 +10,19 @@ pub mod ipmi;
 /// Energy monitoring configuring
 pub struct EnergyConfig {
   /// Log RAPL energy consumption
-  #[clap(long, action)]
-  pub enable_rapl: bool,
+  /// If 0 then RAPL is disabled
+  #[clap(long, action, default_value_t=0)]
+  pub rapl_freq_ms: u64,
 
   /// Log instantaneous power usage from IPMI
-  #[clap(long, action)]
-  pub enable_ipmi: bool,
+  /// If 0 then IPMI is disabled
+  #[clap(long, action, default_value_t=0)]
+  pub ipmi_freq_ms: u64,
 
   /// Log energy usage as monitored via `perf`
-  #[clap(long, action)]
-  pub enable_perf: bool,
-
-  /// Frequecy in milliseconds to track perf energy metric
-  #[clap(long)]
-  pub perf_stat_duration_ms: Option<u64>,
+  /// If 0 then perf is disabled
+  #[clap(long, action, default_value_t=0)]
+  pub perf_freq_ms: u64,
 
   /// File path containing the IPMI password
   #[clap(long)]
@@ -33,11 +32,19 @@ pub struct EnergyConfig {
   #[clap(long)]
   pub ipmi_ip_addr: Option<String>,
 
-  /// Frequency of energy logging in milliseconds
-  #[clap(long)]
-  pub log_freq_ms: u64,
-
-  /// Folder to log energy and function metrics to
+  /// Folder to log energy metrics to
   #[clap(long)]
   pub log_folder: String,
+}
+
+impl EnergyConfig {
+  pub fn perf_enabled(&self) -> bool {
+    self.perf_freq_ms != 0
+  }
+  pub fn rapl_enabled(&self) -> bool {
+    self.rapl_freq_ms != 0
+  }
+  pub fn ipmi_enabled(&self) -> bool {
+    self.ipmi_freq_ms != 0
+  }
 }

@@ -7,13 +7,13 @@ pub mod graphite_svc;
 /// Configuration needed to talk to Graphite metrics server
 pub struct GraphiteConfig {
   /// Host name server is on
-  address: String,
+  pub address: String,
   /// Port API is listening on
-  api_port: Port,
+  pub api_port: Port,
   /// ingestion port
-  ingestion_port: Port,
+  pub ingestion_port: Port,
   /// Is it listening on UDP? true: yes
-  ingestion_udp: bool
+  pub ingestion_udp: bool
 }
 
 // [{"target": "worker.load.loadavg", "tags": {"name": "worker.load.loadavg"}, "datapoints": [[3.81, 1658417660], [4.29, 1658417670]]}]

@@ -1,5 +1,4 @@
-use std::vec;
-use iluvatar_library::energy::energy_logging::{EnergyLogger, EnergyInjectableT};
+use iluvatar_library::energy::energy_logging::EnergyLogger;
 use crate::services::worker_health::WorkerHealthService;
 use crate::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
 use crate::services::status::status_service::StatusService;
@@ -25,12 +24,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
   let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid).await?;
   let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
 
-  let inv_cln = invoker.clone();
-  let i: EnergyInjectableT = std::sync::Arc::new(move || {
-    InvokerService::get_running_string(&inv_cln) 
-  });
-  let inject = vec![i];
-  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid, Some(vec!["invoking_tids".to_string()]), Some(inject))?;
+  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid)?;
   
   Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy))
 }
