@@ -1586,7 +1586,6 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
- "time",
  "tracing",
  "tracing-appender",
  "tracing-flame",
@@ -1644,7 +1643,6 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-hook",
- "time",
 ]
 
 [[package]]
@@ -2923,7 +2921,6 @@ dependencies = [
  "itoa 1.0.2",
  "libc",
  "num_threads",
- "serde",
  "time-macros",
 ]
 

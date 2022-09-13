@@ -1,6 +1,4 @@
 use std::{path::Path, sync::{Arc, mpsc::{channel, Receiver}}, thread::JoinHandle, fs::File, io::Write, time::Duration};
-
-use time::OffsetDateTime;
 use tracing::{trace, error, debug};
 use crate::{utils::execute_cmd, transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID}};
 use anyhow::Result;
@@ -124,8 +122,14 @@ impl IPMIMonitor {
           return;
         },
       };
-      let now = OffsetDateTime::now_utc();
-      let to_write = format!("{},{}\n", now, ipmi_uj);
+      let t = match crate::logging::UnixTime::nanoseconds() {
+        Ok(t) => t,
+        Err(e) => {
+          error!(error=%e, tid=%tid, "Failed to get time");
+          return;
+        },
+      };
+      let to_write = format!("{},{}\n", t, ipmi_uj);
       match file.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {

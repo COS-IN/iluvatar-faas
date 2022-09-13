@@ -7,7 +7,6 @@ use std::time::{SystemTime, Duration};
 use std::fs::{read_to_string, File};
 use anyhow::Result;
 use parking_lot::Mutex;
-use time::OffsetDateTime;
 use tracing::{warn, trace, debug, error};
 use crate::bail_error;
 use crate::transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID};
@@ -289,9 +288,15 @@ impl RaplMonitor {
     /// Reads the different energy sources and writes the current staistics out to the csv file
     fn monitor_energy(&self, rapl: &mut RaplMsr, tid: &TransactionId, mut file: &File) {
       let ipmi_uj = rapl.total_uj(tid);
+      let t = match crate::logging::UnixTime::nanoseconds() {
+        Ok(t) => t,
+        Err(e) => {
+          error!(error=%e, tid=%tid, "Failed to get time");
+          return;
+        },
+      };
 
-      let now = OffsetDateTime::now_utc();
-      let to_write = format!("{},{}\n", now, ipmi_uj);
+      let to_write = format!("{},{}\n", t, ipmi_uj);
       match file.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {

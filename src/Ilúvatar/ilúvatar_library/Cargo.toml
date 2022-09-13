@@ -21,7 +21,6 @@ tracing-flame="0.2"
 pin-project = "1"
 dashmap = "5.3.4"
 parking_lot = "0.12.1"
-time = "0.3.13"
 
 [dev-dependencies]
 rstest = "0.13.0"

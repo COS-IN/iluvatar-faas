@@ -23,7 +23,7 @@ pub fn analyze_logs(_matches: &ArgMatches, _submatches: &ArgMatches) -> Result<(
 
   let (function_data, overhead) = monitor.read_log()?;
   if function_data.len() > 0 {
-    let tot_time = (function_data.values().sum::<i128>() + overhead) as f64;
+    let tot_time = (function_data.values().sum::<u128>() + overhead) as f64;
     println!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time, overhead as f64 / tot_time);
     let mut shares = HashMap::new();
     for (k,v) in function_data.iter() {
@@ -47,7 +47,7 @@ pub struct LogMonitor {
   stream_pos: u64,
   buffered_reader: BufReader<File>,
   invocation_spans: HashMap<String, Span>,
-  invocation_durations: HashMap<String, (String, i128)>,
+  invocation_durations: HashMap<String, (String, u128)>,
   worker_spans: HashMap<String, Span>,
   total_spans: u64,
   pub functions: HashSet<String>,
@@ -68,7 +68,7 @@ impl LogMonitor {
   }
 
   /// Read the katest changes in the log file
-  pub fn read_log(&mut self) -> Result<(HashMap<String, i128>, i128)> {
+  pub fn read_log(&mut self) -> Result<(HashMap<String, u128>, u128)> {
     let mut overhead_ns = 0;
     let mut timing_data = HashMap::new();
     let mut buff = String::new();
@@ -123,7 +123,7 @@ impl LogMonitor {
     let found_stamp = self.invocation_spans.remove(id);
     match found_stamp {
       Some(s) => {
-        let time_ns = span.timestamp.unix_timestamp_nanos() - s.timestamp.unix_timestamp_nanos();
+        let time_ns = span.timestamp - s.timestamp;
         match s.span.fqdn() {
           Some(f) => {self.invocation_durations.insert(span.span.tid.clone(), (f, time_ns) );},
           None => panic!("Span didn't have a valid FQDN: {:?}", s),
@@ -132,11 +132,11 @@ impl LogMonitor {
       None => println!("Tried to remove {} that wasn't found", id),
     }
   }
-  fn remove_worker_transaction(&mut self, id: &String, span: &Span, timing_data: &mut HashMap<String, i128>) -> i128 {
+  fn remove_worker_transaction(&mut self, id: &String, span: &Span, timing_data: &mut HashMap<String, u128>) -> u128 {
     let found_stamp = self.worker_spans.remove(id);
     match found_stamp {
       Some(s) => {
-        let time_ns = span.timestamp.unix_timestamp_nanos() - s.timestamp.unix_timestamp_nanos();
+        let time_ns = span.timestamp - s.timestamp;
         match self.invocation_durations.get(&span.span.tid) {
           Some( (fqdn, invoke_ns) ) => {
             let overhead = time_ns - invoke_ns;

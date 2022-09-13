@@ -1,12 +1,10 @@
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::utils::calculate_fqdn;
 use serde::{Deserialize, Deserializer};
-use time::OffsetDateTime;
-use time::serde::rfc3339;
 
 #[derive(Debug)]
 pub struct Span {
-  pub timestamp: OffsetDateTime,
+  pub timestamp: u128,
   pub level: String,
   pub fields: Field,
   pub target: String,
@@ -26,8 +24,7 @@ impl<'de> Deserialize<'de> for Span {
       D: Deserializer<'de>,
   {
     let json: serde_json::value::Value = serde_json::value::Value::deserialize(deserializer)?;
-    let t = json.get("timestamp").expect("timestamp");
-    let timestamp = rfc3339::deserialize(t).unwrap();
+    let timestamp = json.get("timestamp").expect("timestamp").to_string().parse::<u128>().unwrap();
     let level = json.get("level").expect("level").to_string();
     let target = json.get("target").expect("target").to_string();
     let target = target.strip_prefix("\"").unwrap().strip_suffix("\"").unwrap().to_string();

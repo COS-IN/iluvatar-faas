@@ -86,6 +86,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
     .with(energy_layer);
   let writer_layer = tracing_subscriber::fmt::layer()
     .with_span_events(str_to_span(&config.spanning))
+    .with_timer(UnixTime{})
     .with_writer(non_blocking);
 
   match config.flame.as_str() {
@@ -105,4 +106,33 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
   };
  
   Ok(drops)
+}
+
+/// A struct to serve timestamps as Unix-epoch based values
+/// To be used everywhere timestamps are logged externally
+pub struct UnixTime {
+
+}
+impl UnixTime {
+  /// The number of nanoseconds since the unix epoch start
+  pub fn nanoseconds() -> Result<u128> {
+    let now = std::time::SystemTime::now();
+    let dur = now.duration_since(std::time::UNIX_EPOCH)?;
+    Ok(dur.as_nanos())
+  }
+  /// The number of nanoseconds since the unix epoch start
+  /// As a String
+  pub fn nanoseconds_str() -> Result<String> {
+    let time = Self::nanoseconds()?;
+    Ok(time.to_string())
+  }
+}
+impl tracing_subscriber::fmt::time::FormatTime for UnixTime {
+  fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
+    let s = match UnixTime::nanoseconds_str() {
+      Ok(s) => s,
+      Err(_) => return Err(std::fmt::Error{}),
+    };
+    w.write_str(s.as_str())
+  }
 }
