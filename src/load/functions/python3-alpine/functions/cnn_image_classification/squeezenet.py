@@ -3,6 +3,7 @@ Reference : https://github.com/rcmalli/keras-squeezenet
 SqueezeNet v1.1 Implementation using Keras Functional Framework 2.0
 
 """
+import logging
 import tensorflow.compat.v1 as tf
 from keras_applications.imagenet_utils import _obtain_input_shape
 from tensorflow.keras import backend as K
@@ -12,6 +13,12 @@ from tensorflow.keras.models import Model
 # from tensorflow.keras.utils import get_source_inputs
 from tensorflow.keras.utils import get_file
 from tensorflow.python.keras.utils import layer_utils
+tf.disable_v2_behavior()
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+tf.get_logger().setLevel('ERROR')
+tf.get_logger().setLevel(logging.ERROR)
+logging.getLogger("tensorflow").setLevel(logging.WARNING)
+tf.keras.utils.disable_interactive_logging()
 
 sq1x1 = "squeeze1x1"
 exp1x1 = "expand1x1"

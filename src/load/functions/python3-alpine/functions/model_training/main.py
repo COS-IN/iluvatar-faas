@@ -3,16 +3,20 @@ msg = "good"
 # import re
 import traceback
 try:
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.linear_model import LogisticRegression
-    import joblib
+  import os, sys
+  os.environ['MKL_NUM_THREADS'] = '1'
+  os.environ['OPENBLAS_NUM_THREADS'] = '1'
 
-    import urllib.request
-    import pandas as pd
-    from time import time
-    import uuid
-    import re
-    import io
+  from sklearn.feature_extraction.text import TfidfVectorizer
+  from sklearn.linear_model import LogisticRegression
+  import joblib
+
+  import urllib.request
+  import pandas as pd
+  from time import time
+  import uuid
+  import re
+  import io
 except Exception as e:
     msg = traceback.format_exc()
 # s3_client = boto3.client('s3')

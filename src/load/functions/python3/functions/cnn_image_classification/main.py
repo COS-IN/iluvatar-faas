@@ -1,17 +1,28 @@
 msg = "good"
 import traceback
 try:
+    import os, sys
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    os.environ['AUTOGRAPH_VERBOSITY'] = '1'
+    sys.stdout = open(os.devnull, 'w')
+    sys.stderr = open(os.devnull, 'w')
     import numpy as np
     import uuid
     from time import time
+    import logging
 
     # import boto3
     import tensorflow.compat.v1 as tf
-    tf.disable_v2_behavior()
     from tensorflow.keras.preprocessing import image
     from tensorflow.keras.applications.resnet50 import preprocess_input, decode_predictions
     from tensorflow.keras.utils import get_file
     from squeezenet import SqueezeNet
+    tf.disable_v2_behavior()
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+    tf.get_logger().setLevel('ERROR')
+    tf.get_logger().setLevel(logging.ERROR)
+    logging.getLogger("tensorflow").setLevel(logging.WARNING)
+    tf.keras.utils.disable_interactive_logging()
 
     # s3_client = boto3.client('s3')
 
@@ -25,17 +36,17 @@ def predict(img_local_path):
     start = time()
     config = tf.ConfigProto(device_count={"CPU": 1}, 
                 inter_op_parallelism_threads = 1, 
-                intra_op_parallelism_threads = 1,
-                log_device_placement=True)
+                intra_op_parallelism_threads = 1)
 
     with tf.Session(config=config) as sess:
-      model = SqueezeNet(weights='imagenet')
-      img = image.load_img(img_local_path, target_size=(227, 227))
-      x = image.img_to_array(img)
-      x = np.expand_dims(x, axis=0)
-      x = preprocess_input(x)
-      preds = model.predict(x)
-      res = decode_predictions(preds)
+      with tf.device('/cpu:0'):
+        model = SqueezeNet(weights='imagenet')
+        img = image.load_img(img_local_path, target_size=(227, 227))
+        x = image.img_to_array(img)
+        x = np.expand_dims(x, axis=0)
+        x = preprocess_input(x)
+        preds = model.predict(x)
+        res = decode_predictions(preds)
     end = time()
     latency = end - start
     return latency, res, start, end

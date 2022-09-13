@@ -11,12 +11,7 @@ except:
   def main(args):
     return {"Code import error":msg}, 500
 
-port = os.environ.get("__IL_PORT", 8080)
-host = os.environ.get("__IL_HOST", "0.0.0.0")
-
 app = Flask(__name__)
-app.config["SERVER_NAME"] = "{}:{}".format(host, port)
-print(host, port)
 
 @app.route('/')
 def index():
@@ -38,3 +33,9 @@ def invoke():
       return jsonify(ret)
   except Exception as e:
     return jsonify({"Error":str(e)}), 500
+
+port = os.environ.get("__IL_PORT", 8080)
+host = os.environ.get("__IL_HOST", "0.0.0.0")
+
+if __name__ == "__main__":
+  app.run(host=host, port=port)

@@ -10,10 +10,13 @@ RUN /opt/venv/bin/python3 -m pip install -r reqs.txt
 
 FROM python:3.10-alpine as prod
 
-COPY --from=builder /opt/venv /opt/venv
+RUN python3 -m pip install --upgrade pip && python3 -m pip install flask gunicorn
 
 WORKDIR /app
 COPY *.py ./
+COPY reqs.txt .
 
+RUN python3 -m pip install -r reqs.txt
 
-ENTRYPOINT [ "/opt/venv/bin/python3", "./server.py" ]
+# ENTRYPOINT [ "python3", "./server.py" ]
+ENTRYPOINT [ "gunicorn", "-w", "1", "server:app" ]
