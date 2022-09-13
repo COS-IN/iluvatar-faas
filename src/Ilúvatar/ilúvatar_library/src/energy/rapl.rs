@@ -1,4 +1,4 @@
-use std::io::{BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
@@ -115,7 +115,7 @@ const AMD_POWER_UNIT_MASK: u64 = 0xF;
 
 #[allow(unused)]
 pub struct RaplMsr {
-  open_fds: Vec<BufReader<File>>,
+  open_fds: Vec<File>,
   power_units: Vec<f64>,
   cpu_energy_units: Vec<f64>,
   time_units: Vec<f64>,
@@ -137,7 +137,7 @@ impl RaplMsr {
     let intel = RaplMsr::use_intel(tid)?;
 
     for cpu in 0..procs {
-      let mut file = BufReader::new(File::open(format!("/dev/cpu/{}/msr", cpu))?);
+      let mut file = File::open(format!("/dev/cpu/{}/msr", cpu))?;
       let (pu, cpu, time) = RaplMsr::read_power_unit(cpu, &mut file, intel, tid)?;
       power_units.push(pu);
       cpu_energy_units.push(cpu);
@@ -169,7 +169,7 @@ impl RaplMsr {
     sum
   }
 
-  fn read_msr(cpu: usize, fd: &mut BufReader<File>, offset: u64, tid: &TransactionId) -> u64 {
+  fn read_msr(cpu: usize, fd: &mut File, offset: u64, tid: &TransactionId) -> u64 {
     let mut buffer = [0u8; std::mem::size_of::<u64>()];
     match fd.seek(SeekFrom::Start(offset)) {
       Ok(_) => (),
@@ -191,14 +191,14 @@ impl RaplMsr {
   }
 
   fn use_intel(tid: &TransactionId) -> Result<bool> {
-    let mut file = BufReader::new(File::open(format!("/dev/cpu/{}/msr", 0))?);
+    let mut file = File::open(format!("/dev/cpu/{}/msr", 0))?;
     // will be 0 if the Intel MSR doesn't work
     // In that case we use AMD ones
     Ok(RaplMsr::read_msr(0, &mut file, MSR_RAPL_POWER_UNIT, tid) != 0)
   }
 
   /// Return the power unit, cpu energy unit, and time unit for RAPL
-  fn read_power_unit(cpu: usize, fd: &mut BufReader<File>, use_intel: bool, tid: &TransactionId) -> Result<(f64,f64,f64)> {
+  fn read_power_unit(cpu: usize, fd: &mut File, use_intel: bool, tid: &TransactionId) -> Result<(f64,f64,f64)> {
     if use_intel {
       let result = RaplMsr::read_msr(cpu, fd, MSR_RAPL_POWER_UNIT, tid);
       if result == 0 {
@@ -267,12 +267,20 @@ impl RaplMonitor {
         }
       };
 
-      debug!(tid=%tid, "worker IPMI energy logger worker started");
+      debug!(tid=%tid, "worker RAPL energy logger worker started");
       crate::continuation::GLOB_CONT_CHECK.thread_start(tid);
+      let mut rapl = svc.rapl.lock();
       while crate::continuation::GLOB_CONT_CHECK.check_continue() {
-        let mut rapl = svc.rapl.lock();
+        let start = SystemTime::now();
         svc.monitor_energy(&mut rapl, tid, &file);
-        std::thread::sleep(Duration::from_millis(svc.config.rapl_freq_ms));
+        let sleep_t = match start.elapsed() {
+          Ok(d) => std::cmp::max(0, svc.config.rapl_freq_ms - d.as_millis() as u64),
+          Err(e) => {
+            warn!(tid=%tid, error=%e, "Failed to get elapsed time of rapl computation");
+            svc.config.rapl_freq_ms
+          },
+        };
+        std::thread::sleep(Duration::from_millis(sleep_t));
       }
       crate::continuation::GLOB_CONT_CHECK.thread_exit(tid);
     })
@@ -281,6 +289,7 @@ impl RaplMonitor {
     /// Reads the different energy sources and writes the current staistics out to the csv file
     fn monitor_energy(&self, rapl: &mut RaplMsr, tid: &TransactionId, mut file: &File) {
       let ipmi_uj = rapl.total_uj(tid);
+
       let now = OffsetDateTime::now_utc();
       let to_write = format!("{},{}\n", now, ipmi_uj);
       match file.write_all(to_write.as_bytes()) {
