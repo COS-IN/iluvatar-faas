@@ -125,9 +125,8 @@ impl StatusService {
     match execute_cmd("/usr/bin/uptime", &vec![], None, tid) {
       Ok(out) => {
         let stdout = String::from_utf8_lossy(&out.stdout);
-        let lines: Vec<&str> = stdout.split(" ").collect::<Vec<&str>>();
-        let min = lines[13];
-        let min = &min[..min.len()-1];
+        let lines: Vec<&str> = stdout.split(" ").filter(|str| str.len() > 0).collect();
+        let min = lines[lines.len()-3];
         let minute_load_avg =  match min.parse::<f64>() {
             Ok(r) => r,
             Err(e) => {
