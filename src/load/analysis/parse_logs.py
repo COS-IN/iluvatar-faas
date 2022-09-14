@@ -19,21 +19,11 @@ args = argparser.parse_args()
 energy_log = os.path.join(args.logs_folder, "energy-function.log")
 
 if args.max_rapl == "none":
-    with open("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj", "r") as f:
-      max_rapl_uj = int(f.read())
+  with open("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj", "r") as f:
+    max_rapl_uj = int(f.read())
 else:
-    with open(args.max_rapl, "r") as f:
-      max_rapl_uj = int(f.read())
-
-def round_date(time: datetime) -> datetime:
-  """
-    Rounds date time up to the nearest "poll-dur-ms" from args
-  """
-  to_remove = time.microsecond % (args.energy_freq_ms * 1000)
-  whole = time.microsecond / (args.energy_freq_ms * 1000)
-  whole = round(whole) * (args.energy_freq_ms * 1000)
-  new_date = time - timedelta(microseconds=to_remove) + timedelta(microseconds=whole)
-  return datetime.combine(new_date.date(), new_date.time(), timezone.utc)
+  with open(args.max_rapl, "r") as f:
+    max_rapl_uj = int(f.read())
 
 def prepare_perf_log(args):
   """
@@ -55,16 +45,15 @@ def prepare_perf_log(args):
   # CSV FORMAT
   cols = ["timestamp", "perf_stat", "unit", "event_name", "counter_runtime", "pct_time_counter_running"]
   df = pd.read_csv(perf_log, skiprows=2, names=cols, usecols=[i for i in range(len(cols))])
-  def update_time(x) -> datetime:
+  def time_to_ns(x) -> int:
     if np.isnan(x):
       raise Exception("Got a nan value instead of a real time!")
     new_date = start_date + timedelta(seconds=x)
-    # perf does not send datetime with timezone
-    # must manually correct by computing difference from UTC in energy log
-    new_date = new_date + timedelta(hours=hour_diff)
-    return datetime.combine(new_date.date(), new_date.time(), timezone.utc)
-  df["timestamp"] = df["timestamp"].apply(lambda x: round_date(update_time(x)))
-
+    new_date = datetime.combine(new_date.date(), new_date.time(), None)
+    # 2022-09-14 11:54:00.793313159
+    return new_date.strftime("%Y-%m-%d %H:%M:%S.%f")
+  df["timestamp"] = df["timestamp"].apply(lambda x: time_to_ns(x))
+  
   df_energy_pkg = df[df["event_name"] == "power/energy-pkg/"].copy()
   df_energy_ram = df[df["event_name"] == "power/energy-ram/"].copy()
   df_instructions = df[df["event_name"] == "inst_retired.any"].copy()
@@ -81,19 +70,16 @@ def prepare_perf_log(args):
   df = df_energy_pkg.join(df_energy_ram["energy_ram"])
   df = df.join(df_instructions["retired_instructions"])
 
-  df.set_index(pd.DatetimeIndex(df["timestamp"]), inplace=True)
-  df.to_csv(os.path.join(args.logs_folder, "perf.csv"))
+  df.to_csv(os.path.join(args.logs_folder, "perf.csv"), index=False)
 
 def prepare_rapl_log(args):
   path = os.path.join(args.logs_folder, "energy-rapl.log")
-  energy_df = pd.read_csv(path)
-  energy_df["timestamp"] = energy_df["timestamp"].apply(lambda x: round_date(parse_energy_log_time(x)))
-  energy_df.set_index(pd.DatetimeIndex(energy_df["timestamp"]), inplace=True)
+  rapl_df = pd.read_csv(path)
 
   rapl_data = []
-  for i in range(1, len(energy_df["rapl_uj"])):
-    left = int(energy_df["rapl_uj"][i-1])
-    right = int(energy_df["rapl_uj"][i])
+  for i in range(1, len(rapl_df["rapl_uj"])):
+    left = int(rapl_df["rapl_uj"][i-1])
+    right = int(rapl_df["rapl_uj"][i])
     if right < left:
       uj = right + (max_rapl_uj - left)
     else:
@@ -101,101 +87,15 @@ def prepare_rapl_log(args):
     rapl_data.append(uj)
 
   rapl_data.append(rapl_data[-1])
-  energy_df["rapl_uj_diff"] = pd.Series(rapl_data, index=energy_df.index)
+  rapl_df["rapl_uj_diff"] = pd.Series(rapl_data, index=rapl_df.index)
 
-  return energy_df
+  rapl_df.to_csv(os.path.join(args.logs_folder, "rapl.csv"), index=False)
 
 def prepare_ipmi_log(args):
   pass
 
-def load_energy_log(path) -> pd.DataFrame:
-  with open(path, 'r') as f:
-    first_line = f.readline().strip(whitespace)
-  cols = first_line.split(",")
-  energy_df = pd.read_csv(path, usecols=cols, parse_dates=[1])
-  energy_df["timestamp"] = energy_df["timestamp"].apply(lambda x: round_date(parse_energy_log_time(x)))
-  # cumulative_running is every invocation that occured since the last timestep
-  # energy_df["cumulative_running"] = [[] for _ in range(len(energy_df))]
-  # exact_running is those invocations that were ongoing when the energy sampling occured
-  # energy_df["exact_running"] = [[] for _ in range(len(energy_df))]
-  energy_df.set_index(pd.DatetimeIndex(energy_df["timestamp"]), inplace=True)
-
-  rapl_data = []
-  for i in range(1, len(energy_df["rapl_uj"])):
-    left = int(energy_df["rapl_uj"][i-1])
-    right = int(energy_df["rapl_uj"][i])
-    if right < left:
-      uj = right + (max_rapl_uj - left)
-    else:
-      uj = right - left
-    rapl_data.append(uj)
-
-  rapl_data.append(rapl_data[-1])
-  energy_df["rapl_uj_diff"] = pd.Series(rapl_data, index=energy_df.index)
-
-  return energy_df
-
-def parse_energy_log_time(time) -> datetime:
-  """
-  The timestamps created by the Ilúvatar energy log can have too-precise fraction seconds
-  Clean them up with this helper
-  """
-  if type(time) is not str:
-    raise Exception("Didnt get a string, got type({}) '{}'".format(type(time), time))
-  day, hr, tz = time.split(" ")
-  full, part_sec = hr.split('.')
-  diff  = len(part_sec) - 6
-  if diff > 0:
-    # too many significant digits
-    part_sec = part_sec[:-diff]
-  elif diff < 0:
-    # too few significant digits
-    part_sec += "0"*abs(diff)
-  done = "{} {}.{}{}".format(day, full, part_sec, tz)
-  try:
-    return datetime.fromisoformat(done)
-  except Exception as e:
-    print(e)
-    print(time)
-    print(done)
-    exit(1)
-
-def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
-  INVOKE_TARGET = "iluvatar_worker_library::services::containers::containerd::containerdstructs"
-  INVOKE_NAME = "ContainerdContainer::invoke"  
-  running = {}
+def prepare_energy_log(df: pd.DataFrame) -> pd.DataFrame:
   cpu_data = []
-  def timestamp(log):
-    return isoparse(log["timestamp"])
-
-  def invoke_start(log):
-    fqdn = log["span"]["fqdn"]
-    tid = log["span"]["tid"]
-    t = timestamp(log)
-    running[tid] = (t, fqdn)
-
-  def invoke_end(log):
-    tid = log["span"]["tid"]
-    stop_t = timestamp(log)
-    start_t, fqdn = running[tid]
-    duration = stop_t - start_t
-    return duration, start_t, stop_t
-
-  def insert_to_df(df, start_t, end_t, fqdn):
-    match = df[df["timestamp"].between(start_t, end_t)]
-    for item in match.itertuples():
-      item.exact_running.append(fqdn)
-
-    micro_t = args.energy_freq_ms * 1000
-    rounded_start_t = round_date(start_t)
-    rounded_end_t = round_date(end_t)
-    while rounded_start_t <= rounded_end_t:
-      match = df[df["timestamp"] == rounded_start_t]
-      if len(match) > 1:
-        raise Exception("Got multiple matches on a single timestamp!!", rounded_start_t)
-      for item in match.itertuples():
-        item.cumulative_running.append(fqdn)
-      rounded_start_t += timedelta(microseconds=micro_t)
 
   worker_log = os.path.join(args.logs_folder, "worker.log")
   if not os.path.exists(worker_log):
@@ -212,18 +112,9 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
         print(e)
         print(line)
         exit(1)
-      if log["fields"]["message"] == "new" and log["target"] == INVOKE_TARGET and log["span"]["name"] == INVOKE_NAME:
-        # invocation starting
-        invoke_start(log)
-      if log["fields"]["message"] == "close" and log["target"] == INVOKE_TARGET and log["span"]["name"] == INVOKE_NAME:
-        # invocation concluded
-        fqdn = log["span"]["fqdn"]
-        duration, start_t, stop_t = invoke_end(log)
-        insert_to_df(df, start_t, stop_t, fqdn)
       if log["fields"]["message"] == "current load status":
-        log_t = round_date(timestamp(log))
         data = {}
-        data["timestamp"] = log_t
+        data["timestamp"] = log["timestamp"]
         json_log = json.loads(log["fields"]["status"])
         data["load_avg_1minute"] = json_log["load_avg_1minute"]
         data["cpu_pct"] = int(json_log["cpu_sy"]) + int(json_log["cpu_us"]) + int(json_log["cpu_wa"])
@@ -232,18 +123,21 @@ def inject_running_into_df(df: pd.DataFrame) -> pd.DataFrame:
         data["hw_cpu_hz_max"] = np.min(json_log["hardware_cpu_freqs"])
         data["hw_cpu_hz_min"] = np.max(json_log["hardware_cpu_freqs"])
         data["hw_cpu_hz_std"] = np.std(json_log["hardware_cpu_freqs"])
+        for cpu in range(len(json_log["hardware_cpu_freqs"])):
+          data["hw_cpu{}_hz".format(cpu)] = json_log["hardware_cpu_freqs"][cpu]
 
         data["kern_cpu_hz_mean"] = np.mean(json_log["kernel_cpu_freqs"])
         data["kern_cpu_hz_max"] = np.min(json_log["kernel_cpu_freqs"])
         data["kern_cpu_hz_min"] = np.max(json_log["kernel_cpu_freqs"])
         data["kern_cpu_hz_std"] = np.std(json_log["kernel_cpu_freqs"])
+        for cpu in range(len(json_log["kernel_cpu_freqs"])):
+          data["kern_cpu{}_hz".format(cpu)] = json_log["kernel_cpu_freqs"][cpu]
         cpu_data.append(data)
 
-  cpu_df = pd.DataFrame.from_records(cpu_data, index="timestamp")
-  cpu_df = cpu_df.resample("1s").mean().interpolate()
-  df = df.join(cpu_df, lsuffix="", rsuffix="_cpu")
+  cpu_df = pd.DataFrame.from_records(cpu_data)
+  cpu_df.to_csv(os.path.join(args.logs_folder, "cpu.csv"), index=False)
 
-  return df
-
-energy_df = load_energy_log(energy_log)
-perf_df = prepare_perf_log(args)
+prepare_perf_log(args)
+prepare_rapl_log(args)
+prepare_ipmi_log(args)
+prepare_energy_log(args)

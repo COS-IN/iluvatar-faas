@@ -1,4 +1,6 @@
 use std::{sync::Arc, path::PathBuf};
+use time::{OffsetDateTime, format_description, UtcOffset};
+use time::format_description::FormatItem;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 use anyhow::Result;
@@ -86,7 +88,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
     .with(energy_layer);
   let writer_layer = tracing_subscriber::fmt::layer()
     .with_span_events(str_to_span(&config.spanning))
-    .with_timer(UnixTime{})
+    .with_timer(LocalTime::new()?)
     .with_writer(non_blocking);
 
   match config.flame.as_str() {
@@ -108,30 +110,69 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
   Ok(drops)
 }
 
-/// A struct to serve timestamps as Unix-epoch based values
-/// To be used everywhere timestamps are logged externally
-pub struct UnixTime {
-
+fn timezone() -> Result<String> {
+  let mut tz_str = std::fs::read_to_string("/etc/timezone")?;
+  tz_str.truncate(tz_str.trim_end().len());
+  // let tz_str = iana_time_zone::get_timezone()?;
+  match tzdb::tz_by_name(&tz_str) {
+    Some(_) => return Ok(tz_str),
+    None => (),
+  };
+  let sections: Vec<&str> = tz_str.split("/").collect();
+  if sections.len() == 2 {
+    anyhow::bail!("Unknown timezome string {}", tz_str)
+  }
+  let tz_str_2 = format!("{}/{}", sections[0], sections[2]);
+  match tzdb::tz_by_name(&tz_str_2) {
+    Some(_) => Ok(tz_str_2),
+    None => anyhow::bail!("local timezone string was invalid: {}", tz_str),
+  }
 }
-impl UnixTime {
+
+/// A struct to serve timestamps as Local time
+/// To be used everywhere timestamps are logged externally
+/// This matches the times logged in `perf`
+pub struct LocalTime {
+  format: Vec<FormatItem<'static>>,
+  local_offset: UtcOffset,
+}
+impl LocalTime {
+  pub fn new() -> Result<Self> {
+    let format = format_description::parse(
+      "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]",
+    )?;
+    let now = OffsetDateTime::now_utc();
+    let tz_str = timezone()?;
+    let time_zone = match tzdb::tz_by_name(&tz_str) {
+      Some(t) => t,
+      None => anyhow::bail!("parsed local timezone string was invalid: {}", tz_str),
+    };
+    let tm = time_zone.find_local_time_type(now.unix_timestamp())?;
+    let offset = UtcOffset::from_whole_seconds(tm.ut_offset())?;
+    Ok(LocalTime {
+      format,
+      local_offset: offset,
+    })
+  }
   /// The number of nanoseconds since the unix epoch start
-  pub fn nanoseconds() -> Result<u128> {
-    let now = std::time::SystemTime::now();
-    let dur = now.duration_since(std::time::UNIX_EPOCH)?;
-    Ok(dur.as_nanos())
+  pub fn now(&self) -> OffsetDateTime {
+    OffsetDateTime::now_utc().to_offset(self.local_offset)
   }
   /// The number of nanoseconds since the unix epoch start
   /// As a String
-  pub fn nanoseconds_str() -> Result<String> {
-    let time = Self::nanoseconds()?;
-    Ok(time.to_string())
+  pub fn now_str(&self) -> Result<String> {
+    let time = self.now();
+    Ok(time.format(&self.format)?)
   }
 }
-impl tracing_subscriber::fmt::time::FormatTime for UnixTime {
+impl tracing_subscriber::fmt::time::FormatTime for LocalTime {
   fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
-    let s = match UnixTime::nanoseconds_str() {
+    let s = match self.now_str() {
       Ok(s) => s,
-      Err(_) => return Err(std::fmt::Error{}),
+      Err(e) => {
+        println!("time formatting error: {}", e);
+        return Err(std::fmt::Error{})
+      },
     };
     w.write_str(s.as_str())
   }

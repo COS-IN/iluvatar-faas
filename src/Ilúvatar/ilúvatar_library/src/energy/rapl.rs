@@ -9,6 +9,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use tracing::{warn, trace, debug, error};
 use crate::bail_error;
+use crate::logging::LocalTime;
 use crate::transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID};
 use crate::utils::execute_cmd;
 use super::EnergyConfig;
@@ -224,6 +225,7 @@ pub struct RaplMonitor {
   rapl: Mutex<RaplMsr>,
   config: Arc<EnergyConfig>,
   _worker_thread: JoinHandle<()>,
+  timer: LocalTime,
 }
 impl RaplMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
@@ -234,7 +236,8 @@ impl RaplMonitor {
     let r = Arc::new(RaplMonitor {
       rapl: Mutex::new(i),
       _worker_thread: handle,
-      config
+      config,
+      timer: LocalTime::new()?,
     });
     tx.send(r.clone())?;
     Ok(r)
@@ -288,7 +291,7 @@ impl RaplMonitor {
     /// Reads the different energy sources and writes the current staistics out to the csv file
     fn monitor_energy(&self, rapl: &mut RaplMsr, tid: &TransactionId, mut file: &File) {
       let ipmi_uj = rapl.total_uj(tid);
-      let t = match crate::logging::UnixTime::nanoseconds() {
+      let t = match self.timer.now_str() {
         Ok(t) => t,
         Err(e) => {
           error!(error=%e, tid=%tid, "Failed to get time");

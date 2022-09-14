@@ -95,6 +95,7 @@
       "ILUVATAR_WORKER__address" : "{{ __worker_address }}"
       "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
       "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/ilúvatar/logs') }}"
+      "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
       "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:{{ controller.port }}"
       # Container resources
       "ILUVATAR_WORKER__container_resources__memory_mb" : "{{ worker_memory_mb | default(2048) }}"

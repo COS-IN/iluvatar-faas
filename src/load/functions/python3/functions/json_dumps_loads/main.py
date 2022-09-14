@@ -40,13 +40,14 @@ cold = True
 def main(args):
   random.seed()
   # return {"body":"testing\n\n"}
+  error = []
   glob_start = time()
   global cold
   global urls
   was_cold = cold
   cold = False
-  try:
-    for i in range(10):
+  for i in range(10):
+    try:
       link = random.choice(urls)
 
       try:
@@ -61,11 +62,13 @@ def main(args):
       start = time()
       json_data = json.loads(data)
       str_json = json.dumps(json_data, indent=4)
-      end = time()
-      latency = end - start
 
-      # print(str_json)
-      return {"body": {"network": network, "serialization": latency, "latency": end-glob_start, "cold":was_cold, "start":glob_start, "end":end, "url":link}}
+    except Exception as e:
+      error.append(e)
+      continue
 
-  except Exception as e:
-      return {"body": { "cust_error":traceback.format_exc(), "cold":was_cold, "link":link }}
+    end = time()
+    latency = end - start
+    return {"body": {"network": network, "serialization": latency, "latency": end-glob_start, "cold":was_cold, "start":glob_start, "end":end, "url":link}}
+
+  return {"body": { "cust_error":error, "cold":was_cold, "link":link }}

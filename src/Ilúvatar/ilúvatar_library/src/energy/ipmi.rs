@@ -1,6 +1,6 @@
 use std::{path::Path, sync::{Arc, mpsc::{channel, Receiver}}, thread::JoinHandle, fs::File, io::Write, time::Duration};
 use tracing::{trace, error, debug};
-use crate::{utils::execute_cmd, transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID}};
+use crate::{utils::execute_cmd, transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID}, logging::LocalTime};
 use anyhow::Result;
 use super::EnergyConfig;
 
@@ -59,6 +59,7 @@ pub struct IPMIMonitor {
   ipmi: IPMI,
   config: Arc<EnergyConfig>,
   _worker_thread: JoinHandle<()>,
+  timer: LocalTime,
 }
 impl IPMIMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
@@ -71,7 +72,8 @@ impl IPMIMonitor {
     let r = Arc::new(IPMIMonitor {
       ipmi: i,
       _worker_thread: handle,
-      config
+      config,
+      timer: LocalTime::new()?
     });
     tx.send(r.clone())?;
     Ok(r)
@@ -122,7 +124,7 @@ impl IPMIMonitor {
           return;
         },
       };
-      let t = match crate::logging::UnixTime::nanoseconds() {
+      let t = match self.timer.now_str() {
         Ok(t) => t,
         Err(e) => {
           error!(error=%e, tid=%tid, "Failed to get time");

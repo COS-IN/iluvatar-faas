@@ -2,8 +2,9 @@
 use std::sync::Arc;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread::JoinHandle;
+use std::time::{SystemTime, Duration};
 use iluvatar_library::cpu_interaction::CPUService;
-use tracing::{info, debug, error};
+use tracing::{info, debug, error, warn};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
@@ -73,8 +74,16 @@ impl StatusService {
       debug!(tid=%tid, "status service worker started");
       iluvatar_library::continuation::GLOB_CONT_CHECK.thread_start(tid);
       while iluvatar_library::continuation::GLOB_CONT_CHECK.check_continue() {
+        let start = SystemTime::now();
         status_svc.update_status(tid);
-        std::thread::sleep(std::time::Duration::from_secs(5));
+        let sleep_t = match start.elapsed() {
+          Ok(d) => std::cmp::max(0, 5000 - d.as_millis() as u64),
+          Err(e) => {
+            warn!(tid=%tid, error=%e, "Failed to get elapsed time of status service computation");
+            5000
+          },
+        };
+        std::thread::sleep(Duration::from_millis(sleep_t));
       }
       iluvatar_library::continuation::GLOB_CONT_CHECK.thread_exit(tid);
     })
