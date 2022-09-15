@@ -44,7 +44,7 @@ def gen_trace(args):
       f.write("{},{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem, function_id))
 
   # print("done", trace_save_pth)
-  print(num_funcs, *run_trace_csv(trace_save_pth, 0.80, metadata_save_pth))
+  return (num_funcs, *run_trace_csv(trace_save_pth, 0.80, metadata_save_pth))
 
 if __name__ == "__main__":
   argparser = argparse.ArgumentParser()
@@ -57,6 +57,10 @@ if __name__ == "__main__":
 
   pool_iter = [(args.out_folder, args.data_folder, i, args.duration) for i in range(args.num_funcs-5, args.num_funcs+5)]
   p = mp.Pool()
-  print("num_funcs warm_pct max_mem max_running mean_running running_75th running_90th")
+  with open(os.path.join(args.out_folder, "README.md"), 'w') as f:
+    f.write("num_funcs, warm_pct, max_mem, max_running, mean_running, running_75th, running_90th\n")
 
-  p.map(gen_trace, pool_iter)
+    results = p.map(gen_trace, pool_iter)
+    results = sorted(results, key=lambda x : x[0])
+    for r in results:
+      f.write("{}, {}, {}, {}, {}, {}, {}\n".format(*r))  
