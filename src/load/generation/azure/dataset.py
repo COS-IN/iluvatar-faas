@@ -120,9 +120,9 @@ def iat_trace_row(func_name, row, function_id, duration_min:int):
   time = 0
   end_ms = duration_min * secs_p_min * milis_p_sec
   while time < end_ms:
-    sample = rng.normal(loc=mean, scale=std)
+    sample = int(rng.normal(loc=mean, scale=std))
     while sample < 0:
-      sample = rng.normal(loc=mean, scale=std)
+      sample = int(rng.normal(loc=mean, scale=std))
     time += sample
     trace.append( (function_id, time) )
 
