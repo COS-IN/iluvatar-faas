@@ -16,3 +16,15 @@ If we can put a layer between how the Future system polls results, and move the 
 But that's either 
 1. A lot of work
 1. Maybe not possible
+
+## Slow clean-up with large number of containers
+
+When a large number of containers needs to be removed (> 100), the serial `clean` command can be very slow.
+Spawn a thread for each container to delete, ensuring that all errors are still captured and propagated to the master thread.
+
+## Bridge is full
+
+A network bridge in linux can only have 1024 veth devices attached to it.
+We must either
+1. Remove unused containers from the brigde to make room for new ones (eviction)
+2. Increase the number of containers we can support, by running multiple bridges/
