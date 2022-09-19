@@ -126,6 +126,15 @@ pub async fn worker_register(name: String, version: &String, image: String, memo
   }
 }
 
+pub async fn worker_prewarm(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId) -> Result<(String, Duration)> {
+  let mut api = RPCWorkerAPI::new(&host, port).await?;
+  let (res, dur) = api.prewarm(name.clone(), version.clone(), None, None, None, tid.to_string()).timed().await;
+  match res {
+    Ok(s) => Ok( (s, dur) ),
+    Err(e) => anyhow::bail!("registration failed because {}", e),
+  }
+}
+
 pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>) -> Result<(InvokeResponse, FunctionExecOutput, u64)> {
   let args = match args {
     Some(a) => a,

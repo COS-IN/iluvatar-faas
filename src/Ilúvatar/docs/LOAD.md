@@ -93,6 +93,9 @@ This value is only relevant, but required, if running a simulated controller
 1. `--workers`, `-w`: The number of simulated workers to create.
 This value is only relevant if running a simulated controller
 
+1. `--prewarm`, `-p`: The number of containers to pre-warm for each function.
+Defaults to 0.
+
 An example load call to a live system:
 ```sh
 ilúvatar_load_gen -p 100 -h localhost trace --target "worker" --setup "live" --input "/my/trace/input.csv" --metadata "/my/trace/metadata-input.csv" --load-type "functions" --function-data "/my/function/data.json

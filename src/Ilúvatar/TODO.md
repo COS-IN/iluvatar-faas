@@ -28,3 +28,15 @@ A network bridge in linux can only have 1024 veth devices attached to it.
 We must either
 1. Remove unused containers from the brigde to make room for new ones (eviction)
 2. Increase the number of containers we can support, by running multiple bridges/
+
+## Concurrent container creation in Containerd
+
+When a significant number of concurrent requests are handled by the worker, Containerd can experience significant contention and essentially freeze the program.
+The exact call happens inside `ContainerdLifecycle::load_mounts`.
+
+1. Figure out what in containerd is causing this.
+1. Solve that problem
+
+OR temporary patch:
+Create a semaphore around worker container creation so a smaller number of concurrent requests happen, ~ < 5.
+

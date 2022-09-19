@@ -8,7 +8,7 @@ use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
 use iluvatar_worker_library::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse, InvokeResponse};
 use tonic::{Request, Status, Response};
-use crate::{utils::{worker_register, VERSION, worker_invoke, FunctionExecOutput}, trace::{match_trace_to_img, prepare_function_args}, benchmark::BenchmarkStore};
+use crate::{utils::{worker_register, VERSION, worker_invoke, FunctionExecOutput, worker_prewarm}, trace::{match_trace_to_img, prepare_function_args}, benchmark::BenchmarkStore};
 use super::{Function, CsvInvocation};
 
 fn sim_register_functions(funcs: &HashMap<u64, Function>, worker: Arc<IluvatarWorkerImpl>, rt: &Runtime) -> Result<()> {
@@ -193,9 +193,22 @@ fn wait_reg(iterator: &mut std::collections::hash_map::Iter<u64, Function>, load
   Ok(done)
 }
 
+fn live_prewarm_functions(funcs: &HashMap<u64, Function>, host: &String, port: Port, rt: &Runtime, count: u32) -> Result<()> {
+  for (_id, func) in funcs.iter() {
+    for i in 0..count {
+      let tid = format!("{}-{}-prewarm", i, &func.function_id);
+      let h_c = host.clone();
+      let f_c = func.function_id.to_string();
+      rt.block_on(async move { worker_prewarm(&f_c, &VERSION, &h_c, port, &tid).await })?;
+    }  
+  }
+  Ok(())
+}
+
 fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let load_type: String = get_val("load-type", &sub_args)?;
   let func_data: Result<String> = get_val("function-data", &sub_args);
+  let prewarm_count: u32 = get_val("prewarm", &sub_args)?;
   let port: Port = get_val("port", &main_args)?;
   let host: String = get_val("host", &main_args)?;
 
@@ -207,6 +220,8 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let metadata_pth: String = get_val("metadata", &sub_args)?;
   let metadata = super::load_metadata(metadata_pth)?;
   live_register_functions(&metadata, &host, port, &load_type, func_data, &threaded_rt)?;
+  println!("prewarming {} containers per function", prewarm_count);
+  live_prewarm_functions(&metadata, &host, port, &threaded_rt, prewarm_count)?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
   let mut handles: Vec<JoinHandle<(Result<(InvokeResponse, FunctionExecOutput, u64)>, String)>> = Vec::new();
