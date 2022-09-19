@@ -2,7 +2,7 @@ use std::{sync::Arc, path::Path};
 use crate::{transaction::TransactionId, energy::{perf::start_perf_stat, EnergyConfig}};
 use tracing::error;
 use anyhow::Result;
-use super::{ipmi::IPMIMonitor, rapl::RaplMonitor};
+use super::{ipmi::IPMIMonitor, rapl::RaplMonitor, process_pct::ProcessMonitor};
 
 /// Struct that repeatedly checks energy usage from various sources
 /// They are then stored in a timestamped log file
@@ -12,6 +12,7 @@ pub struct EnergyLogger {
   config: Arc<EnergyConfig>,
   rapl: Option<Arc<RaplMonitor>>,
   ipmi: Option<Arc<IPMIMonitor>>,
+  proc: Option<Arc<ProcessMonitor>>,
   _perf_child: Option<std::process::Child>,
 }
 
@@ -36,11 +37,17 @@ impl EnergyLogger {
       false => None,
     };
 
+    let proc = match config.process_enabled() {
+      true => Some(ProcessMonitor::boxed(config.clone())?),
+      false => None,
+    };
+
     let i = Arc::new(EnergyLogger {
       config,
       rapl,
+      ipmi,
+      proc,
       _perf_child: parf_child,
-      ipmi
     });
     Ok(i)
   }

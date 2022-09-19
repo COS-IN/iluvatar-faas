@@ -4,6 +4,7 @@ pub mod rapl;
 pub mod perf;
 pub mod energy_logging;
 pub mod ipmi;
+pub mod process_pct;
 
 #[derive(Debug, serde::Deserialize, clap::Parser)]
 #[clap(author, version, about)]
@@ -23,6 +24,11 @@ pub struct EnergyConfig {
   /// If 0 then perf is disabled
   #[clap(long, action, default_value_t=0)]
   pub perf_freq_ms: u64,
+
+  /// Log instantaneous cpu utilization of this process
+  /// If 0 then logging is disabled
+  #[clap(long, action, default_value_t=0)]
+  pub process_freq_ms: u64,
 
   /// File path containing the IPMI password
   #[clap(long)]
@@ -46,5 +52,8 @@ impl EnergyConfig {
   }
   pub fn ipmi_enabled(&self) -> bool {
     self.ipmi_freq_ms != 0
+  }
+  pub fn process_enabled(&self) -> bool {
+    self.process_freq_ms != 0
   }
 }

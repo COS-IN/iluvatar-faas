@@ -55,6 +55,7 @@
     "perf_freq_ms": 1000,
     "rapl_freq_ms": 1000,
     "ipmi_freq_ms": 0,
+    "process_freq_ms": 1000,
     "ipmi_pass_file": "",
     "ipmi_ip_addr": "",
     "log_folder": "/tmp/ilúvatar/logs/"
