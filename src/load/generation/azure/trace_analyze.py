@@ -8,6 +8,7 @@ from heapq import heappush, heappop
 import numpy as np
 import pandas as pd
 from multiprocessing import pool
+from tabulate import tabulate
 
 def gen_fin_t(warm_pct, func_dict, curr_t):
   if np.random.rand() <= warm_pct:
@@ -76,6 +77,14 @@ if __name__ == '__main__':
       handles.append(h)
     results = [h.get() for h in handles]
     results = sorted(results, key=lambda x: x[0])
-    print("warm_pct, max_mem, max_running, mean_running, running_75th, running_90th")
+    header="warm_pct, max_mem, max_running, mean_running, running_75th, running_90th"
+    print(header)
+    header=header.split(", ")
+    items=[]
     for warm_pct, max_mem, max_running, mean_running, running_75th, running_90th in results:
       print("{}, {}, {}, {}, {}, {}".format(warm_pct, max_mem, max_running, mean_running, running_75th, running_90th))
+      items.append( [warm_pct, max_mem, max_running, mean_running, running_75th, running_90th] )
+    
+    with open("stats_analyzed.txt",'w') as f:
+        print(tabulate( items, headers=header ),file=f)
+
