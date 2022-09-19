@@ -16,12 +16,12 @@ pub struct EnergyLogger {
 }
 
 impl EnergyLogger {
-  pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub async fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     let parf_child = match config.perf_enabled() {
       true => {
         let perf_file = Path::new(&config.log_folder);
         let perf_file = perf_file.join("energy-perf.log");
-        Some(start_perf_stat(&perf_file.to_str().unwrap(), tid, config.perf_freq_ms)?)  
+        Some(start_perf_stat(&perf_file.to_str().unwrap(), tid, config.perf_freq_ms).await?)  
       },
       false => None
     };

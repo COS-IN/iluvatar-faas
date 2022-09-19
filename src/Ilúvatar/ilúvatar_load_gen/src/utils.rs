@@ -1,7 +1,7 @@
 use std::time::Duration;
 use iluvatar_worker_library::{rpc::{RPCWorkerAPI, InvokeResponse}, worker_api::WorkerAPI};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult};
-use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::{gen_tid, TransactionId}, types::MemSizeMb};
+use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::MemSizeMb};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
@@ -117,7 +117,7 @@ pub async fn controller_register(name: &String, version: &String, image: &String
 }
 
 pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port) -> Result<(String, Duration, TransactionId)> {
-  let tid: TransactionId = gen_tid();
+  let tid: TransactionId = format!("{}-reg-tid", name);
   let mut api = RPCWorkerAPI::new(&host, port).await?;
   let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
   match reg_out {

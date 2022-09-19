@@ -5,22 +5,22 @@ use tracing::{warn, debug};
 
 /// Start perf stat tracking of [power/energy-pkg/](https://stackoverflow.com/questions/55956287/perf-power-consumption-measure-how-does-it-work)
 /// The csv results will be put into [outfile](https://manpages.ubuntu.com/manpages/bionic/man1/perf-stat.1.html)
-pub fn start_perf_stat<S>(outfile: &S, tid: &TransactionId, stat_duration_ms: u64) -> Result<Child> 
+pub async fn start_perf_stat<S>(outfile: &S, tid: &TransactionId, stat_duration_ms: u64) -> Result<Child> 
   where S: AsRef<str> + ?Sized + std::fmt::Display {
 
   let st = stat_duration_ms.to_string();
   let mut args = vec!["stat", "-I", &st.as_str(), "-x", ",", "--output", outfile.as_ref()];
-  if include_instructions(tid)? {
+  if include_instructions(tid).await? {
     debug!(tid=%tid, "Enabling retired instructions perf metric");
     args.push("-M");
     args.push("Instructions");
   }
-  if include_energy_ram(tid)? {
+  if include_energy_ram(tid).await? {
     debug!(tid=%tid, "Enabling energy-ram perf counter");
     args.push("-e");
     args.push("power/energy-ram/");
   }
-  if include_energy_pkg(tid)? {
+  if include_energy_pkg(tid).await? {
     debug!(tid=%tid, "Enabling energy-ram perf counter");
     args.push("-e");
     args.push("power/energy-pkg/");
@@ -28,22 +28,22 @@ pub fn start_perf_stat<S>(outfile: &S, tid: &TransactionId, stat_duration_ms: u6
   execute_cmd_nonblocking("/usr/bin/perf", &args, None, tid)
 }
 
-fn include_instructions(tid: &TransactionId) -> Result<bool> {
+async fn include_instructions(tid: &TransactionId) -> Result<bool> {
   let args = vec!["stat", "-M", "Instructions", "-I", "100"];
-  test_args(tid, &args)
+  test_args(tid, &args).await
 }
 
-fn include_energy_pkg(tid: &TransactionId) -> Result<bool> {
+async fn include_energy_pkg(tid: &TransactionId) -> Result<bool> {
   let args = vec!["stat", "-e", "power/energy-pkg/", "-I", "100"];
-  test_args(tid, &args)
+  test_args(tid, &args).await
 }
 
-fn include_energy_ram(tid: &TransactionId) -> Result<bool> {
+async fn include_energy_ram(tid: &TransactionId) -> Result<bool> {
   let args = vec!["stat", "-e", "power/energy-ram/", "-I", "100"];
-  test_args(tid, &args)
+  test_args(tid, &args).await
 }
 
-fn test_args(tid: &TransactionId, args: &Vec<&str>)-> Result<bool> {
+async fn test_args(tid: &TransactionId, args: &Vec<&str>)-> Result<bool> {
   let mut child = execute_cmd_nonblocking("/usr/bin/perf", args, None, tid)?;
   let start = SystemTime::now();
   
@@ -55,7 +55,7 @@ fn test_args(tid: &TransactionId, args: &Vec<&str>)-> Result<bool> {
         Some(_) => return Ok(false),
         None => {
           // didn't exit yet
-          std::thread::sleep(Duration::from_millis(5));
+          tokio::time::sleep(Duration::from_millis(5)).await;
           continue;
         },
       },

@@ -87,6 +87,16 @@ zfs create -o mountpoint=/var/lib/containerd/io.containerd.snapshotter.v1.zfs il
 systemctl restart containerd
 ```
 
+## File limits
+
+Add the following lines to `/etc/security/limits.conf` and reboot the machine
+```sh
+root            soft    nofile          1000000
+root            hard    nofile          1000000
+root            soft    nproc           1000000
+root            hard    nproc           1000000
+```
+
 ## Rust
 
 ```bash

@@ -69,7 +69,10 @@ impl InvokerService {
     /// loops forever on the invocation queue, running things when there are sufficient resources
     fn monitor_queue(&self, tid:&TransactionId, invoker_svc: Arc<InvokerService>) {
       debug!(tid=%tid, "invoker worker loop starting");
-      let worker_rt = match tokio::runtime::Runtime::new() {
+      let worker_rt = match tokio::runtime::Builder::new_multi_thread()
+          .worker_threads(invoker_svc.function_config.cpu_max as usize)
+          .enable_all()
+          .build() {
         Ok(rt) => rt,
         Err(e) => { 
           error!(tid=%tid, error=%e, "Tokio thread runtime failed to start");

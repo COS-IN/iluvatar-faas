@@ -62,7 +62,7 @@ impl LoadService {
       } else {
         self.monitor_live(tid).await;
       }
-      std::thread::sleep(Duration::from_secs(self.config.thread_sleep_sec));
+      tokio::time::sleep(Duration::from_secs(self.config.thread_sleep_sec)).await;
       if *self.exiting.lock() {
         return;
       }

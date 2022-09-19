@@ -24,7 +24,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
   let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid).await?;
   let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
 
-  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid)?;
+  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid).await?;
   
   Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy))
 }

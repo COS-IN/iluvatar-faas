@@ -1,4 +1,4 @@
-use std::{task::{Poll, Waker}, sync::Arc, time::Duration};
+use std::{task::{Poll, Waker}, sync::Arc, time::Duration, future::Future};
 use iluvatar_library::transaction::TransactionId;
 use parking_lot::Mutex;
 
@@ -63,7 +63,7 @@ impl QueueFuture {
     std::thread::spawn(move || {
       loop {
         // TODO: another way or better sleep time?
-        std::thread::sleep(Duration::from_micros(100));
+        std::thread::sleep(Duration::from_millis(1));
         let mut shared_state = result.lock();
         // Signal that the timer has completed and wake up the last
         // task on which the future was polled, if one exists.
@@ -79,7 +79,7 @@ impl QueueFuture {
   }
 }
 
-impl std::future::Future for QueueFuture {
+impl Future for QueueFuture {
     type Output = InvocationResultPtr;
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {

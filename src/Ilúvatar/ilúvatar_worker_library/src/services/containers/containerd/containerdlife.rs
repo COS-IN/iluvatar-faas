@@ -11,7 +11,7 @@ use iluvatar_library::types::MemSizeMb;
 use iluvatar_library::utils::{cgroup::cgroup_namespace, port::Port, file::{try_remove_pth, temp_file_pth, touch}};
 use iluvatar_library::bail_error;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
-use anyhow::{Result, Context};
+use anyhow::Result;
 use sha2::{Sha256, Digest};
 use client::types::Descriptor;
 use containerd_client as client;
@@ -27,8 +27,9 @@ use client::with_namespace;
 use std::process::Command;
 use crate::services::containers::structs::{Container, RegisteredFunction};
 use crate::services::network::namespace_manager::NamespaceManager;
-use tracing::{info, warn, debug, error}; 
+use tracing::{info, warn, debug, error ,trace}; 
 use inotify::{Inotify, WatchMask};
+
 use super::LifecycleService;
 
 pub mod containerdstructs;
@@ -329,7 +330,7 @@ impl ContainerdLifecycle {
   }
 
   /// Ensures that the specified image is available on the machine
-  async fn ensure_image(&self, image_name: &String) -> Result<()> {
+  async fn ensure_image(&self, image_name: &String, _tid: &TransactionId) -> Result<()> {
     if self.downloaded_images.contains_key(image_name) {
       return Ok(());
     }
@@ -405,6 +406,8 @@ impl ContainerdLifecycle {
     debug!(tid=%tid, response=?resp, "Container created");
 
     let mounts = self.load_mounts(&cid, &reg.snapshot_base, tid).await?;
+    debug!(tid=%tid, "Mounts loaded");
+    trace!(tid=%tid, mounts=?mounts, "Mount details loaded");
 
     let stdin = self.stdin_pth(&cid);
     touch(&stdin)?;
@@ -434,7 +437,9 @@ impl ContainerdLifecycle {
           container_id: Some(cid.clone()),
           running: false
         };
-        Ok(ContainerdContainer::new(cid, task, port, address.clone(), parallel_invokes, &fqdn, &reg, ns))
+        unsafe {
+          Ok(ContainerdContainer::new(cid, task, port, address.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, ns))
+        }
       },
       Err(e) => {
         self.remove_container_internal(&cid, namespace, tid).await?;
@@ -494,7 +499,7 @@ impl LifecycleService for ContainerdLifecycle {
 
   /// Read through an image's digest to find it's snapshot base
   async fn prepare_function_registration(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, _fqdn: &String, tid: &TransactionId) -> Result<RegisteredFunction> {
-    self.ensure_image(&image_name).await?;
+    self.ensure_image(&image_name, tid).await?;
     let snapshot_base = self.search_image_digest(&image_name, "default", tid).await?;
     Ok(RegisteredFunction {
       function_name: function_name.clone(),
@@ -541,16 +546,25 @@ impl LifecycleService for ContainerdLifecycle {
 
     let start = SystemTime::now();
 
-    let mut inotify = Inotify::init().context("Init inotify watch failed")?;
-    let dscriptor = inotify
-        .add_watch(&stderr, WatchMask::MODIFY).context("Adding inotify watch failed")?;
+    let mut inotify = match Inotify::init() {
+      Ok(i) => i,
+      Err(e) => bail_error!(error=%e, tid=%tid, "Init inotify watch failed"),
+    };
+    let dscriptor = match inotify
+        .add_watch(&stderr, WatchMask::MODIFY) {
+          Ok(d) => d,
+          Err(e) => bail_error!(error=%e, tid=%tid, "Adding inotify watch to file failed"),
+        };
     let mut buffer = [0; 256];
 
     loop {
       match inotify.read_events(&mut buffer) {
         Ok(_events) => {
           // stderr was written to, gunicorn server is either up or crashed
-          inotify.rm_watch(dscriptor).context("Deleting inotify watch failed")?;
+          match inotify.rm_watch(dscriptor){
+            Ok(e) => e,
+            Err(e) => bail_error!(error=%e, tid=%tid, "Deleting inotify watch failed"),
+          };
           break;
         },
         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {

@@ -3,6 +3,8 @@
   "address": "127.0.0.1",
   "port": 8079,
   "timeout_sec": 6000,
+  "tokio_event_interval": 20,
+  "tokio_queue_interval": 20,
   "limits" : {
     "timeout_sec": 6000,
     "mem_min_mb": 5,
@@ -38,7 +40,7 @@
     "cni_plugin_bin": "/opt/cni/bin",
     "cni_name": "il_worker_br",
     "use_pool": true,
-    "pool_size": 10,
+    "pool_size": 20,
     "pool_freq_sec": 1,
     "hardware_interface": "enp4s0"
   },

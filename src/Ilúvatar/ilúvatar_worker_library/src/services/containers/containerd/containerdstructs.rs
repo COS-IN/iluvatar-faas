@@ -1,4 +1,4 @@
-use std::{time::{SystemTime, Duration}, sync::Arc};
+use std::{time::{SystemTime, Duration}, sync::Arc, num::NonZeroU32};
 
 use parking_lot::{RwLock, Mutex};
 use iluvatar_library::{types::MemSizeMb, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
@@ -38,7 +38,7 @@ pub struct ContainerdContainer {
 }
 
 impl ContainerdContainer {
-  pub fn new(container_id: String, task: Task, port: Port, address: String, parallel_invokes: u32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>) -> Self {
+  pub fn new(container_id: String, task: Task, port: Port, address: String, parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>) -> Self {
     let invoke_uri = calculate_invoke_uri(&address, port);
     let base_uri = calculate_base_uri(&address, port);
     ContainerdContainer {
@@ -48,7 +48,7 @@ impl ContainerdContainer {
       address,
       invoke_uri,
       base_uri,
-      mutex: Mutex::new(parallel_invokes),
+      mutex: Mutex::new(u32::from(parallel_invokes)),
       fqdn: fqdn.clone(),
       function: function.clone(),
       last_used: RwLock::new(SystemTime::now()),
@@ -68,7 +68,8 @@ impl ContainerT for ContainerdContainer {
 
     self.touch();
     let client = reqwest::Client::builder()
-            .pool_max_idle_per_host(0)      
+            .pool_max_idle_per_host(0)
+            .pool_idle_timeout(None)
                                     // tiny buffer to allow for network delay from possibly full system
             .connect_timeout(Duration::from_secs(timeout_sec+2))
             .build()?;

@@ -1637,6 +1637,7 @@ dependencies = [
  "serde",
  "serde_json",
  "time",
+ "tokio",
  "tracing",
  "tracing-appender",
  "tracing-flame",
@@ -1695,6 +1696,7 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-hook",
+ "tokio",
 ]
 
 [[package]]

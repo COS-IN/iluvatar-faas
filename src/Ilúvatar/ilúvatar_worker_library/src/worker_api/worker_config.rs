@@ -16,6 +16,10 @@ pub struct Configuration {
   pub port: Port,
   /// request timeout length in seconds
   pub timeout_sec: u64,
+  /// See documentation [here](https://docs.rs/tokio/latest/tokio/runtime/struct.Builder.html#method.event_interval) for details
+  pub tokio_event_interval: u32,
+  /// See documentation [here](https://docs.rs/tokio/latest/tokio/runtime/struct.Builder.html#method.global_queue_interval) for details
+  pub tokio_queue_interval: u32,
   pub limits: Arc<FunctionLimits>,
   pub logging: Arc<LoggingConfig>,
   pub networking: Arc<NetworkingConfig>,

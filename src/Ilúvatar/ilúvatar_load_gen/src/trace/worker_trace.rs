@@ -21,7 +21,7 @@ fn sim_register_functions(funcs: &HashMap<u64, Function>, worker: Arc<IluvatarWo
       memory: v.mem_mb,
       cpus: 1, 
       parallel_invokes: 1,
-      transaction_id : gen_tid()
+      transaction_id : format!("{}-reg-tid", v.function_id)
     };
     let cln = worker.clone();
     handles.push(rt.spawn(async move {
@@ -214,13 +214,16 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   println!("starting live trace run");
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
-    let invoke: CsvInvocation = result.expect("Error deserializing csv invocation");
+    let invoke: CsvInvocation = match result {
+      Ok(i) => i,
+      Err(e) => anyhow::bail!("Error deserializing csv invocation: {}", e),
+    };
     let func = metadata.get(&invoke.function_id).unwrap();
     let h_c = host.clone();
     let f_c = func.function_id.to_string();
     let args = args_to_json(prepare_function_args(func, &load_type));
     loop {
-      match start.elapsed(){
+      match start.elapsed() {
         Ok(t) => {
           if t.as_millis() >= invoke.invoke_time_ms as u128 {
             break;

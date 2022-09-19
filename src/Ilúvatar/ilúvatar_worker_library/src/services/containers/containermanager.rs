@@ -81,7 +81,7 @@ impl ContainerManager {
         iluvatar_library::continuation::GLOB_CONT_CHECK.thread_start(tid);
         while iluvatar_library::continuation::GLOB_CONT_CHECK.check_continue() {
           cm.monitor_pool(tid.clone()).await;
-          std::thread::sleep(std::time::Duration::from_secs(cm.resources.pool_freq_sec));
+          tokio::time::sleep(std::time::Duration::from_secs(cm.resources.pool_freq_sec)).await;
         }
         iluvatar_library::continuation::GLOB_CONT_CHECK.thread_exit(tid);
       });
@@ -177,20 +177,15 @@ impl ContainerManager {
         // not available container, cold start
         self.cold_start(fqdn, tid).await
       },
-    };
-    match cont {
-        Ok(cont) =>  {
-          let mut running_funcs = self.running_funcs.write();
-          if self.resources.cores > 0 && *running_funcs < self.resources.cores {
-            *running_funcs += 1;
-          } else {
-            debug!(tid=%tid, "Not enough available cores to run something right now");
-            anyhow::bail!(InsufficientCoresError{})
-          }
-          Ok(cont)
-        },
-        Err(e) => Err(e),
+    }?;
+    let mut running_funcs = self.running_funcs.write();
+    if self.resources.cores > 0 && *running_funcs < self.resources.cores {
+      *running_funcs += 1;
+    } else {
+      debug!(tid=%tid, "Not enough available cores to run something right now");
+      anyhow::bail!(InsufficientCoresError{})
     }
+    return Ok(cont);
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
@@ -201,10 +196,10 @@ impl ContainerManager {
       Some(pool) => {
         let pool = pool.read();
         if pool.len() > 0 {
-          for container in pool.iter() {
+          for (i, container) in pool.iter().enumerate() {
             match self.try_lock_container(container, tid) {
               Some(c) => {
-                debug!(tid=%tid, container_id=%c.container.container_id(), "Container  acquired");
+                debug!(tid=%tid, container_id=%c.container.container_id(), size=pool.len(), number=i, "Container acquired");
                 c.container.touch();
                 return Some(c)
               },
@@ -224,9 +219,11 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   async fn cold_start<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
+    debug!(tid=%tid, fqdn=%fqdn, "Trying to cold start a new container");
     let container = self.launch_container(fqdn, tid).await?;
     // claim this for ourselves before it touches the pool
     container.acquire();
+    info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
 
     self.add_container_to_pool(fqdn, container.clone(), tid)?;
     Ok(ContainerLock::new(container, self, tid))
@@ -249,7 +246,7 @@ impl ContainerManager {
   pub fn return_container(&self, container: &Container, _tid: &TransactionId) {
     container.release();
     let mut running_funcs = self.running_funcs.write();
-    if self.resources.cores > 0 && *running_funcs >= self.resources.cores {
+    if self.resources.cores > 0 && *running_funcs > 0 {
       *running_funcs -= 1;
     }
   }

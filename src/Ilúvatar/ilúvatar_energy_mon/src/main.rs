@@ -6,7 +6,8 @@ use signal_hook::{consts::signal::{SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT}, 
 pub mod read;
 pub mod structs;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
   let tid: &TransactionId = &ENERGY_MONITOR_TID;
   let config = Arc::new(EnergyConfig::parse());
 
@@ -29,13 +30,7 @@ fn main() -> anyhow::Result<()> {
   let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
   let mut signals = Signals::new(&sigs)?;
 
-  // let mut mon = RaplMsr::new(tid)?;
-  // for _ in 0..10 {
-  //   mon.total_uj(tid);
-  //   std::thread::sleep(std::time::Duration::from_secs(1));
-  // }
-
-  let _mon = EnergyLogger::boxed(config, tid)?;
+  let _mon = EnergyLogger::boxed(config, tid).await?;
 
   'outer: for signal in &mut signals {
     match signal {

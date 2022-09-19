@@ -25,7 +25,7 @@ def gen_trace(args):
     chosen = choose_from.sample(per_qant, random_state=time.time_ns() % pow(2, 31))
 
     for index, row in chosen.iterrows():
-      traced_row, (func_name, cold_dur, warm_dur, mem) = iat_trace_row(index, row, function_id, duration)
+      traced_row, (func_name, cold_dur, warm_dur, mem) = iat_trace_row(row["HashFunction"], row, function_id, duration)
       trace += traced_row
       function_metadata.append((func_name, cold_dur, warm_dur, mem, function_id))
       function_id += 1
