@@ -97,7 +97,7 @@ impl IPMIMonitor {
           return;
         }
       };
-      match file.write_all("timestamp,impi\n".as_bytes()) {
+      match file.write_all("timestamp,ipmi\n".as_bytes()) {
         Ok(_) => (),
         Err(e) => {
           error!(tid=%tid, error=%e, "Failed to write header of result");
