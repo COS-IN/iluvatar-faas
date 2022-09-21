@@ -80,7 +80,7 @@ mkdir -p $ilu_base/azure
 mkdir -p $ilu_base/zfs
 mkdir -p $ilu_base/logs
 
-fallocate -l 10G $ilu_base/zfs/ilu-pool
+fallocate -l 100G $ilu_base/zfs/ilu-pool
 # optionally this can be created using whole devices, not a file
 zpool create ilu-pool $ilu_base/zfs/ilu-pool
 zfs create -o mountpoint=/var/lib/containerd/io.containerd.snapshotter.v1.zfs ilu-pool/containerd

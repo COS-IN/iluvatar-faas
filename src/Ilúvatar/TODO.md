@@ -37,6 +37,4 @@ The exact call happens inside `ContainerdLifecycle::load_mounts`.
 1. Figure out what in containerd is causing this.
 1. Solve that problem
 
-OR temporary patch:
-Create a semaphore around worker container creation so a smaller number of concurrent requests happen, ~ < 5.
 

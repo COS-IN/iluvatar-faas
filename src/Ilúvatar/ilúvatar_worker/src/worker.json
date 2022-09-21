@@ -32,7 +32,8 @@
     "memory_buffer_mb": 0,
     "pool_freq_sec": 5,
     "backend": "containerd",
-    "snapshotter": "zfs"
+    "snapshotter": "zfs",
+    "concurrent_creation": 5
   },
   "networking": {
     "bridge": "IlWorkBr0",

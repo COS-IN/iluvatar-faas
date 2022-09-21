@@ -54,6 +54,10 @@ pub struct ContainerResources {
   /// Supported ones are [here](https://github.com/containerd/containerd/tree/main/docs/snapshotters)
   ///   WARNING: using 'overlayfs' can cause race conditions on process startup inside a container before all files are available
   pub snapshotter: String,
+  /// The max number of containers allowed to be created concurrently
+  ///   Calls to containerd can become extremely delayed if too many happen at once, ~10 
+  ///   If 0 then the concurreny is unlimited
+  pub concurrent_creation: u32,
 }
 
 #[derive(Debug, Deserialize)]

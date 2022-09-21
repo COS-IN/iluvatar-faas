@@ -6,10 +6,8 @@ use dashmap::DashMap;
 use guid_create::GUID;
 use crate::services::containers::containerd::containerdstructs::{Task, ContainerdContainer};
 use crate::worker_api::worker_config::{ContainerResources, FunctionLimits};
-use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::MemSizeMb;
+use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb};
 use iluvatar_library::utils::{cgroup::cgroup_namespace, port::Port, file::{try_remove_pth, temp_file_pth, touch}};
-use iluvatar_library::bail_error;
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use anyhow::Result;
 use sha2::{Sha256, Digest};
@@ -29,7 +27,6 @@ use crate::services::containers::structs::{Container, RegisteredFunction};
 use crate::services::network::namespace_manager::NamespaceManager;
 use tracing::{info, warn, debug, error ,trace}; 
 use inotify::{Inotify, WatchMask};
-
 use super::LifecycleService;
 
 pub mod containerdstructs;
@@ -41,12 +38,17 @@ pub struct ContainerdLifecycle {
   config: Arc<ContainerResources>,
   limits_config: Arc<FunctionLimits>,
   downloaded_images: Arc<DashMap<String, bool>>,
+  creation_sem: Option<tokio::sync::Semaphore>,
 }
 
 /// A service to handle the low-level details of containerd container lifecycles:
 ///   creation, destruction, pulling images, etc
 impl ContainerdLifecycle {
   pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResources>, limits_config: Arc<FunctionLimits>) -> ContainerdLifecycle {
+    let sem = match config.concurrent_creation {
+      0 => None,
+      i => Some(tokio::sync::Semaphore::new(i as usize))
+    };
     ContainerdLifecycle {
       // this is threadsafe if we clone channel
       // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
@@ -55,6 +57,7 @@ impl ContainerdLifecycle {
       config,
       limits_config,
       downloaded_images: Arc::new(DashMap::new()),
+      creation_sem: sem,
     }
   }
 
@@ -256,7 +259,7 @@ impl ContainerdLifecycle {
     let mut cli = ImagesClient::new(self.channel());
     let rsp = match cli.get(with_namespace!(get_image_req, namespace)).await {
         Ok(rsp) => rsp.into_inner(),
-        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to prepare snapshot and load mounts"),
+        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to get image"),
     };
     debug!(tid=%tid,response=?rsp, "image response");
     let (image_digest, media_type) = if let Some(image) = rsp.image {
@@ -405,7 +408,27 @@ impl ContainerdLifecycle {
 
     debug!(tid=%tid, response=?resp, "Container created");
 
-    let mounts = self.load_mounts(&cid, &reg.snapshot_base, tid).await?;
+    let permit = match &self.creation_sem {
+      Some(sem) => match sem.acquire().await {
+        Ok(p) => {
+          debug!(tid=%tid, "Acquired containerd containerd creation semaphore");
+          Some(p)
+        },
+        Err(e) => {
+          bail_error!(error=%e, tid=%tid, "Error trying to acquire containerd creation semaphore");
+        },
+      },
+      None => None,
+    };
+
+    let mounts = match self.load_mounts(&cid, &reg.snapshot_base, tid).await {
+      Ok(v) => v,
+      Err(e) => {
+        drop(permit);
+        debug!(tid=%tid, "Dropped containerd containerd creation semaphore after load_mounts error");
+        return Err(e)
+      },
+    };
     debug!(tid=%tid, "Mounts loaded");
     trace!(tid=%tid, mounts=?mounts, "Mount details loaded");
 
@@ -430,6 +453,8 @@ impl ContainerdLifecycle {
     let mut client = TasksClient::new(self.channel());
     match client.create(req).await {
       Ok(t) => {
+        drop(permit);
+        debug!(tid=%tid, "Dropped containerd containerd creation semaphore after success");
         let t = t.into_inner();
         debug!(tid=%tid, task=?t, "Task created");
         let task = Task {
@@ -442,6 +467,8 @@ impl ContainerdLifecycle {
         }
       },
       Err(e) => {
+        drop(permit);
+        debug!(tid=%tid, "Dropped containerd containerd creation semaphore after error");
         self.remove_container_internal(&cid, namespace, tid).await?;
         self.namespace_manager.return_namespace(ns, tid)?;
         bail_error!(tid=%tid, error=%e, "Create task failed");
