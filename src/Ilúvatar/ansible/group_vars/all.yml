@@ -8,6 +8,7 @@ graphite:
   ingestion_port: 2003
   ingestion_udp: false
   address: localhost
+  enable: "{{ graphite_enable | default(true) }}"
 
 controller:
   bin_name: "ilúvatar_controller"

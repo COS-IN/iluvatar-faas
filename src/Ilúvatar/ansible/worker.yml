@@ -119,6 +119,7 @@
       "ILUVATAR_WORKER__graphite__address" : "{{ graphite.address }}"
       "ILUVATAR_WORKER__graphite__ingestion_port" : "{{ graphite.ingestion_port }}"
       "ILUVATAR_WORKER__graphite__ingestion_udp" : "{{ graphite.ingestion_udp }}"
+      "ILUVATAR_WORKER__graphite__enable" : "{{ graphite.enable }}"
     register: worker_output
 
   - name: debug print

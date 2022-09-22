@@ -24,6 +24,7 @@ async fn main() -> anyhow::Result<()> {
     api_port: 0,
     ingestion_port: 0,
     ingestion_udp: false,
+    enabled: false,
   });
   let _guard = start_tracing(log_config, graphite_cfg,&"energy_monitor".to_string())?;
 

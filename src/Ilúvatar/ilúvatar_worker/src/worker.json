@@ -50,7 +50,8 @@
     "address": "localhost",
     "api_port": "80",
     "ingestion_port": 2003,
-    "ingestion_udp": false
+    "ingestion_udp": false,
+    "enabled": true
   },
   "energy": {
     "perf_freq_ms": 1000,

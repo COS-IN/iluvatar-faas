@@ -13,7 +13,9 @@ pub struct GraphiteConfig {
   /// ingestion port
   pub ingestion_port: Port,
   /// Is it listening on UDP? true: yes
-  pub ingestion_udp: bool
+  pub ingestion_udp: bool,
+  /// If false, calls to graphite will be a no-op and not report data to Graphite
+  pub enabled: bool,
 }
 
 // [{"target": "worker.load.loadavg", "tags": {"name": "worker.load.loadavg"}, "datapoints": [[3.81, 1658417660], [4.29, 1658417670]]}]

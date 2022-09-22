@@ -91,8 +91,13 @@ impl GraphiteService {
   }
 
   pub fn publish_metrics<T1, T2>(&self, metrics: &Vec<T1>, values: Vec<T2>, tid: &TransactionId, tags: T1)
-  where T1: std::fmt::Display + std::fmt::Debug,
-  T2: std::fmt::Display + std::fmt::Debug {
+    where T1: std::fmt::Display + std::fmt::Debug,
+    T2: std::fmt::Display + std::fmt::Debug {
+
+    if !self.config.enabled {
+      return;
+    }
+
     if self.config.ingestion_udp {
       debug!(tid=%tid, metrics=?metrics, values=?values, "udp pushing metrics");
       self.publish_udp(metrics, values, tid, tags);
@@ -116,7 +121,10 @@ impl GraphiteService {
     debug!(tid=%tid, query=%url, "querying graphite render");
 
     let mut ret = HashMap::new();
-
+    if !self.config.enabled {
+      return ret;
+    }
+    
     match client.get(url)
       .send()
       .await {
