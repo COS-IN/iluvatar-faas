@@ -2,6 +2,10 @@ import os.path
 import argparse
 import json
 
+"""
+Find Container IDs for container locks that were acquired but never released
+"""
+
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--log", '-l', required=True)
 args = argparser.parse_args()
