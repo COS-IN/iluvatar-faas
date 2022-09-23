@@ -7,19 +7,19 @@ use tokio::{runtime::Builder, task::JoinHandle};
 use crate::{utils::{controller_register, controller_invoke, FunctionExecOutput, VERSION}, benchmark::BenchmarkStore, trace::{match_trace_to_img, CsvInvocation, prepare_function_args}};
 use super::Function;
 
-async fn register_functions(funcs: &HashMap<u64, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>) -> Result<()> {
+async fn register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>) -> Result<()> {
   let data = match load_type {
-    "lookbusy" => Vec::new(),
+    "lookbusy" => HashMap::new(),
     "functions" => {
       let func_data = func_data?;
       let contents = std::fs::read_to_string(func_data).expect("Something went wrong reading the file");
       match serde_json::from_str::<BenchmarkStore>(&contents) {
         Ok(d) => {
-          let mut data = Vec::new();
+          let mut data = HashMap::new();
           for (k, v) in d.data.iter() {
             let tot: f64 = v.warm_results.iter().sum();
             let avg_warm = tot / v.warm_results.len() as f64;
-            data.push( (k.clone(), avg_warm) );
+            data.insert(k.clone(), avg_warm);
           }
           data
         },
@@ -62,7 +62,7 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
     let invocation: CsvInvocation = result?;
-    let func = metadata.get(&invocation.function_id).unwrap();
+    let func = metadata.get(&invocation.func_name).unwrap();
     let h_c = host.clone();
     let f_c = func.func_name.clone();
     let args = prepare_function_args(func, &load_type);

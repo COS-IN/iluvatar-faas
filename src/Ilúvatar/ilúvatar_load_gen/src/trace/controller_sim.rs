@@ -32,7 +32,7 @@ async fn register_workers(num_workers: usize, server_data: &Data<Controller>, wo
   Ok(())
 }
 
-async fn register_functions(metadata: &HashMap<u64, Function>, server_data: &Data<Controller>) -> Result<()> {
+async fn register_functions(metadata: &HashMap<String, Function>, server_data: &Data<Controller>) -> Result<()> {
   for (id, func) in metadata.iter() {
     let r = RegisterFunction {
       function_name: id.to_string(),
@@ -51,8 +51,8 @@ async fn register_functions(metadata: &HashMap<u64, Function>, server_data: &Dat
   Ok(())
 }
 
-async fn controller_invoke(id: u64, server_data: Data<Controller>, warm_dur_ms: u64, cold_dur_ms: u64) -> Result<(ControllerInvokeResult, u64)> {
-  let i = Invoke{function_name:id.to_string(), function_version:VERSION.clone(), 
+async fn controller_invoke(func_name: String, server_data: Data<Controller>, warm_dur_ms: u64, cold_dur_ms: u64) -> Result<(ControllerInvokeResult, u64)> {
+  let i = Invoke{function_name: func_name.clone(), function_version:VERSION.clone(), 
     args:Some(vec![format!("warm_dur_ms={}", warm_dur_ms), format!("cold_dur_ms={}", cold_dur_ms)])};
   let (response, dur) = invoke(server_data, Json{0:i}).timed().await;
   if ! response.status().is_success() {
@@ -65,7 +65,6 @@ async fn controller_invoke(id: u64, server_data: Data<Controller>, warm_dur_ms: 
     Err(e) => anyhow::bail!("failed to reat http bytes because {:?}", e),
   };
 
-  // println!("{:?}", bytes);
   match serde_json::from_slice::<ControllerInvokeResult>(&bytes) {
     Ok(r) => Ok( (r, dur.as_millis() as u64) ),
     Err(e) => anyhow::bail!("Deserialization error of ControllerInvokeResult: {}", e),
@@ -100,7 +99,7 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
     let invocation: CsvInvocation = result?;
-    let func = metadata.get(&invocation.function_id).unwrap();
+    let func = metadata.get(&invocation.func_name).unwrap();
     loop {
       match start.elapsed() {
         Ok(t) => {
@@ -117,7 +116,7 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
     let cold_dur_ms = func.cold_dur_ms;
     let server_data_cln = server_data.clone();
     handles.push(threaded_rt.spawn(async move {
-      controller_invoke(invocation.function_id, server_data_cln, warm_dur_ms, cold_dur_ms).await
+      controller_invoke(invocation.func_name, server_data_cln, warm_dur_ms, cold_dur_ms).await
     }));
   }
 

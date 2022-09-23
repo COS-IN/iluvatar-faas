@@ -92,12 +92,12 @@ pub fn run_trace(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   }
 }
 
-fn load_metadata(path: String) -> Result<HashMap<u64, Function>> {
+fn load_metadata(path: String) -> Result<HashMap<String, Function>> {
   let mut rdr = csv::Reader::from_path(path)?;
   let mut ret = HashMap::new();
   for result in rdr.deserialize() {
     let func: Function = result.expect("Error deserializing metadata");
-    ret.insert(func.function_id, func);
+    ret.insert(func.func_name.clone(), func);
   }
   Ok(ret)
 }
@@ -109,15 +109,13 @@ pub struct Function {
   pub cold_dur_ms: u64,
   pub warm_dur_ms: u64,
   pub mem_mb: MemSizeMb,
-  pub function_id: u64,
-  pub function_code: Option<String>,
 }
 #[derive(Debug, serde::Deserialize)]
 pub struct CsvInvocation {
-  function_id: u64,
+  func_name: String,
   invoke_time_ms: u64,
 }
-pub fn safe_cmp(a:&(String, f64), b:&(String, f64)) -> std::cmp::Ordering {
+pub fn safe_cmp(a:&(&String, &f64), b:&(&String, &f64)) -> std::cmp::Ordering {
   if a.1.is_nan() && b.1.is_nan() {
     panic!("cannot compare two nan numbers!")
   }else if a.1.is_nan() {
@@ -129,25 +127,24 @@ pub fn safe_cmp(a:&(String, f64), b:&(String, f64)) -> std::cmp::Ordering {
   }
 }
 
-pub fn match_trace_to_img(func: &Function, data: &Vec<(String, f64)>) -> String {
-  let chosen = match &func.function_code {
-    Some(f) => {
-      f
-    },
-    None => {
-      let mut chosen: &String = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
-        Some(n) => &n.0,
-        None => panic!("failed to get a minimum func from {:?}", data),
-      };
-      for (name, avg_warm) in data.iter() {
-        if &(func.warm_dur_ms as f64) >= avg_warm {
-          chosen = name;
-        }
-      }
-      chosen
-    },
+pub fn match_trace_to_img(func: &Function, data: &HashMap<String, f64>) -> String {
+  if data.contains_key(&func.func_name) {
+    return format!("docker.io/alfuerst/{}-iluvatar-action:latest", func.func_name);
   };
-  format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen)
+  let split = func.func_name.split("-").collect::<Vec<&str>>();
+  if split.len() == 1 {
+    let mut chosen: &String = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
+      Some(n) => &n.0,
+      None => panic!("failed to get a minimum func from {:?}", data),
+    };
+    for (name, avg_warm) in data.iter() {
+      if &(func.warm_dur_ms as f64) >= avg_warm {
+        chosen = name;
+      }
+    }
+    return format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen);
+  }
+  format!("docker.io/alfuerst/{}-iluvatar-action:latest", split[0])
 }
 
 fn prepare_function_args(func: &Function, load_type: &str) -> Vec<String> {
