@@ -110,6 +110,7 @@ pub struct Function {
   pub warm_dur_ms: u64,
   pub mem_mb: MemSizeMb,
   pub function_id: u64,
+  pub function_code: Option<String>,
 }
 #[derive(Debug, serde::Deserialize)]
 pub struct CsvInvocation {
@@ -129,15 +130,23 @@ pub fn safe_cmp(a:&(String, f64), b:&(String, f64)) -> std::cmp::Ordering {
 }
 
 pub fn match_trace_to_img(func: &Function, data: &Vec<(String, f64)>) -> String {
-  let mut chosen: &String = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
-    Some(n) => &n.0,
-    None => panic!("failed to get a minimum func from {:?}", data),
+  let chosen = match &func.function_code {
+    Some(f) => {
+      f
+    },
+    None => {
+      let mut chosen: &String = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
+        Some(n) => &n.0,
+        None => panic!("failed to get a minimum func from {:?}", data),
+      };
+      for (name, avg_warm) in data.iter() {
+        if &(func.warm_dur_ms as f64) >= avg_warm {
+          chosen = name;
+        }
+      }
+      chosen
+    },
   };
-  for (name, avg_warm) in data.iter() {
-    if &(func.warm_dur_ms as f64) >= avg_warm {
-      chosen = name;
-    }
-  }
   format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen)
 }
 
