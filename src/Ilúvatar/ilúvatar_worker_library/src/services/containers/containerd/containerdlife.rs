@@ -25,7 +25,7 @@ use client::with_namespace;
 use std::process::Command;
 use crate::services::containers::structs::{Container, RegisteredFunction};
 use crate::services::network::namespace_manager::NamespaceManager;
-use tracing::{info, warn, debug, error ,trace}; 
+use tracing::{info, warn, debug, error}; 
 use inotify::{Inotify, WatchMask};
 use super::LifecycleService;
 
@@ -389,7 +389,7 @@ impl ContainerdLifecycle {
       extensions: HashMap::new(),
       labels: labels,
       snapshot_key: "".to_string(),
-      snapshotter: "".to_string(),
+      snapshotter: self.config.snapshotter.clone(),
     };
     let mut client = ContainersClient::new(self.channel());
     let req = CreateContainerRequest {
@@ -430,7 +430,6 @@ impl ContainerdLifecycle {
       },
     };
     debug!(tid=%tid, "Mounts loaded");
-    trace!(tid=%tid, mounts=?mounts, "Mount details loaded");
 
     let stdin = self.stdin_pth(&cid);
     touch(&stdin)?;
@@ -438,19 +437,19 @@ impl ContainerdLifecycle {
     touch(&stdout)?;
     let stderr = self.stderr_pth(&cid);
     touch(&stderr)?;
+    let mut client = TasksClient::new(self.channel());
+    
     let req = CreateTaskRequest {
-        container_id: cid.clone(),
-        rootfs: mounts,
-        checkpoint: None,
-        options: None,
-        stdin: stdin,
-        stdout: stdout,
-        stderr: stderr,
-        terminal: false,
+      container_id: cid.clone(),
+      rootfs: mounts,
+      checkpoint: None,
+      options: None,
+      stdin: stdin,
+      stdout: stdout,
+      stderr: stderr,
+      terminal: false,
     };
     let req = with_namespace!(req, namespace);
-  
-    let mut client = TasksClient::new(self.channel());
     match client.create(req).await {
       Ok(t) => {
         drop(permit);
