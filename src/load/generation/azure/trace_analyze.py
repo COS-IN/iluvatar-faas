@@ -22,12 +22,11 @@ def run_trace_csv(trace_csv, warm_pct, metadata_csv):
   with open(metadata_csv, 'r') as f:
     f.readline()
     for line in f.readlines():
-      func_name,cold_dur_ms,warm_dur_ms,mem_mb,function_id = line.split(',')
-      function_id = int(function_id.strip("\n"))
-      metadata[function_id]["func_name"] = func_name
-      metadata[function_id]["cold_dur_ms"] = int(cold_dur_ms)
-      metadata[function_id]["warm_dur_ms"] = int(warm_dur_ms)
-      metadata[function_id]["mem_mb"] = int(mem_mb)
+      func_name,cold_dur_ms,warm_dur_ms,mem_mb = line.split(',')
+      metadata[func_name]["func_name"] = func_name
+      metadata[func_name]["cold_dur_ms"] = int(cold_dur_ms)
+      metadata[func_name]["warm_dur_ms"] = int(warm_dur_ms)
+      metadata[func_name]["mem_mb"] = int(mem_mb)
       
   df = pd.read_csv(trace_csv)
   trace = list(map(lambda x: x[1], df.iterrows()))
@@ -39,11 +38,10 @@ def run_trace(trace, warm_pct, metadata):
   history = {}
 
   curr_t = 0
-  for function_id, invoke_time_ms in trace:
+  for func_name, invoke_time_ms in trace:
     curr_t = invoke_time_ms
-    # print(metadata)
-    running_mem += metadata[function_id]["mem_mb"]
-    fin_t = gen_fin_t(warm_pct, metadata[function_id], curr_t)
+    running_mem += metadata[func_name]["mem_mb"]
+    fin_t = gen_fin_t(warm_pct, metadata[func_name], curr_t)
     while len(running) > 0:
       popped = heappop(running)
       if popped[0] >= curr_t:
@@ -51,7 +49,7 @@ def run_trace(trace, warm_pct, metadata):
         break
       else:
         running_mem -= metadata[popped[1]]["mem_mb"]
-    heappush(running, (fin_t, function_id))
+    heappush(running, (fin_t, func_name))
     history[curr_t] = (len(running), running_mem)
   usage_df = pd.DataFrame.from_dict(history, columns=["running", "memory"], orient='index')
   # print(usage_df)

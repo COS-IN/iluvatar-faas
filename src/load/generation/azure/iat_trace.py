@@ -12,7 +12,7 @@ argparser.add_argument("--force", '-f', action='store_true', help="Overwrite an 
 argparser.add_argument("--duration", type=int, help="The length in minutes of the trace", default=60)
 args = argparser.parse_args()
 
-dataset = join_day_one(args.data_path, args.force)
+dataset = join_day_one(args.data_path, args.force, iats=True)
 # dataset = dataset[dataset["IAT_std"] != 0.0]
 dataset = dataset[dataset["dur_iat_ratio"] < 4]
 

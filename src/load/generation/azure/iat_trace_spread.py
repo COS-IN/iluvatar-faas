@@ -5,7 +5,7 @@ import multiprocessing as mp
 
 def gen_trace(args):
   out_folder, data_folder, num_funcs, duration = args
-  dataset = join_day_one(data_folder, False)
+  dataset = join_day_one(data_folder, False, iats=True)
   dataset = dataset[dataset["dur_iat_ratio"] < 4]
   quantiles = [0.0, 0.25, 0.5, 0.75, 1.0]
 

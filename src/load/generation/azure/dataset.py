@@ -5,19 +5,34 @@ import numpy as np
 from math import ceil
 import argparse
 import multiprocessing as mp
+from statsmodels.distributions.empirical_distribution import ECDF
 
 buckets = [str(i) for i in range(1, 1441)]
 
-def compute_row_iat(row) -> float:
-  if len(row) == 2:
-    index, row = row
+def ecdf(row):
+  iats = compute_row_iat(row)
+  cdf = ECDF(iats)
+  return cdf.x, cdf.y, iats
+
+def interpolate_ecdf(xs, ys):
+  interp_xs = [x for x in range(0, int(max(xs)), 1)]
+  interp_xs.insert(0,0)
+  interp_xs.append(1)
+  interp_ys = list(np.interp(interp_xs, xs, ys))
+  return interp_xs, interp_ys
+
+def compute_row_iat(row):
   iats = []
   last_t = -1
-  for min, count in enumerate(row[buckets]):
-    time_ms = min * 1000
-    if count == 0:
+  tot = 0
+  for minute in buckets:
+    invokes = row[minute]
+    minute = int(minute)
+    tot += int(invokes)
+    time_ms = minute * 1000
+    if invokes == 0:
       continue
-    elif count == 1:
+    elif invokes == 1:
       if last_t == -1:
         last_t = time_ms
         continue
@@ -29,32 +44,56 @@ def compute_row_iat(row) -> float:
       if last_t == -1:
         last_t = time_ms
 
-      sep = 1000.0 / float(count)
-      # print(sep)
-      for i in range(count):
+      sep = 1000.0 / float(invokes)
+      for i in range(invokes):
         diff = (time_ms + i*sep) - last_t
         if diff == 0:
           continue
         iats.append(diff)
         last_t = (time_ms + i*sep)
-      # print(iats)
-      # print(min, count)
-      # print(np.mean(iats))
-      # exit(0)
-      # continue
+  r = np.array(iats)
+  r.sort()
+  return r
+
+def compute_row_iat_stats(index, row) -> float:
+  iats = compute_row_iat(row)
   if len(iats) < 1:
     print(iats, sum(row[buckets]))
     exit(1)
   return np.mean(iats), np.std(iats), len(iats)
 
-def join_day_one(datapath: str, force: bool):
+def insert_iats(df: pd.DataFrame, debug: bool) -> pd.DataFrame:
+  p = mp.Pool()
+  if debug:
+    print("Computing IATs")
+  iat_data = p.starmap(compute_row_iat_stats, df.iterrows())
+  df["IAT_mean"] = list(map(lambda x: x[0], iat_data))
+  df["IAT_std"] = list(map(lambda x: x[1], iat_data))
+  df["IAT_cnt"] = list(map(lambda x: x[2], iat_data))
+  # df["IATs"] = list(map(lambda x: x[3], iat_data))
+  return df
+
+def insert_ecdfs(df: pd.DataFrame, debug: bool) -> pd.DataFrame:
+  if debug:
+    print("Computing ECDFs")
+  p = mp.Pool()
+  ecdf_data = p.map(ecdf, df.iterrows())
+  df["ecdf_xs"] = list(map(lambda x: x[0], ecdf_data))
+  df["ecdf_ys"] = list(map(lambda x: x[1], ecdf_data))
+  return df
+
+def join_day_one(datapath: str, force: bool, debug: bool = False, iats: bool = False, ecfds: bool = False):
   # TODO: use all the files in the dataset
   durations_file = "function_durations_percentiles.anon.d01.csv"
   invocations_file = "invocations_per_function_md.anon.d01.csv"
   mem_fnames_file = "app_memory_percentiles.anon.d01.csv"
-  outfile = os.path.join(datapath,"joined_d01_trace.csv")
+  outfile_pckl = os.path.join(datapath,"joined_d01_trace.pckl")
+  outfile_csv = os.path.join(datapath,"joined_d01_trace.csv")
 
-  if not os.path.exists(outfile) or force:
+  if force:
+    if debug:
+      print("Generating dataframe from scratch")
+
     file = os.path.join(datapath, durations_file)
     durations = pd.read_csv(file)
     durations.index = durations["HashFunction"]
@@ -71,11 +110,10 @@ def join_day_one(datapath: str, force: bool):
     invocations = invocations[sums > 1] # action must be invoked at least twice
     invocations = invocations.drop_duplicates("HashFunction")
 
-    p = mp.Pool()
-    iat_data = p.map(compute_row_iat, invocations.iterrows())
-    invocations["IAT_mean"] = list(map(lambda x: x[0], iat_data))
-    invocations["IAT_std"] = list(map(lambda x: x[1], iat_data))
-    invocations["IAT_cnt"] = list(map(lambda x: x[2], iat_data))
+    if iats:
+      invocations = insert_iats(invocations, debug)
+    if ecfds:
+      invocations = insert_ecdfs(invocations, debug)
 
     joined = invocations.join(durations, how="inner", lsuffix='', rsuffix='_durs')
 
@@ -95,13 +133,28 @@ def join_day_one(datapath: str, force: bool):
     joined = joined[joined["Maximum"]>0]
     joined = joined[joined["percentile_Average_25"]>0]
 
-    joined["dur_iat_ratio"] = joined["percentile_Average_25"] / joined["IAT_mean"]
-    joined.to_csv(outfile)
+    if "IAT_mean" in joined.columns:
+      joined["dur_iat_ratio"] = joined["percentile_Average_25"] / joined["IAT_mean"]
+    joined.to_pickle(outfile_pckl)
+    to_drop = [col for col in ["IATs", "ecdf_xs", "ecdf_ys"] if col in joined.columns]
+    joined.drop(to_drop, axis=1).to_csv(outfile_pckl)
 
     return joined
-  else:
-    df = pd.read_csv(outfile)
-    # print(df["dur_iat_ratio"].describe(percentiles=[0.8, 0.9, 0.95, 0.99]))
+  elif os.path.exists(outfile_pckl):
+    if debug:
+      print("Loading dataframe from pickle file")
+    return pd.read_pickle(outfile_pckl)
+  elif os.path.exists(outfile_csv):
+    if debug:
+      print("Regenerating dataframe from csv")
+
+    df = pd.read_csv(outfile_csv)
+    if iats:
+      df = insert_iats(df, debug)
+    if ecfds:
+      df = insert_ecdfs(df, debug)
+    df.to_pickle(outfile_pckl)
+
     return df
 
 def iat_trace_row(func_name, row, function_id, duration_min:int):
@@ -129,7 +182,6 @@ def iat_trace_row(func_name, row, function_id, duration_min:int):
   # print(function_id, mean, std, len(trace))
   return trace, (func_name, cold_dur, warm_dur, mem)
 
-
 def real_trace_row(func_name, row, function_id, min_start=0, min_end=1440):
   """
   Create invocations for the function using the exact invocation times of the function from the trace
@@ -155,6 +207,55 @@ def real_trace_row(func_name, row, function_id, min_start=0, min_end=1440):
 
   return trace, (func_name, cold_dur, warm_dur, mem)
 
+def ecdf_trace_row(func_name, row, function_id, duration_min:int):
+  """
+  Create invocations for the function using the function's ECDF
+  """
+  orig_xs, orig_ys, iats = ecdf(row)
+  # print(func_name, len(orig_ys), orig_ys)
+  # xs, ys = interpolate_ecdf(orig_xs, orig_ys)
+  xs, ys = orig_xs, orig_ys
+
+  secs_p_min = 60
+  milis_p_sec = 1000
+  trace = list()
+  cold_dur = int(row["Maximum"])
+  warm_dur = int(row["percentile_Average_25"])
+  mem = int(row["divvied"])
+  rng = np.random.default_rng(None)
+
+  def find_nearest_idx(arr, val):
+    for i, x in enumerate(arr):
+      if x >= val:
+        if i == 0:
+          return 0
+        return i-1
+
+  def first_real(arr, idx):
+    for i in range(idx, len(arr)):
+      if arr[i] != -float('inf'):
+        return i
+
+  time = 0
+  end_ms = duration_min * secs_p_min * milis_p_sec
+  while time < end_ms:
+    sample = rng.random()
+    idx = find_nearest_idx(ys, sample)
+    point = xs[idx]
+    if point == -float('inf'):
+      point = first_real(xs, idx)
+    if point == -float('inf'):
+      print(func_name)
+      print(xs, point)
+      raise Exception("illegal point")
+
+    time += point
+    trace.append( (function_id, time) )
+    # if len(trace) > 100:
+    #   break
+
+  return trace, (func_name, cold_dur, warm_dur, mem)
+
 def divive_by_func_num(row, grouped_by_app):
     return ceil(row["AverageAllocatedMb"] / grouped_by_app[row["HashApp"]])
 
@@ -162,10 +263,12 @@ if __name__ == '__main__':
   argparser = argparse.ArgumentParser()
   argparser.add_argument("--out-folder", '-o', required=True)
   argparser.add_argument("--data-path", '-d', required=True)
+  argparser.add_argument("--force", '-f', action='store_true', help="Overwrite an existing trace that has the same number of functions")
+  argparser.add_argument("--debug", action='store_true', help="Enable debug printing")
   args = argparser.parse_args()
   store = args.out_folder
 
-  joined = join_day_one(args.data_path)
+  joined = join_day_one(args.data_path, args.force, args.debug, iats=True)
   # for idx, row in joined.iterrows():
     # trace, data = iat_trace_row(idx, row, 0, 10)
     # print(data)
