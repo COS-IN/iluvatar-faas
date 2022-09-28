@@ -11,15 +11,9 @@ buckets = [str(i) for i in range(1, 1441)]
 
 def ecdf(row):
   iats = compute_row_iat(row)
+  iats.sort()
   cdf = ECDF(iats)
   return cdf.x, cdf.y, iats
-
-def interpolate_ecdf(xs, ys):
-  interp_xs = [x for x in range(0, int(max(xs)), 1)]
-  interp_xs.insert(0,0)
-  interp_xs.append(1)
-  interp_ys = list(np.interp(interp_xs, xs, ys))
-  return interp_xs, interp_ys
 
 def compute_row_iat(row):
   iats = []
@@ -157,7 +151,7 @@ def join_day_one(datapath: str, force: bool, debug: bool = False, iats: bool = F
 
     return df
 
-def iat_trace_row(func_name, row, function_id, duration_min:int):
+def iat_trace_row(func_name, row, duration_min:int):
   """
   Create invocations for the function using the function's IAT
   """
@@ -177,12 +171,12 @@ def iat_trace_row(func_name, row, function_id, duration_min:int):
     while sample < 0:
       sample = int(rng.normal(loc=mean, scale=std))
     time += sample
-    trace.append( (function_id, time) )
+    trace.append( (func_name, time) )
 
-  # print(function_id, mean, std, len(trace))
+  # print(func_name, mean, std, len(trace))
   return trace, (func_name, cold_dur, warm_dur, mem)
 
-def real_trace_row(func_name, row, function_id, min_start=0, min_end=1440):
+def real_trace_row(func_name, row, min_start=0, min_end=1440):
   """
   Create invocations for the function using the exact invocation times of the function from the trace
   """
@@ -200,22 +194,18 @@ def real_trace_row(func_name, row, function_id, min_start=0, min_end=1440):
       # if only one invocation, start randomly within that minute
       # avoid "thundering heard" of invocations at start of minute
       start_ms = np.random.randint(0, (secs_p_min * milis_p_sec)-1)
-      trace.append((function_id, start+start_ms))
+      trace.append((func_name, start+start_ms))
     else:
       every = (secs_p_min*milis_p_sec) / invocs
-      trace += [(function_id, int(start + i*every)) for i in range(invocs)]
+      trace += [(func_name, int(start + i*every)) for i in range(invocs)]
 
   return trace, (func_name, cold_dur, warm_dur, mem)
 
-def ecdf_trace_row(func_name, row, function_id, duration_min:int):
+def ecdf_trace_row(func_name, row, duration_min:int):
   """
   Create invocations for the function using the function's ECDF
   """
-  orig_xs, orig_ys, iats = ecdf(row)
-  # print(func_name, len(orig_ys), orig_ys)
-  # xs, ys = interpolate_ecdf(orig_xs, orig_ys)
-  xs, ys = orig_xs, orig_ys
-
+  xs, ys, iats = ecdf(row)
   secs_p_min = 60
   milis_p_sec = 1000
   trace = list()
@@ -224,40 +214,31 @@ def ecdf_trace_row(func_name, row, function_id, duration_min:int):
   mem = int(row["divvied"])
   rng = np.random.default_rng(None)
 
-  def find_nearest_idx(arr, val):
-    for i, x in enumerate(arr):
-      if x >= val:
-        if i == 0:
-          return 0
-        return i-1
-
-  def first_real(arr, idx):
-    for i in range(idx, len(arr)):
-      if arr[i] != -float('inf'):
-        return i
-
   time = 0
   end_ms = duration_min * secs_p_min * milis_p_sec
   while time < end_ms:
-    sample = rng.random()
-    idx = find_nearest_idx(ys, sample)
-    point = xs[idx]
-    if point == -float('inf'):
-      point = first_real(xs, idx)
-    if point == -float('inf'):
-      print(func_name)
-      print(xs, point)
-      raise Exception("illegal point")
+    point = np.interp([rng.random()], ys, xs)
+    while point == -float('inf'):
+      point = np.interp([rng.random()], ys, xs)
 
     time += point
-    trace.append( (function_id, time) )
-    # if len(trace) > 100:
-    #   break
+    trace.append( (func_name, float(time)) )
 
   return trace, (func_name, cold_dur, warm_dur, mem)
 
 def divive_by_func_num(row, grouped_by_app):
     return ceil(row["AverageAllocatedMb"] / grouped_by_app[row["HashApp"]])
+
+def write_trace(trace, metadata, trace_save_pth, metadata_save_pth):
+  with open(trace_save_pth, "w") as f:
+    f.write("{},{}\n".format("func_name", "invoke_time_ms"))
+    for func_name, time_ms in trace:
+      f.write("{},{}\n".format(func_name, int(time_ms)))
+
+  with open(metadata_save_pth, "w") as f:
+    f.write("{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb"))
+    for (func_name, cold_dur, warm_dur, mem) in metadata:
+      f.write("{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem))
 
 if __name__ == '__main__':
   argparser = argparse.ArgumentParser()

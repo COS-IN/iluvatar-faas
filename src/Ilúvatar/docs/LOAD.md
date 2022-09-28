@@ -54,16 +54,15 @@ The simulation *does not* run real function code, and invocations *do not* take 
 Passing `live` means the system has been set up elsewhere and the load tool will communicate with it remotely.
 
 1. `--input`, `-i`: A csv input file with individual invocation details for functions. This function **must** be in sorted order on invocatin time
-   1. `function_id`: A unique u64 number that maps to the `function_id` in the `metadata` file
+   1. `func_name`: A unique string that maps to the `func_name` in the `metadata` file
    1. `invoke_time_ms`: The time in milliseconds that the function should be invoked at. This is a 0-based time, so if no function is invoked until some time `X`, it will wait.
 
 1. `--metadata`, `-m`: A csv file with function metadata that is associated with the trace file passed in.
-It expects the file to have the following columns: `func_name,cold_dur_ms,warm_dur_ms,mem_mb,function_id` .
+It expects the file to have the following columns: `func_name,cold_dur_ms,warm_dur_ms,mem_mb` .
    1. `func_name`: A string function name, must be unique
    1. `cold_dur_ms`: The cold execution duration in milliseconds
    1. `warm_dur_ms`: The warm execution duration in milliseconds
-   1. `mem_mb`: The memory usage in megabytes 
-   1. `function_id`: A unique u64 number that maps to the `function_id` in the `input` file
+   1. `mem_mb`: The memory usage in megabytes
 
 1. `--load-type`, `-l`: This load generator can support two different types of functions to run.
 This parameter is only relevant when running against a `live` system.

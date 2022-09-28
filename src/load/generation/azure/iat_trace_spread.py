@@ -1,4 +1,4 @@
-from dataset import join_day_one, iat_trace_row
+from dataset import join_day_one, iat_trace_row, write_trace
 from trace_analyze import run_trace_csv
 import os, time, argparse
 import multiprocessing as mp
@@ -33,17 +33,8 @@ def gen_trace(args):
   out_trace = sorted(trace, key=lambda x:x[1]) #(func_name, time_ms)
 
   trace_save_pth = os.path.join(out_folder, "{}.csv".format(num_funcs))
-  with open(trace_save_pth, "w") as f:
-    f.write("{},{}\n".format("func_name", "invoke_time_ms"))
-    for func_name, time_ms in out_trace:
-      f.write("{},{}\n".format(func_name, time_ms))
+  write_trace(out_trace, function_metadata, trace_save_pth, metadata_save_pth)
 
-  with open(metadata_save_pth, "w") as f:
-    f.write("{},{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb", "func_name"))
-    for (func_name, cold_dur, warm_dur, mem, func_name) in function_metadata:
-      f.write("{},{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem, func_name))
-
-  # print("done", trace_save_pth)
   return (num_funcs, *run_trace_csv(trace_save_pth, 0.80, metadata_save_pth))
 
 if __name__ == "__main__":

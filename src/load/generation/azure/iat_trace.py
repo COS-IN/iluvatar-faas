@@ -1,4 +1,4 @@
-from dataset import join_day_one, iat_trace_row
+from dataset import join_day_one, iat_trace_row, write_trace
 from trace_analyze import run_trace_csv
 import os
 import argparse
@@ -41,18 +41,9 @@ if not os.path.exists(metadata_save_pth) or args.force:
       func_name += 1
 
   out_trace = sorted(trace, key=lambda x:x[1]) #(func_name, time_ms)
-  print(args.num_funcs, len(out_trace))
-
   trace_save_pth = os.path.join(args.out_folder, "{}.csv".format(args.num_funcs))
-  with open(trace_save_pth, "w") as f:
-    f.write("{},{}\n".format("func_name", "invoke_time_ms"))
-    for func_name, time_ms in out_trace:
-      f.write("{},{}\n".format(func_name, time_ms))
 
-  with open(metadata_save_pth, "w") as f:
-    f.write("{},{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb", "func_name"))
-    for (func_name, cold_dur, warm_dur, mem, func_name) in function_metadata:
-      f.write("{},{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem, func_name))
+  write_trace(out_trace, function_metadata, trace_save_pth, metadata_save_pth)
 
   print("done", trace_save_pth)
   print("warm_pct, max_mem, max_running, mean_running, running_75th, running_90th")

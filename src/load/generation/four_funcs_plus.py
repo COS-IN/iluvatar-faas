@@ -109,15 +109,15 @@ function_metadata.append(('f4', 4000, 1000, 512, 4))
 
 trace_save_pth = os.path.join(args.out_folder, "four-functions.csv")
 with open(trace_save_pth, "w") as f:
-  f.write("{},{}\n".format("function_id", "invoke_time_ms"))
-  for time_ms, function_id in allf:
-    f.write("{},{}\n".format(function_id, time_ms))
+  f.write("{},{}\n".format("func_name", "invoke_time_ms"))
+  for time_ms, func_name in allf:
+    f.write("{},{}\n".format(func_name, time_ms))
 
 metadata_save_pth = os.path.join(args.out_folder, "four-functions-metadata.csv")
 with open(metadata_save_pth, "w") as f:
-  f.write("{},{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb", "function_id"))
-  for (func_name, cold_dur, warm_dur, mem, function_id) in function_metadata:
-    f.write("{},{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem, function_id))
+  f.write("{},{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb"))
+  for (func_name, cold_dur, warm_dur, mem) in function_metadata:
+    f.write("{},{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem))
 
 with open(os.path.join(args.out_folder, "stats.log"), "w") as f:
     dur = allf[-1][0]/(1000*60)
