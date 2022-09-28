@@ -25,7 +25,7 @@ with suppress(FileExistsError):
     os.makedirs(args.out_folder)
 
 if not os.path.exists(metadata_save_pth) or args.force:
-  function_id = 0
+  func_name = 0
   for i in range(4):
     low = qts.iloc[i]
     high = qts.iloc[i+1]
@@ -33,23 +33,23 @@ if not os.path.exists(metadata_save_pth) or args.force:
     chosen = choose_from.sample(per_qant)
 
     for index, row in chosen.iterrows():
-      traced_row, (func_name, cold_dur, warm_dur, mem) = real_trace_row(index, row, function_id, args.min_start, args.min_end)
+      traced_row, (func_name, cold_dur, warm_dur, mem) = real_trace_row(index, row, func_name, args.min_start, args.min_end)
       trace += traced_row
-      function_metadata.append((func_name, cold_dur, warm_dur, mem, function_id))
-      function_id += 1
+      function_metadata.append((func_name, cold_dur, warm_dur, mem, func_name))
+      func_name += 1
 
   out_trace = sorted(trace, key=lambda x:x[1]) #(func_name, time_ms)
   print(args.num_funcs, len(out_trace))
 
   trace_save_pth = os.path.join(args.out_folder, "{}.csv".format(args.num_funcs))
   with open(trace_save_pth, "w") as f:
-    f.write("{},{}\n".format("function_id", "invoke_time_ms"))
-    for function_id, time_ms in out_trace:
-      f.write("{},{}\n".format(function_id, time_ms))
+    f.write("{},{}\n".format("func_name", "invoke_time_ms"))
+    for func_name, time_ms in out_trace:
+      f.write("{},{}\n".format(func_name, time_ms))
 
   with open(metadata_save_pth, "w") as f:
-    f.write("{},{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb", "function_id"))
-    for (func_name, cold_dur, warm_dur, mem, function_id) in function_metadata:
-      f.write("{},{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem, function_id))
+    f.write("{},{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb", "func_name"))
+    for (func_name, cold_dur, warm_dur, mem, func_name) in function_metadata:
+      f.write("{},{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem, func_name))
 
   print("done", trace_save_pth)

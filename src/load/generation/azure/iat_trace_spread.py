@@ -17,7 +17,7 @@ def gen_trace(args):
   metadata_save_pth = os.path.join(out_folder, "metadata-{}.csv".format(num_funcs))
   os.makedirs(out_folder, exist_ok=True)
 
-  function_id = 0
+  func_name = 0
   for i in range(4):
     low = qts.iloc[i]
     high = qts.iloc[i+1]
@@ -25,23 +25,23 @@ def gen_trace(args):
     chosen = choose_from.sample(per_qant, random_state=time.time_ns() % pow(2, 31))
 
     for index, row in chosen.iterrows():
-      traced_row, (func_name, cold_dur, warm_dur, mem) = iat_trace_row(row["HashFunction"], row, function_id, duration)
+      traced_row, (func_name, cold_dur, warm_dur, mem) = iat_trace_row(row["HashFunction"], row, func_name, duration)
       trace += traced_row
-      function_metadata.append((func_name, cold_dur, warm_dur, mem, function_id))
-      function_id += 1
+      function_metadata.append((func_name, cold_dur, warm_dur, mem, func_name))
+      func_name += 1
 
   out_trace = sorted(trace, key=lambda x:x[1]) #(func_name, time_ms)
 
   trace_save_pth = os.path.join(out_folder, "{}.csv".format(num_funcs))
   with open(trace_save_pth, "w") as f:
-    f.write("{},{}\n".format("function_id", "invoke_time_ms"))
-    for function_id, time_ms in out_trace:
-      f.write("{},{}\n".format(function_id, time_ms))
+    f.write("{},{}\n".format("func_name", "invoke_time_ms"))
+    for func_name, time_ms in out_trace:
+      f.write("{},{}\n".format(func_name, time_ms))
 
   with open(metadata_save_pth, "w") as f:
-    f.write("{},{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb", "function_id"))
-    for (func_name, cold_dur, warm_dur, mem, function_id) in function_metadata:
-      f.write("{},{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem, function_id))
+    f.write("{},{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb", "func_name"))
+    for (func_name, cold_dur, warm_dur, mem, func_name) in function_metadata:
+      f.write("{},{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem, func_name))
 
   # print("done", trace_save_pth)
   return (num_funcs, *run_trace_csv(trace_save_pth, 0.80, metadata_save_pth))
