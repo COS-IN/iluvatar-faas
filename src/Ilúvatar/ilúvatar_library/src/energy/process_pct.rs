@@ -66,7 +66,11 @@ impl ProcessMonitor {
       let (cpu_pct, cpu_time) = match execute_cmd("/usr/bin/ps", &vec!["-p", self.pid.as_str(), "-o", "%C %x"], None, tid) {
         Ok(out) => {
           let stdout = String::from_utf8_lossy(&out.stdout);
-          let data = stdout.split("\n").collect::<Vec<&str>>()[1];
+          let data = stdout.split("\n").collect::<Vec<&str>>();
+          if data.len() == 1 {
+            return;
+          }
+          let data = data[1];
           let items = data.split_ascii_whitespace().filter(|str| str.len() > 0).collect::<Vec<&str>>();
           let cpu_pct = match items[0].parse::<f64>() {
             Ok(f) => f,

@@ -84,7 +84,7 @@ def join_day_one(datapath: str, force: bool, debug: bool = False, iats: bool = F
   outfile_pckl = os.path.join(datapath,"joined_d01_trace.pckl")
   outfile_csv = os.path.join(datapath,"joined_d01_trace.csv")
 
-  if force:
+  if force or (not os.path.exists(outfile_pckl) and not os.path.exists(outfile_csv)):
     if debug:
       print("Generating dataframe from scratch")
 
@@ -129,15 +129,15 @@ def join_day_one(datapath: str, force: bool, debug: bool = False, iats: bool = F
 
     if "IAT_mean" in joined.columns:
       joined["dur_iat_ratio"] = joined["percentile_Average_25"] / joined["IAT_mean"]
-    joined.to_pickle(outfile_pckl)
+    joined.to_pickle(outfile_pckl, compression=None, protocol=3)
     to_drop = [col for col in ["IATs", "ecdf_xs", "ecdf_ys"] if col in joined.columns]
-    joined.drop(to_drop, axis=1).to_csv(outfile_pckl)
+    joined.drop(to_drop, axis=1).to_csv(outfile_csv)
 
     return joined
   elif os.path.exists(outfile_pckl):
     if debug:
       print("Loading dataframe from pickle file")
-    return pd.read_pickle(outfile_pckl)
+    return pd.read_pickle(outfile_pckl, compression=None)
   elif os.path.exists(outfile_csv):
     if debug:
       print("Regenerating dataframe from csv")
@@ -147,9 +147,12 @@ def join_day_one(datapath: str, force: bool, debug: bool = False, iats: bool = F
       df = insert_iats(df, debug)
     if ecfds:
       df = insert_ecdfs(df, debug)
-    df.to_pickle(outfile_pckl)
+    df.to_pickle(outfile_pckl, compression=None, protocol=3)
 
     return df
+
+  else:
+    raise Exception("unable to generate dataframe, fell through")
 
 def iat_trace_row(func_name, row, duration_min:int):
   """
@@ -201,7 +204,7 @@ def real_trace_row(func_name, row, min_start=0, min_end=1440):
 
   return trace, (func_name, cold_dur, warm_dur, mem)
 
-def ecdf_trace_row(func_name, row, duration_min:int):
+def ecdf_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
   """
   Create invocations for the function using the function's ECDF
   """
@@ -221,7 +224,7 @@ def ecdf_trace_row(func_name, row, duration_min:int):
     while point == -float('inf'):
       point = np.interp([rng.random()], ys, xs)
 
-    time += point
+    time += (point * scale)
     trace.append( (func_name, float(time)) )
 
   return trace, (func_name, cold_dur, warm_dur, mem)

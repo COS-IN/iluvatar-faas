@@ -15,9 +15,11 @@ argparser.add_argument("--data-path", '-d', help="The folder where the azure dat
 argparser.add_argument("--force", '-f', action='store_true', help="Overwrite an existing trace that has the same number of functions")
 argparser.add_argument("--num-funcs", '-n', type=int, help="Number of functions to sample for the trace", required=True)
 argparser.add_argument("--duration", type=int, help="The length in minutes of the trace", default=60)
+argparser.add_argument("--scale", '-s', type=float, help="Scale IATs by this factor to adjust load. Numbers less than one will increase load.", default=1.0)
+argparser.add_argument("--verbose", '-v', action='store_true', help="Enable debug printing")
 args = argparser.parse_args()
 
-dataset = join_day_one(args.data_path, args.force)
+dataset = join_day_one(args.data_path, args.force, debug=args.verbose)
 
 functions = ["0a0fb019e32b06095378171cc091223d3456c87badd55156f93a668e919cfca7",
 "1d6068092b0b3d0ff9e214242ac2678bd147313b03b1ae641eca88286c8ebbf3",
@@ -46,7 +48,7 @@ if not (os.path.exists(metadata_save_pth) and os.path.exists(trace_save_pth)) or
   for func in random.sample(functions, args.num_funcs):
     rows = dataset[dataset["HashFunction"] == func]
     for index, row in rows.iterrows():
-      map_args.append( (func[:10], row, args.duration) )
+      map_args.append( (func[:10], row, args.duration, args.scale) )
 
   pool = mp.Pool()
   ret = pool.starmap(ecdf_trace_row, map_args)

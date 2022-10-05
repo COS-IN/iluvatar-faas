@@ -13,12 +13,12 @@ Sanitize and make consistent the various log files output by the worker or energ
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--logs-folder", '-l', help="The folder worker logs are stored in", required=True, type=str)
-argparser.add_argument("--max-rapl", '-m', help="File that contains max energy range for rapl in uj", default="none", type=str)
+argparser.add_argument("--max-rapl", '-m', help="File that contains max energy range for rapl in uj", required=False, type=str)
 args = argparser.parse_args()
 
 energy_log = os.path.join(args.logs_folder, "energy-function.log")
 
-if args.max_rapl == "none":
+if args.max_rapl is None:
   with open("/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj", "r") as f:
     max_rapl_uj = int(f.read())
 else:

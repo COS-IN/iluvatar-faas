@@ -96,7 +96,10 @@ fn load_metadata(path: String) -> Result<HashMap<String, Function>> {
   let mut rdr = csv::Reader::from_path(path)?;
   let mut ret = HashMap::new();
   for result in rdr.deserialize() {
-    let func: Function = result.expect("Error deserializing metadata");
+    let mut func: Function = result.expect("Error deserializing metadata");
+    if func.func_name.starts_with("lookbusy") {
+      func.use_lookbusy = Some(true);
+    }
     ret.insert(func.func_name.clone(), func);
   }
   Ok(ret)
@@ -109,6 +112,7 @@ pub struct Function {
   pub cold_dur_ms: u64,
   pub warm_dur_ms: u64,
   pub mem_mb: MemSizeMb,
+  pub use_lookbusy: Option<bool>,
 }
 #[derive(Debug, serde::Deserialize)]
 pub struct CsvInvocation {
@@ -148,6 +152,11 @@ pub fn match_trace_to_img(func: &Function, data: &HashMap<String, f64>) -> Strin
 }
 
 fn prepare_function_args(func: &Function, load_type: &str) -> Vec<String> {
+  if let Some(b) = func.use_lookbusy {
+    if b {
+      return vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)];
+    }
+  }
   match load_type {
     "lookbusy" => vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)],
     "functions" => vec![],
