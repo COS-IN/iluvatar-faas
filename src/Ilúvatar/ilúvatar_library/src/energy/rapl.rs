@@ -113,7 +113,6 @@ const AMD_ENERGY_UNIT_MASK: u64 = 0x1F00;
 const AMD_POWER_UNIT_MASK: u64 = 0xF;
 
 #[allow(unused)]
-#[derive(Debug)]
 pub struct RaplMsr {
   open_fds: Vec<File>,
   power_units: Vec<f64>,
@@ -223,7 +222,6 @@ impl RaplMsr {
   }
 }
 
-#[derive(Debug)]
 pub struct RaplMonitor {
   rapl: Mutex<RaplMsr>,
   config: Arc<EnergyConfig>,
