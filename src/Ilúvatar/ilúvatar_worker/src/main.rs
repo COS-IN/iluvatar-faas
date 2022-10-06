@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
-use iluvatar_library::{logging::start_tracing, nproc};
+use iluvatar_library::{logging::start_tracing, nproc, bail_error};
 use iluvatar_worker_library::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker_library::worker_api::config::Configuration;
@@ -21,9 +21,15 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<(
   debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
 
   let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
-  let mut signals = Signals::new(&sigs)?;
+  let mut signals = match Signals::new(&sigs) {
+    Ok(s) => s,
+    Err(e) => bail_error!(tid=%tid, error=%e, "Error creating signals info on startup"),
+  };
 
-  let worker = create_worker(server_config.clone(), tid).await?;
+  let worker = match create_worker(server_config.clone(), tid).await {
+    Ok(w) => w,
+    Err(e) => bail_error!(tid=%tid, error=%e, "Error creating worker on startup"),
+  };
   let addr = format!("{}:{}", server_config.address, server_config.port);
 
   register_rpc_to_controller(server_config.clone(), tid.clone());
@@ -49,7 +55,7 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone(), server_config.limits.clone());
   let lifecycle = factory.get_lifecycle_service(tid, false).await?;
 
-  let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone(), tid).await?;
+  let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone(), tid).await;
   let _invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone(), server_config.invocation.clone());
   lifecycle.clean_containers("default", tid).await?;
   Ok(())
@@ -57,7 +63,7 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
 
 fn build_runtime(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<Runtime> {
   match tokio::runtime::Builder::new_multi_thread()
-      .worker_threads(nproc(tid)? as usize)
+      .worker_threads(nproc(tid, false)? as usize)
       .enable_all()
       .event_interval(server_config.tokio_event_interval)
       .global_queue_interval(server_config.tokio_queue_interval)
@@ -80,13 +86,13 @@ fn main() -> Result<()> {
   match args.subcommand() {
     Some(("clean", _)) => {
       let server_config = Configuration::boxed(true, &config_pth).unwrap();
-      let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name)?;
+      let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name, tid)?;
       let worker_rt = build_runtime(server_config.clone(), tid)?;
       worker_rt.block_on(clean(server_config, tid))?;
     },
     None => { 
       let server_config = Configuration::boxed(false, &config_pth).unwrap();
-      let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name)?;
+      let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name, tid)?;
       let worker_rt = build_runtime(server_config.clone(), tid)?;
       worker_rt.block_on(run(server_config, tid))?;
     },

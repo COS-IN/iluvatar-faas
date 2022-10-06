@@ -119,7 +119,10 @@ impl NamespaceManager {
       Err(e) => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
     };
     let bridge_json = include_str!("../../resources/cni/il_worker_br.json");
-    writeln!(&mut file, "{}", bridge_json)?;
+    match writeln!(&mut file, "{}", bridge_json) {
+      Ok(_) => (),
+      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to write 'il_worker_br' conf file"),
+    };
 
     let env = self.cmd_environment();
     let name = BRIDGE_NET_ID.to_string();
@@ -234,7 +237,6 @@ impl NamespaceManager {
         ip.address = v[0].to_string();
       }
     }
-
   }
 
   pub fn pool_size(&self) -> usize {

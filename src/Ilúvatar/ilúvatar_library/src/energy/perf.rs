@@ -1,4 +1,4 @@
-use crate::{utils::execute_cmd_nonblocking, transaction::TransactionId};
+use crate::{utils::execute_cmd_nonblocking, transaction::TransactionId, bail_error};
 use std::{process::Child, time::{Duration, SystemTime}};
 use anyhow::Result;
 use tracing::{warn, debug};
@@ -67,6 +67,9 @@ async fn test_args(tid: &TransactionId, args: &Vec<&str>)-> Result<bool> {
   }
   // probably would have errored out after a second
   // safe to assume metric exists
-  child.kill()?;
+  match child.kill() {
+    Ok(_) => (),
+    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to kill perf child when testing args"),
+  };
   Ok(true)
 }

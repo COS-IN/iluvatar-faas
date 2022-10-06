@@ -11,7 +11,7 @@ pub struct ProcessMonitor {
   timer: LocalTime,
 }
 impl ProcessMonitor {
-  pub fn boxed(config: Arc<EnergyConfig>) -> Result<Arc<Self>> {
+  pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     let (tx, rx) = channel();
     let handle = ProcessMonitor::launch_worker_thread(rx);
 
@@ -19,7 +19,7 @@ impl ProcessMonitor {
       pid: std::process::id().to_string(),
       _worker_thread: handle,
       config,
-      timer: LocalTime::new()?
+      timer: LocalTime::new(tid)?
     });
     tx.send(r.clone())?;
     Ok(r)

@@ -1,7 +1,7 @@
 use std::{path::{Path, PathBuf}, fs::File, io::Read, sync::Arc};
 use tracing::{error, debug};
 use anyhow::Result;
-use crate::{transaction::TransactionId, utils::execute_cmd};
+use crate::{transaction::TransactionId, nproc};
 
 const BASE_CPU_DIR: &str = "/sys/devices/system/cpu";
 
@@ -11,14 +11,9 @@ pub struct CPUService {
 
 impl CPUService {
   pub fn boxed(tid: &TransactionId) -> Result<Arc<Self>> {
-    let nproc = execute_cmd("/usr/bin/nproc", &vec!["--all"], None, tid)?;
-    let stdout = String::from_utf8_lossy(&nproc.stdout);
-    let procs = match stdout[0..stdout.len()-1].parse::<usize>() {
-      Ok(u) => u,
-      Err(e) => anyhow::bail!("Unable to parse nproc result because of error: '{}'", e),
-    };
+    let procs = nproc(tid, true)?;
     Ok(Arc::new(CPUService {
-      nprocs: procs
+      nprocs: procs as usize
     }))
   }
 

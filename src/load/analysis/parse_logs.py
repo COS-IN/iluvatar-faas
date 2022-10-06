@@ -100,6 +100,8 @@ def prepare_energy_log(df: pd.DataFrame) -> pd.DataFrame:
   worker_log = os.path.join(args.logs_folder, "worker.log")
   if not os.path.exists(worker_log):
     worker_log = os.path.join(args.logs_folder, "worker_worker1.log")
+  if not os.path.exists(worker_log):
+    return
 
   with open(worker_log, 'r') as f:
     while True:

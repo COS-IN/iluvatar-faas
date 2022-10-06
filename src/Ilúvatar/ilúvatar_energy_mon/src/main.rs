@@ -26,7 +26,7 @@ async fn main() -> anyhow::Result<()> {
     ingestion_udp: false,
     enabled: false,
   });
-  let _guard = start_tracing(log_config, graphite_cfg,&"energy_monitor".to_string())?;
+  let _guard = start_tracing(log_config, graphite_cfg,&"energy_monitor".to_string(), tid)?;
 
   let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
   let mut signals = Signals::new(&sigs)?;

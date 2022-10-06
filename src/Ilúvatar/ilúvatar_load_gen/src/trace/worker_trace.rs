@@ -51,7 +51,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
                         .enable_all()
                         .build().unwrap();
 
-  let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name)?;
+  let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name, tid)?;
   let worker = threaded_rt.block_on(create_worker(server_config.clone(), tid))?;
   let worker = Arc::new(worker);
 
@@ -211,6 +211,7 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let prewarm_count: u32 = get_val("prewarm", &sub_args)?;
   let port: Port = get_val("port", &main_args)?;
   let host: String = get_val("host", &main_args)?;
+  let tid: &TransactionId = &iluvatar_library::transaction::LIVE_WORKER_LOAD_TID;
 
   let threaded_rt = Builder::new_multi_thread()
                         .enable_all()
@@ -220,13 +221,13 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let metadata_pth: String = get_val("metadata", &sub_args)?;
   let metadata = super::load_metadata(metadata_pth)?;
   live_register_functions(&metadata, &host, port, &load_type, func_data, &threaded_rt)?;
-  println!("{} prewarming {} containers per function", LocalTime::new()?.now_str()?, prewarm_count);
+  println!("{} prewarming {} containers per function", LocalTime::new(tid)?.now_str()?, prewarm_count);
   live_prewarm_functions(&metadata, &host, port, &threaded_rt, prewarm_count)?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
   let mut handles: Vec<JoinHandle<(Result<(InvokeResponse, FunctionExecOutput, u64)>, String)>> = Vec::new();
 
-  println!("{} starting live trace run", LocalTime::new()?.now_str()?);
+  println!("{} starting live trace run", LocalTime::new(tid)?.now_str()?);
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
     let invoke: CsvInvocation = match result {

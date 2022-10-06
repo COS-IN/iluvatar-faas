@@ -1,6 +1,6 @@
 use std::{sync::Arc, path::Path};
 use crate::{transaction::TransactionId, energy::{perf::start_perf_stat, EnergyConfig}};
-use tracing::error;
+use tracing::{error, debug};
 use anyhow::Result;
 use super::{ipmi::IPMIMonitor, rapl::RaplMonitor, process_pct::ProcessMonitor};
 
@@ -22,23 +22,39 @@ impl EnergyLogger {
       true => {
         let perf_file = Path::new(&config.log_folder);
         let perf_file = perf_file.join("energy-perf.log");
-        Some(start_perf_stat(&perf_file.to_str().unwrap(), tid, config.perf_freq_ms).await?)  
+        debug!(tid=%tid, "Starting perf energy monitoring");
+        let f = match perf_file.to_str() {
+          Some(f) => f,
+          None => {
+            anyhow::bail!("Failed to start perf because the log file could not be formatted properly");
+          },
+        };
+        Some(start_perf_stat(&f, tid, config.perf_freq_ms).await?)  
       },
       false => None
     };
 
     let ipmi = match config.ipmi_enabled() {
-      true => Some(IPMIMonitor::boxed(config.clone(), tid)?),
+      true => {
+        debug!(tid=%tid, "Starting IPMI energy monitoring");
+        Some(IPMIMonitor::boxed(config.clone(), tid)?)
+      },
       false => None,
     };
 
     let rapl = match config.rapl_enabled() {
-      true => Some(RaplMonitor::boxed(config.clone(), tid)?),
+      true => {
+        debug!(tid=%tid, "Starting rapl energy monitoring");
+        Some(RaplMonitor::boxed(config.clone(), tid)?)
+      },
       false => None,
     };
 
     let proc = match config.process_enabled() {
-      true => Some(ProcessMonitor::boxed(config.clone())?),
+      true => {
+        debug!(tid=%tid, "Starting process energy monitoring");
+        Some(ProcessMonitor::boxed(config.clone(), tid)?)
+      },
       false => None,
     };
 

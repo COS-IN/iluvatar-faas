@@ -31,9 +31,9 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>) -> Result<ContainerManager> {
+  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>) -> ContainerManager {
 
-    Ok(ContainerManager {
+    ContainerManager {
       registered_functions: Arc::new(DashMap::new()),
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       limits_config,
@@ -43,16 +43,16 @@ impl ContainerManager {
       cont_lifecycle,
       prioritized_list: Arc::new(RwLock::new(Vec::new())),
       _worker_thread: worker_thread
-    })
+    }
   }
 
-  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<Arc<ContainerManager>> {
+  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, tid: &TransactionId) -> Arc<ContainerManager> {
     let (tx, rx) = channel();
     let worker = ContainerManager::start_thread(rx, tid);
 
-    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, worker).await?);
+    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, worker).await);
     tx.send(cm.clone()).unwrap();
-    Ok(cm)
+    cm
   }
 
   fn start_thread(rx: Receiver<Arc<ContainerManager>>, tid: &TransactionId) -> std::thread::JoinHandle<()> {

@@ -6,8 +6,10 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use anyhow::Result;
 use tracing_flame::FlameLayer;
 use tracing_subscriber::{prelude::*, Registry};
+use crate::bail_error;
 use crate::energy::energy_layer::EnergyLayer;
 use crate::graphite::GraphiteConfig;
+use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
 
 #[derive(Debug, serde::Deserialize)]
@@ -53,7 +55,7 @@ fn str_to_span(spanning: &String) -> FmtSpan {
   fmt
 }
 
-pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfig>, worker_name: &String) -> Result<impl Drop> {
+pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfig>, worker_name: &String, tid: &TransactionId) -> Result<impl Drop> {
   #[allow(dyn_drop)]
   let mut drops:Vec<Box<dyn Drop>> = Vec::new();
   let (non_blocking, _guard) = match config.directory.as_str() {
@@ -88,7 +90,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
     .with(energy_layer);
   let writer_layer = tracing_subscriber::fmt::layer()
     .with_span_events(str_to_span(&config.spanning))
-    .with_timer(LocalTime::new()?)
+    .with_timer(LocalTime::new(tid)?)
     .with_writer(non_blocking);
 
   match config.flame.as_str() {
@@ -110,8 +112,11 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
   Ok(drops)
 }
 
-fn timezone() -> Result<String> {
-  let mut tz_str = std::fs::read_to_string("/etc/timezone")?;
+fn timezone(tid: &TransactionId) -> Result<String> {
+  let mut tz_str = match std::fs::read_to_string("/etc/timezone") {
+    Ok(t) => t,
+    Err(e) => bail_error!(tid=%tid, error=%e, "/etc/timezone doesn ot exist!!"),
+  };
   tz_str.truncate(tz_str.trim_end().len());
   // let tz_str = iana_time_zone::get_timezone()?;
   match tzdb::tz_by_name(&tz_str) {
@@ -137,17 +142,20 @@ pub struct LocalTime {
   local_offset: UtcOffset,
 }
 impl LocalTime {
-  pub fn new() -> Result<Self> {
+  pub fn new(tid: &TransactionId) -> Result<Self> {
     let format = format_description::parse(
       "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]",
     )?;
     let now = OffsetDateTime::now_utc();
-    let tz_str = timezone()?;
+    let tz_str = timezone(tid)?;
     let time_zone = match tzdb::tz_by_name(&tz_str) {
       Some(t) => t,
       None => anyhow::bail!("parsed local timezone string was invalid: {}", tz_str),
     };
-    let tm = time_zone.find_local_time_type(now.unix_timestamp())?;
+    let tm = match time_zone.find_local_time_type(now.unix_timestamp()) {
+      Ok(t) => t,
+      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to find time zone type"),
+    };
     let offset = UtcOffset::from_whole_seconds(tm.ut_offset())?;
     Ok(LocalTime {
       format,

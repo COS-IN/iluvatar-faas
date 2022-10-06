@@ -1,3 +1,4 @@
+use iluvatar_library::bail_error;
 use iluvatar_library::energy::energy_logging::EnergyLogger;
 use crate::services::worker_health::WorkerHealthService;
 use crate::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
@@ -17,14 +18,26 @@ pub mod sim_worker;
 
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
   let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
-  let lifecycle = factory.get_lifecycle_service(tid, true).await?;
+  let lifecycle = match factory.get_lifecycle_service(tid, true).await {
+    Ok(l) => l,
+    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make lifecycle"),
+  };
 
-  let container_man = ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), lifecycle.clone(), tid).await?;
+  let container_man = ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), lifecycle.clone(), tid).await;
   let invoker = InvokerService::boxed(container_man.clone(), tid, worker_config.limits.clone(), worker_config.invocation.clone());
-  let status = StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid).await?;
-  let health = WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await?;
+  let status = match StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid).await {
+    Ok(s) => s,
+    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make status service"),
+  };
+  let health = match WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await {
+    Ok(h) => h,
+    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make worker health service"),
+  };
 
-  let energy = EnergyLogger::boxed(worker_config.energy.clone(), tid).await?;
+  let energy = match EnergyLogger::boxed(worker_config.energy.clone(), tid).await {
+    Ok(e) => e,
+    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make energy logger"),
+  };
   
   Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy))
 }

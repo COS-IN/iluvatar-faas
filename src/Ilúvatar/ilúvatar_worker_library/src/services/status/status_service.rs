@@ -4,6 +4,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread::JoinHandle;
 use std::time::{SystemTime, Duration};
 use iluvatar_library::cpu_interaction::CPUService;
+use iluvatar_library::nproc;
 use tracing::{info, debug, error, warn};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
@@ -109,27 +110,6 @@ impl StatusService {
     }
   }
 
-  fn nproc(&self, tid: &TransactionId) -> u32 {
-    match execute_cmd("/usr/bin/nproc", &vec!["--all"], None, tid) {
-      Ok(out) => {
-        let stdout = String::from_utf8_lossy(&out.stdout).replace("\n", "");
-        let nprocs = match stdout.parse::<u32>() {
-          Ok(r) => r,
-          Err(e) => {
-            error!(tid=%tid, "error parsing u32 from nproc: '{}': {}", stdout, e);
-            0
-          },
-        };
-        debug!(tid=%tid, "nprocs result: {}", nprocs);
-        nprocs
-      },
-      Err(e) => {
-        error!(tid=%tid, "unable to call nproc because {}", e);
-        0
-      },
-    }
-  }
-
   fn uptime(&self, tid: &TransactionId) -> f64 {
     match execute_cmd("/usr/bin/uptime", &vec![], None, tid) {
       Ok(out) => {
@@ -159,7 +139,13 @@ impl StatusService {
 
     let (us, sy, id, wa) = self.vmstat(tid);
     let minute_load_avg = self.uptime(tid);
-    let nprocs = self.nproc(tid);
+    let nprocs = match nproc(tid, false) {
+      Ok(n) => n,
+      Err(e) => {
+        error!(tid=%tid, error=%e, "Unable to get the number of processors on the system");
+        0
+      },
+    };
     let queue_len = self.invoker_service.queue_len() as i64;
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();

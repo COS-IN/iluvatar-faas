@@ -73,7 +73,7 @@ impl IPMIMonitor {
       ipmi: i,
       _worker_thread: handle,
       config,
-      timer: LocalTime::new()?
+      timer: LocalTime::new(tid)?
     });
     tx.send(r.clone())?;
     Ok(r)
@@ -85,7 +85,7 @@ impl IPMIMonitor {
       let svc = match rx.recv() {
         Ok(svc) => svc,
         Err(e) => {
-          error!(tid=%tid, error=%e, "energy monitor thread failed to receive service from channel!");
+          error!(tid=%tid, error=%e, "IMPI energy monitor thread failed to receive service from channel!");
           return;
         },
       };

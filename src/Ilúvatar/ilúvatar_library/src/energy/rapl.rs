@@ -8,10 +8,9 @@ use std::fs::{read_to_string, File};
 use anyhow::Result;
 use parking_lot::Mutex;
 use tracing::{warn, trace, debug, error};
-use crate::bail_error;
+use crate::{bail_error, nproc};
 use crate::logging::LocalTime;
 use crate::transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID};
-use crate::utils::execute_cmd;
 use super::EnergyConfig;
 
 const RAPL_PTH: &str = "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj";
@@ -114,6 +113,7 @@ const AMD_ENERGY_UNIT_MASK: u64 = 0x1F00;
 const AMD_POWER_UNIT_MASK: u64 = 0xF;
 
 #[allow(unused)]
+#[derive(Debug)]
 pub struct RaplMsr {
   open_fds: Vec<File>,
   power_units: Vec<f64>,
@@ -123,12 +123,7 @@ pub struct RaplMsr {
 }
 impl RaplMsr {
   pub fn new(tid: &TransactionId) -> Result<Self> {
-    let nproc = execute_cmd("/usr/bin/nproc", &vec!["--all"], None, tid)?;
-    let stdout = String::from_utf8_lossy(&nproc.stdout);
-    let procs = match stdout[0..stdout.len()-1].parse::<usize>() {
-      Ok(u) => u,
-      Err(e) => anyhow::bail!("Unable to parse nproc result because of error: '{}'", e),
-    };
+    let procs = nproc(tid, false)?;
 
     let mut open_fds = vec![];
     let mut power_units = vec![];
@@ -137,8 +132,12 @@ impl RaplMsr {
     let intel = RaplMsr::use_intel(tid)?;
 
     for cpu in 0..procs {
-      let mut file = File::open(format!("/dev/cpu/{}/msr", cpu))?;
-      let (pu, cpu, time) = RaplMsr::read_power_unit(cpu, &mut file, intel, tid)?;
+      let mut file = match File::open(format!("/dev/cpu/{}/msr", cpu)) {
+        Ok(f) => f,
+        // This can happen if the CPU core in question has been disabled
+        Err(e) => bail_error!(tid=%tid, error=%e, cpu=cpu, "Failed to open MSR for cpu"),
+      };
+      let (pu, cpu, time) = RaplMsr::read_power_unit(cpu as usize, &mut file, intel, tid)?;
       power_units.push(pu);
       cpu_energy_units.push(cpu);
       time_units.push(time);
@@ -181,7 +180,7 @@ impl RaplMsr {
     match fd.read_exact(&mut buffer) {
       Ok(_) => (),
       Err(e) => {
-        warn!(error=%e, tid=%tid, cpu=cpu, "Failed to read msr register");
+        warn!(error=%e, tid=%tid, cpu=cpu, "Failed to read MSR register");
         return 0;
       }
     };
@@ -191,7 +190,10 @@ impl RaplMsr {
   }
 
   fn use_intel(tid: &TransactionId) -> Result<bool> {
-    let mut file = File::open(format!("/dev/cpu/{}/msr", 0))?;
+    let mut file = match File::open(format!("/dev/cpu/{}/msr", 0)) {
+      Ok(f) => f,
+      Err(e) => bail_error!(tid=%tid, error=%e, cpu=0, "Failed to open msr register for CPU 0 to detect if on Intel machine"),
+    };
     // will be 0 if the Intel MSR doesn't work
     // In that case we use AMD ones
     Ok(RaplMsr::read_msr(0, &mut file, MSR_RAPL_POWER_UNIT, tid) != 0)
@@ -221,6 +223,7 @@ impl RaplMsr {
   }
 }
 
+#[derive(Debug)]
 pub struct RaplMonitor {
   rapl: Mutex<RaplMsr>,
   config: Arc<EnergyConfig>,
@@ -237,7 +240,7 @@ impl RaplMonitor {
       rapl: Mutex::new(i),
       _worker_thread: handle,
       config,
-      timer: LocalTime::new()?,
+      timer: LocalTime::new(tid)?,
     });
     tx.send(r.clone())?;
     Ok(r)
@@ -249,7 +252,7 @@ impl RaplMonitor {
       let svc = match rx.recv() {
         Ok(svc) => svc,
         Err(e) => {
-          error!(tid=%tid, error=%e, "energy monitor thread failed to receive service from channel!");
+          error!(tid=%tid, error=%e, "RAPL energy monitor thread failed to receive service from channel!");
           return;
         },
       };
