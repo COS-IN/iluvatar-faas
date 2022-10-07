@@ -8,6 +8,8 @@ def main(args):
   global cold
   was_cold = cold
   cold = False
+  start = time()
+
   cold_run_ms = float(args.get("cold_run", 2000))
   warm_run_ms = float(args.get("warm_run", 1000))
   mem_mb = int(args.get("mem_mb", 128))
@@ -35,9 +37,10 @@ def main(args):
   sleep(timeout)
   lookbusy.send_signal(signal.SIGINT)
 
-  latency = time() - start
+  end = time()
+  latency = end - start
 
-  return {"body": {'latency': latency, "cold":was_cold}}
+  return {"body": {'latency': latency, "cold":was_cold, "start":start, "end":end}}
 
 if __name__ == "__main__":
   print(main({}))
