@@ -107,6 +107,8 @@
       "ILUVATAR_WORKER__container_resources__startup_timeout_ms" : "{{ worker_startup_timeout_ms | default(10000) }}"
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
+      "ILUVATAR_WORKER__networking__use_pool" : "{{ worker_use_pool | default(true) }}"
+      "ILUVATAR_WORKER__networking__pool_freq_sec" : "{{ worker_pool_freq_sec | default(1) }}"
       "ILUVATAR_WORKER__networking__hardware_interface" : "{{ __hardware_interface }}"
       # Energy config
       "ILUVATAR_WORKER__energy__rapl_freq_ms" : "{{ worker_rapl_log_freq_ms | default(1000) }}"
@@ -119,7 +121,7 @@
       "ILUVATAR_WORKER__graphite__address" : "{{ graphite.address }}"
       "ILUVATAR_WORKER__graphite__ingestion_port" : "{{ graphite.ingestion_port }}"
       "ILUVATAR_WORKER__graphite__ingestion_udp" : "{{ graphite.ingestion_udp }}"
-      "ILUVATAR_WORKER__graphite__enable" : "{{ graphite.enable }}"
+      "ILUVATAR_WORKER__graphite__enabled" : "{{ graphite.enabled }}"
     register: worker_output
 
   - name: debug print
