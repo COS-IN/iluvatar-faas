@@ -45,8 +45,8 @@ pub struct ContainerResources {
   pub startup_timeout_ms: u64,
   /// amount of memory the container pool monitor will try and maintain as a buffer (eager eviction)
   pub memory_buffer_mb: MemSizeMb,
-  /// how often the container pool monitor will run, in seconds
-  pub pool_freq_sec: u64,
+  /// how often the container pool monitor will run, in milliseconds
+  pub pool_freq_ms: u64,
   /// container backend to use: 
   /// containerd, docker (not implemented yet)
   pub backend: String,
@@ -102,8 +102,8 @@ pub struct NetworkingConfig {
   pub use_pool: bool,
   /// number of free namspaces to keep in the pool
   pub pool_size: usize,
-  /// frequency of namespace pool monitor runs
-  pub pool_freq_sec: u64,
+  /// frequency of namespace pool monitor runs, in milliseconds
+  pub pool_freq_ms: u64,
   /// network interface to attach bridge to
   pub hardware_interface: String,
 }

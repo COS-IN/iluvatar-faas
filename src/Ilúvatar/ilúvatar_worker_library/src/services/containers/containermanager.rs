@@ -81,7 +81,7 @@ impl ContainerManager {
         iluvatar_library::continuation::GLOB_CONT_CHECK.thread_start(tid);
         while iluvatar_library::continuation::GLOB_CONT_CHECK.check_continue() {
           cm.monitor_pool(tid.clone()).await;
-          tokio::time::sleep(std::time::Duration::from_secs(cm.resources.pool_freq_sec)).await;
+          tokio::time::sleep(std::time::Duration::from_millis(cm.resources.pool_freq_ms)).await;
         }
         iluvatar_library::continuation::GLOB_CONT_CHECK.thread_exit(tid);
       });

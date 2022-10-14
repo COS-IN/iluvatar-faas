@@ -60,7 +60,7 @@ impl NamespaceManager {
           let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
           loop {
             nm.monitor_pool(tid).await;
-            tokio::time::sleep(std::time::Duration::from_secs(nm.config.pool_freq_sec)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(nm.config.pool_freq_ms)).await;
           }
         }))
       }
@@ -105,7 +105,7 @@ impl NamespaceManager {
       Ok(_) => Ok(()),
       Err(_) => {
         debug!(tid=%tid, "retrying network bridge creation");
-        std::thread::sleep(std::time::Duration::from_secs(self.config.pool_freq_sec));
+        std::thread::sleep(std::time::Duration::from_millis(self.config.pool_freq_ms));
         self.try_ensure_bridge(tid)
       },
     }

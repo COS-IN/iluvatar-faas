@@ -105,10 +105,11 @@
       "ILUVATAR_WORKER__container_resources__eviction" : "{{ worker_eviction | default('LRU') }}"
       "ILUVATAR_WORKER__container_resources__concurrent_creation" : "{{ worker_concurrent_creation | default(5) }}"
       "ILUVATAR_WORKER__container_resources__startup_timeout_ms" : "{{ worker_startup_timeout_ms | default(10000) }}"
+      "ILUVATAR_WORKER__container_resources__pool_freq_ms" : "{{ worker_cm_pool_freq_ms | default(1000) }}"
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
       "ILUVATAR_WORKER__networking__use_pool" : "{{ worker_use_pool | default(true) }}"
-      "ILUVATAR_WORKER__networking__pool_freq_sec" : "{{ worker_pool_freq_sec | default(1) }}"
+      "ILUVATAR_WORKER__networking__pool_freq_ms" : "{{ worker_net_pool_freq_ms | default(1000) }}"
       "ILUVATAR_WORKER__networking__hardware_interface" : "{{ __hardware_interface }}"
       # Energy config
       "ILUVATAR_WORKER__energy__rapl_freq_ms" : "{{ worker_rapl_log_freq_ms | default(1000) }}"

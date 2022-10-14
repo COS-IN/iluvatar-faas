@@ -73,6 +73,11 @@
       "ILUVATAR_CONTROLLER__graphite__address" : "{{ graphite.address }}"
       "ILUVATAR_CONTROLLER__graphite__api_port" : "{{ graphite.api_port }}"
       "ILUVATAR_WORKER__graphite__ingestion_udp" : "{{ graphite.ingestion_udp }}"
+    register: controller_output
+
+  - name: debug print
+    debug:
+      msg: "{{ controller_output }}"
 
   - name: wait until the controller on this host is up and running
     uri:

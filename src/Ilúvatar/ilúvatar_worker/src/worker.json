@@ -30,7 +30,7 @@
     "eviction": "LRU",
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 0,
-    "pool_freq_sec": 5,
+    "pool_freq_ms": 5,
     "backend": "containerd",
     "snapshotter": "zfs",
     "concurrent_creation": 5
@@ -42,7 +42,7 @@
     "cni_name": "il_worker_br",
     "use_pool": true,
     "pool_size": 20,
-    "pool_freq_sec": 1,
+    "pool_freq_ms": 1,
     "hardware_interface": "enp4s0"
   },
   "load_balancer_url": "http://localhost:8078",
