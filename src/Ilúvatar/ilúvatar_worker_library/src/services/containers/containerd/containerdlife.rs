@@ -366,6 +366,19 @@ impl ContainerdLifecycle {
   async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<ContainerdContainer> {
     let port = 8080;
 
+    let permit = match &self.creation_sem {
+      Some(sem) => match sem.acquire().await {
+        Ok(p) => {
+          debug!(tid=%tid, "Acquired containerd containerd creation semaphore");
+          Some(p)
+        },
+        Err(e) => {
+          bail_error!(error=%e, tid=%tid, "Error trying to acquire containerd creation semaphore");
+        },
+      },
+      None => None,
+    };
+
     let cid = format!("{}-{}", fqdn, GUID::rand());
     let ns = self.namespace_manager.get_namespace(tid)?;
     debug!(tid=%tid, namespace=%ns.name, containerid=%cid, "Assigning namespace to container");
@@ -407,19 +420,6 @@ impl ContainerdLifecycle {
         };
 
     debug!(tid=%tid, response=?resp, "Container created");
-
-    let permit = match &self.creation_sem {
-      Some(sem) => match sem.acquire().await {
-        Ok(p) => {
-          debug!(tid=%tid, "Acquired containerd containerd creation semaphore");
-          Some(p)
-        },
-        Err(e) => {
-          bail_error!(error=%e, tid=%tid, "Error trying to acquire containerd creation semaphore");
-        },
-      },
-      None => None,
-    };
 
     let mounts = match self.load_mounts(&cid, &reg.snapshot_base, tid).await {
       Ok(v) => v,
