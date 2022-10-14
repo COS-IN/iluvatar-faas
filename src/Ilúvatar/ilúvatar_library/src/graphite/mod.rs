@@ -19,12 +19,7 @@ pub struct GraphiteConfig {
 }
 
 // [{"target": "worker.load.loadavg", "tags": {"name": "worker.load.loadavg"}, "datapoints": [[3.81, 1658417660], [4.29, 1658417670]]}]
-// #[derive(Debug, serde::Deserialize)]
 type GraphiteResponse<T> = Vec<Metric<T>>;
-
-// struct GraphiteResponse<T> {
-//   pub data: Vec<Metric<T>>
-// }
 
 // {"target": "worker.load.loadavg", "tags": {"name": "worker.load.loadavg"}, "datapoints": [[3.81, 1658417660], [4.29, 1658417670]]}
 #[derive(Debug, serde::Deserialize)]
