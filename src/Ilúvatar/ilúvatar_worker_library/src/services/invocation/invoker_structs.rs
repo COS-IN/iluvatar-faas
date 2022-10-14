@@ -1,15 +1,16 @@
-use std::{task::{Poll, Waker}, sync::Arc, time::Duration, future::Future};
-use iluvatar_library::transaction::TransactionId;
+use std::sync::Arc;
+use iluvatar_library::{transaction::TransactionId, bail_error};
 use parking_lot::Mutex;
+use tokio::sync::Semaphore;
+use anyhow::Result;
 
 #[derive(Debug)]
 #[allow(unused)]
 pub struct InvocationResult {
-  pub completed: bool,
   pub result_json: String,
   pub duration: u64,
-  waker: Option<Waker>,
-  pub attempts: u32
+  pub attempts: u32,
+  pub completed: bool
 }
 impl InvocationResult {
   pub fn boxed() -> InvocationResultPtr {
@@ -17,8 +18,7 @@ impl InvocationResult {
       completed: false,
       duration: 0,
       result_json: "".to_string(),
-      waker: None,
-      attempts: 0,
+      attempts: 0
     }))
   }
 }
@@ -33,64 +33,29 @@ pub struct EnqueuedInvocation {
   pub function_version: String, 
   pub json_args: String, 
   pub tid: TransactionId,
+  signal: Semaphore,
 }
 
 impl EnqueuedInvocation {
-  pub fn new(function_name: String, function_version: String, json_args: String, tid: TransactionId, result: InvocationResultPtr) -> Self {
+  pub fn new(function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Self {
     EnqueuedInvocation {
-      result_ptr: result,
+      result_ptr: InvocationResult::boxed(),
       function_name,
       function_version,
       json_args,
       tid,
+      signal: Semaphore::new(0)
     }
   }
-}
 
-#[derive(Debug)]
-#[allow(unused)]
-pub struct QueueFuture {
-  pub result: InvocationResultPtr,
-
-}
-impl QueueFuture {
-  pub fn new() -> Self {
-    let result = InvocationResult::boxed();
-    let q = QueueFuture {
-      result: result.clone(),
-    };
-    // Spawn monitor thread
-    std::thread::spawn(move || {
-      loop {
-        // TODO: another way or better sleep time?
-        std::thread::sleep(Duration::from_millis(1));
-        let mut shared_state = result.lock();
-        // Signal that the timer has completed and wake up the last
-        // task on which the future was polled, if one exists.
-        if  shared_state.completed {
-          if let Some(waker) = shared_state.waker.take() {
-            waker.wake();
-            break;
-          }
-        }
-      }
-    });
-    q
-  }
-}
-
-impl Future for QueueFuture {
-    type Output = InvocationResultPtr;
-
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-      let mut result = self.result.lock();
-      tracing::trace!("Polling future");
-      if result.completed {
-        Poll::Ready(self.result.clone())
-      }
-      else {
-        result.waker = Some(cx.waker().clone());
-        Poll::Pending
-      }
+  pub async fn wait(&self, tid: &TransactionId) -> Result<()> {
+    match self.signal.acquire().await {
+      Ok(_) => Ok(()),
+      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to wait on enqueued invocation signal due to an error"),
     }
+  }
+
+  pub fn signal(&self) {
+    self.signal.add_permits(1);
+  }
 }
