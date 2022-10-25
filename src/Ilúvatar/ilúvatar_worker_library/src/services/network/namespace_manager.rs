@@ -2,11 +2,11 @@ use crate::services::network::network_structs::{ContdNamespace, Namespace};
 use crate::worker_api::worker_config::NetworkingConfig;
 use std::sync::Arc;
 use std::collections::HashMap;
-use std::sync::mpsc::channel;
 use anyhow::Result;
 use tokio::task::JoinHandle;
 use iluvatar_library::transaction::{TransactionId, NAMESPACE_POOL_WORKER_TID};
 use iluvatar_library::{utils, bail_error, utils::execute_cmd};
+use iluvatar_library::threading::tokio_thread;
 use parking_lot::Mutex;
 use std::env;
 use std::fs::File;
@@ -41,47 +41,31 @@ impl NamespaceManager {
   }
 
   pub fn boxed(config: Arc<NetworkingConfig>, tid: &TransactionId) -> Arc<NamespaceManager> {
-    let (tx, rx) = channel();
     debug!(tid=%tid, "creating namespace manager");
 
-    let thread = match config.use_pool {
-      false => None,
+    match config.use_pool {
+      false => Arc::new(NamespaceManager::new(config.clone(), None)),
       true => {
         info!(tid=%tid, "Launching namespace pool monitor thread");
-        Some(tokio::spawn(async move {
-          let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
-          let nm: Arc<NamespaceManager> = match rx.recv() {
-            Ok(cm) => cm,
-            Err(_) => {
-              error!(tid=%tid, "Invoker service thread failed to receive service from channel!");
-              return;
-            },
-          };
-          let tid: &TransactionId = &NAMESPACE_POOL_WORKER_TID;
-          loop {
-            nm.monitor_pool(tid).await;
-            tokio::time::sleep(std::time::Duration::from_millis(nm.config.pool_freq_ms)).await;
-          }
-        }))
+        let (handle, tx) = tokio_thread(config.pool_freq_ms, NAMESPACE_POOL_WORKER_TID.clone(), NamespaceManager::monitor_pool);
+        let ns = Arc::new(NamespaceManager::new(config.clone(), Some(handle)));
+        tx.send(ns.clone()).unwrap();
+        ns
       }
-    };
-
-    let ns = Arc::new(NamespaceManager::new(config.clone(), thread));
-    tx.send(ns.clone()).unwrap();
-    ns
+    }
   }
 
-  #[tracing::instrument(skip(self), fields(tid=%tid))]
-  async fn monitor_pool(&self, tid: &TransactionId) {
-    while self.pool_size() < self.config.pool_size {
-      let ns = match self.create_namespace(&self.generate_net_namespace_name(), tid) {
+  #[tracing::instrument(skip(service), fields(tid=%tid))]
+  async fn monitor_pool(service: Arc<Self>, tid: TransactionId) {
+    while service.pool_size() < service.config.pool_size {
+      let ns = match service.create_namespace(&service.generate_net_namespace_name(), &tid) {
         Ok(ns) => ns,
         Err(e) => {
           error!(tid=%tid, error=%e, "Failed creating namespace in monitor");
           break;
         },
       };
-      match self.return_namespace(Arc::new(ns), tid) {
+      match service.return_namespace(Arc::new(ns), &tid) {
         Ok(_) => {},
         Err(e) => error!(tid=%tid, error=%e, "Failed giving namespace to pool"),
       };
