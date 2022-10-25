@@ -1,5 +1,6 @@
 use crate::services::containers::structs::{InsufficientMemoryError, InsufficientCoresError, ContainerLockedError};
 use iluvatar_library::bail_error;
+use iluvatar_library::threading::{tokio_runtime, test_runtime};
 use crate::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID};
 use iluvatar_library::types::MemSizeMb;
@@ -9,7 +10,7 @@ use anyhow::{Result, bail};
 use dashmap::DashMap;
 use std::cmp::Ordering;
 use std::collections::HashMap; 
-use std::sync::{Arc, mpsc::{Receiver, channel}};
+use std::sync::Arc;
 use parking_lot::RwLock;
 use super::LifecycleService;
 use super::structs::{Container, RegisteredFunction, ContainerLock};
@@ -47,60 +48,41 @@ impl ContainerManager {
   }
 
   pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, tid: &TransactionId) -> Arc<ContainerManager> {
-    let (tx, rx) = channel();
-    let worker = ContainerManager::start_thread(rx, tid);
+    // let (tx, rx) = channel();
+    // let worker = ContainerManager::start_thread(rx, tid);
+    // let f: AsyncFn<ContainerManager> = Box::new(ContainerManager::test_fn);
+    // let test = test_runtime(ContainerManager::test_fn);
 
-    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, worker).await);
-    tx.send(cm.clone()).unwrap();
+    let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), ContainerManager::monitor_pool);
+
+    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, handle).await);
+
+    // let r = test(&cm, &CTR_MGR_WORKER_TID).await;
+
+    // tx.send(cm.clone()).unwrap();
     cm
   }
 
-  fn start_thread(rx: Receiver<Arc<ContainerManager>>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
-    debug!(tid=%tid, "Launching ContainerManager thread");
-    // run on an OS thread here
-    // If this thread crashes, we'll never know and the worker will not have a good time
-    std::thread::spawn(move || {
-      let tid: &TransactionId = &CTR_MGR_WORKER_TID;
-      let cm: Arc<ContainerManager> = match rx.recv() {
-        Ok(cm) => cm,
-        Err(e) => {
-          error!(tid=%tid, error=%e, "Invoker service thread failed to receive service from channel!");
-          return;
-        },
-      };
-
-      let worker_rt = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(e) => { 
-          error!(tid=%tid, error=%e, "Tokio thread runtime failed to start");
-          return ();
-        },
-      };
-      debug!(tid=%tid, "container manager worker started");
-      worker_rt.block_on(async {
-        iluvatar_library::continuation::GLOB_CONT_CHECK.thread_start(tid);
-        while iluvatar_library::continuation::GLOB_CONT_CHECK.check_continue() {
-          cm.monitor_pool(tid.clone()).await;
-          tokio::time::sleep(std::time::Duration::from_millis(cm.resources.pool_freq_ms)).await;
-        }
-        iluvatar_library::continuation::GLOB_CONT_CHECK.thread_exit(tid);
-      });
-    })
+  fn test_fn<'r, 's>(service: &'r Arc<Self>, tid: &'s TransactionId) -> impl std::future::Future<Output=()> {
+    async { () }
   }
 
-  #[tracing::instrument(skip(self), fields(tid=%tid))]
-  async fn monitor_pool(&self, tid: TransactionId) {
-    self.update_memory_usages(&tid).await;
+  // #[tracing::instrument(skip(self), fields(tid=%tid))]
+  fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) -> impl std::future::Future<Output=()> + 'static {
+    async move {
+      service.update_memory_usages(&tid).await;
 
-    self.compute_eviction_priorities(&tid);
-    if self.resources.memory_buffer_mb > 0 {
-      let reclaim = self.resources.memory_buffer_mb - self.free_memory();
-      if reclaim > 0 {
-        match self.reclaim_memory(reclaim, &tid).await {
-          Ok(_) => {},
-          Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
-        };
+      service.compute_eviction_priorities(&tid);
+      if service.resources.memory_buffer_mb > 0 {
+        let reclaim = service.resources.memory_buffer_mb - service.free_memory();
+        if reclaim > 0 {
+          match service.reclaim_memory(reclaim, &tid).await {
+            Ok(_) => {},
+            Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
+          };
+        }
       }
+      ()
     }
   }
 

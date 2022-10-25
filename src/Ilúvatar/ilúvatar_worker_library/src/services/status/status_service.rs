@@ -1,11 +1,9 @@
 
 use std::sync::Arc;
-use std::sync::mpsc::{channel, Receiver};
 use std::thread::JoinHandle;
-use std::time::{SystemTime, Duration};
 use iluvatar_library::cpu_interaction::CPUService;
-use iluvatar_library::nproc;
-use tracing::{info, debug, error, warn};
+use iluvatar_library::{nproc, threading};
+use tracing::{info, debug, error};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
@@ -29,8 +27,8 @@ pub struct StatusService {
 
 impl StatusService {
   pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<InvokerService>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (tx, rx) = channel();
-    let handle = StatusService::launch_worker_thread(rx);
+    let (handle, sender) = 
+          threading::os_thread::<Self>(5000, iluvatar_library::transaction::STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status));
 
     let ret = Arc::new(StatusService { 
       container_manager: cm, 
@@ -57,37 +55,8 @@ impl StatusService {
                     "worker.load.used_mem"],
       cpu: CPUService::boxed(tid)?,
     });
-    tx.send(ret.clone()).unwrap();
+    sender.send(ret.clone()).unwrap();
     Ok(ret)
-  }
-  
-  fn launch_worker_thread(rx: Receiver<Arc<StatusService>>) -> JoinHandle<()> {
-    // use an OS thread because these commands will block
-    std::thread::spawn(move || {
-      let tid: &TransactionId = &iluvatar_library::transaction::STATUS_WORKER_TID;
-      let status_svc = match rx.recv() {
-        Ok(svc) => svc,
-        Err(_) => {
-          error!(tid=%tid, "status service thread failed to receive service from channel!");
-          return;
-        },
-      };
-      debug!(tid=%tid, "status service worker started");
-      iluvatar_library::continuation::GLOB_CONT_CHECK.thread_start(tid);
-      while iluvatar_library::continuation::GLOB_CONT_CHECK.check_continue() {
-        let start = SystemTime::now();
-        status_svc.update_status(tid);
-        let sleep_t = match start.elapsed() {
-          Ok(d) => std::cmp::max(0, 5000 - d.as_millis() as u64),
-          Err(e) => {
-            warn!(tid=%tid, error=%e, "Failed to get elapsed time of status service computation");
-            5000
-          },
-        };
-        std::thread::sleep(Duration::from_millis(sleep_t));
-      }
-      iluvatar_library::continuation::GLOB_CONT_CHECK.thread_exit(tid);
-    })
   }
 
   fn vmstat(&self, tid: &TransactionId) -> (i64, i64, i64, i64) {
