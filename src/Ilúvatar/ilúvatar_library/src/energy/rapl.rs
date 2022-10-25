@@ -1,13 +1,13 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::mpsc::{channel, Receiver};
 use std::thread::JoinHandle;
-use std::time::{SystemTime, Duration};
+use std::time::SystemTime;
 use std::fs::{read_to_string, File};
 use anyhow::Result;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use tracing::{warn, trace, debug, error};
+use crate::threading::os_thread;
 use crate::{bail_error, nproc};
 use crate::logging::LocalTime;
 use crate::transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID};
@@ -224,88 +224,60 @@ impl RaplMsr {
 
 pub struct RaplMonitor {
   rapl: Mutex<RaplMsr>,
-  config: Arc<EnergyConfig>,
+  _config: Arc<EnergyConfig>,
   _worker_thread: JoinHandle<()>,
+  log_file: RwLock<File>,
   timer: LocalTime,
 }
 impl RaplMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (tx, rx) = channel();
-    let handle = RaplMonitor::launch_worker_thread(rx);
+    let (handle, tx) = os_thread(config.ipmi_freq_ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(RaplMonitor::monitor_energy));
 
     let i = RaplMsr::new(tid)?;
     let r = Arc::new(RaplMonitor {
       rapl: Mutex::new(i),
       _worker_thread: handle,
-      config,
+      _config: config.clone(),
       timer: LocalTime::new(tid)?,
+      log_file: RaplMonitor::open_log_file(&config, tid)?,
     });
+    r.write_text("timestamp,rapl_uj\n".to_string(), tid);
     tx.send(r.clone())?;
     Ok(r)
   }
 
-  fn launch_worker_thread(rx: Receiver<Arc<RaplMonitor>>) -> JoinHandle<()> {
-    std::thread::spawn(move || {
-      let tid: &TransactionId = &WORKER_ENERGY_LOGGER_TID;
-      let svc = match rx.recv() {
-        Ok(svc) => svc,
-        Err(e) => {
-          error!(tid=%tid, error=%e, "RAPL energy monitor thread failed to receive service from channel!");
-          return;
-        },
-      };
+  /// Reads the different energy sources and writes the current staistics out to the csv file
+  fn monitor_energy(&self, tid: &TransactionId) {
+    let mut rapl = self.rapl.lock();
+    let ipmi_uj = rapl.total_uj(tid);
+    let t = match self.timer.now_str() {
+      Ok(t) => t,
+      Err(e) => {
+        error!(error=%e, tid=%tid, "Failed to get time");
+        return;
+      },
+    };
 
-      let mut file = match File::create(Path::new(&svc.config.log_folder).join("energy-rapl.log")) {
-        Ok(f) => f,
-        Err(e) => {
-          error!(tid=%tid, error=%e, "Failed to create output file");
-          return;
-        }
-      };
-      match file.write_all("timestamp,rapl_uj\n".as_bytes()) {
-        Ok(_) => (),
-        Err(e) => {
-          error!(tid=%tid, error=%e, "Failed to write header of result");
-          return;
-        }
-      };
-
-      debug!(tid=%tid, "worker RAPL energy logger worker started");
-      crate::continuation::GLOB_CONT_CHECK.thread_start(tid);
-      let mut rapl = svc.rapl.lock();
-      while crate::continuation::GLOB_CONT_CHECK.check_continue() {
-        let start = SystemTime::now();
-        svc.monitor_energy(&mut rapl, tid, &file);
-        let sleep_t = match start.elapsed() {
-          Ok(d) => std::cmp::max(0, svc.config.rapl_freq_ms - d.as_millis() as u64),
-          Err(e) => {
-            warn!(tid=%tid, error=%e, "Failed to get elapsed time of rapl computation");
-            svc.config.rapl_freq_ms
-          },
-        };
-        std::thread::sleep(Duration::from_millis(sleep_t));
-      }
-      crate::continuation::GLOB_CONT_CHECK.thread_exit(tid);
-    })
+    let to_write = format!("{},{}\n", t, ipmi_uj);
+    self.write_text(to_write, tid);
   }
 
-    /// Reads the different energy sources and writes the current staistics out to the csv file
-    fn monitor_energy(&self, rapl: &mut RaplMsr, tid: &TransactionId, mut file: &File) {
-      let ipmi_uj = rapl.total_uj(tid);
-      let t = match self.timer.now_str() {
-        Ok(t) => t,
-        Err(e) => {
-          error!(error=%e, tid=%tid, "Failed to get time");
-          return;
-        },
-      };
-
-      let to_write = format!("{},{}\n", t, ipmi_uj);
-      match file.write_all(to_write.as_bytes()) {
-        Ok(_) => (),
-        Err(e) => {
-          error!(error=%e, tid=%tid, "Failed to write csv result");
-        }
-      };
+  fn open_log_file(config: &Arc<EnergyConfig>, tid: &TransactionId) -> Result<RwLock<File>> {
+    match File::create(Path::new(&config.log_folder).join("energy-rapl.log")) {
+      Ok(f) => Ok(RwLock::new(f)),
+      Err(e) => {
+        bail_error!(tid=%tid, error=%e, "Failed to create RAPL output file")
+      }
     }
+  }
+
+  fn write_text(&self, text: String, tid: &TransactionId) {
+    let mut file = self.log_file.write();
+    match file.write_all(text.as_bytes()) {
+      Ok(_) => (),
+      Err(e) => {
+        error!(error=%e, tid=%tid, "Failed to write csv result to RAPL file");
+      }
+    };
+  }
 }
