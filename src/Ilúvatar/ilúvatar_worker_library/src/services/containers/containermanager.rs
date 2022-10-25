@@ -47,7 +47,7 @@ impl ContainerManager {
   }
 
   pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, _tid: &TransactionId) -> Arc<ContainerManager> {
-    let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), ContainerManager::monitor_pool);
+    let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), ContainerManager::monitor_pool, None);
     let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, handle).await);
     tx.send(cm.clone()).unwrap();
     cm

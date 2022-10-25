@@ -5,10 +5,11 @@ use iluvatar_library::utils::config_utils::get_val;
 use tracing::info;
 use crate::args::parse;
 use iluvatar_controller_library::controller::{controller::Controller, config::Configuration, web_server::*};
+use signal_hook::{consts::signal::{SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT}, iterator::Signals};
 
 pub mod args;
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
   let tid: &TransactionId = &LOAD_BALANCER_TID;
@@ -21,9 +22,12 @@ async fn main() -> std::io::Result<()> {
   let server = Controller::new(config.clone(), tid);
   let server_data = Data::new(server);
 
+  let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
+  let mut signals = Signals::new(&sigs)?;
+
   info!(tid=%tid, "Controller started!");
 
-  HttpServer::new(move || {
+  let _handle = tokio::spawn(HttpServer::new(move || {
       App::new()
       .app_data(server_data.clone())
           .service(ping)
@@ -35,6 +39,15 @@ async fn main() -> std::io::Result<()> {
           .service(register_worker_api)
   })
   .bind((config.address.clone(), config.port))?
-  .run()
-  .await
+  .run());
+
+  'outer: for signal in &mut signals {
+    match signal {
+      _term_sig => { // got a termination signal
+        break 'outer;
+      }
+    }
+  }
+  iluvatar_library::continuation::GLOB_CONT_CHECK.signal_application_exit(tid);
+  Ok(())
 }

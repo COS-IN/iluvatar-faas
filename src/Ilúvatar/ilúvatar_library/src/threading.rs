@@ -84,7 +84,7 @@ where
 
 /// Start an async function on a new OS thread inside of a private Tokio runtime
 /// It will be executed every [call_ms] milliseconds
-pub fn tokio_runtime<S: Send + Sync + 'static, T>(call_ms: u64, tid: TransactionId, function: fn(Arc<S>, TransactionId) -> T) -> (OsHandle<()>, Sender<Arc<S>>)
+pub fn tokio_runtime<S: Send + Sync + 'static, T>(call_ms: u64, tid: TransactionId, function: fn(Arc<S>, TransactionId) -> T, num_worker_threads: Option<usize>) -> (OsHandle<()>, Sender<Arc<S>>)
 where
   T: Future<Output = ()> + Send + 'static,
 {
@@ -100,7 +100,13 @@ where
       },
     };
 
-    let worker_rt = match tokio::runtime::Runtime::new() {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all();
+    match num_worker_threads {
+      Some(cpus) => builder.worker_threads(cpus),
+      None => &builder,
+    };
+    let worker_rt = match builder.build() {
       Ok(rt) => rt,
       Err(e) => { 
         error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Tokio thread runtime failed to start");

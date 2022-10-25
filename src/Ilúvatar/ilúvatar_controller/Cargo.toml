@@ -10,3 +10,5 @@ iluvatar_library = { path = "../ilúvatar_library" }
 iluvatar_controller_library = { path = "../ilúvatar_controller_library" }
 clap = "3"
 tracing = "0.1"
+tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util"] }
+signal-hook = "0.3"

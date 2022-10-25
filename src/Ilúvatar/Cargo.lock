@@ -1683,6 +1683,8 @@ dependencies = [
  "clap 3.2.17",
  "iluvatar_controller_library",
  "iluvatar_library",
+ "signal-hook",
+ "tokio",
  "tracing",
 ]
 

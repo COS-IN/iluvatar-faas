@@ -24,11 +24,6 @@ pub struct Controller {
   registration_svc: Arc<RegistrationService>
 }
 unsafe impl Send for Controller{}
-impl Drop for Controller {
-  fn drop(&mut self) {
-    self.load_svc.kill_thread();
-  }
-}
 
 impl Controller {
   pub fn new(config: ControllerConfig, tid: &TransactionId) -> Self {

@@ -1,9 +1,9 @@
-use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration, collections::HashMap};
-use iluvatar_library::graphite::graphite_svc::GraphiteService;
+use std::{sync::Arc, collections::HashMap};
+use iluvatar_library::{graphite::graphite_svc::GraphiteService, threading::tokio_thread};
 use iluvatar_library::{transaction::TransactionId, transaction::LOAD_MONITOR_TID};
 use tokio::task::JoinHandle;
-use tracing::{info, debug, error, warn};
-use parking_lot::{RwLock, Mutex};
+use tracing::{info, error, warn};
+use parking_lot::RwLock;
 use crate::{services::worker_comm::WorkerAPIFactory, controller::controller_config::LoadBalancingConfig};
 
 #[allow(unused)]
@@ -13,59 +13,30 @@ pub struct LoadService {
   workers: RwLock<HashMap<String, f64>>,
   config: Arc<LoadBalancingConfig>,
   fact: Arc<WorkerAPIFactory>,
-  exiting: Mutex<bool>
+  simulation: bool,
 }
 
 impl LoadService {
-  pub fn boxed(graphite: Arc<GraphiteService>, config: Arc<LoadBalancingConfig>, tid: &TransactionId, fact: Arc<WorkerAPIFactory>, simulation: bool) -> Arc<Self> {
-    let (tx, rx) = channel();
-    let t = LoadService::start_thread(rx, tid, simulation);
+  pub fn boxed(graphite: Arc<GraphiteService>, config: Arc<LoadBalancingConfig>, _tid: &TransactionId, fact: Arc<WorkerAPIFactory>, simulation: bool) -> Arc<Self> {
+    let (handle, tx) = tokio_thread(config.thread_sleep_sec, LOAD_MONITOR_TID.clone(), LoadService::monitor_worker_status);
     let ret = Arc::new(LoadService {
-      _worker_thread: t,
+      _worker_thread: handle,
       graphite,
       workers: RwLock::new(HashMap::new()),
       config,
       fact, 
-      exiting: Mutex::new(false)
+      simulation,
     });
     tx.send(ret.clone()).unwrap();
 
     ret
   }
 
-  pub fn kill_thread(&self) {
-    *self.exiting.lock() = true;
-  }
-
-  fn start_thread(rx: Receiver<Arc<LoadService>>, tid: &TransactionId, simulation: bool) -> JoinHandle<()> {
-    debug!(tid=%tid, "Launching LoadService thread");
-    tokio::spawn(async move {
-      let tid: &TransactionId = &LOAD_MONITOR_TID;
-      let svc: Arc<LoadService> = match rx.recv() {
-          Ok(svc) => svc,
-          Err(_) => {
-            error!(tid=%tid, "LoadService thread failed to receive service from channel!");
-            return;
-          },
-        };
-
-        debug!(tid=%tid, "LoadService worker started");
-        svc.monitor_worker_status(tid, simulation).await;
-      }
-    )
-  }
-
-  async fn monitor_worker_status(&self, tid: &TransactionId, simulation: bool) {
-    loop {
-      if simulation {
-        self.mointor_simulation(tid).await;
-      } else {
-        self.monitor_live(tid).await;
-      }
-      tokio::time::sleep(Duration::from_secs(self.config.thread_sleep_sec)).await;
-      if *self.exiting.lock() {
-        return;
-      }
+  async fn monitor_worker_status(service: Arc<Self>, tid: TransactionId) {
+    if service.simulation {
+      service.mointor_simulation(&tid).await;
+    } else {
+      service.monitor_live(&tid).await;
     }
   }
 

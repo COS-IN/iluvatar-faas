@@ -1,8 +1,8 @@
-use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration};
+use std::sync::Arc;
 use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}, services::invocation::invoker_structs::InvocationResult};
 use crate::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use crate::rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse};
-use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error};
+use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error, threading::tokio_runtime};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use tracing::{debug, error, warn, info};
@@ -35,63 +35,27 @@ impl InvokerService {
     }
   }
 
-  pub fn boxed(cont_manager: Arc<ContainerManager>, tid: &TransactionId, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>) -> Arc<Self> {
-    let (tx, rx) = channel();
-    let handle = match invocation_config.use_queue {
-      true => Some(InvokerService::start_queue_thread(rx, tid)),
-      false => None,
-    };
-    let i = Arc::new(InvokerService::new(cont_manager, function_config, invocation_config, handle));
-    tx.send(i.clone()).unwrap();
-    return i;
-  }
-
-  fn start_queue_thread(rx: Receiver<Arc<InvokerService>>, tid: &TransactionId) -> std::thread::JoinHandle<()> {
-    debug!(tid=%tid, "Launching InvokerService queue thread");
-    // TODO: smartly manage the queue, not just FIFO?
-    // run on an OS thread here so we don't get blocked by out userland threading runtime
-    // If this thread crashes, we'll never know and the worker will deadlock
-    std::thread::spawn(move || {
-      let tid: &TransactionId = &INVOKER_QUEUE_WORKER_TID;
-      let invoker_svc: Arc<InvokerService> = match rx.recv() {
-          Ok(svc) => svc,
-          Err(_) => {
-            error!(tid=%tid, "Invoker service thread failed to receive service from channel!");
-            return;
-          },
-        };
-        debug!(tid=%tid, "invoker worker started");
-        invoker_svc.monitor_queue(tid, invoker_svc.clone());
-      }
-    )
-  }
-
-  /// loops forever on the invocation queue, running things when there are sufficient resources
-  fn monitor_queue(&self, tid:&TransactionId, invoker_svc: Arc<InvokerService>) {
-    debug!(tid=%tid, "invoker worker loop starting");
-    let worker_rt = match tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(invoker_svc.function_config.cpu_max as usize)
-        .enable_all()
-        .build() {
-      Ok(rt) => rt,
-      Err(e) => { 
-        error!(tid=%tid, error=%e, "Tokio thread runtime failed to start");
-        return ();
+  pub fn boxed(cont_manager: Arc<ContainerManager>, _tid: &TransactionId, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>) -> Arc<Self> {
+    match invocation_config.use_queue {
+      true => {
+        let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), InvokerService::monitor_queue, Some(function_config.cpu_max as usize));
+        let i = Arc::new(InvokerService::new(cont_manager, function_config, invocation_config, Some(handle)));
+        tx.send(i.clone()).unwrap();
+        i
       },
-    };
-    iluvatar_library::continuation::GLOB_CONT_CHECK.thread_start(tid);
-    while iluvatar_library::continuation::GLOB_CONT_CHECK.check_continue() {
-      let mut queue = self.invoke_queue.lock();
-      if queue.len() > 0 && self.has_resources_to_run() {
-        let item = queue.remove(0);
-        debug!(tid=%item.tid, "Dequeueing item");
-        // TODO: continuity of spans here
-        self.spawn_tokio_worker(&worker_rt, invoker_svc.clone(), item);
-      } else {
-        std::thread::sleep(Duration::from_millis(self.invocation_config.queue_sleep_ms));
-      }
+      false => Arc::new(InvokerService::new(cont_manager, function_config, invocation_config, None)),
     }
-    iluvatar_library::continuation::GLOB_CONT_CHECK.thread_exit(tid);
+  }
+
+  /// Check the invocation queue, running things when there are sufficient resources
+  async fn monitor_queue(invoker_svc: Arc<InvokerService>, _tid: TransactionId) {
+  let mut queue = invoker_svc.invoke_queue.lock();
+  if queue.len() > 0 && invoker_svc.has_resources_to_run() {
+    let item = queue.remove(0);
+    debug!(tid=%item.tid, "Dequeueing item");
+    // TODO: continuity of spans here
+    invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item);
+  }
   }
 
   /// has_resources_to_run
@@ -102,8 +66,8 @@ impl InvokerService {
 
   /// spawn_tokio_worker
   /// runs the specific invocation on a new tokio worker thread
-  fn spawn_tokio_worker(&self, runtime: &tokio::runtime::Runtime, invoker_svc: Arc<InvokerService>, item: Arc<EnqueuedInvocation>) {
-    let _handle = runtime.spawn(async move {
+  fn spawn_tokio_worker(&self, invoker_svc: Arc<InvokerService>, item: Arc<EnqueuedInvocation>) {
+    let _handle = tokio::spawn(async move {
       debug!(tid=%item.tid, "Launching invocation thread for queued item");
       invoker_svc.invocation_worker_thread(item).await;
     });

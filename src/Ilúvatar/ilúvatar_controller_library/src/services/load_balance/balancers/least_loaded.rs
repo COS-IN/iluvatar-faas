@@ -1,11 +1,11 @@
-use std::{sync::{Arc, mpsc::{Receiver, channel}}, time::Duration, collections::HashMap};
+use std::{sync::Arc, time::Duration, collections::HashMap};
 use crate::{send_invocation, prewarm, send_async_invocation, services::{worker_comm::WorkerAPIFactory, controller_health::ControllerHealthService, load_reporting::LoadService}, controller::controller_config::LoadBalancingConfig};
 use crate::services::load_balance::LoadBalancerTrait;
-use iluvatar_library::{transaction::TransactionId, transaction::LEAST_LOADED_TID, bail_error};
+use iluvatar_library::{transaction::TransactionId, transaction::LEAST_LOADED_TID, bail_error, threading::tokio_thread};
 use crate::controller::structs::internal::{RegisteredFunction, RegisteredWorker};
 use anyhow::Result;
 use tokio::task::JoinHandle;
-use tracing::{info, debug, error, warn};
+use tracing::{info, debug, warn};
 use parking_lot::RwLock;
 use iluvatar_library::utils::timing::TimedExt;
 use iluvatar_worker_library::rpc::InvokeResponse;
@@ -34,50 +34,30 @@ impl LeastLoadedBalancer {
     }
   }
 
-  pub fn boxed(health: Arc<dyn ControllerHealthService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, tid: &TransactionId, config: Arc<LoadBalancingConfig>) -> Arc<Self> {
-    let (tx, rx) = channel();
-    let t = LeastLoadedBalancer::start_status_thread(rx, tid);
-    let i = Arc::new(LeastLoadedBalancer::new(health, t, load, worker_fact, config));
+  pub fn boxed(health: Arc<dyn ControllerHealthService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, _tid: &TransactionId, config: Arc<LoadBalancingConfig>) -> Arc<Self> {
+    let (handle, tx) = tokio_thread(config.thread_sleep_sec, LEAST_LOADED_TID.clone(), LeastLoadedBalancer::find_least_loaded);
+
+    let i = Arc::new(LeastLoadedBalancer::new(health, handle, load, worker_fact, config));
     tx.send(i.clone()).unwrap();
     i
   }
 
-  fn start_status_thread(rx: Receiver<Arc<LeastLoadedBalancer>>, tid: &TransactionId) -> JoinHandle<()> {
-    debug!(tid=%tid, "Launching LeastLoadedBalancer thread");
-    tokio::spawn(async move {
-      let tid: &TransactionId = &LEAST_LOADED_TID;
-      let svc: Arc<LeastLoadedBalancer> = match rx.recv() {
-          Ok(svc) => svc,
-          Err(_) => {
-            error!(tid=%tid, "least loaded balancer thread failed to receive service from channel!");
-            return;
-          },
-        };
-        debug!(tid=%tid, "least loaded worker started");
-        loop {
-          svc.find_least_loaded(tid); 
-          tokio::time::sleep(Duration::from_secs(svc.config.thread_sleep_sec)).await;
-        }
-      }
-    )
-  }
-
-  #[tracing::instrument(skip(self), fields(tid=%tid))]
-  fn find_least_loaded(&self, tid: &TransactionId) {
+  #[tracing::instrument(skip(service), fields(tid=%tid))]
+  async fn find_least_loaded(service: Arc<Self>, tid: TransactionId) {
     let mut least_ld = f64::MAX;
     let mut worker = &"".to_string();
-    let workers = self.workers.read();
+    let workers = service.workers.read();
     for worker_name in workers.keys() {
-      if let Some(worker_load) = self.load.get_worker(worker_name) {
+      if let Some(worker_load) = service.load.get_worker(worker_name) {
         if worker_load < least_ld {
           worker = worker_name;
           least_ld = worker_load;
         }
       }
     }
-    match self.workers.read().get(worker) {
+    match service.workers.read().get(worker) {
       Some(w) => {
-        *self.assigned_worker.write() = Some(w.clone());
+        *service.assigned_worker.write() = Some(w.clone());
         info!(tid=%tid, worker=%worker, "new least loaded worker");
       },
       None => {
