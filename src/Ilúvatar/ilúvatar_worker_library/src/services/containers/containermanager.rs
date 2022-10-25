@@ -1,6 +1,6 @@
 use crate::services::containers::structs::{InsufficientMemoryError, InsufficientCoresError, ContainerLockedError};
 use iluvatar_library::bail_error;
-use iluvatar_library::threading::{tokio_runtime, test_runtime};
+use iluvatar_library::threading::tokio_runtime;
 use crate::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID};
 use iluvatar_library::types::MemSizeMb;
@@ -33,7 +33,6 @@ pub struct ContainerManager {
 
 impl ContainerManager {
   async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>) -> ContainerManager {
-
     ContainerManager {
       registered_functions: Arc::new(DashMap::new()),
       active_containers: Arc::new(RwLock::new(HashMap::new())),
@@ -47,27 +46,14 @@ impl ContainerManager {
     }
   }
 
-  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, tid: &TransactionId) -> Arc<ContainerManager> {
-    // let (tx, rx) = channel();
-    // let worker = ContainerManager::start_thread(rx, tid);
-    // let f: AsyncFn<ContainerManager> = Box::new(ContainerManager::test_fn);
-    // let test = test_runtime(ContainerManager::test_fn);
-
+  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, _tid: &TransactionId) -> Arc<ContainerManager> {
     let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), ContainerManager::monitor_pool);
-
     let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, handle).await);
-
-    // let r = test(&cm, &CTR_MGR_WORKER_TID).await;
-
-    // tx.send(cm.clone()).unwrap();
+    tx.send(cm.clone()).unwrap();
     cm
   }
 
-  fn test_fn<'r, 's>(service: &'r Arc<Self>, tid: &'s TransactionId) -> impl std::future::Future<Output=()> {
-    async { () }
-  }
-
-  // #[tracing::instrument(skip(self), fields(tid=%tid))]
+  #[tracing::instrument(skip(service), fields(tid=%tid))]
   fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) -> impl std::future::Future<Output=()> + 'static {
     async move {
       service.update_memory_usages(&tid).await;
