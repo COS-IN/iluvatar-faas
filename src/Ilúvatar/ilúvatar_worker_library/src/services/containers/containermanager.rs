@@ -54,21 +54,18 @@ impl ContainerManager {
   }
 
   #[tracing::instrument(skip(service), fields(tid=%tid))]
-  fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) -> impl std::future::Future<Output=()> + 'static {
-    async move {
-      service.update_memory_usages(&tid).await;
+  async fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) {
+    service.update_memory_usages(&tid).await;
 
-      service.compute_eviction_priorities(&tid);
-      if service.resources.memory_buffer_mb > 0 {
-        let reclaim = service.resources.memory_buffer_mb - service.free_memory();
-        if reclaim > 0 {
-          match service.reclaim_memory(reclaim, &tid).await {
-            Ok(_) => {},
-            Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
-          };
-        }
+    service.compute_eviction_priorities(&tid);
+    if service.resources.memory_buffer_mb > 0 {
+      let reclaim = service.resources.memory_buffer_mb - service.free_memory();
+      if reclaim > 0 {
+        match service.reclaim_memory(reclaim, &tid).await {
+          Ok(_) => {},
+          Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
+        };
       }
-      ()
     }
   }
 
