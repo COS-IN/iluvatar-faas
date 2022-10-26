@@ -63,6 +63,7 @@ impl LifecycleService for DockerLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
   async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     let cid = format!("{}-{}", fqdn, GUID::rand());
     let port = free_local_port()?;
@@ -172,6 +173,7 @@ impl LifecycleService for DockerLifecycle {
     Ok(())
   }
 
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, timeout_ms), fields(tid=%tid)))]
   async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
     let start = SystemTime::now();
     loop {
@@ -201,11 +203,12 @@ impl LifecycleService for DockerLifecycle {
    Ok(())
   }
 
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
     let cast_container = match crate::services::containers::structs::cast::<DockerContainer>(&container, tid) {
       Ok(c) => c,
       Err(e) => { 
-        warn!(tid=%tid, error=%e, "Error casting container to ContainerdContainer");
+        warn!(tid=%tid, error=%e, "Error casting container to DockerContainer");
         return container.get_curr_mem_usage();
       },
     };
