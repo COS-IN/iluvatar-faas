@@ -538,7 +538,7 @@ impl LifecycleService for ContainerdLifecycle {
     })
   }
   
-  async fn clean_containers(&self, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+  async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {
     info!(tid=%tid, namespace=%ctd_namespace, "Cleaning containers in namespace");
     let mut ctr_client = ContainersClient::new(self.channel());
     let req = ListContainersRequest {
@@ -555,10 +555,43 @@ impl LifecycleService for ContainerdLifecycle {
             },
         };
     debug!(tid=%tid, response=?resp, "Container list response");
-    for container in resp.into_inner().containers.iter() {
-      let container_id = &container.id;
+    let mut handles = vec![];
+    for container in resp.into_inner().containers {
+      let container_id = container.id.clone();
       info!(tid=%tid, container_id=%container_id, "Removing container");
-      self.remove_container_internal(container_id, ctd_namespace, tid).await?;
+
+      let svc_clone = self_src.clone();
+      let ns_clone = ctd_namespace.to_string();
+      let tid_clone = tid.to_string();
+      handles.push( tokio::spawn( async move {
+        let fut = match svc_clone.as_any().downcast_ref::<ContainerdLifecycle>() {
+          Some(i) => futures::future::Either::Left(i.remove_container_internal(&container_id, &ns_clone, &tid_clone)),
+          None => {
+            futures::future::Either::Right(async { anyhow::bail!("Failed to cast ContainerT type {} to {:?}", std::any::type_name::<Arc<dyn LifecycleService>>(), std::any::type_name::<ContainerdLifecycle>())  })
+          },
+        };
+        fut.await
+      }));
+    }
+    let mut failed = 0;
+    let num_handles = handles.len();
+    for h in handles {
+      match h.await {
+        Ok(r) => match r {
+          Ok(_r) => (),
+          Err(e) => {
+            error!(tid=%tid, error=%e, "Encountered an error on container cleanup");
+            failed += 1;
+          },
+        },
+        Err(e) => {
+          error!(tid=%tid, error=%e, "Encountered an error joining thread for container cleanup");
+          failed += 1;
+        },
+      }
+    }
+    if failed > 0 {
+      anyhow::bail!("There were {} errors encountered cleaning up containers, out of {} containers", failed, num_handles);
     }
 
     self.namespace_manager.clean(tid)?;
@@ -663,5 +696,10 @@ impl LifecycleService for ContainerdLifecycle {
         format!("STDERR_READ_ERROR: {}", e)
       },
     }
+  }
+}
+impl crate::services::containers::structs::ToAny for ContainerdLifecycle {
+  fn as_any(&self) -> &dyn std::any::Any {
+      self
   }
 }

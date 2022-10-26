@@ -1655,6 +1655,7 @@ dependencies = [
  "config",
  "containerd-client",
  "dashmap",
+ "futures",
  "guid-create",
  "hex",
  "iluvatar_library",

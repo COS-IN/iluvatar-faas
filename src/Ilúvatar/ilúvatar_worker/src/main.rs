@@ -57,7 +57,7 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
 
   let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone(), tid).await;
   let _invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone(), server_config.invocation.clone());
-  lifecycle.clean_containers("default", tid).await?;
+  lifecycle.clean_containers("default", lifecycle.clone(), tid).await?;
   Ok(())
 }
 

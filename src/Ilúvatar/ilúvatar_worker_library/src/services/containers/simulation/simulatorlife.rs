@@ -56,7 +56,7 @@ impl LifecycleService for SimulatorLifecycle {
     })
   }
   
-  async fn clean_containers(&self, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+  async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {
     Ok(())
   }
 
@@ -68,7 +68,7 @@ impl LifecycleService for SimulatorLifecycle {
     let cast_container = match crate::services::containers::structs::cast::<SimulatorContainer>(&container, tid) {
       Ok(c) => c,
       Err(e) => { 
-        warn!(tid=%tid, error=%e, "Error casting container to ContainerdContainer");
+        warn!(tid=%tid, error=%e, "Error casting container to SimulatorContainer");
         return container.get_curr_mem_usage();
       },
     };
@@ -80,5 +80,10 @@ impl LifecycleService for SimulatorLifecycle {
   }
   fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
     "".to_string()
+  }
+}
+impl crate::services::containers::structs::ToAny for SimulatorLifecycle {
+  fn as_any(&self) -> &dyn std::any::Any {
+      self
   }
 }
