@@ -2,10 +2,11 @@ use std::sync::Arc;
 use tonic::async_trait;
 use anyhow::Result;
 use iluvatar_library::{types::MemSizeMb, transaction::TransactionId};
+use tracing::info;
 use crate::{worker_api::worker_config::{ContainerResources, NetworkingConfig, FunctionLimits}};
 use crate::services::{containers::{structs::{Container, RegisteredFunction}, containerd::ContainerdLifecycle, simulation::SimulatorLifecycle}};
 use crate::services::network::namespace_manager::NamespaceManager;
-use self::structs::ToAny;
+use self::{structs::ToAny, docker::DockerLifecycle};
 
 pub mod structs;
 pub mod containermanager;
@@ -13,6 +14,8 @@ pub mod containermanager;
 pub mod containerd;
 #[path ="./simulation/simulatorlife.rs"]
 pub mod simulation;
+#[path ="./docker/dockerlife.rs"]
+pub mod docker;
 
 #[async_trait]
 pub trait LifecycleService: ToAny + Send + Sync + std::fmt::Debug {
@@ -61,6 +64,7 @@ impl LifecycleFactory {
 
   pub async fn get_lifecycle_service(&self, tid: &TransactionId, bridge: bool) -> Result<Arc<dyn LifecycleService>> {
     if self.containers.backend == "containerd" {
+      info!(tid=%tid, "Creating 'containerd' backend");
       let netm = NamespaceManager::boxed(self.networking.clone(), tid);
       if bridge {
         netm.ensure_bridge(tid)?;
@@ -70,8 +74,10 @@ impl LifecycleFactory {
       lifecycle.connect().await?;
       Ok(Arc::new(lifecycle))
     } else if self.containers.backend == "docker" {
-      todo!();
+      info!(tid=%tid, "Creating 'docker' backend");
+      Ok(Arc::new(DockerLifecycle::new(self.containers.clone(), self.limits_config.clone())))
     }  else if self.containers.backend == "simulation" {
+      info!(tid=%tid, "Creating 'simulation' backend");
       Ok(Arc::new(SimulatorLifecycle::new()))
     }else {
       panic!("Unknown lifecycle backend '{}'", self.containers.backend);

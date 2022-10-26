@@ -1,0 +1,232 @@
+use std::{sync::Arc, time::SystemTime};
+use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::{execute_cmd, port::free_local_port, calculate_base_uri, calculate_invoke_uri}, bail_error};
+use crate::worker_api::worker_config::{ContainerResources, FunctionLimits};
+
+use self::dockerstructs::DockerContainer;
+use super::{structs::{RegisteredFunction, Container}, LifecycleService};
+use anyhow::Result;
+use guid_create::GUID;
+use parking_lot::{Mutex, RwLock};
+use tracing::{warn, info, trace, debug};
+
+pub mod dockerstructs;
+
+#[derive(Debug)]
+#[allow(unused)]
+pub struct DockerLifecycle {
+  config: Arc<ContainerResources>,
+  limits_config: Arc<FunctionLimits>,
+  creation_sem: Option<tokio::sync::Semaphore>,
+}
+
+impl DockerLifecycle {
+  pub fn new(config: Arc<ContainerResources>, limits_config: Arc<FunctionLimits>) -> Self {
+    let sem = match config.concurrent_creation {
+      0 => None,
+      i => Some(tokio::sync::Semaphore::new(i as usize))
+    };
+    DockerLifecycle {
+      config,
+      limits_config,
+      creation_sem: sem
+    }
+  }
+
+  /// Get the stdout and stderr of a container
+  fn get_logs(&self, container: &Container, tid: &TransactionId) -> Result<(String, String)> {
+    let args = vec!["logs", container.container_id().as_str()];
+    let output = execute_cmd("/usr/bin/docker", &args, None, tid)?;
+    if let Some(status) = output.status.code() {
+      if status != 0 {
+        bail_error!(tid=%tid, status=status, output=?output, "Failed to get docker logs with exit code");
+      }
+    } else {
+      bail_error!(tid=%tid, output=?output, "Failed to get docker logs no exit code");
+    }
+    Ok( (String::from_utf8_lossy(&output.stdout).to_string(), String::from_utf8_lossy(&output.stderr).to_string()) )
+  }
+
+  fn get_stderr(&self, container: &Container, tid: &TransactionId) -> Result<String> {
+    let (_out, err) = self.get_logs(container, tid)?;
+    Ok(err)
+  }
+
+  fn get_stdout(&self, container: &Container, tid: &TransactionId) -> Result<String> {
+    let (out, _err) = self.get_logs(container, tid)?;
+    Ok(out)
+  }
+}
+
+#[tonic::async_trait]
+#[allow(unused)]
+impl LifecycleService for DockerLifecycle {
+  /// creates and starts the entrypoint for a container based on the given image
+  /// Run inside the specified namespace
+  /// returns a new, unique ID representing it
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+    let cid = format!("{}-{}", fqdn, GUID::rand());
+    let port = free_local_port()?;
+    let gunicorn_args = format!("GUNICORN_CMD_ARGS=--bind 0.0.0.0:{}", port);
+    let bind_args = format!("--bind 0.0.0.0:{}", port);
+    let port_args = format!("{}:{}", port, port);
+    let il_port = format!("__IL_PORT={}", port);
+
+    let args = vec!["run", "--detach", "--name", cid.as_str(), "-e", gunicorn_args.as_str(), "-e", il_port.as_str(), "-e", "__IL_HOST=0.0.0.0", "--label", "owner=iluvatar_worker", "--cpus", "1", "-p", port_args.as_str(), image_name.as_str(), "-w 1"];
+
+    let permit = match &self.creation_sem {
+      Some(sem) => match sem.acquire().await {
+        Ok(p) => {
+          debug!(tid=%tid, "Acquired docker creation semaphore");
+          Some(p)
+        },
+        Err(e) => {
+          bail_error!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore");
+        },
+      },
+      None => None,
+    };
+
+    let output = execute_cmd("/usr/bin/docker", &args, None, tid)?;
+    if let Some(status) = output.status.code() {
+      if status != 0 {
+        bail_error!(tid=%tid, status=status, output=?output, "Failed to create docker container with exit code");
+      }
+    } else {
+      bail_error!(tid=%tid, output=?output, "Failed to create docker container with no exit code");
+    }
+    drop(permit);
+    debug!(tid=%tid, "Dropped docker creation semaphore after load_mounts error");
+    debug!(tid=%tid, name=%image_name, containerid=%cid, output=?output, "Docker container started successfully");
+    info!(tid=%tid, name=%image_name, containerid=%cid, "Docker container started successfully");
+    Ok(Arc::new(DockerContainer {
+      container_id: cid,
+      mutex: Mutex::new(parallel_invokes),
+      fqdn: fqdn.clone(),
+      function: reg.clone(),
+      last_used: RwLock::new(SystemTime::now()),
+      invocations: Mutex::new(0),
+      port,
+      invoke_uri: calculate_invoke_uri("0.0.0.0", port),
+      base_uri: calculate_base_uri("0.0.0.0", port),
+      healthy: Mutex::new(true),
+    }))
+  }
+
+  /// Removed the specified container in the containerd namespace
+  async fn remove_container(&self, container: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+    let output = execute_cmd("/usr/bin/docker", &vec!["rm", "--force", container.container_id().as_str()], None, tid)?;
+    if let Some(status) = output.status.code() {
+      if status != 0 {
+        bail_error!(tid=%tid, container_id=%container.container_id(), status=status, output=?output, "Failed to remove docker container with exit code");
+      }
+    } else {
+      bail_error!(tid=%tid, container_id=%container.container_id(), output=?output, "Failed to remove docker container with no exit code");
+    }
+    Ok(())
+  }
+
+  async fn prepare_function_registration(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, _fqdn: &String, tid: &TransactionId) -> Result<RegisteredFunction> {
+    let output = execute_cmd("/usr/bin/docker", &vec!["pull", image_name.as_str()], None, tid)?;
+    if let Some(status) = output.status.code() {
+      if status != 0 {
+        bail_error!(tid=%tid, status=status, output=?output, "Failed to pull docker image with exit code");
+      }
+    } else {
+      bail_error!(tid=%tid, output=?output, "Failed to pull docker image with no exit code");
+    }
+    trace!(tid=%tid, name=%image_name, output=?output, "Docker image pulled successfully");
+    info!(tid=%tid, name=%image_name, "Docker image pulled successfully");
+    Ok(RegisteredFunction {
+      function_name: function_name.clone(),
+      function_version: function_version.clone(),
+      image_name: image_name.clone(),
+      memory,
+      cpus,
+      snapshot_base: "".to_string(),
+      parallel_invokes,
+    })
+  }
+  
+  async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {
+    let output = execute_cmd("/usr/bin/docker", &vec!["ps", "--filter", "label=owner=iluvatar_worker", "-q"], None, tid)?;
+    if let Some(status) = output.status.code() {
+      if status != 0 {
+        bail_error!(tid=%tid, status=status, output=?output, "Failed to run 'docker ps' with exit code");
+      }
+    } else {
+      bail_error!(tid=%tid, output=?output, "Failed to run 'docker ps' with no exit code");
+    }
+    let cow = String::from_utf8_lossy(&output.stdout);
+    let stdout: Vec<&str> = cow.split("\n").filter(|str| str.len() > 0).collect();
+    for docker_id in stdout {
+      let output = execute_cmd("/usr/bin/docker", &vec!["rm", "--force", docker_id], None, tid)?;
+      if let Some(status) = output.status.code() {
+        if status != 0 {
+          bail_error!(tid=%tid, docker_id=%docker_id, status=status, output=?output, "Failed to remove docker container with exit code");
+        }
+      } else {
+        bail_error!(tid=%tid, docker_id=%docker_id, output=?output, "Failed to remove docker container with no exit code");
+      }
+    }
+
+    Ok(())
+  }
+
+  async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
+    let start = SystemTime::now();
+    loop {
+      match self.get_logs(container, tid) {
+        Ok( (out, err) ) => {
+          // stderr was written to, gunicorn server is either up or crashed
+          if err.len() > 0 {
+            break;
+          }
+        },
+        Err(e) => {
+          bail_error!(tid=%tid, container_id=%container.container_id(), error=%e, "Timeout while reading inotify events for docker container");
+        },
+        _ => bail_error!(tid=%tid, container_id=%container.container_id(), "Error while reading inotify events for docker container"),
+      };
+      if start.elapsed()?.as_millis() as u64 >= timeout_ms {
+        let stdout = self.read_stdout(&container, tid);
+        let stderr = self.read_stderr(&container, tid);
+        if stderr.len() > 0 {
+          warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for docker container start, but stderr was written to?");
+          return Ok(())
+        }
+        bail_error!(tid=%tid, container_id=%container.container_id(), stdout=%stdout, stderr=%stderr, "Timeout while monitoring logs for docker container");
+      }
+      tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+    }
+   Ok(())
+  }
+
+  fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
+    let cast_container = match crate::services::containers::structs::cast::<DockerContainer>(&container, tid) {
+      Ok(c) => c,
+      Err(e) => { 
+        warn!(tid=%tid, error=%e, "Error casting container to ContainerdContainer");
+        return container.get_curr_mem_usage();
+      },
+    };
+    cast_container.function.memory
+  }
+
+  fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
+    match self.get_stdout(container, tid) {
+      Ok(out) => out,
+      Err(_) => "".to_string(),
+    }
+  }
+  fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
+    match self.get_stderr(container, tid) {
+      Ok(err) => err,
+      Err(_) => "".to_string(),
+    }
+  }
+}
+impl crate::services::containers::structs::ToAny for DockerLifecycle {
+  fn as_any(&self) -> &dyn std::any::Any {
+      self
+  }
+}

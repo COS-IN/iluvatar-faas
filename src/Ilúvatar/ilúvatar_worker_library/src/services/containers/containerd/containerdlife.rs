@@ -369,7 +369,7 @@ impl ContainerdLifecycle {
     let permit = match &self.creation_sem {
       Some(sem) => match sem.acquire().await {
         Ok(p) => {
-          debug!(tid=%tid, "Acquired containerd containerd creation semaphore");
+          debug!(tid=%tid, "Acquired containerd creation semaphore");
           Some(p)
         },
         Err(e) => {
@@ -425,7 +425,7 @@ impl ContainerdLifecycle {
       Ok(v) => v,
       Err(e) => {
         drop(permit);
-        debug!(tid=%tid, "Dropped containerd containerd creation semaphore after load_mounts error");
+        debug!(tid=%tid, "Dropped containerd creation semaphore after load_mounts error");
         return Err(e)
       },
     };
