@@ -42,3 +42,10 @@ If we want to get better data on where and what time is being spend, tracked tim
 After an experiment (~ 1 hour running) the CPU usage of the worker is higher than at the start.
 Is this the container manager worker thread?
 What can be done?
+
+## Multiple concurrent backends
+
+A worker's host may have variable capabilities and hardware.
+We should be able to run functions on multiple containerization backend setups if they can be run.
+I.e. docker+GPU, containerd, etc.
+The function registration should container the information on which backend it runs on.
