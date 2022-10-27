@@ -218,7 +218,8 @@ pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functio
   }
 
   for invoke in &combined {
-    let d = full_data.data.get_mut(&invoke.function_name).expect("Unable to find function in result hash, but it should have been there");
+    let parts = invoke.function_name.split(".").collect::<Vec<&str>>();
+    let d = full_data.data.get_mut(parts[0]).expect("Unable to find function in result hash, but it should have been there");
     let invok_lat_f = invoke.client_latency_ms as f64;
     let func_exec_ms = invoke.function_output.body.latency * 1000.0;
     if invoke.function_output.body.cold {
@@ -266,7 +267,7 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String
         },
       };
       barrier.wait().await;
-      
+
       if duration_sec != 0 {
         let timeout = Duration::from_secs(duration_sec);
         let start = SystemTime::now();
