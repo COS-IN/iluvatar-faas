@@ -10,10 +10,6 @@ lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
 }
 
-pub struct ThreadError {
-  pub thread_id: usize,
-  pub error: anyhow::Error
-}
 #[derive(Serialize,Deserialize)]
 pub struct ThreadResult {
   pub thread_id: usize,
@@ -166,24 +162,41 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
   }
 }
 
-pub fn resolve_handles(runtime: Runtime, run_results: Vec<JoinHandle<Result<SuccessfulWorkerInvocation>>>) -> Vec<Result<SuccessfulWorkerInvocation>> {
+/// How to handle per-thread errors that appear when joining load workers
+pub enum ErrorHandling {
+  Raise,
+  Print,
+  Ignore
+}
+
+/// Resolve all the tokio threads and return their results
+/// Optionally handle errors from threads
+pub fn resolve_handles<T>(runtime: &Runtime, run_results: Vec<JoinHandle<Result<T>>>, eh: ErrorHandling) -> Result<Vec<T>> {
   let mut ret = vec![];
   for h in run_results {
     match runtime.block_on(h) {
       Ok( r) => {
-        ret.push(r);
+        match r {
+          Ok(ok) => ret.push(ok),
+          Err(e) => match eh {
+            ErrorHandling::Raise => return Err(e),
+            ErrorHandling::Print => println!("Error from thread: {}", e),
+            ErrorHandling::Ignore => (),
+          },
+        }
       },
       Err(thread_e) => println!("Joining error: {}", thread_e),
     };
   }
-  ret
+  Ok(ret)
 }
 
-pub fn save_worker_result<P: AsRef<Path>>(path: P, run_results: &Vec<Result<SuccessfulWorkerInvocation>>) -> Result<()> {
+/// Save worker load results as a csv
+pub fn save_worker_result_csv<P: AsRef<Path>>(path: P, run_results: &Vec<SuccessfulWorkerInvocation>) -> Result<()> {
   let mut f = match File::create(path) {
     Ok(f) => f,
     Err(e) => {
-      anyhow::bail!("Failed to create output file because {}", e);
+      anyhow::bail!("Failed to create csv output file because {}", e);
     }
   };
   let to_write = format!("success,function_name,was_cold,worker_duration_ms,code_duration_sec,e2e_duration_ms,tid\n");
@@ -194,22 +207,30 @@ pub fn save_worker_result<P: AsRef<Path>>(path: P, run_results: &Vec<Result<Succ
     }
   };
 
-  for r in run_results {
-    match r {
-      Ok( worker_invocation ) => {
-        let to_write = format!("{},{},{},{},{},{},{}\n", worker_invocation.worker_response.success, worker_invocation.function_name, 
-          worker_invocation.function_output.body.cold, worker_invocation.worker_response.duration_ms, 
-          worker_invocation.function_output.body.latency, worker_invocation.client_latency_ms, worker_invocation.tid);
-        match f.write_all(to_write.as_bytes()) {
-          Ok(_) => (),
-          Err(e) => {
-            println!("Failed to write result because {}", e);
-            continue;
-          }
-        };
-      },
-      Err(e) => println!("Status error from invoke: {}", e),
+  for worker_invocation in run_results {
+    let to_write = format!("{},{},{},{},{},{},{}\n", worker_invocation.worker_response.success, worker_invocation.function_name, 
+      worker_invocation.function_output.body.cold, worker_invocation.worker_response.duration_ms, 
+      worker_invocation.function_output.body.latency, worker_invocation.client_latency_ms, worker_invocation.tid);
+    match f.write_all(to_write.as_bytes()) {
+      Ok(_) => (),
+      Err(e) => {
+        println!("Failed to write result because {}", e);
+        continue;
+      }
     };
-  }
+  };
+  Ok(())
+}
+
+pub fn save_worker_result_json<P: AsRef<Path>, T: Serialize>(path: P, results: &T) -> Result<()> {
+  let mut f = match File::create(path) {
+    Ok(f) => f,
+    Err(e) => {
+      anyhow::bail!("Failed to create json output file because {}", e);
+    }
+  };
+
+  let to_write = serde_json::to_string(&results)?;
+  f.write_all(to_write.as_bytes())?;
   Ok(())
 }
