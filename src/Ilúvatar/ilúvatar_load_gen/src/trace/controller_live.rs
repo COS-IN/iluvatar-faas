@@ -1,10 +1,9 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write};
 use anyhow::Result;
 use iluvatar_library::utils::{config::get_val, port::Port};
-use iluvatar_controller_library::controller::{controller_structs::json::ControllerInvokeResult};
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
-use crate::{utils::{controller_register, controller_invoke, FunctionExecOutput, VERSION}, benchmark::BenchmarkStore, trace::{match_trace_to_img, CsvInvocation, prepare_function_args}};
+use crate::{utils::{controller_register, controller_invoke, VERSION, SuccessfulControllerInvocation, resolve_handles, save_result_json}, benchmark::BenchmarkStore, trace::{match_trace_to_img, CsvInvocation, prepare_function_args}};
 use super::Function;
 
 async fn register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>) -> Result<()> {
@@ -55,7 +54,7 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
   threaded_rt.block_on(register_functions(&metadata, &host, port, &load_type, func_data))?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
-  let mut handles: Vec<JoinHandle<(Result<(ControllerInvokeResult, f64)>, String)>> = Vec::new();
+  let mut handles: Vec<JoinHandle<Result<SuccessfulControllerInvocation>>> = Vec::new();
 
   println!("starting live trace run");
 
@@ -80,12 +79,16 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
       }
     };
     handles.push(threaded_rt.spawn(async move {
-      (controller_invoke(&f_c, &VERSION, &h_c, port, Some(args)).await, f_c)
+      controller_invoke(&f_c, &VERSION, &h_c, port, Some(args)).await
     }));
   }
+  let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
 
   let pth = Path::new(&trace_pth);
   let output_folder: String = get_val("out", &main_args)?;
+  let p = Path::new(&output_folder).join(format!("output-full{}.json", pth.file_stem().unwrap().to_str().unwrap()));
+  save_result_json(p, &results)?;
+
   let p = Path::new(&output_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
   let mut f = match File::create(p) {
     Ok(f) => f,
@@ -101,30 +104,17 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
     }
   };
 
-  for h in handles {
-    match threaded_rt.block_on(h) {
-      Ok( (r, name) ) => match r {
-        Ok( (resp, e2e_lat) ) => {
-          let to_write = match serde_json::from_str::<FunctionExecOutput>(&resp.json_result) {
-            Ok(result) => format!("{},{},{},{},{},{},{}\n", resp.success, name, result.body.cold, resp.worker_duration_ms, resp.invoke_duration_ms, result.body.latency, e2e_lat),
-            Err(e) => {
-              println!("{}: {}", resp.json_result, e);
-              format!("{},{},{},{},{},{},{}\n", false, name, false, 0, 0, 0, 0)
-            },
-          };
-          match f.write_all(to_write.as_bytes()) {
-            Ok(_) => (),
-            Err(e) => {
-              println!("Failed to write result because {}", e);
-              continue;
-            }
-          };
-        },
-        Err(e) => println!("Status error from invocation: {}", e),
-      },
-      Err(thread_e) => println!("Joining error: {}", thread_e),
+  for r in results {
+    let to_write = format!("{},{},{},{},{},{},{}\n", r.controller_response.success, r.function_name, r.function_output.body.cold,
+          r.controller_response.worker_duration_ms, r.controller_response.invoke_duration_ms, r.function_output.body.latency, r.client_latency_ms);
+    match f.write_all(to_write.as_bytes()) {
+      Ok(_) => (),
+      Err(e) => {
+        println!("Failed to write result because {}", e);
+        continue;
+      }
     };
-  }
+  };
 
   Ok(())
 }

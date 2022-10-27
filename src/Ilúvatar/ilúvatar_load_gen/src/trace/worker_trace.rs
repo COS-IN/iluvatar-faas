@@ -8,7 +8,8 @@ use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
 use iluvatar_worker_library::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse, InvokeResponse};
 use tonic::{Request, Status, Response};
-use crate::{utils::{worker_register, VERSION, worker_invoke, worker_prewarm, SuccessfulWorkerInvocation, resolve_handles, save_worker_result_csv, save_worker_result_json}, trace::{match_trace_to_img, prepare_function_args}, benchmark::BenchmarkStore};
+use crate::{utils::{worker_register, VERSION, worker_invoke, worker_prewarm, SuccessfulWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json}, benchmark::BenchmarkStore};
+use crate::trace::{match_trace_to_img, prepare_function_args};
 use super::{Function, CsvInvocation};
 
 fn sim_register_functions(funcs: &HashMap<String, Function>, worker: Arc<IluvatarWorkerImpl>, rt: &Runtime) -> Result<()> {
@@ -262,5 +263,5 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   save_worker_result_csv(p, &results)?;
 
   let p = Path::new(&output_folder).join(format!("output-full-{}.json", pth.file_stem().expect("Could not find a file name").to_str().unwrap()));
-  save_worker_result_json(p, &results)
+  save_result_json(p, &results)
 }

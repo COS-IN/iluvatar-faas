@@ -22,7 +22,6 @@ pub struct RegistrationResult {
   pub duration_ms: u128,
   pub result: String
 }
-
 #[derive(Serialize,Deserialize)]
 /// This is the output from the python functions
 pub struct FunctionExecOutput {
@@ -49,10 +48,22 @@ pub struct SuccessfulWorkerInvocation {
   pub tid: TransactionId,
 }
 
+#[derive(Serialize,Deserialize)]
+pub struct SuccessfulControllerInvocation {
+  /// The RPC result returned by the worker
+  pub controller_response: ControllerInvokeResult,
+  /// The deserialized result of the function's execution
+  pub function_output: FunctionExecOutput,
+  /// The latency experienced by the client, in milliseconds
+  pub client_latency_ms: u128,
+  pub function_name: String,
+  pub function_version: String,
+}
+
 /// Run an invocation against the controller
 /// Return the [iluvatar_controller_library::load_balancer_api::lb_structs::json::ControllerInvokeResult] result after parsing
 /// also return the latency in milliseconds of the request
-pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>) -> Result<(ControllerInvokeResult, f64)> {
+pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>) -> Result<SuccessfulControllerInvocation> {
   let client = reqwest::Client::new();
   let req = Invoke {
     function_name: name.clone(),
@@ -65,7 +76,6 @@ pub async fn controller_invoke(name: &String, version: &String, host: &String, p
       .send()
       .timed()
       .await;
-  let invok_lat = invok_lat.as_millis() as f64;
   match invok_out {
     Ok(r) => 
     {
@@ -76,9 +86,18 @@ pub async fn controller_invoke(name: &String, version: &String, host: &String, p
           },
       };
       match serde_json::from_str::<ControllerInvokeResult>(&txt) {
-        Ok(r) => Ok( (r, invok_lat) ),
+        Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
+          Ok(feo) => Ok(SuccessfulControllerInvocation {
+            controller_response: r,
+            function_output: feo,
+            client_latency_ms:invok_lat.as_millis(),
+            function_name: name.clone(),
+            function_version: version.clone(),
+          }),
+          Err(e) => anyhow::bail!("FunctionExecOutput Deserialization error: {}; {}", e, &txt),
+        },
         Err(e) => {
-          anyhow::bail!("InvokeResult Deserialization error: {}; {}", e, &txt);
+          anyhow::bail!("ControllerInvokeResult Deserialization error: {}; {}", e, &txt);
         },
       }
     },
@@ -222,7 +241,7 @@ pub fn save_worker_result_csv<P: AsRef<Path>>(path: P, run_results: &Vec<Success
   Ok(())
 }
 
-pub fn save_worker_result_json<P: AsRef<Path>, T: Serialize>(path: P, results: &T) -> Result<()> {
+pub fn save_result_json<P: AsRef<Path>, T: Serialize>(path: P, results: &T) -> Result<()> {
   let mut f = match File::create(path) {
     Ok(f) => f,
     Err(e) => {

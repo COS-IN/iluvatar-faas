@@ -161,25 +161,20 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
 
       'inner: for _ in 0..warm_repeats {
         match crate::utils::controller_invoke(&name, &version, &host, port, None).await {
-          Ok( (api_result, invok_lat) ) => match serde_json::from_str::<FunctionExecOutput>(&api_result.json_result) {
-            Ok(b) => {
-              let func_exec_ms = b.body.latency * 1000.0;
-              if b.body.cold {
-                func_data.cold_results.push(invok_lat);
-                func_data.cold_over_results.push(invok_lat - func_exec_ms);
-                func_data.cold_worker_duration_ms.push(api_result.worker_duration_ms as u128);
-                func_data.cold_invoke_duration_ms.push(api_result.invoke_duration_ms);
+          Ok( invoke_result ) => {
+              let func_exec_ms = invoke_result.function_output.body.latency * 1000.0;
+              let invoke_lat = invoke_result.client_latency_ms as f64;
+              if invoke_result.function_output.body.cold {
+                func_data.cold_results.push(invoke_result.function_output.body.latency);
+                func_data.cold_over_results.push(invoke_lat - func_exec_ms);
+                func_data.cold_worker_duration_ms.push(invoke_result.controller_response.worker_duration_ms);
+                func_data.cold_invoke_duration_ms.push(invoke_result.controller_response.invoke_duration_ms);
               } else {
-                func_data.warm_results.push(invok_lat);
-                func_data.warm_over_results.push(invok_lat - func_exec_ms);
-                func_data.warm_worker_duration_ms.push(api_result.worker_duration_ms as u128);
-                func_data.warm_invoke_duration_ms.push(api_result.invoke_duration_ms);
+                func_data.warm_results.push(invoke_result.function_output.body.latency);
+                func_data.warm_over_results.push(invoke_lat - func_exec_ms);
+                func_data.warm_worker_duration_ms.push(invoke_result.controller_response.worker_duration_ms);
+                func_data.warm_invoke_duration_ms.push(invoke_result.controller_response.invoke_duration_ms);
               }
-            },
-            Err(e) => {
-              println!("RealInvokeResult Deserialization error: {}; {}", e, &api_result.json_result);
-              break 'inner;
-            },
           },
           Err(e) => {
             println!("{}", e);
@@ -192,7 +187,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
   }
 
   let p = Path::new(&out_folder).join(format!("controller_function_benchmarks.json"));
-  save_worker_result_json(p, &full_data)?;
+  save_result_json(p, &full_data)?;
   Ok(())
 }
 
@@ -236,9 +231,9 @@ pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functio
   }
 
   let p = Path::new(&out_folder).join(format!("worker_function_benchmarks.json"));
-  save_worker_result_json(p, &full_data)?;
+  save_result_json(p, &full_data)?;
   let p = Path::new(&out_folder).join(format!("benchmark-full.json"));
-  save_worker_result_json(p, &combined)?;
+  save_result_json(p, &combined)?;
   let p = Path::new(&out_folder).join("benchmark-output.csv".to_string());
   save_worker_result_csv(p, &combined)
 }

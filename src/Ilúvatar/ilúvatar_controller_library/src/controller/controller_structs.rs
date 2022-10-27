@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use iluvatar_library::utils::port_utils::Port;
+use iluvatar_library::transaction::TransactionId;
 
 pub mod json {
-  use super::*;
+
+use super::*;
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
   pub struct Invoke {
@@ -17,12 +19,14 @@ pub mod json {
     /// json returned by the function
     pub json_result: String,
     /// latency of the invocation as recorded by the controller
-    pub worker_duration_ms: u64,
+    pub worker_duration_ms: u128,
     /// false if there was no platform error
     ///   could still have an internal error in the function
     pub success: bool,
     /// latency of the invocation as recorded by the worker
-    pub invoke_duration_ms: u128
+    pub invoke_duration_ms: u128,
+    /// The TransactionId the request was run under
+    pub tid: TransactionId,
   }
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
@@ -30,7 +34,9 @@ pub mod json {
     /// lookup cookie to query the function result
     pub cookie: String,
     /// latency of the invocation as recorded by the controller
-    pub worker_duration_ms: u64,
+    pub worker_duration_ms: u128,
+    /// The TransactionId the request was run under
+    pub tid: TransactionId,
   }
 
   #[allow(unused)]
