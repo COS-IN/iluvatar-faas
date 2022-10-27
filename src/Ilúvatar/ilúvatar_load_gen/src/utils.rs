@@ -1,9 +1,10 @@
-use std::time::Duration;
+use std::{time::Duration, path::Path, fs::File, io::Write};
 use iluvatar_worker_library::{rpc::{RPCWorkerAPI, InvokeResponse}, worker_api::WorkerAPI};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult};
 use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::MemSizeMb};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use tokio::{runtime::Runtime, task::JoinHandle};
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
@@ -16,18 +17,13 @@ pub struct ThreadError {
 #[derive(Serialize,Deserialize)]
 pub struct ThreadResult {
   pub thread_id: usize,
-  pub data: Vec<InvocationResult>,
+  pub data: Vec<SuccessfulWorkerInvocation>,
   pub registration: RegistrationResult,
   pub errors: u64,
 }
 #[derive(Serialize,Deserialize)]
-pub struct InvocationResult {
-  pub json: FunctionExecOutput,
-  pub duration_ms: u64
-}
-#[derive(Serialize,Deserialize)]
 pub struct RegistrationResult {
-  pub duration_ms: u64,
+  pub duration_ms: u128,
   pub result: String
 }
 
@@ -43,6 +39,18 @@ pub struct Body {
   pub end: f64,
   /// python runtime latency in seconds
   pub latency: f64,
+}
+#[derive(Serialize,Deserialize)]
+pub struct SuccessfulWorkerInvocation {
+  /// The RPC result returned by the worker
+  pub worker_response: InvokeResponse,
+  /// The deserialized result of the function's execution
+  pub function_output: FunctionExecOutput,
+  /// The latency experienced by the client, in milliseconds
+  pub client_latency_ms: u128,
+  pub function_name: String,
+  pub function_version: String,
+  pub tid: TransactionId,
 }
 
 /// Run an invocation against the controller
@@ -135,7 +143,7 @@ pub async fn worker_prewarm(name: &String, version: &String, host: &String, port
   }
 }
 
-pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>) -> Result<(InvokeResponse, FunctionExecOutput, u64)> {
+pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>) -> Result<SuccessfulWorkerInvocation> {
   let args = match args {
     Some(a) => a,
     None => "{}".to_string(),
@@ -144,9 +152,64 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
   let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), args, None, tid.clone()).timed().await;
   match invok_out {
     Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
-      Ok(b) => Ok( (r, b, invok_lat.as_millis() as u64) ),
+      Ok(b) => Ok( SuccessfulWorkerInvocation {
+        worker_response: r,
+        function_output: b,
+        client_latency_ms: invok_lat.as_millis(),
+        function_name: name.clone(),
+        function_version: version.clone(),
+        tid: tid.clone()
+      }),
       Err(e) => anyhow::bail!("Deserialization error: {}; {}", e, r.json_result),
     },
     Err(e) => anyhow::bail!("Invocation error: {}", e),
   }
+}
+
+pub fn resolve_handles(runtime: Runtime, run_results: Vec<JoinHandle<Result<SuccessfulWorkerInvocation>>>) -> Vec<Result<SuccessfulWorkerInvocation>> {
+  let mut ret = vec![];
+  for h in run_results {
+    match runtime.block_on(h) {
+      Ok( r) => {
+        ret.push(r);
+      },
+      Err(thread_e) => println!("Joining error: {}", thread_e),
+    };
+  }
+  ret
+}
+
+pub fn save_worker_result<P: AsRef<Path>>(path: P, run_results: &Vec<Result<SuccessfulWorkerInvocation>>) -> Result<()> {
+  let mut f = match File::create(path) {
+    Ok(f) => f,
+    Err(e) => {
+      anyhow::bail!("Failed to create output file because {}", e);
+    }
+  };
+  let to_write = format!("success,function_name,was_cold,worker_duration_ms,code_duration_sec,e2e_duration_ms,tid\n");
+  match f.write_all(to_write.as_bytes()) {
+    Ok(_) => (),
+    Err(e) => {
+      anyhow::bail!("Failed to write json header of result because {}", e);
+    }
+  };
+
+  for r in run_results {
+    match r {
+      Ok( worker_invocation ) => {
+        let to_write = format!("{},{},{},{},{},{},{}\n", worker_invocation.worker_response.success, worker_invocation.function_name, 
+          worker_invocation.function_output.body.cold, worker_invocation.worker_response.duration_ms, 
+          worker_invocation.function_output.body.latency, worker_invocation.client_latency_ms, worker_invocation.tid);
+        match f.write_all(to_write.as_bytes()) {
+          Ok(_) => (),
+          Err(e) => {
+            println!("Failed to write result because {}", e);
+            continue;
+          }
+        };
+      },
+      Err(e) => println!("Status error from invoke: {}", e),
+    };
+  }
+  Ok(())
 }

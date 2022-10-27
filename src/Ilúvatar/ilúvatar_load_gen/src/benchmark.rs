@@ -42,9 +42,9 @@ pub struct FunctionStore {
   ///   if targeting controller, recorded by controller 
   pub cold_worker_duration_ms: Vec<u64>,
   /// warm invocation latency time recorded on worker 
-  pub warm_invoke_duration_ms: Vec<u64>,
+  pub warm_invoke_duration_ms: Vec<u128>,
   /// cold invocation latency time recorded on worker 
-  pub cold_invoke_duration_ms: Vec<u64>,
+  pub cold_invoke_duration_ms: Vec<u128>,
 }
 impl FunctionStore {
   pub fn new() -> Self {
@@ -322,19 +322,19 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String
 async fn thread_invoke(name: &String, version: &String, host: &String, port: Port, func_data: &mut FunctionStore) -> Result<()> {
   let tid: iluvatar_library::transaction::TransactionId = iluvatar_library::transaction::gen_tid();
   match worker_invoke(&name, &version, &host, port, &tid, None).await {
-    Ok( (response, invok_out, invok_lat) ) => {
-      let invok_lat_f = invok_lat as f64;
-      let func_exec_ms = invok_out.body.latency * 1000.0;
-      if invok_out.body.cold {
+    Ok( worker_invocation ) => {
+      let invok_lat_f = worker_invocation.client_latency_ms as f64;
+      let func_exec_ms = worker_invocation.function_output.body.latency * 1000.0;
+      if worker_invocation.function_output.body.cold {
         func_data.cold_results.push(invok_lat_f);
         func_data.cold_over_results.push(invok_lat_f - func_exec_ms);
-        func_data.cold_worker_duration_ms.push(response.duration_ms);
-        func_data.cold_invoke_duration_ms.push(invok_lat);
+        func_data.cold_worker_duration_ms.push(worker_invocation.worker_response.duration_ms);
+        func_data.cold_invoke_duration_ms.push(worker_invocation.client_latency_ms);
       } else {
         func_data.warm_results.push(invok_lat_f);
         func_data.warm_over_results.push(invok_lat_f - func_exec_ms);
-        func_data.warm_worker_duration_ms.push(response.duration_ms);
-        func_data.warm_invoke_duration_ms.push(invok_lat);
+        func_data.warm_worker_duration_ms.push(worker_invocation.worker_response.duration_ms);
+        func_data.warm_invoke_duration_ms.push(worker_invocation.client_latency_ms);
       }
       Ok(())
     },

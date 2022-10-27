@@ -8,7 +8,7 @@ use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
 use iluvatar_worker_library::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse, InvokeResponse};
 use tonic::{Request, Status, Response};
-use crate::{utils::{worker_register, VERSION, worker_invoke, FunctionExecOutput, worker_prewarm}, trace::{match_trace_to_img, prepare_function_args}, benchmark::BenchmarkStore};
+use crate::{utils::{worker_register, VERSION, worker_invoke, worker_prewarm, SuccessfulWorkerInvocation, resolve_handles, save_worker_result}, trace::{match_trace_to_img, prepare_function_args}, benchmark::BenchmarkStore};
 use super::{Function, CsvInvocation};
 
 fn sim_register_functions(funcs: &HashMap<String, Function>, worker: Arc<IluvatarWorkerImpl>, rt: &Runtime) -> Result<()> {
@@ -225,7 +225,7 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   live_prewarm_functions(&metadata, &host, port, &threaded_rt, prewarm_count)?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
-  let mut handles: Vec<JoinHandle<(Result<(InvokeResponse, FunctionExecOutput, u64)>, String)>> = Vec::new();
+  let mut handles: Vec<JoinHandle<Result<SuccessfulWorkerInvocation>>> = Vec::new();
 
   println!("{} starting live trace run", LocalTime::new(tid)?.now_str()?);
   let start = SystemTime::now();
@@ -250,44 +250,14 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
     };
     
     handles.push(threaded_rt.spawn(async move {
-      (worker_invoke(&f_c, &VERSION, &h_c, port, &gen_tid(), Some(args)).await, f_c)
+      worker_invoke(&f_c, &VERSION, &h_c, port, &gen_tid(), Some(args)).await
     }));
   }
+
+  let results = resolve_handles(threaded_rt, handles);
 
   let pth = Path::new(&trace_pth);
   let output_folder: String = get_val("out", &main_args)?;
   let p = Path::new(&output_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
-  let mut f = match File::create(p) {
-    Ok(f) => f,
-    Err(e) => {
-      anyhow::bail!("Failed to create output file because {}", e);
-    }
-  };
-  let to_write = format!("success,function_name,was_cold,worker_duration_ms,code_duration_sec,e2e_duration_ms\n");
-  match f.write_all(to_write.as_bytes()) {
-    Ok(_) => (),
-    Err(e) => {
-      anyhow::bail!("Failed to write json of result because {}", e);
-    }
-  };
-
-  for h in handles {
-    match threaded_rt.block_on(h) {
-      Ok( (r, fname) ) => match r {
-        Ok( (resp, invok_out, e2e_dur) ) => {
-          let to_write = format!("{},{},{},{},{},{}\n", resp.success, fname, invok_out.body.cold, resp.duration_ms, invok_out.body.latency, e2e_dur);
-          match f.write_all(to_write.as_bytes()) {
-            Ok(_) => (),
-            Err(e) => {
-              println!("Failed to write result because {}", e);
-              continue;
-            }
-          };
-        },
-        Err(e) => println!("Status error from invoke: {}", e),
-      },
-      Err(thread_e) => println!("Joining error: {}", thread_e),
-    };
-  }
-  Ok(())
+  save_worker_result(p, &results)
 }

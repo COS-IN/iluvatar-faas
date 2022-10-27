@@ -31,7 +31,7 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
     json_result: result.json_result,
     worker_duration_ms: duration.as_millis() as u64,
     success: result.success,
-    invoke_duration_ms: result.duration_ms,
+    invoke_duration_ms: result.duration_ms as u128,
   };
   HttpResponse::Ok().json(ret)
 }

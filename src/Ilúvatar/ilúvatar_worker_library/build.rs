@@ -31,7 +31,16 @@ fn copy_folder(folder: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-  tonic_build::compile_protos("src/rpc/iluvatar_worker.proto")?;
+  tonic_build::configure()
+    .type_attribute("iluvatar_worker.InvokeResponse", "#[derive(serde::Serialize,serde::Deserialize)]")
+    .type_attribute("iluvatar_worker.InvokeAsyncResponse", "#[derive(serde::Serialize,serde::Deserialize)]")
+    .type_attribute("iluvatar_worker.PrewarmResponse", "#[derive(serde::Serialize,serde::Deserialize)]")
+    .type_attribute("iluvatar_worker.RegisterResponse", "#[derive(serde::Serialize,serde::Deserialize)]")
+    .type_attribute("iluvatar_worker.StatusResponse", "#[derive(serde::Serialize,serde::Deserialize)]")
+    .compile(&["src/rpc/iluvatar_worker.proto"], &["src"])?;
+  // prost_build.type_attribute("iluvatar_worker.InvokeResponse", "#[derive(Serialize,Deserialize)]");
+  // prost_build.compile_protos(&["src/rpc/iluvatar_worker.proto"], &["src"])?;
+  // tonic_build::compile_protos("src/rpc/iluvatar_worker.proto")?;
   copy_folder(Path::new("resources")).unwrap();
   Ok(())
 }

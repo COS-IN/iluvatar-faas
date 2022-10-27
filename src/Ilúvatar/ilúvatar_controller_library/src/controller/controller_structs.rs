@@ -22,7 +22,7 @@ pub mod json {
     ///   could still have an internal error in the function
     pub success: bool,
     /// latency of the invocation as recorded by the worker
-    pub invoke_duration_ms: u64
+    pub invoke_duration_ms: u128
   }
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]

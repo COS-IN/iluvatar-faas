@@ -4,7 +4,7 @@ use anyhow::Result;
 use iluvatar_library::utils::{config::get_val, port_utils::Port, file_utils::ensure_dir};
 use tokio::sync::Barrier;
 use tokio::runtime::Builder;
-use crate::utils::{InvocationResult, ThreadResult, RegistrationResult, worker_register, worker_invoke};
+use crate::utils::{ThreadResult, RegistrationResult, worker_register, worker_invoke};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -129,7 +129,7 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
   let image = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
   let (reg_result, tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port).await {
     Ok((s, reg_dur, tid)) => (RegistrationResult {
-      duration_ms: reg_dur.as_millis() as u64,
+      duration_ms: reg_dur.as_millis(),
       result: s
     }, tid),
     Err(e) => anyhow::bail!("thread {} registration failed because {}", thread_id, e),
@@ -143,12 +143,8 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
   let mut errors = 0;
   loop {
     match worker_invoke(&name, &version, &host, port, &tid, Some("{\"name\":\"TESTING\"}".to_string())).await {
-      Ok( (_response, invok_out, invok_lat) ) => {
-        let res = InvocationResult {
-          duration_ms: invok_lat,
-          json: invok_out
-        };
-        data.push(res);
+      Ok( worker_invocation ) => {
+        data.push(worker_invocation);
       },
       Err(_) => {
         errors = errors + 1;
