@@ -54,7 +54,7 @@
       
   - name: copy worker executable
     ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/release/{{worker.bin_name}}"
+      src: "{{ilúvatar_home}}/target/debug/{{worker.bin_name}}"
       dest: "{{exe_dest}}"
       mode: "preserve"
     become: yes

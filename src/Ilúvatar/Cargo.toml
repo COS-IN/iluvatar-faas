@@ -24,11 +24,12 @@ debug-assertions=true
 overflow-checks=true
 lto=false
 incremental=true
+force-frame-pointers="yes"
 
 [profile.release]
 opt-level=3
 lto=true
-debug=true
+debug=0
 debug-assertions=false
 overflow-checks=false
 incremental=false
@@ -37,7 +38,7 @@ panic="abort"
 
 [profile.release.package."*"]
 opt-level=3
-debug=true
+debug=0
 debug-assertions=false
 overflow-checks=false
 incremental=false
