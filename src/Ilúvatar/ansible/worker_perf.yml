@@ -5,7 +5,7 @@
     worker_index_base: 0
     assigned_port: "{{ (worker.port | int + host_group.index(inventory_hostname)) }}"
     bin_dir: "/tmp/ilúvatar/bin"
-    exe_dest: "perf record -g {{bin_dir}}/{{ worker.bin_name }}"
+    exe_dest: "{{bin_dir}}/{{ worker.bin_name }}"
     config_dest: "{{bin_dir}}/{{ inventory_hostname }}.json"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     __hardware_interface: "{{ hardware_interface | default(servers[ansible_host].hardware_interface) }}"
@@ -15,7 +15,7 @@
 
   tasks:
   - name: Get running worker process
-    shell: "ps -ef | grep -v grep | grep -w {{ worker.bin_name }} | awk '{print $2}'"
+    shell: "ps -ef | grep -v grep | grep -w 'perf record' | awk '{print $2}'"
     register: running_worker
     when: mode == "clean"
 
@@ -37,6 +37,13 @@
     when: (ansible_host != "127.0.0.1" and ansible_host != "localhost") and mode == "clean"
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
+
+  - name: Wait until the process is finished and pid was destroyed
+    ansible.builtin.wait_for:
+      path: /proc/{{item}}/status
+      state: absent
+    with_items: "{{ running_worker.stdout_lines }}"
+    when: mode == "clean"
 
   - name: Create bin directory
     file:
@@ -83,6 +90,11 @@
   - name: run worker executable
     ansible.builtin.command: 
       argv: 
+        - perf
+        - record
+        - -g
+        - -o 
+        - "{{worker_log_dir}}/perf.data"
         - "{{exe_dest}}"
         - -c 
         - "{{config_dest}}"
