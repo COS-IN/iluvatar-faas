@@ -103,13 +103,18 @@ def span_function(log):
 
 def is_child(parent_log, check_log):
   parent_fn = span_function(parent_log)
-  if short_span_name(parent_log) == "ilúvatar_worker::invoke" and short_span_name(check_log) == "invoker::enqueue_invocation":
+  if short_span_name(parent_log) == "ilúvatar_worker::invoke" and short_span_name(check_log) == "invoker::enqueue_new_invocation":
     # hack because the API and invoker class have a shared function name
     # so that name will be in `enqueue`'s parent spans, but not associated
     return False
 
   # hack because the span is not being correctly sent through the invoker queue
   if short_span_name(parent_log) == "invoker::invoke" and short_span_name(check_log) == "invoker::invocation_worker_thread":
+    # they are "parent/child" if crossing the invoke queue boundary
+    return get_tid(parent_log) == get_tid(check_log)
+
+  # hack because the span is not being correctly sent through the invoker queue
+  if short_span_name(parent_log) == "invoker::invoke" and short_span_name(check_log) == "invoker::spawn_tokio_worker":
     # they are "parent/child" if crossing the invoke queue boundary
     return get_tid(parent_log) == get_tid(check_log)
 
@@ -177,8 +182,10 @@ def get_span_timeline(span, sorted_start_spans, exit_spans, depth=0):
   return sorted(timeline, key=lambda x: parse_date(x[1]))
 
 def plot_invocation_timeline(tid):
+  # print(by_tid_entry[tid])
   reodreded = sorted(by_tid_entry[tid], key=lambda x: parse_date(x["timestamp"]))
   timeline = get_span_timeline(reodreded[0], reodreded[1:], by_tid_exit[tid])
+  # print(timeline)
   target = result_df[result_df["tid"]==tid]
   print(int(target["e2e_duration_ms"]), int(target["overhead_ms"]))
 
@@ -223,7 +230,7 @@ def plot_invocation_timeline(tid):
   plt.tight_layout()
   pts = [0 for _ in range(len(data))]
 
-  colors = ["tab:gray","tab:blue","tab:red","tab:green","tab:cyan", "tab:olive","tab:purple","tab:orange", "tab:pink", "tab:brown"]
+  colors = ["tab:gray","tab:blue","tab:red", "gold","tab:green","tab:cyan", "tab:olive","tab:purple","tab:orange", "tab:pink", "tab:brown"]
   ax.barh(pts, data, left=left, color=colors, height=heights)
   ax.set_xlabel("Time (ms)")
   bottom, top = ax.get_ylim()
@@ -246,3 +253,4 @@ def plot_invocation_timeline(tid):
 for i in range(5):
   k = list(by_tid_entry.keys())[i]
   plot_invocation_timeline(k)
+  # break
