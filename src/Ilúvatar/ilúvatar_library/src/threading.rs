@@ -9,7 +9,7 @@ use crate::transaction::TransactionId;
 
 fn sleep_time<T>(call_ms: u64, start_t: SystemTime, tid: &TransactionId) -> u64 {
   match start_t.elapsed() {
-    Ok(d) => std::cmp::max(0, call_ms as i128 - d.as_millis() as i128) as u64,
+    Ok(d) => std::cmp::max(1, call_ms as i128 - d.as_millis() as i128) as u64,
     Err(e) => {
       warn!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Failed to get elapsed time of OW worker thread service computation");
       call_ms
@@ -51,7 +51,6 @@ where
   T: Future<Output = ()> + Send + 'static,
   S: Send + Sync + 'static
 {
-  let box_function = force_boxed(function);
   let (tx, rx) = channel();
   let handle = tokio::spawn(async move {
     let service: Arc<S> = match rx.recv() {
@@ -64,7 +63,7 @@ where
     crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
     while crate::continuation::GLOB_CONT_CHECK.check_continue() {
       let start = SystemTime::now();
-      box_function(service.clone(), tid.clone()).await;
+      function(service.clone(), tid.clone()).await;
       let sleep_t = sleep_time::<T>(call_ms, start, &tid);
       tokio::time::sleep(std::time::Duration::from_millis(sleep_t)).await;
     }
@@ -74,16 +73,11 @@ where
   (handle, tx)
 }
 
-type Incrementer<S> = Box<dyn Fn(Arc<S>, TransactionId) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>> + Send + Sync + 'static>;
-fn force_boxed<S: 'static, T>(f: fn(Arc<S>, TransactionId) -> T) -> Incrementer<S>
-where
-    T: Future<Output = ()> + Send + 'static,
-{
-    Box::new(move |s, t| Box::pin(f(s,t)))
-}
-
 /// Start an async function on a new OS thread inside of a private Tokio runtime
 /// It will be executed every [call_ms] milliseconds
+/// An optional [waiter_function] can be passed
+///   If done, they worker will wait on that future with a _timeout_ of [call_ms] instead
+///   After either case is met, the main [function] is called again
 pub fn tokio_runtime<'a, S: Send + Sync + 'static, T, T2>(call_ms: u64, tid: TransactionId, function: fn(Arc<S>, TransactionId) -> T, 
                                                   waiter_function: Option<fn(Arc<S>, TransactionId) -> T2>, num_worker_threads: Option<usize>) 
   -> (OsHandle<()>, Sender<Arc<S>>)
@@ -91,8 +85,6 @@ where
   T: Future<Output = ()> + Send + 'static,
   T2: Future<Output = ()> + Send + 'static,
 {
-  // let box_function = force_boxed(function);
-
   let (tx, rx) = channel::<Arc<S>>();
   let handle = std::thread::spawn(move || {
     let service: Arc<S> = match rx.recv() {
@@ -125,8 +117,13 @@ where
         let sleep_t = sleep_time::<T>(call_ms, start, &tid);
         match waiter_function {
           Some(wf) => {
-            // let box_wait_function = force_boxed(wf);
-            wf(service.clone(), tid.clone()).await;
+            let fut = wf(service.clone(), tid.clone());
+            match tokio::time::timeout(Duration::from_millis(sleep_t), fut).await {
+              Ok(_) => (), // woken up by future activation
+              Err(_elapsed) => { // check after timeout
+                debug!(tid=%tid, "Waking up worker thread after timeout; waiter did not activate");
+              },
+            }
           },
           None => tokio::time::sleep(std::time::Duration::from_millis(sleep_t)).await,
         };
