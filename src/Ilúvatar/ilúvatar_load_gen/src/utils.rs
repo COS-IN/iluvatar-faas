@@ -19,7 +19,7 @@ pub struct ThreadResult {
 }
 #[derive(Serialize,Deserialize)]
 pub struct RegistrationResult {
-  pub duration_ms: u128,
+  pub duration_us: u128,
   pub result: String
 }
 #[derive(Serialize,Deserialize)]
@@ -41,8 +41,8 @@ pub struct SuccessfulWorkerInvocation {
   pub worker_response: InvokeResponse,
   /// The deserialized result of the function's execution
   pub function_output: FunctionExecOutput,
-  /// The latency experienced by the client, in milliseconds
-  pub client_latency_ms: u128,
+  /// The latency experienced by the client, in microseconds
+  pub client_latency_us: u128,
   pub function_name: String,
   pub function_version: String,
   pub tid: TransactionId,
@@ -54,8 +54,8 @@ pub struct SuccessfulControllerInvocation {
   pub controller_response: ControllerInvokeResult,
   /// The deserialized result of the function's execution
   pub function_output: FunctionExecOutput,
-  /// The latency experienced by the client, in milliseconds
-  pub client_latency_ms: u128,
+  /// The latency experienced by the client, in microseconds
+  pub client_latency_us: u128,
   pub function_name: String,
   pub function_version: String,
 }
@@ -90,7 +90,7 @@ pub async fn controller_invoke(name: &String, version: &String, host: &String, p
           Ok(feo) => Ok(SuccessfulControllerInvocation {
             controller_response: r,
             function_output: feo,
-            client_latency_ms:invok_lat.as_millis(),
+            client_latency_us: invok_lat.as_micros(),
             function_name: name.clone(),
             function_version: version.clone(),
           }),
@@ -170,7 +170,7 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
       Ok(b) => Ok( SuccessfulWorkerInvocation {
         worker_response: r,
         function_output: b,
-        client_latency_ms: invok_lat.as_millis(),
+        client_latency_us: invok_lat.as_micros(),
         function_name: name.clone(),
         function_version: version.clone(),
         tid: tid.clone()
@@ -218,7 +218,7 @@ pub fn save_worker_result_csv<P: AsRef<Path>>(path: P, run_results: &Vec<Success
       anyhow::bail!("Failed to create csv output file because {}", e);
     }
   };
-  let to_write = format!("success,function_name,was_cold,worker_duration_ms,code_duration_sec,e2e_duration_ms,tid\n");
+  let to_write = format!("success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n");
   match f.write_all(to_write.as_bytes()) {
     Ok(_) => (),
     Err(e) => {
@@ -228,8 +228,8 @@ pub fn save_worker_result_csv<P: AsRef<Path>>(path: P, run_results: &Vec<Success
 
   for worker_invocation in run_results {
     let to_write = format!("{},{},{},{},{},{},{}\n", worker_invocation.worker_response.success, worker_invocation.function_name, 
-      worker_invocation.function_output.body.cold, worker_invocation.worker_response.duration_ms, 
-      worker_invocation.function_output.body.latency, worker_invocation.client_latency_ms, worker_invocation.tid);
+      worker_invocation.function_output.body.cold, worker_invocation.worker_response.duration_us, 
+      worker_invocation.function_output.body.latency, worker_invocation.client_latency_us, worker_invocation.tid);
     match f.write_all(to_write.as_bytes()) {
       Ok(_) => (),
       Err(e) => {

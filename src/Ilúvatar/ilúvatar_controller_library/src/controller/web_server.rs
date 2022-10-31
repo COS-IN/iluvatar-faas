@@ -29,9 +29,9 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
   };
   let ret = ControllerInvokeResult {
     json_result: result.json_result,
-    worker_duration_ms: duration.as_millis(),
+    worker_duration_us: duration.as_micros(),
     success: result.success,
-    invoke_duration_ms: result.duration_ms as u128,
+    invoke_duration_us: result.duration_us as u128,
     tid
   };
   HttpResponse::Ok().json(ret)
@@ -48,7 +48,7 @@ pub async fn invoke_async(server: Data<Controller>, req: Json<Invoke>) -> HttpRe
   match server.invoke_async(req, &tid).await {
     Ok( (cookie, duration) ) => HttpResponse::Created().json(AsyncInvokeResult {
       cookie,
-      worker_duration_ms: duration.as_millis(),
+      worker_duration_us: duration.as_micros(),
       tid
     }),
     Err(e) => HttpResponse::InternalServerError().body(e.to_string()),

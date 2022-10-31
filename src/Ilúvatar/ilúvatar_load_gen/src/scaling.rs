@@ -129,7 +129,7 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
   let image = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
   let (reg_result, tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port).await {
     Ok((s, reg_dur, tid)) => (RegistrationResult {
-      duration_ms: reg_dur.as_millis(),
+      duration_us: reg_dur.as_micros(),
       result: s
     }, tid),
     Err(e) => anyhow::bail!("thread {} registration failed because {}", thread_id, e),

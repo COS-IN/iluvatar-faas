@@ -32,11 +32,6 @@ The exact call happens inside `ContainerdLifecycle::load_mounts`.
 1. Figure out what in containerd is causing this.
 1. Solve that problem
 
-
-## Move reported timing metrics to microsecond or smaller.
-
-If we want to get better data on where and what time is being spend, tracked times that are logged or returned to clients need to be smaller than milliseconds.
-
 ## High CPU usage after large number of containers made
 
 After an experiment (~ 1 hour running) the CPU usage of the worker is higher than at the start.

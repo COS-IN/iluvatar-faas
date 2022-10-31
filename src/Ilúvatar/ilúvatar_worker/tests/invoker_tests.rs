@@ -45,7 +45,7 @@ mod invoke {
     let result = invok_svc.invoke(req).await;
     match result {
       Ok( (json, dur) ) => {
-        assert!(dur > 0, "Duration should not be <= 0!");
+        assert!(dur.as_micros() > 0, "Duration should not be <= 0!");
         assert_ne!(json, ""); 
       },
       Err(e) => panic!("Invocation failed: {}", e),
@@ -75,7 +75,7 @@ mod invoke {
     let result = invok_svc.invoke(req).await;
     match result {
       Ok( (json, dur) ) => {
-        assert!(dur > 0, "Duration should not be <= 0!");
+        assert!(dur.as_micros() > 0, "Duration should not be <= 0!");
         assert_ne!(json, ""); 
       },
       Err(e) => panic!("Invocation failed: {}", e),
@@ -129,7 +129,7 @@ mod invoke_async {
             Ok(result) => {
               if result.success {
                 assert_ne!(result.json_result, ""); 
-                assert!(result.duration_ms > 0, "Duration should not be <= 0!");
+                assert!(result.duration_us > 0, "Duration should not be <= 0!");
                 break
               } else {
                 if result.json_result == "{ \"Error\": \"Invocation not found\" }" || result.json_result == "{ \"Error\": \"No result was captured\" }" {
@@ -186,7 +186,7 @@ mod invoke_async {
             Ok(result) => {
               if result.success {
                 assert_ne!(result.json_result, ""); 
-                assert!(result.duration_ms > 0, "Duration should not be <= 0!");
+                assert!(result.duration_us > 0, "Duration should not be <= 0!");
                 break
               } else {
                 if result.json_result == "{ \"Error\": \"Invocation not found\" }" || result.json_result == "{ \"Error\": \"No result was captured\" }" {

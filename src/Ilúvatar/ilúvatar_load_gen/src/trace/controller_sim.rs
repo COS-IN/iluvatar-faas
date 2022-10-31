@@ -51,7 +51,7 @@ async fn register_functions(metadata: &HashMap<String, Function>, server_data: &
   Ok(())
 }
 
-async fn controller_invoke(func_name: String, server_data: Data<Controller>, warm_dur_ms: u64, cold_dur_ms: u64) -> Result<(ControllerInvokeResult, u64)> {
+async fn controller_invoke(func_name: String, server_data: Data<Controller>, warm_dur_ms: u64, cold_dur_ms: u64) -> Result<(ControllerInvokeResult, u128)> {
   let i = Invoke{function_name: func_name.clone(), function_version:VERSION.clone(), 
     args:Some(vec![format!("warm_dur_ms={}", warm_dur_ms), format!("cold_dur_ms={}", cold_dur_ms)])};
   let (response, dur) = invoke(server_data, Json{0:i}).timed().await;
@@ -66,7 +66,7 @@ async fn controller_invoke(func_name: String, server_data: Data<Controller>, war
   };
 
   match serde_json::from_slice::<ControllerInvokeResult>(&bytes) {
-    Ok(r) => Ok( (r, dur.as_millis() as u64) ),
+    Ok(r) => Ok( (r, dur.as_micros()) ),
     Err(e) => anyhow::bail!("Deserialization error of ControllerInvokeResult: {}", e),
   }
 }
@@ -94,7 +94,7 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
   threaded_rt.block_on(register_functions(&metadata, &server_data))?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
-  let mut handles: Vec<JoinHandle<Result<(ControllerInvokeResult, u64)>>> = Vec::new();
+  let mut handles: Vec<JoinHandle<Result<(ControllerInvokeResult, u128)>>> = Vec::new();
 
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
@@ -129,7 +129,7 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
       anyhow::bail!("Failed to create output file because {}", e);
     }
   };
-  let to_write = format!("success,function_name,was_cold,worker_duration_ms,invocation_duration_ms,code_duration_ms,e2e_duration_ms\n");
+  let to_write = format!("success,function_name,was_cold,worker_duration_us,invocation_duration_us,code_duration_us,e2e_duration_us\n");
   match f.write_all(to_write.as_bytes()) {
     Ok(_) => (),
     Err(e) => {
@@ -142,7 +142,7 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
       Ok(r) => match r {
         Ok( (resp, e2e_dur) ) => {
           let result = serde_json::from_str::<SimulationResult>(&resp.json_result)?;
-          let to_write = format!("{},{},{},{},{},{}\n", resp.success, result.function_name, result.was_cold, resp.worker_duration_ms, result.duration_ms, e2e_dur);
+          let to_write = format!("{},{},{},{},{},{}\n", resp.success, result.function_name, result.was_cold, resp.worker_duration_us, result.duration_us, e2e_dur);
           match f.write_all(to_write.as_bytes()) {
             Ok(_) => (),
             Err(e) => {

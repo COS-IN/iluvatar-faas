@@ -22,7 +22,7 @@ message InvokeRequest {
 message InvokeResponse {
   string json_result = 1;
   bool success = 2;
-  uint64 duration_ms = 3;
+  uint64 duration_us = 3;
 }
 
 message InvokeAsyncRequest {

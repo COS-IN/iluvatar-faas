@@ -19,12 +19,12 @@ use super::*;
     /// json returned by the function
     pub json_result: String,
     /// latency of the invocation as recorded by the controller
-    pub worker_duration_ms: u128,
+    pub worker_duration_us: u128,
     /// false if there was no platform error
     ///   could still have an internal error in the function
     pub success: bool,
     /// latency of the invocation as recorded by the worker
-    pub invoke_duration_ms: u128,
+    pub invoke_duration_us: u128,
     /// The TransactionId the request was run under
     pub tid: TransactionId,
   }
@@ -34,7 +34,7 @@ use super::*;
     /// lookup cookie to query the function result
     pub cookie: String,
     /// latency of the invocation as recorded by the controller
-    pub worker_duration_ms: u128,
+    pub worker_duration_us: u128,
     /// The TransactionId the request was run under
     pub tid: TransactionId,
   }

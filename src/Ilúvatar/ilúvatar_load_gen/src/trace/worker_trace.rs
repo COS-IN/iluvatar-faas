@@ -62,7 +62,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
   sim_register_functions(&metadata, worker.clone(), &threaded_rt)?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
-  let mut handles: Vec<JoinHandle<Result<(u64, InvokeResponse)>>> = Vec::new();
+  let mut handles: Vec<JoinHandle<Result<(u128, InvokeResponse)>>> = Vec::new();
 
   println!("starting simulation run");
 
@@ -96,7 +96,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
     let cln = worker.clone();
     handles.push(threaded_rt.spawn(async move {
       let (reg_out, reg_dur) = cln.invoke(Request::new(req)).timed().await;
-      Ok((reg_dur.as_millis() as u64, reg_out?.into_inner()))
+      Ok((reg_dur.as_micros(), reg_out?.into_inner()))
     }));
   }
 
@@ -109,7 +109,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
       anyhow::bail!("Failed to create output file because {}", e);
     }
   };
-  let to_write = format!("success,function_name,was_cold,worker_duration_ms,code_duration_ms,e2e_duration_ms\n");
+  let to_write = format!("success,function_name,was_cold,worker_duration_us,code_duration_us,e2e_duration_us\n");
   match f.write_all(to_write.as_bytes()) {
     Ok(_) => (),
     Err(e) => {
@@ -120,9 +120,9 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
   for h in handles {
     match threaded_rt.block_on(h) {
       Ok(r) => match r {
-        Ok( (e2e_dur, resp) ) => {
+        Ok( (e2e_dur_us, resp) ) => {
           let result = serde_json::from_str::<SimulationResult>(&resp.json_result)?;
-          let to_write = format!("{},{},{},{},{},{}\n", resp.success, result.function_name, result.was_cold, resp.duration_ms, result.duration_ms, e2e_dur);
+          let to_write = format!("{},{},{},{},{},{}\n", resp.success, result.function_name, result.was_cold, resp.duration_us, result.duration_us, e2e_dur_us);
           match f.write_all(to_write.as_bytes()) {
             Ok(_) => (),
             Err(e) => {

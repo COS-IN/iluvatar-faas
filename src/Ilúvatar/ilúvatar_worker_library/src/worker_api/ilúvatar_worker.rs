@@ -60,7 +60,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           let reply = InvokeResponse {
             json_result: json,
             success: true,
-            duration_ms: dur
+            duration_us: dur.as_micros() as u64
           };
           Ok(Response::new(reply))    
         },
@@ -69,7 +69,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           Ok(Response::new(InvokeResponse {
             json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
             success: false,
-            duration_ms: 0
+            duration_us: 0
           }))
         },
       }
@@ -114,7 +114,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok(Response::new(InvokeResponse {
           json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
           success: false,
-          duration_ms: 0
+          duration_us: 0
         }))
       },
     }

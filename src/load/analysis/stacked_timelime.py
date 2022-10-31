@@ -25,6 +25,8 @@ args = argparser.parse_args()
 
 result_df = pd.read_csv(args.csv)
 result_df["code_duration_ms"] = result_df["code_duration_sec"] * 1000.0
+if "e2e_duration_us" in result_df.columns:
+  result_df["e2e_duration_ms"] = result_df["e2e_duration_us"]/1000.0 
 result_df["overhead_ms"] = result_df["e2e_duration_ms"] - result_df["code_duration_ms"]
 result_df = result_df[~result_df["was_cold"]]
 tids = set(result_df["tid"])
@@ -165,7 +167,7 @@ def find_matching_span(target_span, exit_list):
   else:
     raise Exception(f"Unable to find exit span for {short_span_name(target_span) }")
 
-def get_span_timeline(span, sorted_start_spans, exit_spans, depth=0):
+def get_span_timeline(span, sorted_start_spans, exit_spans, depth=1):
   timeline = []  
   start_t = parse_date(span["timestamp"])
   exit_t = parse_date(find_matching_span(span, exit_spans)["timestamp"])
@@ -187,7 +189,7 @@ def plot_invocation_timeline(tid):
   timeline = get_span_timeline(reodreded[0], reodreded[1:], by_tid_exit[tid])
   # print(timeline)
   target = result_df[result_df["tid"]==tid]
-  print(int(target["e2e_duration_ms"]), int(target["overhead_ms"]))
+  print(int(target["overhead_ms"]), int(target["overhead_ms"]))
 
   first_t = timeline[0][1]
   data = []

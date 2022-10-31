@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}, services::invocation::invoker_structs::InvocationResult};
 use crate::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use crate::rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse};
@@ -99,10 +99,10 @@ impl InvokerService {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
   async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>) {
     match self.invoke_internal(&item.function_name, &item.function_version, &item.json_args, &item.tid).await {
-      Ok(res) =>  {
+      Ok( (json, duration) ) =>  {
         let mut result_ptr = item.result_ptr.lock();
-        result_ptr.duration = res.1;
-        result_ptr.result_json = res.0;
+        result_ptr.duration = duration;
+        result_ptr.result_json = json;
         result_ptr.completed = true;
         item.signal();
         debug!(tid=%item.tid, "queued invocation completed successfully");
@@ -125,7 +125,7 @@ impl InvokerService {
           let mut result_ptr = item.result_ptr.lock();
           if result_ptr.attempts >= self.invocation_config.retries {
             error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
-            result_ptr.duration = 0;
+            result_ptr.duration = Duration::from_micros(0);
             result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
             result_ptr.completed = true;
             item.signal();
@@ -159,7 +159,7 @@ impl InvokerService {
   /// synchronously run an invocation
   /// returns the json result and duration as a tuple
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, request), fields(tid=%request.transaction_id)))]
-  pub async fn invoke(&self, request: InvokeRequest) -> Result<(String, u64)> {
+  pub async fn invoke(&self, request: InvokeRequest) -> Result<(String, Duration)> {
     if self.invocation_config.use_queue {
       let queued = self.enqueue_new_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
       queued.wait(&request.transaction_id).await?;
@@ -178,7 +178,7 @@ impl InvokerService {
     }
   }
 
-  async fn queueless_invoke(&self, request: InvokeRequest) -> Result<(String, u64)> {
+  async fn queueless_invoke(&self, request: InvokeRequest) -> Result<(String, Duration)> {
     match self.invoke_internal(&request.function_name, &request.function_version, &request.json_args, &request.transaction_id).await {
       Ok(res) =>  {
         Ok(res)
@@ -225,7 +225,7 @@ impl InvokerService {
   /// acquires a container and invokes the function inside it
   /// returns the json result and duration as a tuple
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
-  async fn invoke_internal(&self, function_name: &String, function_version: &String, json_args: &String, tid: &TransactionId) -> Result<(String, u64)> {
+  async fn invoke_internal(&self, function_name: &String, function_version: &String, json_args: &String, tid: &TransactionId) -> Result<(String, Duration)> {
     debug!(tid=%tid, "Internal invocation starting");
 
     let fqdn = calculate_fqdn(&function_name, &function_version);
@@ -237,7 +237,7 @@ impl InvokerService {
         let duration = match start.elapsed() {
           Ok(dur) => dur,
           Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
-        }.as_millis() as u64;
+        };
         self.track_finished(tid);
         Ok((data, duration))
       },
@@ -277,7 +277,7 @@ impl InvokerService {
           Err(e) => {
             error!(tid=%request.transaction_id, error=%e, "Async invocation failed with error");
             let mut locked = result_ptr.lock();
-            locked.duration = 0;
+            locked.duration = Duration::from_micros(0);
             locked.result_json = format!("{{ \"Error\": \"{}\" }}", e);
             locked.attempts = 0;
             locked.completed = true;
@@ -316,7 +316,7 @@ impl InvokerService {
       None => return Ok(InvokeResponse {
         json_result: "{ \"Error\": \"Invocation not found\" }".to_string(),
         success: false,
-        duration_ms: 0
+        duration_us: 0
       }),
     };
 
@@ -326,13 +326,13 @@ impl InvokerService {
       return Ok(InvokeResponse {
         json_result: entry.result_json.to_string(),
         success: true,
-        duration_ms: entry.duration,
+        duration_us: entry.duration.as_micros() as u64,
       });
     }
     Ok(InvokeResponse {
       json_result: "{ \"Status\": \"Invocation not completed\" }".to_string(),
       success: false,
-      duration_ms: 0
+      duration_us: 0
     })
   }
 }

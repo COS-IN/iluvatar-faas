@@ -39,7 +39,7 @@ fn cust_deserialize<'de, D>(deser: D) -> Result<u64, D::Error> where D: serde::D
 /// output of "invocation" in simulated function
 pub struct SimulationResult {
   pub was_cold: bool,
-  pub duration_ms: u64,
+  pub duration_us: u128,
   pub function_name: String,
 }
 
@@ -53,15 +53,15 @@ impl ContainerT for SimulatorContainer {
       Err(e) => bail_error!(tid=%tid, error=%e, args=%json_args, "Unable to deserialize run time information"),
     };
 
-    let (duration_ms, was_cold) = match self.invocations() {
-      0 => (data.cold_dur_ms, true),
-      _ => (data.warm_dur_ms, false)
+    let (duration_us, was_cold) = match self.invocations() {
+      0 => (data.cold_dur_ms * 1000, true),
+      _ => (data.warm_dur_ms * 1000, false)
     };
     *self.invocations.lock() += 1;
-    tokio::time::sleep(std::time::Duration::from_millis(duration_ms)).await;
+    tokio::time::sleep(std::time::Duration::from_micros(duration_us)).await;
     let ret = SimulationResult {
       was_cold,
-      duration_ms,
+      duration_us: duration_us as u128,
       function_name: self.function.function_name.clone()
     };
     Ok(serde_json::to_string(&ret)?)

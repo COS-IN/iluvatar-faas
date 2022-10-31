@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use iluvatar_library::{transaction::TransactionId, bail_error};
 use parking_lot::Mutex;
 use tokio::sync::Semaphore;
@@ -8,7 +8,7 @@ use anyhow::Result;
 #[allow(unused)]
 pub struct InvocationResult {
   pub result_json: String,
-  pub duration: u64,
+  pub duration: Duration,
   pub attempts: u32,
   pub completed: bool
 }
@@ -16,7 +16,7 @@ impl InvocationResult {
   pub fn boxed() -> InvocationResultPtr {
     Arc::new(Mutex::new(InvocationResult {
       completed: false,
-      duration: 0,
+      duration: Duration::from_micros(0),
       result_json: "".to_string(),
       attempts: 0
     }))
