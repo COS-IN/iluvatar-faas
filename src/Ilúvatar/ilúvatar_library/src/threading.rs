@@ -84,11 +84,14 @@ where
 
 /// Start an async function on a new OS thread inside of a private Tokio runtime
 /// It will be executed every [call_ms] milliseconds
-pub fn tokio_runtime<S: Send + Sync + 'static, T>(call_ms: u64, tid: TransactionId, function: fn(Arc<S>, TransactionId) -> T, num_worker_threads: Option<usize>) -> (OsHandle<()>, Sender<Arc<S>>)
+pub fn tokio_runtime<'a, S: Send + Sync + 'static, T, T2>(call_ms: u64, tid: TransactionId, function: fn(Arc<S>, TransactionId) -> T, 
+                                                  waiter_function: Option<fn(Arc<S>, TransactionId) -> T2>, num_worker_threads: Option<usize>) 
+  -> (OsHandle<()>, Sender<Arc<S>>)
 where
   T: Future<Output = ()> + Send + 'static,
+  T2: Future<Output = ()> + Send + 'static,
 {
-  let box_function = force_boxed(function);
+  // let box_function = force_boxed(function);
 
   let (tx, rx) = channel::<Arc<S>>();
   let handle = std::thread::spawn(move || {
@@ -118,9 +121,15 @@ where
       crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
       while crate::continuation::GLOB_CONT_CHECK.check_continue() {
         let start = SystemTime::now();
-        box_function(service.clone(), tid.clone()).await;
+        function(service.clone(), tid.clone()).await;
         let sleep_t = sleep_time::<T>(call_ms, start, &tid);
-        tokio::time::sleep(std::time::Duration::from_millis(sleep_t)).await;
+        match waiter_function {
+          Some(wf) => {
+            // let box_wait_function = force_boxed(wf);
+            wf(service.clone(), tid.clone()).await;
+          },
+          None => tokio::time::sleep(std::time::Duration::from_millis(sleep_t)).await,
+        };
       }
       crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
     });

@@ -5,6 +5,7 @@ use crate::rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse};
 use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error, threading::tokio_runtime};
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use tokio::sync::Notify;
 use tracing::{debug, error, warn, info};
 use std::time::SystemTime;
 use anyhow::Result;
@@ -20,6 +21,7 @@ pub struct InvokerService {
   pub invocation_config: Arc<InvocationConfig>,
   // TODO: occasionally check if this died and re-run?
   _worker_thread: Option<std::thread::JoinHandle<()>>,
+  queue_signal: Notify
 }
 
 impl InvokerService {
@@ -32,13 +34,14 @@ impl InvokerService {
       function_config,
       invocation_config,
       _worker_thread: worker_thread,
+      queue_signal: Notify::new()
     }
   }
 
   pub fn boxed(cont_manager: Arc<ContainerManager>, _tid: &TransactionId, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>) -> Arc<Self> {
     match invocation_config.use_queue {
       true => {
-        let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), InvokerService::monitor_queue, Some(function_config.cpu_max as usize));
+        let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), InvokerService::monitor_queue, Some(InvokerService::wait_on_queue), Some(function_config.cpu_max as usize));
         let i = Arc::new(InvokerService::new(cont_manager, function_config, invocation_config, Some(handle)));
         tx.send(i.clone()).unwrap();
         i
@@ -48,14 +51,15 @@ impl InvokerService {
   }
 
   /// Check the invocation queue, running things when there are sufficient resources
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoker_svc), fields(tid=%_tid)))]
   async fn monitor_queue(invoker_svc: Arc<InvokerService>, _tid: TransactionId) {
-  let mut queue = invoker_svc.invoke_queue.lock();
-  if queue.len() > 0 && invoker_svc.has_resources_to_run() {
-    let item = queue.remove(0);
-    debug!(tid=%item.tid, "Dequeueing item");
-    // TODO: continuity of spans here
-    invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item);
-  }
+    let mut invoke_queue = invoker_svc.invoke_queue.lock();
+    if invoke_queue.len() > 0 && invoker_svc.has_resources_to_run() {
+      let item = invoke_queue.remove(0);
+      debug!(tid=%item.tid, "Dequeueing item");
+      // TODO: continuity of spans here
+      invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item);
+    }
   }
 
   /// has_resources_to_run
@@ -66,11 +70,30 @@ impl InvokerService {
 
   /// spawn_tokio_worker
   /// runs the specific invocation on a new tokio worker thread
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, item), fields(tid=%item.tid)))]
   fn spawn_tokio_worker(&self, invoker_svc: Arc<InvokerService>, item: Arc<EnqueuedInvocation>) {
     let _handle = tokio::spawn(async move {
       debug!(tid=%item.tid, "Launching invocation thread for queued item");
       invoker_svc.invocation_worker_thread(item).await;
     });
+  }
+
+  /// Insert an item into the queue, optionally at a specific index
+  /// If not specified, added to the end
+  /// Wakes up the queue monitor thread
+  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, index: Option<usize>) {
+    let mut queue = self.invoke_queue.lock();
+    match index {
+        Some(i) => queue.insert(i, item.clone()),
+        None => queue.push(item.clone()),
+    };
+    debug!(tid=%item.tid, position=index, "Added item to queue; waking worker thread");
+    self.queue_signal.notify_waiters();
+  }
+
+  async fn wait_on_queue(invoker_svc: Arc<InvokerService>, tid: TransactionId) {
+    invoker_svc.queue_signal.notified().await;
+    debug!(tid=%tid, "Invoker waken up by signal");
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
@@ -88,12 +111,14 @@ impl InvokerService {
       {
         if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
           debug!(tid=%item.tid, "Insufficient cores to run item right now");
-          let mut queue = self.invoke_queue.lock();
-          queue.insert(0, item.clone());
+          // let mut queue = self.invoke_queue.lock();
+          // queue.insert(0, item.clone());
+          self.add_item_to_queue(&item, Some(0));
         } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
           warn!(tid=%item.tid, "Insufficient memory to run item right now");
-          let mut queue = self.invoke_queue.lock();
-          queue.insert(0, item.clone());
+          // let mut queue = self.invoke_queue.lock();
+          // queue.insert(0, item.clone());
+          self.add_item_to_queue(&item, Some(0));
         } else {
           error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
           // TODO: insert smartly into queue
@@ -107,8 +132,9 @@ impl InvokerService {
           } else {
             result_ptr.attempts += 1;
             debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
-            let mut queue = self.invoke_queue.lock();
-            queue.push(item.clone());
+            // let mut queue = self.invoke_queue.lock();
+            // queue.push(item.clone());
+            self.add_item_to_queue(&item, None);
           }
         }
       },
@@ -121,11 +147,12 @@ impl InvokerService {
 
   /// Insert an invocation request into the queue and return a QueueFuture for it's execution result
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
-  fn enqueue_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Arc<EnqueuedInvocation> {
+  fn enqueue_new_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Arc<EnqueuedInvocation> {
     debug!(tid=%tid, "Enqueueing invocation");
     let enqueue = Arc::new(EnqueuedInvocation::new(function_name, function_version, json_args, tid));
-    let mut invoke_queue = self.invoke_queue.lock();
-    invoke_queue.push(enqueue.clone());
+    // let mut invoke_queue = self.invoke_queue.lock();
+    // invoke_queue.push(enqueue.clone());
+    self.add_item_to_queue(&enqueue, None);
     enqueue
   }
 
@@ -134,7 +161,7 @@ impl InvokerService {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, request), fields(tid=%request.transaction_id)))]
   pub async fn invoke(&self, request: InvokeRequest) -> Result<(String, u64)> {
     if self.invocation_config.use_queue {
-      let queued = self.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
+      let queued = self.enqueue_new_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
       queued.wait(&request.transaction_id).await?;
       let result_ptr = queued.result_ptr.lock();
       match result_ptr.completed {
@@ -225,7 +252,7 @@ impl InvokerService {
     debug!(tid=%request.transaction_id, "Inserting async invocation");
     let cookie = GUID::rand().to_string();
     if invoke_svc.invocation_config.use_queue {
-      let fut = invoke_svc.enqueue_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
+      let fut = invoke_svc.enqueue_new_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id.clone());
       invoke_svc.async_functions.insert(cookie.clone(), fut.result_ptr.clone());
     } else {
       let result_ptr = InvocationResult::boxed();
