@@ -111,13 +111,9 @@ impl InvokerService {
       {
         if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
           debug!(tid=%item.tid, "Insufficient cores to run item right now");
-          // let mut queue = self.invoke_queue.lock();
-          // queue.insert(0, item.clone());
           self.add_item_to_queue(&item, Some(0));
         } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
           warn!(tid=%item.tid, "Insufficient memory to run item right now");
-          // let mut queue = self.invoke_queue.lock();
-          // queue.insert(0, item.clone());
           self.add_item_to_queue(&item, Some(0));
         } else {
           error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
@@ -132,8 +128,6 @@ impl InvokerService {
           } else {
             result_ptr.attempts += 1;
             debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
-            // let mut queue = self.invoke_queue.lock();
-            // queue.push(item.clone());
             self.add_item_to_queue(&item, None);
           }
         }
@@ -150,8 +144,6 @@ impl InvokerService {
   fn enqueue_new_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Arc<EnqueuedInvocation> {
     debug!(tid=%tid, "Enqueueing invocation");
     let enqueue = Arc::new(EnqueuedInvocation::new(function_name, function_version, json_args, tid));
-    // let mut invoke_queue = self.invoke_queue.lock();
-    // invoke_queue.push(enqueue.clone());
     self.add_item_to_queue(&enqueue, None);
     enqueue
   }
