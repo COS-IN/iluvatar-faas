@@ -1718,6 +1718,7 @@ dependencies = [
  "iluvatar_worker_library",
  "lazy_static",
  "prost 0.10.4",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",

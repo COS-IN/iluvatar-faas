@@ -4,8 +4,9 @@ use anyhow::Result;
 use iluvatar_library::{utils::{config::get_val, port_utils::Port, file_utils::ensure_dir}, transaction::gen_tid};
 use tokio::sync::Barrier;
 use tokio::runtime::Builder;
-use crate::utils::{ThreadResult, RegistrationResult, worker_register, worker_invoke, resolve_handles, ErrorHandling, save_result_json};
+use crate::utils::{ThreadResult, RegistrationResult, worker_register, worker_invoke, resolve_handles, ErrorHandling, save_result_json, worker_prewarm};
 use std::path::Path;
+use rand::prelude::*;
 
 pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
   app.subcommand(SubCommand::with_name("scaling")
@@ -88,14 +89,21 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
 
   let name = format!("scaling-{}", thread_id);
   let version = format!("0.0.{}", thread_id);
-  let (reg_result, _reg_tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port).await {
+  let (reg_result, reg_tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port).await {
     Ok((s, reg_dur, tid)) => (RegistrationResult {
       duration_us: reg_dur.as_micros(),
       result: s
     }, tid),
     Err(e) => anyhow::bail!("thread {} registration failed because {}", thread_id, e),
   };
-  
+  barrier.wait().await;
+
+  let wait = rand::thread_rng().gen_range(0..5000);
+  tokio::time::sleep(Duration::from_millis(wait)).await;
+  match worker_prewarm(&name, &version, &host, port, &reg_tid).await {
+    Ok((_s, _prewarm_dur)) => (),
+    Err(e) => anyhow::bail!("thread {} prewarm failed because {}", thread_id, e),
+  };
   barrier.wait().await;
 
   let stopping = Duration::from_secs(duration);

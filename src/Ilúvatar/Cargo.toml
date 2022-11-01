@@ -24,7 +24,6 @@ debug-assertions=true
 overflow-checks=true
 lto=false
 incremental=true
-force-frame-pointers="yes"
 
 [profile.release]
 opt-level=3
