@@ -15,10 +15,6 @@
       fail_msg: "Can only support one controller"
       success_msg: "Good on number of controllers, got {{ host_group_size }}"
 
-  # - name: print paths
-  #   debug:
-  #     msg: "exe src: {{ilúvatar_home}}/target/release/{{controller.bin_name}}"
-
   - name: Get running controller process
     shell: "ps -ef | grep -v grep | grep -w {{ controller.bin_name }} | awk '{print $2}'"
     register: running_lb
@@ -39,7 +35,7 @@
 
   - name: copy controller executable
     ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/release/{{controller.bin_name}}"
+      src: "{{ilúvatar_home}}/target/{{target}}/{{controller.bin_name}}"
       dest: "{{exe_dest}}"
       mode: "preserve"
     when: mode == "deploy"
@@ -47,7 +43,7 @@
 
   - name: copy controller config
     ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/release/{{controller.config_name}}"
+      src: "{{ilúvatar_home}}/target/{{target}}/{{controller.config_name}}"
       dest: "{{config_dest}}"
       mode: "preserve"
     when: mode == "deploy"

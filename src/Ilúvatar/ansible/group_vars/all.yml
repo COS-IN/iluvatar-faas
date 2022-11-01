@@ -1,5 +1,6 @@
 ilúvatar_home: "{{ lookup('env', 'ILU_HOME') | default(playbook_dir ~ '/..', true) }}"
 mode: deploy
+target: release
 
 graphite:
   docker_image: graphiteapp/graphite-statsd:latest
