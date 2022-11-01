@@ -27,6 +27,9 @@ args = argparser.parse_args()
 
 result_df = pd.read_csv(args.csv)
 result_df["code_duration_ms"] = result_df["code_duration_sec"] * 1000.0
+if "e2e_duration_us" in result_df.columns:
+  result_df["e2e_duration_ms"] = result_df["e2e_duration_us"]/1000.0 
+
 result_df["overhead_ms"] = result_df["e2e_duration_ms"] - result_df["code_duration_ms"]
 result_df = result_df[~result_df["was_cold"]]
 tids = set(result_df["tid"])

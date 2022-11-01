@@ -211,18 +211,18 @@ pub fn resolve_handles<T>(runtime: &Runtime, run_results: Vec<JoinHandle<Result<
 }
 
 /// Save worker load results as a csv
-pub fn save_worker_result_csv<P: AsRef<Path>>(path: P, run_results: &Vec<SuccessfulWorkerInvocation>) -> Result<()> {
-  let mut f = match File::create(path) {
+pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(path: P, run_results: &Vec<SuccessfulWorkerInvocation>) -> Result<()> {
+  let mut f = match File::create(&path) {
     Ok(f) => f,
     Err(e) => {
-      anyhow::bail!("Failed to create csv output file because {}", e);
+      anyhow::bail!("Failed to create csv output '{:?}' file because {}", &path, e);
     }
   };
   let to_write = format!("success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n");
   match f.write_all(to_write.as_bytes()) {
     Ok(_) => (),
     Err(e) => {
-      anyhow::bail!("Failed to write json header of result because {}", e);
+      anyhow::bail!("Failed to write json header to '{:?}' of result because {}", &path, e);
     }
   };
 
@@ -233,7 +233,7 @@ pub fn save_worker_result_csv<P: AsRef<Path>>(path: P, run_results: &Vec<Success
     match f.write_all(to_write.as_bytes()) {
       Ok(_) => (),
       Err(e) => {
-        println!("Failed to write result because {}", e);
+        println!("Failed to write result to '{:?}' because {}", &path, e);
         continue;
       }
     };
@@ -241,11 +241,11 @@ pub fn save_worker_result_csv<P: AsRef<Path>>(path: P, run_results: &Vec<Success
   Ok(())
 }
 
-pub fn save_result_json<P: AsRef<Path>, T: Serialize>(path: P, results: &T) -> Result<()> {
-  let mut f = match File::create(path) {
+pub fn save_result_json<P: AsRef<Path> + std::fmt::Debug, T: Serialize>(path: P, results: &T) -> Result<()> {
+  let mut f = match File::create(&path) {
     Ok(f) => f,
     Err(e) => {
-      anyhow::bail!("Failed to create json output file because {}", e);
+      anyhow::bail!("Failed to create json output '{:?}' file because {}", &path, e);
     }
   };
 
