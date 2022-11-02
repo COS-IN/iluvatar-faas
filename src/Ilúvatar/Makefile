@@ -20,6 +20,9 @@ debug:
 	@cargo build -j $(NPROCS)
 spans:
 	@echo "Building full_spans"
+	@cargo build --features full_spans --release -j $(NPROCS)
+spansd:
+	@echo "Building debug full_spans"
 	@cargo build --features full_spans -j $(NPROCS)
 flame:
 	@echo "TODO: implement running flame"
