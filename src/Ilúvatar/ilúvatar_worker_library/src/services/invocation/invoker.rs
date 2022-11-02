@@ -2,12 +2,11 @@ use std::{sync::Arc, time::Duration};
 use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}, services::invocation::invoker_structs::InvocationResult};
 use crate::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use crate::rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse};
-use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, bail_error, threading::tokio_runtime};
+use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use tokio::sync::Notify;
 use tracing::{debug, error, warn, info};
-use std::time::SystemTime;
 use anyhow::Result;
 use guid_create::GUID;
 use super::invoker_structs::{EnqueuedInvocation, InvocationResultPtr};
@@ -224,12 +223,7 @@ impl InvokerService {
     match self.cont_manager.acquire_container(&fqdn, tid).await {
       Ok(ctr_lock) => {
         self.track_running(tid);
-        let start = SystemTime::now();
-        let data = ctr_lock.invoke(json_args, self.function_config.timeout_sec).await?;
-        let duration = match start.elapsed() {
-          Ok(dur) => dur,
-          Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
-        };
+        let (data, duration) = ctr_lock.invoke(json_args, self.function_config.timeout_sec).await?;
         self.track_finished(tid);
         Ok((data, duration))
       },

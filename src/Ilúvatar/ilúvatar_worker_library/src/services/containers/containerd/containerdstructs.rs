@@ -1,5 +1,5 @@
 use std::{time::{SystemTime, Duration}, sync::Arc, num::NonZeroU32};
-
+use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
 use iluvatar_library::{types::MemSizeMb, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
 use crate::{services::{containers::structs::{RegisteredFunction, ContainerT}, network::network_structs::Namespace}};
@@ -63,7 +63,7 @@ impl ContainerdContainer {
 #[tonic::async_trait]
 impl ContainerT for ContainerdContainer {
   #[tracing::instrument(skip(self, json_args, timeout_sec), fields(tid=%tid, fqdn=%self.fqdn), name="ContainerdContainer::invoke")]
-  async fn invoke(&self, json_args: &String, tid: &TransactionId, timeout_sec: u64) -> anyhow::Result<String> {
+  async fn invoke(&self, json_args: &String, tid: &TransactionId, timeout_sec: u64) -> Result<(String, Duration)> {
     *self.invocations.lock() += 1;
 
     self.touch();
@@ -73,10 +73,11 @@ impl ContainerT for ContainerdContainer {
                                     // tiny buffer to allow for network delay from possibly full system
             .connect_timeout(Duration::from_secs(timeout_sec+2))
             .build()?;
-    let result = match client.post(&self.invoke_uri)
-      .body(json_args.to_owned())
-      .header("Content-Type", "application/json")
-      .send()
+    let builder = client.post(&self.invoke_uri)
+                  .body(json_args.to_owned())
+                  .header("Content-Type", "application/json");
+    let start = SystemTime::now();
+    let result = match builder.send()
       .await {
         Ok(r) => r,
         Err(e) =>{
@@ -84,8 +85,12 @@ impl ContainerT for ContainerdContainer {
           bail_error!(tid=%tid, error=%e, container_id=%self.container_id, "HTTP error when trying to connect to container");
         },
       };
+    let duration = match start.elapsed() {
+      Ok(dur) => dur,
+      Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
+    };
     match result.text().await {
-      Ok(r) => Ok(r),
+      Ok(r) => Ok( (r, duration) ),
       Err(e) => bail_error!(tid=%tid, error=%e, container_id=%self.container_id, "Error reading text data from container"),
     }
   }

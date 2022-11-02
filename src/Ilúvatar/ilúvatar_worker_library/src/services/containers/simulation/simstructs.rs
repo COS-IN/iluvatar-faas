@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::SystemTime};
+use std::{sync::Arc, time::{SystemTime, Duration}};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, bail_error};
 use crate::{services::{containers::structs::{ContainerT, RegisteredFunction}}, };
 use anyhow::Result;
@@ -46,7 +46,7 @@ pub struct SimulationResult {
 #[tonic::async_trait]
 impl ContainerT for SimulatorContainer {
   #[tracing::instrument(skip(self, json_args, _timeout_sec), fields(tid=%tid), name="SimulatorContainer::invoke")]
-  async fn invoke(&self, json_args: &String, tid: &TransactionId, _timeout_sec: u64) ->  Result<String> {
+  async fn invoke(&self, json_args: &String, tid: &TransactionId, _timeout_sec: u64) ->  Result<(String, Duration)> {
     // just sleep for a while based on data from json args
     let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
       Ok(d) => d,
@@ -58,13 +58,14 @@ impl ContainerT for SimulatorContainer {
       _ => (data.warm_dur_ms * 1000, false)
     };
     *self.invocations.lock() += 1;
-    tokio::time::sleep(std::time::Duration::from_micros(duration_us)).await;
+    tokio::time::sleep(Duration::from_micros(duration_us)).await;
     let ret = SimulationResult {
       was_cold,
       duration_us: duration_us as u128,
       function_name: self.function.function_name.clone()
     };
-    Ok(serde_json::to_string(&ret)?)
+    let d = Duration::from_micros(duration_us);
+    Ok( (serde_json::to_string(&ret)?, d) )
   }
 
   fn touch(&self) {
