@@ -11,6 +11,8 @@ use iluvatar_worker_library::services::{invocation::invoker::InvokerService};
 use iluvatar_worker_library::services::containers::structs::cast;
 use iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer;
 use iluvatar_worker_library::services::{containers::LifecycleFactory};
+use iluvatar_library::threading::EventualItem;
+use reqwest;
 
 #[cfg(test)]
 mod registration {
@@ -213,7 +215,10 @@ mod prewarm {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c = cm.acquire_container(&fqdn, &TEST_TID).await.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+    let c = match cm.acquire_container(fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
     // let cast_c = c.container.clone() as Arc<ContainerdContainer>; 
     let cast_container = cast::<ContainerdContainer>(&c.container, &TEST_TID).unwrap();
     assert_eq!(cast_container.task.running, true);
@@ -225,8 +230,6 @@ mod prewarm {
 #[cfg(test)]
 mod get_container {
   use super::*;
-  use iluvatar_library::transaction::TEST_TID;
-  use reqwest;
 
   #[tokio::test]
   async fn cant_double_acquire() {
@@ -241,9 +244,15 @@ mod get_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c1 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
+    let c1 = match cm.acquire_container(fqdn.clone(), &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten prewarmed container");
 
-    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten cold-start container");
+    let c2 = match cm.acquire_container(fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten cold-start container");
     assert_ne!(c1.container.container_id(), c2.container.container_id());
   }
 
@@ -260,11 +269,17 @@ mod get_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let _c1 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
+    let _c1 = match cm.acquire_container(fqdn.clone(), &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten prewarmed container");
 
-    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await; //.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+    let c2 = match cm.acquire_container(fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }; //.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
     match c2 {
-      Ok(_c2) => print!("should have gotten an error instead of something"),
+      Ok(_c2) => panic!("should have gotten an error instead of something"),
       Err(_c2) => {},
     }
   }
@@ -282,7 +297,10 @@ mod get_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
+    let c2 = match cm.acquire_container(fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten prewarmed container");
 
     let cast_container = cast::<ContainerdContainer>(&c2.container, &TEST_TID).unwrap();
 
@@ -312,7 +330,10 @@ mod remove_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c1 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
+    let c1 = match cm.acquire_container(fqdn.clone(), &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten prewarmed container");
     
     let c1_cont = c1.container.clone();
     drop(c1);
@@ -339,7 +360,10 @@ mod remove_container {
     }
     // assert_ne!(result.status(), 111, "unexpected return status for container {:?}", c1_cont);
 
-    let c2 = cm.acquire_container(&fqdn, &TEST_TID).await.expect("should have gotten prewarmed container");
+    let c2 = match cm.acquire_container(fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten prewarmed container");
     assert_ne!(c1_cont.container_id(), c2.container.container_id(), "Second container should have different ID because container is gone");
   }
 

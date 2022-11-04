@@ -59,7 +59,6 @@ pub fn cast<'a, T>(c: &'a Container, tid: &TransactionId) -> Result<&'a T>
 pub trait ToAny: 'static {
   fn as_any(&self) -> &dyn std::any::Any;
 }
-
 pub type Container = Arc<dyn ContainerT>;
 
 #[derive(Debug)]

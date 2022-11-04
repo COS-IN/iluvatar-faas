@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
-use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}, services::invocation::invoker_structs::InvocationResult};
+use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}, services::{invocation::invoker_structs::InvocationResult}};
 use crate::services::containers::{containermanager::ContainerManager, structs::{InsufficientCoresError, InsufficientMemoryError}};
 use crate::rpc::{InvokeRequest, InvokeAsyncRequest, InvokeResponse};
-use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime};
+use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::{tokio_runtime, EventualItem}};
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use tokio::sync::Notify;
@@ -225,15 +225,14 @@ impl InvokerService {
     debug!(tid=%tid, "Internal invocation starting");
 
     let fqdn = calculate_fqdn(&function_name, &function_version);
-    match self.cont_manager.acquire_container(&fqdn, tid).await {
-      Ok(ctr_lock) => {
-        self.track_running(tid);
-        let (data, duration) = ctr_lock.invoke(json_args, self.function_config.timeout_sec).await?;
-        self.track_finished(tid);
-        Ok((data, duration))
-      },
-      Err(cause) => Err(cause),
-    }
+    let ctr_lock = match self.cont_manager.acquire_container(fqdn, tid) {
+        EventualItem::Future(f) => f.await?,
+        EventualItem::Now(n) => n?,
+    };
+    self.track_running(tid);
+    let (data, duration) = ctr_lock.invoke(json_args, self.function_config.timeout_sec).await?;
+    self.track_finished(tid);
+    Ok((data, duration))
   }
 
   /// Sets up an asyncronous invocation of the function

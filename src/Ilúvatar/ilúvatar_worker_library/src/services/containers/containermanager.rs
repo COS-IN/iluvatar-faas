@@ -1,6 +1,7 @@
 use crate::services::containers::structs::{InsufficientMemoryError, InsufficientCoresError, ContainerLockedError};
+use futures::Future;
 use iluvatar_library::bail_error;
-use iluvatar_library::threading::tokio_runtime;
+use iluvatar_library::threading::{tokio_runtime, EventualItem};
 use crate::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID};
 use iluvatar_library::types::MemSizeMb;
@@ -135,23 +136,23 @@ impl ContainerManager {
   /// will start a function if one is not available
   /// Can return a custom InsufficientCoresError if an invocation cannot be started now
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
-  pub async fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
-    let cont = self.try_acquire_container(fqdn, tid);
+  pub fn acquire_container<'a>(&'a self, fqdn: String, tid: &'a TransactionId) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
+    let cont = self.try_acquire_container(&fqdn, tid);
     let cont = match cont {
-      Some(l) => Ok(l),
+      Some(l) => EventualItem::Now(Ok(l)),
       None => {
         // not available container, cold start
-        self.cold_start(fqdn, tid).await
+        EventualItem::Future(self.cold_start(fqdn, tid))
       },
-    }?;
+    };
     let mut running_funcs = self.running_funcs.write();
     if self.resources.cores > 0 && *running_funcs < self.resources.cores {
       *running_funcs += 1;
     } else {
       debug!(tid=%tid, "Not enough available cores to run something right now");
-      anyhow::bail!(InsufficientCoresError{})
+      return EventualItem::Now(Err(anyhow::Error::new(InsufficientCoresError{})));
     }
-    return Ok(cont);
+    return cont;
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
@@ -184,14 +185,14 @@ impl ContainerManager {
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
-  async fn cold_start<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
+  async fn cold_start<'a>(&'a self, fqdn: String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     debug!(tid=%tid, fqdn=%fqdn, "Trying to cold start a new container");
-    let container = self.launch_container(fqdn, tid).await?;
+    let container = self.launch_container(&fqdn, tid).await?;
     // claim this for ourselves before it touches the pool
     container.acquire();
     info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
 
-    self.add_container_to_pool(fqdn, container.clone(), tid)?;
+    self.add_container_to_pool(&fqdn, container.clone(), tid)?;
     Ok(ContainerLock::new(container, self, tid))
   }
 
