@@ -16,10 +16,14 @@ pub trait Invoker: Send + Sync {
   fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String>;
   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse>;
 
-  /// has_resources_to_run
   /// checks if the container manager (probably) has enough resources to run an invocation
   fn has_resources_to_run(&self) -> bool {
     self.cont_manager().free_cores() > 0
+  }
+  /// The length of a queue, if the implementation has one
+  /// Default is 0 if not overridden
+  fn queue_len(&self) -> usize {
+    0
   }
 
   /// Insert an item into the queue, optionally at a specific index
@@ -27,8 +31,7 @@ pub trait Invoker: Send + Sync {
   /// Wakes up the queue monitor thread
   fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>) { }
 
-  /// spawn_tokio_worker
-  /// runs the specific invocation on a new tokio worker thread
+  /// Runs the specific invocation inside a new tokio worker thread
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, item), fields(tid=%item.tid)))]
   fn spawn_tokio_worker(&self, invoker_svc: Arc<dyn Invoker>, item: Arc<EnqueuedInvocation>) {
     let _handle = tokio::spawn(async move {
@@ -36,6 +39,10 @@ pub trait Invoker: Send + Sync {
       invoker_svc.invocation_worker_thread(item).await;
     });
   }
+
+  /// Handle executing an invocation, plus account for its success or failure
+  /// On success, the results are moved to the pointer and it is signaled
+  /// On failure, [Invoker::handle_invocation_error] is called
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
   async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>) {
     match self.invoke_internal(&item.function_name, &item.function_version, &item.json_args, &item.tid).await {
@@ -54,6 +61,8 @@ pub trait Invoker: Send + Sync {
     };
   }
 
+  /// Handle an error with the given enqueued invocation
+  /// By default always logs the error and marks it as failed
   fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
     let mut result_ptr = item.result_ptr.lock();
     error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");

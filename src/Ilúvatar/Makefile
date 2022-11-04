@@ -26,3 +26,6 @@ spansd:
 	@cargo build --features full_spans -j $(NPROCS)
 flame:
 	@echo "TODO: implement running flame"
+test:
+	@echo "Running unit tests"
+	@cargo test

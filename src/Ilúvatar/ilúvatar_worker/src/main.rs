@@ -1,10 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 use iluvatar_library::{logging::start_tracing, nproc, bail_error};
-use iluvatar_worker_library::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
+use iluvatar_worker_library::services::containers::LifecycleFactory;
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker_library::worker_api::config::Configuration;
-use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
 use iluvatar_worker_library::worker_api::create_worker;
 use tokio::runtime::Runtime;
 use crate::utils::{parse, register_rpc_to_controller};
@@ -55,8 +54,6 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone(), server_config.limits.clone());
   let lifecycle = factory.get_lifecycle_service(tid, false).await?;
 
-  let container_man = ContainerManager::boxed(server_config.limits.clone(), server_config.container_resources.clone(), lifecycle.clone(), tid).await;
-  let _invoker = InvokerService::boxed(container_man.clone(), tid, server_config.limits.clone(), server_config.invocation.clone());
   lifecycle.clean_containers("default", lifecycle.clone(), tid).await?;
   Ok(())
 }

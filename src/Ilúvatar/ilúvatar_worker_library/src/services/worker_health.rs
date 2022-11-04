@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use iluvatar_library::transaction::TransactionId;
-use crate::{rpc::{RegisterRequest, InvokeRequest, HealthResponse}};
-use super::{invocation::invoker::InvokerService, containers::containermanager::ContainerManager};
+use crate::{rpc::{RegisterRequest, HealthResponse}};
+use super::{invocation::invoker_trait::Invoker, containers::containermanager::ContainerManager};
 use anyhow::Result;
 use tracing::warn;
 
@@ -27,11 +27,11 @@ struct TestBody {
 }
 
 pub struct WorkerHealthService {
-  invoker_svc: Arc<InvokerService>
+  invoker_svc: Arc<dyn Invoker>
 }
 
 impl WorkerHealthService {
-  pub async fn boxed(invoker_svc: Arc<InvokerService>, container_mgr: Arc<ContainerManager>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub async fn boxed(invoker_svc: Arc<dyn Invoker>, container_mgr: Arc<ContainerManager>, tid: &TransactionId) -> Result<Arc<Self>> {
     let health_func = RegisterRequest {
         function_name: TEST_FUNC_NAME.to_string(),
         function_version: TEST_FUNC_VERSION.to_string(),
@@ -62,14 +62,7 @@ impl WorkerHealthService {
 
   /// see if the worker is healthy by trying to run a simple invocation and verifying results
   pub async fn check_health(&self, tid: &TransactionId) -> HealthResponse {
-    let request = InvokeRequest {
-        function_name: TEST_FUNC_NAME.to_string(),
-        function_version: TEST_FUNC_VERSION.to_string(),
-        memory: 75,
-        json_args: TEST_FUNC_ARGS.to_string(),
-        transaction_id: tid.clone(),
-    };
-    match self.invoker_svc.invoke(request).await {
+    match self.invoker_svc.sync_invocation(TEST_FUNC_NAME.to_string(), TEST_FUNC_VERSION.to_string(), TEST_FUNC_ARGS.to_string(), tid.clone()).await {
       Ok( (json, _dur) ) => {
         match serde_json::from_str::<TestReturnFormat>(&json) {
           Ok(obj) => {

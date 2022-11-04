@@ -1,7 +1,8 @@
 use iluvatar_library::bail_error;
 use iluvatar_library::energy::energy_logging::EnergyLogger;
+use crate::services::invocation::InvokerFactory;
 use crate::services::worker_health::WorkerHealthService;
-use crate::services::{invocation::invoker::InvokerService, containers::LifecycleFactory};
+use crate::services::containers::LifecycleFactory;
 use crate::services::status::status_service::StatusService;
 use crate::services::containers::containermanager::ContainerManager;
 use crate::worker_api::ilúvatar_worker::IluvatarWorkerImpl;
@@ -24,7 +25,10 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
   };
 
   let container_man = ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), lifecycle.clone(), tid).await;
-  let invoker = InvokerService::boxed(container_man.clone(), tid, worker_config.limits.clone(), worker_config.invocation.clone());
+
+
+  let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone());
+  let invoker = invoker_fact.get_invoker_service()?;
   let status = match StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid).await {
     Ok(s) => s,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make status service"),
