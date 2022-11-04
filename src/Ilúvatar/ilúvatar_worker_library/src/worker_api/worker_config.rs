@@ -85,6 +85,7 @@ pub struct InvocationConfig {
   ///   If this is 'false' then some invocations can be dropped in resource-heavy scenarios
   ///   Consider setting [ContainerResources].cores to 0 to alleviate some sofware-based resource contstraints
   pub use_queue: bool,
+  pub queue_policy: String,
 }
 
 #[derive(Debug, Deserialize)]
