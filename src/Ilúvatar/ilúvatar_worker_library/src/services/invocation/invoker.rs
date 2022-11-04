@@ -49,11 +49,16 @@ impl InvokerService {
     }
   }
 
+  fn queue_has_runnable_items(&self) -> bool {
+    let invoke_queue = self.invoke_queue.lock();
+    invoke_queue.len() > 0 && self.has_resources_to_run()
+  }
+
   /// Check the invocation queue, running things when there are sufficient resources
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoker_svc), fields(tid=%_tid)))]
   async fn monitor_queue(invoker_svc: Arc<InvokerService>, _tid: TransactionId) {
-    let mut invoke_queue = invoker_svc.invoke_queue.lock();
-    if invoke_queue.len() > 0 && invoker_svc.has_resources_to_run() {
+    while invoker_svc.queue_has_runnable_items() {
+      let mut invoke_queue = invoker_svc.invoke_queue.lock();
       let item = invoke_queue.remove(0);
       debug!(tid=%item.tid, "Dequeueing item");
       // TODO: continuity of spans here
