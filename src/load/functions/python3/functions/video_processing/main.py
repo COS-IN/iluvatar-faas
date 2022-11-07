@@ -6,7 +6,7 @@ try:
     import uuid
     from time import time
     import cv2
-
+    cv2.setNumThreads(1)
     # s3_client = boto3.client('s3')
 except Exception as e:
     msg = traceback.format_exc()
