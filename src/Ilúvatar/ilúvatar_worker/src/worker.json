@@ -14,7 +14,6 @@
   "invocation": {
     "retries": 0,
     "queue_sleep_ms": 1,
-    "use_queue": true,
     "queue_policy": "none"
   },
   "logging": {

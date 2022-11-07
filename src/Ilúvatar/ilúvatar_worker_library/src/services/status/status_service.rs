@@ -6,8 +6,8 @@ use iluvatar_library::{nproc, threading};
 use tracing::{info, debug, error};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
+use crate::services::invocation::invoker_trait::Invoker;
 use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
-use crate::services::invocation::invoker::InvokerService;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::utils::execute_cmd;
 use super::WorkerStatus;
@@ -16,7 +16,7 @@ use anyhow::Result;
 #[allow(unused)]
 pub struct StatusService {
   container_manager: Arc<ContainerManager>, 
-  invoker_service: Arc<InvokerService>,
+  invoker_service: Arc<dyn Invoker>,
   current_status: Mutex<Arc<WorkerStatus>>,
   worker_thread: JoinHandle<()>,
   graphite: GraphiteService,
@@ -26,7 +26,7 @@ pub struct StatusService {
 }
 
 impl StatusService {
-  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<InvokerService>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<dyn Invoker>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId) -> Result<Arc<Self>> {
     let (handle, sender) = 
           threading::os_thread::<Self>(5000, iluvatar_library::transaction::STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status));
 

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use iluvatar_library::energy::energy_logging::EnergyLogger;
-use crate::services::{invocation::invoker::InvokerService, worker_health::WorkerHealthService};
+use crate::services::invocation::invoker_trait::Invoker;
+use crate::services::worker_health::WorkerHealthService;
 use crate::services::status::status_service::StatusService;
 use tonic::{Request, Response, Status};
 use crate::rpc::iluvatar_worker_server::IluvatarWorker;
@@ -13,14 +14,14 @@ use tracing::{info, error};
 pub struct IluvatarWorkerImpl {
   container_manager: Arc<ContainerManager>,
   config: WorkerConfig,
-  invoker: Arc<InvokerService>,
+  invoker: Arc<dyn Invoker>,
   status: Arc<StatusService>,
   health: Arc<WorkerHealthService>,
   energy: Arc<EnergyLogger>,
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<InvokerService>, status: Arc<StatusService>, health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<dyn Invoker>, status: Arc<StatusService>, health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
       container_manager,
       config,
@@ -53,7 +54,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
       let request = request.into_inner();
       info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling invocation request");
-      let resp = self.invoker.invoke(request).await;
+      let resp = self.invoker.sync_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id).await;
 
       match resp {
         Ok( (json, dur) ) => {
@@ -80,7 +81,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
       let request = request.into_inner();
       info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling async invocation request");
-      let resp = InvokerService::invoke_async(self.invoker.clone(), request);
+      let resp = self.invoker.async_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id);
 
       match resp {
         Ok( cookie ) => {

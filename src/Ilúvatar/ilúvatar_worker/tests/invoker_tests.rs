@@ -6,7 +6,8 @@ use iluvatar_worker_library::rpc::{RegisterRequest, PrewarmRequest, InvokeAsyncR
 use iluvatar_worker_library::rpc::InvokeRequest;
 use iluvatar_library::transaction::TEST_TID;
 use iluvatar_worker_library::worker_api::worker_config::{WorkerConfig, Configuration};
-use iluvatar_worker_library::services::{containers::containermanager::ContainerManager, invocation::invoker::InvokerService};
+use iluvatar_worker_library::services::invocation::{invoker_trait::Invoker, InvokerFactory};
+use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
 use iluvatar_worker_library::services::{containers::LifecycleFactory};
 
 #[cfg(test)]
@@ -15,7 +16,7 @@ mod invoke {
 
   #[tokio::test]
   async fn invocation_works() {
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -42,7 +43,7 @@ mod invoke {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = invok_svc.invoke(req).await;
+    let result = invok_svc.sync_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id).await;
     match result {
       Ok( (json, dur) ) => {
         assert!(dur.as_micros() > 0, "Duration should not be <= 0!");
@@ -54,7 +55,7 @@ mod invoke {
 
   #[tokio::test]
   async fn cold_start_works() {
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -72,7 +73,7 @@ mod invoke {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = invok_svc.invoke(req).await;
+    let result = invok_svc.sync_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id).await;
     match result {
       Ok( (json, dur) ) => {
         assert!(dur.as_micros() > 0, "Duration should not be <= 0!");
@@ -91,7 +92,7 @@ mod invoke_async {
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
   async fn invocation_works() {
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -118,7 +119,7 @@ mod invoke_async {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = InvokerService::invoke_async(invok_svc.clone(), req);
+    let result = invok_svc.async_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id);
     let mut count = 0;
     match result {
       Ok( cookie ) => {
@@ -157,7 +158,7 @@ mod invoke_async {
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
   async fn cold_start_works() {
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<InvokerService>) = invoker_svc!();
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -175,7 +176,7 @@ mod invoke_async {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = InvokerService::invoke_async(invok_svc.clone(), req);
+    let result = invok_svc.async_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id);
     let mut count = 0;
     match result {
       Ok( cookie ) => {

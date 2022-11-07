@@ -1,10 +1,9 @@
 use std::sync::Arc;
 use anyhow::Result;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
-use self::{queueless::QueuelessInvoker, invoker_trait::Invoker};
+use self::{queueless::QueuelessInvoker, invoker_trait::Invoker, fcfs_invoke::FCFSInvoker};
 use super::containers::containermanager::ContainerManager;
 
-pub mod invoker;
 pub mod invoker_structs;
 pub mod invoker_trait;
 pub mod queueless;
@@ -30,9 +29,12 @@ impl InvokerFactory {
   }
 
   pub fn get_invoker_service(&self) -> Result<Arc<dyn Invoker>> {
-    let r = match self.invocation_config.queue_policy.to_lowercase().as_str() {
+    let r: Arc<dyn Invoker> = match self.invocation_config.queue_policy.to_lowercase().as_str() {
       "none" => {
         QueuelessInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone())
+      },
+      "fcfs" => {
+        FCFSInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone())?
       },
       unknown => panic!("Unknown lifecycle backend '{}'", unknown)
     };

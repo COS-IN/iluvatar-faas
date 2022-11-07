@@ -70,6 +70,9 @@ impl Invoker for FCFSInvoker {
   fn invocation_config(&self) -> Arc<InvocationConfig>  {
     self.invocation_config.clone()
   }
+  fn queue_len(&self) -> usize {
+    self.invoke_queue.lock().len()
+  }
 
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
     // self.invoke_internal(&function_name, &function_version, &json_args, &tid).await

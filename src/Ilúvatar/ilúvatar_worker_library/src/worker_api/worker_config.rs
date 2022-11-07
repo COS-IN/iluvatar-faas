@@ -74,17 +74,15 @@ pub struct FunctionLimits {
 }
 
 #[derive(Debug, Deserialize)]
-/// Internal knobs for how the [crate::services::invocation::invoker::InvokerService] works
+/// Internal knobs for how the [crate::services::invocation::InvokerFactory], and types it creates, work
 pub struct InvocationConfig {
   /// number of retries before giving up on an invocation
   /// Setting to 0 means no retries
   pub retries: u32,
   /// Duration in milliseconds the worker queue will sleep between checking for new invocations
   pub queue_sleep_ms: u64,
-  /// Use a queue to manage incoming invocations or not
-  ///   If this is 'false' then some invocations can be dropped in resource-heavy scenarios
-  ///   Consider setting [ContainerResources].cores to 0 to alleviate some sofware-based resource contstraints
-  pub use_queue: bool,
+  /// Queueing policy to use.
+  /// Cerrently implemented are [none (no queue), fcfs (first come first serve), ]
   pub queue_policy: String,
 }
 

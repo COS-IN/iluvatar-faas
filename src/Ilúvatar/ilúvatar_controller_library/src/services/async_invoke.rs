@@ -28,7 +28,7 @@ impl AsyncService {
 
   /// Checks the worker for the status of the async invocation
   /// Returns Some(string) if it is complete, None if waiting, and an error if something went wrong
-  /// Relies on informational json set by [this function](iluvatar_lib::services::invocation::invoker::InvokerService::invoke_async_check)
+  /// Relies on informational json set by [this function](iluvatar_worker_library::services::invocation::async_tracker::invoke_async_check)
   pub async fn check_async_invocation(&self, cookie: String, tid: &TransactionId) -> Result<Option<String>> {
     debug!(tid=%tid, cookie=%cookie, "Checking async invocation");
     if let Some(worker) = self.async_invokes.get(&cookie) {
