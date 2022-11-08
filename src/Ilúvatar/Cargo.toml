@@ -19,11 +19,16 @@ members = [
 
 [profile.dev]
 opt-level=0
-debug=2
+debug=1
 debug-assertions=true
 overflow-checks=true
 lto=false
 incremental=true
+strip=false
+force-frame-pointers="yes"
+
+[rust]
+debuginfo-level = 1
 
 [profile.release]
 opt-level=3
