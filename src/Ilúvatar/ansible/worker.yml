@@ -123,6 +123,11 @@
       "ILUVATAR_WORKER__graphite__ingestion_port" : "{{ graphite.ingestion_port }}"
       "ILUVATAR_WORKER__graphite__ingestion_udp" : "{{ graphite.ingestion_udp }}"
       "ILUVATAR_WORKER__graphite__enabled" : "{{ graphite.enabled }}"
+      # Invocation config
+      "ILUVATAR_WORKER__invocation__queue_policy" : "{{ worker_queue_policy | default('fcfs') }}"
+      "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
+      "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(1) }}"
+
     register: worker_output
 
   - name: debug print

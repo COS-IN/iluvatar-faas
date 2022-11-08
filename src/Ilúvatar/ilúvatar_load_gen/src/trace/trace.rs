@@ -142,7 +142,7 @@ pub fn match_trace_to_img(func: &Function, data: &HashMap<String, f64>) -> Strin
       None => panic!("failed to get a minimum func from {:?}", data),
     };
     for (name, avg_warm) in data.iter() {
-      if &(func.warm_dur_ms as f64) >= avg_warm {
+      if &(func.warm_dur_ms as f64*1000.0) >= avg_warm {
         chosen = name;
       }
     }
