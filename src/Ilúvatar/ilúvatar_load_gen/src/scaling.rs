@@ -94,16 +94,29 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
       duration_us: reg_dur.as_micros(),
       result: s
     }, tid),
-    Err(e) => anyhow::bail!("thread {} registration failed because {}", thread_id, e),
+    Err(e) => {
+      println!("thread {} registration failed because {}", thread_id, e);
+      std::process::exit(1);
+    },
   };
   barrier.wait().await;
 
-  let wait = rand::thread_rng().gen_range(0..5000);
-  tokio::time::sleep(Duration::from_millis(wait)).await;
-  match worker_prewarm(&name, &version, &host, port, &reg_tid).await {
-    Ok((_s, _prewarm_dur)) => (),
-    Err(e) => anyhow::bail!("thread {} prewarm failed because {}", thread_id, e),
-  };
+  let mut errors="Prewarm errors:".to_string();
+  let mut it = (1..4).into_iter().peekable();
+  while let Some(i) = it.next() {
+    let wait = rand::thread_rng().gen_range(0..5000);
+    tokio::time::sleep(Duration::from_millis(wait)).await;
+    match worker_prewarm(&name, &version, &host, port, &reg_tid).await {
+      Ok((_s, _prewarm_dur)) => break,
+      Err(e) => { 
+        errors = format!("{} iteration {}: '{}';\n", errors, i, e);
+        if it.peek().is_none() {
+          println!("thread {} prewarm failed because {}", thread_id, errors);
+          std::process::exit(1);
+        }
+      },
+    }; 
+  }
   barrier.wait().await;
 
   let stopping = Duration::from_secs(duration);

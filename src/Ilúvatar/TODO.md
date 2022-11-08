@@ -24,6 +24,18 @@ We must either
 1. Remove unused containers from the brigde to make room for new ones (eviction)
 2. Increase the number of containers we can support, by running multiple bridges/
 
+## Switch/Enable networking via unix sockets
+
+Using HTTP connections to send/receive invocations has some networking overhead and scaling issues at high throughput.
+Both the worker code and the server running inside the container must be updated to this new format.
+
+Moving to a lower-latency solution would fix both of these problems.
+A few solutions exist, with the first probably being the best one.
+1. Unix Sockets
+2. Posix message queues
+3. Linux pipes
+4. Dbus messages
+
 ## Concurrent container creation in Containerd
 
 When a significant number of concurrent requests are handled by the worker, Containerd can experience significant contention and essentially freeze the program.
