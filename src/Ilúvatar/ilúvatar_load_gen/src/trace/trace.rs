@@ -93,7 +93,10 @@ pub fn run_trace(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
 }
 
 fn load_metadata(path: String) -> Result<HashMap<String, Function>> {
-  let mut rdr = csv::Reader::from_path(path)?;
+  let mut rdr = match csv::Reader::from_path(&path) {
+    Ok(r) => r,
+    Err(e) => anyhow::bail!("Unable to open metadata csv file '{}' because of error '{}'", path, e),
+  };
   let mut ret = HashMap::new();
   for result in rdr.deserialize() {
     let mut func: Function = result.expect("Error deserializing metadata");
@@ -137,16 +140,21 @@ pub fn match_trace_to_img(func: &Function, data: &HashMap<String, f64>) -> Strin
   };
   let split = func.func_name.split("-").collect::<Vec<&str>>();
   if split.len() == 1 {
-    let mut chosen: &String = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
-      Some(n) => &n.0,
+    let chosen = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
+      Some(n) => (n.0, n.1),
       None => panic!("failed to get a minimum func from {:?}", data),
     };
+    let mut chosen_name = chosen.0;
+    let mut chosen_time = *chosen.1;
+
     for (name, avg_warm) in data.iter() {
-      if &(func.warm_dur_ms as f64*1000.0) >= avg_warm {
-        chosen = name;
+      if func.warm_dur_ms as f64 >= avg_warm * 1000.0 && chosen_time < *avg_warm {
+        chosen_name = name;
+        chosen_time= *avg_warm;
       }
     }
-    return format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen);
+    println!("{} mapped to function '{}'", &func.func_name, chosen_name);
+    return format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen_name);
   }
   format!("docker.io/alfuerst/{}-iluvatar-action:latest", split[0])
 }

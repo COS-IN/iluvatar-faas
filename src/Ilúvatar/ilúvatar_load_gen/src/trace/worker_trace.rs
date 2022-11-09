@@ -8,7 +8,7 @@ use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
 use iluvatar_worker_library::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse, InvokeResponse};
 use tonic::{Request, Status, Response};
-use crate::{utils::{worker_register, VERSION, worker_invoke, worker_prewarm, SuccessfulWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json}, benchmark::BenchmarkStore};
+use crate::{utils::{worker_register, VERSION, worker_invoke, worker_prewarm, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json}, benchmark::BenchmarkStore};
 use crate::trace::{match_trace_to_img, prepare_function_args};
 use super::{Function, CsvInvocation};
 
@@ -195,13 +195,41 @@ fn wait_reg(iterator: &mut std::collections::hash_map::Iter<String, Function>, l
 }
 
 fn live_prewarm_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, rt: &Runtime, count: u32) -> Result<()> {
+  let mut prewarm_calls = vec![];
   for (_id, func) in funcs.iter() {
     for i in 0..count {
       let tid = format!("{}-{}-prewarm", i, &func.func_name);
       let h_c = host.clone();
       let f_c = func.func_name.clone();
-      rt.block_on(async move { worker_prewarm(&f_c, &VERSION, &h_c, port, &tid).await })?;
-    }  
+      prewarm_calls.push(async move { 
+        let mut errors="Prewarm errors:".to_string();
+        let mut it = (1..4).into_iter().peekable();
+        while let Some(i) = it.next() {
+          match worker_prewarm(&f_c, &VERSION, &h_c, port, &tid).await {
+            Ok((_s, _prewarm_dur)) => break,
+            Err(e) => { 
+              errors = format!("{} iteration {}: '{}';\n", errors, i, e);
+              if it.peek().is_none() {
+                anyhow::bail!("prewarm failed because {}", errors)
+              }
+            },
+          };
+        }
+        Ok(())
+      });
+    }
+  }
+  while prewarm_calls.len() > 0 {
+    let mut handles = vec![];
+    for _ in 0..4 {
+      match prewarm_calls.pop() {
+        Some(p) => handles.push(rt.spawn(p)),
+        None => break,
+      }
+    }
+    for handle in handles {
+      rt.block_on(handle)??;
+    }
   }
   Ok(())
 }
@@ -225,8 +253,11 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   println!("{} prewarming {} containers per function", LocalTime::new(tid)?.now_str()?, prewarm_count);
   live_prewarm_functions(&metadata, &host, port, &threaded_rt, prewarm_count)?;
 
-  let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
-  let mut handles: Vec<JoinHandle<Result<SuccessfulWorkerInvocation>>> = Vec::new();
+  let mut trace_rdr = match csv::Reader::from_path(&trace_pth) {
+    Ok(r) => r,
+    Err(e) => anyhow::bail!("Unable to open trace csv file '{}' because of error '{}'", trace_pth, e),
+  };
+  let mut handles: Vec<JoinHandle<Result<CompletedWorkerInvocation>>> = Vec::new();
 
   println!("{} starting live trace run", LocalTime::new(tid)?.now_str()?);
   let start = SystemTime::now();

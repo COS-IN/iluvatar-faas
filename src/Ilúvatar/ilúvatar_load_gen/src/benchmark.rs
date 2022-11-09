@@ -162,6 +162,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
       'inner: for _ in 0..warm_repeats {
         match crate::utils::controller_invoke(&name, &version, &host, port, None).await {
           Ok( invoke_result ) => {
+            if invoke_result.controller_response.success {
               let func_exec_us = invoke_result.function_output.body.latency * 1000000.0;
               let invoke_lat = invoke_result.client_latency_us as f64;
               if invoke_result.function_output.body.cold {
@@ -175,6 +176,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
                 func_data.warm_worker_duration_us.push(invoke_result.controller_response.worker_duration_us);
                 func_data.warm_invoke_duration_us.push(invoke_result.controller_response.invoke_duration_us);
               }
+            }
           },
           Err(e) => {
             println!("{}", e);
@@ -238,7 +240,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functio
   save_worker_result_csv(p, &combined)
 }
 
-async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String>, mut cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<Vec<SuccessfulWorkerInvocation>> {
+async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String>, mut cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<Vec<CompletedWorkerInvocation>> {
   let mut ret = vec![];
 
   for function in &functions {

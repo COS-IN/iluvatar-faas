@@ -236,12 +236,12 @@ def write_trace(trace, metadata, trace_save_pth, metadata_save_pth):
   with open(trace_save_pth, "w") as f:
     f.write("{},{}\n".format("func_name", "invoke_time_ms"))
     for func_name, time_ms in trace:
-      f.write("{},{}\n".format(func_name, int(time_ms)))
+      f.write("{},{}\n".format(func_name[:10], int(time_ms)))
 
   with open(metadata_save_pth, "w") as f:
     f.write("{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb"))
     for (func_name, cold_dur, warm_dur, mem) in metadata:
-      f.write("{},{},{},{}\n".format(func_name, cold_dur, warm_dur, mem))
+      f.write("{},{},{},{}\n".format(func_name[:10], cold_dur, warm_dur, mem))
 
 if __name__ == '__main__':
   argparser = argparse.ArgumentParser()

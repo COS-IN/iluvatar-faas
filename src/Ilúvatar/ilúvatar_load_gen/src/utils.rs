@@ -13,7 +13,7 @@ lazy_static::lazy_static! {
 #[derive(Serialize,Deserialize)]
 pub struct ThreadResult {
   pub thread_id: usize,
-  pub data: Vec<SuccessfulWorkerInvocation>,
+  pub data: Vec<CompletedWorkerInvocation>,
   pub registration: RegistrationResult,
   pub errors: u64,
 }
@@ -36,7 +36,7 @@ pub struct Body {
   pub latency: f64,
 }
 #[derive(Serialize,Deserialize)]
-pub struct SuccessfulWorkerInvocation {
+pub struct CompletedWorkerInvocation {
   /// The RPC result returned by the worker
   pub worker_response: InvokeResponse,
   /// The deserialized result of the function's execution
@@ -47,9 +47,21 @@ pub struct SuccessfulWorkerInvocation {
   pub function_version: String,
   pub tid: TransactionId,
 }
+impl CompletedWorkerInvocation {
+  pub fn error(msg: String, name: &String, version: &String, tid: &TransactionId) -> Self {
+    CompletedWorkerInvocation {
+      worker_response: InvokeResponse { json_result: msg, success: false, duration_us: 0 },
+      function_output: FunctionExecOutput { body: Body { cold: false, start: 0.0, end: 0.0, latency: 0.0 } },
+      client_latency_us: 0,
+      function_name: name.clone(),
+      function_version: version.clone(),
+      tid: tid.clone(),
+    }
+  }
+}
 
 #[derive(Serialize,Deserialize)]
-pub struct SuccessfulControllerInvocation {
+pub struct CompletedControllerInvocation {
   /// The RPC result returned by the worker
   pub controller_response: ControllerInvokeResult,
   /// The deserialized result of the function's execution
@@ -59,11 +71,26 @@ pub struct SuccessfulControllerInvocation {
   pub function_name: String,
   pub function_version: String,
 }
+impl CompletedControllerInvocation {
+  pub fn error(msg: String, name: &String, version: &String, tid: Option<&TransactionId>) -> Self {
+    let r_tid = match tid {
+      Some(t) => t.clone(),
+      None => "ERROR_TID".to_string(),
+    };
+    CompletedControllerInvocation {
+        controller_response: ControllerInvokeResult { json_result: msg, worker_duration_us: 0, success: false, invoke_duration_us: 0, tid: r_tid },
+        function_output: FunctionExecOutput { body: Body { cold: false, start: 0.0, end: 0.0, latency: 0.0 } },
+        client_latency_us: 0,
+        function_name: name.clone(),
+        function_version: version.clone(),
+    }
+  }
+}
 
 /// Run an invocation against the controller
 /// Return the [iluvatar_controller_library::load_balancer_api::lb_structs::json::ControllerInvokeResult] result after parsing
 /// also return the latency in milliseconds of the request
-pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>) -> Result<SuccessfulControllerInvocation> {
+pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>) -> Result<CompletedControllerInvocation> {
   let client = reqwest::Client::new();
   let req = Invoke {
     function_name: name.clone(),
@@ -76,35 +103,30 @@ pub async fn controller_invoke(name: &String, version: &String, host: &String, p
       .send()
       .timed()
       .await;
-  match invok_out {
+  let r = match invok_out {
     Ok(r) => 
     {
       let txt = match r.text().await {
           Ok(t) => t,
-          Err(e) => {
-            anyhow::bail!("Get text error: {};", e);
-          },
+          Err(e) => return Ok(CompletedControllerInvocation::error(format!("Get text error: {};", e), &name, &version, None)),
       };
       match serde_json::from_str::<ControllerInvokeResult>(&txt) {
         Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
-          Ok(feo) => Ok(SuccessfulControllerInvocation {
+          Ok(feo) => CompletedControllerInvocation {
             controller_response: r,
             function_output: feo,
             client_latency_us: invok_lat.as_micros(),
             function_name: name.clone(),
             function_version: version.clone(),
-          }),
-          Err(e) => anyhow::bail!("FunctionExecOutput Deserialization error: {}; {}", e, &txt),
+          },
+          Err(e) => CompletedControllerInvocation::error(format!("FunctionExecOutput Deserialization error: {}; {}", e, &txt), &name, &version, Some(&r.tid)),
         },
-        Err(e) => {
-          anyhow::bail!("ControllerInvokeResult Deserialization error: {}; {}", e, &txt);
-        },
+        Err(e) => CompletedControllerInvocation::error(format!("ControllerInvokeResult Deserialization error: {}; {}", e, &txt), &name, &version, None),
       }
     },
-    Err(e) => {
-      anyhow::bail!("Invocation error: {}", e);
-    },
-  }
+    Err(e) => CompletedControllerInvocation::error(format!("Invocation error: {}", e), &name, &version, None),
+  };
+  Ok(r)
 }
 
 pub async fn controller_register(name: &String, version: &String, image: &String, memory: MemSizeMb, host: &String, port: Port) -> Result<Duration> {
@@ -145,7 +167,7 @@ pub async fn worker_register(name: String, version: &String, image: String, memo
   let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
   match reg_out {
     Ok(s) => Ok( (s,reg_dur,tid) ),
-    Err(e) => anyhow::bail!("registration failed because {}", e),
+    Err(e) => anyhow::bail!("worker registration failed because {}", e),
   }
 }
 
@@ -154,31 +176,32 @@ pub async fn worker_prewarm(name: &String, version: &String, host: &String, port
   let (res, dur) = api.prewarm(name.clone(), version.clone(), None, None, None, tid.to_string()).timed().await;
   match res {
     Ok(s) => Ok( (s, dur) ),
-    Err(e) => anyhow::bail!("registration failed because {}", e),
+    Err(e) => anyhow::bail!("worker prewarm failed because {}", e),
   }
 }
 
-pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>) -> Result<SuccessfulWorkerInvocation> {
+pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>) -> Result<CompletedWorkerInvocation> {
   let args = match args {
     Some(a) => a,
     None => "{}".to_string(),
   };
   let mut api = RPCWorkerAPI::new(&host, port).await?;
   let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), args, None, tid.clone()).timed().await;
-  match invok_out {
+  let c = match invok_out {
     Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
-      Ok(b) => Ok( SuccessfulWorkerInvocation {
+      Ok(b) => CompletedWorkerInvocation {
         worker_response: r,
         function_output: b,
         client_latency_us: invok_lat.as_micros(),
         function_name: name.clone(),
         function_version: version.clone(),
-        tid: tid.clone()
-      }),
-      Err(e) => anyhow::bail!("Deserialization error: {}; {}", e, r.json_result),
+        tid: tid.clone(),
+      },
+      Err(e) => CompletedWorkerInvocation::error(format!("Deserialization error: {}; {}", e, r.json_result), &name, &version, &tid),
     },
-    Err(e) => anyhow::bail!("Invocation error: {}", e),
-  }
+    Err(e) => CompletedWorkerInvocation::error(format!("Invocation error: {}", e), &name, &version, &tid),
+  };
+  Ok(c)
 }
 
 /// How to handle per-thread errors that appear when joining load workers
@@ -211,7 +234,7 @@ pub fn resolve_handles<T>(runtime: &Runtime, run_results: Vec<JoinHandle<Result<
 }
 
 /// Save worker load results as a csv
-pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(path: P, run_results: &Vec<SuccessfulWorkerInvocation>) -> Result<()> {
+pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(path: P, run_results: &Vec<CompletedWorkerInvocation>) -> Result<()> {
   let mut f = match File::create(&path) {
     Ok(f) => f,
     Err(e) => {

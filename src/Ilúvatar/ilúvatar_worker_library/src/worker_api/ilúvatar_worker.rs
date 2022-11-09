@@ -151,7 +151,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn register(&self,
     request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
       let request = request.into_inner();
-      info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling register request");
+      info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, image=%request.image_name, "Handling register request");
       let reg_result = self.container_manager.register(&request).await;
 
       match reg_result {

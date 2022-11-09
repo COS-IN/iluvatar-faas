@@ -3,7 +3,7 @@ use anyhow::Result;
 use iluvatar_library::utils::{config::get_val, port::Port};
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
-use crate::{utils::{controller_register, controller_invoke, VERSION, SuccessfulControllerInvocation, resolve_handles, save_result_json}, benchmark::BenchmarkStore, trace::{match_trace_to_img, CsvInvocation, prepare_function_args}};
+use crate::{utils::{controller_register, controller_invoke, VERSION, CompletedControllerInvocation, resolve_handles, save_result_json}, benchmark::BenchmarkStore, trace::{match_trace_to_img, CsvInvocation, prepare_function_args}};
 use super::Function;
 
 async fn register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>) -> Result<()> {
@@ -54,7 +54,7 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
   threaded_rt.block_on(register_functions(&metadata, &host, port, &load_type, func_data))?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
-  let mut handles: Vec<JoinHandle<Result<SuccessfulControllerInvocation>>> = Vec::new();
+  let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();
 
   println!("starting live trace run");
 
