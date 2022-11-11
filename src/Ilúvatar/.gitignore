@@ -4,3 +4,4 @@ ilúvatar_worker/src/worker.dev*json
 ilúvatar_worker/tests/resources/worker.dev*json
 ilúvatar_controller/src/controller.dev*json
 target/
+**.swp
