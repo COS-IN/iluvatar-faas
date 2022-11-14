@@ -2,7 +2,7 @@ use std::{time::{SystemTime, Duration}, sync::Arc, num::NonZeroU32};
 use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
 use iluvatar_library::{types::MemSizeMb, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
-use crate::{services::{containers::structs::{RegisteredFunction, ContainerT}, network::network_structs::Namespace}};
+use crate::{services::{containers::structs::{RegisteredFunction, ContainerT, ParsedResult}, network::network_structs::Namespace}};
 
 #[derive(Debug)]
 pub struct Task {
@@ -63,7 +63,7 @@ impl ContainerdContainer {
 #[tonic::async_trait]
 impl ContainerT for ContainerdContainer {
   #[tracing::instrument(skip(self, json_args, timeout_sec), fields(tid=%tid, fqdn=%self.fqdn), name="ContainerdContainer::invoke")]
-  async fn invoke(&self, json_args: &String, tid: &TransactionId, timeout_sec: u64) -> Result<(String, Duration)> {
+  async fn invoke(&self, json_args: &String, tid: &TransactionId, timeout_sec: u64) -> Result<(ParsedResult, Duration)> {
     *self.invocations.lock() += 1;
 
     self.touch();
@@ -89,10 +89,12 @@ impl ContainerT for ContainerdContainer {
       Ok(dur) => dur,
       Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
     };
-    match result.text().await {
-      Ok(r) => Ok( (r, duration) ),
+    let r = match result.text().await {
+      Ok(r) => r,
       Err(e) => bail_error!(tid=%tid, error=%e, container_id=%self.container_id, "Error reading text data from container"),
-    }
+    };
+    let result = ParsedResult::parse(r, tid)?;
+    Ok( (result,duration) )
   }
 
   fn container_id(&self) ->  &String {

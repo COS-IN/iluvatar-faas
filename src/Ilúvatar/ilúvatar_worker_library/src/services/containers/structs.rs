@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
+use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, bail_error};
 use crate::services::containers::containermanager::ContainerManager;
 use anyhow::Result;
 use tracing::debug;
@@ -7,7 +7,7 @@ use tracing::debug;
 #[tonic::async_trait]
 pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
   /// Invoke the function within the container, passing the json args to it
-  async fn invoke(&self, json_args: &String, tid: &TransactionId, timeout_sec: u64) -> Result<(String, Duration)>;
+  async fn invoke(&self, json_args: &String, tid: &TransactionId, timeout_sec: u64) -> Result<(ParsedResult, Duration)>;
 
   /// indicate that the container as been "used" or internal datatsructures should be updated such that it has
   fn touch(&self);
@@ -61,6 +61,33 @@ pub trait ToAny: 'static {
 }
 pub type Container = Arc<dyn ContainerT>;
 
+#[derive(serde::Deserialize)]
+pub struct ParsedResult {
+  pub user_result: Option<String>,
+  pub user_error: Option<String>,
+  pub start: String,
+  pub end: String,
+  pub was_cold: bool,
+}
+impl ParsedResult {
+  pub fn parse(from: String, tid: &TransactionId) -> Result<Self> {
+    match serde_json::from_str(from.as_str()) {
+      Ok(p) => Ok(p),
+      Err(e) => bail_error!(error=%e, tid=%tid, value=%from, "Failed to parse json from invocation return"),
+    }
+  }
+
+  pub fn result_string(self) -> Result<String> {
+    match self.user_result {
+      Some(s) => Ok(s),
+      None => match self.user_error {
+        Some(s) => Ok(s),
+        None => anyhow::bail!("ParsedResult had neither a user result or error, somehow!"),
+      },
+    }
+  }
+}
+
 #[derive(Debug)]
 pub struct RegisteredFunction {
   pub function_name: String,
@@ -90,7 +117,7 @@ impl<'a> ContainerLock<'a> {
 
   /// ask the internal container to invoke the function
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args, timeout_sec), fields(tid=%self.transaction_id), name="ContainerLock::invoke"))]
-  pub async fn invoke(&self, json_args: &String, timeout_sec: u64) -> Result<(String, Duration)> {
+  pub async fn invoke(&self, json_args: &String, timeout_sec: u64) -> Result<(ParsedResult, Duration)> {
     self.container.invoke(json_args, self.transaction_id, timeout_sec).await
   }
 }

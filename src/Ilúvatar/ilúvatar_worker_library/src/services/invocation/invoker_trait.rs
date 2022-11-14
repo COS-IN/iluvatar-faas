@@ -94,6 +94,6 @@ pub trait Invoker: Send + Sync {
       EventualItem::Now(n) => n?,
     };
     let (data, duration) = ctr_lock.invoke(json_args, self.function_config().timeout_sec).await?;
-    Ok((data, duration))
+    Ok((data.result_string()?, duration))
   }
 }
