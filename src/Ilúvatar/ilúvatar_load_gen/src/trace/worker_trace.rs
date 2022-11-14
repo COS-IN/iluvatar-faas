@@ -178,14 +178,13 @@ fn wait_reg(iterator: &mut std::collections::hash_map::Iter<String, Function>, l
         break;
       },
     };
-    let image = match load_type {
-      "lookbusy" => format!("docker.io/alfuerst/lookbusy-iluvatar-action:latest"),
-      "functions" => match_trace_to_img(func, data),
+    let (image, mb) = match load_type {
+      "lookbusy" => (format!("docker.io/alfuerst/lookbusy-iluvatar-action:latest"), func.mem_mb+50),
+      "functions" => (match_trace_to_img(func, data), 512),
       _ => panic!("Bad invocation load type: {}", load_type),
     };
     let f_c = func.func_name.clone();
     let h_c = host.clone();
-    let mb = func.mem_mb;
     handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mb+50, h_c, port).await }));
   }
   for h in handles {
