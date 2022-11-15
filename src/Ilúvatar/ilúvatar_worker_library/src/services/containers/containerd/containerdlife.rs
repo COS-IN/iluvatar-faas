@@ -462,7 +462,7 @@ impl ContainerdLifecycle {
           running: false
         };
         unsafe {
-          Ok(ContainerdContainer::new(cid, task, port, address.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, ns))
+          Ok(ContainerdContainer::new(cid, task, port, address.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, ns, self.limits_config.timeout_sec)?)
         }
       },
       Err(e) => {

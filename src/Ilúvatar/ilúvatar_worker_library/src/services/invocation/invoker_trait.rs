@@ -29,6 +29,7 @@ pub trait Invoker: Send + Sync {
   /// Insert an item into the queue, optionally at a specific index
   /// If not specified, added to the end
   /// Wakes up the queue monitor thread
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, _item, _index), fields(tid=%_item.tid)))]
   fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>) { }
 
   /// Runs the specific invocation inside a new tokio worker thread
@@ -63,6 +64,7 @@ pub trait Invoker: Send + Sync {
 
   /// Handle an error with the given enqueued invocation
   /// By default always logs the error and marks it as failed
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
   fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
     let mut result_ptr = item.result_ptr.lock();
     error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
@@ -93,7 +95,7 @@ pub trait Invoker: Send + Sync {
       EventualItem::Future(f) => f.await?,
       EventualItem::Now(n) => n?,
     };
-    let (data, duration) = ctr_lock.invoke(json_args, self.function_config().timeout_sec).await?;
+    let (data, duration) = ctr_lock.invoke(json_args).await?;
     Ok((data.result_string()?, duration))
   }
 }

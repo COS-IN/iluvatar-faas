@@ -74,8 +74,8 @@ impl Invoker for FCFSInvoker {
     self.invoke_queue.lock().len()
   }
 
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
-    // self.invoke_internal(&function_name, &function_version, &json_args, &tid).await
     let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
@@ -89,6 +89,7 @@ impl Invoker for FCFSInvoker {
       }
     }
   }
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
     match index {
