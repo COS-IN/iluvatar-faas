@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{InsufficientCoresError, InsufficientMemoryError};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
+use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime};
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -41,11 +42,12 @@ pub struct MinHeapInvoker {
   pub invocation_config: Arc<InvocationConfig>,
   pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<EnqueuedInvocation>>>>,
   _worker_thread: std::thread::JoinHandle<()>,
-  queue_signal: Notify
+  queue_signal: Notify,
+  clock: LocalTime
 }
 
 impl MinHeapInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>) -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), MinHeapInvoker::monitor_queue, Some(MinHeapInvoker::wait_on_queue), Some(function_config.cpu_max as usize));
     let svc = Arc::new(MinHeapInvoker {
       cont_manager,
@@ -55,6 +57,7 @@ impl MinHeapInvoker {
       queue_signal: Notify::new(),
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       _worker_thread: handle,
+      clock: LocalTime::new(tid)?
     });
     tx.send(svc.clone())?;
     Ok(svc)
@@ -96,6 +99,9 @@ impl Invoker for MinHeapInvoker {
   }
   fn queue_len(&self) -> usize {
     self.invoke_queue.lock().len()
+  }
+  fn timer(&self) -> &LocalTime {
+    &self.clock
   }
 
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {

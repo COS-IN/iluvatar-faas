@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{InsufficientCoresError, InsufficientMemoryError};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
+use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime};
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -17,11 +18,12 @@ pub struct FCFSInvoker {
   pub invocation_config: Arc<InvocationConfig>,
   pub invoke_queue: Arc<Mutex<Vec<Arc<EnqueuedInvocation>>>>,
   _worker_thread: std::thread::JoinHandle<()>,
-  queue_signal: Notify
+  queue_signal: Notify,
+  clock: LocalTime
 }
 
 impl FCFSInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>) -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), FCFSInvoker::monitor_queue, Some(FCFSInvoker::wait_on_queue), Some(function_config.cpu_max as usize));
     let svc = Arc::new(FCFSInvoker {
       cont_manager,
@@ -31,6 +33,7 @@ impl FCFSInvoker {
       queue_signal: Notify::new(),
       invoke_queue: Arc::new(Mutex::new(Vec::new())),
       _worker_thread: handle,
+      clock: LocalTime::new(tid)?
     });
     tx.send(svc.clone())?;
     Ok(svc)
@@ -72,6 +75,9 @@ impl Invoker for FCFSInvoker {
   }
   fn queue_len(&self) -> usize {
     self.invoke_queue.lock().len()
+  }
+  fn timer(&self) -> &LocalTime {
+    &self.clock
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]

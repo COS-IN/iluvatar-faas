@@ -1,8 +1,10 @@
 use std::{sync::Arc, time::Duration};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
+use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId}, threading::EventualItem};
-use tracing::{debug, error};
+use time::OffsetDateTime;
+use tracing::{debug, error, info};
 use anyhow::Result;
 use super::invoker_structs::EnqueuedInvocation;
 use crate::rpc::InvokeResponse;
@@ -12,6 +14,7 @@ pub trait Invoker: Send + Sync {
   fn cont_manager(&self) -> Arc<ContainerManager>;
   fn function_config(&self) -> Arc<FunctionLimits>;
   fn invocation_config(&self) -> Arc<InvocationConfig>;
+  fn timer(&self) -> &LocalTime;
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)>;
   fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String>;
   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse>;
@@ -46,7 +49,7 @@ pub trait Invoker: Send + Sync {
   /// On failure, [Invoker::handle_invocation_error] is called
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
   async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>) {
-    match self.invoke_internal(&item.function_name, &item.function_version, &item.json_args, &item.tid).await {
+    match self.invoke_internal(&item.function_name, &item.function_version, &item.json_args, &item.tid, item.queue_insert_time).await {
       Ok( (json, duration) ) =>  {
         let mut result_ptr = item.result_ptr.lock();
         result_ptr.duration = duration;
@@ -78,15 +81,15 @@ pub trait Invoker: Send + Sync {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
   fn enqueue_new_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Arc<EnqueuedInvocation> {
     debug!(tid=%tid, "Enqueueing invocation");
-    let enqueue = Arc::new(EnqueuedInvocation::new(function_name, function_version, json_args, tid));
+    let enqueue = Arc::new(EnqueuedInvocation::new(function_name, function_version, json_args, tid, self.timer().now()));
     self.add_item_to_queue(&enqueue, None);
     enqueue
   }
 
   /// acquires a container and invokes the function inside it
   /// returns the json result and duration as a tuple
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
-  async fn invoke_internal(&self, function_name: &String, function_version: &String, json_args: &String, tid: &TransactionId) -> Result<(String, Duration)> {
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args, queue_insert_time), fields(tid=%tid)))]
+  async fn invoke_internal(&self, function_name: &String, function_version: &String, json_args: &String, tid: &TransactionId, queue_insert_time: OffsetDateTime) -> Result<(String, Duration)> {
     debug!(tid=%tid, "Internal invocation starting");
 
     let fqdn = calculate_fqdn(&function_name, &function_version);
@@ -95,6 +98,8 @@ pub trait Invoker: Send + Sync {
       EventualItem::Future(f) => f.await?,
       EventualItem::Now(n) => n?,
     };
+    let timer = self.timer();
+    info!(tid=%tid, insert_time=%timer.format_time(queue_insert_time)?, run_time=%timer.now_str()?, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     Ok((data.result_string()?, duration))
   }
