@@ -56,3 +56,30 @@ A worker's host may have variable capabilities and hardware.
 We should be able to run functions on multiple containerization backend setups if they can be run.
 I.e. docker+GPU, containerd, etc.
 The function registration should container the information on which backend it runs on.
+
+## Enforce CPU limits
+
+Functions can request a specific number of CPU cores to have access to when executing.
+Currently we just use processor shares on cgroups.
+These allow a function to use several cores if nothing else is running on them.
+Bad for a number of reasons.
+
+## Retry on prewarm
+
+If a prewarm request comes in, sometimes container startup can fail due to a transient issue inside containerd.
+Retry it once or twice (configurable?) to gain stability.
+
+## Reload/clean state on reboot
+
+Currently the worker does not save, load, or recover any state anywhere.
+Leftover state can lead to accumulating resource usage, and boot errors from the networking manager.
+Clearing this state on startup would enable clean-slate as an assumption.
+
+Or re-loading state would be a general nice feature to have.
+Which containers, etc., belong to the worker, the bridge and network veths too.
+
+## Run as Linux daemon
+
+Currently startup on a remote machine via ansible runs the worker and controller as a background ansible job.
+This is a hack and not the ideal way to deploy this as software.
+Putting this as a linux daemon with the start/stop/restart paradigm would be better.
