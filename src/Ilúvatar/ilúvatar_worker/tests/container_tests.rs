@@ -124,7 +124,7 @@ use super::*;
   }
   
   #[tokio::test]
-  async fn memory_invalid_registration_fails() {
+  async fn memory_small_registration_fails() {
     let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
     let input = RegisterRequest {
       function_name: "test".to_string(),
@@ -139,6 +139,22 @@ use super::*;
     assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
   }
   
+  #[tokio::test]
+  async fn memory_large_registration_fails() {
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let input = RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1,
+      memory: 1000000,
+      image_name: "docker.io/library/alpine:latest".to_string(),
+      parallel_invokes: 1,
+      transaction_id: "testTID".to_string()
+    };
+    let err = cm.register(&input).await;
+    assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
+  }
+
   #[tokio::test]
   async fn image_invalid_registration_fails() {
     let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
@@ -215,7 +231,7 @@ mod prewarm {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c = match cm.acquire_container(fqdn, &TEST_TID) {
+    let c = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
@@ -244,12 +260,12 @@ mod get_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c1 = match cm.acquire_container(fqdn.clone(), &TEST_TID) {
+    let c1 = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.expect("should have gotten prewarmed container");
 
-    let c2 = match cm.acquire_container(fqdn, &TEST_TID) {
+    let c2 = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.expect("should have gotten cold-start container");
@@ -263,18 +279,18 @@ mod get_container {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       cpu: 1,
-      memory: 256,
+      memory: 8000,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let _c1 = match cm.acquire_container(fqdn.clone(), &TEST_TID) {
+    let _c1 = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.expect("should have gotten prewarmed container");
 
-    let c2 = match cm.acquire_container(fqdn, &TEST_TID) {
+    let c2 = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }; //.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
@@ -297,7 +313,7 @@ mod get_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c2 = match cm.acquire_container(fqdn, &TEST_TID) {
+    let c2 = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.expect("should have gotten prewarmed container");
@@ -330,7 +346,7 @@ mod remove_container {
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
-    let c1 = match cm.acquire_container(fqdn.clone(), &TEST_TID) {
+    let c1 = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.expect("should have gotten prewarmed container");
@@ -360,7 +376,7 @@ mod remove_container {
     }
     // assert_ne!(result.status(), 111, "unexpected return status for container {:?}", c1_cont);
 
-    let c2 = match cm.acquire_container(fqdn, &TEST_TID) {
+    let c2 = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.expect("should have gotten prewarmed container");
