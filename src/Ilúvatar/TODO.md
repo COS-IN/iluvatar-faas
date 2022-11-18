@@ -50,6 +50,12 @@ After an experiment (~ 1 hour running) the CPU usage of the worker is higher tha
 Is this the container manager worker thread?
 What can be done?
 
+## Limit frequency of container checking
+
+Container memory usage _should_ only change during/immediately after it runs an invocaiton.
+There is no need to check a container if it hasn't been used.
+Only review a container's memory usage after/during an invocation.
+
 ## Multiple concurrent backends
 
 A worker's host may have variable capabilities and hardware.
