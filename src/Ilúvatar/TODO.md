@@ -89,3 +89,9 @@ Which containers, etc., belong to the worker, the bridge and network veths too.
 Currently startup on a remote machine via ansible runs the worker and controller as a background ansible job.
 This is a hack and not the ideal way to deploy this as software.
 Putting this as a linux daemon with the start/stop/restart paradigm would be better.
+
+## Disable-able worker registration
+
+Currently worker registration with the controller always happens, and on failure an error is added to the log.
+This whole process should be skipped based on config.
+If registration is attempted and fails, the worker should exit.
