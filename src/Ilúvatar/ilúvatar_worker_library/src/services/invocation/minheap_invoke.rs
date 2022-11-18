@@ -8,7 +8,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::Notify;
 use tracing::{debug, warn, error, info};
-use super::{invoker_trait::Invoker, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
+use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
@@ -48,7 +48,7 @@ pub struct MinHeapInvoker {
 
 impl MinHeapInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), MinHeapInvoker::monitor_queue, Some(MinHeapInvoker::wait_on_queue), Some(function_config.cpu_max as usize));
+    let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(MinHeapInvoker::wait_on_queue), Some(function_config.cpu_max as usize));
     let svc = Arc::new(MinHeapInvoker {
       cont_manager,
       function_config,
@@ -63,26 +63,10 @@ impl MinHeapInvoker {
     Ok(svc)
   }
 
-  /// Check the invocation queue, running things when there are sufficient resources
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoker_svc), fields(tid=%_tid)))]
-  async fn monitor_queue(invoker_svc: Arc<MinHeapInvoker>, _tid: TransactionId) {
-    while invoker_svc.queue_has_runnable_items() {
-      let mut invoke_queue = invoker_svc.invoke_queue.lock();
-      let item = invoke_queue.pop().unwrap();
-      debug!(tid=%item.tid, "Dequeueing item");
-      // TODO: continuity of spans here
-      invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item);
-    }
-  }
   /// Wait on the Notify object for the queue to be available again
   async fn wait_on_queue(invoker_svc: Arc<MinHeapInvoker>, tid: TransactionId) {
     invoker_svc.queue_signal.notified().await;
     debug!(tid=%tid, "Invoker waken up by signal");
-  }
-  /// True if there are things in the queue, and resources to run them on
-  fn queue_has_runnable_items(&self) -> bool {
-    let invoke_queue = self.invoke_queue.lock();
-    invoke_queue.len() > 0 && self.has_resources_to_run()
   }
 }
 
@@ -102,6 +86,15 @@ impl Invoker for MinHeapInvoker {
   }
   fn timer(&self) -> &LocalTime {
     &self.clock
+  }
+  fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
+    if let Some(r) = self.invoke_queue.lock().peek() {
+      return Some(r.clone());
+    }
+    None
+  }
+  fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
+    self.invoke_queue.lock().pop().unwrap()
   }
 
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {

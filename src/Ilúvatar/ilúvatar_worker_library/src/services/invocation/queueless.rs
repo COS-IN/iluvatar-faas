@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::TransactionId, logging::LocalTime};
+use iluvatar_library::{transaction::TransactionId, logging::LocalTime, utils::calculate_fqdn};
 use anyhow::Result;
 use super::{invoker_trait::Invoker, async_tracker::AsyncHelper};
 use crate::rpc::InvokeResponse;
@@ -42,7 +42,8 @@ impl Invoker for QueuelessInvoker {
   }
 
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
-    self.invoke_internal(&function_name, &function_version, &json_args, &tid, self.timer().now()).await
+    let fqdn = calculate_fqdn(&function_name, &function_version);
+    self.invoke_internal(&fqdn, &function_name, &function_version, &json_args, &tid, self.timer().now(), None).await
   }
 
   fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
