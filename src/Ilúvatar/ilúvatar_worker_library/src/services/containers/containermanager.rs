@@ -2,6 +2,7 @@ use crate::services::containers::structs::{InsufficientMemoryError, Insufficient
 use futures::Future;
 use iluvatar_library::bail_error;
 use iluvatar_library::threading::{tokio_runtime, EventualItem};
+use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use crate::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID};
 use iluvatar_library::types::MemSizeMb;
@@ -30,11 +31,13 @@ pub struct ContainerManager {
   cont_lifecycle: Arc<dyn LifecycleService>,
   prioritized_list: ContainerList,
   _worker_thread: std::thread::JoinHandle<()>,
+  core_sem: Arc<Semaphore>,
 }
 
 impl ContainerManager {
   async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>) -> ContainerManager {
     ContainerManager {
+      core_sem: Arc::new(Semaphore::new(resources.cores as usize)),
       registered_functions: Arc::new(DashMap::new()),
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       limits_config,
@@ -86,6 +89,13 @@ impl ContainerManager {
   pub fn running_functions(&self) -> u32 {
     *self.running_funcs.read()
   }
+  pub fn try_acquire_cores(&self, fqdn: &String) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
+    if let Ok(reg) = self.get_registration(fqdn) {
+      return self.core_sem.clone().try_acquire_many_owned(reg.cpus);
+    }
+    // function was not registered
+    Err(tokio::sync::TryAcquireError::Closed)
+  }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
   async fn update_memory_usages(&self, tid: &TransactionId) {
@@ -136,15 +146,7 @@ impl ContainerManager {
   /// will start a function if one is not available
   /// Can return a custom InsufficientCoresError if an invocation cannot be started now
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
-  pub fn acquire_container<'a>(&'a self, fqdn: String, tid: &'a TransactionId) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
-    let cont = self.try_acquire_container(&fqdn, tid);
-    let cont = match cont {
-      Some(l) => EventualItem::Now(Ok(l)),
-      None => {
-        // not available container, cold start
-        EventualItem::Future(self.cold_start(fqdn, tid))
-      },
-    };
+  pub fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
     let mut running_funcs = self.running_funcs.write();
     if self.resources.cores > 0 && *running_funcs < self.resources.cores {
       *running_funcs += 1;
@@ -152,6 +154,14 @@ impl ContainerManager {
       debug!(tid=%tid, "Not enough available cores to run something right now");
       return EventualItem::Now(Err(anyhow::Error::new(InsufficientCoresError{})));
     }
+    let cont = self.try_acquire_container(fqdn, tid);
+    let cont = match cont {
+      Some(l) => EventualItem::Now(Ok(l)),
+      None => {
+        // not available container, cold start
+        EventualItem::Future(self.cold_start(fqdn.clone(), tid))
+      },
+    };
     return cont;
   }
 
