@@ -1,11 +1,20 @@
 use dashmap::DashMap;
-
+use std::time::Duration;
 
 #[derive(Debug)]
 pub enum Values {
+    Duration(Duration),
     F64(f64),
     U64(u64),
     Str(String)
+}
+
+pub fn unwrap_val_dur ( value: &Values ) -> Duration {
+    let stop = || panic!("unwrap_val_dur not of type Duration");
+    match value {
+        Values::Duration(v) => v.clone(), 
+        _  => stop() 
+    }
 }
 
 pub fn unwrap_val_f64 ( value: &Values ) -> f64 {
@@ -39,17 +48,29 @@ pub struct AgExponential {
 }
 
 impl AgExponential {
-    fn new( alpha: f64 ) -> Self {
+    pub fn new( alpha: f64 ) -> Self {
         AgExponential {
             alpha
         }
     }
 
     fn accumulate ( &self, oldvalue: &Values, newvalue: &Values ) -> Values {
-        let old = unwrap_val_f64( oldvalue );
-        let new = unwrap_val_f64( newvalue );
+        match oldvalue {
+            Values::F64(_v)=> {
+                let old = unwrap_val_f64( oldvalue );
+                let new = unwrap_val_f64( newvalue );
+                Values::F64( ( new * self.alpha ) + ( old * (1.0-self.alpha) ) )
+            }
+            Values::Duration(_v) => {
+                let old = unwrap_val_dur( oldvalue );
+                let new = unwrap_val_dur( newvalue );
+                Values::Duration(Duration::from_secs_f64( ( new.as_secs_f64() * self.alpha   ) + ( old.as_secs_f64() * (1.0-self.alpha) ) ))
+            }
+            _ => {
+                panic!("AgExponential::accumulate does not support this value type");
+            }
+        }
         
-        Values::F64( ( new * self.alpha ) + ( old * (1.0-self.alpha) ) )
     }
 }
 
@@ -132,6 +153,7 @@ impl CharacteristicsMap {
         match value {
             Values::F64(v) => Values::F64(*v), 
             Values::U64(v) => Values::U64(*v), 
+            Values::Duration(v) => Values::Duration(v.clone()), 
             Values::Str(v) => Values::Str(v.clone()) 
         }
     }
@@ -206,6 +228,27 @@ mod charmap {
         assert_eq!(unwrap_val_f64(
                      &m.lookup("video_processing.0.0.1".to_string(), Characteristics::ExecTime).unwrap() ),
                      0.48719999999999997 );
+
+        // Test 4 using Duration datatype for ExecTime 
+        let m = CharacteristicsMap::new( AgExponential::new( 0.6 ) );
+        println!("--------------------------------------------------------------------");
+        println!("Test 4: Using Duration Datatype for ExecTime");
+        
+        println!("      : Adding one element");
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(2,30)), Some(true) );
+        println!("      : looking up the new element");
+        println!("      :   {:?}", unwrap_val_dur(
+                &m.lookup("video_processing.0.0.1".to_string(), Characteristics::ExecTime).unwrap() ) );
+        println!("      : Adding three more");
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), Some(true) );
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), Some(true) );
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), Some(true) );
+        println!("      : dumping whole map");
+        m.dump();
+        assert_eq!(unwrap_val_dur(
+                     &m.lookup("video_processing.0.0.1".to_string(), Characteristics::ExecTime).unwrap() ),
+                     Duration::from_secs_f64(4.808000049) );
+
         return Ok(());
         
         /*
