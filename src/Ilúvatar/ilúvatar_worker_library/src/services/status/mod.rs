@@ -14,14 +14,14 @@ pub struct WorkerStatus {
   pub used_mem: MemSizeMb,
   /// amount of memory usable by containers, used and unused
   pub total_mem: MemSizeMb,
-  /// [cpu-time non-kernel](https://www.man7.org/linux/man-pages/man8/vmstat.8.html)
-  pub cpu_us: i64,
-  /// [cpu-time kernel](https://www.man7.org/linux/man-pages/man8/vmstat.8.html)
-  pub cpu_sy: i64,
-  /// [cpu-time idle](https://www.man7.org/linux/man-pages/man8/vmstat.8.html)
-  pub cpu_id: i64,
-  /// [cpu-time waiting](https://www.man7.org/linux/man-pages/man8/vmstat.8.html)
-  pub cpu_wa: i64,
+  /// [cpu-time non-kernel](https://linux.die.net/man/1/mpstat)
+  pub cpu_us: f64,
+  /// [cpu-time kernel, hypervisor, servicing, interrupts](https://linux.die.net/man/1/mpstat)
+  pub cpu_sy: f64,
+  /// [cpu-time idle](https://linux.die.net/man/1/mpstat)
+  pub cpu_id: f64,
+  /// [cpu-time waiting](https://linux.die.net/man/1/mpstat)
+  pub cpu_wa: f64,
   /// [one minute load average](https://www.man7.org/linux/man-pages/man1/uptime.1.html)
   /// NOT NORMALIZED by number of cores
   pub load_avg_1minute: f64,

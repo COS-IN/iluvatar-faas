@@ -3,10 +3,11 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use iluvatar_library::cpu_interaction::CPUService;
 use iluvatar_library::{nproc, threading};
-use tracing::{info, debug, error};
+use tracing::{info, debug, error, warn};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::invocation::invoker_trait::Invoker;
+use crate::worker_api::worker_config::StatusConfig;
 use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::utils::execute_cmd;
@@ -23,12 +24,13 @@ pub struct StatusService {
   tags: String,
   metrics: Vec<&'static str>,
   cpu: Arc<CPUService>,
+  config: Arc<StatusConfig>,
 }
 
 impl StatusService {
-  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<dyn Invoker>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<dyn Invoker>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>) -> Result<Arc<Self>> {
     let (handle, sender) = 
-          threading::os_thread::<Self>(5000, iluvatar_library::transaction::STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status));
+          threading::os_thread::<Self>(config.report_freq_ms, iluvatar_library::transaction::STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status));
 
     let ret = Arc::new(StatusService { 
       container_manager: cm, 
@@ -37,10 +39,10 @@ impl StatusService {
         queue_len: 0,
         used_mem: 0,
         total_mem: 0,
-        cpu_us: 0,
-        cpu_sy: 0,
-        cpu_id: 0,
-        cpu_wa: 0,
+        cpu_us: 0.0,
+        cpu_sy: 0.0,
+        cpu_id: 0.0,
+        cpu_wa: 0.0,
         load_avg_1minute: 0.0,
         num_system_cores: 0,
         num_running_funcs: 0,
@@ -54,27 +56,64 @@ impl StatusService {
                     "worker.load.queue", "worker.load.mem_pct", 
                     "worker.load.used_mem"],
       cpu: CPUService::boxed(tid)?,
+      config
     });
     sender.send(ret.clone()).unwrap();
     Ok(ret)
   }
 
-  fn vmstat(&self, tid: &TransactionId) -> (i64, i64, i64, i64) {
-    match execute_cmd("/usr/bin/vmstat", &vec!["1", "2", "-n", "-w"], None, tid) {
+  fn mpstat(&self, tid: &TransactionId) -> (f64,f64,f64,f64) {
+    match execute_cmd("/usr/bin/mpstat", &vec![], None, tid) {
       Ok(out) => {
         let stdout = String::from_utf8_lossy(&out.stdout);
-        let split = stdout.split("\n").collect::<Vec<&str>>();
-        let lines: Vec<&str> = split[split.len()-2].split(" ").filter(|str| str.len() > 0).collect();
-        let us: i64 = self.parse(lines[lines.len()-5], tid);
-        let sy: i64 = self.parse(lines[lines.len()-4], tid);
-        let id: i64 = self.parse(lines[lines.len()-3], tid);
-        let wa: i64 = self.parse(lines[lines.len()-2], tid);
-        debug!(tid=%tid, "vmstat {} {} {} {}", us, sy, id, wa);
-        (us, sy, id, wa)
+
+        let lines = stdout.split("\n").filter(|str| str.len() > 0).collect::<Vec<&str>>();
+        if lines.len() != 3 {
+          warn!(tid=%tid, "Had an unexpected number of output lines from mpstat '{}'", lines.len());
+          return (-1.0,-1.0,-1.0,-1.0);
+        }
+        let name_parts: Vec<&str> = lines[1].split(" ").filter(|str| str.len() > 0).collect();
+        let data_parts: Vec<&str> = lines[2].split(" ").filter(|str| str.len() > 0).collect();
+        if data_parts.len() != name_parts.len() {
+          warn!(tid=%tid, "mpstat output lines were not of equal length name_parts: '{}' vs data_parts: '{}'", name_parts.len(), data_parts.len());
+          return (-1.0,-1.0,-1.0,-1.0);
+        }
+        let mut found_data: std::collections::HashMap<&str, f64> = std::collections::HashMap::new();
+        for (pos, name) in name_parts.iter().enumerate() {
+          if name.starts_with("%") {
+            found_data.insert(name, self.parse(data_parts[pos], tid));
+          }
+        }
+        let mut user = 0.0;
+        user += self.get_or_zero(tid, &found_data, "%usr");
+        user += self.get_or_zero(tid, &found_data, "%nice");
+
+        let mut sys = self.get_or_zero(tid, &found_data, "%sys");
+        sys += self.get_or_zero(tid, &found_data, "%irq");
+        sys += self.get_or_zero(tid, &found_data, "%soft");
+        sys += self.get_or_zero(tid, &found_data, "%steal");
+        sys += self.get_or_zero(tid, &found_data, "%guest");
+        sys += self.get_or_zero(tid, &found_data, "%gnice");
+
+        let wait = self.get_or_zero(tid, &found_data, "%iowait");
+        let idle = self.get_or_zero(tid, &found_data, "%idle");
+
+        debug!(tid=%tid, "mpstat {} {} {} {}", user, sys, wait, idle);
+        (user,sys,wait,idle)
       },
       Err(e) => {
-        error!(tid=%tid, "unable to call vmstat because {}", e);
-        (-1,-1,-1,-1)
+        error!(tid=%tid, "unable to call mpstat because {}", e);
+        (-1.0,-1.0,-1.0,-1.0)
+      },
+    }
+  }
+
+  fn get_or_zero(&self, tid: &TransactionId, data: &std::collections::HashMap<&str, f64>, key: &str) -> f64 {
+    match data.get(key) {
+      Some(v) => *v,
+      None => {
+        debug!(tid=%tid, key=%key, "Was unable to find key in mpstat result");
+        0.0
       },
     }
   }
@@ -106,7 +145,7 @@ impl StatusService {
   fn update_status(&self, tid: &TransactionId) {
     let _free_cs = self.container_manager.free_cores();
 
-    let (us, sy, id, wa) = self.vmstat(tid);
+    let (us, sy, id, wa) = self.mpstat(tid);
     let minute_load_avg = self.uptime(tid);
     let nprocs = match nproc(tid, false) {
       Ok(n) => n,
@@ -148,12 +187,13 @@ impl StatusService {
   }
 
   /// parse the string to an i64, used for getting info from vmstat
-  fn parse(&self, string: &str, tid: &TransactionId) -> i64 {
-    match string.parse::<i64>() {
+  fn parse<T: std::str::FromStr + std::default::Default>(&self, string: &str, tid: &TransactionId) -> T
+  where <T as std::str::FromStr>::Err: std::fmt::Display {
+    match string.parse::<T>() {
       Ok(r) => r,
       Err(e) => {
         error!(tid=%tid, "error parsing {}: {}", string, e);
-        -1
+        T::default()
       },
     }
   }

@@ -61,5 +61,8 @@
     "ipmi_pass_file": "",
     "ipmi_ip_addr": "",
     "log_folder": "/tmp/ilúvatar/logs/"
+  },
+  "status": {
+    "report_freq_ms": 5000
   }
 }
