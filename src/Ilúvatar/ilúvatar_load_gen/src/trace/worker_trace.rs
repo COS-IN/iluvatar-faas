@@ -225,6 +225,7 @@ fn live_prewarm_functions(funcs: &HashMap<String, Function>, host: &String, port
         Some(p) => handles.push(rt.spawn(p)),
         None => break,
       }
+      std::thread::sleep(Duration::from_millis(10));
     }
     for handle in handles {
       rt.block_on(handle)??;

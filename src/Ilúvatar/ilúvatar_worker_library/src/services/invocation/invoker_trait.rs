@@ -127,14 +127,16 @@ pub trait Invoker: Send + Sync {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args, queue_insert_time), fields(tid=%tid)))]
   async fn invoke_internal(&self, fqdn: &String, _function_name: &String, _function_version: &String, json_args: &String, tid: &TransactionId, queue_insert_time: OffsetDateTime, permit: Option<OwnedSemaphorePermit>) -> Result<(String, Duration)> {
     debug!(tid=%tid, "Internal invocation starting");
+    let timer = self.timer();
+    // take run time now because we may have to wait to get a container
+    let run_time = timer.now_str();
 
     let ctr_mgr = self.cont_manager();
     let ctr_lock = match ctr_mgr.acquire_container(fqdn, tid) {
       EventualItem::Future(f) => f.await?,
       EventualItem::Now(n) => n?,
     };
-    let timer = self.timer();
-    info!(tid=%tid, insert_time=%timer.format_time(queue_insert_time)?, run_time=%timer.now_str()?, "Item starting to execute");
+    info!(tid=%tid, insert_time=%timer.format_time(queue_insert_time)?, run_time=%run_time?, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     drop(permit);
     Ok((data.result_string()?, duration))
