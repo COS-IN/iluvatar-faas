@@ -7,7 +7,7 @@ use tracing::debug;
 #[tonic::async_trait]
 pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
   /// Invoke the function within the container, passing the json args to it
-  async fn invoke(&self, json_args: &String, tid: &TransactionId, timeout_sec: u64) -> Result<(ParsedResult, Duration)>;
+  async fn invoke(&self, json_args: &String, tid: &TransactionId) -> Result<(ParsedResult, Duration)>;
 
   /// indicate that the container as been "used" or internal datatsructures should be updated such that it has
   fn touch(&self);
@@ -116,9 +116,9 @@ impl<'a> ContainerLock<'a> {
   }
 
   /// ask the internal container to invoke the function
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args, timeout_sec), fields(tid=%self.transaction_id), name="ContainerLock::invoke"))]
-  pub async fn invoke(&self, json_args: &String, timeout_sec: u64) -> Result<(ParsedResult, Duration)> {
-    self.container.invoke(json_args, self.transaction_id, timeout_sec).await
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args), fields(tid=%self.transaction_id), name="ContainerLock::invoke"))]
+  pub async fn invoke(&self, json_args: &String) -> Result<(ParsedResult, Duration)> {
+    self.container.invoke(json_args, self.transaction_id).await
   }
 }
 

@@ -1,12 +1,11 @@
 use std::{sync::Arc, time::SystemTime};
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::{execute_cmd, port::free_local_port, calculate_base_uri, calculate_invoke_uri}, bail_error};
+use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::{execute_cmd, port::free_local_port}, bail_error};
 use crate::worker_api::worker_config::{ContainerResources, FunctionLimits};
 
 use self::dockerstructs::DockerContainer;
 use super::{structs::{RegisteredFunction, Container}, LifecycleService};
 use anyhow::Result;
 use guid_create::GUID;
-use parking_lot::{Mutex, RwLock};
 use tracing::{warn, info, trace, debug};
 
 pub mod dockerstructs;
@@ -99,18 +98,10 @@ impl LifecycleService for DockerLifecycle {
     debug!(tid=%tid, "Dropped docker creation semaphore after load_mounts error");
     debug!(tid=%tid, name=%image_name, containerid=%cid, output=?output, "Docker container started successfully");
     info!(tid=%tid, name=%image_name, containerid=%cid, "Docker container started successfully");
-    Ok(Arc::new(DockerContainer {
-      container_id: cid,
-      mutex: Mutex::new(parallel_invokes),
-      fqdn: fqdn.clone(),
-      function: reg.clone(),
-      last_used: RwLock::new(SystemTime::now()),
-      invocations: Mutex::new(0),
-      port,
-      invoke_uri: calculate_invoke_uri("0.0.0.0", port),
-      base_uri: calculate_base_uri("0.0.0.0", port),
-      healthy: Mutex::new(true),
-    }))
+    unsafe {
+      let c = DockerContainer::new(cid, port, "0.0.0.0".to_string(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, self.limits_config.timeout_sec)?;
+      Ok(Arc::new(c))
+    }
   }
 
   /// Removed the specified container in the containerd namespace

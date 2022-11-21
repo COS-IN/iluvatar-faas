@@ -170,6 +170,10 @@ impl LocalTime {
   /// As a String
   pub fn now_str(&self) -> Result<String> {
     let time = self.now();
+    self.format_time(time)
+  }
+
+  pub fn format_time(&self, time: OffsetDateTime) -> Result<String> {
     Ok(time.format(&self.format)?)
   }
 }

@@ -1,6 +1,7 @@
-use std::{sync::Arc, time::{SystemTime, Duration}};
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::port::Port, bail_error};
-use crate::{services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult}}, };
+use std::{sync::Arc, time::{SystemTime, Duration}, num::NonZeroU32};
+use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
+use reqwest::Client;
+use crate::services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult}};
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 
@@ -20,23 +21,45 @@ pub struct DockerContainer {
   pub invoke_uri: String,
   pub base_uri: String,
   /// Is container healthy?
-  pub healthy: Mutex<bool>
+  pub healthy: Mutex<bool>,
+  client: Client,
+}
+
+impl DockerContainer {
+  pub fn new(container_id: String, port: Port, address: String, parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, invoke_timeout: u64) -> Result<Self> {
+    let client = match reqwest::Client::builder()
+      .pool_max_idle_per_host(0)
+      .pool_idle_timeout(None)
+                              // tiny buffer to allow for network delay from possibly full system
+      .connect_timeout(Duration::from_secs(invoke_timeout+2))
+      .build() {
+        Ok(c) => c,
+        Err(e) => bail_error!(error=%e, "Unable to build reqwest HTTP client"),
+      };
+    let r = DockerContainer {
+      container_id: container_id,
+      mutex: Mutex::new(u32::from(parallel_invokes)),
+      fqdn: fqdn.clone(),
+      function: function.clone(),
+      last_used: RwLock::new(SystemTime::now()),
+      invocations: Mutex::new(0),
+      port,
+      invoke_uri: calculate_invoke_uri(address.as_str(), port),
+      base_uri: calculate_base_uri(address.as_str(), port),
+      healthy: Mutex::new(true),
+      client,
+    };
+    Ok(r)
+  }
 }
 
 #[tonic::async_trait]
 impl ContainerT for DockerContainer {
-  #[tracing::instrument(skip(self, json_args, timeout_sec), fields(tid=%tid), name="DockerContainer::invoke")]
-  async fn invoke(&self, json_args: &String, tid: &TransactionId, timeout_sec: u64) ->  Result<(ParsedResult, Duration)> {
+  #[tracing::instrument(skip(self, json_args), fields(tid=%tid), name="DockerContainer::invoke")]
+  async fn invoke(&self, json_args: &String, tid: &TransactionId) ->  Result<(ParsedResult, Duration)> {
     *self.invocations.lock() += 1;
-
     self.touch();
-    let client = reqwest::Client::builder()
-            .pool_max_idle_per_host(0)
-            .pool_idle_timeout(None)
-                                    // tiny buffer to allow for network delay from possibly full system
-            .connect_timeout(Duration::from_secs(timeout_sec+2))
-            .build()?;
-    let build = client.post(&self.invoke_uri)
+    let build = self.client.post(&self.invoke_uri)
                         .body(json_args.to_owned())
                         .header("Content-Type", "application/json");
 

@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::{transaction::TransactionId, logging::LocalTime, utils::calculate_fqdn};
 use anyhow::Result;
 use super::{invoker_trait::Invoker, async_tracker::AsyncHelper};
 use crate::rpc::InvokeResponse;
@@ -11,16 +11,18 @@ pub struct QueuelessInvoker {
   pub async_functions: AsyncHelper,
   pub function_config: Arc<FunctionLimits>,
   pub invocation_config: Arc<InvocationConfig>,
+  clock: LocalTime
 }
 
 impl QueuelessInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>) -> Arc<Self> {
-    Arc::new(QueuelessInvoker {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+    Ok(Arc::new(QueuelessInvoker {
       cont_manager,
       function_config,
       invocation_config,
       async_functions: AsyncHelper::new(),
-    })
+      clock: LocalTime::new(tid)?
+    }))
   }
 }
 
@@ -35,9 +37,13 @@ impl Invoker for QueuelessInvoker {
   fn invocation_config(&self) -> Arc<InvocationConfig>  {
     self.invocation_config.clone()
   }
+  fn timer(&self) -> &LocalTime {
+    &self.clock
+  }
 
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
-    self.invoke_internal(&function_name, &function_version, &json_args, &tid).await
+    let fqdn = calculate_fqdn(&function_name, &function_version);
+    self.invoke_internal(&fqdn, &function_name, &function_version, &json_args, &tid, self.timer().now(), None).await
   }
 
   fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {

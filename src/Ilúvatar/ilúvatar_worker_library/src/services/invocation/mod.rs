@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use anyhow::Result;
+use iluvatar_library::transaction::TransactionId;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use self::{queueless::QueuelessInvoker, invoker_trait::Invoker, fcfs_invoke::FCFSInvoker, minheap_invoke::MinHeapInvoker };
 use super::containers::containermanager::ContainerManager;
@@ -29,16 +30,16 @@ impl InvokerFactory {
     }
   }
 
-  pub fn get_invoker_service(&self) -> Result<Arc<dyn Invoker>> {
+  pub fn get_invoker_service(&self, tid: &TransactionId) -> Result<Arc<dyn Invoker>> {
     let r: Arc<dyn Invoker> = match self.invocation_config.queue_policy.to_lowercase().as_str() {
       "none" => {
-        QueuelessInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone())
+        QueuelessInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid)?
       },
       "fcfs" => {
-        FCFSInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone())?
+        FCFSInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid)?
       },
       "minheap" => {
-        MinHeapInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone())?
+        MinHeapInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid)?
       },
 
       unknown => panic!("Unknown lifecycle backend '{}'", unknown)
