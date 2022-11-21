@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{InsufficientCoresError, InsufficientMemoryError};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime};
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values}};
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::Notify;
@@ -12,25 +12,38 @@ use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 
-impl Eq for EnqueuedInvocation {
+#[derive(Debug)]
+pub struct MHQEnqueuedInvocation {
+    x: Arc<EnqueuedInvocation>
 }
 
-impl Ord for EnqueuedInvocation {
+impl MHQEnqueuedInvocation {
+    fn new( x: Arc<EnqueuedInvocation> ) -> Self {
+        MHQEnqueuedInvocation {
+            x
+        }
+    }
+}
+
+impl Eq for MHQEnqueuedInvocation {
+}
+
+impl Ord for MHQEnqueuedInvocation {
  fn cmp(&self, other: &Self) -> Ordering {
-     other.function_name.len().cmp(&self.function_name.len())
+     other.x.function_name.len().cmp(&self.x.function_name.len())
  }
 }
 
-impl PartialOrd for EnqueuedInvocation {
+impl PartialOrd for MHQEnqueuedInvocation {
  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
      Some(self.cmp(other))
  }
 }
 
 
-impl PartialEq for EnqueuedInvocation {
+impl PartialEq for MHQEnqueuedInvocation {
  fn eq(&self, other: &Self) -> bool {
-     self.function_name.len() == other.function_name.len()
+     self.x.function_name.len() == other.x.function_name.len()
  }
 }
 
@@ -39,7 +52,8 @@ pub struct MinHeapInvoker {
   pub async_functions: AsyncHelper,
   pub function_config: Arc<FunctionLimits>,
   pub invocation_config: Arc<InvocationConfig>,
-  pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<EnqueuedInvocation>>>>,
+  pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<MHQEnqueuedInvocation>>>>,
+  pub cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify
 }
@@ -54,6 +68,7 @@ impl MinHeapInvoker {
       async_functions: AsyncHelper::new(),
       queue_signal: Notify::new(),
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
+      cmap: Arc::new(CharacteristicsMap::new(AgExponential::new(0.6))),
       _worker_thread: handle,
     });
     tx.send(svc.clone())?;
@@ -66,9 +81,15 @@ impl MinHeapInvoker {
     while invoker_svc.queue_has_runnable_items() {
       let mut invoke_queue = invoker_svc.invoke_queue.lock();
       let item = invoke_queue.pop().unwrap();
-      debug!(tid=%item.tid, "Dequeueing item");
+      let item = Arc::try_unwrap(item).expect("item has multiple owners");
+      let item = item.x;
+      debug!(tid=%item.tid, "Popped item from queue minheap - len: {} popped: {} top: {} ", 
+                        invoke_queue.len(),
+                        item.function_name,
+                        invoke_queue.peek().unwrap().x.function_name );
+
       // TODO: continuity of spans here
-      invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item);
+      invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item.into());
     }
   }
   /// Wait on the Notify object for the queue to be available again
@@ -100,12 +121,13 @@ impl Invoker for MinHeapInvoker {
 
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
     // self.invoke_internal(&function_name, &function_version, &json_args, &tid).await
-    let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());
+    let queued = self.enqueue_new_invocation(function_name.clone(), function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
     match result_ptr.completed {
       true => {
         info!(tid=%tid, "Invocation complete");
+        self.cmap.add( function_name, Characteristics::ExecTime, Values::Duration(result_ptr.duration.clone()), Some(true) );
         Ok( (result_ptr.result_json.clone(), result_ptr.duration) )  
       },
       false => {
@@ -115,11 +137,12 @@ impl Invoker for MinHeapInvoker {
   }
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    queue.push(item.clone());
+    queue.push(MHQEnqueuedInvocation::new(item.clone()).into());
     debug!(tid=%item.tid, "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.function_name,
-                        queue.peek().unwrap().function_name );
+                        queue.peek().unwrap().x.function_name );
+    // self.cmap.dump();
     self.queue_signal.notify_waiters();
   }
 

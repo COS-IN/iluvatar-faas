@@ -1,5 +1,7 @@
 use dashmap::DashMap;
 use std::time::Duration;
+use tracing::debug;
+use function_name::named;
 
 #[derive(Debug)]
 pub enum Values {
@@ -158,6 +160,7 @@ impl CharacteristicsMap {
         }
     }
 
+    #[named]
     pub fn dump( &self ) {
         for e0 in self.map.iter() {
             let fname = e0.key();
@@ -168,6 +171,7 @@ impl CharacteristicsMap {
                 let value = e1.value();
                 
                 println!("{} -- {:?},{:?}", fname, chr, value);
+                debug!(cmap=function_name!(),"{} -- {:?},{:?}", fname, chr, value);
             }
         }
     }
