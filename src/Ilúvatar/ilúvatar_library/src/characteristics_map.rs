@@ -45,6 +45,7 @@ pub fn unwrap_val_str ( value: &Values ) -> String {
 
 ////////////////////////////////////////////////////////////////
 /// Aggregators for CharacteristicsMap 
+#[derive(Debug)]
 pub struct AgExponential {
     alpha: f64
 }
@@ -87,6 +88,7 @@ pub enum Characteristics {
     MemoryUsage
 }
 
+#[derive(Debug)]
 pub struct CharacteristicsMap {
     map: DashMap<String,DashMap<Characteristics,Values>>,
     ag: AgExponential 
