@@ -29,6 +29,7 @@ pub struct Configuration {
   pub graphite: Arc<GraphiteConfig>,
   pub energy: Arc<EnergyConfig>,
   pub invocation: Arc<InvocationConfig>,
+  pub status: Arc<StatusConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,6 +106,12 @@ pub struct NetworkingConfig {
   pub pool_freq_ms: u64,
   /// network interface to attach bridge to
   pub hardware_interface: String,
+}
+
+#[derive(Debug, Deserialize)]
+/// Config related to status monitoring of the worker system & host
+pub struct StatusConfig {
+  pub report_freq_ms: u64
 }
 
 pub type WorkerConfig = Arc<Configuration>;

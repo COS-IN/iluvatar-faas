@@ -29,7 +29,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
   let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone());
   let invoker = invoker_fact.get_invoker_service(tid)?;
-  let status = match StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid).await {
+  let status = match StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid, worker_config.status.clone()).await {
     Ok(s) => s,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make status service"),
   };

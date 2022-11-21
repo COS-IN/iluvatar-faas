@@ -1,7 +1,6 @@
-use std::sync::Arc;
 use std::time::Duration;
 use iluvatar_library::{logging::start_tracing, nproc, bail_error};
-use iluvatar_worker_library::services::containers::LifecycleFactory;
+use iluvatar_worker_library::{services::containers::LifecycleFactory, worker_api::config::WorkerConfig};
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker_library::worker_api::config::Configuration;
 use iluvatar_worker_library::worker_api::create_worker;
@@ -16,7 +15,7 @@ use signal_hook::{consts::signal::{SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT}, 
 
 pub mod utils;
 
-async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
+async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
   debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
 
   let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
@@ -48,7 +47,7 @@ async fn run(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<(
   Ok(())
 }
 
-async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<()> {
+async fn clean(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
   debug!(tid=?tid, config=?server_config, "loaded configuration");
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone(), server_config.limits.clone());
@@ -58,7 +57,7 @@ async fn clean(server_config: Arc<Configuration>, tid: &TransactionId) -> Result
   Ok(())
 }
 
-fn build_runtime(server_config: Arc<Configuration>, tid: &TransactionId) -> Result<Runtime> {
+fn build_runtime(server_config: WorkerConfig, tid: &TransactionId) -> Result<Runtime> {
   match tokio::runtime::Builder::new_multi_thread()
       .worker_threads(nproc(tid, false)? as usize)
       .enable_all()

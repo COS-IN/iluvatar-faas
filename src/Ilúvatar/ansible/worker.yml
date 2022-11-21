@@ -127,6 +127,8 @@
       "ILUVATAR_WORKER__invocation__queue_policy" : "{{ worker_queue_policy | default('fcfs') }}"
       "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
       "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(1) }}"
+      # Status config
+      "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
 
     register: worker_output
 
