@@ -62,6 +62,8 @@ impl StatusService {
     Ok(ret)
   }
 
+  /// returns system CPU usage as reported by mpstat
+  /// numbers are (user, system, idle, wait)
   fn mpstat(&self, tid: &TransactionId) -> (f64,f64,f64,f64) {
     match execute_cmd("/usr/bin/mpstat", &vec![], None, tid) {
       Ok(out) => {
@@ -99,7 +101,7 @@ impl StatusService {
         let idle = self.get_or_zero(tid, &found_data, "%idle");
 
         debug!(tid=%tid, "mpstat {} {} {} {}", user, sys, wait, idle);
-        (user,sys,wait,idle)
+        (user,sys,idle,wait)
       },
       Err(e) => {
         error!(tid=%tid, "unable to call mpstat because {}", e);
