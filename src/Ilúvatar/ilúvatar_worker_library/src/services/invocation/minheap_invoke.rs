@@ -12,18 +12,19 @@ use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper,
 use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use ordered_float::OrderedFloat;     
 
 #[derive(Debug)]
 pub struct MHQEnqueuedInvocation {
     x: Arc<EnqueuedInvocation>,
-    cmap: Arc<CharacteristicsMap>
+    exectime: f64
 }
 
 impl MHQEnqueuedInvocation {
-    fn new( x: Arc<EnqueuedInvocation>, cmap: Arc<CharacteristicsMap> ) -> Self {
+    fn new( x: Arc<EnqueuedInvocation>, exectime: f64 ) -> Self {
         MHQEnqueuedInvocation {
             x,
-            cmap
+            exectime
         }
     }
 }
@@ -44,27 +45,28 @@ fn get_exec_time( cmap: &Arc<CharacteristicsMap>, fname: &String ) -> f64 {
 impl Eq for MHQEnqueuedInvocation {
 }
 
+fn compare_f64( lhs: &f64, rhs: &f64 ) -> Ordering {
+    let lhs: OrderedFloat<f64> = OrderedFloat( *lhs );
+    let rhs: OrderedFloat<f64> = OrderedFloat( *rhs );
+
+    rhs.cmp(&lhs)
+}
+
 impl Ord for MHQEnqueuedInvocation {
  fn cmp(&self, other: &Self) -> Ordering {
-     let exectime_lhs = get_exec_time( &self.cmap, &self.x.function_name );
-     let exectime_rhs = get_exec_time( &other.cmap, &other.x.function_name );
-     exectime_lhs.total_cmp(&exectime_rhs)
+     compare_f64( &self.exectime, &other.exectime )
  }
 }
 
 impl PartialOrd for MHQEnqueuedInvocation {
  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-     Some(self.cmp(other))
+     Some(compare_f64( &self.exectime, &other.exectime ))
  }
 }
 
-
 impl PartialEq for MHQEnqueuedInvocation {
  fn eq(&self, other: &Self) -> bool {
-     let exectime_lhs = get_exec_time( &self.cmap, &self.x.function_name );
-     let exectime_rhs = get_exec_time( &other.cmap, &other.x.function_name );
- 
-     exectime_lhs == exectime_rhs 
+     self.exectime == other.exectime
  }
 }
 
@@ -119,10 +121,17 @@ impl Invoker for MinHeapInvoker {
     let v = invoke_queue.pop().unwrap();
     let v = Arc::try_unwrap(v).expect( "item has multiple owners");
     let v = v.x;
-    debug!(tid=%v.tid, "Popped item from queue minheap - len: {} popped: {} top: {} ",
+    let top = invoke_queue.peek();
+    let func_name; 
+
+    match top {
+        Some(e) => func_name = e.x.function_name.clone(),
+        None => func_name = "empty".to_string()
+    }
+    debug!( component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
            invoke_queue.len(),
            v.function_name,
-           invoke_queue.peek().unwrap().x.function_name );
+           func_name );
     v
   }
 
@@ -160,12 +169,12 @@ impl Invoker for MinHeapInvoker {
   }
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    queue.push(MHQEnqueuedInvocation::new(item.clone(), self.cmap.clone()).into());
-    debug!(tid=%item.tid, "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
+    queue.push(MHQEnqueuedInvocation::new(item.clone(), get_exec_time( &self.cmap, &item.function_name )).into());
+    debug!( component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.function_name,
                         queue.peek().unwrap().x.function_name );
-    // self.cmap.dump();
+    self.cmap.dump();
     self.queue_signal.notify_waiters();
   }
 

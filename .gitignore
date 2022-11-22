@@ -1,3 +1,5 @@
 src/Ilúvatar/target
 *.log
-__pycache__/
+__pycache__/*.lock
+**.lock
+**__pycache__**

@@ -1,7 +1,6 @@
 use dashmap::DashMap;
 use std::time::Duration;
 use tracing::debug;
-use function_name::named;
 
 #[derive(Debug)]
 pub enum Values {
@@ -12,34 +11,42 @@ pub enum Values {
 }
 
 pub fn unwrap_val_dur ( value: &Values ) -> Duration {
-    let stop = || panic!("unwrap_val_dur not of type Duration");
     match value {
         Values::Duration(v) => v.clone(), 
-        _  => stop() 
+        _  => {
+            debug!(error="incorrect unwrap","unwrap_val_dur not of type Duration");
+            Duration::new(0,0)
+        }
     }
 }
 
 pub fn unwrap_val_f64 ( value: &Values ) -> f64 {
-    let stop = || panic!("unwrap_val_f64 not of type f64");
     match value {
         Values::F64(v) => v.clone(), 
-        _  => stop() 
+        _  => {
+            debug!(error="incorrect unwrap","unwrap_val_f64 not of type f64");
+            0.0     
+        }
     }
 }
 
 pub fn unwrap_val_u64 ( value: &Values ) -> u64 {
-    let stop = || panic!("unwrap_val_u64 not of type u64");
     match value {
         Values::U64(v) => v.clone(), 
-        _  => stop() 
+        _  => {
+            debug!(error="incorrect unwrap","unwrap_val_u64 not of type u64");
+            0    
+        }
     }
 }
 
 pub fn unwrap_val_str ( value: &Values ) -> String {
-    let stop = || panic!("unwrap_val_str not of type String");
     match value {
         Values::Str(v) => v.clone(), 
-        _  => stop() 
+        _  => {
+            debug!(error="unwrap_val_str not of type String");
+            "None".to_string()   
+        }
     }
 }
 
@@ -70,7 +77,8 @@ impl AgExponential {
                 Values::Duration(Duration::from_secs_f64( ( new.as_secs_f64() * self.alpha   ) + ( old.as_secs_f64() * (1.0-self.alpha) ) ))
             }
             _ => {
-                panic!("AgExponential::accumulate does not support this value type");
+                debug!(error="incorrect type","AgExponential::accumulate does not support this value type");
+                Values::Duration(Duration::from_secs_f64(0.0))
             }
         }
         
@@ -114,11 +122,9 @@ impl CharacteristicsMap {
             Some(v0) => {
                let e1 = v0.get_mut( &chr );
                let v;
-               println!("Adding to {}", v0.key() );
-                // entry against given characteristic
+               // entry against given characteristic
                match e1 {
                    Some(ref v1) => {
-                       println!("        {:?} - {:?}", v1.key(), value );
                        if accumulate {
                            v = self.ag.accumulate( v1.value(), &value );
                        } else {
@@ -126,7 +132,6 @@ impl CharacteristicsMap {
                        }
                    },
                    None => {
-                       println!("doesn't already exist adding");
                        v = value;
                    }
                }
@@ -162,7 +167,6 @@ impl CharacteristicsMap {
         }
     }
 
-    #[named]
     pub fn dump( &self ) {
         for e0 in self.map.iter() {
             let fname = e0.key();
@@ -172,8 +176,7 @@ impl CharacteristicsMap {
                 let chr = e1.key();
                 let value = e1.value();
                 
-                println!("{} -- {:?},{:?}", fname, chr, value);
-                debug!(cmap=function_name!(),"{} -- {:?},{:?}", fname, chr, value);
+                debug!(component="CharacteristicsMap", "{} -- {:?},{:?}", fname, chr, value);
             }
         }
     }

@@ -17,12 +17,15 @@ pub async fn monitor_queue<T: Invoker + 'static>(invoker_svc: Arc<T>, _tid: Tran
     if let Some(peek_item) = invoker_svc.peek_queue() {
       if let Some(permit) = invoker_svc.acquire_resources_to_run(&peek_item) {
         let item = invoker_svc.pop_queue();
-        debug!(tid=%item.tid, "Dequeueing item");
         // TODO: continuity of spans here
         invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item, permit);  
-      }else { break; }
+      }else { 
+          break; 
+      }
       // nothing can be run, or nothing to run
-    } else { break; }
+    } else { 
+        break; 
+    }
   }
 }
 
