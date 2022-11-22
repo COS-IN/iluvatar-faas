@@ -119,11 +119,9 @@ impl Invoker for MinHeapInvoker {
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
-    let v = Arc::try_unwrap(v).expect( "item has multiple owners");
-    let v = v.x;
+    let v = v.x.clone();
     let top = invoke_queue.peek();
     let func_name; 
-
     match top {
         Some(e) => func_name = e.x.function_name.clone(),
         None => func_name = "empty".to_string()
