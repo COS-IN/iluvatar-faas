@@ -120,18 +120,15 @@ impl CharacteristicsMap {
             // dashself.map of given fname
             Some(v0) => {
                let e1 = v0.get_mut( &chr );
-               let v;
                // entry against given characteristic
                match e1 {
-                   Some(ref v1) => {
-                           v = self.ag.accumulate( v1.value(), &value );
+                   Some(mut v1) => {
+                           *v1 = self.ag.accumulate( v1.value(), &value );
                    },
                    None => {
-                       v = value;
+                       v0.insert( chr, value );
                    }
                }
-               drop(e1);
-               v0.insert( chr, v );
             },
             None => {
                 // dashmap for given fname does not exist create and populate
@@ -224,9 +221,9 @@ mod charmap {
                      */
 
         // Test 3 exponential average to accumulate
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5)) 
+         .add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5))
+         .add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
         println!("--------------------------------------------------------------------");
         println!("Test 3: three additions of ExecTime 0.5 to vp.0.0.1 - should be exponential average");
         println!("      : dumping whole map");
