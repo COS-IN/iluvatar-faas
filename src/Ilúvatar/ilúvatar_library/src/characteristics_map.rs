@@ -64,24 +64,8 @@ impl AgExponential {
         }
     }
 
-    fn accumulate ( &self, oldvalue: &Values, newvalue: &Values ) -> Values {
-        match oldvalue {
-            Values::F64(_v)=> {
-                let old = unwrap_val_f64( oldvalue );
-                let new = unwrap_val_f64( newvalue );
-                Values::F64( ( new * self.alpha ) + ( old * (1.0-self.alpha) ) )
-            }
-            Values::Duration(_v) => {
-                let old = unwrap_val_dur( oldvalue );
-                let new = unwrap_val_dur( newvalue );
-                Values::Duration(Duration::from_secs_f64( ( new.as_secs_f64() * self.alpha   ) + ( old.as_secs_f64() * (1.0-self.alpha) ) ))
-            }
-            _ => {
-                debug!(error="incorrect type","AgExponential::accumulate does not support this value type");
-                Values::Duration(Duration::from_secs_f64(0.0))
-            }
-        }
-        
+    fn accumulate ( &self, old: &f64, new: &f64 ) -> f64 {
+           ( new * self.alpha ) + ( old * (1.0-self.alpha) ) 
     }
 }
 
@@ -123,7 +107,7 @@ impl CharacteristicsMap {
                // entry against given characteristic
                match e1 {
                    Some(mut v1) => {
-                           *v1 = self.ag.accumulate( v1.value(), &value );
+                           *v1 = Values::F64( self.ag.accumulate( &unwrap_val_f64(&v1.value()), &unwrap_val_f64(&value) ));
                    },
                    None => {
                        v0.insert( chr, value );
