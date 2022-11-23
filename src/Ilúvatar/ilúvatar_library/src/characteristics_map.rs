@@ -113,9 +113,8 @@ impl CharacteristicsMap {
         map
     }
 
-    pub fn add( &self, fname: String, chr: Characteristics, value: Values, accumulate: Option<bool> ) -> &Self {
+    pub fn add( &self, fname: String, chr: Characteristics, value: Values) -> &Self {
         let e0 = self.map.get_mut( &fname );
-        let accumulate = accumulate.unwrap_or( true );
 
         match e0 {
             // dashself.map of given fname
@@ -125,11 +124,7 @@ impl CharacteristicsMap {
                // entry against given characteristic
                match e1 {
                    Some(ref v1) => {
-                       if accumulate {
                            v = self.ag.accumulate( v1.value(), &value );
-                       } else {
-                           v = value; 
-                       }
                    },
                    None => {
                        v = value;
@@ -191,17 +186,17 @@ mod charmap {
         let m = CharacteristicsMap::new( AgExponential::new( 0.6 ) );
         
         let push_video = || {
-            m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.3), Some(true) );
-            m.add( "video_processing.0.0.1".to_string(), Characteristics::ColdTime, Values::F64(0.9), Some(true) );
-            m.add( "video_processing.0.0.1".to_string(), Characteristics::WarmTime, Values::F64(0.6), Some(true) );
+            m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.3));
+            m.add( "video_processing.0.0.1".to_string(), Characteristics::ColdTime, Values::F64(0.9));
+            m.add( "video_processing.0.0.1".to_string(), Characteristics::WarmTime, Values::F64(0.6));
 
-            m.add( "video_processing.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4), Some(true) );
-            m.add( "video_processing.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9), Some(true) );
-            m.add( "video_processing.0.1.1".to_string(), Characteristics::WarmTime, Values::F64(1.6), Some(true) );
+            m.add( "video_processing.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4));
+            m.add( "video_processing.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9));
+            m.add( "video_processing.0.1.1".to_string(), Characteristics::WarmTime, Values::F64(1.6));
 
-            m.add( "json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4), Some(true) );
-            m.add( "json_dump.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9), Some(true) );
-            m.add( "json_dump.0.1.1".to_string(), Characteristics::WarmTime, Values::F64(1.6), Some(true) );
+            m.add( "json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4));
+            m.add( "json_dump.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9));
+            m.add( "json_dump.0.1.1".to_string(), Characteristics::WarmTime, Values::F64(1.6));
         };
         
         // Test 1 single entries 
@@ -217,19 +212,21 @@ mod charmap {
                      0.4 );
 
         // Test 2 blind update to accumulate
+        /*
         println!("--------------------------------------------------------------------");
         println!("Test 2: addition of ExecTime 0.5 to vp.0.1.1 - should be inplace update ");
         println!("      : dumping whole map");
-        m.add( "video_processing.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), Some(false) );
+        m.add( "video_processing.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
         m.dump();
         assert_eq!(unwrap_val_f64(
                      &m.lookup("video_processing.0.1.1".to_string(), Characteristics::ExecTime).unwrap() ),
                      0.5 );
+                     */
 
         // Test 3 exponential average to accumulate
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), Some(true) );
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), Some(true) );
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), Some(true) );
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
         println!("--------------------------------------------------------------------");
         println!("Test 3: three additions of ExecTime 0.5 to vp.0.0.1 - should be exponential average");
         println!("      : dumping whole map");
@@ -244,14 +241,14 @@ mod charmap {
         println!("Test 4: Using Duration Datatype for ExecTime");
         
         println!("      : Adding one element");
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(2,30)), Some(true) );
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(2,30)));
         println!("      : looking up the new element");
         println!("      :   {:?}", unwrap_val_dur(
                 &m.lookup("video_processing.0.0.1".to_string(), Characteristics::ExecTime).unwrap() ) );
         println!("      : Adding three more");
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), Some(true) );
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), Some(true) );
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), Some(true) );
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)));
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)));
+        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)));
         println!("      : dumping whole map");
         m.dump();
         assert_eq!(unwrap_val_dur(
@@ -265,9 +262,9 @@ mod charmap {
         let mut m = CharacteristicsMap::new( AgAverage::new(4) );
 
         // Test 4 simple average to accumulate
-        m.add( "json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), Some(true) );
-        m.add( "json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), Some(true) );
-        m.add( "json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), Some(true) );
+        m.add( "json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
+        m.add( "json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
+        m.add( "json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.5));
         println!("Test 4: three additions of ExecTime 0.5 to j.0.1.1 - should be simple average");
         println!("      : dumping whole map");
         m.dump();

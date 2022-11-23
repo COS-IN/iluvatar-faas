@@ -157,7 +157,7 @@ impl Invoker for MinHeapInvoker {
     match result_ptr.completed {
       true => {
         info!(tid=%tid, "Invocation complete");
-        self.cmap.add( function_name, Characteristics::ExecTime, Values::Duration(result_ptr.duration.clone()), Some(true) );
+        self.cmap.add( function_name, Characteristics::ExecTime, Values::Duration(result_ptr.duration.clone()));
         Ok( (result_ptr.result_json.clone(), result_ptr.duration) )  
       },
       false => {
