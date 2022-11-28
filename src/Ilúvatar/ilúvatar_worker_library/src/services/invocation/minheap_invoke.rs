@@ -2,8 +2,8 @@ use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{InsufficientCoresError, InsufficientMemoryError};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values,unwrap_val_dur}};
 use iluvatar_library::logging::LocalTime;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime};
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::Notify;
@@ -12,26 +12,61 @@ use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper,
 use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use ordered_float::OrderedFloat;     
 
-impl Eq for EnqueuedInvocation {
+#[derive(Debug)]
+pub struct MHQEnqueuedInvocation {
+    x: Arc<EnqueuedInvocation>,
+    exectime: f64
 }
 
-impl Ord for EnqueuedInvocation {
+impl MHQEnqueuedInvocation {
+    fn new( x: Arc<EnqueuedInvocation>, exectime: f64 ) -> Self {
+        MHQEnqueuedInvocation {
+            x,
+            exectime
+        }
+    }
+}
+
+fn get_exec_time( cmap: &Arc<CharacteristicsMap>, fname: &String ) -> f64 {
+    let exectime = cmap.lookup(fname.clone(), Characteristics::ExecTime); 
+    match exectime {
+        Some(x) => {
+            let exectime = unwrap_val_dur( &x );
+            exectime.as_secs_f64()
+        }
+        None => {
+            0.0
+        }
+    }
+}
+
+impl Eq for MHQEnqueuedInvocation {
+}
+
+fn compare_f64( lhs: &f64, rhs: &f64 ) -> Ordering {
+    let lhs: OrderedFloat<f64> = OrderedFloat( *lhs );
+    let rhs: OrderedFloat<f64> = OrderedFloat( *rhs );
+
+    rhs.cmp(&lhs)
+}
+
+impl Ord for MHQEnqueuedInvocation {
  fn cmp(&self, other: &Self) -> Ordering {
-     other.function_name.len().cmp(&self.function_name.len())
+     compare_f64( &self.exectime, &other.exectime )
  }
 }
 
-impl PartialOrd for EnqueuedInvocation {
+impl PartialOrd for MHQEnqueuedInvocation {
  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-     Some(self.cmp(other))
+     Some(compare_f64( &self.exectime, &other.exectime ))
  }
 }
 
-
-impl PartialEq for EnqueuedInvocation {
+impl PartialEq for MHQEnqueuedInvocation {
  fn eq(&self, other: &Self) -> bool {
-     self.function_name.len() == other.function_name.len()
+     self.exectime == other.exectime
  }
 }
 
@@ -40,7 +75,8 @@ pub struct MinHeapInvoker {
   pub async_functions: AsyncHelper,
   pub function_config: Arc<FunctionLimits>,
   pub invocation_config: Arc<InvocationConfig>,
-  pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<EnqueuedInvocation>>>>,
+  pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<MHQEnqueuedInvocation>>>>,
+  pub cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
   clock: LocalTime
@@ -56,10 +92,12 @@ impl MinHeapInvoker {
       async_functions: AsyncHelper::new(),
       queue_signal: Notify::new(),
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
+      cmap: Arc::new(CharacteristicsMap::new(AgExponential::new(0.6))),
       _worker_thread: handle,
       clock: LocalTime::new(tid)?
     });
     tx.send(svc.clone())?;
+    debug!("Created MinHeapInvoker");
     Ok(svc)
   }
 
@@ -72,6 +110,29 @@ impl MinHeapInvoker {
 
 #[tonic::async_trait]
 impl Invoker for MinHeapInvoker {
+  fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
+    let r = self.invoke_queue.lock();
+    let r = r.peek()?;
+    let r = r.x.clone();
+    return Some(r);
+  }
+  fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
+    let mut invoke_queue = self.invoke_queue.lock();
+    let v = invoke_queue.pop().unwrap();
+    let v = v.x.clone();
+    let top = invoke_queue.peek();
+    let func_name; 
+    match top {
+        Some(e) => func_name = e.x.function_name.clone(),
+        None => func_name = "empty".to_string()
+    }
+    debug!( component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
+           invoke_queue.len(),
+           v.function_name,
+           func_name );
+    v
+  }
+
   fn cont_manager(&self) -> Arc<ContainerManager>  {
     self.cont_manager.clone()
   }
@@ -87,24 +148,16 @@ impl Invoker for MinHeapInvoker {
   fn timer(&self) -> &LocalTime {
     &self.clock
   }
-  fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
-    if let Some(r) = self.invoke_queue.lock().peek() {
-      return Some(r.clone());
-    }
-    None
-  }
-  fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
-    self.invoke_queue.lock().pop().unwrap()
-  }
 
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
     // self.invoke_internal(&function_name, &function_version, &json_args, &tid).await
-    let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());
+    let queued = self.enqueue_new_invocation(function_name.clone(), function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
     match result_ptr.completed {
       true => {
         info!(tid=%tid, "Invocation complete");
+        self.cmap.add( function_name, Characteristics::ExecTime, Values::F64(result_ptr.duration.clone().as_secs_f64()));
         Ok( (result_ptr.result_json.clone(), result_ptr.duration) )  
       },
       false => {
@@ -114,11 +167,12 @@ impl Invoker for MinHeapInvoker {
   }
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    queue.push(item.clone());
-    debug!(tid=%item.tid, "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
+    queue.push(MHQEnqueuedInvocation::new(item.clone(), get_exec_time( &self.cmap, &item.function_name )).into());
+    debug!( component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.function_name,
-                        queue.peek().unwrap().function_name );
+                        queue.peek().unwrap().x.function_name );
+    self.cmap.dump();
     self.queue_signal.notify_waiters();
   }
 

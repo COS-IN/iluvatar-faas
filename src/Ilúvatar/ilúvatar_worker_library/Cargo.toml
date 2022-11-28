@@ -29,6 +29,7 @@ tracing = "0.1"
 actix-web = "4"
 futures = "0.3"
 time = "0.3"
+ordered-float = "3.4.0"
 
 [build-dependencies]
 tonic-build = "0.7.2"
