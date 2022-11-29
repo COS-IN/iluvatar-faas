@@ -18,7 +18,6 @@ use guid_create::GUID;
 #[allow(unused)]
 pub struct NamespaceManager {
   config: Arc<NetworkingConfig>,
-  // net_conf_path: String,
   pool: NamespacePool,
   _worker_thread: Option<JoinHandle<()>>,
 }
@@ -34,7 +33,6 @@ impl NamespaceManager {
   fn new(config: Arc<NetworkingConfig>, worker_thread: Option<JoinHandle<()>>) -> Self {
     return NamespaceManager {
       config,
-      // net_conf_path: utils::file::TEMP_DIR.to_string(),
       pool: Arc::new(Mutex::new(Vec::new())),
       _worker_thread: worker_thread,
     }
@@ -290,18 +288,31 @@ impl NamespaceManager {
   }
 
   fn delete_namespace(&self, name: &String, tid: &TransactionId) -> Result<()> {
-    let out = execute_cmd("/bin/ip", &vec!["netns", "delete", name], None, tid)?;
+    let env = Self::cmd_environment(&self.config);
+    let nspth = Self::net_namespace(name);
+    let out = execute_cmd(&self.config.cnitool, 
+      &vec!["del", &self.config.cni_name.as_str(), &nspth.as_str()],
+      Some(&env), tid)?;
 
+    debug!(tid=%tid, namespace=%name, output=?out, "internal del namespace via cnitool");
+    if let Some(status) = out.status.code() {
+      if status != 0 {
+        bail_error!(tid=%tid, stdout=?out, status=?status, "cnitool failed to del namespace")
+      }
+    } else {
+      bail_error!(tid=%tid, stdout=?out, "cnitool failed to del with no exit code")
+    }
+
+    let out = execute_cmd("/bin/ip", &vec!["netns", "delete", name], None, tid)?;
     debug!(tid=%tid, namespace=%name, output=?out, "internal delete namespace via ip");
     if let Some(status) = out.status.code() {
-      if status == 0 {
-        Ok(())
-      } else {
+      if status != 0 {
         bail_error!(tid=%tid, stdout=?out, status=?status, "Failed to delete namespace")
       }
     } else {
-      bail_error!(tid=%tid, stdout=?out, "Failed to delete delete with no exit code")
+      bail_error!(tid=%tid, stdout=?out, "Failed to delete with no exit code")
     }
+    Ok(())
   }
 
   pub fn clean(&self, tid: &TransactionId) -> Result<()> {
