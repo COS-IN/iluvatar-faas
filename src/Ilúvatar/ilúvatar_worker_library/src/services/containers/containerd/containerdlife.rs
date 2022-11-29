@@ -87,7 +87,7 @@ impl ContainerdLifecycle {
         .replace("$OUTPUT", "")
         .replace("$HOST_ADDR", host_addr)
         .replace("$PORT", &port.to_string())
-        .replace("$NET_NS", &self.namespace_manager.net_namespace(net_ns_name))
+        .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
 //        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
         .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())

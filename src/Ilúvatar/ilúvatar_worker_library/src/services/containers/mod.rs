@@ -62,13 +62,10 @@ impl LifecycleFactory {
     }
   }
 
-  pub async fn get_lifecycle_service(&self, tid: &TransactionId, bridge: bool) -> Result<Arc<dyn LifecycleService>> {
+  pub async fn get_lifecycle_service(&self, tid: &TransactionId, ensure_bridge: bool) -> Result<Arc<dyn LifecycleService>> {
     if self.containers.backend == "containerd" {
       info!(tid=%tid, "Creating 'containerd' backend");
-      let netm = NamespaceManager::boxed(self.networking.clone(), tid);
-      if bridge {
-        netm.ensure_bridge(tid)?;
-      }
+      let netm = NamespaceManager::boxed(self.networking.clone(), tid, ensure_bridge)?;
       
       let mut lifecycle = ContainerdLifecycle::new(netm, self.containers.clone(), self.limits_config.clone());
       lifecycle.connect().await?;
