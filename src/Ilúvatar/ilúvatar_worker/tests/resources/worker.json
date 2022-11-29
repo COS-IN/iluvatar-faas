@@ -12,7 +12,8 @@
   "invocation": {
     "retries": 0,
     "queue_sleep_ms": 1,
-    "queue_policy": "fcfs"
+    "queue_policy": "fcfs",
+    "concurrent_invokes": 6
   },
   "logging": {
     "level": "debug",

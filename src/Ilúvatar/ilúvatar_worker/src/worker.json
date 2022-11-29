@@ -13,8 +13,9 @@
   },
   "invocation": {
     "retries": 0,
-    "queue_sleep_ms": 1,
-    "queue_policy": "none"
+    "queue_sleep_ms": 10,
+    "queue_policy": "fcfs",
+    "concurrent_invokes": 4
   },
   "logging": {
     "level": "info",

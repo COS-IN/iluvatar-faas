@@ -69,7 +69,6 @@ Functions can request a specific number of CPU cores to have access to when exec
 Currently we just use processor shares on cgroups.
 These allow a function to use several cores if nothing else is running on them.
 Bad for a number of reasons.
-Both the invoker and container manager should track this number and ensure the number of used cores does not exceed the configured limit.
 
 ## Retry on prewarm
 
@@ -96,3 +95,9 @@ Putting this as a linux daemon with the start/stop/restart paradigm would be bet
 Currently worker registration with the controller always happens, and on failure an error is added to the log.
 This whole process should be skipped based on config.
 If registration is attempted and fails, the worker should exit.
+
+## Queueless async invocations
+
+Currently they aren't started running at all.
+A minor problem...
+Only for the queueless impl

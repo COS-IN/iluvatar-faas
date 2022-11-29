@@ -1,12 +1,13 @@
 use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{InsufficientCoresError, InsufficientMemoryError};
+use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values,unwrap_val_dur}};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, Semaphore};
 use tracing::{debug, warn, error, info};
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use crate::rpc::InvokeResponse;
@@ -79,13 +80,15 @@ pub struct MinHeapInvoker {
   pub cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
-  clock: LocalTime
+  clock: LocalTime,
+  concurrency_semaphore: Arc<Semaphore>,
 }
 
 impl MinHeapInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(MinHeapInvoker::wait_on_queue), Some(function_config.cpu_max as usize));
     let svc = Arc::new(MinHeapInvoker {
+      concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes),
       cont_manager,
       function_config,
       invocation_config,
@@ -94,7 +97,7 @@ impl MinHeapInvoker {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       cmap: Arc::new(CharacteristicsMap::new(AgExponential::new(0.6))),
       _worker_thread: handle,
-      clock: LocalTime::new(tid)?
+      clock: LocalTime::new(tid)?,
     });
     tx.send(svc.clone())?;
     debug!("Created MinHeapInvoker");
@@ -147,6 +150,12 @@ impl Invoker for MinHeapInvoker {
   }
   fn timer(&self) -> &LocalTime {
     &self.clock
+  }
+  fn concurrency_semaphore(&self) -> Option<Arc<Semaphore>> {
+    Some(self.concurrency_semaphore.clone())
+  }
+  fn running_funcs(&self) -> u32 {
+    self.invocation_config.concurrent_invokes - self.concurrency_semaphore.available_permits() as u32
   }
 
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {

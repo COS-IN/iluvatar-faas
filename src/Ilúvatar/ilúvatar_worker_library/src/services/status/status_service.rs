@@ -159,7 +159,7 @@ impl StatusService {
     let queue_len = self.invoker_service.queue_len() as i64;
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();
-    let running = self.container_manager.running_functions();
+    let running = self.invoker_service.running_funcs();
     let hw_freqs = self.cpu.hardware_cpu_freqs(tid);
     let kernel_freqs = self.cpu.kernel_cpu_freqs(tid);
 

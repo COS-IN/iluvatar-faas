@@ -6,9 +6,9 @@ use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime};
 use anyhow::Result;
 use parking_lot::Mutex;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, Semaphore};
 use tracing::{debug, warn, error, info};
-use super::invoker_trait::monitor_queue;
+use super::invoker_trait::{monitor_queue, create_concurrency_semaphore};
 use super::{invoker_trait::Invoker, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use crate::rpc::InvokeResponse;
 
@@ -21,12 +21,14 @@ pub struct FCFSInvoker {
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
   clock: LocalTime,
+  concurrency_semaphore: Arc<Semaphore>,
 }
 
 impl FCFSInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(FCFSInvoker::wait_on_queue), Some(function_config.cpu_max as usize));
     let svc = Arc::new(FCFSInvoker {
+      concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes),
       cont_manager,
       function_config,
       invocation_config,
@@ -73,6 +75,12 @@ impl Invoker for FCFSInvoker {
   }
   fn timer(&self) -> &LocalTime {
     &self.clock
+  }
+  fn concurrency_semaphore(&self) -> Option<Arc<Semaphore>> {
+    Some(self.concurrency_semaphore.clone())
+  }
+  fn running_funcs(&self) -> u32 {
+    self.invocation_config.concurrent_invokes - self.concurrency_semaphore.available_permits() as u32
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]

@@ -1,4 +1,4 @@
-use crate::services::containers::structs::{InsufficientMemoryError, InsufficientCoresError, ContainerLockedError};
+use crate::services::containers::structs::{InsufficientMemoryError, ContainerLockedError};
 use futures::Future;
 use iluvatar_library::bail_error;
 use iluvatar_library::threading::{tokio_runtime, EventualItem};
@@ -27,23 +27,25 @@ pub struct ContainerManager {
   limits_config: Arc<FunctionLimits>, 
   resources: Arc<ContainerResources>,
   used_mem_mb: Arc<RwLock<MemSizeMb>>,
-  running_funcs: Arc<RwLock<u32>>,
   cont_lifecycle: Arc<dyn LifecycleService>,
   prioritized_list: ContainerList,
   _worker_thread: std::thread::JoinHandle<()>,
-  core_sem: Arc<Semaphore>,
+  core_sem: Option<Arc<Semaphore>>,
 }
 
 impl ContainerManager {
   async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>) -> ContainerManager {
+    let core_sem = match resources.cores {
+      0 => None,
+      c => Some(Arc::new(Semaphore::new(c as usize))),
+    };
     ContainerManager {
-      core_sem: Arc::new(Semaphore::new(resources.cores as usize)),
+      core_sem,
       registered_functions: Arc::new(DashMap::new()),
       active_containers: Arc::new(RwLock::new(HashMap::new())),
       limits_config,
       resources,
       used_mem_mb: Arc::new(RwLock::new(0)),
-      running_funcs: Arc::new(RwLock::new(0)),
       cont_lifecycle,
       prioritized_list: Arc::new(RwLock::new(Vec::new())),
       _worker_thread: worker_thread
@@ -84,14 +86,22 @@ impl ContainerManager {
     self.resources.memory_mb
   }
   pub fn free_cores(&self) -> u32 {
-    self.resources.cores - self.running_functions()
+    match &self.core_sem {
+      Some(s) => s.available_permits() as u32,
+      None => 0
+    }
   }
-  pub fn running_functions(&self) -> u32 {
-    *self.running_funcs.read()
-  }
-  pub fn try_acquire_cores(&self, fqdn: &String) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
+  /// Return a permit for the function to run on its registered number of cores
+  /// If the semaphore is [None], then no permits are being tracked
+  pub fn try_acquire_cores(&self, fqdn: &String) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::TryAcquireError> {
     if let Ok(reg) = self.get_registration(fqdn) {
-      return self.core_sem.clone().try_acquire_many_owned(reg.cpus);
+      if let Some(sem) = &self.core_sem {
+        return match sem.clone().try_acquire_many_owned(reg.cpus) {
+          Ok(p) => Ok(Some(p)),
+          Err(e) => Err(e),
+        };
+      }
+      return Ok(None);
     }
     // function was not registered
     Err(tokio::sync::TryAcquireError::Closed)
@@ -147,13 +157,6 @@ impl ContainerManager {
   /// Can return a custom InsufficientCoresError if an invocation cannot be started now
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   pub fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
-    let mut running_funcs = self.running_funcs.write();
-    if self.resources.cores > 0 && *running_funcs < self.resources.cores {
-      *running_funcs += 1;
-    } else {
-      debug!(tid=%tid, "Not enough available cores to run something right now");
-      return EventualItem::Now(Err(anyhow::Error::new(InsufficientCoresError{})));
-    }
     let cont = self.try_acquire_container(fqdn, tid);
     let cont = match cont {
       Some(l) => EventualItem::Now(Ok(l)),
@@ -222,10 +225,6 @@ impl ContainerManager {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%_tid)))]
   pub fn return_container(&self, container: &Container, _tid: &TransactionId) {
     container.release();
-    let mut running_funcs = self.running_funcs.write();
-    if self.resources.cores > 0 && *running_funcs > 0 {
-      *running_funcs -= 1;
-    }
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]

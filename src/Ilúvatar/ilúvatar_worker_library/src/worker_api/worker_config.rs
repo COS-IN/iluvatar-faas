@@ -85,6 +85,10 @@ pub struct InvocationConfig {
   /// Queueing policy to use.
   /// Cerrently implemented are [none (no queue), fcfs (first come first serve), ]
   pub queue_policy: String,
+  /// The number of concurrent invocations allowed on the worker
+  /// If this number is hit, items will be left in the queue until work completes
+  /// Not affected by other resource limitations
+  pub concurrent_invokes: u32,
 }
 
 #[derive(Debug, Deserialize)]
