@@ -97,7 +97,7 @@ pub trait Invoker: Send + Sync {
   fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>) { }
 
   /// Runs the specific invocation inside a new tokio worker thread
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, item), fields(tid=%item.tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, item, permit), fields(tid=%item.tid)))]
   fn spawn_tokio_worker(&self, invoker_svc: Arc<dyn Invoker>, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
     let _handle = tokio::spawn(async move {
       debug!(tid=%item.tid, "Launching invocation thread for queued item");
@@ -108,7 +108,7 @@ pub trait Invoker: Send + Sync {
   /// Handle executing an invocation, plus account for its success or failure
   /// On success, the results are moved to the pointer and it is signaled
   /// On failure, [Invoker::handle_invocation_error] is called
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
   async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
     match self.invoke_internal(&item.fqdn, &item.function_name, &item.function_version, &item.json_args, &item.tid, item.queue_insert_time, Some(permit)).await {
       Ok( (json, duration) ) =>  {
@@ -168,7 +168,7 @@ pub trait Invoker: Send + Sync {
   /// acquires a container and invokes the function inside it
   /// returns the json result and duration as a tuple
   /// The optional [permit] is dropped to return held resources
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args, queue_insert_time), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, _function_name, _function_version, json_args, queue_insert_time, permit), fields(tid=%tid)))]
   async fn invoke_internal(&self, fqdn: &String, _function_name: &String, _function_version: &String, json_args: &String, tid: &TransactionId, queue_insert_time: OffsetDateTime, permit: Option<Box<dyn Drop+Send>>) -> Result<(ParsedResult, Duration)> {
     debug!(tid=%tid, "Internal invocation starting");
     let timer = self.timer();
