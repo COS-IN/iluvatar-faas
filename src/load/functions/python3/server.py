@@ -39,13 +39,15 @@ def invoke():
   try:
     ret = main(json_input)
     end = datetime.now()
+    duration = (end - start).total_seconds()
     if type(ret) is tuple:
       return ret
     else:
-      return jsonify({"user_result":json.dumps(ret), "start": datetime.strftime(start, FORMAT), "end": datetime.strftime(end, FORMAT), "was_cold":was_cold})
+      return jsonify({"user_result":json.dumps(ret), "start": datetime.strftime(start, FORMAT), "end": datetime.strftime(end, FORMAT), "was_cold":was_cold, "duration_sec": duration})
   except Exception as e:
     end = datetime.now()
-    return jsonify({"user_error":str(e), "start": datetime.strftime(start, FORMAT), "end": datetime.strftime(end, FORMAT), "was_cold":was_cold}), 500
+    duration = (end - start).total_seconds()
+    return jsonify({"user_error":str(e), "start": datetime.strftime(start, FORMAT), "end": datetime.strftime(end, FORMAT), "was_cold":was_cold, "duration_sec": duration}), 500
 
 port = os.environ.get("__IL_PORT", 8080)
 host = os.environ.get("__IL_HOST", "0.0.0.0")

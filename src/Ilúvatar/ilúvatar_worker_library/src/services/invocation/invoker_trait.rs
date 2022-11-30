@@ -1,11 +1,12 @@
 use std::{sync::Arc, time::Duration};
+use crate::services::containers::structs::{ParsedResult, InsufficientCoresError, InsufficientMemoryError};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId}, threading::EventualItem};
 use time::OffsetDateTime;
 use tokio::sync::Semaphore;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use anyhow::Result;
 use super::invoker_structs::EnqueuedInvocation;
 use crate::rpc::InvokeResponse;
@@ -113,7 +114,8 @@ pub trait Invoker: Send + Sync {
       Ok( (json, duration) ) =>  {
         let mut result_ptr = item.result_ptr.lock();
         result_ptr.duration = duration;
-        result_ptr.result_json = json;
+        result_ptr.exec_time = json.duration_sec;
+        result_ptr.result_json = json.result_string().unwrap_or_else(|cause| format!("{{ \"Error\": \"{}\" }}", cause));
         result_ptr.completed = true;
         item.signal();
         debug!(tid=%item.tid, "queued invocation completed successfully");
@@ -129,12 +131,27 @@ pub trait Invoker: Send + Sync {
   /// By default always logs the error and marks it as failed
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
   fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
-    let mut result_ptr = item.result_ptr.lock();
-    error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
-    result_ptr.duration = Duration::from_micros(0);
-    result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
-    result_ptr.completed = true;
-    item.signal();
+    if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
+      debug!(tid=%item.tid, "Insufficient cores to run item right now");
+      self.add_item_to_queue(&item, Some(0));
+    } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
+      warn!(tid=%item.tid, "Insufficient memory to run item right now");
+      self.add_item_to_queue(&item, Some(0));
+    } else {
+      error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+      let mut result_ptr = item.result_ptr.lock();
+      if result_ptr.attempts >= self.invocation_config().retries {
+        error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
+        result_ptr.duration = Duration::from_micros(0);
+        result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
+        result_ptr.completed = true;
+        item.signal();
+      } else {
+        result_ptr.attempts += 1;
+        debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
+        self.add_item_to_queue(&item, Some(0));
+      }
+    }
   }
 
   /// Forms invocation data into a [EnqueuedInvocation] that is returned
@@ -152,7 +169,7 @@ pub trait Invoker: Send + Sync {
   /// returns the json result and duration as a tuple
   /// The optional [permit] is dropped to return held resources
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args, queue_insert_time), fields(tid=%tid)))]
-  async fn invoke_internal(&self, fqdn: &String, _function_name: &String, _function_version: &String, json_args: &String, tid: &TransactionId, queue_insert_time: OffsetDateTime, permit: Option<Box<dyn Drop+Send>>) -> Result<(String, Duration)> {
+  async fn invoke_internal(&self, fqdn: &String, _function_name: &String, _function_version: &String, json_args: &String, tid: &TransactionId, queue_insert_time: OffsetDateTime, permit: Option<Box<dyn Drop+Send>>) -> Result<(ParsedResult, Duration)> {
     debug!(tid=%tid, "Internal invocation starting");
     let timer = self.timer();
     // take run time now because we may have to wait to get a container
@@ -166,6 +183,6 @@ pub trait Invoker: Send + Sync {
     info!(tid=%tid, insert_time=%timer.format_time(queue_insert_time)?, run_time=%run_time?, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     drop(permit);
-    Ok((data.result_string()?, duration))
+    Ok((data, duration))
   }
 }

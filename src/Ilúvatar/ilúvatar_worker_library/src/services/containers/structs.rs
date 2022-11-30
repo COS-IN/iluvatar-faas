@@ -63,11 +63,19 @@ pub type Container = Arc<dyn ContainerT>;
 
 #[derive(serde::Deserialize)]
 pub struct ParsedResult {
+  /// The result string from the user execution
   pub user_result: Option<String>,
+  /// The error returned by user execution, if an error occured
   pub user_error: Option<String>,
+  /// The timestamp when user code started
   pub start: String,
+  /// The timestamp when user code ended
   pub end: String,
+  /// If the container tracked that the invocation was run for the first time
   pub was_cold: bool,
+  /// Duration in seconds for how long the execution took
+  /// As recorded by the platform _inside_ the container
+  pub duration_sec: f64,
 }
 impl ParsedResult {
   pub fn parse(from: String, tid: &TransactionId) -> Result<Self> {

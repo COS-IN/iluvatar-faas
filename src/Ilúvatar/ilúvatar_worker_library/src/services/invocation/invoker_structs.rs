@@ -13,7 +13,9 @@ pub struct InvocationResult {
   /// The invocation time as tracked by the worker
   pub duration: Duration,
   pub attempts: u32,
-  pub completed: bool
+  pub completed: bool,
+  /// The invocation time as recorded by the platform inside the container
+  pub exec_time: f64,
 }
 impl InvocationResult {
   pub fn boxed() -> InvocationResultPtr {
@@ -21,7 +23,8 @@ impl InvocationResult {
       completed: false,
       duration: Duration::from_micros(0),
       result_json: "".to_string(),
-      attempts: 0
+      attempts: 0,
+      exec_time: 0.0
     }))
   }
 }

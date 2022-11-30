@@ -3,7 +3,8 @@ use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::{transaction::TransactionId, logging::LocalTime, utils::calculate_fqdn};
 use anyhow::Result;
-use super::{invoker_trait::Invoker, async_tracker::AsyncHelper};
+use tracing::error;
+use super::{invoker_trait::Invoker, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use crate::rpc::InvokeResponse;
 
 /// This implementation does not support [crate::worker_api::worker_config::InvocationConfig::concurrent_invokes]
@@ -54,7 +55,12 @@ impl Invoker for QueuelessInvoker {
     self.running_funcs.fetch_add(1, Ordering::Relaxed);
     let r = self.invoke_internal(&fqdn, &function_name, &function_version, &json_args, &tid, self.timer().now(), None).await;
     self.running_funcs.fetch_sub(1, Ordering::Relaxed);
-    r
+    match r {
+      Ok( (result, dur) ) => {
+        Ok( (result.result_string()?, dur) )
+      },
+      Err(e) => Err(e),
+    }
   }
 
   fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
@@ -63,5 +69,15 @@ impl Invoker for QueuelessInvoker {
   }
   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
     self.async_functions.invoke_async_check(cookie, tid)
+  }
+
+  fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
+    let mut result_ptr = item.result_ptr.lock();
+    error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
+    result_ptr.duration = Duration::from_micros(0);
+    result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
+    result_ptr.completed = true;
+    item.signal();
+
   }
 }

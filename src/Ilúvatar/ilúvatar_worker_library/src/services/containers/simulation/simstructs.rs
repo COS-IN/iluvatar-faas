@@ -74,7 +74,8 @@ impl ContainerT for SimulatorContainer {
       user_error: None, 
       start,
       end,
-      was_cold };
+      was_cold,
+      duration_sec: Duration::from_micros(duration_us).as_secs_f64() };
     Ok( (result,d) )
   }
 
