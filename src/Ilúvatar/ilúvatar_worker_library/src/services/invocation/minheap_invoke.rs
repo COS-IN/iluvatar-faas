@@ -3,7 +3,7 @@ use crate::services::containers::structs::{InsufficientCoresError, InsufficientM
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values,unwrap_val_dur}};
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values,unwrap_val_f64}};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -34,8 +34,7 @@ fn get_exec_time( cmap: &Arc<CharacteristicsMap>, fname: &String ) -> f64 {
     let exectime = cmap.lookup(fname.clone(), Characteristics::ExecTime); 
     match exectime {
         Some(x) => {
-            let exectime = unwrap_val_dur( &x );
-            exectime.as_secs_f64()
+            unwrap_val_f64( &x )
         }
         None => {
             0.0
@@ -100,7 +99,7 @@ impl MinHeapInvoker {
       clock: LocalTime::new(tid)?,
     });
     tx.send(svc.clone())?;
-    debug!("Created MinHeapInvoker");
+    debug!(tid=%tid, "Created MinHeapInvoker");
     Ok(svc)
   }
 
@@ -129,7 +128,7 @@ impl Invoker for MinHeapInvoker {
         Some(e) => func_name = e.x.function_name.clone(),
         None => func_name = "empty".to_string()
     }
-    debug!( component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
+    debug!(tid=%v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
            invoke_queue.len(),
            v.function_name,
            func_name );
@@ -159,14 +158,13 @@ impl Invoker for MinHeapInvoker {
   }
 
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
-    // self.invoke_internal(&function_name, &function_version, &json_args, &tid).await
     let queued = self.enqueue_new_invocation(function_name.clone(), function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
     match result_ptr.completed {
       true => {
         info!(tid=%tid, "Invocation complete");
-        self.cmap.add( function_name, Characteristics::ExecTime, Values::F64(result_ptr.duration.clone().as_secs_f64()));
+        self.cmap.add( function_name, Characteristics::ExecTime, Values::F64(result_ptr.exec_time));
         Ok( (result_ptr.result_json.clone(), result_ptr.duration) )  
       },
       false => {
@@ -177,11 +175,10 @@ impl Invoker for MinHeapInvoker {
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
     queue.push(MHQEnqueuedInvocation::new(item.clone(), get_exec_time( &self.cmap, &item.function_name )).into());
-    debug!( component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
+    debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.function_name,
                         queue.peek().unwrap().x.function_name );
-    self.cmap.dump();
     self.queue_signal.notify_waiters();
   }
 
