@@ -28,4 +28,7 @@ flame:
 	@echo "TODO: implement running flame"
 test:
 	@echo "Running unit tests"
+	# run parallel tests
 	@cargo test
+	# run serial tests that are ignored
+	@cargo test --test invoker_tests -- --test-threads 1 --ignored

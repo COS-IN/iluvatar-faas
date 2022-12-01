@@ -101,3 +101,7 @@ If registration is attempted and fails, the worker should exit.
 Currently they aren't started running at all.
 A minor problem...
 Only for the queueless impl
+
+## Concurrent network namespace cleanup
+
+Do like containerd cleanup does

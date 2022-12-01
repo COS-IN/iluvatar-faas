@@ -5,22 +5,22 @@ use std::sync::Arc;
 use iluvatar_worker_library::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
 use iluvatar_library::utils::calculate_fqdn;
-use iluvatar_worker_library::worker_api::worker_config::{WorkerConfig, Configuration};
+use iluvatar_worker_library::worker_api::worker_config::WorkerConfig;
 use iluvatar_library::transaction::TEST_TID;
 use iluvatar_worker_library::services::containers::structs::cast;
-use iluvatar_worker_library::services::invocation::{invoker_trait::Invoker, InvokerFactory};
+use iluvatar_worker_library::services::invocation::invoker_trait::Invoker;
 use iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer;
-use iluvatar_worker_library::services::{containers::LifecycleFactory};
 use iluvatar_library::threading::EventualItem;
 use reqwest;
+use crate::utils::test_invoker_svc;
 
 #[cfg(test)]
 mod registration {
-use super::*;
+  use super::*;
   
   #[tokio::test]
   async fn registration_works() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -35,7 +35,7 @@ use super::*;
   
   #[tokio::test]
   async fn repeat_registration_fails() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -61,7 +61,7 @@ use super::*;
   
   #[tokio::test]
   async fn invokes_invalid_registration_fails() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -77,7 +77,7 @@ use super::*;
   
   #[tokio::test]
   async fn name_invalid_registration_fails() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = RegisterRequest {
       function_name: "".to_string(),
       function_version: "test".to_string(),
@@ -93,7 +93,7 @@ use super::*;
   
   #[tokio::test]
   async fn version_invalid_registration_fails() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "".to_string(),
@@ -109,7 +109,7 @@ use super::*;
   
   #[tokio::test]
   async fn cpus_invalid_registration_fails() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -125,7 +125,7 @@ use super::*;
   
   #[tokio::test]
   async fn memory_small_registration_fails() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -141,7 +141,7 @@ use super::*;
   
   #[tokio::test]
   async fn memory_large_registration_fails() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -157,7 +157,7 @@ use super::*;
 
   #[tokio::test]
   async fn image_invalid_registration_fails() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let bad_img = "docker.io/library/alpine:lasdijbgoie";
     let input = RegisterRequest {
       function_name: "test".to_string(),
@@ -186,7 +186,7 @@ mod prewarm {
   use super::*;
   #[tokio::test]
   async fn no_registration_prewarm_fails() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = PrewarmRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -206,7 +206,7 @@ mod prewarm {
 
   #[tokio::test]
   async fn prewarm_noreg_works() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = PrewarmRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -220,7 +220,7 @@ mod prewarm {
 
   #[tokio::test]
   async fn prewarm_get_container() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = PrewarmRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -249,7 +249,7 @@ mod get_container {
 
   #[tokio::test]
   async fn cant_double_acquire() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = PrewarmRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -274,12 +274,12 @@ mod get_container {
 
   #[tokio::test]
   async fn mem_limit() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = PrewarmRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
       cpu: 1,
-      memory: 8000,
+      memory: 2048,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       transaction_id: "testTID".to_string()
     };
@@ -302,7 +302,7 @@ mod get_container {
 
   #[tokio::test]
   async fn container_alive() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = PrewarmRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -335,7 +335,7 @@ mod remove_container {
 
   #[tokio::test]
   async fn removed_container_gone() {
-    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+    let (_cfg, cm, _invoker): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, None).await;
     let input = PrewarmRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),

@@ -13,7 +13,7 @@
     "retries": 0,
     "queue_sleep_ms": 1,
     "queue_policy": "fcfs",
-    "concurrent_invokes": 6
+    "concurrent_invokes": 1
   },
   "logging": {
     "level": "debug",
@@ -24,15 +24,15 @@
     "span_energy_monitoring": false
   },
   "container_resources": {
-    "memory_mb": 10240,
+    "memory_mb": 2048,
     "cores": 16,
     "eviction": "LRU",
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 1024,
-    "pool_freq_ms": 5,
+    "pool_freq_ms": 5000,
     "backend": "containerd",
     "snapshotter": "zfs",
-    "concurrent_creation": 0
+    "concurrent_creation": 5
   },
   "networking": {
     "bridge": "IlWorkBr0",
@@ -40,8 +40,8 @@
     "cni_plugin_bin": "/opt/cni/bin",
     "cni_name": "il_worker_br",
     "use_pool": true,
-    "pool_size": 10,
-    "pool_freq_ms": 1,
+    "pool_size": 1,
+    "pool_freq_ms": 1000,
     "hardware_interface": "enp4s0"
   },
   "load_balancer_url": "http://localhost:8078",
@@ -49,12 +49,14 @@
     "address": "localhost",
     "api_port": "80",
     "ingestion_port": "2003",
-    "ingestion_udp": false
+    "ingestion_udp": false,
+    "enabled": false
   },
   "energy": {
-    "perf_freq_ms": 1000,
-    "rapl_freq_ms": 1000,
+    "perf_freq_ms": 0,
+    "rapl_freq_ms": 0,
     "ipmi_freq_ms": 0,
+    "process_freq_ms": 0,
     "ipmi_pass_file": "",
     "ipmi_ip_addr": "",
     "log_folder": "/tmp/ilúvatar/logs/"

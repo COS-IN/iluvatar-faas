@@ -4,19 +4,34 @@ pub mod utils;
 use std::sync::Arc;
 use iluvatar_worker_library::rpc::{RegisterRequest, PrewarmRequest, InvokeAsyncRequest};
 use iluvatar_worker_library::rpc::InvokeRequest;
-use iluvatar_library::transaction::TEST_TID;
-use iluvatar_worker_library::worker_api::worker_config::{WorkerConfig, Configuration};
-use iluvatar_worker_library::services::invocation::{invoker_trait::Invoker, InvokerFactory};
+use iluvatar_worker_library::worker_api::worker_config::WorkerConfig;
+use iluvatar_worker_library::services::invocation::invoker_trait::Invoker;
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
-use iluvatar_worker_library::services::{containers::LifecycleFactory};
+use rstest::rstest;
+use utils::{test_invoker_svc, clean_env};
+use std::{time::Duration, collections::HashMap};
+
+fn build_env(invoker_q: &str) -> HashMap<String, String> {
+  let mut r = HashMap::new();
+  r.insert("ILUVATAR_WORKER__invocation__queue_policy".to_string(), invoker_q.to_string());
+  r.insert("ILUVATAR_WORKER__invocation__fcfs_bypass_duration_ms".to_string(), "20".to_string());
+  r
+}
 
 #[cfg(test)]
 mod invoke {
   use super::*;
 
+  #[rstest]
+  #[case("fcfs")]
+  #[case("minheap")]
+  #[case("fcfs_bypass")]
+  // #[case("none")] // TODO: queueless does not do async invokes
+  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test]
-  async fn invocation_works() {
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+  async fn invocation_works(#[case] invoker_q: &str) {
+    let env = build_env(invoker_q);
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -51,11 +66,19 @@ mod invoke {
       },
       Err(e) => panic!("Invocation failed: {}", e),
     }
+    clean_env(&env);
   }
 
+  #[rstest]
+  #[case("fcfs")]
+  #[case("minheap")]
+  #[case("fcfs_bypass")]
+  // #[case("none")] // TODO: queueless does not do async invokes
+  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test]
-  async fn cold_start_works() {
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+  async fn cold_start_works(#[case] invoker_q: &str) {
+    let env = build_env(invoker_q);
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -86,13 +109,19 @@ mod invoke {
 
 #[cfg(test)]
 mod invoke_async {
-  use core::panic;
-  use std::time::Duration;
   use super::*;
 
+  #[rstest]
+  #[case("fcfs")]
+  #[case("minheap")]
+  #[case("fcfs_bypass")]
+  // #[case("none")] // TODO: queueless does not do async invokes
+  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-  async fn invocation_works() {
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+  async fn invocation_works(#[case] invoker_q: &str) {
+    let env = build_env(invoker_q);
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -154,11 +183,19 @@ mod invoke_async {
       },
       Err(e) => panic!("Async invocation failed: {}", e),
     }
+    clean_env(&env);
   }
 
+  #[rstest]
+  #[case("fcfs")]
+  #[case("minheap")]
+  #[case("fcfs_bypass")]
+  // #[case("none")] // TODO: queueless does not do async invokes
+  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-  async fn cold_start_works() {
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = invoker_svc!();
+  async fn cold_start_works(#[case] invoker_q: &str) {
+    let env = build_env(invoker_q);
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
