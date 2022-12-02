@@ -65,25 +65,37 @@ impl StatusService {
   /// returns system CPU usage as reported by mpstat
   /// numbers are (user, system, idle, wait)
   fn mpstat(&self, tid: &TransactionId) -> (f64,f64,f64,f64) {
-    match execute_cmd("/usr/bin/mpstat", &vec![], None, tid) {
+    match execute_cmd("/usr/bin/mpstat", &vec!["1", "1"], None, tid) {
       Ok(out) => {
         let stdout = String::from_utf8_lossy(&out.stdout);
+        // Output will look like this:
+        // Linux 5.4.0-132-generic (v-021) 	12/02/2022 	_x86_64_	(96 CPU)
+
+        // 02:15:49 PM  CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal  %guest  %gnice   %idle
+        // 02:15:50 PM  all    1.98    0.00    2.16    0.66    0.00    0.30    0.00    0.00    0.00   94.90
+        // Average:     all    1.98    0.00    2.16    0.66    0.00    0.30    0.00    0.00    0.00   94.90
 
         let lines = stdout.split("\n").filter(|str| str.len() > 0).collect::<Vec<&str>>();
-        if lines.len() != 3 {
+        debug!(tid=%tid, output=?lines, "mpstat output");
+        if lines.len() != 4 {
           warn!(tid=%tid, "Had an unexpected number of output lines from mpstat '{}'", lines.len());
           return (-1.0,-1.0,-1.0,-1.0);
         }
         let name_parts: Vec<&str> = lines[1].split(" ").filter(|str| str.len() > 0).collect();
-        let data_parts: Vec<&str> = lines[2].split(" ").filter(|str| str.len() > 0).collect();
-        if data_parts.len() != name_parts.len() {
+        let data_parts: Vec<&str> = lines.last().unwrap_or_else(||&"").split(" ").filter(|str| str.len() > 0).collect();
+        debug!(tid=%tid, name_parts=?name_parts, data_parts=?data_parts, "mpstat parts");
+        if data_parts[0] != "Average:" {
+          warn!(tid=%tid, data_parts=?data_parts, "unexpected start to data_parts");
+          return (-1.0,-1.0,-1.0,-1.0);
+        }
+        if data_parts.len()+1 != name_parts.len() {
           warn!(tid=%tid, "mpstat output lines were not of equal length name_parts: '{}' vs data_parts: '{}'", name_parts.len(), data_parts.len());
           return (-1.0,-1.0,-1.0,-1.0);
         }
         let mut found_data: std::collections::HashMap<&str, f64> = std::collections::HashMap::new();
         for (pos, name) in name_parts.iter().enumerate() {
           if name.starts_with("%") {
-            found_data.insert(name, self.parse(data_parts[pos], tid));
+            found_data.insert(name, self.parse(data_parts[pos-1], tid));
           }
         }
         let mut user = 0.0;
