@@ -4,7 +4,6 @@ pub mod utils;
 use std::sync::Arc;
 use iluvatar_worker_library::rpc::{RegisterRequest, PrewarmRequest, InvokeAsyncRequest};
 use iluvatar_worker_library::rpc::InvokeRequest;
-use iluvatar_worker_library::worker_api::worker_config::WorkerConfig;
 use iluvatar_worker_library::services::invocation::invoker_trait::Invoker;
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
 use rstest::rstest;
@@ -32,7 +31,7 @@ mod invoke {
   #[tokio::test]
   async fn invocation_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -85,7 +84,7 @@ mod invoke {
   #[tokio::test]
   async fn cold_start_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -133,7 +132,7 @@ mod invoke_async {
   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
   async fn invocation_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
 
     let input = RegisterRequest {
       function_name: "test".to_string(),
@@ -208,7 +207,7 @@ mod invoke_async {
   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
   async fn cold_start_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -315,7 +314,7 @@ mod fcfs_tests {
   #[tokio::test]
   async fn no_reordering() {
     let env = build_env("fcfs");
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let function_name = "test".to_string();
@@ -351,7 +350,7 @@ mod minheap_tests {
   #[tokio::test]
   async fn fast_put_first() {
     let env = build_env("minheap");
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let fast_name = "fast_test".to_string();
@@ -391,7 +390,7 @@ mod minheap_tests {
   #[tokio::test]
   async fn fast_not_moved() {
     let env = build_env("minheap");
-    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let fast_name = "fast_test".to_string();

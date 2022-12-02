@@ -20,8 +20,12 @@ pub struct NamespaceManager {
   config: Arc<NetworkingConfig>,
   pool: NamespacePool,
   _worker_thread: Option<JoinHandle<()>>,
+  
 }
 
+lazy_static::lazy_static! {
+  pub static ref BRIDGE_EXISTS: Mutex<bool> = Mutex::new(false);
+}
 type NamespacePool = Arc<Mutex<Vec<Arc<Namespace>>>>;
 
 const CNI_PATH_VAR: &str = "CNI_PATH";
@@ -82,6 +86,10 @@ impl NamespaceManager {
 
   /// makes sure the bridge necessary for container networking
   pub fn ensure_bridge(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
+    let mut bridge_check = BRIDGE_EXISTS.lock();
+    if *bridge_check {
+      return Ok(());
+    }
     info!(tid=%tid, "Ensuring network bridge");
     // multiple workers on one machine can compete over this
     // catch an error if we aren't the race winner and try again, will do nothing if bridge exists
@@ -92,7 +100,9 @@ impl NamespaceManager {
         std::thread::sleep(std::time::Duration::from_millis(config.pool_freq_ms));
         Self::try_ensure_bridge(tid, &config)
       },
-    }
+    }?;
+    *bridge_check = true;
+    Ok(())
   }
 
   fn try_ensure_bridge(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
