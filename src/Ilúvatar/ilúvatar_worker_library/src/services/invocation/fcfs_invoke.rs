@@ -84,14 +84,14 @@ impl Invoker for FCFSInvoker {
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
+  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
     let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
     match result_ptr.completed {
       true => {
         info!(tid=%tid, "Invocation complete");
-        Ok( (result_ptr.result_json.clone(), result_ptr.duration) )  
+        Ok( queued.result_ptr.clone() )
       },
       false => {
         anyhow::bail!("Invocation was signaled completion but completion value was not set")

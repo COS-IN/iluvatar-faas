@@ -40,7 +40,7 @@ pub trait Invoker: Send + Sync {
   fn function_config(&self) -> Arc<FunctionLimits>;
   fn invocation_config(&self) -> Arc<InvocationConfig>;
   fn timer(&self) -> &LocalTime;
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)>;
+  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr>;
   fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String>;
   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse>;
   /// pointer to the semaphore to manage the invoker concurrency
@@ -117,6 +117,7 @@ pub trait Invoker: Send + Sync {
         result_ptr.exec_time = json.duration_sec;
         result_ptr.result_json = json.result_string().unwrap_or_else(|cause| format!("{{ \"Error\": \"{}\" }}", cause));
         result_ptr.completed = true;
+        result_ptr.worker_result = Some(json);
         item.signal();
         debug!(tid=%item.tid, "queued invocation completed successfully");
       },

@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, bail_error};
+use time::{format_description::{self, FormatItem}, OffsetDateTime, PrimitiveDateTime};
 use crate::services::containers::containermanager::ContainerManager;
 use anyhow::Result;
 use tracing::debug;
@@ -61,7 +62,7 @@ pub trait ToAny: 'static {
 }
 pub type Container = Arc<dyn ContainerT>;
 
-#[derive(serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 pub struct ParsedResult {
   /// The result string from the user execution
   pub user_result: Option<String>,
@@ -85,11 +86,11 @@ impl ParsedResult {
     }
   }
 
-  pub fn result_string(self) -> Result<String> {
-    match self.user_result {
-      Some(s) => Ok(s),
-      None => match self.user_error {
-        Some(s) => Ok(s),
+  pub fn result_string(&self) -> Result<String> {
+    match &self.user_result {
+      Some(s) => Ok(s.clone()),
+      None => match &self.user_error {
+        Some(s) => Ok(s.clone()),
         None => anyhow::bail!("ParsedResult had neither a user result or error, somehow!"),
       },
     }
@@ -196,4 +197,33 @@ impl std::fmt::Display for ContainerLockedError {
 }
 impl std::error::Error for ContainerLockedError {
 
+}
+
+pub struct ContainerTimeFormatter {
+  py_tz_formatter: Vec<FormatItem<'static>>,
+  py_formatter: Vec<FormatItem<'static>>,
+}
+impl ContainerTimeFormatter {
+  pub fn new() -> Result<Self> {
+
+    let py_tz_formatter = format_description::parse(
+      "[year]-[month]-[day] [hour]:[minute]:[second]:[subsecond]+[offset_hour]",
+    )?;
+    let py_formatter = format_description::parse(
+      "[year]-[month]-[day] [hour]:[minute]:[second]:[subsecond]+",
+    )?;
+    Ok(ContainerTimeFormatter {
+      py_tz_formatter,
+      py_formatter
+    })
+  }
+
+  /// Python format: "%Y-%m-%d %H:%M:%S:%f+%z"
+  pub fn parse_python_container_time(&self, date: &str) -> Result<OffsetDateTime> {
+    if date.chars().last().ok_or_else(|| anyhow::anyhow!("Passed date was empty"))? == '+' {
+      Ok(PrimitiveDateTime::parse(date, &self.py_formatter)?.assume_utc())
+    } else {
+      Ok(OffsetDateTime::parse(date, &self.py_tz_formatter)?)
+    }
+  }
 }

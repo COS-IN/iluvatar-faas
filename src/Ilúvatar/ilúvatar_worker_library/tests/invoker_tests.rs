@@ -10,6 +10,7 @@ use iluvatar_worker_library::services::containers::containermanager::ContainerMa
 use rstest::rstest;
 use utils::{test_invoker_svc, clean_env};
 use std::{time::Duration, collections::HashMap};
+use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
 
 fn build_env(invoker_q: &str) -> HashMap<String, String> {
   let mut r = HashMap::new();
@@ -58,11 +59,17 @@ mod invoke {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
+    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
     let result = invok_svc.sync_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id).await;
     match result {
-      Ok( (json, dur) ) => {
-        assert!(dur.as_micros() > 0, "Duration should not be <= 0!");
-        assert_ne!(json, ""); 
+      Ok( result_ptr ) => {
+        let result = result_ptr.lock();
+        let worker_result = result.worker_result.as_ref().unwrap_or_else(|| panic!("worker_result should have been set"));
+        let parsed_start = formatter.parse_python_container_time(&worker_result.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.start, e));
+        let parsed_end = formatter.parse_python_container_time(&worker_result.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.end, e));
+        assert!(parsed_start < parsed_end, "Start and end times cannot be inversed!");
+        assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
+        assert_ne!(result.result_json, ""); 
       },
       Err(e) => panic!("Invocation failed: {}", e),
     }
@@ -96,11 +103,17 @@ mod invoke {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
+    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
     let result = invok_svc.sync_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id).await;
     match result {
-      Ok( (json, dur) ) => {
-        assert!(dur.as_micros() > 0, "Duration should not be <= 0!");
-        assert_ne!(json, ""); 
+      Ok( result_ptr ) => {
+        let result = result_ptr.lock();
+        let worker_result = result.worker_result.as_ref().unwrap_or_else(|| panic!("worker_result should have been set"));
+        let parsed_start = formatter.parse_python_container_time(&worker_result.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.start, e));
+        let parsed_end = formatter.parse_python_container_time(&worker_result.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.end, e));
+        assert!(parsed_start < parsed_end, "Start and end times cannot be inversed!");
+        assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
+        assert_ne!(result.result_json, ""); 
       },
       Err(e) => panic!("Invocation failed: {}", e),
     }
@@ -233,7 +246,7 @@ mod invoke_async {
                   // keep waiting on invocation
                   tokio::time::sleep(Duration::from_millis(100)).await;
                   count += 1;
-                  if count > 100 {
+                  if count > 200 {
                     panic!("Waited too long for invocation result; cookie: {}; response: {:?}", cookie, result);
                   }
                   continue
@@ -248,5 +261,169 @@ mod invoke_async {
       },
       Err(e) => panic!("Async invocation failed: {}", e),
     }
+  }
+}
+
+use iluvatar_library::transaction::TransactionId;
+use time::OffsetDateTime;
+use tokio::task::JoinHandle;
+type HANDLE = JoinHandle<Result<std::sync::Arc<parking_lot::Mutex<iluvatar_worker_library::services::invocation::invoker_structs::InvocationResult>>, anyhow::Error>>;
+
+async fn get_start_time_from_invoke(handle: HANDLE, formatter: &ContainerTimeFormatter) -> OffsetDateTime {
+  let result = handle.await.expect("Error joining thread handle");
+  match result {
+    Ok( result_ptr ) => {
+      let result = result_ptr.lock();
+      let worker_result = result.worker_result.as_ref().unwrap_or_else(|| panic!("worker_result should have been set on '{:?}'", result));
+      let parsed_start = formatter.parse_python_container_time(&worker_result.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.start, e));
+      let parsed_end = formatter.parse_python_container_time(&worker_result.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.end, e));
+      assert!(parsed_start < parsed_end, "Start and end times cannot be inversed!");
+      assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
+      assert_ne!(result.result_json, "");
+      return parsed_start;
+    },
+    Err(e) => panic!("Invocation failed: {}", e),
+  }
+}
+
+fn test_invoke(invok_svc: &Arc<dyn Invoker>, function_name: &String, function_version: &String, json_args: &String, transaction_id: &TransactionId) -> HANDLE {
+  let cln = invok_svc.clone();
+  let f = function_name.clone();
+  let v = function_version.clone();
+  let j = json_args.clone();
+  let t = transaction_id.clone();
+  tokio::spawn(async move { cln.sync_invocation(f, v, j, t).await })
+}
+
+async fn prewarm(cm: &Arc<ContainerManager>, function_name: &String, function_version: &String, image: &String, transaction_id: &TransactionId) {
+  let input = PrewarmRequest {
+    function_name: function_name.clone(),
+    function_version: function_version.clone(),
+    cpu: 1,
+    memory: 128,
+    image_name: image.clone(),
+    transaction_id: transaction_id.clone(),
+  };
+  cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+}
+
+#[cfg(test)]
+mod fcfs_tests {
+  use super::*;
+
+  #[ignore="Must be run serially because of env var clashing"]
+  #[tokio::test]
+  async fn no_reordering() {
+    let env = build_env("fcfs");
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let json_args = "{\"name\":\"TESTING\"}".to_string();
+    let transaction_id = "testTID".to_string();
+    let function_name = "test".to_string();
+    let function_version = "0.1.1".to_string();
+    let input = RegisterRequest {
+      function_name: function_name.clone(),
+      function_version: function_version.clone(),
+      cpus: 1,
+      memory: 128,
+      image_name: "docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest".to_string(),
+      parallel_invokes: 1,
+      transaction_id: transaction_id.clone()
+    };
+    cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+    let first_invoke = test_invoke(&invok_svc, &function_name, &function_version, &json_args, &transaction_id);
+    let second_invoke = test_invoke(&invok_svc, &function_name, &function_version, &json_args, &transaction_id);
+    let third_invoke = test_invoke(&invok_svc, &function_name, &function_version, &json_args, &transaction_id);
+    let first_t = get_start_time_from_invoke(first_invoke, &formatter).await;
+    let second_t = get_start_time_from_invoke(second_invoke, &formatter).await;
+    let third_t = get_start_time_from_invoke(third_invoke, &formatter).await;
+    assert!(first_t < second_t, "First invoke started before second");
+    assert!(second_t < third_t, "Second invoke started before third");
+    clean_env(&env);
+  }
+}
+
+#[cfg(test)]
+mod minheap_tests {
+  use super::*;
+  
+  #[ignore="Must be run serially because of env var clashing"]
+  #[tokio::test]
+  async fn fast_put_first() {
+    let env = build_env("minheap");
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let json_args = "{\"name\":\"TESTING\"}".to_string();
+    let transaction_id = "testTID".to_string();
+    let fast_name = "fast_test".to_string();
+    let slow_name = "slow_test".to_string();
+    let function_version = "0.1.1".to_string();
+    let fast_img = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
+    let slow_img = "docker.io/alfuerst/cnn_image_classification-iluvatar-action:latest".to_string();
+
+    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
+    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
+    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
+    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
+
+    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+
+    // warm exec time cache
+    let first_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
+    let second_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    get_start_time_from_invoke(first_invoke, &formatter).await;
+    get_start_time_from_invoke(second_invoke, &formatter).await;
+
+    let first_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    tokio::time::sleep(Duration::from_micros(100)).await;
+    let second_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    let fast_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
+    let t1 = get_start_time_from_invoke(first_slow_invoke, &formatter).await;
+    let t2 = get_start_time_from_invoke(second_slow_invoke, &formatter).await;
+    let t3 = get_start_time_from_invoke(fast_invoke, &formatter).await;
+    assert!(t1 < t2, "second invoke was out of order: {} !< {}", t1, t2);
+    assert!(t1 < t3, "third invoke was out of order: {} !< {}", t1, t3);
+    assert!(t3 < t2, "Fast invoke should not have been reordered to after slow: {} !< {}", t3, t2);
+
+    clean_env(&env);
+  }
+
+  #[ignore="Must be run serially because of env var clashing"]
+  #[tokio::test]
+  async fn fast_not_moved() {
+    let env = build_env("minheap");
+    let (_cfg, cm, invok_svc): (WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) = test_invoker_svc(None, Some(&env)).await;
+    let json_args = "{\"name\":\"TESTING\"}".to_string();
+    let transaction_id = "testTID".to_string();
+    let fast_name = "fast_test".to_string();
+    let slow_name = "slow_test".to_string();
+    let function_version = "0.1.1".to_string();
+    let fast_img = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
+    let slow_img = "docker.io/alfuerst/video_processing-iluvatar-action:latest".to_string();
+
+    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
+    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
+    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
+    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
+
+    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+
+    // warm exec time cache
+    get_start_time_from_invoke(test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id), &formatter).await;
+    // get_start_time_from_invoke(test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id), &formatter).await;
+    // get_start_time_from_invoke(test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id), &formatter).await;
+    get_start_time_from_invoke(test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id), &formatter).await;
+
+    let first_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    tokio::time::sleep(Duration::from_micros(10)).await;
+    let fast_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
+    let second_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    let t1 = get_start_time_from_invoke(first_slow_invoke, &formatter).await;
+    let t2 = get_start_time_from_invoke(fast_invoke, &formatter).await;
+    let t3 = get_start_time_from_invoke(second_slow_invoke, &formatter).await;
+    assert!(t1 < t2, "second invoke was out of order: {} !< {}", t1, t2);
+    assert!(t1 < t3, "third invoke was out of order: {} !< {}", t1, t3);
+    assert!(t2 < t3, "Fast invoke should not have been reordered to after slow: {} !< {}", t2, t3);
+
+    clean_env(&env);
   }
 }

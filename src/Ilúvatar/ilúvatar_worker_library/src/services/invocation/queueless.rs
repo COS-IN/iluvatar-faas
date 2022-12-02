@@ -4,7 +4,7 @@ use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::{transaction::TransactionId, logging::LocalTime, utils::calculate_fqdn};
 use anyhow::Result;
 use tracing::error;
-use super::{invoker_trait::Invoker, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
+use super::{invoker_trait::Invoker, async_tracker::AsyncHelper, invoker_structs::{EnqueuedInvocation, InvocationResultPtr, InvocationResult}};
 use crate::rpc::InvokeResponse;
 
 /// This implementation does not support [crate::worker_api::worker_config::InvocationConfig::concurrent_invokes]
@@ -50,14 +50,20 @@ impl Invoker for QueuelessInvoker {
   fn running_funcs(&self) -> u32 {
     self.running_funcs.load(Ordering::Relaxed)
   }
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
+  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     let fqdn = calculate_fqdn(&function_name, &function_version);
     self.running_funcs.fetch_add(1, Ordering::Relaxed);
     let r = self.invoke_internal(&fqdn, &function_name, &function_version, &json_args, &tid, self.timer().now(), None).await;
     self.running_funcs.fetch_sub(1, Ordering::Relaxed);
     match r {
       Ok( (result, dur) ) => {
-        Ok( (result.result_string()?, dur) )
+        let r: InvocationResultPtr = InvocationResult::boxed();
+        let mut temp = r.lock();
+        temp.exec_time = result.duration_sec;
+        temp.result_json = result.result_string()?;
+        temp.worker_result = Some(result);
+        temp.duration = dur;
+        Ok( r.clone() )
       },
       Err(e) => Err(e),
     }

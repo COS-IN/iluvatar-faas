@@ -1,4 +1,5 @@
 use std::{sync::Arc, time::Duration};
+use crate::services::invocation::invoker_structs::InvocationResult;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
@@ -9,6 +10,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
 use tracing::{debug, info};
+use super::invoker_structs::InvocationResultPtr;
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
@@ -112,7 +114,7 @@ impl MinHeapBypassInvoker {
     debug!(tid=%tid, "Invoker waken up by signal");
   }
 
-  async fn bypass_invoke(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId, exec_time: f64) -> Result<(String, Duration)> {
+  async fn bypass_invoke(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId, exec_time: f64) -> Result<InvocationResultPtr> {
     debug!(tid=%tid, exec_time=exec_time, "Function invocation bypassing queue");
     let fqdn = calculate_fqdn(&function_name, &function_version);
     let r = self.invoke_internal(&fqdn, &function_name, &function_version, &json_args, &tid, self.timer().now(), None).await;
@@ -120,7 +122,13 @@ impl MinHeapBypassInvoker {
       Ok( (result, dur) ) => {
         info!(tid=%tid, "Invocation complete");
         self.cmap.add( function_name, Characteristics::ExecTime, Values::F64(result.duration_sec));
-        Ok( (result.result_string()?, dur) )
+        let r: InvocationResultPtr = InvocationResult::boxed();
+        let mut temp = r.lock();
+        temp.exec_time = result.duration_sec;
+        temp.result_json = result.result_string()?;
+        temp.worker_result = Some(result);
+        temp.duration = dur;
+        Ok( r.clone() )
       },
       Err(e) => Err(e),
     }
@@ -174,7 +182,7 @@ impl Invoker for MinHeapBypassInvoker {
     self.invocation_config.concurrent_invokes - self.concurrency_semaphore.available_permits() as u32
   }
 
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
+  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     let queued = self.enqueue_new_invocation(function_name.clone(), function_version.clone(), json_args.clone(), tid.clone());
     let exec_time = get_exec_time(&self.cmap, &function_name);
     if exec_time != 0.0 && exec_time < self.bypass_dur {
@@ -186,7 +194,7 @@ impl Invoker for MinHeapBypassInvoker {
         true => {
           info!(tid=%tid, "Invocation complete");
           self.cmap.add( function_name, Characteristics::ExecTime, Values::F64(result_ptr.exec_time));
-          Ok( (result_ptr.result_json.clone(), result_ptr.duration) )  
+          Ok( queued.result_ptr.clone() )
         },
         false => {
           anyhow::bail!("Invocation was signaled completion but completion value was not set")

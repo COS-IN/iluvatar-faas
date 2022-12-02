@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
@@ -8,6 +8,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
 use tracing::{debug, info};
+use super::invoker_structs::InvocationResultPtr;
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
@@ -156,7 +157,7 @@ impl Invoker for MinHeapInvoker {
     self.invocation_config.concurrent_invokes - self.concurrency_semaphore.available_permits() as u32
   }
 
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<(String, Duration)> {
+  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     let queued = self.enqueue_new_invocation(function_name.clone(), function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
@@ -164,7 +165,7 @@ impl Invoker for MinHeapInvoker {
       true => {
         info!(tid=%tid, "Invocation complete");
         self.cmap.add( function_name, Characteristics::ExecTime, Values::F64(result_ptr.exec_time));
-        Ok( (result_ptr.result_json.clone(), result_ptr.duration) )  
+        Ok( queued.result_ptr.clone() )
       },
       false => {
         anyhow::bail!("Invocation was signaled completion but completion value was not set")

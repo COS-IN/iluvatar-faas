@@ -63,8 +63,9 @@ impl WorkerHealthService {
   /// see if the worker is healthy by trying to run a simple invocation and verifying results
   pub async fn check_health(&self, tid: &TransactionId) -> HealthResponse {
     match self.invoker_svc.sync_invocation(TEST_FUNC_NAME.to_string(), TEST_FUNC_VERSION.to_string(), TEST_FUNC_ARGS.to_string(), tid.clone()).await {
-      Ok( (json, _dur) ) => {
-        match serde_json::from_str::<TestReturnFormat>(&json) {
+      Ok( result_ptr ) => {
+        let result = result_ptr.lock();
+        match serde_json::from_str::<TestReturnFormat>(&result.result_json) {
           Ok(obj) => {
             if obj.body.greeting == format!("Hello {} from python!", TEST_FUNC_ARG) {
               self.healthy()
@@ -74,7 +75,7 @@ impl WorkerHealthService {
             }
           },
           Err(e) => {
-            warn!(tid=%tid, json=%json, error=%e, "Got invalid json from health function invocation");
+            warn!(tid=%tid, json=%result.result_json, error=%e, "Got invalid json from health function invocation");
             self.unhealthy()
           },
         }

@@ -327,7 +327,6 @@ impl NamespaceManager {
         let name = split[0].to_string();
         let tid_c = tid.clone();
         let svc_c = svc.clone();
-        // handles.push(tokio::task::spawn_blocking(move || {
         handles.push(tokio::spawn(async move {
             svc_c.delete_namespace(&name, &tid_c)
         }));

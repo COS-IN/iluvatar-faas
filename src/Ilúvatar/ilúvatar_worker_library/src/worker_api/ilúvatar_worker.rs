@@ -57,11 +57,12 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       let resp = self.invoker.sync_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id).await;
 
       match resp {
-        Ok( (json, dur) ) => {
+        Ok( result_ptr ) => {
+          let result = result_ptr.lock();
           let reply = InvokeResponse {
-            json_result: json,
+            json_result: result.result_json.clone(),
             success: true,
-            duration_us: dur.as_micros() as u64
+            duration_us: result.duration.as_micros() as u64
           };
           Ok(Response::new(reply))    
         },

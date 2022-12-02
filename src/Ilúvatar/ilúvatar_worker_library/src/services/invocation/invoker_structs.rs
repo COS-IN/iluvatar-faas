@@ -4,6 +4,7 @@ use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use anyhow::Result;
+use crate::services::containers::structs::ParsedResult;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -16,6 +17,7 @@ pub struct InvocationResult {
   pub completed: bool,
   /// The invocation time as recorded by the platform inside the container
   pub exec_time: f64,
+  pub worker_result: Option<ParsedResult>
 }
 impl InvocationResult {
   pub fn boxed() -> InvocationResultPtr {
@@ -24,7 +26,8 @@ impl InvocationResult {
       duration: Duration::from_micros(0),
       result_json: "".to_string(),
       attempts: 0,
-      exec_time: 0.0
+      exec_time: 0.0,
+      worker_result: None,
     }))
   }
 }
