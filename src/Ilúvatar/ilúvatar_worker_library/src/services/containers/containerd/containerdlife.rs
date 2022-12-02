@@ -594,7 +594,7 @@ impl LifecycleService for ContainerdLifecycle {
       anyhow::bail!("There were {} errors encountered cleaning up containers, out of {} containers", failed, num_handles);
     }
 
-    self.namespace_manager.clean(tid)?;
+    self.namespace_manager.clean(self.namespace_manager.clone(), tid).await?;
     Ok(())
   }
 

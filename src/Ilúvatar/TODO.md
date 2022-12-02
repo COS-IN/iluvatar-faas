@@ -102,6 +102,7 @@ Currently they aren't started running at all.
 A minor problem...
 Only for the queueless impl
 
-## Concurrent network namespace cleanup
+## Tests can fail if bridge does not exist
 
-Do like containerd cleanup does
+Some of the tests with the containerd backend can error if the bridge isn't already in existence.
+They should pass with a clean environment.

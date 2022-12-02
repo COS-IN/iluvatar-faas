@@ -315,18 +315,46 @@ impl NamespaceManager {
     Ok(())
   }
 
-  pub fn clean(&self, tid: &TransactionId) -> Result<()> {
+  pub async fn clean(&self, svc: Arc<Self>, tid: &TransactionId) -> Result<()> {
     info!(tid=%tid, "Deleting all owned namespaces");
     let out = execute_cmd("/bin/ip", &vec!["netns"], None, tid)?;
     let stdout = String::from_utf8_lossy(&out.stdout);
     let lines = stdout.split("\n");
+    let mut handles = vec![];
     for line in lines {
       if self.is_owned_namespace(line) {
         let split: Vec<&str> = line.split(" ").collect();
-        self.delete_namespace(&split[0].to_string(), tid)?;
+        let name = split[0].to_string();
+        let tid_c = tid.clone();
+        let svc_c = svc.clone();
+        // handles.push(tokio::task::spawn_blocking(move || {
+        handles.push(tokio::spawn(async move {
+            svc_c.delete_namespace(&name, &tid_c)
+        }));
       }
     }
-    
+
+    let mut failed = 0;
+    let num_handles = handles.len();
+    for h in handles {
+      match h.await {
+        Ok(r) => match r {
+          Ok(_r) => (),
+          Err(e) => {
+            error!(tid=%tid, error=%e, "Encountered an error on network namespace cleanup");
+            failed += 1;
+          },
+        },
+        Err(e) => {
+          error!(tid=%tid, error=%e, "Encountered an error joining thread for network namespace cleanup");
+          failed += 1;
+        },
+      }
+    }
+    if failed > 0 {
+      anyhow::bail!("There were {} errors encountered cleaning up network namespace, out of {} namespaces", failed, num_handles);
+    }
+
     let nspth = Self::net_namespace(&BRIDGE_NET_ID.to_string());
     let env = Self::cmd_environment(&self.config);
     let _output = execute_cmd(&self.config.cnitool, 
