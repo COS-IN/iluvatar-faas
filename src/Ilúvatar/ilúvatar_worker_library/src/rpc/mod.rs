@@ -1,5 +1,5 @@
 tonic::include_proto!("iluvatar_worker");
-use tracing::{error, debug};
+use tracing::{error, debug, warn};
 use tonic::transport::Channel;
 use std::error::Error;
 use iluvatar_library::bail_error;
@@ -16,18 +16,42 @@ pub struct RPCWorkerAPI {
 }
 
 impl RPCWorkerAPI {
-  pub async fn new(address: &String, port: Port) -> Result<RPCWorkerAPI> {
-    let addr = format!("http://{}:{}", address, port);
-    let client = match IluvatarWorkerClient::connect(addr).await {
-        Ok(c) => c,
-        Err(e) => bail!(RPCError { message: Status::new(Code::Unknown, format!("Got unexpected error of {:?}", e)), source: "[RCPWorkerAPI:new]".to_string() }),
-    };
-    Ok(RPCWorkerAPI {
-      client
-    })
+  /// Open a new connection to a Worker API
+  /// Returns a [RPCError] with details if the connection fails
+  pub async fn new(address: &String, port: Port, tid: &TransactionId) -> Result<RPCWorkerAPI, RPCError> {
+    Self::repeat_try_connection(address, port, 5, tid).await
   }
 
-  pub fn clone(&self) -> RPCWorkerAPI {
+  /// Try opening a new connection, with several retries
+  /// This can be flaky, so if there is an error, the connection is retried several times
+  async fn repeat_try_connection(address: &String, port: Port, mut retries: u32, tid: &TransactionId) -> Result<RPCWorkerAPI, RPCError> {
+    loop {
+      match Self::try_new_connection(address, port).await {
+        Ok(api) => {return Ok(api);},
+        Err(e) => {
+          warn!(error=%e, tid=%tid, "Error opening RPC connection to Worker API");
+          retries -= 1;
+          if retries <= 0 {
+            return Err(e);
+          }
+        }
+      }
+    }
+  }
+
+  async fn try_new_connection(address: &String, port: Port) -> Result<RPCWorkerAPI, RPCError> {
+    let addr = format!("http://{}:{}", address, port);
+    match IluvatarWorkerClient::connect(addr).await {
+        Ok(c) => Ok(RPCWorkerAPI{client: c}),
+        Err(e) => Err(RPCError { message: Status::new(Code::Unknown, format!("Got unexpected error of {:?}", e)), source: "[RCPWorkerAPI:new]".to_string() }),
+    }
+  }
+}
+
+impl Clone for RPCWorkerAPI {
+  /// A fast method for duplicating the Worker API
+  /// Use this instead of concurently sharing
+  fn clone(&self) -> Self {
     RPCWorkerAPI {
       client: self.client.clone()
     }

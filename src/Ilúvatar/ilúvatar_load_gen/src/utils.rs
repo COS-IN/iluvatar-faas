@@ -163,7 +163,7 @@ pub async fn controller_register(name: &String, version: &String, image: &String
 
 pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port) -> Result<(String, Duration, TransactionId)> {
   let tid: TransactionId = format!("{}-reg-tid", name);
-  let mut api = RPCWorkerAPI::new(&host, port).await?;
+  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
   let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
   match reg_out {
     Ok(s) => Ok( (s,reg_dur,tid) ),
@@ -172,7 +172,7 @@ pub async fn worker_register(name: String, version: &String, image: String, memo
 }
 
 pub async fn worker_prewarm(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId) -> Result<(String, Duration)> {
-  let mut api = RPCWorkerAPI::new(&host, port).await?;
+  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
   let (res, dur) = api.prewarm(name.clone(), version.clone(), None, None, None, tid.to_string()).timed().await;
   match res {
     Ok(s) => Ok( (s, dur) ),
@@ -185,7 +185,7 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
     Some(a) => a,
     None => "{}".to_string(),
   };
-  let mut api = RPCWorkerAPI::new(&host, port).await?;
+  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
   let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), args, None, tid.clone()).timed().await;
   let c = match invok_out {
     Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {

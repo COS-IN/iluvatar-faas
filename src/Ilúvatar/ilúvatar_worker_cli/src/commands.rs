@@ -6,27 +6,28 @@ use iluvatar_library::transaction::gen_tid;
 use anyhow::Result;
 
 pub async fn ping(worker: Box<Worker>) -> Result<()> {
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
+  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &gen_tid()).await?;
   let ret = api.ping(gen_tid()).await.unwrap();
   println!("{}", ret);
   Ok(())
 }
 
 pub async fn invoke(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
+  let tid = gen_tid();
+  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
 
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;
   let arguments = args_to_json(get_val_mult("arguments", &args));
   let memory = get_val_opt("memory", &args);
 
-  let ret = api.invoke(function_name, version, arguments, memory, gen_tid()).await.unwrap();
+  let ret = api.invoke(function_name, version, arguments, memory, tid).await.unwrap();
   println!("{:?}", ret);
   Ok(())
 }
 
 pub async fn invoke_async(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
-
+  let tid = gen_tid();
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;
   let arguments = args_to_json(get_val_mult("arguments", &args));
@@ -35,30 +36,32 @@ pub async fn invoke_async(worker: Box<Worker>, args: &ArgMatches) -> Result<()> 
   println!("subargs: {:?} \n\n", args);
   println!("function arguments: {:?}", arguments);
 
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
-  let ret = api.invoke_async(function_name, version, arguments, memory, gen_tid()).await.unwrap();
+  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
+  let ret = api.invoke_async(function_name, version, arguments, memory, tid).await.unwrap();
   println!("{}", ret);
   Ok(())
 }
 
 pub async fn invoke_async_check(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
   let cookie = get_val("cookie", &args)?;
+  let tid = gen_tid();
 
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
+  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
   let ret = api.invoke_async_check(&cookie, gen_tid()).await.unwrap();
   println!("{}", ret.json_result);
   Ok(())
 }
 
 pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
+  let tid = gen_tid();
+  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;
   let memory = get_val_opt("memory", &args);
   let cpu = get_val_opt("cpu", &args);
   let image = get_val_opt("image", &args);
 
-  let result = api.prewarm(function_name, version, memory, cpu, image, gen_tid()).await;
+  let result = api.prewarm(function_name, version, memory, cpu, image, tid).await;
   match result {
     Ok(string) => println!("{}", string),
     Err(err) => println!("{}", err),
@@ -67,7 +70,8 @@ pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
 }
 
 pub async fn register(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
+  let tid = gen_tid();
+  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
   let function_name = get_val("name", &args)?;
   let version = get_val("version", &args)?;
   let memory = get_val("memory", &args)?;
@@ -75,20 +79,20 @@ pub async fn register(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
   let image = get_val("image", &args)?;
   let parallels = get_val("parallel-invokes", &args)?;
 
-  let ret = api.register(function_name, version, image, memory, cpu, parallels, gen_tid()).await.unwrap();
+  let ret = api.register(function_name, version, image, memory, cpu, parallels, tid).await.unwrap();
   println!("{}", ret);
   Ok(())
 }
 
 pub async fn status(worker: Box<Worker>) -> Result<()> {
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
+  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &gen_tid()).await?;
   let ret = api.status(gen_tid()).await.unwrap();
   println!("{:?}", ret);
   Ok(())
 }
 
 pub async fn health(worker: Box<Worker>) -> Result<()> {
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port).await?;
+  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &gen_tid()).await?;
   let ret = api.health(gen_tid()).await.unwrap();
   match ret {
     HealthStatus::HEALTHY => println!("Worker is healthy"),
