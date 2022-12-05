@@ -167,7 +167,7 @@ pub async fn worker_register(name: String, version: &String, image: String, memo
   let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
   match reg_out {
     Ok(s) => Ok( (s,reg_dur,tid) ),
-    Err(e) => anyhow::bail!("worker registration failed because {}", e),
+    Err(e) => anyhow::bail!("worker registration failed because {:?}", e),
   }
 }
 
@@ -176,7 +176,7 @@ pub async fn worker_prewarm(name: &String, version: &String, host: &String, port
   let (res, dur) = api.prewarm(name.clone(), version.clone(), None, None, None, tid.to_string()).timed().await;
   match res {
     Ok(s) => Ok( (s, dur) ),
-    Err(e) => anyhow::bail!("worker prewarm failed because {}", e),
+    Err(e) => anyhow::bail!("worker prewarm failed because {:?}", e),
   }
 }
 
@@ -199,7 +199,7 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
       },
       Err(e) => CompletedWorkerInvocation::error(format!("Deserialization error: {}; {}", e, r.json_result), &name, &version, &tid),
     },
-    Err(e) => CompletedWorkerInvocation::error(format!("Invocation error: {}", e), &name, &version, &tid),
+    Err(e) => CompletedWorkerInvocation::error(format!("Invocation error: {:?}", e), &name, &version, &tid),
   };
   Ok(c)
 }

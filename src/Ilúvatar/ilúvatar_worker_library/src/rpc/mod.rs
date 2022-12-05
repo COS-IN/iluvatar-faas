@@ -49,7 +49,7 @@ impl RPCError {
 }
 impl std::fmt::Display for RPCError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-    write!(f, "{} RPC connection failed because: {}", self.source, self.message)?;
+    write!(f, "{} RPC connection failed because: {:?}", self.source, self.message)?;
     Ok(())
   }
 }
