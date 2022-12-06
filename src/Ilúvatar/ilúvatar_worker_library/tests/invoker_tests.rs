@@ -26,9 +26,11 @@ mod invoke {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
+  #[case("fcfs_bypass")]
+  #[case("minheap_ed")]
   // #[case("none")] // TODO: queueless does not do async invokes
   #[ignore="Must be run serially because of env var clashing"]
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
     let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
@@ -79,9 +81,11 @@ mod invoke {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
+  #[case("fcfs_bypass")]
+  #[case("minheap_ed")]
   // #[case("none")] // TODO: queueless does not do async invokes
   #[ignore="Must be run serially because of env var clashing"]
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
     let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
@@ -127,9 +131,11 @@ mod invoke_async {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
+  #[case("fcfs_bypass")]
+  #[case("minheap_ed")]
   // #[case("none")] // TODO: queueless does not do async invokes
   #[ignore="Must be run serially because of env var clashing"]
-  #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
     let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
@@ -202,9 +208,11 @@ mod invoke_async {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
+  #[case("fcfs_bypass")]
+  #[case("minheap_ed")]
   // #[case("none")] // TODO: queueless does not do async invokes
   #[ignore="Must be run serially because of env var clashing"]
-  #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
     let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
@@ -268,7 +276,7 @@ use time::OffsetDateTime;
 use tokio::task::JoinHandle;
 type HANDLE = JoinHandle<Result<std::sync::Arc<parking_lot::Mutex<iluvatar_worker_library::services::invocation::invoker_structs::InvocationResult>>, anyhow::Error>>;
 
-async fn get_start_time_from_invoke(handle: HANDLE, formatter: &ContainerTimeFormatter) -> OffsetDateTime {
+async fn get_start_end_time_from_invoke(handle: HANDLE, formatter: &ContainerTimeFormatter) -> (OffsetDateTime, OffsetDateTime) {
   let result = handle.await.expect("Error joining thread handle");
   match result {
     Ok( result_ptr ) => {
@@ -278,8 +286,8 @@ async fn get_start_time_from_invoke(handle: HANDLE, formatter: &ContainerTimeFor
       let parsed_end = formatter.parse_python_container_time(&worker_result.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.end, e));
       assert!(parsed_start < parsed_end, "Start and end times cannot be inversed!");
       assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
-      assert_ne!(result.result_json, "");
-      return parsed_start;
+      assert_ne!(result.result_json, "", "result_json should not be empty!");
+      return (parsed_start, parsed_end);
     },
     Err(e) => panic!("Invocation failed: {}", e),
   }
@@ -311,7 +319,7 @@ mod fcfs_tests {
   use super::*;
 
   #[ignore="Must be run serially because of env var clashing"]
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn no_reordering() {
     let env = build_env("fcfs");
     let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
@@ -331,13 +339,15 @@ mod fcfs_tests {
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
     let first_invoke = test_invoke(&invok_svc, &function_name, &function_version, &json_args, &transaction_id);
+    tokio::time::sleep(Duration::from_micros(10)).await;
     let second_invoke = test_invoke(&invok_svc, &function_name, &function_version, &json_args, &transaction_id);
+    tokio::time::sleep(Duration::from_micros(10)).await;
     let third_invoke = test_invoke(&invok_svc, &function_name, &function_version, &json_args, &transaction_id);
-    let first_t = get_start_time_from_invoke(first_invoke, &formatter).await;
-    let second_t = get_start_time_from_invoke(second_invoke, &formatter).await;
-    let third_t = get_start_time_from_invoke(third_invoke, &formatter).await;
-    assert!(first_t < second_t, "First invoke started before second");
-    assert!(second_t < third_t, "Second invoke started before third");
+    let (first_t, _) = get_start_end_time_from_invoke(first_invoke, &formatter).await;
+    let (second_t, _) = get_start_end_time_from_invoke(second_invoke, &formatter).await;
+    let (third_t, _) = get_start_end_time_from_invoke(third_invoke, &formatter).await;
+    assert!(first_t < second_t, "First invoke did not start before second {} !< {}", first_t, second_t);
+    assert!(second_t < third_t, "Second invoke did not start before third {} !< {}", second_t, third_t);
     clean_env(&env);
   }
 }
@@ -347,7 +357,7 @@ mod minheap_tests {
   use super::*;
   
   #[ignore="Must be run serially because of env var clashing"]
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn fast_put_first() {
     let env = build_env("minheap");
     let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
@@ -369,16 +379,16 @@ mod minheap_tests {
     // warm exec time cache
     let first_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
     let second_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
-    get_start_time_from_invoke(first_invoke, &formatter).await;
-    get_start_time_from_invoke(second_invoke, &formatter).await;
+    get_start_end_time_from_invoke(first_invoke, &formatter).await;
+    get_start_end_time_from_invoke(second_invoke, &formatter).await;
 
     let first_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
     tokio::time::sleep(Duration::from_micros(100)).await;
     let second_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
     let fast_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
-    let t1 = get_start_time_from_invoke(first_slow_invoke, &formatter).await;
-    let t2 = get_start_time_from_invoke(second_slow_invoke, &formatter).await;
-    let t3 = get_start_time_from_invoke(fast_invoke, &formatter).await;
+    let (t1, _) = get_start_end_time_from_invoke(first_slow_invoke, &formatter).await;
+    let (t2, _) = get_start_end_time_from_invoke(second_slow_invoke, &formatter).await;
+    let (t3, _) = get_start_end_time_from_invoke(fast_invoke, &formatter).await;
     assert!(t1 < t2, "second invoke was out of order: {} !< {}", t1, t2);
     assert!(t1 < t3, "third invoke was out of order: {} !< {}", t1, t3);
     assert!(t3 < t2, "Fast invoke should not have been reordered to after slow: {} !< {}", t3, t2);
@@ -387,7 +397,7 @@ mod minheap_tests {
   }
 
   #[ignore="Must be run serially because of env var clashing"]
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn fast_not_moved() {
     let env = build_env("minheap");
     let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
@@ -407,21 +417,80 @@ mod minheap_tests {
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
     // warm exec time cache
-    get_start_time_from_invoke(test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id), &formatter).await;
-    // get_start_time_from_invoke(test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id), &formatter).await;
-    // get_start_time_from_invoke(test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id), &formatter).await;
-    get_start_time_from_invoke(test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id), &formatter).await;
+    get_start_end_time_from_invoke(test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id), &formatter).await;
+    // get_start_end_time_from_invoke(test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id), &formatter).await;
+    // get_start_end_time_from_invoke(test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id), &formatter).await;
+    get_start_end_time_from_invoke(test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id), &formatter).await;
 
     let first_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
     tokio::time::sleep(Duration::from_micros(10)).await;
     let fast_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
     let second_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
-    let t1 = get_start_time_from_invoke(first_slow_invoke, &formatter).await;
-    let t2 = get_start_time_from_invoke(fast_invoke, &formatter).await;
-    let t3 = get_start_time_from_invoke(second_slow_invoke, &formatter).await;
+    let (t1, _) = get_start_end_time_from_invoke(first_slow_invoke, &formatter).await;
+    let (t2, _) = get_start_end_time_from_invoke(fast_invoke, &formatter).await;
+    let (t3, _) = get_start_end_time_from_invoke(second_slow_invoke, &formatter).await;
     assert!(t1 < t2, "second invoke was out of order: {} !< {}", t1, t2);
     assert!(t1 < t3, "third invoke was out of order: {} !< {}", t1, t3);
     assert!(t2 < t3, "Fast invoke should not have been reordered to after slow: {} !< {}", t2, t3);
+
+    clean_env(&env);
+  }
+}
+
+#[cfg(test)]
+mod fcfs_bypass_tests {
+  use std::time::SystemTime;
+
+use super::*;
+  
+  #[ignore="Must be run serially because of env var clashing"]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+  async fn fast_bypass_limits() {
+    let env = build_env("fcfs_bypass");
+    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
+    let json_args = "{\"name\":\"TESTING\"}".to_string();
+    let transaction_id = "testTID".to_string();
+    let fast_name = "fast_test".to_string();
+    let slow_name = "slow_test".to_string();
+    let function_version = "0.1.1".to_string();
+    let fast_img = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
+    let slow_img = "docker.io/alfuerst/cnn_image_classification-iluvatar-action:latest".to_string();
+
+    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
+    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
+    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
+    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
+
+    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+
+    // warm exec time cache
+    let first_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
+    let second_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    get_start_end_time_from_invoke(first_invoke, &formatter).await;
+    get_start_end_time_from_invoke(second_invoke, &formatter).await;
+
+    let first_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    tokio::time::sleep(Duration::from_micros(100)).await;
+    assert_eq!(invok_svc.running_funcs(), 1, "Should have one thing running");
+    let second_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    assert_eq!(invok_svc.running_funcs(), 1, "Should have one thing running");
+    let start = SystemTime::now();
+    let fast_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
+    let mut found = false;
+    while start.elapsed().expect("Time elapsed failed") < Duration::from_secs(4) {
+      if invok_svc.running_funcs() == 2 {
+        found = true;
+        break;
+      }
+    }
+    assert!(found, "`found` was never 2");
+    let (t1_s, t1_e) = get_start_end_time_from_invoke(first_slow_invoke, &formatter).await;
+    let (t2_s, t2_e) = get_start_end_time_from_invoke(fast_invoke, &formatter).await;
+    let (t3_s, t3_e) = get_start_end_time_from_invoke(second_slow_invoke, &formatter).await;
+    assert!(t1_s < t3_s, "third invoke was out of order: {} !< {}", t1_s, t3_s);
+    assert!(t3_e > t1_e, "second slow invoke started before first finished: {} !> {}", t3_e, t1_e);
+    assert!(t2_s < t3_s, "Fast invoke should not have been reordered to start before slow: {} !< {}", t2_s, t3_s);
+    assert!(t2_e < t3_e, "Fast invoke should have finished before slow: {} !< {}", t2_e, t3_e);
 
     clean_env(&env);
   }

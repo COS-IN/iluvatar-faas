@@ -2,7 +2,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use iluvatar_library::transaction::TransactionId;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
-use self::{queueless::QueuelessInvoker, invoker_trait::Invoker, fcfs_invoke::FCFSInvoker, minheap_invoke::MinHeapInvoker, minheap_ed_invoke::MinHeapEDInvoker, fcfs_bypass_invoke::MinHeapBypassInvoker };
+use self::{queueless::QueuelessInvoker, invoker_trait::Invoker, fcfs_invoke::FCFSInvoker, minheap_invoke::MinHeapInvoker};
+use self::{minheap_ed_invoke::MinHeapEDInvoker, fcfs_bypass_invoke::FCFSBypassInvoker };
 use super::containers::containermanager::ContainerManager;
 
 pub mod invoker_structs;
@@ -47,7 +48,7 @@ impl InvokerFactory {
         MinHeapEDInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid)?
       },
       "fcfs_bypass" => {
-        MinHeapBypassInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid)?
+        FCFSBypassInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid)?
       }
 
       unknown => panic!("Unknown lifecycle backend '{}'", unknown)

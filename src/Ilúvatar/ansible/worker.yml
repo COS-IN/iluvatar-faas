@@ -128,6 +128,7 @@
       "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
       "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(10) }}"
       "ILUVATAR_WORKER__invocation__concurrent_invokes" : "{{ worker_concurrent_invokes | default(4) }}"
+      "ILUVATAR_WORKER__invocation__bypass_duration_ms" : "{{ worker_bypass_duration_ms | default(0) }}"
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
 

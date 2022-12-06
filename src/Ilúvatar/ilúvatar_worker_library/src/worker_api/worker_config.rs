@@ -89,7 +89,9 @@ pub struct InvocationConfig {
   /// If this number is hit, items will be left in the queue until work completes
   /// Not affected by other resource limitations
   pub concurrent_invokes: u32,
-  pub fcfs_bypass_duration_ms: Option<u64>,
+  /// If the queue policy is enabled, invocations with an execution duration less than this
+  ///   will bypass concurrency restrictions and be run immediately
+  pub bypass_duration_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
