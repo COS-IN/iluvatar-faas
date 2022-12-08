@@ -12,6 +12,7 @@ def main(args):
 
   cold_run_ms = float(args.get("cold_run", 2000))
   warm_run_ms = float(args.get("warm_run", 1000))
+  ncpus = float(args.get("ncpus", 1))
   mem_mb = int(args.get("mem_mb", 128))
 
   mem_util = "--mem-util={}MB".format(mem_mb)
@@ -23,6 +24,7 @@ def main(args):
   # this will vary the CPU utilization from 25-100 several times before we exit
   peak = int(timeout/4)
   period = int(timeout/2)
+  ncpus="--ncpus={}".format(ncpus)
   if peak >= 1:
     period="--cpu-curve-period={}".format(int(timeout/2))
     peak="--cpu-curve-peak={}".format(int(timeout/4))
@@ -33,7 +35,7 @@ def main(args):
     peak=""
     mode="--cpu-mode=fixed"
     util="--cpu-util=75"
-  lookbusy = subprocess.Popen(args=["lookbusy", "--ncpus=1", mem_util, util, mode, period, peak])
+  lookbusy = subprocess.Popen(args=["lookbusy", ncpus, mem_util, util, mode, period, peak])
   sleep(timeout)
   lookbusy.send_signal(signal.SIGINT)
 

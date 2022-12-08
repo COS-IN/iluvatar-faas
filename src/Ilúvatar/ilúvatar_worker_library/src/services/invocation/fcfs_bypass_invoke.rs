@@ -108,7 +108,7 @@ impl FCFSBypassInvoker {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, enqueued), fields(tid=%enqueued.tid)))]
   async fn bypassing_invoke_internal(&self, enqueued: Arc<EnqueuedInvocation>) -> Result<InvocationResultPtr> {
-    debug!(tid=%enqueued.tid, "Bypassing internal invocation starting");
+    info!(tid=%enqueued.tid, "Bypassing internal invocation starting");
     let timer = self.timer();
     // take run time now because we may have to wait to get a container
     let run_time = timer.now_str();
@@ -154,7 +154,7 @@ impl Invoker for FCFSBypassInvoker {
         Some(e) => func_name = e.x.function_name.clone(),
         None => func_name = "empty".to_string()
     }
-    debug!(tid=%v.tid,  "Popped item from queue minheap - len: {} popped: {} top: {} ",
+    debug!(tid=%v.tid,  "Popped item from queue fcfs heap - len: {} popped: {} top: {} ",
            invoke_queue.len(),
            v.function_name,
            func_name );

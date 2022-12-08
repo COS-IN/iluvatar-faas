@@ -364,13 +364,15 @@ impl NamespaceManager {
       anyhow::bail!("There were {} errors encountered cleaning up network namespace, out of {} namespaces", failed, num_handles);
     }
 
-    let nspth = Self::net_namespace(&BRIDGE_NET_ID.to_string());
+    let bridge_nspth = Self::net_namespace(&BRIDGE_NET_ID.to_string());
     let env = Self::cmd_environment(&self.config);
-    let _output = execute_cmd(&self.config.cnitool, 
-      &vec!["del", &self.config.cni_name.as_str(), &nspth.as_str()],
-      Some(&env), tid)?;
+    if Self::namespace_exists(&BRIDGE_NET_ID.to_string()) {
+      let _output = execute_cmd(&self.config.cnitool, 
+        &vec!["del", &self.config.cni_name.as_str(), &bridge_nspth.as_str()],
+        Some(&env), tid)?;
+      self.delete_namespace(&BRIDGE_NET_ID.to_string(), tid)?;
+    }
     let _out = execute_cmd("/bin/ip", &vec!["link", "delete", &self.config.bridge, "type", "bridge"], Some(&env), tid)?;
-    self.delete_namespace(&BRIDGE_NET_ID.to_string(), tid)?;
       
     Ok(())
   }
