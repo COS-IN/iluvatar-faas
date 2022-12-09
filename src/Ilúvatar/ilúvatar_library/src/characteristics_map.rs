@@ -154,7 +154,6 @@ impl CharacteristicsMap {
 
         if last_inv_time.as_secs_f64() > 0.1 {
             let iat = time_now.as_secs_f64() - last_inv_time.as_secs_f64(); 
-            println!("adding now {:?} - last {:?} = iat {:?}", time_now, last_inv_time,  iat );
             self.add( fname.clone(), Characteristics::IAT, Values::F64(iat) , true); 
         }
 
