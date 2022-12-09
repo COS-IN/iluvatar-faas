@@ -1,9 +1,8 @@
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values,unwrap_val_f64}};
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,unwrap_val_f64}};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -15,13 +14,6 @@ use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 use ordered_float::OrderedFloat;     
-
-fn time_since_epoch() -> f64 {
-    let start = SystemTime::now();
-    start.duration_since( UNIX_EPOCH )
-         .expect("Time went backwards")
-         .as_secs_f64()
-}
 
 #[derive(Debug)]
 pub struct MHQIATEnqueuedInvocation {
