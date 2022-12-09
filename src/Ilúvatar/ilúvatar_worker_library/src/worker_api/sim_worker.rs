@@ -32,7 +32,7 @@ impl WorkerAPI for SimWorkerAPI {
     });
     match self.worker.ping(request).await {
       Ok(response) => Ok(response.into_inner().message),
-      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:ping]".to_string())),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:ping]".to_string())),
     }
   }
 
@@ -49,7 +49,7 @@ impl WorkerAPI for SimWorkerAPI {
     });
     match self.worker.invoke(request).await {
       Ok(response) => Ok(response.into_inner()),
-      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:invoke]".to_string())),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:invoke]".to_string())),
     }
   }
 
@@ -75,7 +75,7 @@ impl WorkerAPI for SimWorkerAPI {
           anyhow::bail!("Async invoke failed")
         }    
       },
-      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:invoke_async]".to_string())),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:invoke_async]".to_string())),
     }
   }
 
@@ -86,7 +86,7 @@ impl WorkerAPI for SimWorkerAPI {
     });
     match self.worker.invoke_async_check(request).await {
       Ok(response) => Ok(response.into_inner()),
-      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:invoke_async_check]".to_string())),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:invoke_async_check]".to_string())),
     }
   }
 
@@ -116,7 +116,7 @@ impl WorkerAPI for SimWorkerAPI {
           false => bail_error!(tid=%tid, message=%response.message, "Prewarm request failed"),
         }
       },
-      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:prewarm]".to_string())),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:prewarm]".to_string())),
     }
   }
 
@@ -135,7 +135,7 @@ impl WorkerAPI for SimWorkerAPI {
     });
     match self.worker.register(request).await {
       Ok(response) => Ok(response.into_inner().function_json_result),
-      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:register]".to_string())),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:register]".to_string())),
     }
   }
   
@@ -143,7 +143,7 @@ impl WorkerAPI for SimWorkerAPI {
     let request = tonic::Request::new(StatusRequest { transaction_id: tid, });
     match self.worker.status(request).await {
       Ok(response) => Ok(response.into_inner()),
-      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:status]".to_string())),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:status]".to_string())),
     }
   }
 
@@ -156,10 +156,10 @@ impl WorkerAPI for SimWorkerAPI {
           0 => Ok(HealthStatus::HEALTHY),
           // HealthStatus::Unhealthy
           1 => Ok(HealthStatus::UNHEALTHY),
-          i => anyhow::bail!(RPCError::new(format!("Got unexpected status of {}", i), "[RCPWorkerAPI:health]".to_string())),
-        }  
+          i => anyhow::bail!(RPCError::new(tonic::Status::new(tonic::Code::InvalidArgument, format!("Got unexpected status of {}", i)), "[RCPWorkerAPI:health]".to_string())),
+        }
       },
-      Err(e) => bail!(RPCError::new(e.to_string(), "[RCPWorkerAPI:register]".to_string())),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:register]".to_string())),
     }
   }
 }

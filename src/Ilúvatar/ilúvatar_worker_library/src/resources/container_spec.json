@@ -136,7 +136,8 @@
             "limit": "$MEMLIMIT"
           },
           "cpu": {
-            "shares": "$CPUSHARES"
+            "quota": "$CPUQUOTA",
+            "period": "$CPUPERIOD"
           }
         },
         "namespaces": [

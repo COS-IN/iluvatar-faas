@@ -46,3 +46,5 @@ if not os.path.exists(metadata_save_pth) or args.force:
   print("done", trace_save_pth)
   print("warm_pct, max_mem, max_running, mean_running, running_75th, running_90th")
   print(*run_trace_csv(trace_save_pth, 0.80, metadata_save_pth))
+  print(*run_trace_csv(trace_save_pth, 0.90, metadata_save_pth))
+  print(*run_trace_csv(trace_save_pth, 0.99, metadata_save_pth))

@@ -35,6 +35,8 @@ pub fn create_concurrency_semaphore(permits: u32) -> Arc<Semaphore> {
 
 #[tonic::async_trait]
 #[allow(dyn_drop)]
+/// A trait representing the functionality a queue policy must implement
+/// Overriding functions _must_ re-implement [info] level log statements for consistency
 pub trait Invoker: Send + Sync {
   fn cont_manager(&self) -> Arc<ContainerManager>;
   fn function_config(&self) -> Arc<FunctionLimits>;

@@ -79,6 +79,8 @@ impl ContainerdLifecycle {
 
   /// get the default container spec
   fn spec(&self, host_addr: &str, port: Port, mem_limit_mb: MemSizeMb, cpus: u32, net_ns_name: &String, container_id: &String) -> prost_types::Any {
+    // one second of time, in microseconds
+    let one_sec_in_us: u64 = 1 * 1000 * 1000;
     // https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
     let spec = include_str!("../../../resources/container_spec.json");
     let spec = spec
@@ -90,7 +92,10 @@ impl ContainerdLifecycle {
         .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
         .replace("\"$MEMLIMIT\"", &(mem_limit_mb*1024*1024).to_string())
 //        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
-        .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
+        // .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
+        // a function with 1 cpu will have an equal number of 
+        .replace("\"$CPUQUOTA\"", &((cpus as u64)*one_sec_in_us).to_string())
+        .replace("\"$CPUPERIOD\"", &one_sec_in_us.to_string())
         .replace("$INVOKE_TIMEOUT", &self.limits_config.timeout_sec.to_string())
         .replace("$CGROUPSPATH", &cgroup_namespace(container_id));
     prost_types::Any {

@@ -101,3 +101,8 @@ If registration is attempted and fails, the worker should exit.
 Currently they aren't started running at all.
 A minor problem...
 Only for the queueless impl
+
+## Split running and cached memory usage
+
+Container memory usage is reported as one unified number.
+We should track and log containers based on them being in-use or cached.

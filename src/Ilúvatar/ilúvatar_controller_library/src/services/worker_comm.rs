@@ -56,7 +56,7 @@ impl WorkerAPIFactory {
       match self.try_get_rpcapi(worker) {
         Some(r) => Ok(Box::new(r)),
         None => {
-          let api = match RPCWorkerAPI::new(&worker.host, worker.port).await {
+          let api = match RPCWorkerAPI::new(&worker.host, worker.port, &tid).await {
             Ok(api) => api,
             Err(e) => bail_error!(tid=%tid, worker=%worker.name, error=%e, "Unable to create API for worker"),
           };

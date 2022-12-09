@@ -154,6 +154,9 @@ impl ContainerManager {
   /// acquire_container
   /// get a lock on a container for the specified function
   /// will start a function if one is not available
+  /// A return type [EventualItem::Future] means a container will have to be started to run the invocation.
+  ///    The process to start the container has not begun, and will not until the future is awaited on. A product of Rust's implementation of async/futures.
+  /// A return type [EventualItem::Now] means an existing container has been acquired
   /// Can return a custom InsufficientCoresError if an invocation cannot be started now
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   pub fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
