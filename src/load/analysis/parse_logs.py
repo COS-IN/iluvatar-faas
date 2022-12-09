@@ -74,8 +74,11 @@ def prepare_perf_log(args):
 
 def prepare_rapl_log(args):
   path = os.path.join(args.logs_folder, "energy-rapl.log")
-  rapl_df = pd.read_csv(path)
-
+  try:
+      rapl_df = pd.read_csv(path)
+  except FileNotFoundError:
+      print(f"Warning: RAPL logs not available: {path}")
+      return
   rapl_data = []
   for i in range(1, len(rapl_df["rapl_uj"])):
     left = int(rapl_df["rapl_uj"][i-1])
