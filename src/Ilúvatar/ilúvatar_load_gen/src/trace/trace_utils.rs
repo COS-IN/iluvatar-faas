@@ -48,11 +48,9 @@ fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore,
       Some(iat) => f64::ceil(chosen_time as f64 / iat) as u32,
       None => default_prewarms,
     };
-    println!("{:?} + {} -> {}", func.mean_iat, chosen_time, prewarms);
     ret.insert( func.func_name.clone(), (format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen_name), prewarms) );
     println!("{} mapped to function '{}' with {} prewarms", &func.func_name, chosen_name, prewarms);
   }
-  anyhow::bail!("aa");
   Ok(ret)
 }
 
