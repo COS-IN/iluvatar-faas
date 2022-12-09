@@ -27,3 +27,4 @@ tokio = "1.19"
 
 [dev-dependencies]
 rstest = "0.13.0"
+float-cmp = "0.9.0"

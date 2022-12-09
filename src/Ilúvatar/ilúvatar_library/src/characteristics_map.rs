@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error};
 
 #[derive(Debug)]
@@ -143,6 +144,22 @@ impl CharacteristicsMap {
 
         self
     }
+
+    pub fn add_iat( &self, fname: &String ) {
+        let time_now = SystemTime::now();
+        let time_now = time_now.duration_since( UNIX_EPOCH ).expect("Time went backwards");
+
+        let last_inv_time  = self.lookup( fname, &Characteristics::LastInvTime ).unwrap_or( Values::Duration(Duration::new( 0, 0 )) );
+        let last_inv_time = unwrap_val_dur( &last_inv_time );
+
+        if last_inv_time.as_secs_f64() > 0.1 {
+            let iat = time_now.as_secs_f64() - last_inv_time.as_secs_f64(); 
+            println!("adding now {:?} - last {:?} = iat {:?}", time_now, last_inv_time,  iat );
+            self.add( fname.clone(), Characteristics::IAT, Values::F64(iat) , true); 
+        }
+
+        self.add( fname.clone(), Characteristics::LastInvTime, Values::Duration(time_now.clone()) , false); 
+    }
     
     pub fn lookup (&self, fname: &String, chr: &Characteristics ) -> Option<Values> {
        let e0 = self.map.get( fname )?;
@@ -265,50 +282,32 @@ mod charmap {
     
     #[test]
     fn iat_calcualtion() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        
+        use std::thread::sleep;
+        use float_cmp::approx_eq;
+
         let m = CharacteristicsMap::new( AgExponential::new( 0.6 ) );
         let fjd_011 = "json_dump.0.1.1".to_string();
-        let current_time = SystemTime::now();
-        let current_time = current_time.duration_since( UNIX_EPOCH ).expect("Time went backwards");
-
-        let function_request = | fname: &String, time_now: &Duration | {
-            let last_inv_time  = m.lookup( fname, &Characteristics::LastInvTime ).unwrap_or( Values::Duration(Duration::new( 0, 0 )) );
-            let last_inv_time = unwrap_val_dur( &last_inv_time );
-
-            if last_inv_time.as_secs_f64() > 0.1 {
-                let iat = time_now.as_secs_f64() - last_inv_time.as_secs_f64(); 
-                println!("adding now {:?} - last {:?} = iat {:?}", time_now, last_inv_time,  iat );
-                m.add( fname.clone(), Characteristics::IAT, Values::F64(iat) , true); 
-            }
-
-            m.add( fname.clone(), Characteristics::LastInvTime, Values::Duration(time_now.clone()) , false); 
-        };
         
         let verify_iat_lookup = | fname: &String, val_expc: f64 | { 
             let val = m.lookup( fname, &Characteristics::IAT ).unwrap_or(Values::F64( 0.0 ));
-            assert_eq!( unwrap_val_f64( &val ), val_expc );
-        };
-
-        let add_to_current_time = | secs: f64, current_time: &Duration | -> Duration {
-            println!("{:?}",current_time );
-            current_time.checked_add( Duration::from_secs_f64( secs ) ).expect("Duration overflow ocurred on addition")
+            assert!( approx_eq!( f64,unwrap_val_f64( &val ), val_expc, epsilon = 0.005 ) ); 
+            // assert_eq!( unwrap_val_f64( &val ), val_expc );
         };
 
         verify_iat_lookup( &fjd_011, 0.0 );
-        function_request( &fjd_011, &current_time);
+        m.add_iat( &fjd_011 );
         verify_iat_lookup( &fjd_011, 0.0 );
-        
-        let current_time = add_to_current_time( 1.0, &current_time ); 
-        function_request( &fjd_011, &current_time);
+       
+        sleep(Duration::from_secs_f64(1.0));
+        m.add_iat( &fjd_011 );
         verify_iat_lookup( &fjd_011, 1.0 );
 
-        let current_time = add_to_current_time( 1.0, &current_time ); 
-        function_request( &fjd_011, &current_time);
+        sleep(Duration::from_secs_f64(1.0));
+        m.add_iat( &fjd_011 );
         verify_iat_lookup( &fjd_011, 1.0 );
 
-        let current_time = add_to_current_time( 2.0, &current_time ); 
-        function_request( &fjd_011, &current_time);
+        sleep(Duration::from_secs_f64(2.0));
+        m.add_iat( &fjd_011 );
         verify_iat_lookup( &fjd_011, 1.6 ); // 1.0, 1.0, 2.0 -> exp moving average should be 1.6  
 
         /* Using Pandas 
