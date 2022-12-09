@@ -147,7 +147,7 @@
       validate_certs: "no"
       # RPC server doesn't accept basic HTTP connections
       # but we can try connecting to it once it's up and know it's alive
-      status_code: [-1, 0.9, 1.1]
+      status_code: [-1] #[-1, 0.9, 1.1]
     register: result
     until: result.msg == expected
     retries: 10

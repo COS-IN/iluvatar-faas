@@ -76,7 +76,7 @@ def insert_ecdfs(df: pd.DataFrame, debug: bool) -> pd.DataFrame:
   df["ecdf_ys"] = list(map(lambda x: x[1], ecdf_data))
   return df
 
-def join_day_one(datapath: str, force: bool, debug: bool = False, iats: bool = False, ecfds: bool = False):
+def join_day_one(datapath: str, force: bool, debug: bool = False, iats: bool = True, ecfds: bool = False):
   # TODO: use all the files in the dataset
   durations_file = "function_durations_percentiles.anon.d01.csv"
   invocations_file = "invocations_per_function_md.anon.d01.csv"
@@ -177,7 +177,7 @@ def iat_trace_row(func_name, row, duration_min:int):
     trace.append( (func_name, time) )
 
   # print(func_name, mean, std, len(trace))
-  return trace, (func_name, cold_dur, warm_dur, mem)
+  return trace, (func_name, cold_dur, warm_dur, mem, mean)
 
 def real_trace_row(func_name, row, min_start=0, min_end=1440):
   """
@@ -202,7 +202,7 @@ def real_trace_row(func_name, row, min_start=0, min_end=1440):
       every = (secs_p_min*milis_p_sec) / invocs
       trace += [(func_name, int(start + i*every)) for i in range(invocs)]
 
-  return trace, (func_name, cold_dur, warm_dur, mem)
+  return trace, (func_name, cold_dur, warm_dur, mem, float(row["IAT_mean"]))
 
 def ecdf_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
   """
@@ -227,7 +227,7 @@ def ecdf_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
     time += (point * scale)
     trace.append( (func_name, float(time)) )
 
-  return trace, (func_name, cold_dur, warm_dur, mem)
+  return trace, (func_name, cold_dur, warm_dur, mem, float(row["IAT_mean"]))
 
 def divive_by_func_num(row, grouped_by_app):
     return ceil(row["AverageAllocatedMb"] / grouped_by_app[row["HashApp"]])
@@ -239,9 +239,9 @@ def write_trace(trace, metadata, trace_save_pth, metadata_save_pth):
       f.write("{},{}\n".format(func_name[:10], int(time_ms)))
 
   with open(metadata_save_pth, "w") as f:
-    f.write("{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb"))
-    for (func_name, cold_dur, warm_dur, mem) in metadata:
-      f.write("{},{},{},{}\n".format(func_name[:10], cold_dur, warm_dur, mem))
+    f.write("{},{},{},{},{}\n".format("func_name", "cold_dur_ms", "warm_dur_ms", "mem_mb", "mean_iat"))
+    for (func_name, cold_dur, warm_dur, mem, mean_iat) in metadata:
+      f.write("{},{},{},{},{}\n".format(func_name[:10], cold_dur, warm_dur, mem, mean_iat))
 
 if __name__ == '__main__':
   argparser = argparse.ArgumentParser()

@@ -7,8 +7,9 @@ Which playbook can be specified in the Ansible command, i.e.`ansible-playbook co
 The playbooks also implicitly list out the startup ordering for all the services, as incorrect ordering can result in errors or total failures of parts of the system.
 
 It is generally easiest to run commands from inside the [Ansible](../ansible/) directory, but that is not necessary.
-You can set the `ILU_HOME` variable to specify the folder where the Ansible structure is.
+You can set the `ILU_HOME` environment variable to specify the folder where the Ansible structure is.
 One of these must be fulfilled or the commands will fail.
+Make sure to install the correct version of Ansible, in the Ansible directory's [reqs.txt](../ansible/reqs.txt) file.
 
 ## Placing services on hosts
 

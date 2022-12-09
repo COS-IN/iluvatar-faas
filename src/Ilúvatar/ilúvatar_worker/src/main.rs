@@ -10,7 +10,7 @@ use iluvatar_worker_library::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_library::utils::config::get_val;
 use anyhow::Result;
 use tonic::transport::Server;
-use tracing::debug;
+use tracing::{debug, info};
 use signal_hook::{consts::signal::{SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT}, iterator::Signals};
 
 pub mod utils;
@@ -31,6 +31,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
   let addr = format!("{}:{}", server_config.address, server_config.port);
 
   register_rpc_to_controller(server_config.clone(), tid.clone());
+  info!(tid=%tid, "Starting RPC server");
   let _j = tokio::spawn(Server::builder()
       .timeout(Duration::from_secs(server_config.timeout_sec))
       .add_service(IluvatarWorkerServer::new(worker))

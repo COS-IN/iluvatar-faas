@@ -34,9 +34,9 @@ if not os.path.exists(metadata_save_pth) or args.force:
     chosen = choose_from.sample(per_qant)
 
     for index, row in chosen.iterrows():
-      traced_row, (func_name, cold_dur, warm_dur, mem) = iat_trace_row(index, row, args.duration)
+      traced_row, (func_name, cold_dur, warm_dur, mem, mean_iat) = iat_trace_row(index, row, args.duration)
       trace += traced_row
-      function_metadata.append((func_name, cold_dur, warm_dur, mem))
+      function_metadata.append((func_name, cold_dur, warm_dur, mem, mean_iat))
 
   out_trace = sorted(trace, key=lambda x:x[1]) #(func_name, time_ms)
   trace_save_pth = os.path.join(args.out_folder, "{}.csv".format(args.num_funcs))

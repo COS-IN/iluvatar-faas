@@ -3,36 +3,14 @@ use anyhow::Result;
 use iluvatar_library::utils::{config::get_val, port::Port};
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
-use crate::{utils::{controller_register, controller_invoke, VERSION, CompletedControllerInvocation, resolve_handles, save_result_json}, benchmark::BenchmarkStore, trace::{match_trace_to_img, CsvInvocation, prepare_function_args}};
+use crate::utils::{controller_register, controller_invoke, VERSION, CompletedControllerInvocation, resolve_handles, save_result_json};
+use crate::trace::{CsvInvocation, prepare_function_args, trace_utils::map_functions_to_prep};
 use super::Function;
 
 async fn register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>) -> Result<()> {
-  let data = match load_type {
-    "lookbusy" => HashMap::new(),
-    "functions" => {
-      let func_data = func_data?;
-      let contents = std::fs::read_to_string(func_data).expect("Something went wrong reading the file");
-      match serde_json::from_str::<BenchmarkStore>(&contents) {
-        Ok(d) => {
-          let mut data = HashMap::new();
-          for (k, v) in d.data.iter() {
-            let tot: f64 = v.warm_results.iter().sum();
-            let avg_warm = tot / v.warm_results.len() as f64;
-            data.insert(k.clone(), avg_warm);
-          }
-          data
-        },
-        Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
-      }
-    },
-    _ => panic!("Bad invocation load type: {}", load_type),
-  };
-  for (_fid, func) in funcs.into_iter() {
-    let image = match load_type {
-      "lookbusy" => format!("docker.io/alfuerst/lookbusy-iluvatar-action:latest"),
-      "functions" => match_trace_to_img(func, &data),
-      _ => panic!("Bad invocation load type: {}", load_type),
-    };
+  let prep_data = map_functions_to_prep(load_type, func_data, &funcs, 0)?;
+  for (fid, func) in funcs.into_iter() {
+    let image = &prep_data.get(&func.func_name).ok_or_else(|| anyhow::anyhow!("Unable to get prep data for function '{}'", fid))?.0;
     println!("{}, {}", func.func_name, image);
     let _reg_dur = controller_register(&func.func_name, &VERSION, &image, func.mem_mb+50, host, port).await?;
   }

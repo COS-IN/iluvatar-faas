@@ -1,0 +1,13 @@
+name,image_name
+chameleon,docker.io/alfuerst/chameleon-iluvatar-action:latest
+cnn_image_classification,docker.io/alfuerst/cnn_image_classification-iluvatar-action:latest
+dd,docker.io/alfuerst/dd-iluvatar-action:latest
+float_operation,docker.io/alfuerst/float_operation-iluvatar-action:latest
+gzip_compression,docker.io/alfuerst/gzip_compression-iluvatar-action:latest
+hello,docker.io/alfuerst/hello-iluvatar-action:latest
+image_processing,docker.io/alfuerst/image_processing-iluvatar-action:latest
+json_dumps_loads,docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest
+lin_pack,docker.io/alfuerst/lin_pack-iluvatar-action:latest
+model_training,docker.io/alfuerst/model_training-iluvatar-action:latest
+pyaes,docker.io/alfuerst/pyaes-iluvatar-action:latest
+video_processing,docker.io/alfuerst/video_processing-iluvatar-action:latest

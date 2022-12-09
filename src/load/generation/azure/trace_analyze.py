@@ -22,7 +22,7 @@ def run_trace_csv(trace_csv, warm_pct, metadata_csv):
   with open(metadata_csv, 'r') as f:
     f.readline()
     for line in f.readlines():
-      func_name,cold_dur_ms,warm_dur_ms,mem_mb = line.split(',')
+      func_name,cold_dur_ms,warm_dur_ms,mem_mb,mean_iat = line.split(',')
       metadata[func_name]["func_name"] = func_name
       metadata[func_name]["cold_dur_ms"] = int(cold_dur_ms)
       metadata[func_name]["warm_dur_ms"] = int(warm_dur_ms)

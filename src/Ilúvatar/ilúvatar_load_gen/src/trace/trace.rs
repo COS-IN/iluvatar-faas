@@ -6,6 +6,7 @@ use clap::{ArgMatches, App, SubCommand, Arg};
 mod worker_trace;
 mod controller_live;
 mod controller_sim;
+mod trace_utils;
 
 pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
   app.subcommand(SubCommand::with_name("trace")
@@ -109,13 +110,20 @@ fn load_metadata(path: String) -> Result<HashMap<String, Function>> {
 }
 
 #[derive(Debug, serde::Deserialize)]
-#[allow(unused)]
+/// Struct holding the details about a function that will be run against the Ilúvatar system
+/// If deserialized from JSON or via CSV, column names must match exactly 
 pub struct Function {
   pub func_name: String,
   pub cold_dur_ms: u64,
   pub warm_dur_ms: u64,
   pub mem_mb: MemSizeMb,
   pub use_lookbusy: Option<bool>,
+  /// An optioanl value denoting the mean inter-arrival-time of the function
+  /// Used for optimized prewarming
+  pub mean_iat: Option<f64>,
+  /// An optioanl value denoting the image to use for the function
+  /// One will be chosen if not provided
+  pub image_name: Option<String>,
 }
 #[derive(Debug, serde::Deserialize)]
 pub struct CsvInvocation {
@@ -132,31 +140,6 @@ pub fn safe_cmp(a:&(&String, &f64), b:&(&String, &f64)) -> std::cmp::Ordering {
   } else {
     a.1.partial_cmp(&b.1).unwrap()
   }
-}
-
-pub fn match_trace_to_img(func: &Function, data: &HashMap<String, f64>) -> String {
-  if data.contains_key(&func.func_name) {
-    return format!("docker.io/alfuerst/{}-iluvatar-action:latest", func.func_name);
-  };
-  let split = func.func_name.split("-").collect::<Vec<&str>>();
-  if split.len() == 1 {
-    let chosen = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
-      Some(n) => (n.0, n.1),
-      None => panic!("failed to get a minimum func from {:?}", data),
-    };
-    let mut chosen_name = chosen.0;
-    let mut chosen_time = *chosen.1;
-
-    for (name, avg_warm) in data.iter() {
-      if func.warm_dur_ms as f64 >= avg_warm * 1000.0 && chosen_time < *avg_warm {
-        chosen_name = name;
-        chosen_time= *avg_warm;
-      }
-    }
-    println!("{} mapped to function '{}'", &func.func_name, chosen_name);
-    return format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen_name);
-  }
-  format!("docker.io/alfuerst/{}-iluvatar-action:latest", split[0])
 }
 
 fn prepare_function_args(func: &Function, load_type: &str) -> Vec<String> {

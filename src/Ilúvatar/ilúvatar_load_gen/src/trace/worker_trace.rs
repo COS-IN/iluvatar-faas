@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, path::Path, fs::File, io::Write, time::Duration};
+use std::{collections::HashMap, sync::Arc, path::Path, fs::File, io::Write};
 use anyhow::Result;
 use iluvatar_library::{utils::{config::{get_val, args_to_json}, timing::TimedExt, port::Port}, transaction::{TransactionId, gen_tid}, logging::LocalTime};
 use iluvatar_worker_library::{worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, services::containers::simulation::simstructs::SimulationResult};
@@ -8,8 +8,8 @@ use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
 use iluvatar_worker_library::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse, InvokeResponse};
 use tonic::{Request, Status, Response};
-use crate::{utils::{worker_register, VERSION, worker_invoke, worker_prewarm, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json}, benchmark::BenchmarkStore};
-use crate::trace::{match_trace_to_img, prepare_function_args};
+use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json}, trace::trace_utils::{prepare_functions, RegisterTarget}};
+use crate::trace::prepare_function_args;
 use super::{Function, CsvInvocation};
 
 fn sim_register_functions(funcs: &HashMap<String, Function>, worker: Arc<IluvatarWorkerImpl>, rt: &Runtime) -> Result<()> {
@@ -140,100 +140,6 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
   Ok(())
 }
 
-fn live_register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>, rt: &Runtime) -> Result<()> {
-  let data = match load_type {
-    "lookbusy" => HashMap::new(),
-    "functions" => {
-      let func_data = func_data?;
-      let contents = std::fs::read_to_string(func_data).expect("Something went wrong reading the file");
-      match serde_json::from_str::<BenchmarkStore>(&contents) {
-        Ok(d) => {
-          let mut data = HashMap::new();
-          for (k, v) in d.data.iter() {
-            let tot: f64 = v.warm_results.iter().sum();
-            let avg_warm = tot / v.warm_results.len() as f64;
-            data.insert(k.clone(), avg_warm);
-          }
-          data
-        },
-        Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
-      }
-    },
-    _ => panic!("Bad invocation load type: {}", load_type),
-  };
-
-  let mut func_iter = funcs.into_iter();
-  while !wait_reg(&mut func_iter, load_type, rt, port, host, &data)?  {}
-  Ok(())
-}
-
-fn wait_reg(iterator: &mut std::collections::hash_map::Iter<String, Function>, load_type: &str, rt: &Runtime, port: Port, host: &String, data: &HashMap<String, f64>) -> Result<bool> {
-  let mut done = false;
-  let mut handles: Vec<JoinHandle<Result<(String, Duration, TransactionId)>>> = Vec::new();
-  for _ in 0..40 {
-    let (_id, func) = match iterator.next() {
-      Some(d) => d,
-      None => {
-        done = true;
-        break;
-      },
-    };
-    let (image, mb) = match load_type {
-      "lookbusy" => (format!("docker.io/alfuerst/lookbusy-iluvatar-action:latest"), func.mem_mb+50),
-      "functions" => (match_trace_to_img(func, data), 512),
-      _ => panic!("Bad invocation load type: {}", load_type),
-    };
-    let f_c = func.func_name.clone();
-    let h_c = host.clone();
-    handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mb+50, h_c, port).await }));
-  }
-  for h in handles {
-    let (_s,_d,_s2) = rt.block_on(h)??;
-  }
-  Ok(done)
-}
-
-fn live_prewarm_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, rt: &Runtime, count: u32) -> Result<()> {
-  let mut prewarm_calls = vec![];
-  for (_id, func) in funcs.iter() {
-    for i in 0..count {
-      let tid = format!("{}-{}-prewarm", i, &func.func_name);
-      let h_c = host.clone();
-      let f_c = func.func_name.clone();
-      prewarm_calls.push(async move { 
-        let mut errors="Prewarm errors:".to_string();
-        let mut it = (1..4).into_iter().peekable();
-        while let Some(i) = it.next() {
-          match worker_prewarm(&f_c, &VERSION, &h_c, port, &tid).await {
-            Ok((_s, _prewarm_dur)) => break,
-            Err(e) => { 
-              errors = format!("{} iteration {}: '{}';\n", errors, i, e);
-              if it.peek().is_none() {
-                anyhow::bail!("prewarm failed because {}", errors)
-              }
-            },
-          };
-        }
-        Ok(())
-      });
-    }
-  }
-  while prewarm_calls.len() > 0 {
-    let mut handles = vec![];
-    for _ in 0..4 {
-      match prewarm_calls.pop() {
-        Some(p) => handles.push(rt.spawn(p)),
-        None => break,
-      }
-      std::thread::sleep(Duration::from_millis(10));
-    }
-    for handle in handles {
-      rt.block_on(handle)??;
-    }
-  }
-  Ok(())
-}
-
 fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let load_type: String = get_val("load-type", &sub_args)?;
   let func_data: Result<String> = get_val("function-data", &sub_args);
@@ -249,9 +155,8 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let trace_pth: String = get_val("input", &sub_args)?;
   let metadata_pth: String = get_val("metadata", &sub_args)?;
   let metadata = super::load_metadata(metadata_pth)?;
-  live_register_functions(&metadata, &host, port, &load_type, func_data, &threaded_rt)?;
-  println!("{} prewarming {} containers per function", LocalTime::new(tid)?.now_str()?, prewarm_count);
-  live_prewarm_functions(&metadata, &host, port, &threaded_rt, prewarm_count)?;
+
+  prepare_functions(RegisterTarget::LiveWorker, &metadata, &host, port, &load_type, func_data, &threaded_rt, prewarm_count)?;
 
   let mut trace_rdr = match csv::Reader::from_path(&trace_pth) {
     Ok(r) => r,

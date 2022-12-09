@@ -10,6 +10,12 @@ use tokio::sync::Barrier;
 use tokio::runtime::{Builder, Runtime};
 use crate::utils::*;
 
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct ToBenchmarkFunction {
+  pub name: String,
+  pub image_name: String,
+}
+
 #[derive(Serialize, Deserialize)]
 /// Stores the benchmark data from any number of functions
 pub struct BenchmarkStore {
@@ -26,6 +32,8 @@ impl BenchmarkStore {
 #[derive(Serialize, Deserialize)]
 /// A struct to hold the benchmark results of a single function
 pub struct FunctionStore {
+  pub function_name: String,
+  pub image_name: String,
   /// list of warm latencies
   pub warm_results: Vec<f64>,
   /// list of warm overhead times
@@ -48,8 +56,10 @@ pub struct FunctionStore {
   pub cold_invoke_duration_us: Vec<u128>,
 }
 impl FunctionStore {
-  pub fn new() -> Self {
+  pub fn new(image_name: String, function_name: String) -> Self {
     FunctionStore {
+      function_name,
+      image_name,
       warm_results: Vec::new(),
       warm_over_results: Vec::new(),
       cold_results: Vec::new(),
@@ -72,10 +82,15 @@ pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
         .required(false)
         .takes_value(true)
         .default_value("worker"))
+    .arg(Arg::with_name("functions-file")
+        .long("functions-file")
+        .help("The csv with all the functions to be benchmarked listed inside of it. In the form <f_name>,<f_image>")
+        .required(false)
+        .takes_value(true))
     .arg(Arg::with_name("functions-dir")
         .long("functions-dir")
         .help("The directory with all the functions to be benchmarked inside it, each in their own folder")
-        .required(true)
+        .required(false)
         .takes_value(true))
     .arg(Arg::with_name("cold-iters")
         .long("cold-iters")
@@ -104,8 +119,34 @@ pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
   )
 }
 
+pub fn load_functions(sub_args: &ArgMatches) -> Result<Vec<ToBenchmarkFunction>> {
+  let mut functions = Vec::new();
+
+  if let Ok(directory) = get_val::<String>("functions-dir", &sub_args) {
+    let paths = std::fs::read_dir(&directory).expect(&format!("was unable to read directory '{}'", directory).as_str());
+    for path in paths {
+      let pth = path.expect("Error reading directory entry");
+      let fname = (&pth.file_name().to_str().expect(&format!("Unable to convert file name '{:?}' os_str to String", pth).as_str())).to_string();
+      let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", &fname);
+      functions.push( ToBenchmarkFunction{name:fname, image_name:image} );
+    }
+  } else if let Ok(directory) = get_val::<String>("functions-file", &sub_args) {
+    let mut rdr = match csv::Reader::from_path(&directory) {
+      Ok(r) => r,
+      Err(e) => anyhow::bail!("Unable to open metadata csv file '{}' because of error '{}'", directory, e),
+    };
+    for result in rdr.deserialize() {
+      let func: ToBenchmarkFunction = result.expect("Error deserializing ToBenchmarkFunction");
+      functions.push(func);
+    }
+  } else {
+    anyhow::bail!("Neither 'functions-file' nor 'functions-dir' was passed as an argument. Bailing");
+  }
+  Ok(functions)
+}
+
 pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let directory: String = get_val("functions-dir", &sub_args)?;
+ 
   let target: String = get_val("target", &sub_args)?;
   let port: Port = get_val("port", &main_args)?;
   let host: String = get_val("host", &main_args)?;
@@ -115,12 +156,7 @@ pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Res
   let warm_repeats: u32 = get_val("warm-iters", &sub_args)?;
   let duration = get_val("run-time", &sub_args)?;
 
-  let mut functions = Vec::new();
-
-  let paths = std::fs::read_dir(directory)?;
-  for path in paths {
-    functions.push(path?.file_name().to_str().unwrap().to_string());
-  }
+  let functions = load_functions(sub_args)?;
 
   println!("Benchmarking functions: {:?}", functions);
 
@@ -140,18 +176,16 @@ pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Res
   }
 }
 
-pub async fn benchmark_controller(host: String, port: Port, functions: Vec<String>, out_folder: String, cold_repeats: u32, warm_repeats: u32) -> Result<()> {
+pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBenchmarkFunction>, out_folder: String, cold_repeats: u32, warm_repeats: u32) -> Result<()> {
   let mut full_data = BenchmarkStore::new();
 
   for function in &functions {
-    let mut func_data = FunctionStore::new();
-    println!("{}", function);
+    let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
+    println!("{}", function.name);
     for iter in 0..cold_repeats {
-      let name = format!("{}-bench-{}", function, iter);
+      let name = format!("{}-bench-{}", function.name, iter);
       let version = format!("0.0.{}", iter);
-      let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
-
-      let _reg_dur = match crate::utils::controller_register(&name, &version, &image, 512, &host, port).await {
+      let _reg_dur = match crate::utils::controller_register(&name, &version, &function.image_name, 512, &host, port).await {
         Ok(d) => d,
         Err(e) => {
           println!("{}", e);
@@ -185,7 +219,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
         }
       }
     }
-    full_data.data.insert(function.clone(), func_data);
+    full_data.data.insert(function.name.clone(), func_data);
   }
 
   let p = Path::new(&out_folder).join(format!("controller_function_benchmarks.json"));
@@ -193,12 +227,12 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<Strin
   Ok(())
 }
 
-pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functions: Vec<String>, out_folder: String, cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize) -> Result<()> {
+pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functions: Vec<ToBenchmarkFunction>, out_folder: String, cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize) -> Result<()> {
   let barrier = Arc::new(Barrier::new(thread_cnt));
   let mut handles = Vec::new();
   let mut full_data = BenchmarkStore::new();
   for f in &functions {
-    full_data.data.insert(f.clone(), FunctionStore::new());
+    full_data.data.insert(f.name.clone(), FunctionStore::new(f.image_name.clone(), f.name.clone()));
   }
 
   for thread_id in 0..thread_cnt {
@@ -240,11 +274,11 @@ pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functio
   save_worker_result_csv(p, &combined)
 }
 
-async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String>, mut cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<Vec<CompletedWorkerInvocation>> {
+async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenchmarkFunction>, mut cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<Vec<CompletedWorkerInvocation>> {
   let mut ret = vec![];
 
   for function in &functions {
-    println!("{}", function);
+    println!("{}", &function.name);
     match duration_sec {
       0 => (),
       _ => {
@@ -253,10 +287,9 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<String
     };
 
     for iter in 0..cold_repeats {
-      let name = format!("{}.{}.{}", function, thread_cnt, iter);
+      let name = format!("{}.{}.{}", &function.name, thread_cnt, iter);
       let version = iter.to_string();
-      let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", function);
-      let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port).await {
+      let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, function.image_name.clone(), 512, host.clone(), port).await {
         Ok(r) => r,
         Err(e) => {
           println!("{}", e);
