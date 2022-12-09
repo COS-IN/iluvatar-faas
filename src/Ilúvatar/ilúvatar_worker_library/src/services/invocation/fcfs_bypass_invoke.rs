@@ -30,7 +30,7 @@ impl FCFSBPEnqueuedInvocation {
 }
 
 fn get_exec_time( cmap: &Arc<CharacteristicsMap>, fname: &String ) -> f64 {
-  let exectime = cmap.lookup(fname.clone(), Characteristics::ExecTime); 
+  let exectime = cmap.lookup(fname, &Characteristics::ExecTime); 
   match exectime {
     Some(x) => {
       unwrap_val_f64( &x )
@@ -196,7 +196,7 @@ impl Invoker for FCFSBypassInvoker {
       match result_ptr.completed {
         true => {
           info!(tid=%queued.tid, "Invocation complete");
-          self.cmap.add( queued.function_name.clone(), Characteristics::ExecTime, Values::F64(result_ptr.exec_time));
+          self.cmap.add( queued.function_name.clone(), Characteristics::ExecTime, Values::F64(result_ptr.exec_time), true);
           Ok( queued.result_ptr.clone() )
         },
         false => {
