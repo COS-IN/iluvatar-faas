@@ -39,7 +39,7 @@ impl MHQEDEnqueuedInvocation {
 }
 
 fn get_exec_time( cmap: &Arc<CharacteristicsMap>, fname: &String ) -> f64 {
-    let exectime = cmap.lookup(fname.clone(), Characteristics::ExecTime); 
+    let exectime = cmap.lookup(fname, &Characteristics::ExecTime); 
     match exectime {
         Some(x) => {
             unwrap_val_f64( &x )
@@ -172,7 +172,7 @@ impl Invoker for MinHeapEDInvoker {
     match result_ptr.completed {
       true => {
         info!(tid=%tid, "Invocation complete");
-        self.cmap.add( function_name, Characteristics::ExecTime, Values::F64(result_ptr.exec_time));
+        self.cmap.add( function_name, Characteristics::ExecTime, Values::F64(result_ptr.exec_time), true);
         Ok( queued.result_ptr.clone() )
       },
       false => {

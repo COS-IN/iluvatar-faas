@@ -4,6 +4,7 @@ use iluvatar_library::transaction::TransactionId;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use self::{queueless::QueuelessInvoker, invoker_trait::Invoker, fcfs_invoke::FCFSInvoker, minheap_invoke::MinHeapInvoker};
 use self::{minheap_ed_invoke::MinHeapEDInvoker, fcfs_bypass_invoke::FCFSBypassInvoker };
+use self::minheap_iat_invoke::MinHeapIATInvoker;
 use super::containers::containermanager::ContainerManager;
 
 pub mod invoker_structs;
@@ -13,6 +14,7 @@ pub mod async_tracker;
 pub mod fcfs_invoke;
 pub mod minheap_invoke;
 pub mod minheap_ed_invoke;
+pub mod minheap_iat_invoke;
 pub mod fcfs_bypass_invoke;
 
 pub struct InvokerFactory {
@@ -46,6 +48,9 @@ impl InvokerFactory {
       },
       "minheap_ed" => {
         MinHeapEDInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid)?
+      },
+      "minheap_iat" => {
+        MinHeapIATInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid)?
       },
       "fcfs_bypass" => {
         FCFSBypassInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid)?
