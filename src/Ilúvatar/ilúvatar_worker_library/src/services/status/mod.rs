@@ -38,6 +38,8 @@ pub struct WorkerStatus {
   ///   Entries may be 0 if an error occured gathering information for a specific cpu
   ///   CPU ID is the entry position
   pub kernel_cpu_freqs: Vec<u64>,
+  /// The number of containers currently in the system
+  pub num_containers: u32,
 }
 
 impl Display for WorkerStatus {

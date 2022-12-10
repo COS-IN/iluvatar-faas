@@ -91,6 +91,16 @@ impl ContainerManager {
       None => 0
     }
   }
+  pub fn num_containers(&self) -> u32 {
+    let mut cnt = 0;
+    unsafe {
+      for (_fqdn, cont_list) in (*self.active_containers.data_ptr()).iter() {
+        cnt += (*cont_list.data_ptr()).len() as u32;
+      }
+    }
+    cnt
+  }
+
   /// Return a permit for the function to run on its registered number of cores
   /// If the semaphore is [None], then no permits are being tracked
   pub fn try_acquire_cores(&self, fqdn: &String) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::TryAcquireError> {

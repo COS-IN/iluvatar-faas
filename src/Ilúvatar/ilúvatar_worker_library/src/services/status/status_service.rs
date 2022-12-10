@@ -48,6 +48,7 @@ impl StatusService {
         num_running_funcs: 0,
         hardware_cpu_freqs: vec![],
         kernel_cpu_freqs: vec![],
+        num_containers: 0
       })),
       worker_thread: handle,
       graphite: GraphiteService::new(graphite_cfg),
@@ -171,6 +172,7 @@ impl StatusService {
     let queue_len = self.invoker_service.queue_len() as i64;
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();
+    let num_containers = self.container_manager.num_containers();
     let running = self.invoker_service.running_funcs();
     let hw_freqs = self.cpu.hardware_cpu_freqs(tid);
     let kernel_freqs = self.cpu.kernel_cpu_freqs(tid);
@@ -187,7 +189,8 @@ impl StatusService {
       num_system_cores: nprocs,
       num_running_funcs: running,
       hardware_cpu_freqs: hw_freqs,
-      kernel_cpu_freqs: kernel_freqs
+      kernel_cpu_freqs: kernel_freqs,
+      num_containers
     });
     info!(tid=%tid, status=%new_status,"current load status");
 
