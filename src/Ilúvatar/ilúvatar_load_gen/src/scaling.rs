@@ -1,7 +1,7 @@
 use std::{time::{Duration, SystemTime}, sync::Arc};
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
-use iluvatar_library::{utils::{config::get_val, port_utils::Port, file_utils::ensure_dir}, transaction::gen_tid};
+use iluvatar_library::{utils::{config::get_val, port_utils::Port, file_utils::ensure_dir}, transaction::gen_tid, logging::LocalTime};
 use tokio::sync::Barrier;
 use tokio::runtime::Builder;
 use crate::utils::{ThreadResult, RegistrationResult, worker_register, worker_invoke, resolve_handles, ErrorHandling, save_result_json, worker_prewarm};
@@ -123,9 +123,10 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
   let start = SystemTime::now();
   let mut data = Vec::new();
   let mut errors = 0;
+  let clock = Arc::new(LocalTime::new(&gen_tid())?);
   loop {
     let tid = format!("{}-{}", thread_id, gen_tid());
-    match worker_invoke(&name, &version, &host, port, &tid, Some("{\"name\":\"TESTING\"}".to_string())).await {
+    match worker_invoke(&name, &version, &host, port, &tid, Some("{\"name\":\"TESTING\"}".to_string()), clock.clone()).await {
       Ok( worker_invocation ) => {
         data.push(worker_invocation);
       },

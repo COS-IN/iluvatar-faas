@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, time::Duration, cmp::min};
 use anyhow::Result;
 use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime};
 use tokio::{runtime::Runtime, task::JoinHandle};
@@ -21,36 +21,46 @@ fn compute_prewarms(f: &Function, default_prewarms: u32) -> u32 {
 }
 
 fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore, default_prewarms: u32) -> Result<HashMap<String, (String, u32)>> {
-  let mut data = HashMap::new();
+  let mut data = Vec::new();
   for (k, v) in bench.data.iter() {
     let tot: f64 = v.warm_results.iter().sum();
+    let avg_cold = v.cold_invoke_duration_us.iter().sum::<u128>() as f64 / v.cold_invoke_duration_us.len() as f64;
     let avg_warm = tot / v.warm_results.len() as f64;
-    data.insert(k.clone(), avg_warm);
+                          // Cold uses E2E duration because of the cold start time needed
+    data.push(( k.clone(), avg_warm*1000.0, avg_cold/1000.0) );
   }
 
   let mut ret = HashMap::new();
+  let mut total_prewarms=0;
   for (_fname, func) in funcs.iter(){
-    let chosen = match &data.iter().min_by(|a, b| safe_cmp(a,b)) {
-      Some(n) => (n.0, n.1),
+    let chosen = match data.iter().min_by(|a, b| safe_cmp(&a.1,&b.1)) {
+      Some(n) => n,
       None => panic!("failed to get a minimum func from {:?}", data),
     };
-    let mut chosen_name = chosen.0;
-    let mut chosen_time = *chosen.1*1000.0;
+    let mut chosen_name = chosen.0.clone();
+    let mut chosen_warm_time = chosen.1;
+    let mut chosen_cold_time = chosen.2;
   
-    for (name, avg_warm) in data.iter() {
-      let avg_warm = avg_warm*1000.0;
-      if func.warm_dur_ms as f64 >= avg_warm && chosen_time < avg_warm {
-        chosen_name = name;
-        chosen_time = avg_warm;
+    for (name, avg_warm, avg_cold) in data.iter() {
+      if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time < *avg_warm {
+        chosen_name = name.clone();
+        chosen_warm_time = *avg_warm;
+        chosen_cold_time = *avg_cold;
       }
     }
     let prewarms = match func.mean_iat {
-      Some(iat) => f64::ceil(chosen_time as f64 / iat) as u32,
+      Some(iat) => {
+        let prewarms = f64::ceil(chosen_cold_time as f64 / iat) as u32;
+        println!("{} -> {} / {} = {}", chosen_name, chosen_cold_time, iat, prewarms);
+        min(prewarms, default_prewarms+10)
+      },
       None => default_prewarms,
     };
+    total_prewarms += prewarms;
     ret.insert( func.func_name.clone(), (format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen_name), prewarms) );
-    println!("{} mapped to function '{}' with {} prewarms", &func.func_name, chosen_name, prewarms);
+    println!("{} mapped to function '{}'", &func.func_name, chosen_name);
   }
+  println!("A total of {} prewarmed containers", total_prewarms);
   Ok(ret)
 }
 

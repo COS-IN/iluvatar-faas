@@ -1,7 +1,7 @@
-use std::{time::Duration, path::Path, fs::File, io::Write};
+use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc};
 use iluvatar_worker_library::{rpc::{RPCWorkerAPI, InvokeResponse}, worker_api::WorkerAPI};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult};
-use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::MemSizeMb};
+use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::MemSizeMb, logging::LocalTime};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use tokio::{runtime::Runtime, task::JoinHandle};
@@ -17,6 +17,24 @@ pub struct ThreadResult {
   pub registration: RegistrationResult,
   pub errors: u64,
 }
+impl Ord for ThreadResult {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    self.thread_id.cmp(&other.thread_id)
+  }
+}
+impl PartialOrd for ThreadResult {
+fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+  self.thread_id.partial_cmp(&other.thread_id)
+}
+}
+impl Eq for ThreadResult {
+}
+impl PartialEq for ThreadResult {
+fn eq(&self, other: &Self) -> bool {
+  self.thread_id == other.thread_id
+}
+}
+
 #[derive(Serialize,Deserialize)]
 pub struct RegistrationResult {
   pub duration_us: u128,
@@ -46,9 +64,10 @@ pub struct CompletedWorkerInvocation {
   pub function_name: String,
   pub function_version: String,
   pub tid: TransactionId,
+  pub invoke_start: String,
 }
 impl CompletedWorkerInvocation {
-  pub fn error(msg: String, name: &String, version: &String, tid: &TransactionId) -> Self {
+  pub fn error(msg: String, name: &String, version: &String, tid: &TransactionId, invoke_start: String) -> Self {
     CompletedWorkerInvocation {
       worker_response: InvokeResponse { json_result: msg, success: false, duration_us: 0 },
       function_output: FunctionExecOutput { body: Body { cold: false, start: 0.0, end: 0.0, latency: 0.0 } },
@@ -56,7 +75,25 @@ impl CompletedWorkerInvocation {
       function_name: name.clone(),
       function_version: version.clone(),
       tid: tid.clone(),
+      invoke_start
     }
+  }
+}
+impl Ord for CompletedWorkerInvocation {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+      self.invoke_start.cmp(&other.invoke_start)
+    }
+}
+impl PartialOrd for CompletedWorkerInvocation {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    self.invoke_start.partial_cmp(&other.invoke_start)
+  }
+}
+impl Eq for CompletedWorkerInvocation {
+}
+impl PartialEq for CompletedWorkerInvocation {
+  fn eq(&self, other: &Self) -> bool {
+    self.invoke_start == other.invoke_start
   }
 }
 
@@ -70,9 +107,10 @@ pub struct CompletedControllerInvocation {
   pub client_latency_us: u128,
   pub function_name: String,
   pub function_version: String,
+  pub invoke_start: String,
 }
 impl CompletedControllerInvocation {
-  pub fn error(msg: String, name: &String, version: &String, tid: Option<&TransactionId>) -> Self {
+  pub fn error(msg: String, name: &String, version: &String, tid: Option<&TransactionId>, invoke_start: String) -> Self {
     let r_tid = match tid {
       Some(t) => t.clone(),
       None => "ERROR_TID".to_string(),
@@ -83,20 +121,39 @@ impl CompletedControllerInvocation {
         client_latency_us: 0,
         function_name: name.clone(),
         function_version: version.clone(),
+        invoke_start
     }
   }
+}
+impl Ord for CompletedControllerInvocation {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    self.invoke_start.cmp(&other.invoke_start)
+  }
+}
+impl PartialOrd for CompletedControllerInvocation {
+fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+  self.invoke_start.partial_cmp(&other.invoke_start)
+}
+}
+impl Eq for CompletedControllerInvocation {
+}
+impl PartialEq for CompletedControllerInvocation {
+fn eq(&self, other: &Self) -> bool {
+  self.invoke_start == other.invoke_start
+}
 }
 
 /// Run an invocation against the controller
 /// Return the [iluvatar_controller_library::load_balancer_api::lb_structs::json::ControllerInvokeResult] result after parsing
 /// also return the latency in milliseconds of the request
-pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>) -> Result<CompletedControllerInvocation> {
+pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>, clock: Arc<LocalTime>) -> Result<CompletedControllerInvocation> {
   let client = reqwest::Client::new();
   let req = Invoke {
     function_name: name.clone(),
     function_version: version.clone(),
     args: args
   };
+  let invoke_start = clock.now_str()?;
   let (invok_out, invok_lat) =  client.post(format!("http://{}:{}/invoke", &host, port))
       .json(&req)
       .header("Content-Type", "application/json")
@@ -108,7 +165,7 @@ pub async fn controller_invoke(name: &String, version: &String, host: &String, p
     {
       let txt = match r.text().await {
           Ok(t) => t,
-          Err(e) => return Ok(CompletedControllerInvocation::error(format!("Get text error: {};", e), &name, &version, None)),
+          Err(e) => return Ok(CompletedControllerInvocation::error(format!("Get text error: {};", e), &name, &version, None, invoke_start)),
       };
       match serde_json::from_str::<ControllerInvokeResult>(&txt) {
         Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
@@ -118,13 +175,14 @@ pub async fn controller_invoke(name: &String, version: &String, host: &String, p
             client_latency_us: invok_lat.as_micros(),
             function_name: name.clone(),
             function_version: version.clone(),
+            invoke_start,
           },
-          Err(e) => CompletedControllerInvocation::error(format!("FunctionExecOutput Deserialization error: {}; {}", e, &txt), &name, &version, Some(&r.tid)),
+          Err(e) => CompletedControllerInvocation::error(format!("FunctionExecOutput Deserialization error: {}; {}", e, &txt), &name, &version, Some(&r.tid), invoke_start),
         },
-        Err(e) => CompletedControllerInvocation::error(format!("ControllerInvokeResult Deserialization error: {}; {}", e, &txt), &name, &version, None),
+        Err(e) => CompletedControllerInvocation::error(format!("ControllerInvokeResult Deserialization error: {}; {}", e, &txt), &name, &version, None, invoke_start),
       }
     },
-    Err(e) => CompletedControllerInvocation::error(format!("Invocation error: {}", e), &name, &version, None),
+    Err(e) => CompletedControllerInvocation::error(format!("Invocation error: {}", e), &name, &version, None, invoke_start),
   };
   Ok(r)
 }
@@ -180,12 +238,14 @@ pub async fn worker_prewarm(name: &String, version: &String, host: &String, port
   }
 }
 
-pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>) -> Result<CompletedWorkerInvocation> {
+pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>, clock: Arc<LocalTime>) -> Result<CompletedWorkerInvocation> {
   let args = match args {
     Some(a) => a,
     None => "{}".to_string(),
   };
   let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
+  let invoke_start = clock.now_str()?;
+
   let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), args, None, tid.clone()).timed().await;
   let c = match invok_out {
     Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
@@ -196,10 +256,11 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
         function_name: name.clone(),
         function_version: version.clone(),
         tid: tid.clone(),
+        invoke_start: invoke_start
       },
-      Err(e) => CompletedWorkerInvocation::error(format!("Deserialization error: {}; {}", e, r.json_result), &name, &version, &tid),
+      Err(e) => CompletedWorkerInvocation::error(format!("Deserialization error: {}; {}", e, r.json_result), &name, &version, &tid, invoke_start),
     },
-    Err(e) => CompletedWorkerInvocation::error(format!("Invocation error: {:?}", e), &name, &version, &tid),
+    Err(e) => CompletedWorkerInvocation::error(format!("Invocation error: {:?}", e), &name, &version, &tid, invoke_start),
   };
   Ok(c)
 }
@@ -213,7 +274,9 @@ pub enum ErrorHandling {
 
 /// Resolve all the tokio threads and return their results
 /// Optionally handle errors from threads
-pub fn resolve_handles<T>(runtime: &Runtime, run_results: Vec<JoinHandle<Result<T>>>, eh: ErrorHandling) -> Result<Vec<T>> {
+pub fn resolve_handles<T>(runtime: &Runtime, run_results: Vec<JoinHandle<Result<T>>>, eh: ErrorHandling) -> Result<Vec<T>>
+  where T : Ord
+{
   let mut ret = vec![];
   for h in run_results {
     match runtime.block_on(h) {
@@ -230,6 +293,7 @@ pub fn resolve_handles<T>(runtime: &Runtime, run_results: Vec<JoinHandle<Result<
       Err(thread_e) => println!("Joining error: {}", thread_e),
     };
   }
+  ret.sort();
   Ok(ret)
 }
 

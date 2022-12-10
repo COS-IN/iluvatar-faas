@@ -3,6 +3,7 @@ use std::time::{SystemTime, Duration};
 use std::{collections::HashMap, path::Path};
 use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
+use iluvatar_library::logging::LocalTime;
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::utils::{config::get_val, port_utils::Port};
 use serde::{Serialize, Deserialize};
@@ -182,6 +183,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
   for function in &functions {
     let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
     println!("{}", function.name);
+    let clock = Arc::new(LocalTime::new(&gen_tid())?);
     for iter in 0..cold_repeats {
       let name = format!("{}-bench-{}", function.name, iter);
       let version = format!("0.0.{}", iter);
@@ -194,7 +196,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
       };
 
       'inner: for _ in 0..warm_repeats {
-        match crate::utils::controller_invoke(&name, &version, &host, port, None).await {
+        match crate::utils::controller_invoke(&name, &version, &host, port, None, clock.clone()).await {
           Ok( invoke_result ) => {
             if invoke_result.controller_response.success {
               let func_exec_us = invoke_result.function_output.body.latency * 1000000.0;
@@ -276,6 +278,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functio
 
 async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenchmarkFunction>, mut cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<Vec<CompletedWorkerInvocation>> {
   let mut ret = vec![];
+  let clock = Arc::new(LocalTime::new(&gen_tid())?);
 
   for function in &functions {
     println!("{}", &function.name);
@@ -302,14 +305,14 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenc
         let timeout = Duration::from_secs(duration_sec);
         let start = SystemTime::now();
         while start.elapsed()? < timeout {
-          match worker_invoke(&name, &version, &host, port, &gen_tid(), None).await {
+          match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone()).await {
             Ok(r) => ret.push(r),
             Err(_) => continue,
           };
         }
       } else {
         for _ in 0..warm_repeats+1 {
-          match worker_invoke(&name, &version, &host, port, &gen_tid(), None).await {
+          match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone()).await {
             Ok(r) => ret.push(r),
             Err(_) => continue,
           };

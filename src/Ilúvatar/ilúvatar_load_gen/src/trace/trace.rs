@@ -130,15 +130,15 @@ pub struct CsvInvocation {
   func_name: String,
   invoke_time_ms: u64,
 }
-pub fn safe_cmp(a:&(&String, &f64), b:&(&String, &f64)) -> std::cmp::Ordering {
-  if a.1.is_nan() && b.1.is_nan() {
+pub fn safe_cmp(a:&f64, b:&f64) -> std::cmp::Ordering {
+  if a.is_nan() && b.is_nan() {
     panic!("cannot compare two nan numbers!")
-  }else if a.1.is_nan() {
+  }else if a.is_nan() {
     std::cmp::Ordering::Greater
-  } else if b.1.is_nan() {
+  } else if b.is_nan() {
     std::cmp::Ordering::Less
   } else {
-    a.1.partial_cmp(&b.1).unwrap()
+    a.partial_cmp(&b).unwrap()
   }
 }
 

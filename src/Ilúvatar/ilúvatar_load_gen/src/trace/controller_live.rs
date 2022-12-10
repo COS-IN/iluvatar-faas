@@ -1,6 +1,6 @@
-use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write};
+use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write, sync::Arc};
 use anyhow::Result;
-use iluvatar_library::utils::{config::get_val, port::Port};
+use iluvatar_library::{utils::{config::get_val, port::Port}, logging::LocalTime, transaction::gen_tid};
 use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
 use crate::utils::{controller_register, controller_invoke, VERSION, CompletedControllerInvocation, resolve_handles, save_result_json};
@@ -33,6 +33,7 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
   let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();
+  let clock = Arc::new(LocalTime::new(&gen_tid())?);
 
   println!("starting live trace run");
 
@@ -56,8 +57,9 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
         Err(_) => (),
       }
     };
+    let clk_cln = clock.clone();
     handles.push(threaded_rt.spawn(async move {
-      controller_invoke(&f_c, &VERSION, &h_c, port, Some(args)).await
+      controller_invoke(&f_c, &VERSION, &h_c, port, Some(args), clk_cln).await
     }));
   }
   let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;

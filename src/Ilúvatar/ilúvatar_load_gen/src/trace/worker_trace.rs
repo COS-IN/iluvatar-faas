@@ -163,8 +163,9 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
     Err(e) => anyhow::bail!("Unable to open trace csv file '{}' because of error '{}'", trace_pth, e),
   };
   let mut handles: Vec<JoinHandle<Result<CompletedWorkerInvocation>>> = Vec::new();
+  let clock = Arc::new(LocalTime::new(tid)?);
 
-  println!("{} starting live trace run", LocalTime::new(tid)?.now_str()?);
+  println!("{} starting live trace run", clock.now_str()?);
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
     let invoke: CsvInvocation = match result {
@@ -186,8 +187,9 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
       }
     };
     
+    let clk_clone = clock.clone();
     handles.push(threaded_rt.spawn(async move {
-      worker_invoke(&f_c, &VERSION, &h_c, port, &gen_tid(), Some(args)).await
+      worker_invoke(&f_c, &VERSION, &h_c, port, &gen_tid(), Some(args), clk_clone).await
     }));
   }
 
