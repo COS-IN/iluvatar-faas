@@ -75,14 +75,15 @@ fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore,
       0
     };
 
-    let prewarms = match func.mean_iat {
+    let mut prewarms = match func.mean_iat {
       Some(iat) => {
         let prewarms = f64::ceil(chosen_cold_time as f64 / iat) as u32;
-        println!("{} -> {} / {} = {}", chosen_name, chosen_cold_time, iat, prewarms);
+        // println!("{} -> {} / {} = {}", chosen_name, chosen_cold_time, iat, prewarms);
         min(prewarms, default_prewarms+10)
       },
       None => default_prewarms,
     };
+    prewarms = std::cmp::max(prewarms, little_prewarms);
     println!("'{}' little prewarms {} vs IAT {} ", &func.func_name, little_prewarms, prewarms);
     total_prewarms += prewarms;
     ret.insert( func.func_name.clone(), (format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen_name), prewarms) );
@@ -186,7 +187,6 @@ pub fn prepare_functions(target: RegisterTarget, funcs: &HashMap<String, Functio
 fn live_prepare_worker(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, 
                       func_data: Result<String>, prewarms: u32, rt: &Runtime, trace_pth: &String) -> Result<()> {
   let prep_data = map_functions_to_prep(load_type, func_data, &funcs, prewarms, trace_pth)?;
-  // let mut func_iter = funcs.into_iter();
   wait_reg(&funcs, &prep_data, load_type, rt, port, host)?;
 
   live_prewarm_functions(&prep_data, host, port, rt)?;
