@@ -7,8 +7,8 @@ use crate::utils::{controller_register, controller_invoke, VERSION, CompletedCon
 use crate::trace::{CsvInvocation, prepare_function_args, trace_utils::map_functions_to_prep};
 use super::Function;
 
-async fn register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>) -> Result<()> {
-  let prep_data = map_functions_to_prep(load_type, func_data, &funcs, 0)?;
+async fn register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>, trace_pth: &String) -> Result<()> {
+  let prep_data = map_functions_to_prep(load_type, func_data, &funcs, 0, trace_pth)?;
   for (fid, func) in funcs.into_iter() {
     let image = &prep_data.get(&func.func_name).ok_or_else(|| anyhow::anyhow!("Unable to get prep data for function '{}'", fid))?.0;
     println!("{}, {}", func.func_name, image);
@@ -29,7 +29,7 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
       .enable_all()
       .build().unwrap();
 
-  threaded_rt.block_on(register_functions(&metadata, &host, port, &load_type, func_data))?;
+  threaded_rt.block_on(register_functions(&metadata, &host, port, &load_type, func_data, &trace_pth))?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
   let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();

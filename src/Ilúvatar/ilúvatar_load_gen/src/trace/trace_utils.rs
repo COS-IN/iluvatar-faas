@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::Duration, cmp::min};
 use anyhow::Result;
 use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime};
 use tokio::{runtime::Runtime, task::JoinHandle};
-use crate::{utils::{worker_register, VERSION, worker_prewarm}, benchmark::BenchmarkStore, trace::safe_cmp};
+use crate::{utils::{worker_register, VERSION, worker_prewarm}, benchmark::BenchmarkStore, trace::{safe_cmp, CsvInvocation}};
 use super::Function;
 
 #[allow(unused)]
@@ -20,7 +20,8 @@ fn compute_prewarms(f: &Function, default_prewarms: u32) -> u32 {
   default_prewarms
 }
 
-fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore, default_prewarms: u32) -> Result<HashMap<String, (String, u32)>> {
+fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore, 
+                      default_prewarms: u32, trace_pth: &String) -> Result<HashMap<String, (String, u32)>> {
   let mut data = Vec::new();
   for (k, v) in bench.data.iter() {
     let tot: f64 = v.warm_results.iter().sum();
@@ -28,6 +29,26 @@ fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore,
     let avg_warm = tot / v.warm_results.len() as f64;
                           // Cold uses E2E duration because of the cold start time needed
     data.push(( k.clone(), avg_warm*1000.0, avg_cold/1000.0) );
+  }
+  
+  let mut invocations = HashMap::new();
+  let mut trace_rdr = match csv::Reader::from_path(trace_pth) {
+    Ok(r) => r,
+    Err(e) => anyhow::bail!("Unable to open trace csv file '{}' because of error '{}'", trace_pth, e),
+  };
+  for result in trace_rdr.deserialize::<CsvInvocation>() {
+    match result {
+      Ok(i) => {
+        if i.invoke_time_ms > 5*60*1000 {
+          break;
+        }
+        match invocations.get_mut(&i.func_name) {
+          Some(entry) => *entry += 1,
+          None => {invocations.insert(i.func_name, 1);},
+        }
+      },
+      Err(e) => anyhow::bail!("Error deserializing csv invocation: {}", e),
+    };
   }
 
   let mut ret = HashMap::new();
@@ -48,6 +69,12 @@ fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore,
         chosen_cold_time = *avg_cold;
       }
     }
+    let little_prewarms = if let Some(invokes) = invocations.get(&func.func_name) {
+      f64::ceil( (*invokes as f64 / 60.0) / (1000.0 / chosen_warm_time) ) as u32
+    } else {
+      0
+    };
+
     let prewarms = match func.mean_iat {
       Some(iat) => {
         let prewarms = f64::ceil(chosen_cold_time as f64 / iat) as u32;
@@ -56,6 +83,7 @@ fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore,
       },
       None => default_prewarms,
     };
+    println!("'{}' little prewarms {} vs IAT {} ", &func.func_name, little_prewarms, prewarms);
     total_prewarms += prewarms;
     ret.insert( func.func_name.clone(), (format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen_name), prewarms) );
     println!("{} mapped to function '{}'", &func.func_name, chosen_name);
@@ -80,7 +108,8 @@ fn map_from_metadata(funcs: &HashMap<String, Function>, default_prewarms: u32) -
   Ok(ret)
 }
 
-pub fn map_functions_to_prep(load_type: &str, func_json_data: Result<String>, funcs: &HashMap<String, Function>, default_prewarms: u32) -> Result<HashMap<String, (String, u32)>> {
+pub fn map_functions_to_prep(load_type: &str, func_json_data: Result<String>, funcs: &HashMap<String, Function>, 
+                            default_prewarms: u32, trace_pth: &String) -> Result<HashMap<String, (String, u32)>> {
   match load_type {
     "lookbusy" => { return map_from_lookbusy(funcs, default_prewarms); },
     "functions" => {
@@ -89,7 +118,7 @@ pub fn map_functions_to_prep(load_type: &str, func_json_data: Result<String>, fu
         let contents = std::fs::read_to_string(func_json_data).expect("Something went wrong reading the benchmark file");
         match serde_json::from_str::<BenchmarkStore>(&contents) {
           Ok(d) => {
-            return map_from_benchmark(funcs, &d, default_prewarms);
+            return map_from_benchmark(funcs, &d, default_prewarms, trace_pth);
           },
           Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
         }
@@ -144,17 +173,19 @@ fn live_prewarm_functions(prewarm_data: &HashMap<String, (String, u32)>, host: &
 }
 
 pub fn prepare_functions(target: RegisterTarget, funcs: &HashMap<String, Function>, host: &String, 
-                          port: Port, load_type: &str, func_data: Result<String>, rt: &Runtime, prewarms: u32) -> Result<()> {
+                          port: Port, load_type: &str, func_data: Result<String>, rt: &Runtime, 
+                          prewarms: u32, trace_pth: &String) -> Result<()> {
   match target {
-    RegisterTarget::LiveWorker => live_prepare_worker(&funcs, host, port, load_type, func_data, prewarms, rt),
+    RegisterTarget::LiveWorker => live_prepare_worker(&funcs, host, port, load_type, func_data, prewarms, rt, trace_pth),
     RegisterTarget::LiveController => todo!(),
     RegisterTarget::SimWorker => todo!(),
     RegisterTarget::SimController => todo!(),
   }
 }
 
-fn live_prepare_worker(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>, prewarms: u32, rt: &Runtime) -> Result<()> {
-  let prep_data = map_functions_to_prep(load_type, func_data, &funcs, prewarms)?;
+fn live_prepare_worker(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, 
+                      func_data: Result<String>, prewarms: u32, rt: &Runtime, trace_pth: &String) -> Result<()> {
+  let prep_data = map_functions_to_prep(load_type, func_data, &funcs, prewarms, trace_pth)?;
   // let mut func_iter = funcs.into_iter();
   wait_reg(&funcs, &prep_data, load_type, rt, port, host)?;
 
