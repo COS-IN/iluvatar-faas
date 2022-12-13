@@ -29,8 +29,11 @@ pub async fn monitor_queue<T: Invoker + 'static>(invoker_svc: Arc<T>, _tid: Tran
     }
   }
 }
-pub fn create_concurrency_semaphore(permits: u32) -> Arc<Semaphore> {
-  Arc::new(Semaphore::new(permits as usize))
+pub fn create_concurrency_semaphore(permits: u32) -> Result<Arc<Semaphore>> {
+  match permits {
+    0 => anyhow::bail!("Invoker concurrency semaphore cannot have 0 permits"),
+    p => Ok(Arc::new(Semaphore::new(p as usize)))
+  }
 }
 
 #[tonic::async_trait]

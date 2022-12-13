@@ -95,7 +95,7 @@ impl MinHeapEDInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(MinHeapEDInvoker::wait_on_queue), Some(function_config.cpu_max as usize));
     let svc = Arc::new(MinHeapEDInvoker {
-      concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes),
+      concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
       cont_manager,
       function_config,
       invocation_config,

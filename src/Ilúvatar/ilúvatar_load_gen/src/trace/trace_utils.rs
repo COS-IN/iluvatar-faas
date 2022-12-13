@@ -78,8 +78,9 @@ fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore,
     let mut prewarms = match func.mean_iat {
       Some(iat) => {
         let prewarms = f64::ceil(chosen_cold_time as f64 / iat) as u32;
-        // println!("{} -> {} / {} = {}", chosen_name, chosen_cold_time, iat, prewarms);
-        min(prewarms, default_prewarms+10)
+        // let warm_prewarms = f64::ceil(chosen_warm_time as f64 / iat) as u32;
+        // println!("{} -> {} / {} = {} OR {} / {} = {}", chosen_name, chosen_cold_time, iat, prewarms, chosen_warm_time, iat, warm_prewarms);
+        min(prewarms, default_prewarms+20)
       },
       None => default_prewarms,
     };

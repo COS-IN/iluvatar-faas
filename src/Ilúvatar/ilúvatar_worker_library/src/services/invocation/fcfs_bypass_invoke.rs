@@ -82,7 +82,7 @@ impl FCFSBypassInvoker {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(FCFSBypassInvoker::wait_on_queue), Some(function_config.cpu_max as usize));
     let bypass_dur = Duration::from_millis(invocation_config.bypass_duration_ms.ok_or_else(|| anyhow::anyhow!("bypass_duration_ms was not present in InvocationConfig"))?).as_secs_f64();
     let svc = Arc::new(FCFSBypassInvoker {
-      concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes),
+      concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
       bypass_dur: bypass_dur,
       cont_manager,
       function_config,
