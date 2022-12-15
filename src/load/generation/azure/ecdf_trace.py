@@ -18,7 +18,7 @@ argparser.add_argument("--force", '-f', action='store_true', help="Overwrite an 
 argparser.add_argument("--duration", type=int, help="The length in minutes of the trace", default=60)
 args = argparser.parse_args()
 
-dataset = join_day_one(args.data_path, args.force)
+dataset = join_day_one(args.data_path, args.force, ecfds=True)
 
 trace = []
 function_metadata = []
@@ -36,12 +36,12 @@ if not (os.path.exists(metadata_save_pth) and os.path.exists(trace_save_pth)) or
   for index, row in rows.iterrows():
     map_args.append( (index[:10], row, args.duration) )
 
-  pool = mp.Pool()
+  pool = mp.Pool(30)
   ret = pool.starmap(ecdf_trace_row, map_args)
 
-  for traced_row, (func_name, cold_dur, warm_dur, mem) in ret:
+  for traced_row, (func_name, cold_dur, warm_dur, mem, mean_iat) in ret:
     trace += traced_row
-    function_metadata.append((func_name, cold_dur, warm_dur, mem))
+    function_metadata.append((func_name, cold_dur, warm_dur, mem, mean_iat))
 
   out_trace = sorted(trace, key=lambda x:x[1])
 
@@ -50,3 +50,5 @@ if not (os.path.exists(metadata_save_pth) and os.path.exists(trace_save_pth)) or
   print("done", trace_save_pth)
   print("warm_pct, max_mem, max_running, mean_running, running_75th, running_90th")
   print(*run_trace_csv(trace_save_pth, 0.80, metadata_save_pth))
+  print(*run_trace_csv(trace_save_pth, 0.90, metadata_save_pth))
+  print(*run_trace_csv(trace_save_pth, 0.99, metadata_save_pth))

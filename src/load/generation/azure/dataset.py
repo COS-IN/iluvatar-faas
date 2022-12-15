@@ -9,7 +9,7 @@ from statsmodels.distributions.empirical_distribution import ECDF
 
 buckets = [str(i) for i in range(1, 1441)]
 
-def ecdf(row):
+def ecdf(index, row):
   iats = compute_row_iat(row)
   iats.sort()
   cdf = ECDF(iats)
@@ -71,7 +71,7 @@ def insert_ecdfs(df: pd.DataFrame, debug: bool) -> pd.DataFrame:
   if debug:
     print("Computing ECDFs")
   p = mp.Pool()
-  ecdf_data = p.map(ecdf, df.iterrows())
+  ecdf_data = p.starmap(ecdf, df.iterrows())
   df["ecdf_xs"] = list(map(lambda x: x[0], ecdf_data))
   df["ecdf_ys"] = list(map(lambda x: x[1], ecdf_data))
   return df
@@ -154,7 +154,7 @@ def join_day_one(datapath: str, force: bool, debug: bool = False, iats: bool = T
   else:
     raise Exception("unable to generate dataframe, fell through")
 
-def iat_trace_row(func_name, row, duration_min:int):
+def iat_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
   """
   Create invocations for the function using the function's IAT
   """
@@ -173,10 +173,10 @@ def iat_trace_row(func_name, row, duration_min:int):
     sample = int(rng.normal(loc=mean, scale=std))
     while sample < 0:
       sample = int(rng.normal(loc=mean, scale=std))
-    time += sample
-    trace.append( (func_name, time) )
+    time += (sample * scale)
+    trace.append(time)
 
-  # print(func_name, mean, std, len(trace))
+  trace = [ (func_name, int(t)) for t in trace if t < end_ms]
   return trace, (func_name, cold_dur, warm_dur, mem, mean)
 
 def real_trace_row(func_name, row, min_start=0, min_end=1440):
@@ -208,26 +208,47 @@ def ecdf_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
   """
   Create invocations for the function using the function's ECDF
   """
-  xs, ys, iats = ecdf(row)
+  mean_iat_ms = float(row["IAT_mean"])
+  if "ecdf_xs" in row:
+    xs = row["ecdf_xs"]
+    ys = row["ecdf_ys"]
+  else:
+    xs, ys, iats = ecdf(func_name, row)
   secs_p_min = 60
   milis_p_sec = 1000
-  trace = list()
   cold_dur = int(row["Maximum"])
   warm_dur = int(row["percentile_Average_25"])
   mem = int(row["divvied"])
   rng = np.random.default_rng(None)
 
-  time = 0
   end_ms = duration_min * secs_p_min * milis_p_sec
+  expected_invokes = ceil(end_ms / mean_iat_ms)
+  for i, x in enumerate(xs):
+    if x >= 0:
+      a = ys[i]
+      break
+  else:
+    raise Exception("No positive number found")
+  for i in range(len(xs)-1, 0, -1):
+    if xs[i] < np.inf:
+      b = ys[i]
+      break
+  else:
+    raise Exception("No non-inf number found")
+  bulk = (b-a)*rng.random(expected_invokes) + a
+  trace = np.interp(bulk, ys, xs) * scale
+  trace = np.cumsum(trace)
+  trace = trace.tolist()
+  time = trace[-1]
   while time < end_ms:
     point = np.interp([rng.random()], ys, xs)
     while point == -float('inf'):
       point = np.interp([rng.random()], ys, xs)
 
     time += (point * scale)
-    trace.append( (func_name, float(time)) )
-
-  return trace, (func_name, cold_dur, warm_dur, mem, float(row["IAT_mean"]))
+    trace.append( float(time) )
+  trace = [ (func_name, int(t)) for t in trace if t < end_ms]
+  return trace, (func_name, cold_dur, warm_dur, mem, mean_iat_ms)
 
 def divive_by_func_num(row, grouped_by_app):
     return ceil(row["AverageAllocatedMb"] / grouped_by_app[row["HashApp"]])
