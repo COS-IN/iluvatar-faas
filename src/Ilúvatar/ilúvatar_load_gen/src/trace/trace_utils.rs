@@ -1,8 +1,8 @@
-use std::{collections::HashMap, time::Duration, cmp::min};
+use std::{collections::HashMap, time::Duration, cmp::{min, max}};
 use anyhow::Result;
 use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime};
 use tokio::{runtime::Runtime, task::JoinHandle};
-use crate::{utils::{worker_register, VERSION, worker_prewarm}, benchmark::BenchmarkStore, trace::{safe_cmp, CsvInvocation}};
+use crate::{utils::{worker_register, VERSION, worker_prewarm}, benchmark::BenchmarkStore, trace::safe_cmp};
 use super::Function;
 
 #[allow(unused)]
@@ -21,36 +21,16 @@ fn compute_prewarms(f: &Function, default_prewarms: u32) -> u32 {
 }
 
 fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore, 
-                      default_prewarms: u32, trace_pth: &String) -> Result<HashMap<String, (String, u32)>> {
+                      default_prewarms: u32, _trace_pth: &String) -> Result<HashMap<String, (String, u32)>> {
   let mut data = Vec::new();
   for (k, v) in bench.data.iter() {
-    let tot: f64 = v.warm_results.iter().sum();
-    let avg_cold = v.cold_invoke_duration_us.iter().sum::<u128>() as f64 / v.cold_invoke_duration_us.len() as f64;
-    let avg_warm = tot / v.warm_results.len() as f64;
+    let tot: u128 = v.warm_invoke_duration_us.iter().sum();
+    let avg_cold_us = v.cold_invoke_duration_us.iter().sum::<u128>() as f64 / v.cold_invoke_duration_us.len() as f64;
+    let avg_warm_us = tot as f64 / v.warm_invoke_duration_us.len() as f64;
                           // Cold uses E2E duration because of the cold start time needed
-    data.push(( k.clone(), avg_warm*1000.0, avg_cold/1000.0) );
+    data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
   }
   
-  let mut invocations = HashMap::new();
-  let mut trace_rdr = match csv::Reader::from_path(trace_pth) {
-    Ok(r) => r,
-    Err(e) => anyhow::bail!("Unable to open trace csv file '{}' because of error '{}'", trace_pth, e),
-  };
-  for result in trace_rdr.deserialize::<CsvInvocation>() {
-    match result {
-      Ok(i) => {
-        if i.invoke_time_ms > 5*60*1000 {
-          break;
-        }
-        match invocations.get_mut(&i.func_name) {
-          Some(entry) => *entry += 1,
-          None => {invocations.insert(i.func_name, 1);},
-        }
-      },
-      Err(e) => anyhow::bail!("Error deserializing csv invocation: {}", e),
-    };
-  }
-
   let mut ret = HashMap::new();
   let mut total_prewarms=0;
   for (_fname, func) in funcs.iter(){
@@ -59,33 +39,27 @@ fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore,
       None => panic!("failed to get a minimum func from {:?}", data),
     };
     let mut chosen_name = chosen.0.clone();
-    let mut chosen_warm_time = chosen.1;
-    let mut chosen_cold_time = chosen.2;
+    let mut chosen_warm_time_ms = chosen.1;
+    let mut chosen_cold_time_ms = chosen.1;
   
     for (name, avg_warm, avg_cold) in data.iter() {
-      if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time < *avg_warm {
+      if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
         chosen_name = name.clone();
-        chosen_warm_time = *avg_warm;
-        chosen_cold_time = *avg_cold;
+        chosen_warm_time_ms = *avg_warm;
+        chosen_cold_time_ms = *avg_cold;
       }
     }
-    let little_prewarms = if let Some(invokes) = invocations.get(&func.func_name) {
-      f64::ceil( (*invokes as f64 / 60.0) / (1000.0 / chosen_warm_time) ) as u32
-    } else {
-      0
-    };
 
-    let mut prewarms = match func.mean_iat {
-      Some(iat) => {
-        let prewarms = f64::ceil(chosen_cold_time as f64 / iat) as u32;
-        // let warm_prewarms = f64::ceil(chosen_warm_time as f64 / iat) as u32;
-        // println!("{} -> {} / {} = {} OR {} / {} = {}", chosen_name, chosen_cold_time, iat, prewarms, chosen_warm_time, iat, warm_prewarms);
-        min(prewarms, default_prewarms+20)
+    let prewarms = match func.mean_iat {
+      Some(iat_ms) => {
+        let mut prewarms = f64::ceil(chosen_warm_time_ms * 1.0/iat_ms) as u32;
+        let cold_prewarms = f64::ceil(chosen_cold_time_ms * 1.0/iat_ms) as u32;
+        println!("{}'s IAT of {} -> {} * {} = {} OR {} = {}", chosen_name, iat_ms, chosen_warm_time_ms, 1.0/iat_ms, prewarms, chosen_cold_time_ms, cold_prewarms);
+        prewarms = max(prewarms, cold_prewarms);
+        min(prewarms, default_prewarms+30)
       },
       None => default_prewarms,
     };
-    prewarms = std::cmp::max(prewarms, little_prewarms);
-    println!("'{}' little prewarms {} vs IAT {} ", &func.func_name, little_prewarms, prewarms);
     total_prewarms += prewarms;
     ret.insert( func.func_name.clone(), (format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen_name), prewarms) );
     println!("{} mapped to function '{}'", &func.func_name, chosen_name);
