@@ -17,13 +17,6 @@ But that's either
 1. A lot of work
 1. Maybe not possible
 
-## Bridge is full
-
-A network bridge in linux can only have 1024 veth devices attached to it.
-We must either
-1. Remove unused containers from the brigde to make room for new ones (eviction)
-2. Increase the number of containers we can support, by running multiple bridges/
-
 ## Switch/Enable networking via unix sockets
 
 Using HTTP connections to send/receive invocations has some networking overhead and scaling issues at high throughput.
@@ -35,20 +28,6 @@ A few solutions exist, with the first probably being the best one.
 2. Posix message queues
 3. Linux pipes
 4. Dbus messages
-
-## Concurrent container creation in Containerd
-
-When a significant number of concurrent requests are handled by the worker, Containerd can experience significant contention and essentially freeze the program.
-The exact call happens inside `ContainerdLifecycle::load_mounts`.
-
-1. Figure out what in containerd is causing this.
-1. Solve that problem
-
-## High CPU usage after large number of containers made
-
-After an experiment (~ 1 hour running) the CPU usage of the worker is higher than at the start.
-Is this the container manager worker thread?
-What can be done?
 
 ## Limit frequency of container checking
 
@@ -62,13 +41,6 @@ A worker's host may have variable capabilities and hardware.
 We should be able to run functions on multiple containerization backend setups if they can be run.
 I.e. docker+GPU, containerd, etc.
 The function registration should container the information on which backend it runs on.
-
-## Enforce CPU limits
-
-Functions can request a specific number of CPU cores to have access to when executing.
-Currently we just use processor shares on cgroups.
-These allow a function to use several cores if nothing else is running on them.
-Bad for a number of reasons.
 
 ## Retry on prewarm
 
@@ -95,12 +67,6 @@ Putting this as a linux daemon with the start/stop/restart paradigm would be bet
 Currently worker registration with the controller always happens, and on failure an error is added to the log.
 This whole process should be skipped based on config.
 If registration is attempted and fails, the worker should exit.
-
-## Queueless async invocations
-
-Currently they aren't started running at all.
-A minor problem...
-Only for the queueless impl
 
 ## Split running and cached memory usage
 
