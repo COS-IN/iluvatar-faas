@@ -2,7 +2,8 @@ use std::sync::Arc;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values,unwrap_val_f64}};
+use iluvatar_library::characteristics_map::compare_f64;
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values}};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -13,7 +14,6 @@ use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper,
 use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
-use ordered_float::OrderedFloat;     
 
 #[derive(Debug)]
 pub struct MHQEnqueuedInvocation {
@@ -29,32 +29,11 @@ impl MHQEnqueuedInvocation {
         }
     }
 }
-
-fn get_exec_time( cmap: &Arc<CharacteristicsMap>, fname: &String ) -> f64 {
-    let exectime = cmap.lookup( fname, &Characteristics::ExecTime); 
-    match exectime {
-        Some(x) => {
-            unwrap_val_f64( &x )
-        }
-        None => {
-            0.0
-        }
-    }
-}
-
 impl Eq for MHQEnqueuedInvocation {
 }
-
-fn compare_f64( lhs: &f64, rhs: &f64 ) -> Ordering {
-    let lhs: OrderedFloat<f64> = OrderedFloat( *lhs );
-    let rhs: OrderedFloat<f64> = OrderedFloat( *rhs );
-
-    rhs.cmp(&lhs)
-}
-
 impl Ord for MHQEnqueuedInvocation {
  fn cmp(&self, other: &Self) -> Ordering {
-     compare_f64( &self.exectime, &other.exectime )
+    compare_f64( &self.exectime, &other.exectime )
  }
 }
 
@@ -174,7 +153,7 @@ impl Invoker for MinHeapInvoker {
   }
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    queue.push(MHQEnqueuedInvocation::new(item.clone(), get_exec_time( &self.cmap, &item.function_name )).into());
+    queue.push(MHQEnqueuedInvocation::new(item.clone(), self.cmap.get_exec_time(&item.function_name )).into());
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.function_name,

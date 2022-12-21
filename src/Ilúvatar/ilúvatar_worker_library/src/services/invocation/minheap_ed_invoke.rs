@@ -3,7 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values,unwrap_val_f64}};
+use iluvatar_library::characteristics_map::compare_f64;
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values}};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -14,7 +15,6 @@ use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper,
 use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
-use ordered_float::OrderedFloat;     
 
 fn time_since_epoch() -> f64 {
     let start = SystemTime::now();
@@ -38,38 +38,19 @@ impl MHQEDEnqueuedInvocation {
     }
 }
 
-fn get_exec_time( cmap: &Arc<CharacteristicsMap>, fname: &String ) -> f64 {
-    let exectime = cmap.lookup(fname, &Characteristics::ExecTime); 
-    match exectime {
-        Some(x) => {
-            unwrap_val_f64( &x )
-        }
-        None => {
-            0.0
-        }
-    }
-}
-
 impl Eq for MHQEDEnqueuedInvocation {
-}
-
-fn compare_f64( lhs: &f64, rhs: &f64 ) -> Ordering {
-    let lhs: OrderedFloat<f64> = OrderedFloat( *lhs );
-    let rhs: OrderedFloat<f64> = OrderedFloat( *rhs );
-
-    rhs.cmp(&lhs)
 }
 
 impl Ord for MHQEDEnqueuedInvocation {
  fn cmp(&self, other: &Self) -> Ordering {
-     compare_f64( &self.deadline, &other.deadline )
+    compare_f64( &self.deadline, &other.deadline )
  }
 }
 
 impl PartialOrd for MHQEDEnqueuedInvocation {
  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-     Some(compare_f64( &self.deadline, &other.deadline ))
- }
+    Some(compare_f64( &self.deadline, &other.deadline ))
+  }
 }
 
 impl PartialEq for MHQEDEnqueuedInvocation {
@@ -182,7 +163,7 @@ impl Invoker for MinHeapEDInvoker {
   }
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    let deadline = get_exec_time( &self.cmap, &item.function_name ) + time_since_epoch();
+    let deadline = self.cmap.get_exec_time(&item.function_name) + time_since_epoch();
     queue.push(MHQEDEnqueuedInvocation::new(item.clone(), deadline ).into());
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),

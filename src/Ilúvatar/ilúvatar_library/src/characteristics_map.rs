@@ -1,7 +1,9 @@
 use dashmap::DashMap;
+use std::cmp::Ordering;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error};
+use ordered_float::OrderedFloat;
 
 #[derive(Debug)]
 pub enum Values {
@@ -29,6 +31,11 @@ pub fn unwrap_val_f64 ( value: &Values ) -> f64 {
             0.0     
         }
     }
+}
+pub fn compare_f64( lhs: &f64, rhs: &f64 ) -> Ordering {
+  let lhs: OrderedFloat<f64> = OrderedFloat( *lhs );
+  let rhs: OrderedFloat<f64> = OrderedFloat( *rhs );
+  rhs.cmp(&lhs)
 }
 
 pub fn unwrap_val_u64 ( value: &Values ) -> u64 {
@@ -167,6 +174,15 @@ impl CharacteristicsMap {
        let v = v.value();
 
        Some( self.clone_value( v ) )
+    }
+    /// Returns the execution time as tracked by [Characteristics::ExecTime]
+    /// Returns 0.0 if it was not found, or an error occured
+    pub fn get_exec_time(&self, fname: &String ) -> f64 {
+      if let Some(exectime) = self.lookup(fname, &Characteristics::ExecTime) {
+        unwrap_val_f64( &exectime )
+      } else {
+        0.0
+      }
     }
     
     pub fn clone_value( &self, value: &Values ) -> Values {

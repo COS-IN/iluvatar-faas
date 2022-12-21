@@ -2,6 +2,7 @@ use std::sync::Arc;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
+use iluvatar_library::characteristics_map::compare_f64;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,unwrap_val_f64}};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
@@ -12,8 +13,7 @@ use super::invoker_structs::InvocationResultPtr;
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
-use std::cmp::Ordering;
-use ordered_float::OrderedFloat;     
+use std::cmp::Ordering;  
 
 #[derive(Debug)]
 pub struct MHQIATEnqueuedInvocation {
@@ -45,23 +45,16 @@ fn get_iat( cmap: &Arc<CharacteristicsMap>, fname: &String ) -> f64 {
 impl Eq for MHQIATEnqueuedInvocation {
 }
 
-fn compare_f64( lhs: &f64, rhs: &f64 ) -> Ordering {
-    let lhs: OrderedFloat<f64> = OrderedFloat( *lhs );
-    let rhs: OrderedFloat<f64> = OrderedFloat( *rhs );
-
-    rhs.cmp(&lhs)
-}
-
 impl Ord for MHQIATEnqueuedInvocation {
  fn cmp(&self, other: &Self) -> Ordering {
-     compare_f64( &self.iat, &other.iat )
- }
+    compare_f64( &self.iat, &other.iat )
+  }
 }
 
 impl PartialOrd for MHQIATEnqueuedInvocation {
  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-     Some(compare_f64( &self.iat, &other.iat ))
- }
+    Some(compare_f64( &self.iat, &other.iat ))
+  }
 }
 
 impl PartialEq for MHQIATEnqueuedInvocation {
