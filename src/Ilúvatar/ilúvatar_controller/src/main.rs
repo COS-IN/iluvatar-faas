@@ -2,15 +2,15 @@ use actix_web::{web::Data, App, HttpServer};
 use iluvatar_library::logging::start_tracing;
 use iluvatar_library::transaction::{LOAD_BALANCER_TID, TransactionId};
 use iluvatar_library::utils::config_utils::get_val;
+use iluvatar_library::utils::wait_for_exit_signal;
 use tracing::info;
 use crate::args::parse;
 use iluvatar_controller_library::controller::{controller::Controller, config::Configuration, web_server::*};
-use signal_hook::{consts::signal::{SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT}, iterator::Signals};
 
 pub mod args;
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> anyhow::Result<()> {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
   let tid: &TransactionId = &LOAD_BALANCER_TID;
   let args = parse();
@@ -21,9 +21,6 @@ async fn main() -> std::io::Result<()> {
 
   let server = Controller::new(config.clone(), tid);
   let server_data = Data::new(server);
-
-  let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
-  let mut signals = Signals::new(&sigs)?;
 
   info!(tid=%tid, "Controller started!");
 
@@ -41,13 +38,6 @@ async fn main() -> std::io::Result<()> {
   .bind((config.address.clone(), config.port))?
   .run());
 
-  'outer: for signal in &mut signals {
-    match signal {
-      _term_sig => { // got a termination signal
-        break 'outer;
-      }
-    }
-  }
-  iluvatar_library::continuation::GLOB_CONT_CHECK.signal_application_exit(tid);
+  wait_for_exit_signal(tid).await?;
   Ok(())
 }

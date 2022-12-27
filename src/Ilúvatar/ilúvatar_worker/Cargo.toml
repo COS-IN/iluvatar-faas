@@ -15,4 +15,3 @@ tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-uti
 anyhow = "1.0.13"
 clap = "3"
 tracing = "0.1"
-signal-hook = "0.3"

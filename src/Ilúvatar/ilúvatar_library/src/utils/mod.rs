@@ -14,8 +14,9 @@ use crate::transaction::TransactionId;
 use crate::bail_error;
 use std::collections::HashMap;
 use std::process::{Command, Output, Child, Stdio};
-use tracing::debug;
+use tracing::{debug, info};
 use anyhow::Result;
+use tokio::signal::unix::{signal, SignalKind, Signal};
 
 /// get the fully qualified domain name for a function from its name and version
 pub fn calculate_fqdn(function_name: &String, function_version: &String) -> String {
@@ -75,6 +76,34 @@ pub fn execute_cmd_nonblocking<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&Ha
   }
 }
 
+/// Waits for an expected exit signal from the OS
+/// Any of these: sigint, sig_term, sig_usr1, sig_usr2, sig_quit
+/// Notifies [crate::continuation::GLOB_CONT_CHECK] of the impending exit
+pub async fn wait_for_exit_signal(tid: &TransactionId) -> Result<()> {
+  let mut sig_int = try_create_signal(tid, SignalKind::interrupt())?;
+  let mut sig_term = try_create_signal(tid, SignalKind::terminate())?;
+  let mut sig_usr1 = try_create_signal(tid, SignalKind::user_defined1())?;
+  let mut sig_usr2 = try_create_signal(tid, SignalKind::user_defined2())?;
+  let mut sig_quit = try_create_signal(tid, SignalKind::quit())?;
+
+  info!(tid=%tid, "Waiting on exit signal");
+  tokio::select! {
+    res = sig_int.recv() => res,
+    res = sig_term.recv() => res,
+    res = sig_usr1.recv() => res,
+    res = sig_usr2.recv() => res,
+    res = sig_quit.recv() => res,
+  };
+  crate::continuation::GLOB_CONT_CHECK.signal_application_exit(tid);
+  Ok(())
+}
+fn try_create_signal(tid: &TransactionId, kind: SignalKind) -> Result<Signal> {
+  match signal(kind) {
+    Ok(s) => Ok(s),
+    Err(e) => bail_error!(error=%e, tid=%tid, kind=kind.as_raw_value(), "Failed to create signal"),
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -108,5 +137,37 @@ mod tests {
   fn format_fqdn(#[case] name: &str, #[case] version: &str, #[case] expected: &str){
     let ans = calculate_fqdn(&name.to_string(), &version.to_string());
     assert_eq!(expected, ans);
+  }
+}
+#[cfg(test)]
+mod signal_tests {
+  use super::*;
+  use rstest::rstest;
+
+  #[rstest]
+  #[case(SignalKind::interrupt())]
+  #[case(SignalKind::terminate())]
+  #[case(SignalKind::user_defined1())]
+  #[case(SignalKind::user_defined2())]
+  #[case(SignalKind::quit())]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn should_create_signal(#[case] kind: SignalKind) {
+    let _ = try_create_signal(&"TEST".to_string() ,kind).unwrap();
+  }
+
+  #[rstest]
+  #[case(SignalKind::interrupt())]
+  #[case(SignalKind::terminate())]
+  #[case(SignalKind::user_defined1())]
+  #[case(SignalKind::user_defined2())]
+  #[case(SignalKind::quit())]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn should_exit_on_signal(#[case] kind: SignalKind) {
+    let tid = "TEST".to_string();
+    let t = tokio::spawn(async move { wait_for_exit_signal(&tid.clone()).await });
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    let nix_signal = nix::sys::signal::Signal::try_from(kind.as_raw_value()).unwrap();
+    nix::sys::signal::kill(nix::unistd::Pid::from_raw(std::process::id() as i32), nix_signal).unwrap();
+    t.await.unwrap().unwrap();
   }
 }

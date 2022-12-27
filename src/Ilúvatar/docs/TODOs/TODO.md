@@ -72,3 +72,9 @@ If registration is attempted and fails, the worker should exit.
 
 Container memory usage is reported as one unified number.
 We should track and log containers based on them being in-use or cached.
+
+## Monitor background threads for crashes
+
+We start a number of background threads for different reasons.
+If any of them crash or panic, it is likely that nothing will be logged, but only go to `stderr`.
+It would be nice if we could monitor them for such crashes and log them, possibly even re-starting the thread.

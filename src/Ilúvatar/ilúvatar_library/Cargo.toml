@@ -23,9 +23,10 @@ tracing-flame="0.2"
 pin-project = "1"
 dashmap = "5.3.4"
 parking_lot = "0.12.1"
-tokio = "1.19"
+tokio = { version = "1.19", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot", "signal"] }
 ordered-float = "3.4.0"
 
 [dev-dependencies]
 rstest = "0.13.0"
 float-cmp = "0.9.0"
+nix = "0.26"

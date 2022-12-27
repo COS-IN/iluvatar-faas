@@ -1,5 +1,5 @@
 use std::time::Duration;
-use iluvatar_library::{logging::start_tracing, nproc, bail_error};
+use iluvatar_library::{logging::start_tracing, nproc, bail_error, utils::wait_for_exit_signal};
 use iluvatar_worker_library::{services::containers::LifecycleFactory, worker_api::config::WorkerConfig};
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker_library::worker_api::config::Configuration;
@@ -11,18 +11,11 @@ use iluvatar_library::utils::config::get_val;
 use anyhow::Result;
 use tonic::transport::Server;
 use tracing::{debug, info};
-use signal_hook::{consts::signal::{SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT}, iterator::Signals};
 
 pub mod utils;
 
 async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
   debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
-
-  let sigs = vec![SIGINT, SIGTERM, SIGUSR1, SIGUSR2, SIGQUIT];
-  let mut signals = match Signals::new(&sigs) {
-    Ok(s) => s,
-    Err(e) => bail_error!(tid=%tid, error=%e, "Error creating signals info on startup"),
-  };
 
   let worker = match create_worker(server_config.clone(), tid).await {
     Ok(w) => w,
@@ -37,14 +30,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
       .add_service(IluvatarWorkerServer::new(worker))
       .serve(addr.parse()?));
 
-  for signal in &mut signals {
-    match signal {
-      _term_sig => { // got a termination signal
-        break;
-      }
-    }
-  }
-  iluvatar_library::continuation::GLOB_CONT_CHECK.signal_application_exit(tid);
+  wait_for_exit_signal(tid).await?;
   Ok(())
 }
 
