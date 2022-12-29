@@ -11,24 +11,23 @@ use crate::worker_api::worker_config::{FunctionLimits, ContainerResources};
 use anyhow::{Result, bail};
 use dashmap::DashMap;
 use std::cmp::Ordering;
-use std::collections::HashMap; 
 use std::sync::Arc;
 use parking_lot::RwLock;
 use super::LifecycleService;
 use super::structs::{Container, RegisteredFunction, ContainerLock};
 use tracing::{info, warn, debug, error};
 
-type ContainerList = Arc<RwLock<Vec<Container>>>;
-type ContainerPool = HashMap<String, ContainerList>;
+type ContainerList = Vec<Container>;
+type ContainerPool = DashMap<String, ContainerList>;
 
 pub struct ContainerManager {
   registered_functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,
-  active_containers: Arc<RwLock<ContainerPool>>,
+  active_containers: Arc<ContainerPool>,
   limits_config: Arc<FunctionLimits>, 
   resources: Arc<ContainerResources>,
   used_mem_mb: Arc<RwLock<MemSizeMb>>,
   cont_lifecycle: Arc<dyn LifecycleService>,
-  prioritized_list: ContainerList,
+  prioritized_list: RwLock<ContainerList>,
   _worker_thread: std::thread::JoinHandle<()>,
   core_sem: Option<Arc<Semaphore>>,
 }
@@ -42,12 +41,12 @@ impl ContainerManager {
     ContainerManager {
       core_sem,
       registered_functions: Arc::new(DashMap::new()),
-      active_containers: Arc::new(RwLock::new(HashMap::new())),
+      active_containers: Arc::new(DashMap::new()),
       limits_config,
       resources,
       used_mem_mb: Arc::new(RwLock::new(0)),
       cont_lifecycle,
-      prioritized_list: Arc::new(RwLock::new(Vec::new())),
+      prioritized_list: RwLock::new(Vec::new()),
       _worker_thread: worker_thread
     }
   }
@@ -93,10 +92,8 @@ impl ContainerManager {
   }
   pub fn num_containers(&self) -> u32 {
     let mut cnt = 0;
-    unsafe {
-      for (_fqdn, cont_list) in (*self.active_containers.data_ptr()).iter() {
-        cnt += (*cont_list.data_ptr()).len() as u32;
-      }
+    for cont_list in self.active_containers.iter() {
+      cnt += cont_list.value().len() as u32;
     }
     cnt
   }
@@ -122,23 +119,20 @@ impl ContainerManager {
     debug!(tid=%tid, "updating container memory usages");
     let old_total_mem = *self.used_mem_mb.read();
     let mut to_remove = vec![];
-    unsafe {
-      for (_fqdn, cont_list) in (*self.active_containers.data_ptr()).iter() {
-        let read_lock = cont_list.read();
-        let mut sum_change = 0;
-        for container in read_lock.iter() {
-          if container.is_healthy() {
-            let old_usage = container.get_curr_mem_usage();
-            let new_usage = self.cont_lifecycle.update_memory_usage_mb(container, tid);
-            let diff = new_usage - old_usage;
-            debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
-            sum_change += diff;
-          } else {
-            to_remove.push(container.clone());
-          }
+    for cont_list in self.active_containers.iter() {
+      let mut sum_change = 0;
+      for container in cont_list.value().iter() {
+        if container.is_healthy() {
+          let old_usage = container.get_curr_mem_usage();
+          let new_usage = self.cont_lifecycle.update_memory_usage_mb(container, tid);
+          let diff = new_usage - old_usage;
+          debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
+          sum_change += diff;
+        } else {
+          to_remove.push(container.clone());
         }
-        *self.used_mem_mb.write() += sum_change;
       }
+      *self.used_mem_mb.write() += sum_change;
     }
 
     for container in to_remove {
@@ -183,11 +177,10 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
-    let conts = self.active_containers.read();
-    let opt = conts.get(fqdn);
+    let opt = self.active_containers.get(fqdn);
     match opt {
       Some(pool) => {
-        let pool = pool.read();
+        let pool = pool.value();
         if pool.len() > 0 {
           for (i, container) in pool.iter().enumerate() {
             match self.try_lock_container(container, tid) {
@@ -254,20 +247,13 @@ impl ContainerManager {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn, container), fields(tid=%_tid)))]
   fn add_container_to_pool(&self, fqdn: &String, container: Container, _tid: &TransactionId) -> Result<()> {
     // acquire read lock to see if that function already has a pool entry
-    let conts = self.active_containers.read();
-    if conts.contains_key(fqdn) {
-      let pool = conts.get(fqdn);
-      match pool {
-          Some(pool) => {
-            let mut locked_pool = pool.write();
-            locked_pool.push(container.clone());
-            return Ok(());
-          },
-          None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", fqdn),
-      }
-    } 
-    else {
-      anyhow::bail!("Function '{}' was not registered yet", fqdn);
+    match self.active_containers.get_mut(fqdn) {
+      Some(mut pool) => {
+        let locked_pool = pool.value_mut();
+        locked_pool.push(container.clone());
+        Ok(())
+      },
+      None => anyhow::bail!("Function '{}' was not registered yet", fqdn)
     }
   }
 
@@ -406,10 +392,8 @@ impl ContainerManager {
     debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to registered_functions map");
     self.registered_functions.insert(fqdn.clone(), Arc::new(registration));
     debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to active_containers map");
-    { // write lock on active_containers
-      let mut conts = self.active_containers.write();
-      conts.insert(fqdn.clone(), Arc::new(RwLock::new(Vec::new())));
-    }
+
+    self.active_containers.insert(fqdn.clone(), Vec::new());
     info!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "function was successfully registered");
     Ok(())
   }
@@ -425,16 +409,14 @@ impl ContainerManager {
       bail!(ContainerLockedError{})
     }
 
-    match self.get_container_vec(&container.fqdn()) {
-      Some(pool) => {
-        let (pos, pool_len) = self.find_container_pos(&container, pool.clone());
+    match self.active_containers.get_mut(container.fqdn()) {
+      Some(mut pool) => {
+        let pool = pool.value_mut();
+        let (pos, pool_len) = self.find_container_pos(&container, &pool);
         if pos < pool_len {
           info!(tid=%tid, container_id=%container.container_id(), "Removing container");
-          {
-            let mut wlocked_pool = pool.write();
-            let dropped_cont = wlocked_pool.remove(pos);
-            *self.used_mem_mb.write() -= dropped_cont.get_curr_mem_usage();
-          }
+          let dropped_cont = pool.remove(pos);
+          *self.used_mem_mb.write() -= dropped_cont.get_curr_mem_usage();
           self.cont_lifecycle.remove_container(container, "default", tid).await?;
           return Ok(());
         } else {
@@ -471,11 +453,9 @@ impl ContainerManager {
   fn compute_eviction_priorities(&self, tid: &TransactionId) {
     debug!(tid=%tid, "Computing eviction priorities");
     let mut ordered = Vec::new();
-    unsafe {
-      for (_fqdn, cont_list) in (*self.active_containers.data_ptr()).iter() {
-        for container in cont_list.read().iter() {
-          ordered.push(container.clone());
-        }
+    for cont_list in self.active_containers.iter() {
+      for container in cont_list.value().iter() {
+        ordered.push(container.clone());
       }
     }
     let comparator = match self.resources.eviction.as_str() {
@@ -494,24 +474,15 @@ impl ContainerManager {
     c1.last_used().cmp(&c2.last_used())
   }
 
-  fn find_container_pos(&self, container: &Container, pool: ContainerList) -> (usize,usize) {
-    let rlocked_pool = pool.read();
-    let pool_len = rlocked_pool.len();
+  fn find_container_pos(&self, container: &Container, pool: &ContainerList) -> (usize,usize) {
+    let pool_len = pool.len();
     let mut pos = pool_len + 100;
-    for (i, iter_cont) in rlocked_pool.iter().enumerate() {
+    for (i, iter_cont) in pool.iter().enumerate() {
       if container.container_id() == iter_cont.container_id() {
         pos = i;
         break;
       }
     }
     return (pos, pool_len);
-  }
-
-  fn get_container_vec(&self, fqdn: &String) -> Option<ContainerList> {
-    let lock = self.active_containers.read();
-    match lock.get(fqdn) {
-        Some(v) => Some(v.clone()),
-        None => None,
-    }
   }
 }
