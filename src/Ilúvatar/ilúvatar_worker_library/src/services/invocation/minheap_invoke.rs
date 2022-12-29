@@ -11,7 +11,6 @@ use tokio::sync::{Notify, Semaphore};
 use tracing::{debug, info};
 use super::invoker_structs::InvocationResultPtr;
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
-use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 
@@ -129,6 +128,9 @@ impl Invoker for MinHeapInvoker {
   fn timer(&self) -> &LocalTime {
     &self.clock
   }
+  fn async_functions<'a>(&'a self) -> &'a AsyncHelper {
+    &self.async_functions
+  }
   fn concurrency_semaphore(&self) -> Option<Arc<Semaphore>> {
     Some(self.concurrency_semaphore.clone())
   }
@@ -159,13 +161,5 @@ impl Invoker for MinHeapInvoker {
                         item.function_name,
                         queue.peek().unwrap().x.function_name );
     self.queue_signal.notify_waiters();
-  }
-
-  fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
-    let invoke = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
-    self.async_functions.insert_async_invoke(invoke)
-  }
-  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
-    self.async_functions.invoke_async_check(cookie, tid)
   }
 }

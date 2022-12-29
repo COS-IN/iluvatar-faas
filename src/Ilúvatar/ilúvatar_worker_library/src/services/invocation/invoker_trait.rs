@@ -44,10 +44,17 @@ pub trait Invoker: Send + Sync {
   fn cont_manager(&self) -> Arc<ContainerManager>;
   fn function_config(&self) -> Arc<FunctionLimits>;
   fn invocation_config(&self) -> Arc<InvocationConfig>;
+  fn async_functions<'a>(&'a self) -> &'a super::async_tracker::AsyncHelper;
+
   fn timer(&self) -> &LocalTime;
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr>;
-  fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String>;
-  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse>;
+  fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
+    let invoke = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
+    self.async_functions().insert_async_invoke(invoke)
+  }
+  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
+    self.async_functions().invoke_async_check(cookie, tid)
+  }
   /// pointer to the semaphore to manage the invoker concurrency
   /// A [None] value means the invoker doesn't limit concurrency
   fn concurrency_semaphore(&self) -> Option<Arc<Semaphore>>;
@@ -58,11 +65,12 @@ pub trait Invoker: Send + Sync {
   /// Default is 0 if not overridden
   /// An implementing struct only needs to implement this if it uses [monitor_queue]
   fn queue_len(&self) -> usize { 0 }
-  /// A peek at the first item in the queue
-  /// Returns [Some(Arc<EnqueuedInvocation>)] if there is anything in the queue, [None] otherwise
-  /// An implementing struct only needs to implement this if it uses [monitor_queue]
+  /// A peek at the first item in the queue.
+  /// Returns [Some(Arc<EnqueuedInvocation>)] if there is anything in the queue, [None] otherwise.
+  /// An implementing struct only needs to implement this if it uses [monitor_queue].
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {todo!()}
-  /// Destructively return the first item in the queue
+  /// Destructively return the first item in the queue.
+  /// This function will only be called if something is known to be un the queue, so using `unwrap` to remove an [Option] is safe
   /// An implementing struct only needs to implement this if it uses [monitor_queue]
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {todo!()}
 

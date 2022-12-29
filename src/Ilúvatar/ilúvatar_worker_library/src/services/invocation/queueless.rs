@@ -5,7 +5,6 @@ use iluvatar_library::{transaction::TransactionId, logging::LocalTime, utils::ca
 use anyhow::Result;
 use tracing::error;
 use super::{invoker_trait::Invoker, async_tracker::AsyncHelper, invoker_structs::{EnqueuedInvocation, InvocationResultPtr, InvocationResult}};
-use crate::rpc::InvokeResponse;
 
 /// This implementation does not support [crate::worker_api::worker_config::InvocationConfig::concurrent_invokes]
 pub struct QueuelessInvoker {
@@ -44,6 +43,9 @@ impl Invoker for QueuelessInvoker {
   fn timer(&self) -> &LocalTime {
     &self.clock
   }
+  fn async_functions<'a>(&'a self) -> &'a AsyncHelper {
+    &self.async_functions
+  }
   fn concurrency_semaphore(&self) -> Option<Arc<tokio::sync::Semaphore>> {
     None
   }
@@ -69,14 +71,6 @@ impl Invoker for QueuelessInvoker {
     }
   }
 
-  fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
-    let invoke = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
-    self.async_functions.insert_async_invoke(invoke)
-  }
-  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
-    self.async_functions.invoke_async_check(cookie, tid)
-  }
-
   fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
     let mut result_ptr = item.result_ptr.lock();
     error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
@@ -84,6 +78,5 @@ impl Invoker for QueuelessInvoker {
     result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
     result_ptr.completed = true;
     item.signal();
-
   }
 }

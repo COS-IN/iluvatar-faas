@@ -1,5 +1,4 @@
-use std::{sync::Arc, time::Duration};
-use crate::services::containers::structs::{InsufficientCoresError, InsufficientMemoryError};
+use std::sync::Arc;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::logging::LocalTime;
@@ -7,10 +6,9 @@ use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, t
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
-use tracing::{debug, warn, error, info};
+use tracing::{debug, info};
 use super::invoker_trait::{monitor_queue, create_concurrency_semaphore};
 use super::{invoker_trait::Invoker, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
-use crate::rpc::InvokeResponse;
 
 pub struct FCFSInvoker {
   pub cont_manager: Arc<ContainerManager>,
@@ -76,6 +74,9 @@ impl Invoker for FCFSInvoker {
   fn timer(&self) -> &LocalTime {
     &self.clock
   }
+  fn async_functions<'a>(&'a self) -> &'a AsyncHelper {
+    &self.async_functions
+  }
   fn concurrency_semaphore(&self) -> Option<Arc<Semaphore>> {
     Some(self.concurrency_semaphore.clone())
   }
@@ -107,37 +108,5 @@ impl Invoker for FCFSInvoker {
     };
     debug!(tid=%item.tid, "Added item to front of queue; waking worker thread");
     self.queue_signal.notify_waiters();
-  }
-
-  fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
-    let invoke = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
-    self.async_functions.insert_async_invoke(invoke)
-  }
-  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
-    self.async_functions.invoke_async_check(cookie, tid)
-  }
-
-  fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
-    if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
-      warn!(tid=%item.tid, "Insufficient cores to run item right now. Did semaphore not work?");
-      self.add_item_to_queue(&item, Some(0));
-    } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
-      warn!(tid=%item.tid, "Insufficient memory to run item right now");
-      self.add_item_to_queue(&item, Some(0));
-    } else {
-      error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
-      let mut result_ptr = item.result_ptr.lock();
-      if result_ptr.attempts >= self.invocation_config().retries {
-        error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
-        result_ptr.duration = Duration::from_micros(0);
-        result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
-        result_ptr.completed = true;
-        item.signal();
-      } else {
-        result_ptr.attempts += 1;
-        debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
-        self.add_item_to_queue(&item, Some(0));
-      }
-    }
   }
 }

@@ -12,7 +12,6 @@ use tokio::sync::{Notify, Semaphore};
 use tracing::{debug, info};
 use super::invoker_structs::InvocationResultPtr;
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
-use crate::rpc::InvokeResponse;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 
@@ -104,18 +103,15 @@ impl Invoker for MinHeapEDInvoker {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
-    let r = r.x.clone();
-    return Some(r);
+    Some(r.x.clone())
   }
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
     let v = v.x.clone();
-    let top = invoke_queue.peek();
-    let func_name; 
-    match top {
-        Some(e) => func_name = e.x.function_name.clone(),
-        None => func_name = "empty".to_string()
+    let mut func_name = "empty"; 
+    if let Some(e) = invoke_queue.peek() {
+      func_name = e.x.function_name.as_str();
     }
     debug!(tid=%v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
            invoke_queue.len(),
@@ -138,6 +134,9 @@ impl Invoker for MinHeapEDInvoker {
   }
   fn timer(&self) -> &LocalTime {
     &self.clock
+  }
+  fn async_functions<'a>(&'a self) -> &'a AsyncHelper {
+    &self.async_functions
   }
   fn concurrency_semaphore(&self) -> Option<Arc<Semaphore>> {
     Some(self.concurrency_semaphore.clone())
@@ -170,13 +169,5 @@ impl Invoker for MinHeapEDInvoker {
                         item.function_name,
                         queue.peek().unwrap().x.function_name );
     self.queue_signal.notify_waiters();
-  }
-
-  fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
-    let invoke = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
-    self.async_functions.insert_async_invoke(invoke)
-  }
-  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
-    self.async_functions.invoke_async_check(cookie, tid)
   }
 }
