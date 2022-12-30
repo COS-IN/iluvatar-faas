@@ -2,7 +2,8 @@ use std::{sync::Arc, collections::HashMap};
 use dashmap::DashMap;
 use iluvatar_library::bail_error;
 use iluvatar_library::transaction::TransactionId;
-use crate::{controller::{structs::internal::RegisteredWorker, controller_errors::MissingAsyncCookieError}, services::worker_comm::WorkerAPIFactory};
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
+use crate::{controller::{structs::internal::RegisteredWorker, controller_errors::MissingAsyncCookieError}};
 use tracing::{warn, debug};
 use anyhow::Result;
 
@@ -32,7 +33,8 @@ impl AsyncService {
   pub async fn check_async_invocation(&self, cookie: String, tid: &TransactionId) -> Result<Option<String>> {
     debug!(tid=%tid, cookie=%cookie, "Checking async invocation");
     if let Some(worker) = self.async_invokes.get(&cookie) {
-      let mut api = self.worker_fact.get_worker_api(&worker.value(), tid).await?;
+      let worker = worker.value();
+      let mut api = self.worker_fact.get_worker_api(&worker.name, &worker.host, worker.port, &worker.communication_method, tid).await?;
       let result = api.invoke_async_check(&cookie, tid.clone()).await?;
       if result.success {
         self.async_invokes.remove(&cookie);

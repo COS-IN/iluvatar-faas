@@ -16,6 +16,7 @@ pub use worker_config as config;
 #[path ="./ilúvatar_worker.rs"]
 pub mod ilúvatar_worker;
 pub mod sim_worker;
+pub mod worker_comm;
 
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
   let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());

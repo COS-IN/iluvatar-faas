@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use dashmap::DashMap;
-use iluvatar_worker_library::worker_api::HealthStatus;
-use crate::{controller::structs::internal::{RegisteredWorker, WorkerStatus}, services::worker_comm::WorkerAPIFactory};
+use iluvatar_worker_library::worker_api::{HealthStatus, worker_comm::WorkerAPIFactory};
+use crate::{controller::structs::internal::{RegisteredWorker, WorkerStatus}};
 use iluvatar_library::transaction::TransactionId;
 use tracing::{warn, debug, info};
 use std::time::Duration;
@@ -50,7 +50,7 @@ impl HealthService {
   /// get the health status for a specific worker
   /// returns [WorkerStatus::OFFLINE] or [WorkerStatus::UNHEALTHY] if an error occurs
   async fn get_worker_health(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> WorkerStatus {
-    let mut api = match self.worker_fact.get_worker_api(&worker, tid).await {
+    let mut api = match self.worker_fact.get_worker_api(&worker.name, &worker.host, worker.port, &worker.communication_method, tid).await {
       Ok(api) => api,
       Err(e) => {
         warn!(tid=%tid, worker=%worker.name, error=%e, "Couldn't connect to worker for health check");

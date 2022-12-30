@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use anyhow::Result;
 use iluvatar_worker_library::rpc::InvokeResponse;
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tracing::debug;
 use iluvatar_library::transaction::TransactionId;
 use crate::controller::controller_config::ControllerConfig;
@@ -9,7 +10,6 @@ use crate::controller::structs::internal::{RegisteredWorker, RegisteredFunction}
 
 use super::controller_health::ControllerHealthService;
 use super::load_reporting::LoadService;
-use super::worker_comm::WorkerAPIFactory;
 mod balancers;
 
 #[tonic::async_trait]

@@ -4,10 +4,10 @@ use crate::services::controller_health::{ControllerHealthService, SimHealthServi
 use crate::services::load_balance::{get_balancer, LoadBalancer};
 use crate::services::load_reporting::LoadService;
 use crate::services::registration::RegistrationService;
-use crate::services::worker_comm::WorkerAPIFactory;
 use iluvatar_library::graphite::graphite_svc::GraphiteService;
 use iluvatar_library::{transaction::TransactionId, bail_error};
 use iluvatar_library::utils::{calculate_fqdn, config::args_to_json};
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use crate::controller::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
 use crate::controller::controller_config::ControllerConfig;
 use iluvatar_worker_library::rpc::InvokeResponse;

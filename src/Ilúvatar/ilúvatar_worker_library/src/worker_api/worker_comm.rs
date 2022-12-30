@@ -1,38 +1,36 @@
 use std::sync::Arc;
-use iluvatar_library::{bail_error, transaction::TransactionId};
+use iluvatar_library::{bail_error, transaction::TransactionId, utils::port::Port};
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_worker_library::{rpc::RPCWorkerAPI, worker_api::{ilúvatar_worker::IluvatarWorkerImpl, WorkerAPI, sim_worker::SimWorkerAPI, create_worker}};
-
-use crate::controller::structs::internal::RegisteredWorker;
+use crate::{rpc::RPCWorkerAPI, worker_api::{ilúvatar_worker::IluvatarWorkerImpl, WorkerAPI, sim_worker::SimWorkerAPI, create_worker}};
 
 pub struct WorkerAPIFactory {
   /// cache of RPC connections to workers
   /// We can clone them for faster connection
   /// better than opening a new one
-  rpc_apis: Arc<DashMap<String, RPCWorkerAPI>>,
-  pub sim_apis: Arc<DashMap<String, Arc<IluvatarWorkerImpl>>>,
+  rpc_apis: DashMap<String, RPCWorkerAPI>,
+  sim_apis: DashMap<String, Arc<IluvatarWorkerImpl>>,
 }
 
 impl WorkerAPIFactory {
   pub fn boxed() -> Arc<WorkerAPIFactory> {
     Arc::new(WorkerAPIFactory {
-      rpc_apis: Arc::new(DashMap::new()),
-      sim_apis: Arc::new(DashMap::new()),
+      rpc_apis: DashMap::new(),
+      sim_apis: DashMap::new(),
     })
   }
 }
 
 impl WorkerAPIFactory {
-  fn try_get_rpcapi(&self, worker: &Arc<RegisteredWorker>) -> Option<RPCWorkerAPI> {
-    match self.rpc_apis.get(&worker.name) {
+  fn try_get_rpcapi(&self, worker: &String) -> Option<RPCWorkerAPI> {
+    match self.rpc_apis.get(worker) {
       Some(r) => Some(r.clone()),
       None => None,
     }
   }
 
-  fn try_get_simapi(&self, worker: &Arc<RegisteredWorker>) -> Option<Arc<IluvatarWorkerImpl>> {
-    match self.sim_apis.get(&worker.name) {
+  fn try_get_simapi(&self, worker: &String) -> Option<Arc<IluvatarWorkerImpl>> {
+    match self.sim_apis.get(worker) {
       Some(r) => Some(r.clone()),
       None => None,
     }
@@ -51,27 +49,27 @@ impl WorkerAPIFactory {
   }
 
   /// Get the worker API that matches it's implemented communication method
-  pub async fn get_worker_api(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> Result<Box<dyn WorkerAPI + Send>> {
-    if worker.communication_method == "RPC" {
+  pub async fn get_worker_api(&self, worker: &String, host: &String, port: Port, communication_method: &String, tid: &TransactionId) -> Result<Box<dyn WorkerAPI + Send>> {
+    if communication_method.as_str() == "RPC" {
       match self.try_get_rpcapi(worker) {
         Some(r) => Ok(Box::new(r)),
         None => {
-          let api = match RPCWorkerAPI::new(&worker.host, worker.port, &tid).await {
+          let api = match RPCWorkerAPI::new(&host, port, &tid).await {
             Ok(api) => api,
-            Err(e) => bail_error!(tid=%tid, worker=%worker.name, error=%e, "Unable to create API for worker"),
+            Err(e) => bail_error!(tid=%tid, worker=%worker, error=%e, "Unable to create API for worker"),
           };
-          self.rpc_apis.insert(worker.name.clone(), api.clone());
+          self.rpc_apis.insert(worker.clone(), api.clone());
           Ok(Box::new(api))
         },
       }
-    } else if worker.communication_method == "simulation" {
+    } else if communication_method.as_str() == "simulation" {
       let api = match self.try_get_simapi(worker) {
         Some(api) => api,
         None => {
-          let worker_config = iluvatar_worker_library::worker_api::worker_config::Configuration::boxed(false, &worker.host).unwrap();
+          let worker_config = crate::worker_api::worker_config::Configuration::boxed(false, &host)?;
           let api = create_worker(worker_config, tid).await?;
           let api = Arc::new(api);
-          self.sim_apis.insert(worker.name.clone(), api.clone());
+          self.sim_apis.insert(worker.clone(), api.clone());
           api
         },
       };
@@ -79,7 +77,7 @@ impl WorkerAPIFactory {
       let w = SimWorkerAPI::new(api);
       return Ok(Box::new(w));
     } else {
-      bail_error!(tid=%tid, mathod=%worker.communication_method, "Unknown worker communication method");
+      bail_error!(tid=%tid, method=%communication_method, "Unknown worker communication method");
     }
   }
 }

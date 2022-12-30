@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::Duration, collections::HashMap};
-use crate::{send_invocation, prewarm, send_async_invocation, services::{worker_comm::WorkerAPIFactory, controller_health::ControllerHealthService, load_reporting::LoadService}, controller::controller_config::LoadBalancingConfig};
+use crate::{send_invocation, prewarm, send_async_invocation, services::{controller_health::ControllerHealthService, load_reporting::LoadService}, controller::controller_config::LoadBalancingConfig};
 use crate::services::load_balance::LoadBalancerTrait;
 use iluvatar_library::{transaction::TransactionId, transaction::LEAST_LOADED_TID, bail_error, threading::tokio_thread};
 use crate::controller::structs::internal::{RegisteredFunction, RegisteredWorker};
@@ -8,7 +8,7 @@ use tokio::task::JoinHandle;
 use tracing::{info, debug, warn};
 use parking_lot::RwLock;
 use iluvatar_library::utils::timing::TimedExt;
-use iluvatar_worker_library::rpc::InvokeResponse;
+use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
 
 #[allow(unused)]
 pub struct LeastLoadedBalancer {

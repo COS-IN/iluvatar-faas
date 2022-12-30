@@ -1,10 +1,11 @@
 use std::{sync::Arc, collections::HashMap};
 use iluvatar_library::{graphite::graphite_svc::GraphiteService, threading::tokio_thread};
 use iluvatar_library::{transaction::TransactionId, transaction::LOAD_MONITOR_TID};
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tokio::task::JoinHandle;
 use tracing::{info, error, warn};
 use parking_lot::RwLock;
-use crate::{services::worker_comm::WorkerAPIFactory, controller::controller_config::LoadBalancingConfig};
+use crate::controller::controller_config::LoadBalancingConfig;
 
 #[allow(unused)]
 pub struct LoadService {

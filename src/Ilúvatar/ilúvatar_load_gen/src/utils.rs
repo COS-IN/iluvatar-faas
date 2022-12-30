@@ -1,5 +1,5 @@
 use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc};
-use iluvatar_worker_library::{rpc::{RPCWorkerAPI, InvokeResponse}, worker_api::WorkerAPI};
+use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult};
 use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::MemSizeMb, logging::LocalTime};
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use tokio::{runtime::Runtime, task::JoinHandle};
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
+  pub static ref FACTORY: Arc<WorkerAPIFactory> = WorkerAPIFactory::boxed();
 }
 
 #[derive(Serialize,Deserialize)]
@@ -221,7 +222,8 @@ pub async fn controller_register(name: &String, version: &String, image: &String
 
 pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port) -> Result<(String, Duration, TransactionId)> {
   let tid: TransactionId = format!("{}-reg-tid", name);
-  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
+  let rpc = "RPC".to_string();
+  let mut api = FACTORY.get_worker_api(&host, &host, port, &rpc, &tid).await?;
   let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
   match reg_out {
     Ok(s) => Ok( (s,reg_dur,tid) ),
@@ -230,7 +232,8 @@ pub async fn worker_register(name: String, version: &String, image: String, memo
 }
 
 pub async fn worker_prewarm(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId) -> Result<(String, Duration)> {
-  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
+  let rpc = "RPC".to_string();
+  let mut api = FACTORY.get_worker_api(&host, &host, port, &rpc, &tid).await?;
   let (res, dur) = api.prewarm(name.clone(), version.clone(), None, None, None, tid.to_string()).timed().await;
   match res {
     Ok(s) => Ok( (s, dur) ),
@@ -243,7 +246,8 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
     Some(a) => a,
     None => "{}".to_string(),
   };
-  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
+  let rpc = "RPC".to_string();
+  let mut api = FACTORY.get_worker_api(&host, &host, port, &rpc, &tid).await?;
   let invoke_start = clock.now_str()?;
 
   let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), args, None, tid.clone()).timed().await;

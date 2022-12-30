@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 use anyhow::Result;
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use parking_lot::{RwLock, Mutex};
 use tracing::{info, warn, debug};
 use crate::services::controller_health::ControllerHealthService;
-use crate::services::worker_comm::WorkerAPIFactory;
 use crate::{send_invocation, prewarm, send_async_invocation};
 use crate::services::load_balance::LoadBalancerTrait;
 use crate::controller::structs::internal::{RegisteredFunction, RegisteredWorker};
