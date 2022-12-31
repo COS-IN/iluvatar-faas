@@ -1,6 +1,7 @@
-use std::{collections::HashMap, time::Duration, cmp::{min, max}};
+use std::{collections::HashMap, time::Duration, cmp::{min, max}, sync::Arc};
 use anyhow::Result;
 use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime};
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tokio::{runtime::Runtime, task::JoinHandle};
 use crate::{utils::{worker_register, VERSION, worker_prewarm}, benchmark::BenchmarkStore, trace::safe_cmp};
 use super::Function;
@@ -106,7 +107,7 @@ pub fn map_functions_to_prep(load_type: &str, func_json_data: Result<String>, fu
   }
 }
 
-fn live_prewarm_functions(prewarm_data: &HashMap<String, (String, u32)>, host: &String, port: Port, rt: &Runtime) -> Result<()> {
+fn live_prewarm_functions(prewarm_data: &HashMap<String, (String, u32)>, host: &String, port: Port, rt: &Runtime, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   let mut prewarm_calls = vec![];
   for (func_name, (_image, count)) in prewarm_data.iter() {
     println!("{} prewarming {} containers for function '{}'", LocalTime::new(&"PREWARM_LOAD_GEN".to_string())?.now_str()?, count, func_name);
@@ -114,11 +115,12 @@ fn live_prewarm_functions(prewarm_data: &HashMap<String, (String, u32)>, host: &
       let tid = format!("{}-{}-prewarm", i, &func_name);
       let h_c = host.clone();
       let f_c = func_name.clone();
+      let fct_cln = factory.clone();
       prewarm_calls.push(async move { 
         let mut errors="Prewarm errors:".to_string();
         let mut it = (1..4).into_iter().peekable();
         while let Some(i) = it.next() {
-          match worker_prewarm(&f_c, &VERSION, &h_c, port, &tid).await {
+          match worker_prewarm(&f_c, &VERSION, &h_c, port, &tid, &fct_cln).await {
             Ok((_s, _prewarm_dur)) => break,
             Err(e) => { 
               errors = format!("{} iteration {}: '{}';\n", errors, i, e);
@@ -150,9 +152,9 @@ fn live_prewarm_functions(prewarm_data: &HashMap<String, (String, u32)>, host: &
 
 pub fn prepare_functions(target: RegisterTarget, funcs: &HashMap<String, Function>, host: &String, 
                           port: Port, load_type: &str, func_data: Result<String>, rt: &Runtime, 
-                          prewarms: u32, trace_pth: &String) -> Result<()> {
+                          prewarms: u32, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   match target {
-    RegisterTarget::LiveWorker => live_prepare_worker(&funcs, host, port, load_type, func_data, prewarms, rt, trace_pth),
+    RegisterTarget::LiveWorker => live_prepare_worker(&funcs, host, port, load_type, func_data, prewarms, rt, trace_pth, factory),
     RegisterTarget::LiveController => todo!(),
     RegisterTarget::SimWorker => todo!(),
     RegisterTarget::SimController => todo!(),
@@ -160,15 +162,15 @@ pub fn prepare_functions(target: RegisterTarget, funcs: &HashMap<String, Functio
 }
 
 fn live_prepare_worker(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, 
-                      func_data: Result<String>, prewarms: u32, rt: &Runtime, trace_pth: &String) -> Result<()> {
+                      func_data: Result<String>, prewarms: u32, rt: &Runtime, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   let prep_data = map_functions_to_prep(load_type, func_data, &funcs, prewarms, trace_pth)?;
-  wait_reg(&funcs, &prep_data, load_type, rt, port, host)?;
+  wait_reg(&funcs, &prep_data, load_type, rt, port, host, factory)?;
 
-  live_prewarm_functions(&prep_data, host, port, rt)?;
+  live_prewarm_functions(&prep_data, host, port, rt, factory)?;
   Ok(())
 }
 
-fn wait_reg(funcs: &HashMap<String, Function>, prep_data: &HashMap<String, (String, u32)>, load_type: &str, rt: &Runtime, port: Port, host: &String) -> Result<()> {
+fn wait_reg(funcs: &HashMap<String, Function>, prep_data: &HashMap<String, (String, u32)>, load_type: &str, rt: &Runtime, port: Port, host: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   let mut func_iter = funcs.into_iter();
   loop {
     let mut handles: Vec<JoinHandle<Result<(String, Duration, TransactionId)>>> = Vec::new();
@@ -186,8 +188,9 @@ fn wait_reg(funcs: &HashMap<String, Function>, prep_data: &HashMap<String, (Stri
       };
       let f_c = func.func_name.clone();
       let h_c = host.clone();
+      let fct_cln = factory.clone();
       let image = prep_data.get(id).ok_or_else(|| anyhow::anyhow!("Unable to get prep data for function '{}'", id))?.0.clone();
-      handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mb+50, h_c, port).await }));
+      handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mb+50, h_c, port, &fct_cln).await }));
     }
     for h in handles {
       let (_s,_d,_s2) = rt.block_on(h)??;

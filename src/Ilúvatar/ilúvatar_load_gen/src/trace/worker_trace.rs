@@ -147,6 +147,7 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let port: Port = get_val("port", &main_args)?;
   let host: String = get_val("host", &main_args)?;
   let tid: &TransactionId = &iluvatar_library::transaction::LIVE_WORKER_LOAD_TID;
+  let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
 
   let threaded_rt = Builder::new_multi_thread()
                         .enable_all()
@@ -156,7 +157,7 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
   let metadata_pth: String = get_val("metadata", &sub_args)?;
   let metadata = super::load_metadata(metadata_pth)?;
 
-  prepare_functions(RegisterTarget::LiveWorker, &metadata, &host, port, &load_type, func_data, &threaded_rt, prewarm_count, &trace_pth)?;
+  prepare_functions(RegisterTarget::LiveWorker, &metadata, &host, port, &load_type, func_data, &threaded_rt, prewarm_count, &trace_pth, &factory)?;
 
   let mut trace_rdr = match csv::Reader::from_path(&trace_pth) {
     Ok(r) => r,
@@ -188,8 +189,9 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
     };
     
     let clk_clone = clock.clone();
+    let fct_cln = factory.clone();
     handles.push(threaded_rt.spawn(async move {
-      worker_invoke(&f_c, &VERSION, &h_c, port, &gen_tid(), Some(args), clk_clone).await
+      worker_invoke(&f_c, &VERSION, &h_c, port, &gen_tid(), Some(args), clk_clone, &fct_cln).await
     }));
   }
 
