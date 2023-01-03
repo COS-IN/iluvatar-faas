@@ -20,6 +20,7 @@ But that's either
 ## Switch/Enable networking via unix sockets
 
 Using HTTP connections to send/receive invocations has some networking overhead and scaling issues at high throughput.
+This can cause blocks of up to 60 seconds on some calls.
 Both the worker code and the server running inside the container must be updated to this new format.
 
 Moving to a lower-latency solution would fix both of these problems.
@@ -78,3 +79,9 @@ We should track and log containers based on them being in-use or cached.
 We start a number of background threads for different reasons.
 If any of them crash or panic, it is likely that nothing will be logged, but only go to `stderr`.
 It would be nice if we could monitor them for such crashes and log them, possibly even re-starting the thread.
+
+## Reduce `.await` usages
+
+Stacked calls to `await` futures just create more bookkeeping for tokio to manage.
+This slowly increases overhead as concurrency rises.
+If we can instead return `Future<T>`'s instead of a single `await` call, this will be improved.
