@@ -142,7 +142,9 @@ pub trait Invoker: Send + Sync {
   }
 
   /// Handle an error with the given enqueued invocation
-  /// By default always logs the error and marks it as failed
+  /// By default re-enters item if a resource exhaustion error occurs ([InsufficientCoresError] or[InsufficientMemoryError])
+  ///   Calls [Self::add_item_to_queue] to do this
+  /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
   fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
     if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
