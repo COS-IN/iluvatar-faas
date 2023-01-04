@@ -210,7 +210,7 @@ impl Invoker for FCFSBypassInvoker {
           return;
         }
       },
-      Some(usize::MAX) => debug!(tid=%item.tid, exec_time=exec_time, "Adding item to queue because it would be a cold start"),
+      Some(usize::MAX) => info!(tid=%item.tid, exec_time=exec_time, "Adding item to queue because it would be a cold start"),
       Some(i) => warn!(tid=%item.tid, value=i, "Unknown index in add_item_to_queue"),
       None => {
         if exec_time != 0.0 && exec_time < self.bypass_dur {
