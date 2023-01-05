@@ -35,14 +35,14 @@ impl BenchmarkStore {
 pub struct FunctionStore {
   pub function_name: String,
   pub image_name: String,
-  /// list of warm latencies
-  pub warm_results: Vec<f64>,
+  /// list of warm execution duration in seconds
+  pub warm_results_sec: Vec<f64>,
   /// list of warm overhead times
-  pub warm_over_results: Vec<f64>,
-  /// list of cold latencies
-  pub cold_results: Vec<f64>,
+  pub warm_over_results_us: Vec<f64>,
+  /// list of cold execution duration in seconds
+  pub cold_results_sec: Vec<f64>,
   /// list of cold overhead times
-  pub cold_over_results: Vec<f64>,
+  pub cold_over_results_us: Vec<f64>,
   /// warm invocation latency time, including communication time from worker
   ///   if targeting worker, recorded by benchmark
   ///   if targeting controller, recorded by controller 
@@ -61,10 +61,10 @@ impl FunctionStore {
     FunctionStore {
       function_name,
       image_name,
-      warm_results: Vec::new(),
-      warm_over_results: Vec::new(),
-      cold_results: Vec::new(),
-      cold_over_results: Vec::new(),
+      warm_results_sec: Vec::new(),
+      warm_over_results_us: Vec::new(),
+      cold_results_sec: Vec::new(),
+      cold_over_results_us: Vec::new(),
       warm_worker_duration_us: Vec::new(),
       cold_worker_duration_us: Vec::new(),
       warm_invoke_duration_us: Vec::new(),
@@ -202,13 +202,13 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
               let func_exec_us = invoke_result.function_output.body.latency * 1000000.0;
               let invoke_lat = invoke_result.client_latency_us as f64;
               if invoke_result.function_output.body.cold {
-                func_data.cold_results.push(invoke_result.function_output.body.latency);
-                func_data.cold_over_results.push(invoke_lat - func_exec_us);
+                func_data.cold_results_sec.push(invoke_result.function_output.body.latency);
+                func_data.cold_over_results_us.push(invoke_lat - func_exec_us);
                 func_data.cold_worker_duration_us.push(invoke_result.controller_response.worker_duration_us);
                 func_data.cold_invoke_duration_us.push(invoke_result.controller_response.invoke_duration_us);
               } else {
-                func_data.warm_results.push(invoke_result.function_output.body.latency);
-                func_data.warm_over_results.push(invoke_lat - func_exec_us);
+                func_data.warm_results_sec.push(invoke_result.function_output.body.latency);
+                func_data.warm_over_results_us.push(invoke_lat - func_exec_us);
                 func_data.warm_worker_duration_us.push(invoke_result.controller_response.worker_duration_us);
                 func_data.warm_invoke_duration_us.push(invoke_result.controller_response.invoke_duration_us);
               }
@@ -256,13 +256,13 @@ pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functio
     let invok_lat_f = invoke.client_latency_us as f64;
     let func_exec_us = invoke.function_output.body.latency * 1000000.0;
     if invoke.function_output.body.cold {
-      d.cold_results.push(invoke.function_output.body.latency);
-      d.cold_over_results.push(invok_lat_f - func_exec_us);
+      d.cold_results_sec.push(invoke.function_output.body.latency);
+      d.cold_over_results_us.push(invok_lat_f - func_exec_us);
       d.cold_worker_duration_us.push(invoke.worker_response.duration_us as u128);
       d.cold_invoke_duration_us.push(invoke.client_latency_us);
     } else {
-      d.warm_results.push(invoke.function_output.body.latency);
-      d.warm_over_results.push(invok_lat_f - func_exec_us);
+      d.warm_results_sec.push(invoke.function_output.body.latency);
+      d.warm_over_results_us.push(invok_lat_f - func_exec_us);
       d.warm_worker_duration_us.push(invoke.worker_response.duration_us as u128);
       d.warm_invoke_duration_us.push(invoke.client_latency_us);
     }

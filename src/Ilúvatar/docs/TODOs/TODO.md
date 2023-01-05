@@ -85,3 +85,12 @@ It would be nice if we could monitor them for such crashes and log them, possibl
 Stacked calls to `await` futures just create more bookkeeping for tokio to manage.
 This slowly increases overhead as concurrency rises.
 If we can instead return `Future<T>`'s instead of a single `await` call, this will be improved.
+
+## Graceful handling of container exceeding memory
+
+Currently containers get a `limit` of memory usage from the `container_spec` we provide to containerd.
+When they hit this limit during an invocation, the python process running that is killed, and the worker sees it as an abrput termination of the HTTP request.
+The invocation is declared failed, and the container marked for removal.
+We want to remove & replace too-large containers, but not have such failures.
+Perhaps use `reservation` or `disableOOMKiller`?
+We can handle removal ourselves after an invocation is done.
