@@ -29,9 +29,3 @@ Functions can request a specific number of CPU cores to have access to when exec
 Currently we just use processor shares on cgroups.
 These allow a function to use several cores if nothing else is running on them.
 Bad for a number of reasons.
-
-## Queueless async invocations
-
-Currently they aren't started running at all.
-A minor problem...
-Only for the queueless impl
