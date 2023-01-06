@@ -29,7 +29,7 @@ mod invoke {
   #[case("fcfs_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
-  // #[case("none")] // TODO: queueless does not do async invokes
+  #[case("none")]
   #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
@@ -84,7 +84,7 @@ mod invoke {
   #[case("fcfs_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
-  // #[case("none")] // TODO: queueless does not do async invokes
+  #[case("none")] 
   #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {
@@ -134,7 +134,7 @@ mod invoke_async {
   #[case("fcfs_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
-  // #[case("none")] // TODO: queueless does not do async invokes
+  #[case("none")] 
   #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
@@ -211,7 +211,7 @@ mod invoke_async {
   #[case("fcfs_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
-  // #[case("none")] // TODO: queueless does not do async invokes
+  #[case("none")] 
   #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {
