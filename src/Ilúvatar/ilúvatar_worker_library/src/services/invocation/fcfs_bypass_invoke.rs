@@ -189,9 +189,6 @@ impl Invoker for FCFSBypassInvoker {
       if result_ptr.completed {
         info!(tid=%queued.tid, exec_time=exec_time, "Invocation complete");
         self.update_metadata(&queued.function_name, result_ptr.exec_time);
-        if let Some(_parsed) = result_ptr.worker_result.as_ref() {
-          info!(tid=%queued.tid, "worker_result was present");
-        }
         return Ok( queued.result_ptr.clone() );
       } else {
         anyhow::bail!("Invocation was signaled completion but completion value was not set")

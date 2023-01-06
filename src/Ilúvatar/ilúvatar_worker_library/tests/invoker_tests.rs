@@ -2,6 +2,7 @@
 pub mod utils;
 
 use std::sync::Arc;
+use tokio::time::timeout;
 use iluvatar_worker_library::rpc::{RegisterRequest, PrewarmRequest, InvokeAsyncRequest};
 use iluvatar_worker_library::rpc::InvokeRequest;
 use iluvatar_worker_library::services::invocation::invoker_trait::Invoker;
@@ -26,7 +27,7 @@ mod invoke {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
-  #[case("fcfs_bypass")]
+  #[case("minheap_iat")]
   #[case("minheap_ed")]
   // #[case("none")] // TODO: queueless does not do async invokes
   #[ignore="Must be run serially because of env var clashing"]
@@ -81,7 +82,7 @@ mod invoke {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
-  #[case("fcfs_bypass")]
+  #[case("minheap_iat")]
   #[case("minheap_ed")]
   // #[case("none")] // TODO: queueless does not do async invokes
   #[ignore="Must be run serially because of env var clashing"]
@@ -131,7 +132,7 @@ mod invoke_async {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
-  #[case("fcfs_bypass")]
+  #[case("minheap_iat")]
   #[case("minheap_ed")]
   // #[case("none")] // TODO: queueless does not do async invokes
   #[ignore="Must be run serially because of env var clashing"]
@@ -208,7 +209,7 @@ mod invoke_async {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
-  #[case("fcfs_bypass")]
+  #[case("minheap_iat")]
   #[case("minheap_ed")]
   // #[case("none")] // TODO: queueless does not do async invokes
   #[ignore="Must be run serially because of env var clashing"]
@@ -277,7 +278,9 @@ use tokio::task::JoinHandle;
 type HANDLE = JoinHandle<Result<std::sync::Arc<parking_lot::Mutex<iluvatar_worker_library::services::invocation::invoker_structs::InvocationResult>>, anyhow::Error>>;
 
 async fn get_start_end_time_from_invoke(handle: HANDLE, formatter: &ContainerTimeFormatter) -> (OffsetDateTime, OffsetDateTime) {
-  let result = handle.await.expect("Error joining thread handle");
+  let result = timeout(Duration::from_secs(10), handle).await
+                                                .unwrap_or_else(|e| panic!("Error joining invocation thread handle: {:?}", e))
+                                                .unwrap_or_else(|e| panic!("Error joining invocation thread handle: {:?}", e));
   match result {
     Ok( result_ptr ) => {
       let result = result_ptr.lock();
@@ -307,11 +310,13 @@ async fn prewarm(cm: &Arc<ContainerManager>, function_name: &String, function_ve
     function_name: function_name.clone(),
     function_version: function_version.clone(),
     cpu: 1,
-    memory: 128,
+    memory: 512,
     image_name: image.clone(),
     transaction_id: transaction_id.clone(),
   };
-  cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+  timeout(Duration::from_secs(20), cm.prewarm(&input)).await
+      .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e))
+      .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
 }
 
 #[cfg(test)]
@@ -464,8 +469,8 @@ use super::*;
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
     // warm exec time cache
-    let first_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
-    let second_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    let first_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &"fastId".to_string());
+    let second_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &"slowID".to_string());
     get_start_end_time_from_invoke(first_invoke, &formatter).await;
     get_start_end_time_from_invoke(second_invoke, &formatter).await;
 
