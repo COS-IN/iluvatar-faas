@@ -22,8 +22,6 @@ pub struct ContainerdContainer {
   pub address: String,
   pub invoke_uri: String,
   pub base_uri: String,
-  /// Mutex guard used to limit number of open requests to a single container
-  pub mutex: Mutex<u32>,
   pub fqdn: String,
   /// the associated function inside the container
   pub function: Arc<RegisteredFunction>,
@@ -40,7 +38,7 @@ pub struct ContainerdContainer {
 }
 
 impl ContainerdContainer {
-  pub fn new(container_id: String, task: Task, port: Port, address: String, parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>, invoke_timeout: u64) -> Result<Self> {
+  pub fn new(container_id: String, task: Task, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>, invoke_timeout: u64) -> Result<Self> {
     let invoke_uri = calculate_invoke_uri(&address, port);
     let base_uri = calculate_base_uri(&address, port);
     let client = match reqwest::Client::builder()
@@ -59,7 +57,6 @@ impl ContainerdContainer {
       address,
       invoke_uri,
       base_uri,
-      mutex: Mutex::new(u32::from(parallel_invokes)),
       fqdn: fqdn.clone(),
       function: function.clone(),
       last_used: RwLock::new(SystemTime::now()),
@@ -157,34 +154,6 @@ impl ContainerT for ContainerdContainer {
   }
   fn mark_unhealthy(&self) {
     *self.healthy.lock() = false;
-  }
-
-  fn acquire(&self) {
-    let mut m = self.mutex.lock();
-    *m -= 1;
-  }
-  fn try_acquire(&self) -> bool {
-    let mut m = self.mutex.lock();
-    if *m > 0 {
-      *m -= 1;
-      return true;
-    }
-    return false;
-  }
-  fn release(&self) {
-    let mut m = self.mutex.lock();
-    *m += 1;
-  }
-  fn try_seize(&self) -> bool {
-    let mut cont_lock = self.mutex.lock();
-    if *cont_lock != self.function().parallel_invokes {
-      return false;
-    }
-    *cont_lock = 0;
-    true
-  }
-  fn being_held(&self) -> bool {
-    *self.mutex.lock() != self.function().parallel_invokes
   }
 }
 

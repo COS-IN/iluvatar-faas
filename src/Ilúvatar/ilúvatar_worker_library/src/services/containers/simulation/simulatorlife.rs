@@ -26,11 +26,10 @@ impl LifecycleService for SimulatorLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, _parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     let cid = format!("{}-{}", fqdn, GUID::rand());
     Ok(Arc::new(SimulatorContainer {
       container_id: cid,
-      mutex: Mutex::new(parallel_invokes),
       fqdn: fqdn.clone(),
       function: reg.clone(),
       last_used: RwLock::new(SystemTime::now()),

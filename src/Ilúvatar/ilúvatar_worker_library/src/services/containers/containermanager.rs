@@ -1,4 +1,4 @@
-use crate::services::containers::structs::{InsufficientMemoryError, ContainerLockedError};
+use crate::services::containers::structs::InsufficientMemoryError;
 use futures::Future;
 use iluvatar_library::bail_error;
 use iluvatar_library::threading::{tokio_runtime, EventualItem};
@@ -18,9 +18,12 @@ use super::container_pool::{ContainerPool, Subpool};
 use super::structs::{Container, RegisteredFunction, ContainerLock};
 use tracing::{info, warn, debug, error};
 
+/// A struct to manage and control access to containers
 pub struct ContainerManager {
   registered_functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,
+  // Containers that are currently not running an invocation
   idle_containers: ContainerPool,
+  // Containers that are running an invocation
   running_containers: ContainerPool,
   limits_config: Arc<FunctionLimits>, 
   resources: Arc<ContainerResources>,
@@ -29,6 +32,7 @@ pub struct ContainerManager {
   prioritized_list: RwLock<Subpool>,
   _worker_thread: std::thread::JoinHandle<()>,
   core_sem: Option<Arc<Semaphore>>,
+  unhealthy_list: Subpool
 }
 
 impl ContainerManager {
@@ -48,6 +52,7 @@ impl ContainerManager {
       _worker_thread: worker_thread,
       idle_containers: ContainerPool::new("idle"),
       running_containers: ContainerPool::new("running"),
+      unhealthy_list: vec![],
     }
   }
 
@@ -122,8 +127,8 @@ impl ContainerManager {
     let mut to_remove = vec![];
     let mut all_ctrs = self.idle_containers.iter();
     all_ctrs.append(&mut self.running_containers.iter());
+    let mut sum_change = 0;
     for container in all_ctrs {
-      let mut sum_change = 0;
       if container.is_healthy() {
         let old_usage = container.get_curr_mem_usage();
         let new_usage = self.cont_lifecycle.update_memory_usage_mb(&container, tid);
@@ -133,22 +138,16 @@ impl ContainerManager {
       } else {
         to_remove.push(container);
       }
-      *self.used_mem_mb.write() += sum_change;
     }
+    *self.used_mem_mb.write() += sum_change;
 
     for container in to_remove {
       let stdout = self.cont_lifecycle.read_stdout(&container, tid);
       let stderr = self.cont_lifecycle.read_stderr(&container, tid);
       warn!(tid=%tid, container_id=%container.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
-      match self.remove_container(container.clone(), true, tid).await {
+      match self.remove_container(container.clone(), tid).await {
         Ok(_) => (),
-        Err(cause) => {
-          if let Some(_core_err) = cause.downcast_ref::<ContainerLockedError>() {
-            error!(tid=%tid, "Tried to remove an unhealthy container someone was using");
-          } else {
-            error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container");
-          }
-        },
+        Err(cause) => error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container"),
       };
     }
 
@@ -213,7 +212,7 @@ impl ContainerManager {
     debug!(tid=%tid, fqdn=%fqdn, "Trying to cold start a new container");
     let container = self.launch_container(&fqdn, tid).await?;
     // claim this for ourselves before it touches the pool
-    container.acquire();
+    // container.acquire();
     info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
 
     self.add_container_to_pool(&self.running_containers, container.clone(), tid)?;
@@ -222,23 +221,30 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   fn try_lock_container<'a>(&'a self, container: Container, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
-    if container.try_acquire() {
+    // if container.try_acquire() {
       if container.is_healthy() {
         debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
         container.touch();
         return Some(ContainerLock::new(container.clone(), self, tid));
       }
-      else {
-        container.release();
-      }
-    }
+      // else {
+      //   container.release();
+      // }
+    // }
     None
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%_tid)))]
-  pub fn return_container(&self, container: &Container, _tid: &TransactionId) {
+  pub fn return_container(&self, container: &Container, tid: &TransactionId) {
     // TODO: update this part
-    container.release();
+    if let Some(removed_ctr) = self.running_containers.remove_container(container, tid) {
+      if let Err(e) = self.idle_containers.add_container(removed_ctr, tid) {
+        error!(tid=%tid, error=%e, container_id=%container.container_id(), "Encountered an error trying to return a container to the idle pool");
+      }
+    } else {
+      error!(tid=%tid, container_id=%container.container_id(), "Tried to return a container that wasn't running");
+    }
+    // container.release();
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
@@ -292,9 +298,7 @@ impl ContainerManager {
     match self.cont_lifecycle.wait_startup(&cont, self.resources.startup_timeout_ms, tid).await {
       Ok(_) => (),
       Err(e) => {
-        {
-          *self.used_mem_mb.write() -= reg.memory;
-        }
+        *self.used_mem_mb.write() -= reg.memory;
         match self.cont_lifecycle.remove_container(cont, "default", tid).await {
           Ok(_) => { return Err(e); },
           Err(inner_e) => anyhow::bail!("Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'", e, inner_e),
@@ -408,18 +412,18 @@ impl ContainerManager {
     Ok(())
   }
 
-  pub fn mark_unhealthy(&self, container: &Container, tid: &TransactionId) {
-    info!(tid=%tid, container_id=%container.container_id(), "Marking container as unhealthy");
-    container.mark_unhealthy();
-  }
+  // pub fn mark_unhealthy(&self, container: &Container, tid: &TransactionId) {
+  //   info!(tid=%tid, container_id=%container.container_id(), "Marking container as unhealthy");
+  //   container.mark_unhealthy();
+  // }
 
   /// Delete a container and releases tracked resources for it
-  /// Container **must not** be in any container pool
+  /// Container **must** have already been removed from the container pool
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, lock_check), fields(tid=%tid)))]
-  async fn remove_container(&self, container: Container, lock_check: bool, tid: &TransactionId) -> Result<()> {
-    if lock_check && container.being_held() {
-      bail!(ContainerLockedError{})
-    }
+  async fn remove_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
+    // if lock_check && container.being_held() {
+    //   bail!(ContainerLockedError{})
+    // }
 
     // self.idle_containers.remove_container(&container, tid)
 
@@ -461,7 +465,7 @@ impl ContainerManager {
       }
     }
     for container in to_remove {
-      self.remove_container(container, false, tid).await?;
+      self.remove_container(container, tid).await?;
     }
     Ok(())
   }

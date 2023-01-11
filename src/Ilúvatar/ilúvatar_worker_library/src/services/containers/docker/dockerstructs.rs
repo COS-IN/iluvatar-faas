@@ -9,8 +9,6 @@ use parking_lot::{Mutex, RwLock};
 #[allow(unused)]
 pub struct DockerContainer {
   pub container_id: String,
-  /// Mutex guard used to limit number of open requests to a single container
-  pub mutex: Mutex<u32>,
   pub fqdn: String,
   /// the associated function inside the container
   pub function: Arc<RegisteredFunction>,
@@ -26,7 +24,7 @@ pub struct DockerContainer {
 }
 
 impl DockerContainer {
-  pub fn new(container_id: String, port: Port, address: String, parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, invoke_timeout: u64) -> Result<Self> {
+  pub fn new(container_id: String, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, invoke_timeout: u64) -> Result<Self> {
     let client = match reqwest::Client::builder()
       .pool_max_idle_per_host(0)
       .pool_idle_timeout(None)
@@ -38,7 +36,6 @@ impl DockerContainer {
       };
     let r = DockerContainer {
       container_id: container_id,
-      mutex: Mutex::new(u32::from(parallel_invokes)),
       fqdn: fqdn.clone(),
       function: function.clone(),
       last_used: RwLock::new(SystemTime::now()),
@@ -122,34 +119,6 @@ impl ContainerT for DockerContainer {
   }
   fn mark_unhealthy(&self) {
     *self.healthy.lock() = false;
-  }
-
-  fn acquire(&self) {
-    let mut m = self.mutex.lock();
-    *m -= 1;
-  }
-  fn try_acquire(&self) -> bool {
-    let mut m = self.mutex.lock();
-    if *m > 0 {
-      *m -= 1;
-      return true;
-    }
-    return false;
-  }
-  fn release(&self) {
-    let mut m = self.mutex.lock();
-    *m += 1;
-  }
-  fn try_seize(&self) -> bool {
-    let mut cont_lock = self.mutex.lock();
-    if *cont_lock != self.function().parallel_invokes {
-      return false;
-    }
-    *cont_lock = 0;
-    true
-  }
-  fn being_held(&self) -> bool {
-    *self.mutex.lock() != self.function().parallel_invokes
   }
 }
 

@@ -26,22 +26,10 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
   fn function(&self) -> Arc<RegisteredFunction>;
   /// the fully qualified domain name of the function
   fn fqdn(&self) -> &String;
-
   /// true if the container is healthy
   fn is_healthy(&self) -> bool;
   /// set the container as unhealthy
   fn mark_unhealthy(&self);
-
-  /// acquire a lock for invocation
-  fn acquire(&self);
-  /// true if a lock was acquired
-  fn try_acquire(&self) -> bool;
-  /// release invocation lock
-  fn release(&self);
-  /// return true if all locks for invocations can be acquired
-  fn try_seize(&self) -> bool;
-  /// return true if anyone has a lock for invocation
-  fn being_held(&self) -> bool;
 }
 
 /// Cast a container pointer to a concrete type
@@ -182,21 +170,6 @@ impl std::fmt::Display for ContainerStartupError {
   }
 }
 impl std::error::Error for ContainerStartupError {
-
-}
-
-#[derive(Debug)]
-/// Unable to complete an action because another has a lock on the container
-pub struct ContainerLockedError {
-}
-impl std::fmt::Display for ContainerLockedError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-    write!(f, "Someone has a lock on this container")?;
-    Ok(())
-  }
-}
-impl std::error::Error for ContainerLockedError {
-
 }
 
 pub struct ContainerTimeFormatter {

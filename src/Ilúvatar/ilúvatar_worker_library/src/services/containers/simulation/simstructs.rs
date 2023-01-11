@@ -10,8 +10,6 @@ use tracing::error;
 #[allow(unused)]
 pub struct SimulatorContainer {
   pub container_id: String,
-  /// Mutex guard used to limit number of open requests to a single container
-  pub mutex: Mutex<u32>,
   pub fqdn: String,
   /// the associated function inside the container
   pub function: Arc<RegisteredFunction>,
@@ -118,34 +116,6 @@ impl ContainerT for SimulatorContainer {
 
   fn mark_unhealthy(&self) {
     error!(container_id=%self.container_id, "Cannot mark simulation container unhealthy!")
-  }
-
-  fn acquire(&self) {
-    let mut m = self.mutex.lock();
-    *m -= 1;
-  }
-  fn try_acquire(&self) -> bool {
-    let mut m = self.mutex.lock();
-    if *m > 0 {
-      *m -= 1;
-      return true;
-    }
-    return false;
-  }
-  fn release(&self) {
-    let mut m = self.mutex.lock();
-    *m += 1;
-  }
-  fn try_seize(&self) -> bool {
-    let mut cont_lock = self.mutex.lock();
-    if *cont_lock != self.function().parallel_invokes {
-      return false;
-    }
-    *cont_lock = 0;
-    true
-  }
-  fn being_held(&self) -> bool {
-    *self.mutex.lock() != self.function().parallel_invokes
   }
 }
 
