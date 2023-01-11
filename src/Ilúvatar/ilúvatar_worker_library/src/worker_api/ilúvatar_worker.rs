@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use iluvatar_library::energy::energy_logging::EnergyLogger;
+use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map::CharacteristicsMap, utils::calculate_fqdn};
 use crate::services::invocation::invoker_trait::Invoker;
 use crate::services::worker_health::WorkerHealthService;
 use crate::services::status::status_service::StatusService;
@@ -18,17 +18,19 @@ pub struct IluvatarWorkerImpl {
   status: Arc<StatusService>,
   health: Arc<WorkerHealthService>,
   energy: Arc<EnergyLogger>,
+  cmap: Arc<CharacteristicsMap>,
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<dyn Invoker>, status: Arc<StatusService>, health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<dyn Invoker>, status: Arc<StatusService>, health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>, cmap: Arc<CharacteristicsMap>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
       container_manager,
       config,
       invoker,
       status,
       health,
-      energy
+      energy,
+      cmap
     }
   }
 }
@@ -54,6 +56,8 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
       let request = request.into_inner();
       info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling invocation request");
+      let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
+      self.cmap.add_iat( &fqdn );
       let resp = self.invoker.sync_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id).await;
 
       match resp {
@@ -82,6 +86,8 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     request: Request<InvokeAsyncRequest>) -> Result<Response<InvokeAsyncResponse>, Status> {
       let request = request.into_inner();
       info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling async invocation request");
+      let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
+      self.cmap.add_iat( &fqdn );
       let resp = self.invoker.async_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id);
 
       match resp {

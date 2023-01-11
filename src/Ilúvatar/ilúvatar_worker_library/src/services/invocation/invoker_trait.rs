@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{ParsedResult, InsufficientCoresError, InsufficientMemoryError};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
+use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId}, threading::EventualItem};
 use time::OffsetDateTime;
@@ -45,6 +46,7 @@ pub trait Invoker: Send + Sync {
   fn function_config(&self) -> Arc<FunctionLimits>;
   fn invocation_config(&self) -> Arc<InvocationConfig>;
   fn async_functions<'a>(&'a self) -> &'a super::async_tracker::AsyncHelper;
+  fn char_map(&self) -> &Arc<CharacteristicsMap>;
 
   fn timer(&self) -> &LocalTime;
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr>;
@@ -198,6 +200,11 @@ pub trait Invoker: Send + Sync {
     };
     info!(tid=%tid, insert_time=%timer.format_time(queue_insert_time)?, remove_time=%remove_time?, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
+    match data.was_cold {
+      true => self.char_map().add( fqdn, Characteristics::ColdTime, Values::F64(data.duration_sec), true),
+      false => self.char_map().add( fqdn, Characteristics::WarmTime, Values::F64(data.duration_sec), true),
+    };
+    self.char_map().add( fqdn, Characteristics::ExecTime, Values::F64(data.duration_sec), true);
     drop(permit);
     Ok((data, duration))
   }

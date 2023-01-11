@@ -101,8 +101,7 @@ impl ContainerdContainer {
       Ok(r) => r,
       Err(e) => bail_error!(tid=%tid, error=%e, container_id=%self.container_id, "Error reading text data from container"),
     };
-    let result = ParsedResult::parse(r, tid)?;
-    Ok(result)
+    ParsedResult::parse(r, tid)
   }
 }
 

@@ -1,4 +1,6 @@
-use iluvatar_library::bail_error;
+use std::sync::Arc;
+use iluvatar_library::characteristics_map::AgExponential;
+use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::energy::energy_logging::EnergyLogger;
 use crate::services::invocation::InvokerFactory;
 use crate::services::worker_health::WorkerHealthService;
@@ -19,6 +21,8 @@ pub mod sim_worker;
 pub mod worker_comm;
 
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
+  let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
+
   let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
   let lifecycle = match factory.get_lifecycle_service(tid, true).await {
     Ok(l) => l,
@@ -30,7 +34,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make container manger"),
   };
 
-  let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone());
+  let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone(), cmap.clone());
   let invoker = invoker_fact.get_invoker_service(tid)?;
   let status = match StatusService::boxed(container_man.clone(), invoker.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid, worker_config.status.clone()) {
     Ok(s) => s,
@@ -46,7 +50,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make energy logger"),
   };
   
-  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy))
+  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy, cmap))
 }
 
 #[derive(Debug, PartialEq, Eq)]

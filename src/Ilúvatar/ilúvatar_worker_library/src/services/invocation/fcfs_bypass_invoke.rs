@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values}};
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,Values}};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -65,7 +65,7 @@ pub struct FCFSBypassInvoker {
 }
 
 impl FCFSBypassInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(FCFSBypassInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
     let bypass_dur = Duration::from_millis(invocation_config.bypass_duration_ms.ok_or_else(|| anyhow::anyhow!("bypass_duration_ms was not present in InvocationConfig"))?).as_secs_f64();
     if bypass_dur == 0.0 {
@@ -80,7 +80,7 @@ impl FCFSBypassInvoker {
       async_functions: AsyncHelper::new(),
       queue_signal: Notify::new(),
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
-      cmap: Arc::new(CharacteristicsMap::new(AgExponential::new(0.6))),
+      cmap,
       _worker_thread: handle,
       clock: LocalTime::new(tid)?,
       bypass_running: AtomicU32::new(0)
@@ -117,7 +117,7 @@ impl FCFSBypassInvoker {
     self.bypass_running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (result, duration) = ctr_lock.invoke(&enqueued.json_args).await?;
     self.bypass_running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    self.update_metadata(&enqueued.function_name, result.duration_sec);
+    self.update_metadata(&enqueued.fqdn, result.duration_sec);
     let mut temp = enqueued.result_ptr.lock();
     temp.exec_time = result.duration_sec;
     temp.result_json = result.result_string()?;
@@ -126,8 +126,9 @@ impl FCFSBypassInvoker {
     Ok( enqueued.result_ptr.clone() )
   }
 
-  fn update_metadata(&self, name: &String, result: f64) {
-    self.cmap.add( name.clone(), Characteristics::ExecTime, Values::F64(result), true);          
+  fn update_metadata(&self, fqdn: &String, result: f64) {
+    self.cmap.add( fqdn, Characteristics::WarmTime, Values::F64(result), true);          
+    self.cmap.add( fqdn, Characteristics::ExecTime, Values::F64(result), true);          
   }
 }
 
@@ -177,7 +178,10 @@ impl Invoker for FCFSBypassInvoker {
     let concur = self.invocation_config.concurrent_invokes - self.concurrency_semaphore.available_permits() as u32;
     bypass + concur
   }
-
+  fn char_map(&self) -> &Arc<CharacteristicsMap> {
+    &self.cmap
+  }
+  
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
     let exec_time = self.cmap.get_exec_time(&queued.function_name);
@@ -188,7 +192,6 @@ impl Invoker for FCFSBypassInvoker {
       let result_ptr = queued.result_ptr.lock();
       if result_ptr.completed {
         info!(tid=%queued.tid, exec_time=exec_time, "Invocation complete");
-        self.update_metadata(&queued.function_name, result_ptr.exec_time);
         return Ok( queued.result_ptr.clone() );
       } else {
         anyhow::bail!("Invocation was signaled completion but completion value was not set")

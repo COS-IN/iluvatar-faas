@@ -85,10 +85,19 @@ impl AgExponential {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Characteristics {
+    /// Both warm and cold time on CPU for invocations
+    /// Recorded by [Invoker::invoke_internal]
     ExecTime,
+    /// Time on CPU for a warm invocation
+    /// Recorded by [Invoker::invoke_internal]
     WarmTime,
+    /// Time on CPU for a cold invocation
+    /// Recorded by [Invoker::invoke_internal]
     ColdTime,
+    /// Recorded internally by the [CharacteristicsMap::get_iat] function
     LastInvTime,
+    // The running avg IAT
+    /// Recorded by [IluvatarWorkerImpl::invoke] and [IluvatarWorkerImpl::invoke_async] 
     IAT,
     MemoryUsage,
 }
@@ -110,11 +119,11 @@ impl CharacteristicsMap {
         map
     }
 
-    pub fn add( &self, fname: String, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
-        let e0 = self.map.get_mut( &fname );
+    pub fn add( &self, fqdn: &String, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
+        let e0 = self.map.get_mut( fqdn );
 
         match e0 {
-            // dashself.map of given fname
+            // dashself.map of given fqdn
             Some(v0) => {
                let e1 = v0.get_mut( &chr );
                // entry against given characteristic
@@ -145,30 +154,30 @@ impl CharacteristicsMap {
                 // dashmap for given fname does not exist create and populate
                 let d = DashMap::new();
                 d.insert( chr, value );
-                self.map.insert( fname, d );
+                self.map.insert( fqdn.clone(), d );
             }
         }
 
         self
     }
 
-    pub fn add_iat( &self, fname: &String ) {
+    pub fn add_iat( &self, fqdn: &String ) {
         let time_now = SystemTime::now();
         let time_now = time_now.duration_since( UNIX_EPOCH ).expect("Time went backwards");
 
-        let last_inv_time  = self.lookup( fname, &Characteristics::LastInvTime ).unwrap_or( Values::Duration(Duration::new( 0, 0 )) );
+        let last_inv_time  = self.lookup( fqdn, &Characteristics::LastInvTime ).unwrap_or( Values::Duration(Duration::new( 0, 0 )) );
         let last_inv_time = unwrap_val_dur( &last_inv_time );
 
         if last_inv_time.as_secs_f64() > 0.1 {
             let iat = time_now.as_secs_f64() - last_inv_time.as_secs_f64(); 
-            self.add( fname.clone(), Characteristics::IAT, Values::F64(iat) , true); 
+            self.add( fqdn, Characteristics::IAT, Values::F64(iat) , true); 
         }
 
-        self.add( fname.clone(), Characteristics::LastInvTime, Values::Duration(time_now.clone()) , false); 
+        self.add( fqdn, Characteristics::LastInvTime, Values::Duration(time_now.clone()) , false); 
     }
     
-    pub fn lookup (&self, fname: &String, chr: &Characteristics ) -> Option<Values> {
-       let e0 = self.map.get( fname )?;
+    pub fn lookup (&self, fqdn: &String, chr: &Characteristics ) -> Option<Values> {
+       let e0 = self.map.get( fqdn )?;
        let e0 = e0.value();
        let v = e0.get( chr )?;
        let v = v.value();
@@ -177,9 +186,18 @@ impl CharacteristicsMap {
     }
     /// Returns the execution time as tracked by [Characteristics::ExecTime]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_exec_time(&self, fname: &String ) -> f64 {
-      if let Some(exectime) = self.lookup(fname, &Characteristics::ExecTime) {
+    pub fn get_exec_time(&self, fqdn: &String ) -> f64 {
+      if let Some(exectime) = self.lookup(fqdn, &Characteristics::ExecTime) {
         unwrap_val_f64( &exectime )
+      } else {
+        0.0
+      }
+    }
+    /// Returns the IAT as tracked by [Characteristics::IAT]
+    /// Returns 0.0 if it was not found, or an error occured
+    pub fn get_iat(&self, fqdn: &String ) -> f64 {
+      if let Some(iat) = self.lookup(fqdn, &Characteristics::IAT) {
+        unwrap_val_f64( &iat )
       } else {
         0.0
       }
@@ -196,14 +214,14 @@ impl CharacteristicsMap {
 
     pub fn dump( &self ) {
         for e0 in self.map.iter() {
-            let fname = e0.key();
+            let fqdn = e0.key();
             let omap = e0.value();
 
             for e1 in omap.iter() {
                 let chr = e1.key();
                 let value = e1.value();
                 
-                debug!(component="CharacteristicsMap", "{} -- {:?},{:?}", fname, chr, value);
+                debug!(component="CharacteristicsMap", "{} -- {:?},{:?}", fqdn, chr, value);
             }
         }
     }
@@ -221,14 +239,14 @@ mod charmap {
       println!("Test 4: Using Duration Datatype for ExecTime");
       
       println!("      : Adding one element");
-      m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(2,30)), true);
+      m.add( &"video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(2,30)), true);
       println!("      : looking up the new element");
       println!("      :   {:?}", unwrap_val_dur(
               &m.lookup(&"video_processing.0.0.1".to_string(), &Characteristics::ExecTime).unwrap() ) );
       println!("      : Adding three more");
-      m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), true);
-      m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), true);
-      m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), true);
+      m.add( &"video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), true);
+      m.add( &"video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), true);
+      m.add( &"video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::Duration(Duration::new(5,50)), true);
       println!("      : dumping whole map");
       m.dump();
       assert_eq!(unwrap_val_dur(
@@ -241,17 +259,17 @@ mod charmap {
       let m = CharacteristicsMap::new( AgExponential::new( 0.6 ) );
         
       let push_video = || {
-          m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.3), true);
-          m.add( "video_processing.0.0.1".to_string(), Characteristics::ColdTime, Values::F64(0.9), true);
-          m.add( "video_processing.0.0.1".to_string(), Characteristics::WarmTime, Values::F64(0.6), true);
+          m.add( &"video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.3), true);
+          m.add( &"video_processing.0.0.1".to_string(), Characteristics::ColdTime, Values::F64(0.9), true);
+          m.add( &"video_processing.0.0.1".to_string(), Characteristics::WarmTime, Values::F64(0.6), true);
 
-          m.add( "video_processing.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4), true);
-          m.add( "video_processing.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9), true);
-          m.add( "video_processing.0.1.1".to_string(), Characteristics::WarmTime, Values::F64(1.6), true);
+          m.add( &"video_processing.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4), true);
+          m.add( &"video_processing.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9), true);
+          m.add( &"video_processing.0.1.1".to_string(), Characteristics::WarmTime, Values::F64(1.6), true);
 
-          m.add( "json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4), true);
-          m.add( "json_dump.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9), true);
-          m.add( "json_dump.0.1.1".to_string(), Characteristics::WarmTime, Values::Duration(Duration::from_secs_f64(1.6)), true);
+          m.add( &"json_dump.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4), true);
+          m.add( &"json_dump.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9), true);
+          m.add( &"json_dump.0.1.1".to_string(), Characteristics::WarmTime, Values::Duration(Duration::from_secs_f64(1.6)), true);
       };
       
       // Test 1 single entries 
@@ -274,18 +292,18 @@ mod charmap {
     fn accumulation() {
         let m = CharacteristicsMap::new( AgExponential::new( 0.6 ) );
         
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.3), true);
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ColdTime, Values::F64(0.9), true);
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::WarmTime, Values::F64(0.6), true);
+        m.add( &"video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.3), true);
+        m.add( &"video_processing.0.0.1".to_string(), Characteristics::ColdTime, Values::F64(0.9), true);
+        m.add( &"video_processing.0.0.1".to_string(), Characteristics::WarmTime, Values::F64(0.6), true);
 
-        m.add( "video_processing.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4), true);
-        m.add( "video_processing.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9), true);
-        m.add( "video_processing.0.1.1".to_string(), Characteristics::WarmTime, Values::F64(1.6), true);
+        m.add( &"video_processing.0.1.1".to_string(), Characteristics::ExecTime, Values::F64(0.4), true);
+        m.add( &"video_processing.0.1.1".to_string(), Characteristics::ColdTime, Values::F64(1.9), true);
+        m.add( &"video_processing.0.1.1".to_string(), Characteristics::WarmTime, Values::F64(1.6), true);
 
         // Test 3 exponential average to accumulate
-        m.add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), true) 
-         .add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), true)
-         .add( "video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), true);
+        m.add( &"video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), true) 
+         .add( &"video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), true)
+         .add( &"video_processing.0.0.1".to_string(), Characteristics::ExecTime, Values::F64(0.5), true);
         println!("--------------------------------------------------------------------");
         println!("Test 3: three additions of ExecTime 0.5 to vp.0.0.1 - should be exponential average");
         println!("      : dumping whole map");

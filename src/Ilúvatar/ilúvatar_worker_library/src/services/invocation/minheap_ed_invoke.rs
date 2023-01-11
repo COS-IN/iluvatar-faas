@@ -4,7 +4,7 @@ use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::compare_f64;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,Values}};
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -72,7 +72,7 @@ pub struct MinHeapEDInvoker {
 }
 
 impl MinHeapEDInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(MinHeapEDInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
     let svc = Arc::new(MinHeapEDInvoker {
       concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
@@ -82,7 +82,7 @@ impl MinHeapEDInvoker {
       async_functions: AsyncHelper::new(),
       queue_signal: Notify::new(),
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
-      cmap: Arc::new(CharacteristicsMap::new(AgExponential::new(0.6))),
+      cmap,
       _worker_thread: handle,
       clock: LocalTime::new(tid)?,
     });
@@ -144,7 +144,10 @@ impl Invoker for MinHeapEDInvoker {
   fn running_funcs(&self) -> u32 {
     self.invocation_config.concurrent_invokes - self.concurrency_semaphore.available_permits() as u32
   }
-
+  fn char_map(&self) -> &Arc<CharacteristicsMap> {
+    &self.cmap
+  }
+  
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     let queued = self.enqueue_new_invocation(function_name.clone(), function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
@@ -152,7 +155,6 @@ impl Invoker for MinHeapEDInvoker {
     match result_ptr.completed {
       true => {
         info!(tid=%tid, "Invocation complete");
-        self.cmap.add( function_name, Characteristics::ExecTime, Values::F64(result_ptr.exec_time), true);
         Ok( queued.result_ptr.clone() )
       },
       false => {

@@ -1,7 +1,7 @@
 use std::{sync::{Arc, atomic::{AtomicU32, Ordering}}, time::Duration};
 use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, logging::LocalTime, utils::calculate_fqdn, threading::tokio_runtime};
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, logging::LocalTime, utils::calculate_fqdn, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use anyhow::Result;
 use tokio::sync::Notify;
 use tracing::{error, debug};
@@ -17,11 +17,12 @@ pub struct QueuelessInvoker {
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
   clock: LocalTime,
+  cmap: Arc<CharacteristicsMap>,
   running_funcs: AtomicU32,
 }
 
 impl QueuelessInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(Self::wait_on_queue), Some(function_config.cpu_max as usize))?;
     let svc = Arc::new(QueuelessInvoker {
       cont_manager,
@@ -33,6 +34,7 @@ impl QueuelessInvoker {
       queue_signal: Notify::new(),
       async_queue: parking_lot::Mutex::new(Vec::new()),
       _worker_thread: handle,
+      cmap,
     });
     tx.send(svc.clone())?;
     Ok(svc)
@@ -51,6 +53,9 @@ impl Invoker for QueuelessInvoker {
   fn invocation_config(&self) -> Arc<InvocationConfig>  { self.invocation_config.clone() }
   fn timer(&self) -> &LocalTime { &self.clock }
   fn async_functions<'a>(&'a self) -> &'a AsyncHelper { &self.async_functions }
+  fn char_map(&self) -> &Arc<CharacteristicsMap> {
+    &self.cmap
+  }
   fn concurrency_semaphore(&self) -> Option<Arc<tokio::sync::Semaphore>> { None }
   fn running_funcs(&self) -> u32 {
     self.running_funcs.load(Ordering::Relaxed)

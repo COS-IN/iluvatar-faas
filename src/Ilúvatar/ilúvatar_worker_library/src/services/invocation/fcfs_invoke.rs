@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
+use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime};
 use anyhow::Result;
@@ -20,10 +21,11 @@ pub struct FCFSInvoker {
   queue_signal: Notify,
   clock: LocalTime,
   concurrency_semaphore: Arc<Semaphore>,
+  cmap: Arc<CharacteristicsMap>,
 }
 
 impl FCFSInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(FCFSInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
     let svc = Arc::new(FCFSInvoker {
       concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
@@ -35,6 +37,7 @@ impl FCFSInvoker {
       invoke_queue: Arc::new(Mutex::new(Vec::new())),
       _worker_thread: handle,
       clock: LocalTime::new(tid)?,
+      cmap,
     });
     tx.send(svc.clone())?;
     Ok(svc)
@@ -83,7 +86,10 @@ impl Invoker for FCFSInvoker {
   fn running_funcs(&self) -> u32 {
     self.invocation_config.concurrent_invokes - self.concurrency_semaphore.available_permits() as u32
   }
-
+  fn char_map(&self) -> &Arc<CharacteristicsMap> {
+    &self.cmap
+  }
+  
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
     let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());

@@ -21,15 +21,19 @@ impl ContainerPool {
     }
   }
 
+  /// Used to register a new fqdn with the pool
   pub fn register_fqdn(&self, fqdn: String) {
     self.pool.insert(fqdn, Vec::new());
   }
 
+  /// The number of items 
   pub fn len(&self) -> u32 {
     self.len.load(Ordering::Relaxed)
   }
 
+  /// An iterable of all the containers stored in the pool
   pub fn iter(&self) -> Vec<Container> {
+    // TODO: a proper iterator for this
     let mut ret = vec![];
     for subpool in self.pool.iter() {
       for item in (*subpool).iter() {
@@ -39,6 +43,7 @@ impl ContainerPool {
     ret
   }
 
+  /// Returns a random container for the fqdn, or [None] if none is available
   pub fn get_random_container(&self, fqdn: &String, tid: &TransactionId) -> Option<Container> {
     match self.pool.get_mut(fqdn) {
       Some(mut pool_list) => {
@@ -55,11 +60,21 @@ impl ContainerPool {
     }
   }
 
+  /// Returns true if any container is present for the matching fqdn
+  pub fn has_container(&self, fqdn: &String) -> bool {
+    match self.pool.get(fqdn) {
+      Some(c) => (*c).len() > 0,
+      None => false,
+    }
+  }
+
+  /// Add the container to the pool
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn, container), fields(tid=%tid)))]
   pub fn add_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
     match self.pool.get_mut(container.fqdn()) {
       Some(mut pool_list) => {
         debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, "Inserting container into pool");
+        self.len.fetch_add(1, Ordering::Relaxed);
         (*pool_list).push(container);
         Ok(())
       },
@@ -67,6 +82,8 @@ impl ContainerPool {
     }
   }
 
+  /// Removes the container if it was found in the pool
+  /// Returns [None] if it was not found
   pub fn remove_container(&self, container: &Container, tid: &TransactionId) -> Option<Container> {
     match self.pool.get_mut(container.fqdn()) {
       Some(mut pool_list) => {
@@ -74,6 +91,7 @@ impl ContainerPool {
         let (pos, pool_len) = self.find_container_pos(&container, &pool_list);
         if pos < pool_len {
           debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, "Removing container from pool");
+          self.len.fetch_sub(1, Ordering::Relaxed);
           Some(pool_list.remove(pos))
         } else {
           None

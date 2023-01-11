@@ -121,6 +121,11 @@ impl ContainerManager {
   pub fn num_containers(&self) -> u32 {
     self.running_containers.len() + self.idle_containers.len()
   }
+  /// [true] if there is an idle container that matches
+  /// Not a guarantee it will be kept idle
+  pub fn container_available(&self, fqdn: &String) -> bool {
+    self.idle_containers.has_container(fqdn)
+  }
 
   /// Return a permit for the function to run on its registered number of cores
   /// If the semaphore is [None], then no permits are being tracked

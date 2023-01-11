@@ -1,6 +1,6 @@
 use std::{sync::Arc, collections::HashMap};
 
-use iluvatar_library::{transaction::TEST_TID, logging::{start_tracing, LoggingConfig}};
+use iluvatar_library::{transaction::TEST_TID, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
 use iluvatar_worker_library::{worker_api::config::{Configuration, WorkerConfig}, services::{containers::{LifecycleFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, invoker_trait::Invoker}}};
 
 #[macro_export]
@@ -41,11 +41,12 @@ pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<S
     true => Some(start_tracing(fake_logging, cfg.graphite.clone(), &"TEST".to_string(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e))),
     false => None,
   };
+  let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let factory = LifecycleFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
   let lifecycle = factory.get_lifecycle_service(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.limits.clone(), cfg.container_resources.clone(), lifecycle.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
-  let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone());
+  let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap);
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
   (_log, cfg, cm, invoker)
 }

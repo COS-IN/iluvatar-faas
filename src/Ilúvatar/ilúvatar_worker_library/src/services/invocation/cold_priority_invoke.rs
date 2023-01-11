@@ -15,45 +15,45 @@ use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 
 #[derive(Debug)]
-pub struct MHQEnqueuedInvocation {
+pub struct ColdPriEnqueuedInvocation {
     x: Arc<EnqueuedInvocation>,
     exectime: f64
 }
 
-impl MHQEnqueuedInvocation {
-    fn new( x: Arc<EnqueuedInvocation>, exectime: f64 ) -> Self {
-        MHQEnqueuedInvocation {
+impl ColdPriEnqueuedInvocation {
+    pub fn new( x: Arc<EnqueuedInvocation>, exectime: f64 ) -> Self {
+        ColdPriEnqueuedInvocation {
             x,
             exectime
         }
     }
 }
-impl Eq for MHQEnqueuedInvocation {
+impl Eq for ColdPriEnqueuedInvocation {
 }
-impl Ord for MHQEnqueuedInvocation {
+impl Ord for ColdPriEnqueuedInvocation {
  fn cmp(&self, other: &Self) -> Ordering {
     compare_f64( &self.exectime, &other.exectime )
  }
 }
 
-impl PartialOrd for MHQEnqueuedInvocation {
+impl PartialOrd for ColdPriEnqueuedInvocation {
  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
      Some(compare_f64( &self.exectime, &other.exectime ))
  }
 }
 
-impl PartialEq for MHQEnqueuedInvocation {
+impl PartialEq for ColdPriEnqueuedInvocation {
  fn eq(&self, other: &Self) -> bool {
      self.exectime == other.exectime
  }
 }
 
-pub struct MinHeapInvoker {
+pub struct ColdPriorityInvoker {
   pub cont_manager: Arc<ContainerManager>,
   pub async_functions: AsyncHelper,
   pub function_config: Arc<FunctionLimits>,
   pub invocation_config: Arc<InvocationConfig>,
-  pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<MHQEnqueuedInvocation>>>>,
+  pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<ColdPriEnqueuedInvocation>>>>,
   pub cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
@@ -61,10 +61,10 @@ pub struct MinHeapInvoker {
   concurrency_semaphore: Arc<Semaphore>,
 }
 
-impl MinHeapInvoker {
+impl ColdPriorityInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
-    let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(MinHeapInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
-    let svc = Arc::new(MinHeapInvoker {
+    let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(ColdPriorityInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
+    let svc = Arc::new(ColdPriorityInvoker {
       concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
       cont_manager,
       function_config,
@@ -77,19 +77,19 @@ impl MinHeapInvoker {
       clock: LocalTime::new(tid)?,
     });
     tx.send(svc.clone())?;
-    debug!(tid=%tid, "Created MinHeapInvoker");
+    debug!(tid=%tid, "Created ColdPriorityInvoker");
     Ok(svc)
   }
 
   /// Wait on the Notify object for the queue to be available again
-  async fn wait_on_queue(invoker_svc: Arc<MinHeapInvoker>, tid: TransactionId) {
+  async fn wait_on_queue(invoker_svc: Arc<ColdPriorityInvoker>, tid: TransactionId) {
     invoker_svc.queue_signal.notified().await;
     debug!(tid=%tid, "Invoker waken up by signal");
   }
 }
 
 #[tonic::async_trait]
-impl Invoker for MinHeapInvoker {
+impl Invoker for ColdPriorityInvoker {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
@@ -140,9 +140,9 @@ impl Invoker for MinHeapInvoker {
   fn char_map(&self) -> &Arc<CharacteristicsMap> {
     &self.cmap
   }
-  
+
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
-    let queued = self.enqueue_new_invocation(function_name.clone(), function_version, json_args, tid.clone());
+    let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
     match result_ptr.completed {
@@ -157,7 +157,7 @@ impl Invoker for MinHeapInvoker {
   }
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    queue.push(MHQEnqueuedInvocation::new(item.clone(), self.cmap.get_exec_time(&item.function_name )).into());
+    queue.push(ColdPriEnqueuedInvocation::new(item.clone(), self.cmap.get_exec_time(&item.function_name )).into());
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.function_name,

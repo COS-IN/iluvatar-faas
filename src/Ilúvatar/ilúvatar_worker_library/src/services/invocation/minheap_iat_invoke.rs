@@ -3,7 +3,7 @@ use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::compare_f64;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,AgExponential,unwrap_val_f64}};
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -16,50 +16,38 @@ use std::cmp::Ordering;
 
 #[derive(Debug)]
 pub struct MHQIATEnqueuedInvocation {
-    x: Arc<EnqueuedInvocation>,
-    iat: f64
+  x: Arc<EnqueuedInvocation>,
+  iat: f64
 }
 
 impl MHQIATEnqueuedInvocation {
-    fn new( x: Arc<EnqueuedInvocation>, iat: f64 ) -> Self {
-        MHQIATEnqueuedInvocation {
-            x,
-            iat
-        }
+  fn new( x: Arc<EnqueuedInvocation>, iat: f64 ) -> Self {
+    MHQIATEnqueuedInvocation {
+      x,
+      iat
     }
-}
-
-fn get_iat( cmap: &Arc<CharacteristicsMap>, fname: &String ) -> f64 {
-    let iat_time = cmap.lookup(fname, &Characteristics::IAT); 
-    match iat_time {
-        Some(x) => {
-            unwrap_val_f64( &x )
-        }
-        None => {
-            0.0
-        }
-    }
+  }
 }
 
 impl Eq for MHQIATEnqueuedInvocation {
 }
 
 impl Ord for MHQIATEnqueuedInvocation {
- fn cmp(&self, other: &Self) -> Ordering {
+  fn cmp(&self, other: &Self) -> Ordering {
     compare_f64( &self.iat, &other.iat )
   }
 }
 
 impl PartialOrd for MHQIATEnqueuedInvocation {
- fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
     Some(compare_f64( &self.iat, &other.iat ))
   }
 }
 
 impl PartialEq for MHQIATEnqueuedInvocation {
- fn eq(&self, other: &Self) -> bool {
-     self.iat == other.iat
- }
+  fn eq(&self, other: &Self) -> bool {
+    self.iat == other.iat
+  }
 }
 
 pub struct MinHeapIATInvoker {
@@ -76,7 +64,7 @@ pub struct MinHeapIATInvoker {
 }
 
 impl MinHeapIATInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(MinHeapIATInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
     let svc = Arc::new(MinHeapIATInvoker {
       concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
@@ -86,7 +74,7 @@ impl MinHeapIATInvoker {
       async_functions: AsyncHelper::new(),
       queue_signal: Notify::new(),
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
-      cmap: Arc::new(CharacteristicsMap::new(AgExponential::new(0.6))),
+      cmap,
       _worker_thread: handle,
       clock: LocalTime::new(tid)?,
     });
@@ -151,7 +139,10 @@ impl Invoker for MinHeapIATInvoker {
   fn running_funcs(&self) -> u32 {
     self.invocation_config.concurrent_invokes - self.concurrency_semaphore.available_permits() as u32
   }
-
+  fn char_map(&self) -> &Arc<CharacteristicsMap> {
+    &self.cmap
+  }
+  
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     let queued = self.enqueue_new_invocation(function_name.clone(), function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
@@ -159,7 +150,6 @@ impl Invoker for MinHeapIATInvoker {
     match result_ptr.completed {
       true => {
         info!(tid=%tid, "Invocation complete");
-        self.cmap.add_iat( &function_name );
         Ok( queued.result_ptr.clone() )
       },
       false => {
@@ -169,7 +159,7 @@ impl Invoker for MinHeapIATInvoker {
   }
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    let iat = get_iat( &self.cmap, &item.function_name );
+    let iat = self.cmap.get_iat( &item.fqdn );
     queue.push(MHQIATEnqueuedInvocation::new(item.clone(), iat ).into());
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
