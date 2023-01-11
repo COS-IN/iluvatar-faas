@@ -157,11 +157,6 @@ impl CPUUtilInstant {
   }
 }
 
-impl Default for CPUUtilInstant {
-  fn default() -> Self {
-    Self { read_time: time::Instant::now(), cpu_user: Default::default(), cpu_nice: Default::default(), cpu_system: Default::default(), cpu_idle: Default::default(), cpu_iowait: Default::default(), cpu_irq: Default::default(), cpu_softirq: Default::default(), cpu_steal: Default::default(), cpu_guest: Default::default(), cpu_guest_nice: Default::default() }
-  }
-}
 pub struct CPUUtilPcts {
   pub read_diff: time::Duration,
   pub cpu_user: f64,

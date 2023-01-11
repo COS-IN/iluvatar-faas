@@ -58,8 +58,7 @@ impl StatusService {
       metrics: vec!["worker.load.loadavg", "worker.load.cpu", 
                     "worker.load.queue", "worker.load.mem_pct", 
                     "worker.load.used_mem"],
-      // cpu_instant: Mutex::new(cpu_svc.instant_cpu_util(tid)?),
-      cpu_instant: Mutex::new(CPUUtilInstant::default()),
+      cpu_instant: Mutex::new(cpu_svc.instant_cpu_util(tid)?),
       cpu: cpu_svc,
       config,
     });
@@ -94,13 +93,13 @@ impl StatusService {
   fn update_status(&self, tid: &TransactionId) {
     let _free_cs = self.container_manager.free_cores();
 
-    // let cpu_now = match self.cpu.instant_cpu_util(tid) {
-    //   Ok(i) => i,
-    //   Err(e) => {
-    //     error!(tid=%tid, error=%e, "Unable to get instant cpu utilization");
-    //     return;
-    //   },
-    // };
+    let cpu_now = match self.cpu.instant_cpu_util(tid) {
+      Ok(i) => i,
+      Err(e) => {
+        error!(tid=%tid, error=%e, "Unable to get instant cpu utilization");
+        return;
+      },
+    };
 
     let minute_load_avg = self.uptime(tid);
     let nprocs = match nproc(tid, false) {
@@ -111,9 +110,9 @@ impl StatusService {
       },
     };
 
-    // let mut cpu_instant_lck = self.cpu_instant.lock();
-    // let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
-    // *cpu_instant_lck = cpu_now;
+    let mut cpu_instant_lck = self.cpu_instant.lock();
+    let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
+    *cpu_instant_lck = cpu_now;
 
     let queue_len = self.invoker_service.queue_len() as i64;
     let used_mem = self.container_manager.used_memory();
@@ -127,14 +126,10 @@ impl StatusService {
       queue_len,
       used_mem,
       total_mem,
-      // cpu_us: computed_util.cpu_user + computed_util.cpu_nice,
-      // cpu_sy: computed_util.cpu_system + computed_util.cpu_irq + computed_util.cpu_softirq + computed_util.cpu_steal + computed_util.cpu_guest + computed_util.cpu_guest_nice,
-      // cpu_id: computed_util.cpu_idle,
-      // cpu_wa: computed_util.cpu_iowait,
-      cpu_us: 0.0,
-      cpu_sy: 0.0,
-      cpu_id: 0.0,
-      cpu_wa: 0.0,
+      cpu_us: computed_util.cpu_user + computed_util.cpu_nice,
+      cpu_sy: computed_util.cpu_system + computed_util.cpu_irq + computed_util.cpu_softirq + computed_util.cpu_steal + computed_util.cpu_guest + computed_util.cpu_guest_nice,
+      cpu_id: computed_util.cpu_idle,
+      cpu_wa: computed_util.cpu_iowait,
       load_avg_1minute: minute_load_avg,
       num_system_cores: nprocs,
       num_running_funcs: running,
