@@ -14,7 +14,7 @@ pub struct ProcessMonitor {
 }
 impl ProcessMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (handle, tx) = os_thread(config.ipmi_freq_ms, ENERGY_LOGGER_PS_TID.clone(), Arc::new(ProcessMonitor::monitor_process));
+    let (handle, tx) = os_thread(config.ipmi_freq_ms, ENERGY_LOGGER_PS_TID.clone(), Arc::new(ProcessMonitor::monitor_process))?;
 
     let r = Arc::new(ProcessMonitor {
       pid: std::process::id().to_string(),

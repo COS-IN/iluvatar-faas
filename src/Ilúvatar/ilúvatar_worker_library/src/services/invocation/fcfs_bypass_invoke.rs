@@ -66,7 +66,7 @@ pub struct FCFSBypassInvoker {
 
 impl FCFSBypassInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(FCFSBypassInvoker::wait_on_queue), Some(function_config.cpu_max as usize));
+    let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(FCFSBypassInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
     let bypass_dur = Duration::from_millis(invocation_config.bypass_duration_ms.ok_or_else(|| anyhow::anyhow!("bypass_duration_ms was not present in InvocationConfig"))?).as_secs_f64();
     if bypass_dur == 0.0 {
       anyhow::bail!("Cannot have a 'bypass_duration_ms' of 0");
@@ -101,7 +101,7 @@ impl FCFSBypassInvoker {
     info!(tid=%enqueued.tid, "Bypassing internal invocation starting");
     let timer = self.timer();
     // take run time now because we may have to wait to get a container
-    let run_time = timer.now_str();
+    let remove_time = timer.now_str();
 
     let ctr_mgr = self.cont_manager();
     let ctr_lock = match ctr_mgr.acquire_container(&enqueued.fqdn, &enqueued.tid) {
@@ -113,7 +113,7 @@ impl FCFSBypassInvoker {
       },
       EventualItem::Now(n) => n?,
     };
-    info!(tid=%enqueued.tid, insert_time=%timer.format_time(enqueued.queue_insert_time)?, run_time=%run_time?, "Item starting to execute");
+    info!(tid=%enqueued.tid, insert_time=%timer.format_time(enqueued.queue_insert_time)?, remove_time=%remove_time?, "Item starting to execute");
     self.bypass_running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (result, duration) = ctr_lock.invoke(&enqueued.json_args).await?;
     self.bypass_running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);

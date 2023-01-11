@@ -2,11 +2,11 @@ use crate::services::network::network_structs::{ContdNamespace, Namespace};
 use crate::worker_api::worker_config::NetworkingConfig;
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::thread::JoinHandle;
 use anyhow::Result;
-use tokio::task::JoinHandle;
 use iluvatar_library::transaction::{TransactionId, NAMESPACE_POOL_WORKER_TID};
 use iluvatar_library::{utils, bail_error, utils::execute_cmd};
-use iluvatar_library::threading::tokio_thread;
+use iluvatar_library::threading::os_thread;
 use parking_lot::Mutex;
 use std::env;
 use std::fs::File;
@@ -51,7 +51,7 @@ impl NamespaceManager {
       false => Arc::new(Self::new(config.clone(), None)),
       true => {
         info!(tid=%tid, "Launching namespace pool monitor thread");
-        let (handle, tx) = tokio_thread(config.pool_freq_ms, NAMESPACE_POOL_WORKER_TID.clone(), Self::monitor_pool);
+        let (handle, tx) = os_thread(config.pool_freq_ms, NAMESPACE_POOL_WORKER_TID.clone(), Arc::new(Self::monitor_pool))?;
         let ns = Arc::new(Self::new(config.clone(), Some(handle)));
         tx.send(ns.clone()).unwrap();
         ns
@@ -59,17 +59,17 @@ impl NamespaceManager {
     })
   }
 
-  #[tracing::instrument(skip(service), fields(tid=%tid))]
-  async fn monitor_pool(service: Arc<Self>, tid: TransactionId) {
-    while service.pool_size() < service.config.pool_size {
-      let ns = match service.create_namespace(&service.generate_net_namespace_name(), &tid) {
+  #[tracing::instrument(skip(self), fields(tid=%tid))]
+  fn monitor_pool(&self, tid: &TransactionId) {
+    while self.pool_size() < self.config.pool_size {
+      let ns = match self.create_namespace(&self.generate_net_namespace_name(), tid) {
         Ok(ns) => ns,
         Err(e) => {
           error!(tid=%tid, error=%e, "Failed creating namespace in monitor");
           break;
         },
       };
-      match service.return_namespace(Arc::new(ns), &tid) {
+      match self.return_namespace(Arc::new(ns), tid) {
         Ok(_) => {},
         Err(e) => error!(tid=%tid, error=%e, "Failed giving namespace to pool"),
       };
@@ -337,7 +337,7 @@ impl NamespaceManager {
         let name = split[0].to_string();
         let tid_c = tid.clone();
         let svc_c = svc.clone();
-        handles.push(tokio::spawn(async move {
+        handles.push(tokio::task::spawn_blocking(move || {
             svc_c.delete_namespace(&name, &tid_c)
         }));
       }

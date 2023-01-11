@@ -189,14 +189,14 @@ pub trait Invoker: Send + Sync {
     debug!(tid=%tid, "Internal invocation starting");
     let timer = self.timer();
     // take run time now because we may have to wait to get a container
-    let run_time = timer.now_str();
+    let remove_time = timer.now_str();
 
     let ctr_mgr = self.cont_manager();
     let ctr_lock = match ctr_mgr.acquire_container(fqdn, tid) {
       EventualItem::Future(f) => f.await?,
       EventualItem::Now(n) => n?,
     };
-    info!(tid=%tid, insert_time=%timer.format_time(queue_insert_time)?, run_time=%run_time?, "Item starting to execute");
+    info!(tid=%tid, insert_time=%timer.format_time(queue_insert_time)?, remove_time=%remove_time?, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     drop(permit);
     Ok((data, duration))

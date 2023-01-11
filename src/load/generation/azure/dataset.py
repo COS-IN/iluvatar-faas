@@ -163,7 +163,7 @@ def iat_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
   trace = list()
   cold_dur = int(row["Maximum"])
   warm_dur = int(row["percentile_Average_25"])
-  mean = float(row["IAT_mean"])
+  mean = float(row["IAT_mean"]) * scale
   std = float(row["IAT_std"])
   mem = int(row["divvied"])
   rng = np.random.default_rng(None)
@@ -173,7 +173,7 @@ def iat_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
     sample = int(rng.normal(loc=mean, scale=std))
     while sample < 0:
       sample = int(rng.normal(loc=mean, scale=std))
-    time += (sample * scale)
+    time += sample
     trace.append(time)
 
   trace = [ (func_name, int(t)) for t in trace if t < end_ms]

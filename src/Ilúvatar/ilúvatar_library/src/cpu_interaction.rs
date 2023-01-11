@@ -50,7 +50,8 @@ impl CPUService {
       Ok(_) => (),
       Err(e) => {
         error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to read cpu freq file into buffer");
-        return 0;      },
+        return 0;
+      },
     };
     match buff[0..buff.len()-1].parse::<u64>() {
       Ok(u) => u,
@@ -92,16 +93,16 @@ impl CPUService {
 /// The CPU usage metrics reported by /proc/stat
 pub struct CPUUtilInstant {
   read_time: time::Instant,
-  cpu_user: u64,
-  cpu_nice: u64,
-  cpu_system: u64,
-  cpu_idle: u64,
-  cpu_iowait: u64,
-  cpu_irq: u64,
-  cpu_softirq: u64,
-  cpu_steal: u64,
-  cpu_guest: u64,
-  cpu_guest_nice: u64,
+  cpu_user: f64,
+  cpu_nice: f64,
+  cpu_system: f64,
+  cpu_idle: f64,
+  cpu_iowait: f64,
+  cpu_irq: f64,
+  cpu_softirq: f64,
+  cpu_steal: f64,
+  cpu_guest: f64,
+  cpu_guest_nice: f64,
 }
 impl CPUUtilInstant {
   pub fn get(tid: &TransactionId) -> Result<Self> {
@@ -144,9 +145,9 @@ impl CPUUtilInstant {
         cpu_guest_nice: Self::safe_get_val(&strs, 10, tid)?,
     })
   }
-  fn safe_get_val(split_line: &Vec<&str>, pos: usize, tid: &TransactionId) -> Result<u64> {
+  fn safe_get_val(split_line: &Vec<&str>, pos: usize, tid: &TransactionId) -> Result<f64> {
     if split_line.len() >= pos {
-      match split_line[pos].parse::<u64>() {
+      match split_line[pos].parse::<f64>() {
         Ok(v) => Ok(v),
         Err(e) => bail_error!(error=%e, tid=%tid, line=%split_line[pos], "Unable to parse string from /proc/stat"),
       }
@@ -156,6 +157,11 @@ impl CPUUtilInstant {
   }
 }
 
+impl Default for CPUUtilInstant {
+  fn default() -> Self {
+    Self { read_time: time::Instant::now(), cpu_user: Default::default(), cpu_nice: Default::default(), cpu_system: Default::default(), cpu_idle: Default::default(), cpu_iowait: Default::default(), cpu_irq: Default::default(), cpu_softirq: Default::default(), cpu_steal: Default::default(), cpu_guest: Default::default(), cpu_guest_nice: Default::default() }
+  }
+}
 pub struct CPUUtilPcts {
   pub read_diff: time::Duration,
   pub cpu_user: f64,
@@ -184,20 +190,20 @@ impl std::ops::Sub for &CPUUtilInstant {
     let steal_diff = self.cpu_steal - rhs.cpu_steal;
     let guest_diff = self.cpu_guest - rhs.cpu_guest;
     let guest_nice_diff = self.cpu_guest_nice - rhs.cpu_guest_nice;
-    let tot = (user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + 
-                    softirq_diff + steal_diff + guest_diff + guest_nice_diff) as f64;
+    let tot = user_diff + nice_diff + system_diff + idle_diff + iowait_diff + irq_diff + 
+                    softirq_diff + steal_diff + guest_diff + guest_nice_diff;
     CPUUtilPcts {
       read_diff: dur,
-      cpu_user: (user_diff as f64 / tot)*100.0,
-      cpu_nice: (nice_diff as f64 / tot)*100.0,
-      cpu_system: (system_diff as f64 / tot)*100.0,
-      cpu_idle: (idle_diff as f64 / tot)*100.0,
-      cpu_iowait: (iowait_diff as f64 / tot)*100.0,
-      cpu_irq: (irq_diff as f64 / tot)*100.0,
-      cpu_softirq: (softirq_diff as f64 / tot)*100.0,
-      cpu_steal: (steal_diff as f64 / tot)*100.0,
-      cpu_guest: (guest_diff as f64 / tot)*100.0,
-      cpu_guest_nice: (guest_nice_diff as f64 / tot)*100.0,
+      cpu_user: (user_diff / tot)*100.0,
+      cpu_nice: (nice_diff / tot)*100.0,
+      cpu_system: (system_diff / tot)*100.0,
+      cpu_idle: (idle_diff / tot)*100.0,
+      cpu_iowait: (iowait_diff / tot)*100.0,
+      cpu_irq: (irq_diff / tot)*100.0,
+      cpu_softirq: (softirq_diff / tot)*100.0,
+      cpu_steal: (steal_diff / tot)*100.0,
+      cpu_guest: (guest_diff / tot)*100.0,
+      cpu_guest_nice: (guest_nice_diff / tot)*100.0,
     }
   }
 }

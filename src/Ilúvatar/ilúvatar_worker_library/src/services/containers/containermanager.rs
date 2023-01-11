@@ -51,12 +51,12 @@ impl ContainerManager {
     }
   }
 
-  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, _tid: &TransactionId) -> Arc<ContainerManager> {
+  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, _tid: &TransactionId) -> Result<Arc<ContainerManager>> {
     let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), 
-          ContainerManager::monitor_pool, None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>, None);
+          ContainerManager::monitor_pool, None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>, None)?;
     let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, handle).await);
     tx.send(cm.clone()).unwrap();
-    cm
+    Ok(cm)
   }
 
   #[tracing::instrument(skip(service), fields(tid=%tid))]
@@ -177,28 +177,26 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
-    let opt = self.active_containers.get(fqdn);
-    match opt {
+    match self.active_containers.get(fqdn) {
       Some(pool) => {
         let pool = pool.value();
-        if pool.len() > 0 {
-          for (i, container) in pool.iter().enumerate() {
-            match self.try_lock_container(container, tid) {
-              Some(c) => {
-                debug!(tid=%tid, container_id=%c.container.container_id(), size=pool.len(), number=i, "Container acquired");
-                c.container.touch();
-                return Some(c)
-              },
-              None => continue,
-            }
+        for (i, container) in pool.iter().enumerate() {
+          match self.try_lock_container(container, tid) {
+            Some(c) => {
+              debug!(tid=%tid, container_id=%c.container.container_id(), size=pool.len(), number=i, "Container acquired");
+              c.container.touch();
+              return Some(c);
+            },
+            None => continue,
           }
         }
-        None
+        drop(pool);
+        return None;
       },
       None => {
         // 'should' not get here
         error!(tid=%tid, fqdn=%fqdn, "Tried to acquire a container for an fqdn that has not been registered");
-        None
+        return None;
       },
     }
   }
@@ -245,12 +243,12 @@ impl ContainerManager {
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn, container), fields(tid=%_tid)))]
-  fn add_container_to_pool(&self, fqdn: &String, container: Container, _tid: &TransactionId) -> Result<()> {
+  fn add_container_to_pool(&self, fqdn: &String, container: Container, tid: &TransactionId) -> Result<()> {
     // acquire read lock to see if that function already has a pool entry
     match self.active_containers.get_mut(fqdn) {
       Some(mut pool) => {
-        let locked_pool = pool.value_mut();
-        locked_pool.push(container.clone());
+        (*pool).push(container.clone());
+        info!(tid=%tid, container_id=%container.container_id(), "Container added to pool");
         Ok(())
       },
       None => anyhow::bail!("Function '{}' was not registered yet", fqdn)
@@ -303,17 +301,16 @@ impl ContainerManager {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
   async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     match self.try_launch_container(&reg, tid).await {
-            Ok(c) => Ok(c),
-            Err(cause) => 
-              match cause.downcast_ref::<InsufficientMemoryError>() {
-                Some(mem) => {
-                  self.reclaim_memory(mem.needed, tid).await?;
-                  self.try_launch_container(&reg, tid).await
-                },
-                None => Err(cause),
-              },
-        }
+      Ok(c) => Ok(c),
+      Err(cause) => match cause.downcast_ref::<InsufficientMemoryError>() {
+        Some(mem) => {
+          self.reclaim_memory(mem.needed, tid).await?;
+          self.try_launch_container(&reg, tid).await
+        },
+        None => Err(cause),
+      },
     }
+  }
 
   /// Prewarm a container for the requested function
   /// 
@@ -409,22 +406,22 @@ impl ContainerManager {
       bail!(ContainerLockedError{})
     }
 
-    match self.active_containers.get_mut(container.fqdn()) {
+    let dropped_cont = match self.active_containers.get_mut(container.fqdn()) {
       Some(mut pool) => {
         let pool = pool.value_mut();
         let (pos, pool_len) = self.find_container_pos(&container, &pool);
         if pos < pool_len {
           info!(tid=%tid, container_id=%container.container_id(), "Removing container");
-          let dropped_cont = pool.remove(pos);
-          *self.used_mem_mb.write() -= dropped_cont.get_curr_mem_usage();
-          self.cont_lifecycle.remove_container(container, "default", tid).await?;
-          return Ok(());
+          pool.remove(pos)
         } else {
-          anyhow::bail!("Was unable to find container {} to remove it", container.container_id());
+          anyhow::bail!("Was unable to find container {} to remove it", container.container_id())
         }
       },
       None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", container.fqdn()),
-    }
+    };
+    *self.used_mem_mb.write() -= dropped_cont.get_curr_mem_usage();
+    self.cont_lifecycle.remove_container(container, "default", tid).await?;
+    Ok(())
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, amount_mb), fields(tid=%tid)))]
@@ -476,7 +473,7 @@ impl ContainerManager {
 
   fn find_container_pos(&self, container: &Container, pool: &ContainerList) -> (usize,usize) {
     let pool_len = pool.len();
-    let mut pos = pool_len + 100;
+    let mut pos = usize::MAX;
     for (i, iter_cont) in pool.iter().enumerate() {
       if container.container_id() == iter_cont.container_id() {
         pos = i;

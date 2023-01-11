@@ -231,7 +231,7 @@ pub struct RaplMonitor {
 }
 impl RaplMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (handle, tx) = os_thread(config.ipmi_freq_ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(RaplMonitor::monitor_energy));
+    let (handle, tx) = os_thread(config.ipmi_freq_ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(RaplMonitor::monitor_energy))?;
 
     let i = RaplMsr::new(tid)?;
     let r = Arc::new(RaplMonitor {

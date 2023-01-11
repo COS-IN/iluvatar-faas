@@ -9,7 +9,7 @@ use crate::services::containers::containermanager::ContainerManager;
 use crate::services::invocation::invoker_trait::Invoker;
 use crate::worker_api::worker_config::StatusConfig;
 use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
-use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::transaction::{TransactionId, STATUS_WORKER_TID};
 use iluvatar_library::utils::execute_cmd;
 use super::WorkerStatus;
 use anyhow::Result;
@@ -29,9 +29,9 @@ pub struct StatusService {
 }
 
 impl StatusService {
-  pub async fn boxed(cm: Arc<ContainerManager>, invoke: Arc<dyn Invoker>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>) -> Result<Arc<Self>> {
+  pub fn boxed(cm: Arc<ContainerManager>, invoke: Arc<dyn Invoker>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>) -> Result<Arc<Self>> {
     let (handle, sender) = 
-          threading::os_thread::<Self>(config.report_freq_ms, iluvatar_library::transaction::STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status));
+          threading::os_thread::<Self>(config.report_freq_ms, STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status))?;
     let cpu_svc = CPUService::boxed(tid)?;
 
     let ret = Arc::new(StatusService { 
@@ -58,11 +58,12 @@ impl StatusService {
       metrics: vec!["worker.load.loadavg", "worker.load.cpu", 
                     "worker.load.queue", "worker.load.mem_pct", 
                     "worker.load.used_mem"],
-      cpu_instant: Mutex::new(cpu_svc.instant_cpu_util(tid)?),
+      // cpu_instant: Mutex::new(cpu_svc.instant_cpu_util(tid)?),
+      cpu_instant: Mutex::new(CPUUtilInstant::default()),
       cpu: cpu_svc,
       config,
     });
-    sender.send(ret.clone()).unwrap();
+    sender.send(ret.clone())?;
     Ok(ret)
   }
 
@@ -93,13 +94,13 @@ impl StatusService {
   fn update_status(&self, tid: &TransactionId) {
     let _free_cs = self.container_manager.free_cores();
 
-    let cpu_now = match self.cpu.instant_cpu_util(tid) {
-      Ok(i) => i,
-      Err(e) => {
-        error!(tid=%tid, error=%e, "Unable to get instant cpu utilization");
-        return;
-      },
-    };
+    // let cpu_now = match self.cpu.instant_cpu_util(tid) {
+    //   Ok(i) => i,
+    //   Err(e) => {
+    //     error!(tid=%tid, error=%e, "Unable to get instant cpu utilization");
+    //     return;
+    //   },
+    // };
 
     let minute_load_avg = self.uptime(tid);
     let nprocs = match nproc(tid, false) {
@@ -110,9 +111,9 @@ impl StatusService {
       },
     };
 
-    let mut cpu_instant_lck = self.cpu_instant.lock();
-    let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
-    *cpu_instant_lck = cpu_now;
+    // let mut cpu_instant_lck = self.cpu_instant.lock();
+    // let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
+    // *cpu_instant_lck = cpu_now;
 
     let queue_len = self.invoker_service.queue_len() as i64;
     let used_mem = self.container_manager.used_memory();
@@ -126,10 +127,14 @@ impl StatusService {
       queue_len,
       used_mem,
       total_mem,
-      cpu_us: computed_util.cpu_user + computed_util.cpu_nice,
-      cpu_sy: computed_util.cpu_system + computed_util.cpu_irq + computed_util.cpu_softirq + computed_util.cpu_steal + computed_util.cpu_guest + computed_util.cpu_guest_nice,
-      cpu_id: computed_util.cpu_idle,
-      cpu_wa: computed_util.cpu_iowait,
+      // cpu_us: computed_util.cpu_user + computed_util.cpu_nice,
+      // cpu_sy: computed_util.cpu_system + computed_util.cpu_irq + computed_util.cpu_softirq + computed_util.cpu_steal + computed_util.cpu_guest + computed_util.cpu_guest_nice,
+      // cpu_id: computed_util.cpu_idle,
+      // cpu_wa: computed_util.cpu_iowait,
+      cpu_us: 0.0,
+      cpu_sy: 0.0,
+      cpu_id: 0.0,
+      cpu_wa: 0.0,
       load_avg_1minute: minute_load_avg,
       num_system_cores: nprocs,
       num_running_funcs: running,
@@ -144,8 +149,7 @@ impl StatusService {
                                     used_mem as f64];
     self.graphite.publish_metrics(&self.metrics, values, tid, self.tags.as_str());
 
-    let mut current_status = self.current_status.lock();
-    *current_status = new_status;
+    *self.current_status.lock() = new_status;
   }
 
   /// Returns the status and load of the worker

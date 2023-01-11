@@ -24,10 +24,10 @@ fn sleep_time<T>(call_ms: u64, start_t: SystemTime, tid: &TransactionId) -> u64 
 
 /// run a function within an OS thread
 /// It will be executed every [call_ms] milliseconds
-pub fn os_thread<T: Send + Sync + 'static>(call_ms: u64, tid: TransactionId, function: Arc<dyn Fn(&T, &TransactionId) -> () + Send + Sync + 'static>) -> (OsHandle<()>, Sender<Arc<T>>) {
+pub fn os_thread<T: Send + Sync + 'static>(call_ms: u64, tid: TransactionId, function: Arc<dyn Fn(&T, &TransactionId) -> () + Send + Sync + 'static>) -> anyhow::Result<(OsHandle<()>, Sender<Arc<T>>)> {
   let (tx, rx) = channel::<Arc<T>>();
 
-  let handle = std::thread::spawn(move || {
+  let handle = std::thread::Builder::new().name(tid.clone()).spawn(move || {
     let recv_svc = match rx.recv() {
       Ok(svc) => svc,
       Err(e) => {
@@ -44,9 +44,9 @@ pub fn os_thread<T: Send + Sync + 'static>(call_ms: u64, tid: TransactionId, fun
       std::thread::sleep(Duration::from_millis(sleep_t));
     }
     crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
-  });
+  })?;
 
-  (handle, tx)
+  Ok((handle, tx))
 }
 
 /// Start an async function inside of a Tokio worker
@@ -85,13 +85,13 @@ where
 ///   After either case is met, the main [function] is called again
 pub fn tokio_runtime<'a, S: Send + Sync + 'static, T, T2>(call_ms: u64, tid: TransactionId, function: fn(Arc<S>, TransactionId) -> T, 
                                                   waiter_function: Option<fn(Arc<S>, TransactionId) -> T2>, num_worker_threads: Option<usize>) 
-  -> (OsHandle<()>, Sender<Arc<S>>)
+  -> anyhow::Result<(OsHandle<()>, Sender<Arc<S>>)>
 where
   T: Future<Output = ()> + Send + 'static,
   T2: Future<Output = ()> + Send + 'static,
 {
   let (tx, rx) = channel::<Arc<S>>();
-  let handle = std::thread::spawn(move || {
+  let handle = std::thread::Builder::new().name(tid.clone()).spawn(move || {
     let service: Arc<S> = match rx.recv() {
       Ok(service) => service,
       Err(e) => {
@@ -135,7 +135,7 @@ where
       }
       crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
     });
-  });
+  })?;
 
-  (handle, tx)
+  Ok((handle, tx))
 }
