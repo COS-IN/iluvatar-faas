@@ -47,16 +47,7 @@ pub trait Invoker: Send + Sync {
   fn invocation_config(&self) -> Arc<InvocationConfig>;
   fn async_functions<'a>(&'a self) -> &'a super::async_tracker::AsyncHelper;
   fn char_map(&self) -> &Arc<CharacteristicsMap>;
-
   fn timer(&self) -> &LocalTime;
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr>;
-  fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
-    let invoke = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
-    self.async_functions().insert_async_invoke(invoke)
-  }
-  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
-    self.async_functions().invoke_async_check(cookie, tid)
-  }
   /// pointer to the semaphore to manage the invoker concurrency
   /// A [None] value means the invoker doesn't limit concurrency
   fn concurrency_semaphore(&self) -> Option<Arc<Semaphore>>;
@@ -75,6 +66,31 @@ pub trait Invoker: Send + Sync {
   /// This function will only be called if something is known to be un the queue, so using `unwrap` to remove an [Option] is safe
   /// An implementing struct only needs to implement this if it uses [monitor_queue]
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {todo!()}
+
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
+  /// A synchronous invocation against this invoker
+  /// Re-implementers **must** duplicate [tracing::info] logs for consistency
+  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
+    let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());
+    queued.wait(&tid).await?;
+    let result_ptr = queued.result_ptr.lock();
+    match result_ptr.completed {
+      true => {
+        info!(tid=%tid, "Invocation complete");
+        Ok( queued.result_ptr.clone() )
+      },
+      false => {
+        anyhow::bail!("Invocation was signaled completion but completion value was not set")
+      }
+    }
+  }
+  fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
+    let invoke = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
+    self.async_functions().insert_async_invoke(invoke)
+  }
+  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
+    self.async_functions().invoke_async_check(cookie, tid)
+  }
 
   /// Returns an owned permit if there are sufficient resources to run a function
   /// A return value of [None] means the resources failed to be acquired

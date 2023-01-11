@@ -7,7 +7,7 @@ use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, t
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
-use tracing::{debug, info};
+use tracing::debug;
 use super::invoker_trait::{monitor_queue, create_concurrency_semaphore};
 use super::{invoker_trait::Invoker, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 
@@ -89,22 +89,7 @@ impl Invoker for FCFSInvoker {
   fn char_map(&self) -> &Arc<CharacteristicsMap> {
     &self.cmap
   }
-  
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
-    let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());
-    queued.wait(&tid).await?;
-    let result_ptr = queued.result_ptr.lock();
-    match result_ptr.completed {
-      true => {
-        info!(tid=%tid, "Invocation complete");
-        Ok( queued.result_ptr.clone() )
-      },
-      false => {
-        anyhow::bail!("Invocation was signaled completion but completion value was not set")
-      }
-    }
-  }
+
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();

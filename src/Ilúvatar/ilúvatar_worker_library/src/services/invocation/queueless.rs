@@ -4,7 +4,7 @@ use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, logging::LocalTime, utils::calculate_fqdn, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use anyhow::Result;
 use tokio::sync::Notify;
-use tracing::{error, debug};
+use tracing::{error, debug, info};
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::{EnqueuedInvocation, InvocationResultPtr, InvocationResult}};
 
 /// This implementation does not support [crate::worker_api::worker_config::InvocationConfig::concurrent_invokes]
@@ -89,6 +89,7 @@ impl Invoker for QueuelessInvoker {
     temp.result_json = result.result_string()?;
     temp.worker_result = Some(result);
     temp.duration = dur;
+    info!(tid=%tid, "Invocation complete");
     Ok( r.clone() )
   }
 

@@ -8,8 +8,7 @@ use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
-use tracing::{debug, info};
-use super::invoker_structs::InvocationResultPtr;
+use tracing::debug;
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
@@ -141,20 +140,6 @@ impl Invoker for MinHeapInvoker {
     &self.cmap
   }
   
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
-    let queued = self.enqueue_new_invocation(function_name.clone(), function_version, json_args, tid.clone());
-    queued.wait(&tid).await?;
-    let result_ptr = queued.result_ptr.lock();
-    match result_ptr.completed {
-      true => {
-        info!(tid=%tid, "Invocation complete");
-        Ok( queued.result_ptr.clone() )
-      },
-      false => {
-        anyhow::bail!("Invocation was signaled completion but completion value was not set")
-      }
-    }
-  }
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
     queue.push(MHQEnqueuedInvocation::new(item.clone(), self.cmap.get_exec_time(&item.function_name )).into());
