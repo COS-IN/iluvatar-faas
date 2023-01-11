@@ -122,6 +122,9 @@ def prepare_energy_log(df: pd.DataFrame) -> pd.DataFrame:
         data["timestamp"] = log["timestamp"]
         json_log = json.loads(log["fields"]["status"])
         data["load_avg_1minute"] = json_log["load_avg_1minute"]
+        if json_log["cpu_sy"] == None:
+            # in a very rare case some entry might be none
+            continue
         data["cpu_pct"] = int(json_log["cpu_sy"]) + int(json_log["cpu_us"]) + int(json_log["cpu_wa"])
 
         data["hw_cpu_hz_mean"] = np.mean(json_log["hardware_cpu_freqs"])
