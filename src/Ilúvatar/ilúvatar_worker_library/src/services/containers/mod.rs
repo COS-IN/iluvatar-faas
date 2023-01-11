@@ -16,6 +16,7 @@ pub mod containerd;
 pub mod simulation;
 #[path ="./docker/dockerlife.rs"]
 pub mod docker;
+mod container_pool;
 
 #[async_trait]
 pub trait LifecycleService: ToAny + Send + Sync + std::fmt::Debug {
