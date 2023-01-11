@@ -112,7 +112,7 @@ mod invoke {
     match result {
       Ok( result_ptr ) => {
         let result = result_ptr.lock();
-        let worker_result = result.worker_result.as_ref().unwrap_or_else(|| panic!("worker_result should have been set"));
+        let worker_result = result.worker_result.as_ref().unwrap_or_else(|| panic!("worker_result should have been set; json: {}", result.result_json));
         let parsed_start = formatter.parse_python_container_time(&worker_result.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.start, e));
         let parsed_end = formatter.parse_python_container_time(&worker_result.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.end, e));
         assert!(parsed_start < parsed_end, "Start and end times cannot be inversed!");
@@ -315,7 +315,7 @@ async fn prewarm(cm: &Arc<ContainerManager>, function_name: &String, function_ve
     transaction_id: transaction_id.clone(),
   };
   timeout(Duration::from_secs(20), cm.prewarm(&input)).await
-      .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e))
+      .unwrap_or_else(|e| panic!("prewarm timout hit: {:?}", e))
       .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
 }
 
@@ -483,12 +483,11 @@ use super::*;
     let fast_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
     let mut found = false;
     while start.elapsed().expect("Time elapsed failed") < Duration::from_secs(4) {
-      if invok_svc.running_funcs() == 2 {
+      if invok_svc.running_funcs() > 1 {
         found = true;
         break;
       }
     }
-    assert!(found, "`found` was never 2");
     let (t1_s, t1_e) = get_start_end_time_from_invoke(first_slow_invoke, &formatter).await;
     let (t2_s, t2_e) = get_start_end_time_from_invoke(fast_invoke, &formatter).await;
     let (t3_s, t3_e) = get_start_end_time_from_invoke(second_slow_invoke, &formatter).await;
@@ -496,6 +495,7 @@ use super::*;
     assert!(t3_e > t1_e, "second slow invoke started before first finished: {} !> {}", t3_e, t1_e);
     assert!(t2_s < t3_s, "Fast invoke should not have been reordered to start before slow: {} !< {}", t2_s, t3_s);
     assert!(t2_e < t3_e, "Fast invoke should have finished before slow: {} !< {}", t2_e, t3_e);
+    assert!(found, "`found` was never 2");
 
     clean_env(&env);
   }

@@ -14,7 +14,7 @@ use crate::utils::test_invoker_svc;
 mod registration {
   use super::*;
   
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn registration_works() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = RegisterRequest {
@@ -29,7 +29,7 @@ mod registration {
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
   }
   
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn repeat_registration_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = RegisterRequest {
@@ -55,7 +55,7 @@ mod registration {
     assert_error!(err, "Function test-test is already registered!", "registration succeeded when it should have failed!");
   }
   
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invokes_invalid_registration_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = RegisterRequest {
@@ -71,7 +71,7 @@ mod registration {
     assert_error!(err, "Illegal parallel invokes set, must be 1", "registration succeeded when it should have failed!");
   }
   
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn name_invalid_registration_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = RegisterRequest {
@@ -87,7 +87,7 @@ mod registration {
     assert_error!(err, "Invalid function name", "registration succeeded when it should have failed!");
   }
   
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn version_invalid_registration_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = RegisterRequest {
@@ -103,7 +103,7 @@ mod registration {
     assert_error!(err, "Invalid function version", "registration succeeded when it should have failed!");
   }
   
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cpus_invalid_registration_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = RegisterRequest {
@@ -119,7 +119,7 @@ mod registration {
     assert_error!(err, "Illegal cpu allocation request", "registration succeeded when it should have failed!");
   }
   
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn memory_small_registration_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = RegisterRequest {
@@ -135,7 +135,7 @@ mod registration {
     assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
   }
   
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn memory_large_registration_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = RegisterRequest {
@@ -151,7 +151,7 @@ mod registration {
     assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn image_invalid_registration_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let bad_img = "docker.io/library/alpine:lasdijbgoie";
@@ -180,7 +180,7 @@ mod registration {
 #[cfg(test)]
 mod prewarm {
   use super::*;
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn no_registration_prewarm_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = PrewarmRequest {
@@ -200,7 +200,7 @@ mod prewarm {
     };
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn prewarm_noreg_works() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = PrewarmRequest {
@@ -214,7 +214,7 @@ mod prewarm {
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn prewarm_get_container() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = PrewarmRequest {
@@ -243,7 +243,7 @@ mod prewarm {
 mod get_container {
   use super::*;
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cant_double_acquire() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = PrewarmRequest {
@@ -268,7 +268,7 @@ mod get_container {
     assert_ne!(c1.container.container_id(), c2.container.container_id());
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn mem_limit() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = PrewarmRequest {
@@ -296,7 +296,7 @@ mod get_container {
     }
   }
 
-  #[tokio::test]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn container_alive() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = PrewarmRequest {
@@ -327,10 +327,9 @@ mod get_container {
 #[cfg(test)]
 mod remove_container {
   use super::*;
-  use reqwest;
 
-  #[tokio::test]
-  async fn removed_container_gone() {
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn unhealthy_container_gone() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = PrewarmRequest {
       function_name: "test".to_string(),
@@ -346,11 +345,12 @@ mod remove_container {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.expect("should have gotten prewarmed container");
-    
+    c1.container.mark_unhealthy();
+
     let c1_cont = c1.container.clone();
     drop(c1);
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-    cm.remove_container(c1_cont.clone(), true, &TEST_TID).await.unwrap_or_else(|e| panic!("remove container failed: {:?}", e));
     let cast_container = cast::<ContainerdContainer>(&c1_cont, &TEST_TID).unwrap();
 
     let client = reqwest::Client::new();
@@ -370,13 +370,10 @@ mod remove_container {
         }
       },
     }
-    // assert_ne!(result.status(), 111, "unexpected return status for container {:?}", c1_cont);
-
     let c2 = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.expect("should have gotten prewarmed container");
     assert_ne!(c1_cont.container_id(), c2.container.container_id(), "Second container should have different ID because container is gone");
   }
-
 }

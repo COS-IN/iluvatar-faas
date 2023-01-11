@@ -172,6 +172,7 @@ impl std::fmt::Display for ContainerStartupError {
 impl std::error::Error for ContainerStartupError {
 }
 
+/// Parses the times returned from a container into Rust objects
 pub struct ContainerTimeFormatter {
   py_tz_formatter: Vec<FormatItem<'static>>,
   py_formatter: Vec<FormatItem<'static>>,

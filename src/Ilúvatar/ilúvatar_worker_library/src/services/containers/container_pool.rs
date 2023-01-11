@@ -59,7 +59,6 @@ impl ContainerPool {
   pub fn add_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
     match self.pool.get_mut(container.fqdn()) {
       Some(mut pool_list) => {
-        // let pool_list = pool_list.value_mut();
         debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, "Inserting container into pool");
         (*pool_list).push(container);
         Ok(())
@@ -68,59 +67,18 @@ impl ContainerPool {
     }
   }
 
-  // fn get_ensure_subpool(&self, fqdn: &String) -> Subpool {
-  //   match self.pool.get(fqdn) {
-  //     Some(p) => (*p).clone(),
-  //     None => {
-  //       let new = Arc::new(DashMap::new());
-  //       self.pool.insert(fqdn.clone(), new.clone());
-  //       new
-  //     },
-  //   }
-  // }
-  // fn get_mut_ensure_subpool(&self, fqdn: &String) -> Subpool {
-  //   match self.pool.get(fqdn) {
-  //     Some(p) => (*p).clone(),
-  //     None => {
-  //       let new = Arc::new(DashMap::new());
-  //       self.pool.insert(fqdn.clone(), new.clone());
-  //       new
-  //     },
-  //   }
-  // }
-
-  // pub fn contains(&self, container: &Container) -> bool {
-  //   match self.pool.get(container.fqdn()) {
-  //     Some(sub) => {
-  //       for c in (*sub).iter() {
-  //         if c.container_id() == container.container_id() {
-  //           return true;
-  //         }
-  //       }
-  //       return false
-  //     },
-  //     None => false,
-  //   }      
-  // }
-
   pub fn remove_container(&self, container: &Container, tid: &TransactionId) -> Option<Container> {
     match self.pool.get_mut(container.fqdn()) {
       Some(mut pool_list) => {
         let pool_list = pool_list.value_mut();
-        // match pool_list.remove(container.container_id()) {
-        //   None => anyhow::bail!("Was unable to find container {} to remove it", container.container_id()),
-        //   Some(_) => Ok(()),
-        // } 
         let (pos, pool_len) = self.find_container_pos(&container, &pool_list);
         if pos < pool_len {
           debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, "Removing container from pool");
           Some(pool_list.remove(pos))
         } else {
-          // anyhow::bail!("Was unable to find container {} to remove it", container.container_id())
           None
         }
       },
-      // None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", container.fqdn()),
       None => None
     }
   }

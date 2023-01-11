@@ -1,10 +1,10 @@
 use crate::services::containers::structs::InsufficientMemoryError;
 use futures::Future;
 use iluvatar_library::bail_error;
-use iluvatar_library::threading::{tokio_runtime, EventualItem};
+use iluvatar_library::threading::{tokio_runtime, EventualItem, tokio_thread};
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use crate::rpc::{RegisterRequest, PrewarmRequest};
-use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID};
+use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID, CTR_MGR_HEALTH_WORKER_TID};
 use iluvatar_library::types::MemSizeMb;
 use iluvatar_library::utils::calculate_fqdn;
 use crate::worker_api::worker_config::{FunctionLimits, ContainerResources};
@@ -31,12 +31,13 @@ pub struct ContainerManager {
   cont_lifecycle: Arc<dyn LifecycleService>,
   prioritized_list: RwLock<Subpool>,
   _worker_thread: std::thread::JoinHandle<()>,
+  _health_thread: tokio::task::JoinHandle<()>,
   core_sem: Option<Arc<Semaphore>>,
-  unhealthy_list: Subpool
+  unhealthy_list: RwLock<Subpool>
 }
 
 impl ContainerManager {
-  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>) -> ContainerManager {
+  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>) -> ContainerManager {
     let core_sem = match resources.cores {
       0 => None,
       c => Some(Arc::new(Semaphore::new(c as usize))),
@@ -50,24 +51,26 @@ impl ContainerManager {
       cont_lifecycle,
       prioritized_list: RwLock::new(Vec::new()),
       _worker_thread: worker_thread,
+      _health_thread: health_thread,
       idle_containers: ContainerPool::new("idle"),
       running_containers: ContainerPool::new("running"),
-      unhealthy_list: vec![],
+      unhealthy_list: RwLock::new(vec![]),
     }
   }
 
   pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, _tid: &TransactionId) -> Result<Arc<ContainerManager>> {
     let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), 
           ContainerManager::monitor_pool, None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>, None)?;
-    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, handle).await);
+    let (health_handle, health_tx) = tokio_thread(resources.pool_freq_ms, CTR_MGR_HEALTH_WORKER_TID.clone(), Self::cull_unhealthy);
+    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, handle, health_handle).await);
     tx.send(cm.clone()).unwrap();
+    health_tx.send(cm.clone()).unwrap();
     Ok(cm)
   }
 
   #[tracing::instrument(skip(service), fields(tid=%tid))]
   async fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) {
     service.update_memory_usages(&tid).await;
-
     service.compute_eviction_priorities(&tid);
     if service.resources.memory_buffer_mb > 0 {
       let reclaim = service.resources.memory_buffer_mb - service.free_memory();
@@ -76,6 +79,26 @@ impl ContainerManager {
           Ok(_) => {},
           Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
         };
+      }
+    }
+  }
+
+  #[tracing::instrument(skip(service), fields(tid=%tid))]
+  async fn cull_unhealthy(service: Arc<Self>, tid: TransactionId) {
+    loop {
+      if (*service.unhealthy_list.read()).len() > 0 {
+        let item = (*service.unhealthy_list.write()).pop();
+        if let Some(to_remove) = item {
+          let stdout = service.cont_lifecycle.read_stdout(&to_remove, &tid);
+          let stderr = service.cont_lifecycle.read_stderr(&to_remove, &tid);
+          warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
+          match service.remove_container(to_remove, &tid).await {
+            Ok(_) => (),
+            Err(cause) => error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container"),
+          };  
+        }
+      } else {
+        break;
       }
     }
   }
@@ -97,11 +120,6 @@ impl ContainerManager {
   }
   pub fn num_containers(&self) -> u32 {
     self.running_containers.len() + self.idle_containers.len()
-    // let mut cnt = 0;
-    // for cont_list in self.active_containers.iter() {
-    //   cnt += cont_list.value().len() as u32;
-    // }
-    // cnt
   }
 
   /// Return a permit for the function to run on its registered number of cores
@@ -124,32 +142,17 @@ impl ContainerManager {
   async fn update_memory_usages(&self, tid: &TransactionId) {
     debug!(tid=%tid, "updating container memory usages");
     let old_total_mem = *self.used_mem_mb.read();
-    let mut to_remove = vec![];
     let mut all_ctrs = self.idle_containers.iter();
     all_ctrs.append(&mut self.running_containers.iter());
     let mut sum_change = 0;
     for container in all_ctrs {
-      if container.is_healthy() {
-        let old_usage = container.get_curr_mem_usage();
-        let new_usage = self.cont_lifecycle.update_memory_usage_mb(&container, tid);
-        let diff = new_usage - old_usage;
-        debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
-        sum_change += diff;
-      } else {
-        to_remove.push(container);
-      }
+      let old_usage = container.get_curr_mem_usage();
+      let new_usage = self.cont_lifecycle.update_memory_usage_mb(&container, tid);
+      let diff = new_usage - old_usage;
+      debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
+      sum_change += diff;
     }
     *self.used_mem_mb.write() += sum_change;
-
-    for container in to_remove {
-      let stdout = self.cont_lifecycle.read_stdout(&container, tid);
-      let stderr = self.cont_lifecycle.read_stderr(&container, tid);
-      warn!(tid=%tid, container_id=%container.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
-      match self.remove_container(container.clone(), tid).await {
-        Ok(_) => (),
-        Err(cause) => error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container"),
-      };
-    }
 
     let new_total_mem = *self.used_mem_mb.read();
     debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Total container memory usage");
@@ -177,74 +180,60 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
-    match self.idle_containers.get_random_container(fqdn, tid) {
-      Some(c) => {
-        self.try_lock_container(c, tid)
-      },
-      None => None,
+    loop {
+      match self.idle_containers.get_random_container(fqdn, tid) {
+        Some(c) => {
+          if c.is_healthy() {
+            return self.try_lock_container(c, tid);
+          } else {
+            (*self.unhealthy_list.write()).push(c);
+          }
+        },
+        None => return None,
+      }  
     }
-    // match self.active_containers.get(fqdn) {
-    //   Some(pool) => {
-    //     let pool = pool.value();
-    //     for (i, container) in pool.iter().enumerate() {
-    //       match self.try_lock_container(container, tid) {
-    //         Some(c) => {
-    //           debug!(tid=%tid, container_id=%c.container.container_id(), size=pool.len(), number=i, "Container acquired");
-    //           c.container.touch();
-    //           return Some(c);
-    //         },
-    //         None => continue,
-    //       }
-    //     }
-    //     drop(pool);
-    //     return None;
-    //   },
-    //   None => {
-    //     // 'should' not get here
-    //     error!(tid=%tid, fqdn=%fqdn, "Tried to acquire a container for an fqdn that has not been registered");
-    //     return None;
-    //   },
-    // }
+
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   async fn cold_start<'a>(&'a self, fqdn: String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     debug!(tid=%tid, fqdn=%fqdn, "Trying to cold start a new container");
     let container = self.launch_container(&fqdn, tid).await?;
-    // claim this for ourselves before it touches the pool
-    // container.acquire();
     info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
-
     self.add_container_to_pool(&self.running_containers, container.clone(), tid)?;
     Ok(ContainerLock::new(container, self, tid))
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   fn try_lock_container<'a>(&'a self, container: Container, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
-    // if container.try_acquire() {
-      if container.is_healthy() {
-        debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
-        container.touch();
-        return Some(ContainerLock::new(container.clone(), self, tid));
-      }
-      // else {
-      //   container.release();
-      // }
-    // }
+    if container.is_healthy() {
+      debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
+      container.touch();
+      match self.running_containers.add_container(container.clone(), tid) {
+        Ok(_) => Some(ContainerLock::new(container, self, tid)),
+        Err(e) => {
+          error!(error=%e, container_id=%container.container_id(), "Failed to add container to running containers");
+          None
+        },
+      };
+    }
     None
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%_tid)))]
   pub fn return_container(&self, container: &Container, tid: &TransactionId) {
-    // TODO: update this part
     if let Some(removed_ctr) = self.running_containers.remove_container(container, tid) {
-      if let Err(e) = self.idle_containers.add_container(removed_ctr, tid) {
-        error!(tid=%tid, error=%e, container_id=%container.container_id(), "Encountered an error trying to return a container to the idle pool");
+      if removed_ctr.is_healthy() {
+        if let Err(e) = self.idle_containers.add_container(removed_ctr, tid) {
+          error!(tid=%tid, error=%e, container_id=%container.container_id(), "Encountered an error trying to return a container to the idle pool");
+        }
+      } else {
+        warn!(tid=%tid, container_id=%container.container_id(), "Marking unhealthy container for removal");
+        (*self.unhealthy_list.write()).push(removed_ctr);
       }
     } else {
       error!(tid=%tid, container_id=%container.container_id(), "Tried to return a container that wasn't running");
     }
-    // container.release();
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
@@ -260,16 +249,7 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn, container), fields(tid=%_tid)))]
   fn add_container_to_pool(&self, pool: &ContainerPool, container: Container, tid: &TransactionId) -> Result<()> {
-    // acquire read lock to see if that function already has a pool entry
     pool.add_container(container, tid)
-    // match self.active_containers.get_mut(fqdn) {
-    //   Some(mut pool) => {
-    //     (*pool).push(container.clone());
-    //     info!(tid=%tid, container_id=%container.container_id(), "Container added to pool");
-    //     Ok(())
-    //   },
-    //   None => anyhow::bail!("Function '{}' was not registered yet", fqdn)
-    // }
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
@@ -345,7 +325,6 @@ impl ContainerManager {
           }
         },
     };
-
     let container = self.launch_container_internal(&reg, &request.transaction_id).await?;
     self.add_container_to_pool(&self.idle_containers, container, &request.transaction_id)?;
     info!(tid=%request.transaction_id, fqdn=%fqdn, "function was successfully prewarmed");
@@ -404,42 +383,16 @@ impl ContainerManager {
     debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to registered_functions map");
     self.registered_functions.insert(fqdn.clone(), Arc::new(registration));
     debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to active_containers map");
-
     self.running_containers.register_fqdn(fqdn.clone());
     self.idle_containers.register_fqdn(fqdn.clone());
-    // self.active_containers.insert(fqdn.clone(), Vec::new());
     info!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "function was successfully registered");
     Ok(())
   }
-
-  // pub fn mark_unhealthy(&self, container: &Container, tid: &TransactionId) {
-  //   info!(tid=%tid, container_id=%container.container_id(), "Marking container as unhealthy");
-  //   container.mark_unhealthy();
-  // }
 
   /// Delete a container and releases tracked resources for it
   /// Container **must** have already been removed from the container pool
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, lock_check), fields(tid=%tid)))]
   async fn remove_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
-    // if lock_check && container.being_held() {
-    //   bail!(ContainerLockedError{})
-    // }
-
-    // self.idle_containers.remove_container(&container, tid)
-
-    // let dropped_cont = match self.active_containers.get_mut(container.fqdn()) {
-    //   Some(mut pool) => {
-    //     let pool = pool.value_mut();
-    //     let (pos, pool_len) = self.find_container_pos(&container, &pool);
-    //     if pos < pool_len {
-    //       info!(tid=%tid, container_id=%container.container_id(), "Removing container");
-    //       pool.remove(pos)
-    //     } else {
-    //       anyhow::bail!("Was unable to find container {} to remove it", container.container_id())
-    //     }
-    //   },
-    //   None => anyhow::bail!("Function '{}' was supposed to be readable in pool but could not be found", container.fqdn()),
-    // };
     *self.used_mem_mb.write() -= container.get_curr_mem_usage();
     self.cont_lifecycle.remove_container(container, "default", tid).await?;
     Ok(())
@@ -455,13 +408,11 @@ impl ContainerManager {
     let mut to_remove = Vec::new();
     for container in self.prioritized_list.read().iter() {
       if let Some(removed_ctr) = self.idle_containers.remove_container(container, tid) {
-      // if container.try_seize() {
         to_remove.push(removed_ctr.clone());
         reclaimed += removed_ctr.get_curr_mem_usage();
         if reclaimed >= amount_mb {
           break;
         }
-        // }  
       }
     }
     for container in to_remove {
@@ -472,12 +423,8 @@ impl ContainerManager {
 
   fn compute_eviction_priorities(&self, tid: &TransactionId) {
     debug!(tid=%tid, "Computing eviction priorities");
-    // let mut ordered = Vec::new();
     let mut ordered = self.idle_containers.iter();
     ordered.append(&mut self.running_containers.iter());
-    // for container in all_ctrs.iter() {
-    //   ordered.push(container.clone());
-    // }
     let comparator = match self.resources.eviction.as_str() {
       "LRU" => ContainerManager::lru_eviction,
       _ => { 
@@ -493,16 +440,4 @@ impl ContainerManager {
   fn lru_eviction(c1: &Container, c2: &Container) -> Ordering {
     c1.last_used().cmp(&c2.last_used())
   }
-
-  // fn find_container_pos(&self, container: &Container, pool: &ContainerList) -> (usize,usize) {
-  //   let pool_len = pool.len();
-  //   let mut pos = usize::MAX;
-  //   for (i, iter_cont) in pool.iter().enumerate() {
-  //     if container.container_id() == iter_cont.container_id() {
-  //       pos = i;
-  //       break;
-  //     }
-  //   }
-  //   return (pos, pool_len);
-  // }
 }
