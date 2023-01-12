@@ -3,7 +3,7 @@ use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
 use iluvatar_library::{types::MemSizeMb, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
 use reqwest::{Client, Response};
-use crate::{services::{containers::structs::{RegisteredFunction, ContainerT, ParsedResult}, network::network_structs::Namespace}};
+use crate::{services::{containers::structs::{RegisteredFunction, ContainerT, ParsedResult, ContainerState}, network::network_structs::Namespace}};
 
 #[derive(Debug)]
 pub struct Task {
@@ -32,13 +32,12 @@ pub struct ContainerdContainer {
   invocations: Mutex<u32>,
   /// Most recently clocked memory usage
   pub mem_usage: RwLock<MemSizeMb>,
-  /// Is container healthy?
-  pub healthy: Mutex<bool>,
+  state: Mutex<ContainerState>,
   client: Client,
 }
 
 impl ContainerdContainer {
-  pub fn new(container_id: String, task: Task, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>, invoke_timeout: u64) -> Result<Self> {
+  pub fn new(container_id: String, task: Task, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>, invoke_timeout: u64, state: ContainerState) -> Result<Self> {
     let invoke_uri = calculate_invoke_uri(&address, port);
     let base_uri = calculate_base_uri(&address, port);
     let client = match reqwest::Client::builder()
@@ -63,8 +62,8 @@ impl ContainerdContainer {
       namespace: ns,
       invocations: Mutex::new(0),
       mem_usage: RwLock::new(function.memory),
-      healthy: Mutex::new(true),
-      client
+      state: Mutex::new(state),
+      client,
     })
   }
 
@@ -149,10 +148,16 @@ impl ContainerT for ContainerdContainer {
   }
 
   fn is_healthy(&self) -> bool {
-    *self.healthy.lock()
+    self.state() != ContainerState::Unhealthy
   }
   fn mark_unhealthy(&self) {
-    *self.healthy.lock() = false;
+    self.set_state(ContainerState::Unhealthy);
+  }
+  fn state(&self) -> ContainerState {
+    *self.state.lock()
+  }
+  fn set_state(&self, state: ContainerState) {
+    *self.state.lock() = state;
   }
 }
 

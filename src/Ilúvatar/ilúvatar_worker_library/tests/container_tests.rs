@@ -329,7 +329,7 @@ mod remove_container {
   use super::*;
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-  async fn unhealthy_container_gone() {
+  async fn unhealthy_container_deleted() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
     let input = PrewarmRequest {
       function_name: "test".to_string(),
@@ -349,7 +349,7 @@ mod remove_container {
 
     let c1_cont = c1.container.clone();
     drop(c1);
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     let cast_container = cast::<ContainerdContainer>(&c1_cont, &TEST_TID).unwrap();
 
@@ -370,10 +370,134 @@ mod remove_container {
         }
       },
     }
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn unhealthy_container_not_gettable() {
+    let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
+    let input = PrewarmRequest {
+      function_name: "test".to_string(),
+      function_version: "0.1.1".to_string(),
+      cpu: 1,
+      memory: 128,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string()
+    };
+    cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
+    let c1 = match cm.acquire_container(&fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten prewarmed container");
+    c1.container.mark_unhealthy();
+
+    let c1_cont = c1.container.clone();
+    drop(c1);
+
     let c2 = match cm.acquire_container(&fqdn, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
     }.expect("should have gotten prewarmed container");
     assert_ne!(c1_cont.container_id(), c2.container.container_id(), "Second container should have different ID because container is gone");
+  }
+}
+
+#[cfg(test)]
+mod container_state {
+  use iluvatar_worker_library::services::containers::structs::ContainerState;
+  use super::*;
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn prewarmed() {
+    let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
+    let input = PrewarmRequest {
+      function_name: "test".to_string(),
+      function_version: "0.1.1".to_string(),
+      cpu: 1,
+      memory: 128,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string()
+    };
+    cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
+    let c1 = match cm.acquire_container(&fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten prewarmed container");
+
+    assert_eq!(c1.container.state(), ContainerState::Prewarm, "Container's state should have been prewarmed");
+    assert!(c1.container.is_healthy(), "Container should be healthy");
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn cold() {
+    let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
+    let input = RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "0.1.1".to_string(),
+      cpus: 1,
+      memory: 128,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      parallel_invokes: 1,
+    };
+    cm.register(&input).await.unwrap_or_else(|e| panic!("register failed: {:?}", e));
+    let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
+    let c1 = match cm.acquire_container(&fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten prewarmed container");
+
+    assert_eq!(c1.container.state(), ContainerState::Cold, "Container's state should have been cold");
+    assert!(c1.container.is_healthy(), "Container should be healthy");
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn warm() {
+    let (_log, _cfg, cm, invoker) = test_invoker_svc(None, None, None).await;
+    let input = RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "0.1.1".to_string(),
+      cpus: 1,
+      memory: 128,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      parallel_invokes: 1,
+    };
+    cm.register(&input).await.unwrap_or_else(|e| panic!("register failed: {:?}", e));
+    let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
+    invoker.sync_invocation("test".to_string(), "0.1.1".to_string(), "{}".to_string(), "TEST_TID".to_string()).await.expect("Basic invocation should succeed");
+
+    let c1 = match cm.acquire_container(&fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten container");
+
+    assert_eq!(c1.container.state(), ContainerState::Warm, "Container's state should have been warm");
+    assert!(c1.container.is_healthy(), "Container should be healthy");
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn unhealthy() {
+    let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
+    let input = RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "0.1.1".to_string(),
+      cpus: 1,
+      memory: 128,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      parallel_invokes: 1,
+    };
+    cm.register(&input).await.unwrap_or_else(|e| panic!("register failed: {:?}", e));
+    let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
+    let c1 = match cm.acquire_container(&fqdn, &TEST_TID) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.expect("should have gotten container");
+    c1.container.mark_unhealthy();
+
+    assert_eq!(c1.container.state(), ContainerState::Unhealthy, "Container's state should have been Unhealthy");
+    assert_eq!(c1.container.is_healthy(), false, "Container should be unhealthy");
   }
 }

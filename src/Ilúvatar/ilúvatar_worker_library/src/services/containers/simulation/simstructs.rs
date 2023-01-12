@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, bail_error, logging::LocalTime};
-use crate::{services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult}}, };
+use crate::{services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult, ContainerState}}, };
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -16,6 +16,19 @@ pub struct SimulatorContainer {
   pub last_used: RwLock<SystemTime>,
   /// number of invocations a container has performed
   pub invocations: Mutex<u32>,
+  pub state: Mutex<ContainerState>,
+}
+impl SimulatorContainer {
+  pub fn new(cid: String, fqdn: &String, reg: &Arc<RegisteredFunction>, state: ContainerState) -> Self {
+    SimulatorContainer {
+      container_id: cid,
+      fqdn: fqdn.clone(),
+      function: reg.clone(),
+      last_used: RwLock::new(SystemTime::now()),
+      invocations: Mutex::new(0),
+      state: Mutex::new(state),
+    }
+  }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -63,7 +76,7 @@ impl ContainerT for SimulatorContainer {
     let ret = SimulationResult {
       was_cold,
       duration_us: duration_us as u128,
-      function_name: self.function.function_name.clone()
+      function_name: self.function.function_name.clone(),
     };
     let d = Duration::from_micros(duration_us);
     let user_result = serde_json::to_string(&ret)?;
@@ -116,6 +129,12 @@ impl ContainerT for SimulatorContainer {
 
   fn mark_unhealthy(&self) {
     error!(container_id=%self.container_id, "Cannot mark simulation container unhealthy!")
+  }
+  fn state(&self) -> ContainerState {
+    *self.state.lock()
+  }
+  fn set_state(&self, state: ContainerState) {
+    *self.state.lock() = state;
   }
 }
 

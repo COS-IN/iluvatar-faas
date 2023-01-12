@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use crate::services::containers::structs::ContainerState;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
@@ -84,7 +85,6 @@ impl ColdPriorityInvoker {
   }
 }
 
-#[tonic::async_trait]
 impl Invoker for ColdPriorityInvoker {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
@@ -137,8 +137,9 @@ impl Invoker for ColdPriorityInvoker {
 
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let priority = match self.cont_manager.container_available(&item.fqdn) {
-      true => self.cmap.get_warm_time(&item.fqdn),
-      false => self.cmap.get_cold_time(&item.fqdn),
+      ContainerState::Warm => self.cmap.get_warm_time(&item.fqdn),
+      ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.fqdn),
+      _ => self.cmap.get_cold_time(&item.fqdn),
     };
     let mut queue = self.invoke_queue.lock();
     queue.push(ColdPriEnqueuedInvocation::new(item.clone(), priority).into());

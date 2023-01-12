@@ -15,7 +15,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use super::LifecycleService;
 use super::container_pool::{ContainerPool, Subpool};
-use super::structs::{Container, RegisteredFunction, ContainerLock};
+use super::structs::{Container, RegisteredFunction, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
 
 /// A struct to manage and control access to containers
@@ -123,9 +123,9 @@ impl ContainerManager {
   pub fn num_containers(&self) -> u32 {
     self.running_containers.len() + self.idle_containers.len()
   }
-  /// [true] if there is an idle container that matches
-  /// Not a guarantee it will be kept idle
-  pub fn container_available(&self, fqdn: &String) -> bool {
+  /// Returns the best possible idle container's [ContainerState] at this time
+  /// Not a guarantee it will be available
+  pub fn container_available(&self, fqdn: &String) -> ContainerState {
     self.idle_containers.has_container(fqdn)
   }
 
@@ -208,9 +208,8 @@ impl ContainerManager {
     debug!(tid=%tid, fqdn=%fqdn, "Trying to cold start a new container");
     let container = self.launch_container(&fqdn, tid).await?;
     info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
+    container.set_state(ContainerState::Cold);
     self.try_lock_container(container, tid).ok_or(anyhow::anyhow!("Encountered an error making conatiner lock"))
-    // self.add_container_to_pool(&self.running_containers, container.clone(), tid)?;
-    // Ok(ContainerLock::new(container, self, tid))
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
@@ -220,31 +219,34 @@ impl ContainerManager {
     if container.is_healthy() {
       debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
       container.touch();
-      match self.add_container_to_pool(&self.running_containers, container.clone(), tid) {
+      return match self.add_container_to_pool(&self.running_containers, container.clone(), tid) {
         Ok(_) => Some(ContainerLock::new(container, self, tid)),
         Err(e) => {
           error!(error=%e, container_id=%container.container_id(), "Failed to add container to running containers");
           None
         },
       };
+    } else {
+      None
     }
-    None
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%_tid)))]
   pub fn return_container(&self, container: &Container, tid: &TransactionId) {
     if let Some(removed_ctr) = self.running_containers.remove_container(container, tid) {
       if removed_ctr.is_healthy() {
-        if let Err(e) = self.idle_containers.add_container(removed_ctr, tid) {
-          error!(tid=%tid, error=%e, container_id=%container.container_id(), "Encountered an error trying to return a container to the idle pool");
-        }
-      } else {
-        warn!(tid=%tid, container_id=%container.container_id(), "Marking unhealthy container for removal");
-        (*self.remove_list.write()).push(removed_ctr);
+        removed_ctr.set_state(ContainerState::Warm);
+        match self.idle_containers.add_container(removed_ctr, tid) {
+          Ok(_) => return,
+          Err(e) => error!(tid=%tid, error=%e, container_id=%container.container_id(), "Encountered an error trying to return a container to the idle pool"),
+        };
       }
     } else {
       error!(tid=%tid, container_id=%container.container_id(), "Tried to return a container that wasn't running");
     }
+    container.mark_unhealthy();
+    warn!(tid=%tid, container_id=%container.container_id(), "Marking unhealthy container for removal");
+    (*self.remove_list.write()).push(container.clone());
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
@@ -335,6 +337,7 @@ impl ContainerManager {
         },
     };
     let container = self.launch_container_internal(&reg, &request.transaction_id).await?;
+    container.set_state(ContainerState::Prewarm);
     self.add_container_to_pool(&self.idle_containers, container, &request.transaction_id)?;
     info!(tid=%request.transaction_id, fqdn=%fqdn, "function was successfully prewarmed");
     Ok(())

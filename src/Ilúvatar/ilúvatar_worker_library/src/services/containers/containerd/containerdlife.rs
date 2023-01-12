@@ -23,7 +23,7 @@ use client::services::v1::{GetImageRequest, ReadContentRequest};
 use client::services::v1::container::Runtime;
 use client::with_namespace;
 use std::process::Command;
-use crate::services::containers::structs::{Container, RegisteredFunction};
+use crate::services::containers::structs::{Container, RegisteredFunction, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
 use tracing::{info, warn, debug, error}; 
 use inotify::{Inotify, WatchMask};
@@ -467,7 +467,7 @@ impl ContainerdLifecycle {
           running: false
         };
         unsafe {
-          Ok(ContainerdContainer::new(cid, task, port, address.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, ns, self.limits_config.timeout_sec)?)
+          Ok(ContainerdContainer::new(cid, task, port, address.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, ns, self.limits_config.timeout_sec, ContainerState::Cold)?)
         }
       },
       Err(e) => {

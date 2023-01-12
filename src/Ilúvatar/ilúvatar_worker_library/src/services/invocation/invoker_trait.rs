@@ -1,11 +1,11 @@
 use std::{sync::Arc, time::Duration};
-use crate::services::containers::structs::{ParsedResult, InsufficientCoresError, InsufficientMemoryError};
+use crate::services::containers::structs::{ParsedResult, InsufficientCoresError, InsufficientMemoryError, ContainerState};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId}, threading::EventualItem};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, Instant};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
@@ -210,15 +210,18 @@ pub trait Invoker: Send + Sync {
     let remove_time = timer.now_str();
 
     let ctr_mgr = self.cont_manager();
+    let start = Instant::now();
     let ctr_lock = match ctr_mgr.acquire_container(fqdn, tid) {
       EventualItem::Future(f) => f.await?,
       EventualItem::Now(n) => n?,
     };
     info!(tid=%tid, insert_time=%timer.format_time(queue_insert_time)?, remove_time=%remove_time?, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
-    match data.was_cold {
-      true => self.char_map().add( fqdn, Characteristics::ColdTime, Values::F64(data.duration_sec), true),
-      false => self.char_map().add( fqdn, Characteristics::WarmTime, Values::F64(data.duration_sec), true),
+    match ctr_lock.container.state() 
+    {
+      ContainerState::Warm => self.char_map().add( fqdn, Characteristics::WarmTime, Values::F64(data.duration_sec), true),
+      ContainerState::Prewarm => self.char_map().add( fqdn, Characteristics::PreWarmTime, Values::F64(data.duration_sec), true),
+      _ => self.char_map().add( fqdn, Characteristics::ColdTime, Values::F64(start.elapsed().as_seconds_f64()), true),
     };
     self.char_map().add( fqdn, Characteristics::ExecTime, Values::F64(data.duration_sec), true);
     drop(permit);

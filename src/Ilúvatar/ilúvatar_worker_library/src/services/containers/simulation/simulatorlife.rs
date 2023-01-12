@@ -1,10 +1,9 @@
-use std::{sync::Arc, time::SystemTime};
+use std::sync::Arc;
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use self::simstructs::SimulatorContainer;
-use super::{structs::{RegisteredFunction, Container}, LifecycleService};
+use super::{structs::{RegisteredFunction, Container, ContainerState}, LifecycleService};
 use anyhow::Result;
 use guid_create::GUID;
-use parking_lot::{Mutex, RwLock};
 use tracing::warn;
 
 pub mod simstructs;
@@ -28,13 +27,7 @@ impl LifecycleService for SimulatorLifecycle {
   /// returns a new, unique ID representing it
   async fn run_container(&self, fqdn: &String, image_name: &String, _parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     let cid = format!("{}-{}", fqdn, GUID::rand());
-    Ok(Arc::new(SimulatorContainer {
-      container_id: cid,
-      fqdn: fqdn.clone(),
-      function: reg.clone(),
-      last_used: RwLock::new(SystemTime::now()),
-      invocations: Mutex::new(0),
-    }))
+    Ok(Arc::new(SimulatorContainer::new(cid, fqdn, reg, ContainerState::Cold)))
   }
 
   /// Removed the specified container in the containerd namespace

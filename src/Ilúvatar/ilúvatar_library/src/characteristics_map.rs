@@ -85,7 +85,7 @@ impl AgExponential {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Characteristics {
-    /// Both warm and cold time on CPU for invocations
+    /// Running avg of _all_ times on CPU for invocations
     /// Recorded by [Invoker::invoke_internal]
     ExecTime,
     /// Time on CPU for a warm invocation
@@ -93,9 +93,9 @@ pub enum Characteristics {
     WarmTime,
     /// Time on CPU for a pre-warmed invocation
     /// The container was previously started, but no invocation was run on it
-    /// TODO: record this somewhere
+    /// Recorded by [Invoker::invoke_internal]
     PreWarmTime,
-    /// Time on CPU for a cold invocation
+    /// E2E time for a cold start
     /// Recorded by [Invoker::invoke_internal]
     ColdTime,
     /// The last time an invocation happened 
@@ -204,6 +204,15 @@ impl CharacteristicsMap {
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_warm_time(&self, fqdn: &String ) -> f64 {
       if let Some(exectime) = self.lookup(fqdn, &Characteristics::WarmTime) {
+        unwrap_val_f64( &exectime )
+      } else {
+        0.0
+      }
+    }
+    /// Returns the execution time as tracked by [Characteristics::PreWarmTime]
+    /// Returns 0.0 if it was not found, or an error occured
+    pub fn get_prewarm_time(&self, fqdn: &String ) -> f64 {
+      if let Some(exectime) = self.lookup(fqdn, &Characteristics::PreWarmTime) {
         unwrap_val_f64( &exectime )
       } else {
         0.0

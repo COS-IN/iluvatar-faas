@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::{SystemTime, Duration}, num::NonZeroU32};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
 use reqwest::Client;
-use crate::services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult}};
+use crate::services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult, ContainerState}};
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 
@@ -18,13 +18,12 @@ pub struct DockerContainer {
   pub port: Port,
   pub invoke_uri: String,
   pub base_uri: String,
-  /// Is container healthy?
-  pub healthy: Mutex<bool>,
+  state: Mutex<ContainerState>,
   client: Client,
 }
 
 impl DockerContainer {
-  pub fn new(container_id: String, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, invoke_timeout: u64) -> Result<Self> {
+  pub fn new(container_id: String, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, invoke_timeout: u64, state: ContainerState) -> Result<Self> {
     let client = match reqwest::Client::builder()
       .pool_max_idle_per_host(0)
       .pool_idle_timeout(None)
@@ -43,7 +42,7 @@ impl DockerContainer {
       port,
       invoke_uri: calculate_invoke_uri(address.as_str(), port),
       base_uri: calculate_base_uri(address.as_str(), port),
-      healthy: Mutex::new(true),
+      state: Mutex::new(state),
       client,
     };
     Ok(r)
@@ -115,10 +114,16 @@ impl ContainerT for DockerContainer {
   }
 
   fn is_healthy(&self) -> bool {
-    *self.healthy.lock()
+    self.state() != ContainerState::Unhealthy
   }
   fn mark_unhealthy(&self) {
-    *self.healthy.lock() = false;
+    self.set_state(ContainerState::Unhealthy);
+  }
+  fn state(&self) -> ContainerState {
+    *self.state.lock()
+  }
+  fn set_state(&self, state: ContainerState) {
+    *self.state.lock() = state;
   }
 }
 

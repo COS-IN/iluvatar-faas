@@ -30,6 +30,9 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
   fn is_healthy(&self) -> bool;
   /// set the container as unhealthy
   fn mark_unhealthy(&self);
+  /// Get the current state of the container
+  fn state(&self) -> ContainerState;
+  fn set_state(&self, state: ContainerState);
 }
 
 /// Cast a container pointer to a concrete type
@@ -49,6 +52,18 @@ pub trait ToAny: 'static {
   fn as_any(&self) -> &dyn std::any::Any;
 }
 pub type Container = Arc<dyn ContainerT>;
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Copy)]
+pub enum ContainerState {
+  /// The container has completed at least one invocation
+  Warm = 0,
+  /// The container was pre-warmed by a request and as not run anything yet
+  Prewarm = 1,
+  /// The container was started on-demand for an invocation and nothing has run on it yet
+  Cold = 2,
+  /// The container is unhealthy and should not be used
+  Unhealthy = 3
+}
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ParsedResult {
