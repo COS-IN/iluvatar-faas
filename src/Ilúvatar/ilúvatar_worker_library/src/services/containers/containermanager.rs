@@ -21,9 +21,9 @@ use tracing::{info, warn, debug, error};
 /// A struct to manage and control access to containers
 pub struct ContainerManager {
   registered_functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,
-  // Containers that are currently not running an invocation
+  /// Containers that are currently not running an invocation
   idle_containers: ContainerPool,
-  // Containers that are running an invocation
+  /// Containers that are running an invocation
   running_containers: ContainerPool,
   limits_config: Arc<FunctionLimits>, 
   resources: Arc<ContainerResources>,
@@ -33,7 +33,9 @@ pub struct ContainerManager {
   _worker_thread: std::thread::JoinHandle<()>,
   _health_thread: tokio::task::JoinHandle<()>,
   core_sem: Option<Arc<Semaphore>>,
-  unhealthy_list: RwLock<Subpool>
+  /// A list of containers that are to be removed
+  /// Container must not be in a pool when placed here
+  remove_list: RwLock<Subpool>
 }
 
 impl ContainerManager {
@@ -54,7 +56,7 @@ impl ContainerManager {
       _health_thread: health_thread,
       idle_containers: ContainerPool::new("idle"),
       running_containers: ContainerPool::new("running"),
-      unhealthy_list: RwLock::new(vec![]),
+      remove_list: RwLock::new(vec![]),
     }
   }
 
@@ -86,8 +88,8 @@ impl ContainerManager {
   #[tracing::instrument(skip(service), fields(tid=%tid))]
   async fn cull_unhealthy(service: Arc<Self>, tid: TransactionId) {
     loop {
-      if (*service.unhealthy_list.read()).len() > 0 {
-        let item = (*service.unhealthy_list.write()).pop();
+      if (*service.remove_list.read()).len() > 0 {
+        let item = (*service.remove_list.write()).pop();
         if let Some(to_remove) = item {
           let stdout = service.cont_lifecycle.read_stdout(&to_remove, &tid);
           let stderr = service.cont_lifecycle.read_stderr(&to_remove, &tid);
@@ -184,6 +186,7 @@ impl ContainerManager {
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
+  /// Returns an warmed container if one is available
   fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     loop {
       match self.idle_containers.get_random_container(fqdn, tid) {
@@ -191,30 +194,33 @@ impl ContainerManager {
           if c.is_healthy() {
             return self.try_lock_container(c, tid);
           } else {
-            (*self.unhealthy_list.write()).push(c);
+            (*self.remove_list.write()).push(c);
           }
         },
         None => return None,
       }  
     }
-
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
+  /// Starts a new container and returns a [ContainerLock] for it to be used
   async fn cold_start<'a>(&'a self, fqdn: String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     debug!(tid=%tid, fqdn=%fqdn, "Trying to cold start a new container");
     let container = self.launch_container(&fqdn, tid).await?;
     info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
-    self.add_container_to_pool(&self.running_containers, container.clone(), tid)?;
-    Ok(ContainerLock::new(container, self, tid))
+    self.try_lock_container(container, tid).ok_or(anyhow::anyhow!("Encountered an error making conatiner lock"))
+    // self.add_container_to_pool(&self.running_containers, container.clone(), tid)?;
+    // Ok(ContainerLock::new(container, self, tid))
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
+  /// Adds the container to the running pool and returns a [ContainerLock] for it
+  /// Returns [None] if the container is unhealthy or an error occurs
   fn try_lock_container<'a>(&'a self, container: Container, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     if container.is_healthy() {
       debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
       container.touch();
-      match self.running_containers.add_container(container.clone(), tid) {
+      match self.add_container_to_pool(&self.running_containers, container.clone(), tid) {
         Ok(_) => Some(ContainerLock::new(container, self, tid)),
         Err(e) => {
           error!(error=%e, container_id=%container.container_id(), "Failed to add container to running containers");
@@ -234,7 +240,7 @@ impl ContainerManager {
         }
       } else {
         warn!(tid=%tid, container_id=%container.container_id(), "Marking unhealthy container for removal");
-        (*self.unhealthy_list.write()).push(removed_ctr);
+        (*self.remove_list.write()).push(removed_ctr);
       }
     } else {
       error!(tid=%tid, container_id=%container.container_id(), "Tried to return a container that wasn't running");
@@ -294,8 +300,6 @@ impl ContainerManager {
     Ok(cont)
   }
 
-  /// launch_container_internal
-  /// 
   /// Does a best effort to ensure a container is launched
   /// If various known errors happen, it will re-try to start it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]

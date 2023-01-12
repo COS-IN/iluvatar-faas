@@ -149,7 +149,7 @@ impl Invoker for MinHeapEDInvoker {
 
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    let deadline = self.cmap.get_exec_time(&item.function_name) + time_since_epoch();
+    let deadline = self.cmap.get_exec_time(&item.fqdn) + time_since_epoch();
     queue.push(MHQEDEnqueuedInvocation::new(item.clone(), deadline ).into());
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),

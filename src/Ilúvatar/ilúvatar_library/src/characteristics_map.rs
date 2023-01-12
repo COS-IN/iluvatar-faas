@@ -91,14 +91,21 @@ pub enum Characteristics {
     /// Time on CPU for a warm invocation
     /// Recorded by [Invoker::invoke_internal]
     WarmTime,
+    /// Time on CPU for a pre-warmed invocation
+    /// The container was previously started, but no invocation was run on it
+    /// TODO: record this somewhere
+    PreWarmTime,
     /// Time on CPU for a cold invocation
     /// Recorded by [Invoker::invoke_internal]
     ColdTime,
+    /// The last time an invocation happened 
     /// Recorded internally by the [CharacteristicsMap::get_iat] function
     LastInvTime,
-    // The running avg IAT
+    /// The running avg IAT
     /// Recorded by [IluvatarWorkerImpl::invoke] and [IluvatarWorkerImpl::invoke_async] 
     IAT,
+    /// The running avg memory usage
+    /// TODO: record this somewhere
     MemoryUsage,
 }
 
@@ -188,6 +195,24 @@ impl CharacteristicsMap {
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_exec_time(&self, fqdn: &String ) -> f64 {
       if let Some(exectime) = self.lookup(fqdn, &Characteristics::ExecTime) {
+        unwrap_val_f64( &exectime )
+      } else {
+        0.0
+      }
+    }
+    /// Returns the execution time as tracked by [Characteristics::WarmTime]
+    /// Returns 0.0 if it was not found, or an error occured
+    pub fn get_warm_time(&self, fqdn: &String ) -> f64 {
+      if let Some(exectime) = self.lookup(fqdn, &Characteristics::WarmTime) {
+        unwrap_val_f64( &exectime )
+      } else {
+        0.0
+      }
+    }
+    /// Returns the execution time as tracked by [Characteristics::ExecTime]
+    /// Returns 0.0 if it was not found, or an error occured
+    pub fn get_cold_time(&self, fqdn: &String ) -> f64 {
+      if let Some(exectime) = self.lookup(fqdn, &Characteristics::ColdTime) {
         unwrap_val_f64( &exectime )
       } else {
         0.0

@@ -184,7 +184,7 @@ impl Invoker for FCFSBypassInvoker {
   
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
-    let exec_time = self.cmap.get_exec_time(&queued.function_name);
+    let exec_time = self.cmap.get_exec_time(&queued.fqdn);
     if exec_time != 0.0 && exec_time < self.bypass_dur {
       return self.bypassing_invoke_internal(queued).await;
     } else {
@@ -201,7 +201,7 @@ impl Invoker for FCFSBypassInvoker {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, index: Option<usize>) {
-    let exec_time = self.cmap.get_exec_time(&item.function_name);
+    let exec_time = self.cmap.get_exec_time(&item.fqdn);
     match index {
       Some(0) => {
         if exec_time != 0.0 && exec_time < self.bypass_dur {

@@ -15,45 +15,42 @@ use std::cmp::Ordering;
 
 #[derive(Debug)]
 pub struct ColdPriEnqueuedInvocation {
-    x: Arc<EnqueuedInvocation>,
-    exectime: f64
+  x: Arc<EnqueuedInvocation>,
+  priority: f64
 }
 
 impl ColdPriEnqueuedInvocation {
-    pub fn new( x: Arc<EnqueuedInvocation>, exectime: f64 ) -> Self {
-        ColdPriEnqueuedInvocation {
-            x,
-            exectime
-        }
-    }
+  pub fn new(x: Arc<EnqueuedInvocation>, priority: f64) -> Self {
+    ColdPriEnqueuedInvocation { x, priority }
+  }
 }
 impl Eq for ColdPriEnqueuedInvocation {
 }
 impl Ord for ColdPriEnqueuedInvocation {
- fn cmp(&self, other: &Self) -> Ordering {
-    compare_f64( &self.exectime, &other.exectime )
- }
+  fn cmp(&self, other: &Self) -> Ordering {
+      compare_f64( &self.priority, &other.priority )
+  }
 }
 
 impl PartialOrd for ColdPriEnqueuedInvocation {
- fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-     Some(compare_f64( &self.exectime, &other.exectime ))
- }
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    Some(compare_f64( &self.priority, &other.priority ))
+  }
 }
 
 impl PartialEq for ColdPriEnqueuedInvocation {
- fn eq(&self, other: &Self) -> bool {
-     self.exectime == other.exectime
- }
+  fn eq(&self, other: &Self) -> bool {
+      self.priority == other.priority
+  }
 }
 
 pub struct ColdPriorityInvoker {
-  pub cont_manager: Arc<ContainerManager>,
-  pub async_functions: AsyncHelper,
-  pub function_config: Arc<FunctionLimits>,
-  pub invocation_config: Arc<InvocationConfig>,
-  pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<ColdPriEnqueuedInvocation>>>>,
-  pub cmap: Arc<CharacteristicsMap>,
+  cont_manager: Arc<ContainerManager>,
+  async_functions: AsyncHelper,
+  function_config: Arc<FunctionLimits>,
+  invocation_config: Arc<InvocationConfig>,
+  invoke_queue: Arc<Mutex<BinaryHeap<Arc<ColdPriEnqueuedInvocation>>>>,
+  cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
   clock: LocalTime,
@@ -102,13 +99,11 @@ impl Invoker for ColdPriorityInvoker {
     let top = invoke_queue.peek();
     let func_name; 
     match top {
-        Some(e) => func_name = e.x.function_name.clone(),
-        None => func_name = "empty".to_string()
+        Some(e) => func_name = e.x.function_name.as_str(),
+        None => func_name = "empty"
     }
-    debug!(tid=%v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
-           invoke_queue.len(),
-           v.function_name,
-           func_name );
+    debug!(tid=%v.tid,  component="minheap", "Popped item from queue - len: {} popped: {} top: {} ",
+           invoke_queue.len(), v.function_name, func_name );
     v
   }
 
@@ -141,12 +136,16 @@ impl Invoker for ColdPriorityInvoker {
   }
 
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
+    let priority = match self.cont_manager.container_available(&item.fqdn) {
+      true => self.cmap.get_warm_time(&item.fqdn),
+      false => self.cmap.get_cold_time(&item.fqdn),
+    };
     let mut queue = self.invoke_queue.lock();
-    queue.push(ColdPriEnqueuedInvocation::new(item.clone(), self.cmap.get_exec_time(&item.function_name )).into());
+    queue.push(ColdPriEnqueuedInvocation::new(item.clone(), priority).into());
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
-                        item.function_name,
-                        queue.peek().unwrap().x.function_name );
+                        item.fqdn,
+                        queue.peek().unwrap().x.fqdn );
     self.queue_signal.notify_waiters();
   }
 }
