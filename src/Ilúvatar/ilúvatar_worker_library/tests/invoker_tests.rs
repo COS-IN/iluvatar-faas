@@ -282,7 +282,7 @@ use tokio::task::JoinHandle;
 type HANDLE = JoinHandle<Result<std::sync::Arc<parking_lot::Mutex<iluvatar_worker_library::services::invocation::invoker_structs::InvocationResult>>, anyhow::Error>>;
 
 async fn get_start_end_time_from_invoke(handle: HANDLE, formatter: &ContainerTimeFormatter) -> (OffsetDateTime, OffsetDateTime) {
-  let result = timeout(Duration::from_secs(10), handle).await
+  let result = timeout(Duration::from_secs(20), handle).await
                                                 .unwrap_or_else(|e| panic!("Error joining invocation thread handle: {:?}", e))
                                                 .unwrap_or_else(|e| panic!("Error joining invocation thread handle: {:?}", e));
   match result {
