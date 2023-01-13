@@ -191,4 +191,29 @@ mod tests {
       None => (),
     }
   }
+  #[test]
+  fn len() {
+    let cp = ContainerPool::new("test");
+    let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1 });
+    let fqdn2 = calculate_fqdn(&"name2".to_string(), &"vesr".to_string());
+    let reg2 = Arc::new(RegisteredFunction { function_name: "name2".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1 });
+    cp.register_fqdn(fqdn.clone());
+    cp.register_fqdn(fqdn2.clone());
+    let ctr = Arc::new(SimulatorContainer::new("cid1".to_string(), &fqdn, &reg, ContainerState::Cold));
+    cp.add_container(ctr, &"test".to_string()).expect("add should not error");
+    assert_eq!(cp.len(), 1);
+    let ctr = Arc::new(SimulatorContainer::new("cid2".to_string(), &fqdn, &reg, ContainerState::Cold));
+    cp.add_container(ctr, &"test".to_string()).expect("add should not error");
+    assert_eq!(cp.len(), 2);
+    let ctr = Arc::new(SimulatorContainer::new("cid3".to_string(), &fqdn, &reg, ContainerState::Cold));
+    cp.add_container(ctr, &"test".to_string()).expect("add should not error");
+    assert_eq!(cp.len(), 3);
+    let ctr = Arc::new(SimulatorContainer::new("cid3".to_string(), &fqdn2, &reg2, ContainerState::Cold));
+    cp.add_container(ctr, &"test".to_string()).expect("add should not error");
+    assert_eq!(cp.len(), 4);
+
+    cp.get_random_container(&fqdn, &"test".to_string()).expect("should remove a container");
+    assert_eq!(cp.len(), 3);
+  }
 }

@@ -136,8 +136,12 @@ impl Invoker for ColdPriorityInvoker {
   }
 
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
-    let priority = match self.cont_manager.container_available(&item.fqdn) {
-      ContainerState::Warm => self.cmap.get_warm_time(&item.fqdn),
+    let mut priority = 0.0;
+    if self.cont_manager.outstanding(&item.fqdn) == 0 {
+      priority = self.cmap.get_warm_time(&item.fqdn);
+    }
+    priority = match self.cont_manager.container_available(&item.fqdn) {
+      ContainerState::Warm => priority,
       ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.fqdn),
       _ => self.cmap.get_cold_time(&item.fqdn),
     };

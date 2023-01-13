@@ -12,6 +12,7 @@ use anyhow::{Result, bail};
 use dashmap::DashMap;
 use std::cmp::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 use parking_lot::RwLock;
 use super::LifecycleService;
 use super::container_pool::{ContainerPool, Subpool};
@@ -20,7 +21,7 @@ use tracing::{info, warn, debug, error};
 
 /// A struct to manage and control access to containers
 pub struct ContainerManager {
-  registered_functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,
+  registered_functions: DashMap<String, Arc<RegisteredFunction>>,
   /// Containers that are currently not running an invocation
   idle_containers: ContainerPool,
   /// Containers that are running an invocation
@@ -35,7 +36,8 @@ pub struct ContainerManager {
   core_sem: Option<Arc<Semaphore>>,
   /// A list of containers that are to be removed
   /// Container must not be in a pool when placed here
-  remove_list: RwLock<Subpool>
+  remove_list: RwLock<Subpool>,
+  outstanding_containers: DashMap<String, AtomicU32>,
 }
 
 impl ContainerManager {
@@ -46,7 +48,7 @@ impl ContainerManager {
     };
     ContainerManager {
       core_sem,
-      registered_functions: Arc::new(DashMap::new()),
+      registered_functions: DashMap::new(),
       limits_config,
       resources,
       used_mem_mb: Arc::new(RwLock::new(0)),
@@ -57,6 +59,7 @@ impl ContainerManager {
       idle_containers: ContainerPool::new("idle"),
       running_containers: ContainerPool::new("running"),
       remove_list: RwLock::new(vec![]),
+      outstanding_containers: DashMap::new(),
     }
   }
 
@@ -127,6 +130,15 @@ impl ContainerManager {
   /// Not a guarantee it will be available
   pub fn container_available(&self, fqdn: &String) -> ContainerState {
     self.idle_containers.has_container(fqdn)
+  }
+  /// The number of containers for the given FQDN that are not idle
+  /// I.E. they are executing an invocation
+  /// 0 if the fqdn is unknown
+  pub fn outstanding(&self, fqdn: &String) -> u32 {
+    match self.outstanding_containers.get(fqdn) {
+      Some(cnt) => (*cnt).load(std::sync::atomic::Ordering::Relaxed),
+      None => 0,
+    }  
   }
 
   /// Return a permit for the function to run on its registered number of cores
@@ -220,7 +232,12 @@ impl ContainerManager {
       debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
       container.touch();
       return match self.add_container_to_pool(&self.running_containers, container.clone(), tid) {
-        Ok(_) => Some(ContainerLock::new(container, self, tid)),
+        Ok(_) => {
+          if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
+            (*cnt).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+          }
+          Some(ContainerLock::new(container, self, tid))
+        },
         Err(e) => {
           error!(error=%e, container_id=%container.container_id(), "Failed to add container to running containers");
           None
@@ -233,6 +250,9 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%_tid)))]
   pub fn return_container(&self, container: &Container, tid: &TransactionId) {
+    if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
+      (*cnt).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
     if let Some(removed_ctr) = self.running_containers.remove_container(container, tid) {
       if removed_ctr.is_healthy() {
         removed_ctr.set_state(ContainerState::Warm);
@@ -397,6 +417,7 @@ impl ContainerManager {
     debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to active_containers map");
     self.running_containers.register_fqdn(fqdn.clone());
     self.idle_containers.register_fqdn(fqdn.clone());
+    self.outstanding_containers.insert(fqdn.clone(), AtomicU32::new(0));
     info!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "function was successfully registered");
     Ok(())
   }
