@@ -6,7 +6,7 @@ use iluvatar_library::{nproc, threading};
 use tracing::{info, debug, error};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
-use crate::services::invocation::invoker_trait::Invoker;
+// use crate::services::invocation::invoker_trait::Invoker;
 use crate::worker_api::worker_config::StatusConfig;
 use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
 use iluvatar_library::transaction::{TransactionId, STATUS_WORKER_TID};
@@ -17,7 +17,6 @@ use anyhow::Result;
 #[allow(unused)]
 pub struct StatusService {
   container_manager: Arc<ContainerManager>, 
-  invoker_service: Arc<dyn Invoker>,
   current_status: Mutex<Arc<WorkerStatus>>,
   worker_thread: JoinHandle<()>,
   graphite: GraphiteService,
@@ -29,14 +28,13 @@ pub struct StatusService {
 }
 
 impl StatusService {
-  pub fn boxed(cm: Arc<ContainerManager>, invoke: Arc<dyn Invoker>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>) -> Result<Arc<Self>> {
+  pub fn boxed(cm: Arc<ContainerManager>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>) -> Result<Arc<Self>> {
     let (handle, sender) = 
           threading::os_thread::<Self>(config.report_freq_ms, STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status))?;
     let cpu_svc = CPUService::boxed(tid)?;
 
     let ret = Arc::new(StatusService { 
       container_manager: cm, 
-      invoker_service: invoke,
       current_status: Mutex::new(Arc::new(WorkerStatus {
         queue_len: 0,
         used_mem: 0,
@@ -114,11 +112,12 @@ impl StatusService {
     let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
     *cpu_instant_lck = cpu_now;
 
-    let queue_len = self.invoker_service.queue_len() as i64;
+    // let queue_len = self.invoker_service.queue_len() as i64;
+    let queue_len = 0;
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();
     let num_containers = self.container_manager.num_containers();
-    let running = self.invoker_service.running_funcs();
+    let running = self.container_manager.outstanding(None);
     let hw_freqs = self.cpu.hardware_cpu_freqs(tid);
     let kernel_freqs = self.cpu.kernel_cpu_freqs(tid);
 

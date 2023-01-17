@@ -134,11 +134,14 @@ impl ContainerManager {
   /// The number of containers for the given FQDN that are not idle
   /// I.E. they are executing an invocation
   /// 0 if the fqdn is unknown
-  pub fn outstanding(&self, fqdn: &String) -> u32 {
-    match self.outstanding_containers.get(fqdn) {
-      Some(cnt) => (*cnt).load(std::sync::atomic::Ordering::Relaxed),
-      None => 0,
-    }  
+  pub fn outstanding(&self, fqdn: Option<&String>) -> u32 {
+    match fqdn {
+      Some(f) => match self.outstanding_containers.get(f) {
+        Some(cnt) => (*cnt).load(std::sync::atomic::Ordering::Relaxed),
+        None => 0,
+      },
+      None => self.outstanding_containers.len() as u32,
+    }
   }
 
   /// Return a permit for the function to run on its registered number of cores

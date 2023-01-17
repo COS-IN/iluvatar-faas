@@ -1,68 +1,90 @@
 use std::sync::Arc;
 use crate::services::containers::structs::ContainerState;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
+use crate::services::status::StatusService;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::compare_f64;
+use iluvatar_library::threading::tokio_thread;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
-use tracing::debug;
+use tracing::{debug, error, info};
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 
 #[derive(Debug)]
-pub struct ColdPriEnqueuedInvocation {
+pub struct AvailScaleEnqueuedInvocation {
   x: Arc<EnqueuedInvocation>,
   priority: f64
 }
 
-impl ColdPriEnqueuedInvocation {
+impl AvailScaleEnqueuedInvocation {
   pub fn new(x: Arc<EnqueuedInvocation>, priority: f64) -> Self {
-    ColdPriEnqueuedInvocation { x, priority }
+    AvailScaleEnqueuedInvocation { x, priority }
   }
 }
-impl Eq for ColdPriEnqueuedInvocation {
+impl Eq for AvailScaleEnqueuedInvocation {
 }
-impl Ord for ColdPriEnqueuedInvocation {
+impl Ord for AvailScaleEnqueuedInvocation {
   fn cmp(&self, other: &Self) -> Ordering {
       compare_f64( &self.priority, &other.priority )
   }
 }
 
-impl PartialOrd for ColdPriEnqueuedInvocation {
+impl PartialOrd for AvailScaleEnqueuedInvocation {
   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
     Some(compare_f64( &self.priority, &other.priority ))
   }
 }
 
-impl PartialEq for ColdPriEnqueuedInvocation {
+impl PartialEq for AvailScaleEnqueuedInvocation {
   fn eq(&self, other: &Self) -> bool {
       self.priority == other.priority
   }
 }
 
-pub struct ColdPriorityInvoker {
+/// An invoker that scales concurrency based on system load
+/// Prioritizes based on container availability
+pub struct AvailableScalingInvoker {
   cont_manager: Arc<ContainerManager>,
   async_functions: AsyncHelper,
   function_config: Arc<FunctionLimits>,
   invocation_config: Arc<InvocationConfig>,
-  invoke_queue: Arc<Mutex<BinaryHeap<Arc<ColdPriEnqueuedInvocation>>>>,
+  invoke_queue: Arc<Mutex<BinaryHeap<Arc<AvailScaleEnqueuedInvocation>>>>,
   cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
+  _load_thread: tokio::task::JoinHandle<()>,
   queue_signal: Notify,
   clock: LocalTime,
   concurrency_semaphore: Arc<Semaphore>,
+  status: Arc<StatusService>,
+  max_concur: u64,
+  min_concur: u64,
+  current_concur: Mutex<u64>,
 }
 
-impl ColdPriorityInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
-    let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(ColdPriorityInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
-    let svc = Arc::new(ColdPriorityInvoker {
+impl AvailableScalingInvoker {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>,
+  status: Arc<StatusService>) -> Result<Arc<Self>> {
+    let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(Self::wait_on_queue), Some(function_config.cpu_max as usize))?;
+    let check_dur = invocation_config.concurrency_udpate_check_ms.ok_or_else(|| anyhow::anyhow!("concurrency_udpate_check_ms was not present in InvocationConfig"))?;
+    if check_dur == 0 {
+      anyhow::bail!("Cannot have a 'concurrency_udpate_check_ms' of 0");
+    }
+    let max_concur = invocation_config.max_concurrency.ok_or_else(|| anyhow::anyhow!("max_concurrency was not present in InvocationConfig"))?;
+    if max_concur == 0 {
+      anyhow::bail!("Cannot have a 'max_concurrency' of 0");
+    }
+    let (load_handle, laod_tx) = tokio_thread(check_dur, INVOKER_QUEUE_WORKER_TID.clone(), Self::monitor_load);
+    let svc = Arc::new(AvailableScalingInvoker {
       concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
+      min_concur: invocation_config.concurrent_invokes as u64,
+      current_concur: Mutex::new(invocation_config.concurrent_invokes as u64),
+      max_concur,
       cont_manager,
       function_config,
       invocation_config,
@@ -71,21 +93,46 @@ impl ColdPriorityInvoker {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       cmap,
       _worker_thread: handle,
+      _load_thread: load_handle,
       clock: LocalTime::new(tid)?,
+      status,
     });
     tx.send(svc.clone())?;
-    debug!(tid=%tid, "Created ColdPriorityInvoker");
+    laod_tx.send(svc.clone())?;
+    debug!(tid=%tid, "Created AvailableScalingInvoker");
     Ok(svc)
   }
 
   /// Wait on the Notify object for the queue to be available again
-  async fn wait_on_queue(invoker_svc: Arc<ColdPriorityInvoker>, tid: TransactionId) {
+  async fn wait_on_queue(invoker_svc: Arc<AvailableScalingInvoker>, tid: TransactionId) {
     invoker_svc.queue_signal.notified().await;
     debug!(tid=%tid, "Invoker waken up by signal");
   }
+
+  async fn monitor_load(svc: Arc<AvailableScalingInvoker>, tid: TransactionId) {
+    let stat = svc.status.get_status(&tid);
+    let current = *svc.current_concur.lock();
+    if stat.load_avg_1minute > 3.5 {
+      let change = current - svc.min_concur;
+      if change > 0 {
+        match svc.concurrency_semaphore.acquire_many(change as u32).await {
+          Ok(s) => s.forget(),
+          Err(e) => error!(tid=%tid, error=%e, "Failed to acquire concurrency semaphore"),
+        };
+        *svc.current_concur.lock() -= change;
+      }
+    } else {
+      if current < svc.max_concur {
+        svc.concurrency_semaphore.add_permits(1);
+        svc.queue_signal.notify_waiters();
+        *svc.current_concur.lock() += 1;
+      }
+    }
+    info!(tid=%tid, concurrency=*svc.current_concur.lock(), "Current concurrency");
+  }
 }
 
-impl Invoker for ColdPriorityInvoker {
+impl Invoker for AvailableScalingInvoker {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
@@ -146,7 +193,7 @@ impl Invoker for ColdPriorityInvoker {
       _ => self.cmap.get_cold_time(&item.fqdn),
     };
     let mut queue = self.invoke_queue.lock();
-    queue.push(ColdPriEnqueuedInvocation::new(item.clone(), priority).into());
+    queue.push(AvailScaleEnqueuedInvocation::new(item.clone(), priority).into());
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.fqdn,

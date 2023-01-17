@@ -92,6 +92,12 @@ pub struct InvocationConfig {
   /// If the queue policy is enabled, invocations with an execution duration less than this
   ///   will bypass concurrency restrictions and be run immediately
   pub bypass_duration_ms: Option<u64>,
+  /// Frequency at which to check the system load and optionally increase the allowed invocation concurreny.
+  /// Cannot be 0
+  pub concurrency_udpate_check_ms: Option<u64>,
+  /// The maximum allowable concurrency. 
+  /// Cannot be 0
+  pub max_concurrency: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

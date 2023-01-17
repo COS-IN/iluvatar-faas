@@ -3,11 +3,13 @@ use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::transaction::TransactionId;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
+use self::avail_scale_invoke::AvailableScalingInvoker;
 use self::cold_priority_invoke::ColdPriorityInvoker;
 use self::{queueless::QueuelessInvoker, invoker_trait::Invoker, fcfs_invoke::FCFSInvoker, minheap_invoke::MinHeapInvoker};
 use self::{minheap_ed_invoke::MinHeapEDInvoker, fcfs_bypass_invoke::FCFSBypassInvoker };
 use self::minheap_iat_invoke::MinHeapIATInvoker;
 use super::containers::containermanager::ContainerManager;
+use super::status::StatusService;
 
 pub mod invoker_structs;
 pub mod invoker_trait;
@@ -19,25 +21,29 @@ pub mod minheap_ed_invoke;
 pub mod minheap_iat_invoke;
 pub mod fcfs_bypass_invoke;
 mod cold_priority_invoke;
+mod avail_scale_invoke;
 
 pub struct InvokerFactory {
   cont_manager: Arc<ContainerManager>, 
   function_config: Arc<FunctionLimits>, 
   invocation_config: Arc<InvocationConfig>,
   cmap: Arc<CharacteristicsMap>,
+  status: Arc<StatusService>,
 }
 
 impl InvokerFactory {
   pub fn new(cont_manager: Arc<ContainerManager>,
     function_config: Arc<FunctionLimits>,
     invocation_config: Arc<InvocationConfig>,
-    cmap: Arc<CharacteristicsMap>) -> Self {
+    cmap: Arc<CharacteristicsMap>,
+    status: Arc<StatusService>) -> Self {
 
-      InvokerFactory {
-        cont_manager,
-        function_config,
-        invocation_config,
-        cmap,
+    InvokerFactory {
+      cont_manager,
+      function_config,
+      invocation_config,
+      cmap,
+      status
     }
   }
 
@@ -63,6 +69,9 @@ impl InvokerFactory {
       },
       "cold_pri" => {
         ColdPriorityInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone())?
+      },
+      "scaling" => {
+        AvailableScalingInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone(), self.status.clone())?
       }
 
       unknown => panic!("Unknown lifecycle backend '{}'", unknown)
