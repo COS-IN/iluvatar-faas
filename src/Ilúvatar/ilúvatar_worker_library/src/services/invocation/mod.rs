@@ -9,7 +9,6 @@ use self::{queueless::QueuelessInvoker, invoker_trait::Invoker, fcfs_invoke::FCF
 use self::{minheap_ed_invoke::MinHeapEDInvoker, fcfs_bypass_invoke::FCFSBypassInvoker };
 use self::minheap_iat_invoke::MinHeapIATInvoker;
 use super::containers::containermanager::ContainerManager;
-use super::status::StatusService;
 
 pub mod invoker_structs;
 pub mod invoker_trait;
@@ -28,22 +27,19 @@ pub struct InvokerFactory {
   function_config: Arc<FunctionLimits>, 
   invocation_config: Arc<InvocationConfig>,
   cmap: Arc<CharacteristicsMap>,
-  status: Arc<StatusService>,
 }
 
 impl InvokerFactory {
   pub fn new(cont_manager: Arc<ContainerManager>,
     function_config: Arc<FunctionLimits>,
     invocation_config: Arc<InvocationConfig>,
-    cmap: Arc<CharacteristicsMap>,
-    status: Arc<StatusService>) -> Self {
+    cmap: Arc<CharacteristicsMap>) -> Self {
 
     InvokerFactory {
       cont_manager,
       function_config,
       invocation_config,
       cmap,
-      status
     }
   }
 
@@ -71,7 +67,7 @@ impl InvokerFactory {
         ColdPriorityInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone())?
       },
       "scaling" => {
-        AvailableScalingInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone(), self.status.clone())?
+        AvailableScalingInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone())?
       }
 
       unknown => panic!("Unknown lifecycle backend '{}'", unknown)

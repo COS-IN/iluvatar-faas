@@ -98,6 +98,9 @@ pub struct InvocationConfig {
   /// The maximum allowable concurrency. 
   /// Cannot be 0
   pub max_concurrency: Option<u64>,
+  /// The maximum normalized load average before reducing concurrency. 
+  /// Cannot be 0
+  pub max_load: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -1,3 +1,5 @@
+use std::{fs::File, io::Read};
+use tracing::error;
 use transaction::TransactionId;
 use utils::execute_cmd;
 
@@ -27,5 +29,34 @@ pub fn nproc(tid: &TransactionId, all: bool) -> anyhow::Result<u32> {
   match stdout[0..stdout.len()-1].parse::<u32>() {
     Ok(u) => Ok(u),
     Err(e) => anyhow::bail!("Unable to parse nproc result because of error: '{}'", e),
+  }
+}
+
+/// Returns the one-minute system load average
+/// If an error occurs, -1.0 is returned
+pub fn load_avg(tid: &TransactionId) -> f64 {
+  let mut file = match File::open("/proc/loadavg") {
+    Ok(f) => f,
+    Err(e) => {
+      error!(tid=%tid, error=%e, "Failed to open /proc/loadavg");
+      return -1.0;
+    },
+  };
+  let mut buff = String::new();
+  match file.read_to_string(&mut buff) {
+    Ok(f) => f,
+    Err(e) => {
+      error!(tid=%tid, error=%e, "Failed to read /proc/loadavg");
+      return -1.0;
+    },
+  };
+  let lines: Vec<&str> = buff.split(" ").filter(|str| str.len() > 0).collect();
+  let min = lines[0];
+  match min.parse::<f64>() {
+    Ok(r) => r,
+    Err(e) => {
+      error!(tid=%tid, "error parsing float from uptime {}: {}", min, e);
+      -1.0
+    },
   }
 }

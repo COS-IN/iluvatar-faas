@@ -1,7 +1,7 @@
 use std::{sync::Arc, collections::HashMap};
-
 use iluvatar_library::{transaction::TEST_TID, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
-use iluvatar_worker_library::{worker_api::config::{Configuration, WorkerConfig}, services::{containers::{LifecycleFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, invoker_trait::Invoker}}};
+use iluvatar_worker_library::worker_api::config::{Configuration, WorkerConfig};
+use iluvatar_worker_library::services::{containers::{LifecycleFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, invoker_trait::Invoker}};
 
 #[macro_export]
 macro_rules! assert_error {
@@ -22,6 +22,7 @@ macro_rules! assert_error {
 pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<String, String>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
   let log = log.unwrap_or(false);
+  let worker_name = "TEST".to_string();
   let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
   if let Some(env) = env {
     for (k,v) in env {
@@ -38,7 +39,7 @@ pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<S
     span_energy_monitoring: false,
   });
   let _log = match log {
-    true => Some(start_tracing(fake_logging, cfg.graphite.clone(), &"TEST".to_string(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e))),
+    true => Some(start_tracing(fake_logging, cfg.graphite.clone(), &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e))),
     false => None,
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));

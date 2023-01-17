@@ -1,10 +1,10 @@
 use std::sync::Arc;
 use crate::services::containers::structs::ContainerState;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
-use crate::services::status::StatusService;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::compare_f64;
+use iluvatar_library::{nproc, load_avg};
 use iluvatar_library::threading::tokio_thread;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use iluvatar_library::logging::LocalTime;
@@ -49,6 +49,8 @@ impl PartialEq for AvailScaleEnqueuedInvocation {
 
 /// An invoker that scales concurrency based on system load
 /// Prioritizes based on container availability
+/// Increases concurrency by 1 every [InvocationConfig::concurrency_udpate_check_ms]
+/// If system load is above [InvocationConfig::max_load], then the concurrency is reduced by half the distance to [InvocationConfig::concurrent_invokes] rounded up
 pub struct AvailableScalingInvoker {
   cont_manager: Arc<ContainerManager>,
   async_functions: AsyncHelper,
@@ -61,15 +63,15 @@ pub struct AvailableScalingInvoker {
   queue_signal: Notify,
   clock: LocalTime,
   concurrency_semaphore: Arc<Semaphore>,
-  status: Arc<StatusService>,
   max_concur: u64,
   min_concur: u64,
   current_concur: Mutex<u64>,
+  max_load: f64,
+  cores: f64,
 }
 
 impl AvailableScalingInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>,
-  status: Arc<StatusService>) -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(Self::wait_on_queue), Some(function_config.cpu_max as usize))?;
     let check_dur = invocation_config.concurrency_udpate_check_ms.ok_or_else(|| anyhow::anyhow!("concurrency_udpate_check_ms was not present in InvocationConfig"))?;
     if check_dur == 0 {
@@ -79,11 +81,18 @@ impl AvailableScalingInvoker {
     if max_concur == 0 {
       anyhow::bail!("Cannot have a 'max_concurrency' of 0");
     }
+    let max_load = invocation_config.max_load.ok_or_else(|| anyhow::anyhow!("max_load was not present in InvocationConfig"))?;
+    if max_load == 0.0 {
+      anyhow::bail!("Cannot have a 'max_load' of 0");
+    }
+    let cores = nproc(tid, false)?;
+
     let (load_handle, laod_tx) = tokio_thread(check_dur, INVOKER_QUEUE_WORKER_TID.clone(), Self::monitor_load);
     let svc = Arc::new(AvailableScalingInvoker {
       concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
       min_concur: invocation_config.concurrent_invokes as u64,
       current_concur: Mutex::new(invocation_config.concurrent_invokes as u64),
+      max_load,
       max_concur,
       cont_manager,
       function_config,
@@ -95,7 +104,7 @@ impl AvailableScalingInvoker {
       _worker_thread: handle,
       _load_thread: load_handle,
       clock: LocalTime::new(tid)?,
-      status,
+      cores: cores as f64 
     });
     tx.send(svc.clone())?;
     laod_tx.send(svc.clone())?;
@@ -110,16 +119,23 @@ impl AvailableScalingInvoker {
   }
 
   async fn monitor_load(svc: Arc<AvailableScalingInvoker>, tid: TransactionId) {
-    let stat = svc.status.get_status(&tid);
+    let load_avg = load_avg(&tid);
+    if load_avg < 0.0 {
+      return;
+    }
+    let norm_load = load_avg / svc.cores;
     let current = *svc.current_concur.lock();
-    if stat.load_avg_1minute > 3.5 {
+    if norm_load > svc.max_load {
       let change = current - svc.min_concur;
+      let change = f64::ceil(change as f64 / 2.0) as u64;
       if change > 0 {
         match svc.concurrency_semaphore.acquire_many(change as u32).await {
-          Ok(s) => s.forget(),
+          Ok(s) => {
+            s.forget();
+            *svc.current_concur.lock() = u64::max(svc.min_concur, current - change);
+          },
           Err(e) => error!(tid=%tid, error=%e, "Failed to acquire concurrency semaphore"),
         };
-        *svc.current_concur.lock() -= change;
       }
     } else {
       if current < svc.max_concur {
@@ -128,7 +144,7 @@ impl AvailableScalingInvoker {
         *svc.current_concur.lock() += 1;
       }
     }
-    info!(tid=%tid, concurrency=*svc.current_concur.lock(), "Current concurrency");
+    info!(tid=%tid, concurrency=*svc.current_concur.lock(), load=norm_load, "Current concurrency");
   }
 }
 

@@ -2,15 +2,14 @@
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use iluvatar_library::cpu_interaction::{CPUService, CPUUtilInstant};
-use iluvatar_library::{nproc, threading};
+use iluvatar_library::{nproc, threading, load_avg};
 use tracing::{info, debug, error};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
-// use crate::services::invocation::invoker_trait::Invoker;
+use crate::services::invocation::invoker_trait::Invoker;
 use crate::worker_api::worker_config::StatusConfig;
 use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
 use iluvatar_library::transaction::{TransactionId, STATUS_WORKER_TID};
-use iluvatar_library::utils::execute_cmd;
 use super::WorkerStatus;
 use anyhow::Result;
 
@@ -25,10 +24,11 @@ pub struct StatusService {
   cpu: Arc<CPUService>,
   config: Arc<StatusConfig>,
   cpu_instant: Mutex<CPUUtilInstant>,
+  invoker: Arc<dyn Invoker>,
 }
 
 impl StatusService {
-  pub fn boxed(cm: Arc<ContainerManager>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>) -> Result<Arc<Self>> {
+  pub fn boxed(cm: Arc<ContainerManager>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>, invoker: Arc<dyn Invoker>) -> Result<Arc<Self>> {
     let (handle, sender) = 
           threading::os_thread::<Self>(config.report_freq_ms, STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status))?;
     let cpu_svc = CPUService::boxed(tid)?;
@@ -59,33 +59,10 @@ impl StatusService {
       cpu_instant: Mutex::new(cpu_svc.instant_cpu_util(tid)?),
       cpu: cpu_svc,
       config,
+      invoker,
     });
     sender.send(ret.clone())?;
     Ok(ret)
-  }
-
-  fn uptime(&self, tid: &TransactionId) -> f64 {
-    match execute_cmd("/usr/bin/uptime", &vec![], None, tid) {
-      Ok(out) => {
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        let lines: Vec<&str> = stdout.split(" ").filter(|str| str.len() > 0).collect();
-        let min = lines[lines.len()-3];
-        let min = &min[..min.len()-1];
-        let minute_load_avg =  match min.parse::<f64>() {
-            Ok(r) => r,
-            Err(e) => {
-              error!(tid=%tid, "error parsing float from uptime {}: {}", min, e);
-              -1.0
-            },
-          };
-        debug!(tid=%tid, "uptime {}", minute_load_avg);
-        minute_load_avg
-      },
-      Err(e) => {
-        error!(tid=%tid, "unable to call uptime because {}", e);
-        -1.0
-      },
-    }
   }
 
   fn update_status(&self, tid: &TransactionId) {
@@ -99,7 +76,7 @@ impl StatusService {
       },
     };
 
-    let minute_load_avg = self.uptime(tid);
+    let minute_load_avg = load_avg(tid);
     let nprocs = match nproc(tid, false) {
       Ok(n) => n,
       Err(e) => {
@@ -112,8 +89,7 @@ impl StatusService {
     let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
     *cpu_instant_lck = cpu_now;
 
-    // let queue_len = self.invoker_service.queue_len() as i64;
-    let queue_len = 0;
+    let queue_len = self.invoker.queue_len() as i64;
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();
     let num_containers = self.container_manager.num_containers();
