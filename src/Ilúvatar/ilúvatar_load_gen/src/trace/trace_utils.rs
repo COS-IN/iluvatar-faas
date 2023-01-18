@@ -15,10 +15,15 @@ pub enum RegisterTarget {
 }
 
 fn compute_prewarms(f: &Function, default_prewarms: u32) -> u32 {
-  if let Some(iat) = f.mean_iat {
-    return f64::ceil(f.warm_dur_ms as f64 / iat) as u32;
+  match default_prewarms {
+    0 => 0,
+    i => {
+      if let Some(iat) = f.mean_iat {
+        return f64::ceil(f.warm_dur_ms as f64 / iat) as u32;
+      }
+      i
+    }
   }
-  default_prewarms
 }
 
 fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore, 
@@ -51,15 +56,18 @@ fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore,
       }
     }
 
-    let prewarms = match func.mean_iat {
-      Some(iat_ms) => {
-        let mut prewarms = f64::ceil(chosen_warm_time_ms * 1.0/iat_ms) as u32;
-        let cold_prewarms = f64::ceil(chosen_cold_time_ms * 1.0/iat_ms) as u32;
-        println!("{}'s IAT of {} -> {} * {} = {} OR {} = {}", chosen_name, iat_ms, chosen_warm_time_ms, 1.0/iat_ms, prewarms, chosen_cold_time_ms, cold_prewarms);
-        prewarms = max(prewarms, cold_prewarms);
-        min(prewarms, default_prewarms+30)
-      },
-      None => default_prewarms,
+    let prewarms = match default_prewarms {
+      0 => 0,
+      default_prewarms => match func.mean_iat {
+        Some(iat_ms) => {
+          let mut prewarms = f64::ceil(chosen_warm_time_ms * 1.0/iat_ms) as u32;
+          let cold_prewarms = f64::ceil(chosen_cold_time_ms * 1.0/iat_ms) as u32;
+          println!("{}'s IAT of {} -> {} * {} = {} OR {} = {}", chosen_name, iat_ms, chosen_warm_time_ms, 1.0/iat_ms, prewarms, chosen_cold_time_ms, cold_prewarms);
+          prewarms = max(prewarms, cold_prewarms);
+          min(prewarms, default_prewarms+30)
+        },
+        None => default_prewarms,
+      }
     };
     total_prewarms += prewarms;
     ret.insert( func.func_name.clone(), (format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen_name), prewarms) );

@@ -39,7 +39,7 @@ pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
     .arg(Arg::with_name("prewarm")
         .short('p')
         .long("prewarm")
-        .help("The number of pre-warmed containers to create for each function")
+        .help("The number of pre-warmed containers to create for each function. Computes how many containers to prewarm based on function characteristics. If this is 0, then there will be _no_ prewarms.")
         .required(false)
         .default_value("0")
         .takes_value(true))
