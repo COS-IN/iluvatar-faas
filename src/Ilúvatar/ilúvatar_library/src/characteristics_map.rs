@@ -32,10 +32,11 @@ pub fn unwrap_val_f64 ( value: &Values ) -> f64 {
         }
     }
 }
+/// A safe comparator for f64 values 
 pub fn compare_f64( lhs: &f64, rhs: &f64 ) -> Ordering {
   let lhs: OrderedFloat<f64> = OrderedFloat( *lhs );
   let rhs: OrderedFloat<f64> = OrderedFloat( *rhs );
-  rhs.cmp(&lhs)
+  lhs.cmp(&rhs)
 }
 
 pub fn unwrap_val_u64 ( value: &Values ) -> u64 {
