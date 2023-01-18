@@ -31,13 +31,13 @@ impl Eq for MHQEnqueuedInvocation {
 }
 impl Ord for MHQEnqueuedInvocation {
  fn cmp(&self, other: &Self) -> Ordering {
-    compare_f64( &self.exectime, &other.exectime )
+    compare_f64( &self.exectime, &other.exectime ).reverse()
  }
 }
 
 impl PartialOrd for MHQEnqueuedInvocation {
  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-     Some(compare_f64( &self.exectime, &other.exectime ))
+     Some(compare_f64( &self.exectime, &other.exectime ).reverse())
  }
 }
 

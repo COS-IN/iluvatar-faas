@@ -33,13 +33,13 @@ impl Eq for MHQIATEnqueuedInvocation {
 
 impl Ord for MHQIATEnqueuedInvocation {
   fn cmp(&self, other: &Self) -> Ordering {
-    compare_f64( &self.iat, &other.iat )
+    compare_f64( &self.iat, &other.iat ).reverse()
   }
 }
 
 impl PartialOrd for MHQIATEnqueuedInvocation {
   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    Some(compare_f64( &self.iat, &other.iat ))
+    Some(compare_f64( &self.iat, &other.iat ).reverse())
   }
 }
 

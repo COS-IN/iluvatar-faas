@@ -41,13 +41,13 @@ impl Eq for MHQEDEnqueuedInvocation {
 
 impl Ord for MHQEDEnqueuedInvocation {
  fn cmp(&self, other: &Self) -> Ordering {
-    compare_f64( &self.deadline, &other.deadline )
+    compare_f64( &self.deadline, &other.deadline ).reverse()
  }
 }
 
 impl PartialOrd for MHQEDEnqueuedInvocation {
  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    Some(compare_f64( &self.deadline, &other.deadline ))
+    Some(compare_f64( &self.deadline, &other.deadline ).reverse())
   }
 }
 
