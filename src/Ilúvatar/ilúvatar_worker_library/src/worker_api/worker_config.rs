@@ -93,13 +93,13 @@ pub struct InvocationConfig {
   ///   will bypass concurrency restrictions and be run immediately
   pub bypass_duration_ms: Option<u64>,
   /// Frequency at which to check the system load and optionally increase the allowed invocation concurreny.
-  /// Cannot be 0
+  /// Used with [AvailableScalingInvoker] and cannot be 0
   pub concurrency_udpate_check_ms: Option<u64>,
   /// The maximum allowable concurrency. 
-  /// Cannot be 0
+  /// Used with [AvailableScalingInvoker] and cannot be 0
   pub max_concurrency: Option<u64>,
   /// The maximum normalized load average before reducing concurrency. 
-  /// Cannot be 0
+  /// Used with [AvailableScalingInvoker] and cannot be 0
   pub max_load: Option<f64>,
 }
 
