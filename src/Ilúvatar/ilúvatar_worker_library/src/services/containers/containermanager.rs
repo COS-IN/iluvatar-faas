@@ -140,7 +140,7 @@ impl ContainerManager {
         Some(cnt) => (*cnt).load(std::sync::atomic::Ordering::Relaxed),
         None => 0,
       },
-      None => self.outstanding_containers.len() as u32,
+      None => self.running_containers.len() as u32,
     }
   }
 
@@ -254,7 +254,7 @@ impl ContainerManager {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%_tid)))]
   pub fn return_container(&self, container: &Container, tid: &TransactionId) {
     if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
-      (*cnt).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+      (*cnt).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
     if let Some(removed_ctr) = self.running_containers.remove_container(container, tid) {
       if removed_ctr.is_healthy() {

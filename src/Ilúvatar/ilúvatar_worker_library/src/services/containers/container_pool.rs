@@ -33,7 +33,6 @@ impl ContainerPool {
 
   /// An iterable of all the containers stored in the pool
   pub fn iter(&self) -> Vec<Container> {
-    // TODO: a proper iterator for this
     let mut ret = vec![];
     for subpool in self.pool.iter() {
       for item in (*subpool).iter() {
