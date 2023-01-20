@@ -1,19 +1,17 @@
 use std::sync::atomic::AtomicU32;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::{Characteristics,CharacteristicsMap,Values}};
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
-use tracing::{debug, info, warn};
-use super::invoker_structs::InvocationResultPtr;
+use tracing::{debug, info};
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use std::collections::BinaryHeap;
 use std::cmp::Ordering; 
-use iluvatar_library::threading::EventualItem;
 
 #[derive(Debug)]
 pub struct FCFSBPEnqueuedInvocation {
@@ -60,20 +58,14 @@ pub struct FCFSBypassInvoker {
   queue_signal: Notify,
   clock: LocalTime,
   concurrency_semaphore: Arc<Semaphore>,
-  bypass_dur: f64,
   bypass_running: AtomicU32
 }
 
 impl FCFSBypassInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(FCFSBypassInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
-    let bypass_dur = Duration::from_millis(invocation_config.bypass_duration_ms.ok_or_else(|| anyhow::anyhow!("bypass_duration_ms was not present in InvocationConfig"))?).as_secs_f64();
-    if bypass_dur == 0.0 {
-      anyhow::bail!("Cannot have a 'bypass_duration_ms' of 0");
-    }
     let svc = Arc::new(FCFSBypassInvoker {
       concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
-      bypass_dur: bypass_dur,
       cont_manager,
       function_config,
       invocation_config,
@@ -86,7 +78,7 @@ impl FCFSBypassInvoker {
       bypass_running: AtomicU32::new(0)
     });
     tx.send(svc.clone())?;
-    info!(tid=%tid, bypass_dur=bypass_dur, "Created FCFSBypassInvoker");
+    info!(tid=%tid, "Created FCFSBypassInvoker");
     Ok(svc)
   }
 
@@ -94,41 +86,6 @@ impl FCFSBypassInvoker {
   async fn wait_on_queue(invoker_svc: Arc<FCFSBypassInvoker>, tid: TransactionId) {
     invoker_svc.queue_signal.notified().await;
     debug!(tid=%tid, "Invoker waken up by signal");
-  }
-
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, enqueued), fields(tid=%enqueued.tid)))]
-  async fn bypassing_invoke_internal(&self, enqueued: Arc<EnqueuedInvocation>) -> Result<InvocationResultPtr> {
-    info!(tid=%enqueued.tid, "Bypassing internal invocation starting");
-    let timer = self.timer();
-    // take run time now because we may have to wait to get a container
-    let remove_time = timer.now_str();
-
-    let ctr_mgr = self.cont_manager();
-    let ctr_lock = match ctr_mgr.acquire_container(&enqueued.fqdn, &enqueued.tid) {
-      EventualItem::Future(_) => {
-        // this would be a cold start, throw it in the queue
-        self.add_item_to_queue(&enqueued, Some(usize::MAX));
-        enqueued.wait(&enqueued.tid).await?;
-        return Ok(enqueued.result_ptr.clone());
-      },
-      EventualItem::Now(n) => n?,
-    };
-    info!(tid=%enqueued.tid, insert_time=%timer.format_time(enqueued.queue_insert_time)?, remove_time=%remove_time?, "Item starting to execute");
-    self.bypass_running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let (result, duration) = ctr_lock.invoke(&enqueued.json_args).await?;
-    self.bypass_running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    self.update_metadata(&enqueued.fqdn, result.duration_sec);
-    let mut temp = enqueued.result_ptr.lock();
-    temp.exec_time = result.duration_sec;
-    temp.result_json = result.result_string()?;
-    temp.worker_result = Some(result);
-    temp.duration = duration;
-    Ok( enqueued.result_ptr.clone() )
-  }
-
-  fn update_metadata(&self, fqdn: &String, result: f64) {
-    self.cmap.add( fqdn, Characteristics::WarmTime, Values::F64(result), true);          
-    self.cmap.add( fqdn, Characteristics::ExecTime, Values::F64(result), true);          
   }
 }
 
@@ -152,15 +109,9 @@ impl Invoker for FCFSBypassInvoker {
     v
   }
 
-  fn cont_manager(&self) -> Arc<ContainerManager>  {
-    self.cont_manager.clone()
-  }
-  fn function_config(&self) -> Arc<FunctionLimits>  {
-    self.function_config.clone()
-  }
-  fn invocation_config(&self) -> Arc<InvocationConfig>  {
-    self.invocation_config.clone()
-  }
+  fn cont_manager(&self) -> &Arc<ContainerManager>  { &self.cont_manager }
+  fn function_config(&self) -> &Arc<FunctionLimits>  { &self.function_config }
+  fn invocation_config(&self) -> &Arc<InvocationConfig>  { &self.invocation_config }
   fn queue_len(&self) -> usize {
     self.invoke_queue.lock().len()
   }
@@ -173,53 +124,13 @@ impl Invoker for FCFSBypassInvoker {
   fn concurrency_semaphore(&self) -> Option<Arc<Semaphore>> {
     Some(self.concurrency_semaphore.clone())
   }
-  fn running_funcs(&self) -> u32 {
-    let bypass = self.bypass_running.load(std::sync::atomic::Ordering::Relaxed);
-    let concur = self.invocation_config.concurrent_invokes - self.concurrency_semaphore.available_permits() as u32;
-    bypass + concur
-  }
   fn char_map(&self) -> &Arc<CharacteristicsMap> {
     &self.cmap
   }
-  
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
-    let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
-    let exec_time = self.cmap.get_exec_time(&queued.fqdn);
-    if exec_time != 0.0 && exec_time < self.bypass_dur {
-      return self.bypassing_invoke_internal(queued).await;
-    } else {
-      queued.wait(&queued.tid).await?;
-      let result_ptr = queued.result_ptr.lock();
-      if result_ptr.completed {
-        info!(tid=%queued.tid, exec_time=exec_time, "Invocation complete");
-        return Ok( queued.result_ptr.clone() );
-      } else {
-        anyhow::bail!("Invocation was signaled completion but completion value was not set")
-      }
-    }
-  }
+  fn bypass_running(&self) -> Option<&AtomicU32> { Some(&self.bypass_running) }
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, index), fields(tid=%item.tid)))]
-  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, index: Option<usize>) {
-    let exec_time = self.cmap.get_exec_time(&item.fqdn);
-    match index {
-      Some(0) => {
-        if exec_time != 0.0 && exec_time < self.bypass_dur {
-          // do not add item to queue, we will invoke it immediately
-          debug!(tid=%item.tid, exec_time=exec_time, "Errored function invocation bypassing queue");
-          return;
-        }
-      },
-      Some(usize::MAX) => info!(tid=%item.tid, exec_time=exec_time, "Adding item to queue because it would be a cold start"),
-      Some(i) => warn!(tid=%item.tid, value=i, "Unknown index in add_item_to_queue"),
-      None => {
-        if exec_time != 0.0 && exec_time < self.bypass_dur {
-          // do not add item to queue, we will invoke it immediately
-          debug!(tid=%item.tid, exec_time=exec_time, "Function invocation bypassing queue");
-          return;
-        }
-      }
-    };
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
+  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
     queue.push(FCFSBPEnqueuedInvocation::new(item.clone()).into());
     self.queue_signal.notify_waiters();

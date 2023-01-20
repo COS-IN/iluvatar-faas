@@ -48,9 +48,9 @@ impl QueuelessInvoker {
 
 #[tonic::async_trait]
 impl Invoker for QueuelessInvoker {
-  fn cont_manager(&self) -> Arc<ContainerManager>  { self.cont_manager.clone() }
-  fn function_config(&self) -> Arc<FunctionLimits>  { self.function_config.clone() }
-  fn invocation_config(&self) -> Arc<InvocationConfig>  { self.invocation_config.clone() }
+  fn cont_manager(&self) -> &Arc<ContainerManager>  { &self.cont_manager }
+  fn function_config(&self) -> &Arc<FunctionLimits>  { &self.function_config }
+  fn invocation_config(&self) -> &Arc<InvocationConfig>  { &self.invocation_config }
   fn timer(&self) -> &LocalTime { &self.clock }
   fn async_functions<'a>(&'a self) -> &'a AsyncHelper { &self.async_functions }
   fn char_map(&self) -> &Arc<CharacteristicsMap> {
