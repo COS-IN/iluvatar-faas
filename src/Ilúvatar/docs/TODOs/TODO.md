@@ -100,3 +100,9 @@ We can handle removal ourselves after an invocation is done.
 Currently the controller just returns a function's output to the user.
 Have it take an additional paramater to return enhanced data to the user, similar what the worker returns.
 TransactionId, code execution time, latencies, etc.
+
+## Generate Ansible variables
+
+Can on-build, the ansible mappings of Iluvatar environment variables to config struct members be done?
+Something like `ilúvatar_worker` can reference `ilúvatar_worker_library` in it's `build.rs`, giving it access to the types.
+Can it then generate the ansible vars and put them somewhere?
