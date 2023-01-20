@@ -1,4 +1,5 @@
 use std::{sync::Arc, time::SystemTime};
+use dashmap::DashSet;
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::{execute_cmd, port::free_local_port}, bail_error};
 use crate::{worker_api::worker_config::{ContainerResources, FunctionLimits}, services::containers::structs::ContainerState};
 
@@ -16,6 +17,7 @@ pub struct DockerLifecycle {
   config: Arc<ContainerResources>,
   limits_config: Arc<FunctionLimits>,
   creation_sem: Option<tokio::sync::Semaphore>,
+  pulled_images: DashSet<String>
 }
 
 impl DockerLifecycle {
@@ -27,7 +29,8 @@ impl DockerLifecycle {
     DockerLifecycle {
       config,
       limits_config,
-      creation_sem: sem
+      creation_sem: sem,
+      pulled_images: DashSet::new()
     }
   }
 
@@ -118,6 +121,19 @@ impl LifecycleService for DockerLifecycle {
   }
 
   async fn prepare_function_registration(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, _fqdn: &String, tid: &TransactionId) -> Result<RegisteredFunction> {
+    let ret = RegisteredFunction {
+      function_name: function_name.clone(),
+      function_version: function_version.clone(),
+      image_name: image_name.clone(),
+      memory,
+      cpus,
+      snapshot_base: "".to_string(),
+      parallel_invokes,
+    };
+    if self.pulled_images.contains(image_name) {
+      return Ok(ret);
+    }
+
     let output = execute_cmd("/usr/bin/docker", &vec!["pull", image_name.as_str()], None, tid)?;
     if let Some(status) = output.status.code() {
       if status != 0 {
@@ -128,15 +144,8 @@ impl LifecycleService for DockerLifecycle {
     }
     trace!(tid=%tid, name=%image_name, output=?output, "Docker image pulled successfully");
     info!(tid=%tid, name=%image_name, "Docker image pulled successfully");
-    Ok(RegisteredFunction {
-      function_name: function_name.clone(),
-      function_version: function_version.clone(),
-      image_name: image_name.clone(),
-      memory,
-      cpus,
-      snapshot_base: "".to_string(),
-      parallel_invokes,
-    })
+    self.pulled_images.insert(image_name.clone());
+    Ok(ret)
   }
   
   async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {
