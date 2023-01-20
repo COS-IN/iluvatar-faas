@@ -64,6 +64,9 @@ pub struct FCFSBypassInvoker {
 impl FCFSBypassInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), monitor_queue, Some(FCFSBypassInvoker::wait_on_queue), Some(function_config.cpu_max as usize))?;
+    if invocation_config.bypass_duration_ms <= 0 {
+      anyhow::bail!("Cannot have a bypass_duration_ms of zero for this invoker queue policy")
+    }
     let svc = Arc::new(FCFSBypassInvoker {
       concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?,
       cont_manager,
