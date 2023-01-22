@@ -251,7 +251,7 @@ impl ContainerManager {
     }
   }
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%_tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   pub fn return_container(&self, container: &Container, tid: &TransactionId) {
     if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
       (*cnt).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
@@ -283,7 +283,7 @@ impl ContainerManager {
     self.launch_container_internal(&reg, tid).await
   }
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn, container), fields(tid=%_tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, pool, container), fields(tid=%tid)))]
   fn add_container_to_pool(&self, pool: &ContainerPool, container: Container, tid: &TransactionId) -> Result<()> {
     pool.add_container(container, tid)
   }
@@ -427,7 +427,7 @@ impl ContainerManager {
 
   /// Delete a container and releases tracked resources for it
   /// Container **must** have already been removed from the container pool
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, lock_check), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   async fn remove_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
     *self.used_mem_mb.write() -= container.get_curr_mem_usage();
     self.cont_lifecycle.remove_container(container, "default", tid).await?;

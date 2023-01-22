@@ -199,7 +199,7 @@ impl Invoker for FCFSBypassInvoker {
     }
   }
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, index: Option<usize>) {
     let exec_time = self.cmap.get_exec_time(&item.fqdn);
     match index {

@@ -70,7 +70,7 @@ impl Invoker for QueuelessInvoker {
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     self.async_queue.lock().remove(0)
   }
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, index), fields(tid=%item.tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.async_queue.lock();
     queue.push(item.clone());

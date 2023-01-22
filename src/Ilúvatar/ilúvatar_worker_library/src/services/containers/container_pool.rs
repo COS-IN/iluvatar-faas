@@ -77,7 +77,7 @@ impl ContainerPool {
   }
 
   /// Add the container to the pool
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn, container), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   pub fn add_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
     match self.pool.get_mut(container.fqdn()) {
       Some(mut pool_list) => {
