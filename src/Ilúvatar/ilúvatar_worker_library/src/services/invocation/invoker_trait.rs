@@ -1,15 +1,18 @@
+use std::sync::atomic::AtomicU32;
 use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{ParsedResult, InsufficientCoresError, InsufficientMemoryError, ContainerState};
+use crate::services::invocation::invoker_structs::InvocationResult;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId}, threading::EventualItem};
+use parking_lot::Mutex;
 use time::{OffsetDateTime, Instant};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
-use super::invoker_structs::EnqueuedInvocation;
+use super::invoker_structs::{EnqueuedInvocation, InvocationResultPtr};
 use crate::rpc::InvokeResponse;
 
 /// Check the invocation queue, running things when there are sufficient resources
@@ -37,14 +40,14 @@ pub fn create_concurrency_semaphore(permits: u32) -> Result<Arc<Semaphore>> {
   }
 }
 
-#[tonic::async_trait]
 #[allow(dyn_drop)]
+#[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
 /// Overriding functions _must_ re-implement [info] level log statements for consistency
 pub trait Invoker: Send + Sync {
-  fn cont_manager(&self) -> Arc<ContainerManager>;
-  fn function_config(&self) -> Arc<FunctionLimits>;
-  fn invocation_config(&self) -> Arc<InvocationConfig>;
+  fn cont_manager(&self) -> &Arc<ContainerManager>;
+  fn function_config(&self) -> &Arc<FunctionLimits>;
+  fn invocation_config(&self) -> &Arc<InvocationConfig>;
   fn async_functions<'a>(&'a self) -> &'a super::async_tracker::AsyncHelper;
   fn char_map(&self) -> &Arc<CharacteristicsMap>;
   fn timer(&self) -> &LocalTime;
@@ -52,7 +55,21 @@ pub trait Invoker: Send + Sync {
   /// A [None] value means the invoker doesn't limit concurrency
   fn concurrency_semaphore(&self) -> Option<Arc<Semaphore>>;
   /// The number of functions currently running
-  fn running_funcs(&self) -> u32;
+  fn running_funcs(&self) -> u32 {
+    let bypass = match self.bypass_running() {
+      Some(x) => x.load(std::sync::atomic::Ordering::Relaxed),
+      None => 0,
+    };
+    let concur = match self.concurrency_semaphore() {
+      Some(x) => self.invocation_config().concurrent_invokes - x.available_permits() as u32,
+      None => 0,
+    };
+    bypass + concur
+  }
+  /// An atomic counter tracking the number of items that bypass the concurrency limit
+  /// If this returns [None], then there will be no bypassing. 
+  /// So not implementing this in a queue disables the bypass
+  fn bypass_running(&self) -> Option<&AtomicU32> { None }
 
   /// The length of a queue, if the implementation has one
   /// Default is 0 if not overridden
@@ -71,6 +88,19 @@ pub trait Invoker: Send + Sync {
   /// A synchronous invocation against this invoker
   /// Re-implementers **must** duplicate [tracing::info] logs for consistency
   async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
+    let fqdn = calculate_fqdn(&function_name, &function_version);
+
+    // check if the bypass counter exists, and if this fqdn can by bypassed
+    if let Some(bypass_running) = self.bypass_running() {
+      if self.should_bypass(&fqdn) {
+        // if both true, then go for the bypass
+        match self.bypassing_invoke_internal(fqdn, &json_args, &tid, bypass_running).await? {
+          Some(x) => return Ok(x),
+          None => (), // None means the function would have run cold, so instead we put it into the queue
+        };
+      }
+    }
+
     let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
@@ -90,6 +120,48 @@ pub trait Invoker: Send + Sync {
   }
   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
     self.async_functions().invoke_async_check(cookie, tid)
+  }
+
+  /// Return [true] if the item should bypass concurrency restrictions 
+  fn should_bypass(&self, fqdn: &String) -> bool {
+    let exec_time = self.char_map().get_exec_time(fqdn);
+    exec_time != 0.0 && exec_time < Duration::from_millis(self.invocation_config().bypass_duration_ms).as_secs_f64()
+  }
+
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, enqueued), fields(tid=%enqueued.tid)))]
+  /// Run an invocation, bypassing any concurrency restrictions
+  /// A return value of [Ok(None)] means that the function would have run cold, and the caller should enqueue it instead
+  async fn bypassing_invoke_internal(&self, fqdn: String, json_args: &String, tid: &TransactionId, bypass_running: &AtomicU32) -> Result<Option<InvocationResultPtr>> {
+    info!(tid=%tid, "Bypassing internal invocation starting");
+    let timer = self.timer();
+    // take run time now because we may have to wait to get a container
+    let remove_time = timer.now_str()?;
+
+    let ctr_mgr = self.cont_manager();
+    let ctr_lock = match ctr_mgr.acquire_container(&fqdn, &tid) {
+      EventualItem::Future(_) => return Ok(None), // return None on a cold start, signifying the bypass didn't happen
+      EventualItem::Now(n) => n?,
+    };
+    info!(tid=%tid, insert_time=%remove_time, remove_time=%remove_time, "Item starting to execute");
+    bypass_running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (result, duration) = ctr_lock.invoke(&json_args).await?;
+    bypass_running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    match ctr_lock.container.state() 
+    {
+      ContainerState::Warm => {self.char_map().add(&fqdn, Characteristics::WarmTime, Values::F64(result.duration_sec), true);},
+      ContainerState::Prewarm => {self.char_map().add(&fqdn, Characteristics::PreWarmTime, Values::F64(result.duration_sec), true);},
+      _ => error!(tid=%tid, container_id=ctr_lock.container.container_id(), "Got a cold container when doing a bypass invoke"), // can't have a cold container
+    };
+    self.char_map().add(&fqdn, Characteristics::ExecTime, Values::F64(result.duration_sec), true);
+    let r = Arc::new(Mutex::new(InvocationResult {
+      completed: true,
+      duration: duration,
+      result_json: result.result_string()?,
+      attempts: 0,
+      exec_time: result.duration_sec,
+      worker_result: Some(result),
+    }));
+    Ok(Some(r))
   }
 
   /// Returns an owned permit if there are sufficient resources to run a function
