@@ -6,7 +6,7 @@ use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use self::avail_scale_invoke::AvailableScalingInvoker;
 use self::cold_priority_invoke::ColdPriorityInvoker;
 use self::{queueless::QueuelessInvoker, invoker_trait::Invoker, fcfs_invoke::FCFSInvoker, minheap_invoke::MinHeapInvoker};
-use self::{minheap_ed_invoke::MinHeapEDInvoker, fcfs_bypass_invoke::FCFSBypassInvoker };
+use self::{minheap_ed_invoke::MinHeapEDInvoker, fcfs_bypass_invoke::FCFSBypassInvoker, minheap_bypass_invoke::MinHeapBPInvoker };
 use self::minheap_iat_invoke::MinHeapIATInvoker;
 use super::containers::containermanager::ContainerManager;
 
@@ -19,6 +19,7 @@ pub mod minheap_invoke;
 pub mod minheap_ed_invoke;
 pub mod minheap_iat_invoke;
 pub mod fcfs_bypass_invoke;
+pub mod minheap_bypass_invoke;
 mod cold_priority_invoke;
 mod avail_scale_invoke;
 
@@ -59,6 +60,9 @@ impl InvokerFactory {
       },
       "minheap_iat" => {
         MinHeapIATInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone())?
+      },
+      "minheap_bypass" => {
+        MinHeapBPInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone())?
       },
       "fcfs_bypass" => {
         FCFSBypassInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone())?
