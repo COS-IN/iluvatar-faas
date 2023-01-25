@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write, sync::Arc};
 use anyhow::Result;
 use iluvatar_library::{utils::{config::get_val, timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID}};
-use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationResult};
+// use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationResult};
 use iluvatar_controller_library::controller::{controller_structs::json::{ControllerInvokeResult, RegisterFunction}, web_server::register_function, controller::Controller};
 use actix_web::{web::{Json, Data}, body::MessageBody};
 use iluvatar_controller_library::controller::web_server::{invoke, register_worker};
@@ -136,25 +136,26 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
       anyhow::bail!("Failed to write json of result because {}", e);
     }
   };
+    // TODO: this 
 
-  for h in handles {
-    match threaded_rt.block_on(h) {
-      Ok(r) => match r {
-        Ok( (resp, e2e_dur) ) => {
-          let result = serde_json::from_str::<SimulationResult>(&resp.json_result)?;
-          let to_write = format!("{},{},{},{},{},{}\n", resp.success, result.function_name, result.was_cold, resp.worker_duration_us, result.duration_us, e2e_dur);
-          match f.write_all(to_write.as_bytes()) {
-            Ok(_) => (),
-            Err(e) => {
-              println!("Failed to write result because {}", e);
-              continue;
-            }
-          };
-        },
-        Err(e) => println!("Status error from invoke: {}", e),
-      },
-      Err(thread_e) => println!("Joining error: {}", thread_e),
-    };
-  }
+  // for h in handles {
+  //   match threaded_rt.block_on(h) {
+  //     Ok(r) => match r {
+  //       Ok( (resp, e2e_dur) ) => {
+  //         let result = serde_json::from_str::<FunctionExecOutput>(&resp.json_result)?;
+  //         let to_write = format!("{},{},{},{},{},{}\n", resp.success, result.function_name, result.was_cold, resp.worker_duration_us, result.duration_us, e2e_dur);
+  //         match f.write_all(to_write.as_bytes()) {
+  //           Ok(_) => (),
+  //           Err(e) => {
+  //             println!("Failed to write result because {}", e);
+  //             continue;
+  //           }
+  //         };
+  //       },
+  //       Err(e) => println!("Status error from invoke: {}", e),
+  //     },
+  //     Err(thread_e) => println!("Joining error: {}", thread_e),
+  //   };
+  // }
   Ok(())
 }

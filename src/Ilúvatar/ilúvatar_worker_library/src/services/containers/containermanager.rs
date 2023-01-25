@@ -146,18 +146,22 @@ impl ContainerManager {
 
   /// Return a permit for the function to run on its registered number of cores
   /// If the semaphore is [None], then no permits are being tracked
-  pub fn try_acquire_cores(&self, fqdn: &String) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::TryAcquireError> {
-    if let Ok(reg) = self.get_registration(fqdn) {
-      if let Some(sem) = &self.core_sem {
-        return match sem.clone().try_acquire_many_owned(reg.cpus) {
-          Ok(p) => Ok(Some(p)),
-          Err(e) => Err(e),
-        };
+  pub fn try_acquire_cores(&self, fqdn: &String, tid: &TransactionId) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::TryAcquireError> {
+    match self.get_registration(fqdn) {
+      Ok(reg) => {
+        if let Some(sem) = &self.core_sem {
+          return match sem.clone().try_acquire_many_owned(reg.cpus) {
+            Ok(p) => Ok(Some(p)),
+            Err(e) => Err(e),
+          };
+        }
+        return Ok(None);
+      },
+      Err(e) => {
+        error!(error=%e, tid=%tid, "Failed to get function registration");
+        Err(tokio::sync::TryAcquireError::Closed)
       }
-      return Ok(None);
     }
-    // function was not registered
-    Err(tokio::sync::TryAcquireError::Closed)
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]

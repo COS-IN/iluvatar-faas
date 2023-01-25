@@ -26,6 +26,40 @@ fn compute_prewarms(f: &Function, default_prewarms: u32) -> u32 {
   }
 }
 
+/// update the runtime information in [funcs] with the benchmark
+pub fn fill_largest_wo_going_over(funcs: &mut HashMap<String, Function>, bench: &BenchmarkStore) {
+  let mut data = Vec::new();
+  for (k, v) in bench.data.iter() {
+    let tot: u128 = v.warm_invoke_duration_us.iter().sum();
+    let avg_cold_us = v.cold_invoke_duration_us.iter().sum::<u128>() as f64 / v.cold_invoke_duration_us.len() as f64;
+    let avg_warm_us = tot as f64 / v.warm_invoke_duration_us.len() as f64;
+                          // Cold uses E2E duration because of the cold start time needed
+    data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
+  }
+
+  for (_fname, func) in funcs.iter_mut(){
+    let chosen = match data.iter().min_by(|a, b| safe_cmp(&a.1,&b.1)) {
+      Some(n) => n,
+      None => panic!("failed to get a minimum func from {:?}", data),
+    };
+    let mut chosen_name = chosen.0.clone();
+    let mut chosen_warm_time_ms = chosen.1;
+    let mut chosen_cold_time_ms = chosen.1;
+  
+    for (name, avg_warm, avg_cold) in data.iter() {
+      if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
+        chosen_name = name.clone();
+        chosen_warm_time_ms = *avg_warm;
+        chosen_cold_time_ms = *avg_cold;
+      }
+    }
+    println!("{} mapped to function '{}', cold: {} => {}, warm: {} => {}", &func.func_name, chosen_name, func.cold_dur_ms, chosen_cold_time_ms, func.warm_dur_ms, chosen_warm_time_ms);
+    func.cold_dur_ms = chosen_cold_time_ms as u64;
+    func.warm_dur_ms = chosen_warm_time_ms as u64;
+    println!("{} mapped to function '{}'", &func.func_name, chosen_name);
+  }
+}
+
 fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore, 
                       default_prewarms: u32, _trace_pth: &String) -> Result<HashMap<String, (String, u32)>> {
   let mut data = Vec::new();

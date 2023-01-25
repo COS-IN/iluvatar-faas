@@ -1,46 +1,39 @@
 use crate::{utils::execute_cmd_nonblocking, transaction::TransactionId, bail_error};
 use std::{process::Child, time::{Duration, SystemTime}};
 use anyhow::Result;
-use tracing::{warn, debug};
+use tracing::{warn, debug, info};
 
-/// Start perf stat tracking of [power/energy-pkg/](https://stackoverflow.com/questions/55956287/perf-power-consumption-measure-how-does-it-work)
+/// Start perf stat tracking of several metrics:
+///  [power/energy-pkg/](https://stackoverflow.com/questions/55956287/perf-power-consumption-measure-how-does-it-work)
+///  [power/energy-ram]
+///  Instructions
+///  L3 cache hits and misses
+///  all cache references and misses
 /// The csv results will be put into [outfile](https://manpages.ubuntu.com/manpages/bionic/man1/perf-stat.1.html)
 pub async fn start_perf_stat<S>(outfile: &S, tid: &TransactionId, stat_duration_ms: u64) -> Result<Child> 
   where S: AsRef<str> + ?Sized + std::fmt::Display {
 
   let st = stat_duration_ms.to_string();
   let mut args = vec!["stat", "-I", &st.as_str(), "-x", ",", "--output", outfile.as_ref()];
-  if include_instructions(tid).await? {
-    debug!(tid=%tid, "Enabling retired instructions perf metric");
-    args.push("-M");
-    args.push("Instructions");
-  }
-  if include_energy_ram(tid).await? {
-    debug!(tid=%tid, "Enabling energy-ram perf counter");
-    args.push("-e");
-    args.push("power/energy-ram/");
-  }
-  if include_energy_pkg(tid).await? {
-    debug!(tid=%tid, "Enabling energy-ram perf counter");
-    args.push("-e");
-    args.push("power/energy-pkg/");
-  }
+  try_add_arg(tid, "Added Instructions", "-M", "Instructions", &mut args).await?;
+  try_add_arg(tid, "Added power/energy-ram/", "-e", "power/energy-ram/", &mut args).await?;
+  try_add_arg(tid, "Added power/energy-pkg/", "-e", "power/energy-pkg/", &mut args).await?;
+  try_add_arg(tid, "Added mem_load_retired.l3_hit", "-e", "mem_load_retired.l3_hit", &mut args).await?;
+  try_add_arg(tid, "Added mem_load_retired.l3_miss", "-e", "mem_load_retired.l3_miss", &mut args).await?;
+  try_add_arg(tid, "Added cpu cache references", "-e", "cpu/cache-references/", &mut args).await?;
+  try_add_arg(tid, "Added cpu cache misses", "-e", "cpu/cache-misses/", &mut args).await?;
+  info!(tid=%tid, perf=?args, "perf arguments");
   execute_cmd_nonblocking("/usr/bin/perf", &args, None, tid)
 }
 
-async fn include_instructions(tid: &TransactionId) -> Result<bool> {
-  let args = vec!["stat", "-M", "Instructions", "-I", "100"];
-  test_args(tid, &args).await
-}
-
-async fn include_energy_pkg(tid: &TransactionId) -> Result<bool> {
-  let args = vec!["stat", "-e", "power/energy-pkg/", "-I", "100"];
-  test_args(tid, &args).await
-}
-
-async fn include_energy_ram(tid: &TransactionId) -> Result<bool> {
-  let args = vec!["stat", "-e", "power/energy-ram/", "-I", "100"];
-  test_args(tid, &args).await
+async fn try_add_arg<'a>(tid: &TransactionId, msg: &str, flag: &'a str, metric: &'a str, command: &mut Vec<&'a str>) -> Result<()> {
+  let args = vec!["stat", flag, metric, "-I", "100"];
+  if test_args(tid, &args).await? {
+    debug!(tid=%tid, msg);
+    command.push(flag);
+    command.push(metric);
+  }
+  Ok(())
 }
 
 async fn test_args(tid: &TransactionId, args: &Vec<&str>)-> Result<bool> {

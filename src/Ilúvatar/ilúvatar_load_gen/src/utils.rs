@@ -288,7 +288,7 @@ pub fn resolve_handles<T>(runtime: &Runtime, run_results: Vec<JoinHandle<Result<
           Ok(ok) => ret.push(ok),
           Err(e) => match eh {
             ErrorHandling::Raise => return Err(e),
-            ErrorHandling::Print => println!("Error from thread: {}", e),
+            ErrorHandling::Print => println!("Error from thread: {:?}", e),
             ErrorHandling::Ignore => (),
           },
         }

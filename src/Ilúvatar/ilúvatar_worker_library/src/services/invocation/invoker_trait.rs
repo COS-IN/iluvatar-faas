@@ -22,11 +22,11 @@ pub async fn monitor_queue<T: Invoker + 'static>(invoker_svc: Arc<T>, _tid: Tran
         // TODO: continuity of spans here
         invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item, permit);  
       }else { 
-          break; 
+        break; 
       }
       // nothing can be run, or nothing to run
     } else { 
-        break; 
+      break; 
     }
   }
 }
@@ -108,7 +108,7 @@ pub trait Invoker: Send + Sync {
       },
       None => None,
     };
-    let core_perm = match self.cont_manager().try_acquire_cores(&item.fqdn) {
+    let core_perm = match self.cont_manager().try_acquire_cores(&item.fqdn, &item.tid) {
       Ok(c) => c,
       Err(e) => { 
         match e {

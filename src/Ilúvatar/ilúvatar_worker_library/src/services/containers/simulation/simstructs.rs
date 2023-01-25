@@ -3,8 +3,9 @@ use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, bail_error,
 use crate::{services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult, ContainerState}}, };
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Deserializer};
 use tracing::error;
+use std::fmt;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -35,28 +36,54 @@ impl SimulatorContainer {
 #[allow(unused)]
 /// struct used to control "invocation" pattern of simulated function
 pub struct SimulationInvocation {
-  #[serde(deserialize_with = "cust_deserialize")]
+  #[serde(deserialize_with = "deserialize_u64")]
   pub warm_dur_ms: u64,
-  #[serde(deserialize_with = "cust_deserialize")]
+  #[serde(deserialize_with = "deserialize_u64")]
   pub cold_dur_ms: u64,
 }
-/// custom deserialized on this, beceause sometimes values for [SimulationInvocation] are strings, not actually [u64]
-fn cust_deserialize<'de, D>(deser: D) -> Result<u64, D::Error> where D: serde::Deserializer<'de> {
-  String::deserialize(deser)?.parse::<u64>().map_err(serde::de::Error::custom)
+struct DeserializeFromU64OrString;
+impl<'de> serde::de::Visitor<'de> for DeserializeFromU64OrString {
+    type Value = u64;
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+      formatter.write_str("an integer or a string")
+    }
+
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+      where E: serde::de::Error,
+    {
+      Ok(v)
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+      where E: serde::de::Error,
+    {
+      v.parse::<u64>().map_err(serde::de::Error::custom)
+    }
+}
+/// custom deserializer because the value can be a string or a direct u64
+fn deserialize_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where D: Deserializer<'de>,
+{
+  deserializer.deserialize_any(DeserializeFromU64OrString)
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-#[allow(unused)]
-/// output of "invocation" in simulated function
+#[derive(Serialize,Deserialize)]
+/// This is the output from the python functions
 pub struct SimulationResult {
-  pub was_cold: bool,
-  pub duration_us: u128,
-  pub function_name: String,
+  pub body: Body
+}
+#[derive(Serialize,Deserialize)]
+pub struct Body {
+  pub cold: bool,
+  pub start: f64,
+  pub end: f64,
+  /// python runtime latency in seconds
+  pub latency: f64,
 }
 
 #[tonic::async_trait]
 impl ContainerT for SimulatorContainer {
-  #[tracing::instrument(skip(self, json_args), fields(tid=%tid), name="SimulatorContainer::invoke")]
+  #[tracing::instrument(skip(self, json_args), fields(tid=%tid, fqdn=%self.fqdn), name="SimulatorContainer::invoke")]
   async fn invoke(&self, json_args: &String, tid: &TransactionId) ->  Result<(ParsedResult, Duration)> {
     // just sleep for a while based on data from json args
     let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
@@ -64,29 +91,36 @@ impl ContainerT for SimulatorContainer {
       Err(e) => bail_error!(tid=%tid, error=%e, args=%json_args, "Unable to deserialize run time information"),
     };
 
-    let (duration_us, was_cold) = match self.invocations() {
-      0 => (data.cold_dur_ms * 1000, true),
+    let (duration_us, was_cold) = match self.state() {
+      ContainerState::Cold => (data.cold_dur_ms * 1000, true),
       _ => (data.warm_dur_ms * 1000, false)
     };
     *self.invocations.lock() += 1;
     let timer = LocalTime::new(tid)?;
-    let start = timer.now_str()?;
-    tokio::time::sleep(Duration::from_micros(duration_us)).await;
-    let end = timer.now_str()?;
+    let start = timer.now();
+    let start_f64 = start.unix_timestamp_nanos() as f64 / 1_000_000_000.0;
+    let code_dur = Duration::from_micros(duration_us);
+    tokio::time::sleep(code_dur).await;
+    let end = timer.now();
+    let end_f64 = end.unix_timestamp_nanos() as f64 / 1_000_000_000.0;
+    let latency = end_f64 - start_f64;
     let ret = SimulationResult {
-      was_cold,
-      duration_us: duration_us as u128,
-      function_name: self.function.function_name.clone(),
+      body: Body {
+        cold: was_cold,
+        start: start_f64,
+        end: end_f64,
+        latency
+      }
     };
-    let d = Duration::from_micros(duration_us);
+    let d = code_dur;
     let user_result = serde_json::to_string(&ret)?;
     let result = ParsedResult { 
       user_result: Some(user_result), 
       user_error: None, 
-      start,
-      end,
+      start: timer.format_time(start)?,
+      end: timer.format_time(end)?,
       was_cold,
-      duration_sec: Duration::from_micros(duration_us).as_secs_f64() };
+      duration_sec: code_dur.as_secs_f64() };
     Ok( (result,d) )
   }
 
