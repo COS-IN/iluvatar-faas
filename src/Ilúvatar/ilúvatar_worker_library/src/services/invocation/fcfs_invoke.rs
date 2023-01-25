@@ -62,15 +62,9 @@ impl Invoker for FCFSInvoker {
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     self.invoke_queue.lock().remove(0)
   }
-  fn cont_manager(&self) -> Arc<ContainerManager>  {
-    self.cont_manager.clone()
-  }
-  fn function_config(&self) -> Arc<FunctionLimits>  {
-    self.function_config.clone()
-  }
-  fn invocation_config(&self) -> Arc<InvocationConfig>  {
-    self.invocation_config.clone()
-  }
+  fn cont_manager(&self) -> &Arc<ContainerManager>  { &self.cont_manager }
+  fn function_config(&self) -> &Arc<FunctionLimits>  { &self.function_config }
+  fn invocation_config(&self) -> &Arc<InvocationConfig>  { &self.invocation_config }
   fn queue_len(&self) -> usize {
     self.invoke_queue.lock().len()
   }
