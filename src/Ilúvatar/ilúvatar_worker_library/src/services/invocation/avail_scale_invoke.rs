@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use crate::services::containers::structs::ContainerState;
+use crate::services::invocation::invoker_structs::MinHeapEnqueuedInvocation;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::characteristics_map::compare_f64;
 use iluvatar_library::{nproc, load_avg};
 use iluvatar_library::threading::tokio_thread;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
@@ -12,40 +12,9 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
 use tracing::{debug, error, info};
+use super::invoker_structs::MinHeapFloat;
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use std::collections::BinaryHeap;
-use std::cmp::Ordering;
-
-#[derive(Debug)]
-pub struct AvailScaleEnqueuedInvocation {
-  x: Arc<EnqueuedInvocation>,
-  priority: f64
-}
-
-impl AvailScaleEnqueuedInvocation {
-  pub fn new(x: Arc<EnqueuedInvocation>, priority: f64) -> Self {
-    AvailScaleEnqueuedInvocation { x, priority }
-  }
-}
-impl Eq for AvailScaleEnqueuedInvocation {
-}
-impl Ord for AvailScaleEnqueuedInvocation {
-  fn cmp(&self, other: &Self) -> Ordering {
-      compare_f64( &self.priority, &other.priority )
-  }
-}
-
-impl PartialOrd for AvailScaleEnqueuedInvocation {
-  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    Some(compare_f64( &self.priority, &other.priority ))
-  }
-}
-
-impl PartialEq for AvailScaleEnqueuedInvocation {
-  fn eq(&self, other: &Self) -> bool {
-      self.priority == other.priority
-  }
-}
 
 /// An invoker that scales concurrency based on system load
 /// Prioritizes based on container availability
@@ -56,7 +25,7 @@ pub struct AvailableScalingInvoker {
   async_functions: AsyncHelper,
   function_config: Arc<FunctionLimits>,
   invocation_config: Arc<InvocationConfig>,
-  invoke_queue: Arc<Mutex<BinaryHeap<Arc<AvailScaleEnqueuedInvocation>>>>,
+  invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
   cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
   _load_thread: tokio::task::JoinHandle<()>,
@@ -152,17 +121,17 @@ impl Invoker for AvailableScalingInvoker {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
-    let r = r.x.clone();
+    let r = r.item.clone();
     return Some(r);
   }
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
-    let v = v.x.clone();
+    let v = v.item.clone();
     let top = invoke_queue.peek();
     let func_name; 
     match top {
-        Some(e) => func_name = e.x.function_name.as_str(),
+        Some(e) => func_name = e.item.function_name.as_str(),
         None => func_name = "empty"
     }
     debug!(tid=%v.tid,  component="minheap", "Popped item from queue - len: {} popped: {} top: {} ",
@@ -203,11 +172,11 @@ impl Invoker for AvailableScalingInvoker {
       _ => self.cmap.get_cold_time(&item.fqdn),
     };
     let mut queue = self.invoke_queue.lock();
-    queue.push(AvailScaleEnqueuedInvocation::new(item.clone(), priority).into());
+    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority).into());
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.fqdn,
-                        queue.peek().unwrap().x.fqdn );
+                        queue.peek().unwrap().item.fqdn );
     self.queue_signal.notify_waiters();
   }
 }

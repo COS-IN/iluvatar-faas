@@ -1,10 +1,11 @@
-use std::{sync::Arc, time::Duration};
-use iluvatar_library::{transaction::TransactionId};
+use std::{sync::Arc, time::Duration, cmp::Ordering};
+use iluvatar_library::transaction::TransactionId;
 use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use anyhow::Result;
 use crate::services::containers::structs::ParsedResult;
+use ordered_float::OrderedFloat;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -75,5 +76,102 @@ impl EnqueuedInvocation {
   /// If no one is waiting, the next person to check will continue immediately
   pub fn signal(&self) {
     self.signal.notify_one();
+  }
+}
+
+pub struct MinHeapEnqueuedInvocation<T: Ord> {
+  pub item: Arc<EnqueuedInvocation>,
+  priority: T
+}
+
+impl<T: Ord> MinHeapEnqueuedInvocation<T> {
+  pub fn new( item: Arc<EnqueuedInvocation>, priority: T ) -> Self {
+    MinHeapEnqueuedInvocation { item, priority, }
+  }
+}
+pub type MinHeapFloat = MinHeapEnqueuedInvocation<OrderedFloat<f64>>;
+impl MinHeapFloat {
+  pub fn new_f( item: Arc<EnqueuedInvocation>, priority: f64 ) -> Self {
+    MinHeapEnqueuedInvocation { item, priority:OrderedFloat(priority), }
+  }
+}
+
+impl<T: Ord> Eq for MinHeapEnqueuedInvocation<T> {
+}
+impl<T: Ord> Ord for MinHeapEnqueuedInvocation<T> {
+  fn cmp(&self, other: &Self) -> Ordering {
+    self.priority.cmp(&other.priority).reverse()
+  }
+}
+impl<T: Ord> PartialOrd for MinHeapEnqueuedInvocation<T> {
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    Some(self.priority.cmp(&other.priority).reverse())
+  }
+}
+impl<T: Ord> PartialEq for MinHeapEnqueuedInvocation<T> {
+  fn eq(&self, other: &Self) -> bool {
+    self.priority == other.priority
+  }
+}
+
+#[cfg(test)]
+mod heapstructs {
+  use iluvatar_library::logging::LocalTime;
+  use super::*;
+  use std::collections::BinaryHeap;
+
+  fn min_item(name: &str, priority: f64, clock: &LocalTime) -> MinHeapFloat {
+    MinHeapEnqueuedInvocation::new_f(Arc::new(EnqueuedInvocation::new(name.to_string(),name.to_string(),name.to_string(),name.to_string(),name.to_string(), clock.now())), priority)
+  }
+
+  #[test]
+  fn min_f64() {
+    let clock = LocalTime::new(&"clock".to_string()).unwrap();
+    let mut heap = BinaryHeap::new();
+    let item1 = min_item("1", 1.0, &clock);
+    let item2 = min_item("2", 2.0, &clock);
+    let item3 = min_item("3", 3.0, &clock);
+    heap.push(item1);
+    heap.push(item2);
+    heap.push(item3);
+    assert_eq!(heap.pop().expect("first item should exist").item.function_name, "1");
+    assert_eq!(heap.pop().expect("second item should exist").item.function_name, "2");
+    assert_eq!(heap.pop().expect("third item should exist").item.function_name, "3");
+  }
+
+  fn item_i64(name: &str, priority: i64, clock: &LocalTime) -> MinHeapEnqueuedInvocation<i64> {
+    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(name.to_string(),name.to_string(),name.to_string(),name.to_string(),name.to_string(), clock.now())), priority)
+  }
+  #[test]
+  fn min_i64() {
+    let clock = LocalTime::new(&"clock".to_string()).unwrap();
+    let mut heap = BinaryHeap::new();
+    let item1 = item_i64("1", 1, &clock);
+    let item2 = item_i64("2", 2, &clock);
+    let item3 = item_i64("3", 3, &clock);
+    heap.push(item1);
+    heap.push(item2);
+    heap.push(item3);
+    assert_eq!(heap.pop().expect("first item should exist").item.function_name, "1");
+    assert_eq!(heap.pop().expect("second item should exist").item.function_name, "2");
+    assert_eq!(heap.pop().expect("third item should exist").item.function_name, "3");
+  }
+  fn item_datetime(name: &str, clock: &LocalTime) -> MinHeapEnqueuedInvocation<OffsetDateTime> {
+    let t = clock.now();
+    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(name.to_string(),name.to_string(),name.to_string(),name.to_string(),name.to_string(), t)), t)
+  }
+  #[test]
+  fn min_datetime() {
+    let clock = LocalTime::new(&"clock".to_string()).unwrap();
+    let mut heap = BinaryHeap::new();
+    let item1 = item_datetime("1", &clock);
+    let item2 = item_datetime("2", &clock);
+    let item3 = item_datetime("3", &clock);
+    heap.push(item1);
+    heap.push(item2);
+    heap.push(item3);
+    assert_eq!(heap.pop().expect("first item should exist").item.function_name, "1");
+    assert_eq!(heap.pop().expect("second item should exist").item.function_name, "2");
+    assert_eq!(heap.pop().expect("third item should exist").item.function_name, "3");
   }
 }

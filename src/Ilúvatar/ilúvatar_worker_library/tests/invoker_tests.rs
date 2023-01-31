@@ -15,7 +15,10 @@ use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatt
 fn build_env(invoker_q: &str) -> HashMap<String, String> {
   let mut r = HashMap::new();
   r.insert("ILUVATAR_WORKER__invocation__queue_policy".to_string(), invoker_q.to_string());
-  r.insert("ILUVATAR_WORKER__invocation__fcfs_bypass_duration_ms".to_string(), "20".to_string());
+  r.insert("ILUVATAR_WORKER__invocation__bypass_duration_ms".to_string(), "20".to_string());
+  r.insert("ILUVATAR_WORKER__invocation__concurrency_udpate_check_ms".to_string(), "1000".to_string());
+  r.insert("ILUVATAR_WORKER__invocation__max_load".to_string(), "10".to_string());
+  r.insert("ILUVATAR_WORKER__invocation__max_concurrency".to_string(), "10".to_string());
   r
 }
 
@@ -27,10 +30,14 @@ mod invoke {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
+  #[case("minheap_iat_bypass")]
+  #[case("minheap_ed_bypass")]
+  #[case("minheap_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
   #[case("none")]
   #[case("cold_pri")]
+  #[case("scaling")]
   #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
@@ -83,10 +90,14 @@ mod invoke {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
+  #[case("minheap_iat_bypass")]
+  #[case("minheap_ed_bypass")]
+  #[case("minheap_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
   #[case("none")]
   #[case("cold_pri")]
+  #[case("scaling")]
   #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {
@@ -134,10 +145,14 @@ mod invoke_async {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
+  #[case("minheap_iat_bypass")]
+  #[case("minheap_ed_bypass")]
+  #[case("minheap_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
   #[case("none")]
   #[case("cold_pri")]
+  #[case("scaling")]
   #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
@@ -212,10 +227,14 @@ mod invoke_async {
   #[case("fcfs")]
   #[case("minheap")]
   #[case("fcfs_bypass")]
+  #[case("minheap_iat_bypass")]
+  #[case("minheap_ed_bypass")]
+  #[case("minheap_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
   #[case("none")]
   #[case("cold_pri")]
+  #[case("scaling")]
   #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {

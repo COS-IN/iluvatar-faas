@@ -4,16 +4,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::characteristics_map::compare_f64;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
 use tracing::debug;
+use super::invoker_structs::{MinHeapEnqueuedInvocation, MinHeapFloat};
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use std::collections::BinaryHeap;
-use std::cmp::Ordering;
 
 fn time_since_epoch() -> f64 {
     let start = SystemTime::now();
@@ -22,48 +21,12 @@ fn time_since_epoch() -> f64 {
          .as_secs_f64()
 }
 
-#[derive(Debug)]
-pub struct MHQEDBPEnqueuedInvocation {
-    x: Arc<EnqueuedInvocation>,
-    deadline: f64
-}
-
-impl MHQEDBPEnqueuedInvocation {
-    fn new( x: Arc<EnqueuedInvocation>, deadline: f64 ) -> Self {
-        MHQEDBPEnqueuedInvocation {
-            x,
-            deadline
-        }
-    }
-}
-
-impl Eq for MHQEDBPEnqueuedInvocation {
-}
-
-impl Ord for MHQEDBPEnqueuedInvocation {
- fn cmp(&self, other: &Self) -> Ordering {
-    compare_f64( &self.deadline, &other.deadline ).reverse()
- }
-}
-
-impl PartialOrd for MHQEDBPEnqueuedInvocation {
- fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    Some(compare_f64( &self.deadline, &other.deadline ).reverse())
-  }
-}
-
-impl PartialEq for MHQEDBPEnqueuedInvocation {
- fn eq(&self, other: &Self) -> bool {
-     self.deadline == other.deadline
- }
-}
-
 pub struct MinHeapEDBPInvoker {
   pub cont_manager: Arc<ContainerManager>,
   pub async_functions: AsyncHelper,
   pub function_config: Arc<FunctionLimits>,
   pub invocation_config: Arc<InvocationConfig>,
-  pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<MHQEDBPEnqueuedInvocation>>>>,
+  pub invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
   pub cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
@@ -108,15 +71,15 @@ impl Invoker for MinHeapEDBPInvoker {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
-    Some(r.x.clone())
+    Some(r.item.clone())
   }
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
-    let v = v.x.clone();
+    let v = v.item.clone();
     let mut func_name = "empty"; 
     if let Some(e) = invoke_queue.peek() {
-      func_name = e.x.function_name.as_str();
+      func_name = e.item.function_name.as_str();
     }
     debug!(tid=%v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
            invoke_queue.len(),
@@ -148,11 +111,11 @@ impl Invoker for MinHeapEDBPInvoker {
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
     let deadline = self.cmap.get_exec_time(&item.fqdn) + time_since_epoch();
-    queue.push(MHQEDBPEnqueuedInvocation::new(item.clone(), deadline ).into());
+    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), deadline ));
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.function_name,
-                        queue.peek().unwrap().x.function_name );
+                        queue.peek().unwrap().item.function_name );
     self.queue_signal.notify_waiters();
   }
 }

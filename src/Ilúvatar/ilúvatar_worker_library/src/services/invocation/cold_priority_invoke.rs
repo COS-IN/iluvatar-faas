@@ -3,54 +3,22 @@ use crate::services::containers::structs::ContainerState;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::characteristics_map::compare_f64;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
 use tracing::debug;
+use super::invoker_structs::{MinHeapEnqueuedInvocation, MinHeapFloat};
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use std::collections::BinaryHeap;
-use std::cmp::Ordering;
-
-#[derive(Debug)]
-pub struct ColdPriEnqueuedInvocation {
-  x: Arc<EnqueuedInvocation>,
-  priority: f64
-}
-
-impl ColdPriEnqueuedInvocation {
-  pub fn new(x: Arc<EnqueuedInvocation>, priority: f64) -> Self {
-    ColdPriEnqueuedInvocation { x, priority }
-  }
-}
-impl Eq for ColdPriEnqueuedInvocation {
-}
-impl Ord for ColdPriEnqueuedInvocation {
-  fn cmp(&self, other: &Self) -> Ordering {
-      compare_f64( &self.priority, &other.priority )
-  }
-}
-
-impl PartialOrd for ColdPriEnqueuedInvocation {
-  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    Some(compare_f64( &self.priority, &other.priority ))
-  }
-}
-
-impl PartialEq for ColdPriEnqueuedInvocation {
-  fn eq(&self, other: &Self) -> bool {
-      self.priority == other.priority
-  }
-}
 
 pub struct ColdPriorityInvoker {
   cont_manager: Arc<ContainerManager>,
   async_functions: AsyncHelper,
   function_config: Arc<FunctionLimits>,
   invocation_config: Arc<InvocationConfig>,
-  invoke_queue: Arc<Mutex<BinaryHeap<Arc<ColdPriEnqueuedInvocation>>>>,
+  invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
   cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
@@ -89,17 +57,17 @@ impl Invoker for ColdPriorityInvoker {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
-    let r = r.x.clone();
+    let r = r.item.clone();
     return Some(r);
   }
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
-    let v = v.x.clone();
+    let v = v.item.clone();
     let top = invoke_queue.peek();
-    let func_name; 
+    let func_name;
     match top {
-        Some(e) => func_name = e.x.function_name.as_str(),
+        Some(e) => func_name = e.item.function_name.as_str(),
         None => func_name = "empty"
     }
     debug!(tid=%v.tid,  component="minheap", "Popped item from queue - len: {} popped: {} top: {} ",
@@ -140,11 +108,11 @@ impl Invoker for ColdPriorityInvoker {
       _ => self.cmap.get_cold_time(&item.fqdn),
     };
     let mut queue = self.invoke_queue.lock();
-    queue.push(ColdPriEnqueuedInvocation::new(item.clone(), priority).into());
+    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority));
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.fqdn,
-                        queue.peek().unwrap().x.fqdn );
+                        queue.peek().unwrap().item.fqdn );
     self.queue_signal.notify_waiters();
   }
 }

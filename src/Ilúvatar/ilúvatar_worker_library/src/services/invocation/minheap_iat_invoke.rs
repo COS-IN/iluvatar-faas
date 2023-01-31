@@ -1,60 +1,24 @@
 use std::sync::Arc;
+use crate::services::invocation::invoker_structs::MinHeapEnqueuedInvocation;
 use crate::services::invocation::invoker_trait::create_concurrency_semaphore;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::characteristics_map::compare_f64;
 use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use iluvatar_library::logging::LocalTime;
 use anyhow::Result;
 use parking_lot::Mutex;
 use tokio::sync::{Notify, Semaphore};
 use tracing::debug;
+use super::invoker_structs::MinHeapFloat;
 use super::{invoker_trait::{Invoker, monitor_queue}, async_tracker::AsyncHelper, invoker_structs::EnqueuedInvocation};
 use std::collections::BinaryHeap;
-use std::cmp::Ordering;  
-
-#[derive(Debug)]
-pub struct MHQIATEnqueuedInvocation {
-  x: Arc<EnqueuedInvocation>,
-  iat: f64
-}
-
-impl MHQIATEnqueuedInvocation {
-  fn new( x: Arc<EnqueuedInvocation>, iat: f64 ) -> Self {
-    MHQIATEnqueuedInvocation {
-      x,
-      iat
-    }
-  }
-}
-
-impl Eq for MHQIATEnqueuedInvocation {
-}
-
-impl Ord for MHQIATEnqueuedInvocation {
-  fn cmp(&self, other: &Self) -> Ordering {
-    compare_f64( &self.iat, &other.iat ).reverse()
-  }
-}
-
-impl PartialOrd for MHQIATEnqueuedInvocation {
-  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-    Some(compare_f64( &self.iat, &other.iat ).reverse())
-  }
-}
-
-impl PartialEq for MHQIATEnqueuedInvocation {
-  fn eq(&self, other: &Self) -> bool {
-    self.iat == other.iat
-  }
-}
 
 pub struct MinHeapIATInvoker {
   pub cont_manager: Arc<ContainerManager>,
   pub async_functions: AsyncHelper,
   pub function_config: Arc<FunctionLimits>,
   pub invocation_config: Arc<InvocationConfig>,
-  pub invoke_queue: Arc<Mutex<BinaryHeap<Arc<MHQIATEnqueuedInvocation>>>>,
+  pub invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
   pub cmap: Arc<CharacteristicsMap>,
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
@@ -94,17 +58,17 @@ impl Invoker for MinHeapIATInvoker {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
-    let r = r.x.clone();
+    let r = r.item.clone();
     return Some(r);
   }
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
-    let v = v.x.clone();
+    let v = v.item.clone();
     let top = invoke_queue.peek();
     let func_name; 
     match top {
-        Some(e) => func_name = e.x.function_name.clone(),
+        Some(e) => func_name = e.item.function_name.clone(),
         None => func_name = "empty".to_string()
     }
     debug!(tid=%v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
@@ -139,11 +103,11 @@ impl Invoker for MinHeapIATInvoker {
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
     let iat = self.cmap.get_iat( &item.fqdn );
-    queue.push(MHQIATEnqueuedInvocation::new(item.clone(), iat ).into());
+    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), iat ));
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.function_name,
-                        queue.peek().unwrap().x.function_name );
+                        queue.peek().unwrap().item.function_name );
     self.queue_signal.notify_waiters();
   }
 }

@@ -47,19 +47,17 @@ impl QueuelessInvoker {
 }
 
 #[tonic::async_trait]
+#[allow(dyn_drop)]
 impl Invoker for QueuelessInvoker {
   fn cont_manager(&self) -> &Arc<ContainerManager>  { &self.cont_manager }
   fn function_config(&self) -> &Arc<FunctionLimits>  { &self.function_config }
   fn invocation_config(&self) -> &Arc<InvocationConfig>  { &self.invocation_config }
   fn timer(&self) -> &LocalTime { &self.clock }
   fn async_functions<'a>(&'a self) -> &'a AsyncHelper { &self.async_functions }
-  fn char_map(&self) -> &Arc<CharacteristicsMap> {
-    &self.cmap
-  }
+  fn char_map(&self) -> &Arc<CharacteristicsMap> { &self.cmap }
+  fn bypass_running(&self) -> Option<&AtomicU32> { Some(&self.running_funcs) }
   fn concurrency_semaphore(&self) -> Option<Arc<tokio::sync::Semaphore>> { None }
-  fn running_funcs(&self) -> u32 {
-    self.running_funcs.load(Ordering::Relaxed)
-  }
+  fn running_funcs(&self) -> u32 { self.running_funcs.load(Ordering::Relaxed) }
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let q = self.async_queue.lock();
     if let Some(r) = q.get(0) {
@@ -70,6 +68,20 @@ impl Invoker for QueuelessInvoker {
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     self.async_queue.lock().remove(0)
   }
+  /// Runs the specific invocation inside a new tokio worker thread
+  /// Custom override to allow for including async functions to be counted in running
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, item, permit), fields(tid=%item.tid)))]
+  fn spawn_tokio_worker(&self, invoker_svc: Arc<dyn Invoker>, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
+    let _handle = tokio::spawn(async move {
+      debug!(tid=%item.tid, "Launching invocation thread for queued item");
+      if let Some(running_funcs) = invoker_svc.bypass_running() {
+        running_funcs.fetch_add(1, Ordering::Relaxed);
+        invoker_svc.invocation_worker_thread(item, permit).await;
+        running_funcs.fetch_sub(1, Ordering::Relaxed);
+      };
+    });
+  }
+
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.async_queue.lock();
