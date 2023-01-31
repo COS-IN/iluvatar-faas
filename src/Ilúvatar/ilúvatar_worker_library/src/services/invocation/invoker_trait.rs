@@ -128,7 +128,7 @@ pub trait Invoker: Send + Sync {
     exec_time != 0.0 && exec_time < Duration::from_millis(self.invocation_config().bypass_duration_ms).as_secs_f64()
   }
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, enqueued), fields(tid=%enqueued.tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn, json_args, bypass_running), fields(tid=%tid)))]
   /// Run an invocation, bypassing any concurrency restrictions
   /// A return value of [Ok(None)] means that the function would have run cold, and the caller should enqueue it instead
   async fn bypassing_invoke_internal(&self, fqdn: String, json_args: &String, tid: &TransactionId, bypass_running: &AtomicU32) -> Result<Option<InvocationResultPtr>> {

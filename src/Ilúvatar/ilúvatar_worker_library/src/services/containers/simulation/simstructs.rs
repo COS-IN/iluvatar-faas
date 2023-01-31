@@ -97,9 +97,14 @@ impl ContainerT for SimulatorContainer {
     };
     *self.invocations.lock() += 1;
     let timer = LocalTime::new(tid)?;
+
+    // "networking" overhead
+    tokio::time::sleep(Duration::from_micros(1400)).await;
+
     let start = timer.now();
     let start_f64 = start.unix_timestamp_nanos() as f64 / 1_000_000_000.0;
-    let code_dur = Duration::from_micros(duration_us);
+      // 0.3 multplication from concurrency degredation on CPU
+    let code_dur = Duration::from_micros(duration_us).mul_f64(1.2);
     tokio::time::sleep(code_dur).await;
     let end = timer.now();
     let end_f64 = end.unix_timestamp_nanos() as f64 / 1_000_000_000.0;
