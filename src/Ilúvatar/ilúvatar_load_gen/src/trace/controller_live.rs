@@ -7,10 +7,9 @@ use crate::utils::{controller_register, controller_invoke, VERSION, CompletedCon
 use crate::trace::{CsvInvocation, prepare_function_args, trace_utils::map_functions_to_prep};
 use super::Function;
 
-async fn register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, func_data: Result<String>, trace_pth: &String) -> Result<()> {
-  let prep_data = map_functions_to_prep(load_type, func_data, &funcs, 0, trace_pth)?;
+async fn register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port) -> Result<()> {
   for (fid, func) in funcs.into_iter() {
-    let image = &prep_data.get(&func.func_name).ok_or_else(|| anyhow::anyhow!("Unable to get prep data for function '{}'", fid))?.0;
+    let image = func.image_name.as_ref().ok_or_else(|| anyhow::anyhow!("Unable to get image name for function '{}'", fid))?;
     println!("{}, {}", func.func_name, image);
     let _reg_dur = controller_register(&func.func_name, &VERSION, &image, func.mem_mb+50, host, port).await?;
   }
@@ -24,12 +23,13 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
   let func_data: Result<String> = get_val("function-data", &sub_args);
   let port: Port = get_val("port", &main_args)?;
   let host: String = get_val("host", &main_args)?;
-  let metadata = super::load_metadata(metadata_pth)?;
+  let mut metadata = super::load_metadata(metadata_pth)?;
   let threaded_rt = Builder::new_multi_thread()
       .enable_all()
       .build().unwrap();
 
-  threaded_rt.block_on(register_functions(&metadata, &host, port, &load_type, func_data, &trace_pth))?;
+  map_functions_to_prep(&load_type, func_data, &mut metadata, 0, &trace_pth)?;
+  threaded_rt.block_on(register_functions(&metadata, &host, port))?;
 
   let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
   let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();

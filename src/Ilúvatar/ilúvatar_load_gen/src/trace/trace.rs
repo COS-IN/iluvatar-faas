@@ -119,11 +119,13 @@ pub struct Function {
   pub mem_mb: MemSizeMb,
   pub use_lookbusy: Option<bool>,
   /// An optioanl value denoting the mean inter-arrival-time of the function
-  /// Used for optimized prewarming
+  /// Used for optimized prewarming, in milliseconds
   pub mean_iat: Option<f64>,
   /// An optioanl value denoting the image to use for the function
   /// One will be chosen if not provided
   pub image_name: Option<String>,
+  /// An optioanl value denoting the number of prewarms for the function
+  pub prewarms: Option<u32>,
 }
 #[derive(Debug, serde::Deserialize)]
 pub struct CsvInvocation {

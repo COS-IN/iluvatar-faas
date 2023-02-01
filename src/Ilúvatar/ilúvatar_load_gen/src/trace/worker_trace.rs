@@ -8,7 +8,7 @@ use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
 use iluvatar_worker_library::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse};
 use tonic::Request;
-use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, FunctionExecOutput}, trace::trace_utils::{prepare_functions, RegisterTarget, map_functions_to_prep, fill_largest_wo_going_over}, benchmark::BenchmarkStore};
+use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, FunctionExecOutput}, trace::trace_utils::{prepare_functions, RegisterTarget, map_functions_to_prep}};
 use crate::trace::prepare_function_args;
 use super::{Function, CsvInvocation};
 
@@ -63,31 +63,18 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
 
   let trace_pth: String = get_val("input", &sub_args)?;
   let load_type: String = get_val("load-type", &sub_args)?;
-  let func_data: String = get_val("function-data", &sub_args)?;
+  let func_data: Result<String> = get_val("function-data", &sub_args);
   let prewarm_count: u32 = get_val("prewarm", &sub_args)?;
   let metadata_pth: String = get_val("metadata", &sub_args)?;
 
   let mut metadata = super::load_metadata(metadata_pth)?;
-  match load_type.as_str() {
-    "functions" => {
-      let contents = std::fs::read_to_string(&func_data).expect("Something went wrong reading the benchmark file");
-      match serde_json::from_str::<BenchmarkStore>(&contents) {
-        Ok(d) => {
-          fill_largest_wo_going_over(&mut metadata, &d);
-        },
-        Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
-      }
-    },
-    "lookbusy" => (),
-    _ => panic!("Bad invocation load type: {}", load_type),
-  };
-  let prep_data = map_functions_to_prep(load_type.as_str(), Ok(func_data), &metadata, prewarm_count, &trace_pth)?;
+  map_functions_to_prep(&load_type, func_data, &mut metadata, prewarm_count, &trace_pth)?;
   sim_register_functions(&metadata, worker.clone(), &threaded_rt)?;
 
   let mut prewarm_calls= vec![];
-  for (func_name, (_image, count)) in prep_data.iter() {
-    println!("{} prewarming {} containers for function '{}'", LocalTime::new(&"PREWARM_LOAD_GEN".to_string())?.now_str()?, count, func_name);
-    for i in 0..*count {
+  for (func_name, func) in metadata.iter() {
+    println!("{} prewarming {:?} containers for function '{}'", LocalTime::new(&"PREWARM_LOAD_GEN".to_string())?.now_str()?, func.prewarms, func_name);
+    for i in 0..func.prewarms.ok_or_else(|| anyhow::anyhow!("Function '{}' did not have a prewarm value, supply one or pass a benchmark file", func_name))? {
       let tid = format!("{}-{}-prewarm", i, &func_name);
       let f_c = func_name.clone();
       let mem = metadata.get(func_name).unwrap().mem_mb;
@@ -174,45 +161,6 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
 
   let p = Path::new(&output_folder).join(format!("output-full-{}.json", pth.file_stem().expect("Could not find a file name").to_str().unwrap()));
   save_result_json(p, &results)
-
-  // let pth = Path::new(&trace_pth);
-  // let output_folder: String = get_val("out", &main_args)?;
-  // let p = Path::new(&output_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
-  // let mut f = match File::create(p) {
-  //   Ok(f) => f,
-  //   Err(e) => {
-  //     anyhow::bail!("Failed to create output file because {}", e);
-  //   }
-  // };
-  // let to_write = format!("success,function_name,was_cold,worker_duration_us,code_duration_us,e2e_duration_us\n");
-  // match f.write_all(to_write.as_bytes()) {
-  //   Ok(_) => (),
-  //   Err(e) => {
-  //     anyhow::bail!("Failed to write json of result because {}", e);
-  //   }
-  // };
-
-  // for h in handles {
-  //   match threaded_rt.block_on(h) {
-  //     Ok(r) => match r {
-  //       Ok( (e2e_dur_us, resp) ) => {
-  //         let result = serde_json::from_str::<SimulationResult>(&resp.json_result)?;
-  //         let to_write = format!("{},{},{},{},{},{}\n", resp.success, result.function_name, result.was_cold, resp.duration_us, result.duration_us, e2e_dur_us);
-  //         match f.write_all(to_write.as_bytes()) {
-  //           Ok(_) => (),
-  //           Err(e) => {
-  //             println!("Failed to write result because {}", e);
-  //             continue;
-  //           }
-  //         };
-  //       },
-  //       Err(e) => println!("Status error from invoke: {}", e),
-  //     },
-  //     Err(thread_e) => println!("Joining error: {}", thread_e),
-  //   };
-  // }
-
-  // Ok(())
 }
 
 fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
@@ -230,9 +178,9 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
 
   let trace_pth: String = get_val("input", &sub_args)?;
   let metadata_pth: String = get_val("metadata", &sub_args)?;
-  let metadata = super::load_metadata(metadata_pth)?;
+  let mut metadata = super::load_metadata(metadata_pth)?;
 
-  prepare_functions(RegisterTarget::LiveWorker, &metadata, &host, port, &load_type, func_data, &threaded_rt, prewarm_count, &trace_pth, &factory)?;
+  prepare_functions(RegisterTarget::LiveWorker, &mut metadata, &host, port, &load_type, func_data, &threaded_rt, prewarm_count, &trace_pth, &factory)?;
 
   let mut trace_rdr = match csv::Reader::from_path(&trace_pth) {
     Ok(r) => r,

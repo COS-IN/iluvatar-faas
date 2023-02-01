@@ -14,20 +14,24 @@ pub enum RegisterTarget {
   SimController,
 }
 
-fn compute_prewarms(f: &Function, default_prewarms: u32) -> u32 {
+fn compute_prewarms(func: &Function, default_prewarms: u32) -> u32 {
   match default_prewarms {
     0 => 0,
-    i => {
-      if let Some(iat) = f.mean_iat {
-        return f64::ceil(f.warm_dur_ms as f64 / iat) as u32;
-      }
-      i
+    default_prewarms => match func.mean_iat {
+      Some(iat_ms) => {
+        let mut prewarms = f64::ceil(func.warm_dur_ms as f64 * 1.0/iat_ms) as u32;
+        let cold_prewarms = f64::ceil(func.cold_dur_ms as f64 * 1.0/iat_ms) as u32;
+        println!("{}'s IAT of {} -> {} * {} = {} OR {} = {}", func.image_name.as_ref().unwrap(), iat_ms, func.warm_dur_ms, 1.0/iat_ms, prewarms, func.cold_dur_ms, cold_prewarms);
+        prewarms = max(prewarms, cold_prewarms);
+        min(prewarms, default_prewarms+30)
+      },
+      None => default_prewarms,
     }
   }
 }
 
-/// update the runtime information in [funcs] with the benchmark
-pub fn fill_largest_wo_going_over(funcs: &mut HashMap<String, Function>, bench: &BenchmarkStore) {
+fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkStore, 
+                      default_prewarms: u32, _trace_pth: &String) -> Result<()> {
   let mut data = Vec::new();
   for (k, v) in bench.data.iter() {
     let tot: u128 = v.warm_invoke_duration_us.iter().sum();
@@ -36,7 +40,8 @@ pub fn fill_largest_wo_going_over(funcs: &mut HashMap<String, Function>, bench: 
                           // Cold uses E2E duration because of the cold start time needed
     data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
   }
-
+  
+  let mut total_prewarms=0;
   for (_fname, func) in funcs.iter_mut(){
     let chosen = match data.iter().min_by(|a, b| safe_cmp(&a.1,&b.1)) {
       Some(n) => n,
@@ -53,82 +58,28 @@ pub fn fill_largest_wo_going_over(funcs: &mut HashMap<String, Function>, bench: 
         chosen_cold_time_ms = *avg_cold;
       }
     }
-    println!("{} mapped to function '{}', cold: {} => {}, warm: {} => {}", &func.func_name, chosen_name, func.cold_dur_ms, chosen_cold_time_ms, func.warm_dur_ms, chosen_warm_time_ms);
     func.cold_dur_ms = chosen_cold_time_ms as u64;
     func.warm_dur_ms = chosen_warm_time_ms as u64;
-    println!("{} mapped to function '{}'", &func.func_name, chosen_name);
-  }
-}
 
-fn map_from_benchmark(funcs: &HashMap<String, Function>, bench: &BenchmarkStore, 
-                      default_prewarms: u32, _trace_pth: &String) -> Result<HashMap<String, (String, u32)>> {
-  let mut data = Vec::new();
-  for (k, v) in bench.data.iter() {
-    let tot: u128 = v.warm_invoke_duration_us.iter().sum();
-    let avg_cold_us = v.cold_invoke_duration_us.iter().sum::<u128>() as f64 / v.cold_invoke_duration_us.len() as f64;
-    let avg_warm_us = tot as f64 / v.warm_invoke_duration_us.len() as f64;
-                          // Cold uses E2E duration because of the cold start time needed
-    data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
-  }
-  
-  let mut ret = HashMap::new();
-  let mut total_prewarms=0;
-  for (_fname, func) in funcs.iter(){
-    let chosen = match data.iter().min_by(|a, b| safe_cmp(&a.1,&b.1)) {
-      Some(n) => n,
-      None => panic!("failed to get a minimum func from {:?}", data),
-    };
-    let mut chosen_name = chosen.0.clone();
-    let mut chosen_warm_time_ms = chosen.1;
-    let mut chosen_cold_time_ms = chosen.1;
-  
-    for (name, avg_warm, avg_cold) in data.iter() {
-      if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
-        chosen_name = name.clone();
-        chosen_warm_time_ms = *avg_warm;
-        chosen_cold_time_ms = *avg_cold;
-      }
-    }
-
-    let prewarms = match default_prewarms {
-      0 => 0,
-      default_prewarms => match func.mean_iat {
-        Some(iat_ms) => {
-          let mut prewarms = f64::ceil(chosen_warm_time_ms * 1.0/iat_ms) as u32;
-          let cold_prewarms = f64::ceil(chosen_cold_time_ms * 1.0/iat_ms) as u32;
-          println!("{}'s IAT of {} -> {} * {} = {} OR {} = {}", chosen_name, iat_ms, chosen_warm_time_ms, 1.0/iat_ms, prewarms, chosen_cold_time_ms, cold_prewarms);
-          prewarms = max(prewarms, cold_prewarms);
-          min(prewarms, default_prewarms+30)
-        },
-        None => default_prewarms,
-      }
-    };
+    let prewarms = compute_prewarms(func, default_prewarms);
+    func.prewarms = Some(prewarms);
     total_prewarms += prewarms;
-    ret.insert( func.func_name.clone(), (format!("docker.io/alfuerst/{}-iluvatar-action:latest", chosen_name), prewarms) );
     println!("{} mapped to function '{}'", &func.func_name, chosen_name);
   }
   println!("A total of {} prewarmed containers", total_prewarms);
-  Ok(ret)
+  Ok(())
 }
 
-fn map_from_lookbusy(funcs: &HashMap<String, Function>, default_prewarms: u32) -> Result<HashMap<String, (String, u32)>> {
-  let mut ret = HashMap::new();
-  for (fname, func) in funcs.iter() {
-    ret.insert(fname.clone(), ("docker.io/alfuerst/lookbusy-iluvatar-action:latest".to_string(), compute_prewarms(func, default_prewarms)) );
+fn map_from_lookbusy(funcs: &mut HashMap<String, Function>, default_prewarms: u32) -> Result<()> {
+  for (_fname, func) in funcs.iter_mut() {
+    func.image_name = Some("docker.io/alfuerst/lookbusy-iluvatar-action:latest".to_string());
+    func.prewarms = Some(compute_prewarms(func, default_prewarms));
   }
-  Ok(ret)
+  Ok(())
 }
 
-fn map_from_metadata(funcs: &HashMap<String, Function>, default_prewarms: u32) -> Result<HashMap<String, (String, u32)>> {
-  let mut ret = HashMap::new();
-  for (fname, func) in funcs.iter() {
-    ret.insert(fname.clone(), (func.image_name.as_ref().ok_or_else(|| anyhow::anyhow!("Function '{}' did not have a matching image listed", fname))?.clone(), compute_prewarms(func, default_prewarms)) );
-  }
-  Ok(ret)
-}
-
-pub fn map_functions_to_prep(load_type: &str, func_json_data: Result<String>, funcs: &HashMap<String, Function>, 
-                            default_prewarms: u32, trace_pth: &String) -> Result<HashMap<String, (String, u32)>> {
+pub fn map_functions_to_prep(load_type: &str, func_json_data: Result<String>, funcs: &mut HashMap<String, Function>, 
+                            default_prewarms: u32, trace_pth: &String) -> Result<()> {
   match load_type {
     "lookbusy" => { return map_from_lookbusy(funcs, default_prewarms); },
     "functions" => {
@@ -142,18 +93,18 @@ pub fn map_functions_to_prep(load_type: &str, func_json_data: Result<String>, fu
           Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
         }
       } else {
-        return map_from_metadata(funcs, default_prewarms);
+        return Ok(())
       }
     }
     _ => anyhow::bail!("Unknown load type '{}'", load_type)
   }
 }
 
-fn live_prewarm_functions(prewarm_data: &HashMap<String, (String, u32)>, host: &String, port: Port, rt: &Runtime, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
+fn live_prewarm_functions(prewarm_data: &HashMap<String, Function>, host: &String, port: Port, rt: &Runtime, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   let mut prewarm_calls = vec![];
-  for (func_name, (_image, count)) in prewarm_data.iter() {
-    println!("{} prewarming {} containers for function '{}'", LocalTime::new(&"PREWARM_LOAD_GEN".to_string())?.now_str()?, count, func_name);
-    for i in 0..*count {
+  for (func_name, func) in prewarm_data.iter() {
+    println!("{} prewarming {:?} containers for function '{}'", LocalTime::new(&"PREWARM_LOAD_GEN".to_string())?.now_str()?, func.prewarms, func_name);
+    for i in 0..func.prewarms.ok_or_else(|| anyhow::anyhow!("Function '{}' did not have a prewarm value, supply one or pass a benchmark file", func_name))? {
       let tid = format!("{}-{}-prewarm", i, &func_name);
       let h_c = host.clone();
       let f_c = func_name.clone();
@@ -192,27 +143,27 @@ fn live_prewarm_functions(prewarm_data: &HashMap<String, (String, u32)>, host: &
   Ok(())
 }
 
-pub fn prepare_functions(target: RegisterTarget, funcs: &HashMap<String, Function>, host: &String, 
+pub fn prepare_functions(target: RegisterTarget, funcs: &mut HashMap<String, Function>, host: &String, 
                           port: Port, load_type: &str, func_data: Result<String>, rt: &Runtime, 
                           prewarms: u32, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   match target {
-    RegisterTarget::LiveWorker => live_prepare_worker(&funcs, host, port, load_type, func_data, prewarms, rt, trace_pth, factory),
+    RegisterTarget::LiveWorker => live_prepare_worker(funcs, host, port, load_type, func_data, prewarms, rt, trace_pth, factory),
     RegisterTarget::LiveController => todo!(),
     RegisterTarget::SimWorker => todo!(),
     RegisterTarget::SimController => todo!(),
   }
 }
 
-fn live_prepare_worker(funcs: &HashMap<String, Function>, host: &String, port: Port, load_type: &str, 
+fn live_prepare_worker(funcs: &mut HashMap<String, Function>, host: &String, port: Port, load_type: &str, 
                       func_data: Result<String>, prewarms: u32, rt: &Runtime, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
-  let prep_data = map_functions_to_prep(load_type, func_data, &funcs, prewarms, trace_pth)?;
-  wait_reg(&funcs, &prep_data, load_type, rt, port, host, factory)?;
+  map_functions_to_prep(load_type, func_data, funcs, prewarms, trace_pth)?;
+  wait_reg(&funcs, load_type, rt, port, host, factory)?;
 
-  live_prewarm_functions(&prep_data, host, port, rt, factory)?;
+  live_prewarm_functions(&funcs, host, port, rt, factory)?;
   Ok(())
 }
 
-fn wait_reg(funcs: &HashMap<String, Function>, prep_data: &HashMap<String, (String, u32)>, load_type: &str, rt: &Runtime, port: Port, host: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
+fn wait_reg(funcs: &HashMap<String, Function>, load_type: &str, rt: &Runtime, port: Port, host: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   let mut func_iter = funcs.into_iter();
   loop {
     let mut handles: Vec<JoinHandle<Result<(String, Duration, TransactionId)>>> = Vec::new();
@@ -231,7 +182,11 @@ fn wait_reg(funcs: &HashMap<String, Function>, prep_data: &HashMap<String, (Stri
       let f_c = func.func_name.clone();
       let h_c = host.clone();
       let fct_cln = factory.clone();
-      let image = prep_data.get(id).ok_or_else(|| anyhow::anyhow!("Unable to get prep data for function '{}'", id))?.0.clone();
+      
+      let image = match &func.image_name {
+        Some(i) => i.clone(),
+        None => anyhow::bail!("Unable to get prep data for function '{}'", id),
+      };
       handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mb+50, h_c, port, &fct_cln).await }));
     }
     for h in handles {
