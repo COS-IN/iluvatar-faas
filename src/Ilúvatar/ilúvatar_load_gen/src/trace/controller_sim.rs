@@ -1,15 +1,13 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write, sync::Arc};
 use anyhow::Result;
-use iluvatar_library::{utils::{config::get_val, timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID}};
-// use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationResult};
+use iluvatar_library::{utils::{timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID}};
 use iluvatar_controller_library::controller::{controller_structs::json::{ControllerInvokeResult, RegisterFunction}, web_server::register_function, controller::Controller};
 use actix_web::{web::{Json, Data}, body::MessageBody};
 use iluvatar_controller_library::controller::web_server::{invoke, register_worker};
 use iluvatar_controller_library::controller::structs::json::Invoke;
-use clap::ArgMatches;
 use tokio::{runtime::Builder, task::JoinHandle};
 use crate::{trace::CsvInvocation, utils::VERSION};
-use super::Function;
+use super::{Function, TraceArgs};
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 
 async fn register_workers(num_workers: usize, server_data: &Data<Controller>, worker_config_pth: &String, worker_config: &Arc<WorkerConfig>) -> Result<()> {
@@ -71,12 +69,9 @@ async fn controller_invoke(func_name: String, server_data: Data<Controller>, war
   }
 }
 
-pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let worker_config_pth: String = get_val("worker-config", &sub_args)?;
-  let num_workers: usize = get_val("workers", &sub_args)?;
-  let controller_config_pth: String = get_val("controller-config", &sub_args)?;
-  let trace_pth: String = get_val("input", &sub_args)?;
-  let metadata_pth: String = get_val("metadata", &sub_args)?;
+pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
+  let worker_config_pth = args.worker_config.as_ref().ok_or_else(|| anyhow::anyhow!("Must have 'worker_config' for sim"))?.clone();
+  let controller_config_pth = args.controller_config.as_ref().ok_or_else(|| anyhow::anyhow!("Must have 'controller_config' for sim"))?.clone();
   let threaded_rt = Builder::new_multi_thread()
       .enable_all()
       .build().unwrap();
@@ -89,11 +84,11 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
   let server = threaded_rt.block_on(async { Controller::new(controller_config.clone(), tid) });
   let server_data = actix_web::web::Data::new(server);
 
-  threaded_rt.block_on(register_workers(num_workers, &server_data, &worker_config_pth, &worker_config))?;
-  let metadata = super::load_metadata(metadata_pth)?;
+  threaded_rt.block_on(register_workers(args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize, &server_data, &worker_config_pth, &worker_config))?;
+  let metadata = super::load_metadata(args.metadata_csv)?;
   threaded_rt.block_on(register_functions(&metadata, &server_data))?;
 
-  let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
+  let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
   let mut handles: Vec<JoinHandle<Result<(ControllerInvokeResult, u128)>>> = Vec::new();
 
   let start = SystemTime::now();
@@ -120,9 +115,8 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
     }));
   }
 
-  let pth = Path::new(&trace_pth);
-  let output_folder: String = get_val("out", &main_args)?;
-  let p = Path::new(&output_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
+  let pth = Path::new(&args.input_csv);
+  let p = Path::new(&args.out_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
   let mut f = match File::create(p) {
     Ok(f) => f,
     Err(e) => {
@@ -136,7 +130,7 @@ pub fn controller_trace_sim(main_args: &ArgMatches, sub_args: &ArgMatches) -> Re
       anyhow::bail!("Failed to write json of result because {}", e);
     }
   };
-    // TODO: this 
+  //   TODO: this 
 
   // for h in handles {
   //   match threaded_rt.block_on(h) {

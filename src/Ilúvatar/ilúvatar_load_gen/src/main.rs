@@ -1,24 +1,36 @@
-pub mod config;
 pub mod scaling;
 pub mod utils;
 #[path ="./trace/trace.rs"]
 pub mod trace;
 pub mod benchmark;
+use benchmark::BenchmarkArgs;
+use clap::{Parser, Subcommand, command};
+use scaling::ScalingArgs;
+use trace::TraceArgs;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+  #[command(subcommand)]
+  command: Commands,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Adds files to myapp
+    Scaling (ScalingArgs),
+    Trace (TraceArgs),
+    Benchmark (BenchmarkArgs),
+}
 
 fn main() -> anyhow::Result<()> {
-  let app = config::app();
-
-  let app = trace::trace_args(app);
-  let app = scaling::trace_args(app);
-  let app = benchmark::trace_args(app);
-  let args = app.get_matches();
-
-  match args.subcommand() {
-    Some(("scaling", sub_args)) => { scaling::scaling(&args, &sub_args) },
-    Some(("trace", sub_args)) => { trace::run_trace(&args, &sub_args) },
-    Some(("benchmark", sub_args)) => { benchmark::benchmark_functions(&args, &sub_args) },
-    Some((text,_)) => anyhow::bail!("Unknown command {}, try --help", text),
-    None => anyhow::bail!("Unknown command, try --help"),
+  let cli = Args::parse();
+  println!("verbose: {:?}", cli);
+  
+  match cli.command {
+    Commands::Scaling(args) => scaling::scaling(args),
+    Commands::Trace(args) => trace::run_trace(args),
+    Commands::Benchmark(args) => benchmark::benchmark_functions(args),
   }?;
   Ok(())
 }

@@ -1,62 +1,53 @@
 use std::{time::{Duration, SystemTime}, sync::Arc};
-use clap::{ArgMatches, App, SubCommand, Arg};
+// use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
-use iluvatar_library::{utils::{config::get_val, port_utils::Port, file_utils::ensure_dir}, transaction::gen_tid, logging::LocalTime};
+use clap::Parser;
+use iluvatar_library::{utils::{port_utils::Port, file_utils::ensure_dir}, transaction::gen_tid, logging::LocalTime};
 use tokio::sync::Barrier;
 use tokio::runtime::Builder;
-use crate::utils::{ThreadResult, RegistrationResult, worker_register, worker_invoke, resolve_handles, ErrorHandling, save_result_json, worker_prewarm};
+use crate::utils::{ThreadResult, RegistrationResult, worker_register, worker_invoke, resolve_handles, ErrorHandling, save_result_json, worker_prewarm, Target};
 use std::path::Path;
 use rand::prelude::*;
 
-pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
-  app.subcommand(SubCommand::with_name("scaling")
-    .about("Test scaling of worker with increasing amount of requests")
-    .arg(Arg::with_name("start")
-      .short('s')
-      .long("start")
-      .help("Number of threads to start")
-      .required(false)
-      .takes_value(true)
-      .default_value("1"))
-    .arg(Arg::with_name("end")
-      .short('e')
-      .long("end")
-      .help("Number of threads to reach")
-      .required(false)
-      .takes_value(true)
-      .default_value("1"))
-    .arg(Arg::with_name("duration")
-      .short('d')
-      .long("duration")
-      .help("Duration in seconds before increasing load")
-      .required(false)
-      .takes_value(true)
-      .default_value("5"))
-    .arg(Arg::with_name("image")
-      .short('i')
-      .long("image")
-      .help("The image to use")
-      .required(false)
-      .takes_value(true)
-      .default_value("docker.io/alfuerst/hello-iluvatar-action:latest"))
-  )
+#[derive(Parser, Debug)]
+/// Test scaling of worker with increasing amount of requests
+pub struct ScalingArgs {
+  #[arg(short, long, value_enum)]
+  /// Target for the load
+  target: Target,
+  #[arg(short, long)]
+  /// Number of threads to start
+  start: u32,
+  #[arg(short, long)]
+  /// Number of threads to reach
+  end: u32,
+  #[arg(short, long)]
+  /// Duration in seconds before increasing load
+  duration: u32,
+  #[arg(short, long, default_value="docker.io/alfuerst/hello-iluvatar-action:latest")]
+  /// The image to use
+  image: String,
+  #[arg(short, long)]
+  /// Port controller/worker is listening on
+  port: Port,
+  #[arg(long)]
+  /// Host controller/worker is on
+  host: String,
+  #[arg(short, long)]
+  /// Folder to output results to
+  out_folder: String,
+  #[arg(long)]
+  /// Number of concurrent threads to run benchmark with
+  thread_count: u32,
 }
 
-pub fn scaling(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let port: Port = get_val("port", &main_args)?;
-  let host: String = get_val("host", &main_args)?;
-  let folder: String = get_val("out", &main_args)?;
-  ensure_dir(&std::path::PathBuf::new().join(&folder))?;
+pub fn scaling(args: ScalingArgs) -> Result<()> {
+  ensure_dir(&std::path::PathBuf::new().join(&args.out_folder))?;
 
-  let thread_start: usize = get_val("start", &sub_args)?;
-  let thread_end: usize = get_val("end", &sub_args)?;
-  let duration_sec: u64 = get_val("duration", &sub_args)?;
-  let image: String = get_val("image", &sub_args)?;
-
-  for threads in thread_start..(thread_end+1) {
+  for threads in args.start..(args.end+1) {
     println!("\n Running with {} threads", threads);
-    let result = run_one_scaling_test(threads, host.clone(), port, duration_sec, image.clone())?;
-    let p = Path::new(&folder).join(format!("{}.json", threads));
+    let result = run_one_scaling_test(threads as usize, args.host.clone(), args.port, args.duration.into(), args.image.clone())?;
+    let p = Path::new(&args.out_folder).join(format!("{}.json", threads));
     save_result_json(p, &result)?;
   }
 

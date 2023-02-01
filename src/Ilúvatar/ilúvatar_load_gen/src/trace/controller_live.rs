@@ -1,11 +1,10 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write, sync::Arc};
 use anyhow::Result;
-use iluvatar_library::{utils::{config::get_val, port::Port}, logging::LocalTime, transaction::gen_tid};
-use clap::ArgMatches;
+use iluvatar_library::{utils::port::Port, logging::LocalTime, transaction::gen_tid};
 use tokio::{runtime::Builder, task::JoinHandle};
 use crate::utils::{controller_register, controller_invoke, VERSION, CompletedControllerInvocation, resolve_handles, save_result_json};
 use crate::trace::{CsvInvocation, prepare_function_args, trace_utils::map_functions_to_prep};
-use super::Function;
+use super::{Function, TraceArgs};
 
 async fn register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port) -> Result<()> {
   for (fid, func) in funcs.into_iter() {
@@ -16,22 +15,16 @@ async fn register_functions(funcs: &HashMap<String, Function>, host: &String, po
   Ok(())
 }
 
-pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let trace_pth: String = get_val("input", &sub_args)?;
-  let metadata_pth: String = get_val("metadata", &sub_args)?;
-  let load_type: String = get_val("load-type", &sub_args)?;
-  let func_data: Result<String> = get_val("function-data", &sub_args);
-  let port: Port = get_val("port", &main_args)?;
-  let host: String = get_val("host", &main_args)?;
-  let mut metadata = super::load_metadata(metadata_pth)?;
+pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
+  let mut metadata = super::load_metadata(args.metadata_csv)?;
   let threaded_rt = Builder::new_multi_thread()
       .enable_all()
       .build().unwrap();
 
-  map_functions_to_prep(&load_type, func_data, &mut metadata, 0, &trace_pth)?;
-  threaded_rt.block_on(register_functions(&metadata, &host, port))?;
+  map_functions_to_prep(args.load_type, args.function_data, &mut metadata, 0, &args.input_csv)?;
+  threaded_rt.block_on(register_functions(&metadata, &args.host, args.port))?;
 
-  let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
+  let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
   let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();
   let clock = Arc::new(LocalTime::new(&gen_tid())?);
 
@@ -41,9 +34,9 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
   for result in trace_rdr.deserialize() {
     let invocation: CsvInvocation = result?;
     let func = metadata.get(&invocation.func_name).unwrap();
-    let h_c = host.clone();
+    let h_c = args.host.clone();
     let f_c = func.func_name.clone();
-    let args = prepare_function_args(func, &load_type);
+    let func_args = prepare_function_args(func, args.load_type);
     
     loop {
       match start.elapsed() {
@@ -59,17 +52,16 @@ pub fn controller_trace_live(main_args: &ArgMatches, sub_args: &ArgMatches) -> R
     };
     let clk_cln = clock.clone();
     handles.push(threaded_rt.spawn(async move {
-      controller_invoke(&f_c, &VERSION, &h_c, port, Some(args), clk_cln).await
+      controller_invoke(&f_c, &VERSION, &h_c, args.port, Some(func_args), clk_cln).await
     }));
   }
   let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
 
-  let pth = Path::new(&trace_pth);
-  let output_folder: String = get_val("out", &main_args)?;
-  let p = Path::new(&output_folder).join(format!("output-full{}.json", pth.file_stem().unwrap().to_str().unwrap()));
+  let pth = Path::new(&args.input_csv);
+  let p = Path::new(&args.out_folder).join(format!("output-full{}.json", pth.file_stem().unwrap().to_str().unwrap()));
   save_result_json(p, &results)?;
 
-  let p = Path::new(&output_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
+  let p = Path::new(&args.out_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
   let mut f = match File::create(p) {
     Ok(f) => f,
     Err(e) => {

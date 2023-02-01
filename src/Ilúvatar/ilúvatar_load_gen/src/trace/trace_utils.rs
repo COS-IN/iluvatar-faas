@@ -3,7 +3,7 @@ use anyhow::Result;
 use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tokio::{runtime::Runtime, task::JoinHandle};
-use crate::{utils::{worker_register, VERSION, worker_prewarm}, benchmark::BenchmarkStore, trace::safe_cmp};
+use crate::{utils::{worker_register, VERSION, worker_prewarm, LoadType}, benchmark::BenchmarkStore, trace::safe_cmp};
 use super::Function;
 
 #[allow(unused)]
@@ -78,12 +78,12 @@ fn map_from_lookbusy(funcs: &mut HashMap<String, Function>, default_prewarms: u3
   Ok(())
 }
 
-pub fn map_functions_to_prep(load_type: &str, func_json_data: Result<String>, funcs: &mut HashMap<String, Function>, 
+pub fn map_functions_to_prep(load_type: LoadType, func_json_data: Option<String>, funcs: &mut HashMap<String, Function>, 
                             default_prewarms: u32, trace_pth: &String) -> Result<()> {
   match load_type {
-    "lookbusy" => { return map_from_lookbusy(funcs, default_prewarms); },
-    "functions" => {
-      if let Ok(func_json_data) = func_json_data {
+    LoadType::Lookbusy => { return map_from_lookbusy(funcs, default_prewarms); },
+    LoadType::Functions => {
+      if let Some(func_json_data) = func_json_data {
         // Choosing functions from json file benchmark data
         let contents = std::fs::read_to_string(func_json_data).expect("Something went wrong reading the benchmark file");
         match serde_json::from_str::<BenchmarkStore>(&contents) {
@@ -96,7 +96,6 @@ pub fn map_functions_to_prep(load_type: &str, func_json_data: Result<String>, fu
         return Ok(())
       }
     }
-    _ => anyhow::bail!("Unknown load type '{}'", load_type)
   }
 }
 
@@ -144,7 +143,7 @@ fn live_prewarm_functions(prewarm_data: &HashMap<String, Function>, host: &Strin
 }
 
 pub fn prepare_functions(target: RegisterTarget, funcs: &mut HashMap<String, Function>, host: &String, 
-                          port: Port, load_type: &str, func_data: Result<String>, rt: &Runtime, 
+                          port: Port, load_type: LoadType, func_data: Option<String>, rt: &Runtime, 
                           prewarms: u32, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   match target {
     RegisterTarget::LiveWorker => live_prepare_worker(funcs, host, port, load_type, func_data, prewarms, rt, trace_pth, factory),
@@ -154,8 +153,8 @@ pub fn prepare_functions(target: RegisterTarget, funcs: &mut HashMap<String, Fun
   }
 }
 
-fn live_prepare_worker(funcs: &mut HashMap<String, Function>, host: &String, port: Port, load_type: &str, 
-                      func_data: Result<String>, prewarms: u32, rt: &Runtime, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
+fn live_prepare_worker(funcs: &mut HashMap<String, Function>, host: &String, port: Port, load_type: LoadType, 
+                      func_data: Option<String>, prewarms: u32, rt: &Runtime, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   map_functions_to_prep(load_type, func_data, funcs, prewarms, trace_pth)?;
   wait_reg(&funcs, load_type, rt, port, host, factory)?;
 
@@ -163,7 +162,7 @@ fn live_prepare_worker(funcs: &mut HashMap<String, Function>, host: &String, por
   Ok(())
 }
 
-fn wait_reg(funcs: &HashMap<String, Function>, load_type: &str, rt: &Runtime, port: Port, host: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
+fn wait_reg(funcs: &HashMap<String, Function>, load_type: LoadType, rt: &Runtime, port: Port, host: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   let mut func_iter = funcs.into_iter();
   loop {
     let mut handles: Vec<JoinHandle<Result<(String, Duration, TransactionId)>>> = Vec::new();
@@ -175,9 +174,8 @@ fn wait_reg(funcs: &HashMap<String, Function>, load_type: &str, rt: &Runtime, po
         },
       };
       let mb = match load_type {
-        "lookbusy" => func.mem_mb+50,
-        "functions" => 512,
-        _ => panic!("Bad invocation load type: {}", load_type),
+        LoadType::Lookbusy => func.mem_mb+50,
+        LoadType::Functions => 512,
       };
       let f_c = func.func_name.clone();
       let h_c = host.clone();

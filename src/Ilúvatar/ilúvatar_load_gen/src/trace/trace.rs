@@ -1,95 +1,69 @@
 use std::collections::HashMap;
 use anyhow::Result;
-use iluvatar_library::{utils::config::get_val, types::MemSizeMb};
-use clap::{ArgMatches, App, SubCommand, Arg};
+use iluvatar_library::{utils::port::Port, types::MemSizeMb};
+use clap::Parser;
+
+use crate::utils::{RunType, LoadType, Target};
 
 mod worker_trace;
 mod controller_live;
 mod controller_sim;
 mod trace_utils;
 
-pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
-  app.subcommand(SubCommand::with_name("trace")
-    .about("Run a trace through the system")
-    .arg(Arg::with_name("setup")
-        .long("setup")
-        .help("Use 'simulation' or 'live' for system setup")
-        .required(true)
-        .takes_value(true)
-        .default_value("simulation"))
-    .arg(Arg::with_name("target")
-        .short('t')
-        .long("target")
-        .help("Target for the load, either 'worker' or 'controller'")
-        .required(false)
-        .takes_value(true)
-        .default_value("worker"))
-    .arg(Arg::with_name("input")
-        .short('i')
-        .long("input")
-        .help("The trace input csv file to use")
-        .required(true)
-        .takes_value(true))
-    .arg(Arg::with_name("metadata")
-        .short('m')
-        .long("metadata")
-        .help("The metadata associated with the trace input, also a csv file")
-        .required(true)
-        .takes_value(true))
-    .arg(Arg::with_name("prewarm")
-        .short('p')
-        .long("prewarm")
-        .help("The number of pre-warmed containers to create for each function. Computes how many containers to prewarm based on function characteristics. If this is 0, then there will be _no_ prewarms.")
-        .required(false)
-        .default_value("0")
-        .takes_value(true))
-    .arg(Arg::with_name("worker-config")
-        .long("worker-config")
-        .help("Configuration file for the worker")
-        .required(false)
-        .takes_value(true))
-    .arg(Arg::with_name("controller-config")
-        .long("controller-config")
-        .help("Configuration file for the controller")
-        .required(false)
-        .takes_value(true))
-    .arg(Arg::with_name("workers")
-        .short('w')
-        .long("workers")
-        .help("Number of workers to run with if performing controller simulation")
-        .required(false)
-        .default_value("1")
-        .takes_value(true))
-    .arg(Arg::with_name("load-type")
-        .short('l')
-        .long("load-type")
-        .help("Type of load to apply, use 'lookbusy' containers or 'functions' for FunctionBench code")
-        .required(false)
-        .default_value("lookbusy")
-        .takes_value(true))
-    .arg(Arg::with_name("function-data")
-        .short('f')
-        .long("function-data")
-        .help("If using FunctionBench data, this file is the results of the `benchmark` run. Used to pick which function matches the trace function.")
-        .required(false)
-        .takes_value(true))
-      )
+#[derive(Parser, Debug)]
+pub struct TraceArgs {
+  #[arg(short, long, value_enum)]
+  /// System setup
+  setup: RunType,
+  #[arg(short, long, value_enum)]
+  /// Target for the load
+  target: Target,
+  #[arg(short, long, value_enum)]
+  /// Type of load to apply
+  load_type: LoadType,
+  #[arg(short, long)]
+  /// The trace input csv file to use
+  input_csv: String,
+  #[arg(short, long)]
+  /// The metadata associated with the trace input, also a csv file
+  metadata_csv: String,
+  #[arg(long)]
+  /// The number of pre-warmed containers to create for each function. 
+  /// Computes how many containers to prewarm based on function characteristics. 
+  /// If this is 0, then there will be _no_ prewarms.
+  prewarms: u32,
+  #[arg(long)]
+  /// Configuration file for the simuated worker(s)
+  worker_config: Option<String>,
+  #[arg(long)]
+  /// Configuration file for the simulated controller
+  controller_config: Option<String>,
+  #[arg(long)]
+  /// Number of workers to run with if performing controller simulation
+  workers: Option<u32>,
+  #[arg(short, long)]
+  /// If using FunctionBench data, this file is the results of the `benchmark` run. Used to pick which function matches the trace function.
+  function_data: Option<String>,
+  #[arg(short, long)]
+  /// Port controller/worker is listening on
+  port: Port,
+  #[arg(short, long)]
+  /// Host controller/worker is on
+  host: String,
+  #[arg(short, long)]
+  /// Folder to output results to
+  out_folder: String,
 }
 
-pub fn run_trace(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let target: String = get_val("target", &sub_args)?;
-
-  match target.as_str() {
-    "worker" => worker_trace::trace_worker(main_args, sub_args),
-    "controller" => {
-      let setup: String = get_val("setup", &sub_args)?;
-      match setup.as_str() {
-        "simulation" => controller_sim::controller_trace_sim(main_args, sub_args),
-        "live" => controller_live::controller_trace_live(main_args, sub_args),
-        _ => anyhow::bail!("Unknown setup for trace run '{}'; only supports 'simulation' and 'live'", setup)
-      }
-    },
-    _ => anyhow::bail!("Unknown simulation targe {}!", target),
+pub fn run_trace(args: TraceArgs) -> Result<()> {
+  match args.target {
+    Target::Worker => worker_trace::trace_worker(args),
+    Target::Controller => {
+          match args.setup {
+            RunType::Live => controller_sim::controller_trace_sim(args),
+            RunType::Simulation => controller_live::controller_trace_live(args),
+          }
+        },
   }
 }
 
@@ -144,15 +118,14 @@ pub fn safe_cmp(a:&f64, b:&f64) -> std::cmp::Ordering {
   }
 }
 
-fn prepare_function_args(func: &Function, load_type: &str) -> Vec<String> {
+fn prepare_function_args(func: &Function, load_type: LoadType) -> Vec<String> {
   if let Some(b) = func.use_lookbusy {
     if b {
       return vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)];
     }
   }
   match load_type {
-    "lookbusy" => vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)],
-    "functions" => vec![],
-    _ => panic!("Bad invocation load type: {}", load_type),
+    LoadType::Lookbusy => vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)],
+    LoadType::Functions => vec![],
   }
 }

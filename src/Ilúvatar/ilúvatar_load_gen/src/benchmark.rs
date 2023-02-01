@@ -1,14 +1,15 @@
 use std::sync::Arc;
 use std::time::{SystemTime, Duration};
 use std::{collections::HashMap, path::Path};
-use clap::{ArgMatches, App, SubCommand, Arg};
+// use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
+use clap::Parser;
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::transaction::gen_tid;
-use iluvatar_library::utils::{config::get_val, port_utils::Port};
+use iluvatar_library::utils::port_utils::Port;
 use serde::{Serialize, Deserialize};
 use tokio::sync::Barrier;
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::{Runtime, Builder};
 use crate::utils::*;
 
 #[derive(Debug, serde::Deserialize, Clone)]
@@ -73,66 +74,59 @@ impl FunctionStore {
   }
 }
 
-pub fn trace_args<'a>(app: App<'a>) -> App<'a> {
-  app.subcommand(SubCommand::with_name("benchmark")
-    .about("Benchmark functions through the system. Functions will be run by iteratively by themselves (or in parallel with themselves if using threads). All invocations will complete before a new function is run")
-    .arg(Arg::with_name("target")
-        .short('t')
-        .long("target")
-        .help("Target for the load, either 'worker' or 'controller'")
-        .required(false)
-        .takes_value(true)
-        .default_value("worker"))
-    .arg(Arg::with_name("functions-file")
-        .long("functions-file")
-        .help("The csv with all the functions to be benchmarked listed inside of it. In the form <f_name>,<f_image>")
-        .required(false)
-        .takes_value(true))
-    .arg(Arg::with_name("functions-dir")
-        .long("functions-dir")
-        .help("The directory with all the functions to be benchmarked inside it, each in their own folder")
-        .required(false)
-        .takes_value(true))
-    .arg(Arg::with_name("cold-iters")
-        .long("cold-iters")
-        .help("Number of times to run each function cold")
-        .required(false)
-        .takes_value(true)
-        .default_value("10"))
-    .arg(Arg::with_name("warm-iters")
-        .long("warm-iters")
-        .help("Number of times to run function _after_ each cold start, expecting them to be warm (could vary because of load balancer)")
-        .required(false)
-        .takes_value(true)
-        .default_value("4"))
-    .arg(Arg::with_name("run-time")
-        .long("run-time")
-        .help("Duration in minutes that each function will be run for, being invoked in a closed loop. An alternative to cold/warm-iters. Leaving as 0 will use iters")
-        .required(false)
-        .takes_value(true)
-        .default_value("0"))
-    .arg(Arg::with_name("threads")
-        .long("threads")
-        .help("Number of threads to run the benchmark with. Each thread will run the same function in parallel")
-        .required(false)
-        .takes_value(true)
-        .default_value("1"))
-  )
+
+#[derive(Parser, Debug)]
+/// Benchmark functions through the system. 
+/// Functions will be run by iteratively by themselves (or in parallel with themselves if using threads). 
+/// All invocations will complete before a new function is run
+pub struct BenchmarkArgs {
+  #[arg(short, long, value_enum)]
+  /// Target for the load
+  target: Target,
+  #[arg(long)]
+  /// The csv with all the functions to be benchmarked listed inside of it. In the form <f_name>,<f_image>
+  function_file: Option<String>,
+  #[arg(long)]
+  /// The directory with all the functions to be benchmarked inside it, each in their own folder
+  function_dir: Option<String>,
+  #[arg(long, default_value="10")]
+  /// Number of times to run each function cold
+  cold_iters: u32,
+  #[arg(long, default_value="10")]
+  /// Number of times to run function _after_ each cold start, expecting them to be warm (could vary because of load balancer)
+  warm_iters: u32,
+  #[arg(long, default_value="0")]
+  /// Duration in minutes that each function will be run for, being invoked in a closed loop.
+  /// An alternative to cold/warm-iters. 
+  /// Leaving as 0 will use iters
+  runtime: u32,
+  #[arg(short, long)]
+  /// Port controller/worker is listening on
+  port: Port,
+  #[arg(long)]
+  /// Host controller/worker is on
+  host: String,
+  #[arg(short, long)]
+  /// Folder to output results to
+  out_folder: String,
+  #[arg(long)]
+  /// Number of concurrent threads to run benchmark with
+  thread_count: u32,
 }
 
-pub fn load_functions(sub_args: &ArgMatches) -> Result<Vec<ToBenchmarkFunction>> {
+pub fn load_functions(args: &BenchmarkArgs) -> Result<Vec<ToBenchmarkFunction>> {
   let mut functions = Vec::new();
 
-  if let Ok(directory) = get_val::<String>("functions-dir", &sub_args) {
-    let paths = std::fs::read_dir(&directory).expect(&format!("was unable to read directory '{}'", directory).as_str());
+  if let Some(directory) = args.function_dir.as_ref() {
+    let paths = std::fs::read_dir(directory).expect(&format!("was unable to read directory '{}'", directory).as_str());
     for path in paths {
       let pth = path.expect("Error reading directory entry");
       let fname = (&pth.file_name().to_str().expect(&format!("Unable to convert file name '{:?}' os_str to String", pth).as_str())).to_string();
       let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", &fname);
       functions.push( ToBenchmarkFunction{name:fname, image_name:image} );
     }
-  } else if let Ok(directory) = get_val::<String>("functions-file", &sub_args) {
-    let mut rdr = match csv::Reader::from_path(&directory) {
+  } else if let Some(directory) = args.function_file.as_ref() {
+    let mut rdr = match csv::Reader::from_path(directory) {
       Ok(r) => r,
       Err(e) => anyhow::bail!("Unable to open metadata csv file '{}' because of error '{}'", directory, e),
     };
@@ -146,34 +140,22 @@ pub fn load_functions(sub_args: &ArgMatches) -> Result<Vec<ToBenchmarkFunction>>
   Ok(functions)
 }
 
-pub fn benchmark_functions(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
- 
-  let target: String = get_val("target", &sub_args)?;
-  let port: Port = get_val("port", &main_args)?;
-  let host: String = get_val("host", &main_args)?;
-  let folder: String = get_val("out", &main_args)?;
-  let thread_cnt = get_val("threads", &sub_args)?;
-  let cold_repeats: u32 = get_val("cold-iters", &sub_args)?;
-  let warm_repeats: u32 = get_val("warm-iters", &sub_args)?;
-  let duration = get_val("run-time", &sub_args)?;
-
-  let functions = load_functions(sub_args)?;
-
+pub fn benchmark_functions(args: BenchmarkArgs) -> Result<()> {
+  let functions = load_functions(&args)?;
   println!("Benchmarking functions: {:?}", functions);
 
   let threaded_rt = Builder::new_multi_thread()
       .enable_all()
       .build().unwrap();
 
-  match target.as_str() {
-    "worker" => {
-      benchmark_worker(&threaded_rt, host, port, functions, folder, cold_repeats, warm_repeats, duration, thread_cnt)
+  match args.target {
+    Target::Worker => {
+      benchmark_worker(&threaded_rt, functions, args)
     },
     // TODO: implement threads, cold/warm vs timed completion for controller
-    "controller" => {
-      threaded_rt.block_on(benchmark_controller(host, port, functions, folder, cold_repeats, warm_repeats))
+    Target::Controller => {
+      threaded_rt.block_on(benchmark_controller(args.host.clone(), args.port, functions, args.out_folder.clone(), args.cold_iters, args.warm_iters))
     },
-    _ => anyhow::bail!("Unknown benchmark target: {}", target)
   }
 }
 
@@ -229,19 +211,19 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
   Ok(())
 }
 
-pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functions: Vec<ToBenchmarkFunction>, out_folder: String, cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize) -> Result<()> {
-  let barrier = Arc::new(Barrier::new(thread_cnt));
+pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunction>, args: BenchmarkArgs) -> Result<()> {
+  let barrier = Arc::new(Barrier::new(args.thread_count as usize));
   let mut handles = Vec::new();
   let mut full_data = BenchmarkStore::new();
   for f in &functions {
     full_data.data.insert(f.name.clone(), FunctionStore::new(f.image_name.clone(), f.name.clone()));
   }
 
-  for thread_id in 0..thread_cnt {
-    let h_c = host.clone();
+  for thread_id in 0..args.thread_count as usize {
+    let h_c = args.host.clone();
     let f_c = functions.clone();
     let b_c = barrier.clone();
-    handles.push(threaded_rt.spawn(async move { benchmark_worker_thread(h_c, port, f_c, cold_repeats, warm_repeats, duration_sec, thread_id, b_c).await }));
+    handles.push(threaded_rt.spawn(async move { benchmark_worker_thread(h_c, args.port, f_c, args.cold_iters, args.warm_iters, args.runtime, thread_id, b_c).await }));
   }
 
   let mut results = resolve_handles(threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
@@ -268,15 +250,15 @@ pub fn benchmark_worker(threaded_rt: &Runtime, host: String, port: Port, functio
     }
   }
 
-  let p = Path::new(&out_folder).join(format!("worker_function_benchmarks.json"));
+  let p = Path::new(&args.out_folder).join(format!("worker_function_benchmarks.json"));
   save_result_json(p, &full_data)?;
-  let p = Path::new(&out_folder).join(format!("benchmark-full.json"));
+  let p = Path::new(&args.out_folder).join(format!("benchmark-full.json"));
   save_result_json(p, &combined)?;
-  let p = Path::new(&out_folder).join("benchmark-output.csv".to_string());
+  let p = Path::new(&args.out_folder).join("benchmark-output.csv".to_string());
   save_worker_result_csv(p, &combined)
 }
 
-async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenchmarkFunction>, mut cold_repeats: u32, warm_repeats: u32, duration_sec: u64, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<Vec<CompletedWorkerInvocation>> {
+async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenchmarkFunction>, mut cold_repeats: u32, warm_repeats: u32, duration_sec: u32, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<Vec<CompletedWorkerInvocation>> {
   let mut ret = vec![];
   let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
   let clock = Arc::new(LocalTime::new(&gen_tid())?);
@@ -303,7 +285,7 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenc
       barrier.wait().await;
 
       if duration_sec != 0 {
-        let timeout = Duration::from_secs(duration_sec);
+        let timeout = Duration::from_secs(duration_sec as u64);
         let start = SystemTime::now();
         while start.elapsed()? < timeout {
           match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory).await {

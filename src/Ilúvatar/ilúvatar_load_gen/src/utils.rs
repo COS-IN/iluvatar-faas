@@ -1,5 +1,5 @@
 use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc};
-use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
+use iluvatar_worker_library::{rpc::{InvokeResponse, RegisterResponse}, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult};
 use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::MemSizeMb, logging::LocalTime};
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,22 @@ use tokio::{runtime::Runtime, task::JoinHandle};
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
+}
+
+#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Target {
+  Worker,
+  Controller,
+}
+#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LoadType {
+  Lookbusy,
+  Functions,
+}
+#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RunType {
+  Live,
+  Simulation,
 }
 
 #[derive(Serialize,Deserialize)]
@@ -224,9 +240,17 @@ pub async fn worker_register(name: String, version: &String, image: String, memo
   let rpc = "RPC".to_string();
   let mut api = factory.get_worker_api(&host, &host, port, &rpc, &tid).await?;
   let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
+  
+
   match reg_out {
-    Ok(s) => Ok( (s,reg_dur,tid) ),
-    Err(e) => anyhow::bail!("worker registration failed because {:?}", e),
+    Ok(s) => match serde_json::from_str::<RegisterResponse>(&s) {
+      Ok(r) => match r.success {
+        true => Ok( (s,reg_dur,tid) ),
+        false => anyhow::bail!("worker registration parsing failed because {:?}", r.function_json_result),
+      },
+      Err(e) => anyhow::bail!("worker registration parsing failed because {:?}", e),
+    },
+    Err(e) => anyhow::bail!("worker registration encoutered an error because {:?}", e),
   }
 }
 

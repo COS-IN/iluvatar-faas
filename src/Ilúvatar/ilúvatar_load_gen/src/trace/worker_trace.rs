@@ -1,16 +1,15 @@
 use std::{collections::HashMap, sync::Arc, path::Path, cmp::max};
 use anyhow::Result;
-use iluvatar_library::{utils::{config::{get_val, args_to_json}, timing::TimedExt, port::Port}, transaction::{TransactionId, gen_tid}, logging::LocalTime};
+use iluvatar_library::{utils::{config::{args_to_json}, timing::TimedExt}, transaction::{TransactionId, gen_tid}, logging::LocalTime};
 use iluvatar_worker_library::{worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, rpc::PrewarmRequest};
 use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationInvocation};
-use clap::ArgMatches;
 use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
 use std::time::SystemTime;
 use iluvatar_worker_library::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse};
 use tonic::Request;
-use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, FunctionExecOutput}, trace::trace_utils::{prepare_functions, RegisterTarget, map_functions_to_prep}};
+use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, FunctionExecOutput, RunType}, trace::trace_utils::{prepare_functions, RegisterTarget, map_functions_to_prep}};
 use crate::trace::prepare_function_args;
-use super::{Function, CsvInvocation};
+use super::{Function, CsvInvocation, TraceArgs};
 
 fn sim_register_functions(funcs: &HashMap<String, Function>, worker: Arc<IluvatarWorkerImpl>, rt: &Runtime) -> Result<()> {
   let mut handles: Vec<JoinHandle<Result<RegisterResponse>>> = Vec::new();
@@ -40,18 +39,16 @@ fn sim_register_functions(funcs: &HashMap<String, Function>, worker: Arc<Iluvata
   Ok(())
 }
 
-pub fn trace_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let setup: String = get_val("setup", &sub_args)?;
-  match setup.as_str() {
-    "simulation" => simulated_worker(main_args, sub_args),
-    "live" => live_worker(main_args, sub_args),
-    _ => anyhow::bail!("Unknown setup for trace run '{}'; only supports 'simulation' and 'live'", setup)
+pub fn trace_worker(args: TraceArgs) -> Result<()> {
+  match args.setup {
+    RunType::Simulation => simulated_worker(args),
+    RunType::Live => live_worker(args),
   }
 }
 
-fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let config_pth: String = get_val("worker-config", &sub_args)?;
-  let server_config = iluvatar_worker_library::worker_api::worker_config::Configuration::boxed(false, &config_pth).unwrap();
+fn simulated_worker(args: TraceArgs) -> Result<()> {
+  let worker_config_pth = args.worker_config.as_ref().ok_or_else(|| anyhow::anyhow!("Must have 'worker_config' for sim"))?.clone();
+  let server_config = iluvatar_worker_library::worker_api::worker_config::Configuration::boxed(false, &worker_config_pth).unwrap();
   let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
   let threaded_rt = Builder::new_multi_thread()
                         .enable_all()
@@ -61,14 +58,8 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
   let worker = threaded_rt.block_on(create_worker(server_config.clone(), tid))?;
   let worker = Arc::new(worker);
 
-  let trace_pth: String = get_val("input", &sub_args)?;
-  let load_type: String = get_val("load-type", &sub_args)?;
-  let func_data: Result<String> = get_val("function-data", &sub_args);
-  let prewarm_count: u32 = get_val("prewarm", &sub_args)?;
-  let metadata_pth: String = get_val("metadata", &sub_args)?;
-
-  let mut metadata = super::load_metadata(metadata_pth)?;
-  map_functions_to_prep(&load_type, func_data, &mut metadata, prewarm_count, &trace_pth)?;
+  let mut metadata = super::load_metadata(args.metadata_csv)?;
+  map_functions_to_prep(args.load_type, args.function_data, &mut metadata, args.prewarms, &args.input_csv)?;
   sim_register_functions(&metadata, worker.clone(), &threaded_rt)?;
 
   let mut prewarm_calls= vec![];
@@ -96,7 +87,7 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
     threaded_rt.block_on(h)??;
   }
 
-  let mut trace_rdr = csv::Reader::from_path(&trace_pth)?;
+  let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
   let mut handles = Vec::new(); // : Vec<JoinHandle<Result<(u128, InvokeResponse)>>>
 
   println!("starting simulation run");
@@ -154,21 +145,15 @@ fn simulated_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()>
 
   let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
 
-  let pth = Path::new(&trace_pth);
-  let output_folder: String = get_val("out", &main_args)?;
-  let p = Path::new(&output_folder).join(format!("output-{}", pth.file_name().expect("Could not find a file name").to_str().unwrap()));
+  let pth = Path::new(&args.input_csv);
+  let p = Path::new(&args.out_folder).join(format!("output-{}", pth.file_name().expect("Could not find a file name").to_str().unwrap()));
   save_worker_result_csv(p, &results)?;
 
-  let p = Path::new(&output_folder).join(format!("output-full-{}.json", pth.file_stem().expect("Could not find a file name").to_str().unwrap()));
+  let p = Path::new(&args.out_folder).join(format!("output-full-{}.json", pth.file_stem().expect("Could not find a file name").to_str().unwrap()));
   save_result_json(p, &results)
 }
 
-fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
-  let load_type: String = get_val("load-type", &sub_args)?;
-  let func_data: Result<String> = get_val("function-data", &sub_args);
-  let prewarm_count: u32 = get_val("prewarm", &sub_args)?;
-  let port: Port = get_val("port", &main_args)?;
-  let host: String = get_val("host", &main_args)?;
+fn live_worker(args: TraceArgs) -> Result<()> {
   let tid: &TransactionId = &iluvatar_library::transaction::LIVE_WORKER_LOAD_TID;
   let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
 
@@ -176,15 +161,13 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
                         .enable_all()
                         .build().unwrap();
 
-  let trace_pth: String = get_val("input", &sub_args)?;
-  let metadata_pth: String = get_val("metadata", &sub_args)?;
-  let mut metadata = super::load_metadata(metadata_pth)?;
+  let mut metadata = super::load_metadata(args.metadata_csv)?;
 
-  prepare_functions(RegisterTarget::LiveWorker, &mut metadata, &host, port, &load_type, func_data, &threaded_rt, prewarm_count, &trace_pth, &factory)?;
+  prepare_functions(RegisterTarget::LiveWorker, &mut metadata, &args.host, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
 
-  let mut trace_rdr = match csv::Reader::from_path(&trace_pth) {
+  let mut trace_rdr = match csv::Reader::from_path(&args.input_csv) {
     Ok(r) => r,
-    Err(e) => anyhow::bail!("Unable to open trace csv file '{}' because of error '{}'", trace_pth, e),
+    Err(e) => anyhow::bail!("Unable to open trace csv file '{}' because of error '{}'", args.input_csv, e),
   };
   let mut handles: Vec<JoinHandle<Result<CompletedWorkerInvocation>>> = Vec::new();
   let clock = Arc::new(LocalTime::new(tid)?);
@@ -197,9 +180,9 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
       Err(e) => anyhow::bail!("Error deserializing csv invocation: {}", e),
     };
     let func = metadata.get(&invoke.func_name).unwrap();
-    let h_c = host.clone();
+    let h_c = args.host.clone();
     let f_c = func.func_name.clone();
-    let args = args_to_json(prepare_function_args(func, &load_type));
+    let func_args = args_to_json(prepare_function_args(func, args.load_type));
     loop {
       match start.elapsed() {
         Ok(t) => {
@@ -214,17 +197,16 @@ fn live_worker(main_args: &ArgMatches, sub_args: &ArgMatches) -> Result<()> {
     let clk_clone = clock.clone();
     let fct_cln = factory.clone();
     handles.push(threaded_rt.spawn(async move {
-      worker_invoke(&f_c, &VERSION, &h_c, port, &gen_tid(), Some(args), clk_clone, &fct_cln).await
+      worker_invoke(&f_c, &VERSION, &h_c, args.port, &gen_tid(), Some(func_args), clk_clone, &fct_cln).await
     }));
   }
 
   let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
 
-  let pth = Path::new(&trace_pth);
-  let output_folder: String = get_val("out", &main_args)?;
-  let p = Path::new(&output_folder).join(format!("output-{}", pth.file_name().expect("Could not find a file name").to_str().unwrap()));
+  let pth = Path::new(&args.input_csv);
+  let p = Path::new(&args.out_folder).join(format!("output-{}", pth.file_name().expect("Could not find a file name").to_str().unwrap()));
   save_worker_result_csv(p, &results)?;
 
-  let p = Path::new(&output_folder).join(format!("output-full-{}.json", pth.file_stem().expect("Could not find a file name").to_str().unwrap()));
+  let p = Path::new(&args.out_folder).join(format!("output-full-{}.json", pth.file_stem().expect("Could not find a file name").to_str().unwrap()));
   save_result_json(p, &results)
 }
