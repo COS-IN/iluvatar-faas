@@ -81,7 +81,7 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
 
   let name = format!("scaling-{}", thread_id);
   let version = format!("0.0.{}", thread_id);
-  let (reg_result, reg_tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port, &factory).await {
+  let (reg_result, reg_tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port, &factory, None).await {
     Ok((s, reg_dur, tid)) => (RegistrationResult {
       duration_us: reg_dur.as_micros(),
       result: s
@@ -98,7 +98,7 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
   while let Some(i) = it.next() {
     let wait = rand::thread_rng().gen_range(0..5000);
     tokio::time::sleep(Duration::from_millis(wait)).await;
-    match worker_prewarm(&name, &version, &host, port, &reg_tid, &factory).await {
+    match worker_prewarm(&name, &version, &host, port, &reg_tid, &factory, None).await {
       Ok((_s, _prewarm_dur)) => break,
       Err(e) => { 
         errors = format!("{} iteration {}: '{}';\n", errors, i, e);
@@ -118,7 +118,7 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
   let clock = Arc::new(LocalTime::new(&gen_tid())?);
   loop {
     let tid = format!("{}-{}", thread_id, gen_tid());
-    match worker_invoke(&name, &version, &host, port, &tid, Some("{\"name\":\"TESTING\"}".to_string()), clock.clone(), &factory).await {
+    match worker_invoke(&name, &version, &host, port, &tid, Some("{\"name\":\"TESTING\"}".to_string()), clock.clone(), &factory, None).await {
       Ok( worker_invocation ) => {
         data.push(worker_invocation);
       },

@@ -1,5 +1,5 @@
-use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc};
-use iluvatar_worker_library::{rpc::{InvokeResponse, RegisterResponse}, worker_api::worker_comm::WorkerAPIFactory};
+use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc, collections::HashMap};
+use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult};
 use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::MemSizeMb, logging::LocalTime};
 use serde::{Deserialize, Serialize};
@@ -235,28 +235,33 @@ pub async fn controller_register(name: &String, version: &String, image: &String
   }
 }
 
-pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port, factory: &Arc<WorkerAPIFactory>) -> Result<(String, Duration, TransactionId)> {
+pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port, factory: &Arc<WorkerAPIFactory>, comm_method: Option<&str>) -> Result<(String, Duration, TransactionId)> {
   let tid: TransactionId = format!("{}-reg-tid", name);
-  let rpc = "RPC".to_string();
-  let mut api = factory.get_worker_api(&host, &host, port, &rpc, &tid).await?;
+  let method = match comm_method {
+    Some(m) => m,
+    None => "RPC",
+  };
+  let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
   let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
-  
 
   match reg_out {
-    Ok(s) => match serde_json::from_str::<RegisterResponse>(&s) {
-      Ok(r) => match r.success {
-        true => Ok( (s,reg_dur,tid) ),
-        false => anyhow::bail!("worker registration parsing failed because {:?}", r.function_json_result),
+    Ok(s) => match serde_json::from_str::<HashMap<String, String>>(&s) {
+      Ok(r) => match r.get("Ok") {
+        Some(_) => Ok( (s,reg_dur,tid) ),
+        None => anyhow::bail!("worker registration did not have 'Ok', got {:?}", r),
       },
-      Err(e) => anyhow::bail!("worker registration parsing failed because {:?}", e),
+      Err(e) => anyhow::bail!("worker registration parsing '{:?}' failed because {:?}", s, e),
     },
     Err(e) => anyhow::bail!("worker registration encoutered an error because {:?}", e),
   }
 }
 
-pub async fn worker_prewarm(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, factory: &Arc<WorkerAPIFactory>) -> Result<(String, Duration)> {
-  let rpc = "RPC".to_string();
-  let mut api = factory.get_worker_api(&host, &host, port, &rpc, &tid).await?;
+pub async fn worker_prewarm(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, factory: &Arc<WorkerAPIFactory>, comm_method: Option<&str>) -> Result<(String, Duration)> {
+  let method = match comm_method {
+    Some(m) => m,
+    None => "RPC",
+  };
+  let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
   let (res, dur) = api.prewarm(name.clone(), version.clone(), None, None, None, tid.to_string()).timed().await;
   match res {
     Ok(s) => Ok( (s, dur) ),
@@ -264,14 +269,20 @@ pub async fn worker_prewarm(name: &String, version: &String, host: &String, port
   }
 }
 
-pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>, clock: Arc<LocalTime>, factory: &Arc<WorkerAPIFactory>) -> Result<CompletedWorkerInvocation> {
+pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>, clock: Arc<LocalTime>, factory: &Arc<WorkerAPIFactory>, comm_method: Option<&str>) -> Result<CompletedWorkerInvocation> {
   let args = match args {
     Some(a) => a,
     None => "{}".to_string(),
   };
-  let rpc = "RPC".to_string();
-  let mut api = factory.get_worker_api(&host, &host, port, &rpc, &tid).await?;
+  let method = match comm_method {
+    Some(m) => m,
+    None => "RPC",
+  };
   let invoke_start = clock.now_str()?;
+  let mut api = match factory.get_worker_api(&host, &host, port, method, &tid).await {
+    Ok(a) => a,
+    Err(e) => anyhow::bail!("API creation error: {:?}", e),
+  };
 
   let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), args, None, tid.clone()).timed().await;
   let c = match invok_out {

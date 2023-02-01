@@ -47,7 +47,7 @@ pub struct TraceArgs {
   #[arg(short, long)]
   /// Port controller/worker is listening on
   port: Port,
-  #[arg(short, long)]
+  #[arg(long)]
   /// Host controller/worker is on
   host: String,
   #[arg(short, long)]

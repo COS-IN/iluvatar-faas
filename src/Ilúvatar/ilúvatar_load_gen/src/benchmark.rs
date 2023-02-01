@@ -275,7 +275,7 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenc
     for iter in 0..cold_repeats {
       let name = format!("{}.{}.{}", &function.name, thread_cnt, iter);
       let version = iter.to_string();
-      let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, function.image_name.clone(), 512, host.clone(), port, &factory).await {
+      let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, function.image_name.clone(), 512, host.clone(), port, &factory, None).await {
         Ok(r) => r,
         Err(e) => {
           println!("{}", e);
@@ -288,14 +288,14 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenc
         let timeout = Duration::from_secs(duration_sec as u64);
         let start = SystemTime::now();
         while start.elapsed()? < timeout {
-          match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory).await {
+          match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory, None).await {
             Ok(r) => ret.push(r),
             Err(_) => continue,
           };
         }
       } else {
         for _ in 0..warm_repeats+1 {
-          match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory).await {
+          match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory, None).await {
             Ok(r) => ret.push(r),
             Err(_) => continue,
           };

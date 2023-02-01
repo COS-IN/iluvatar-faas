@@ -49,8 +49,8 @@ impl WorkerAPIFactory {
   }
 
   /// Get the worker API that matches it's implemented communication method
-  pub async fn get_worker_api(&self, worker: &String, host: &String, port: Port, communication_method: &String, tid: &TransactionId) -> Result<Box<dyn WorkerAPI + Send>> {
-    if communication_method.as_str() == "RPC" {
+  pub async fn get_worker_api(&self, worker: &String, host: &String, port: Port, communication_method: &str, tid: &TransactionId) -> Result<Box<dyn WorkerAPI + Send>> {
+    if communication_method == "RPC" {
       match self.try_get_rpcapi(worker) {
         Some(r) => Ok(Box::new(r)),
         None => {
@@ -62,11 +62,14 @@ impl WorkerAPIFactory {
           Ok(Box::new(api))
         },
       }
-    } else if communication_method.as_str() == "simulation" {
+    } else if communication_method == "simulation" {
       let api = match self.try_get_simapi(worker) {
         Some(api) => api,
         None => {
-          let worker_config = crate::worker_api::worker_config::Configuration::boxed(false, &host)?;
+          let worker_config = match crate::worker_api::worker_config::Configuration::boxed(false, &host) {
+            Ok(w) => w,
+            Err(e) => anyhow::bail!("Failed to load config because '{:?}'", e),
+          };
           let api = create_worker(worker_config, tid).await?;
           let api = Arc::new(api);
           self.sim_apis.insert(worker.clone(), api.clone());

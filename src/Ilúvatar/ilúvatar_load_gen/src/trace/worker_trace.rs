@@ -1,43 +1,12 @@
-use std::{collections::HashMap, sync::Arc, path::Path, cmp::max};
+use std::{sync::Arc, path::Path};
 use anyhow::Result;
-use iluvatar_library::{utils::{config::{args_to_json}, timing::TimedExt}, transaction::{TransactionId, gen_tid}, logging::LocalTime};
-use iluvatar_worker_library::{worker_api::{create_worker, ilúvatar_worker::IluvatarWorkerImpl}, rpc::PrewarmRequest};
+use iluvatar_library::{utils::config::args_to_json, transaction::{TransactionId, gen_tid}, logging::LocalTime};
 use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationInvocation};
-use tokio::{runtime::{Builder, Runtime}, task::JoinHandle};
+use tokio::{runtime::Builder, task::JoinHandle};
 use std::time::SystemTime;
-use iluvatar_worker_library::rpc::{iluvatar_worker_server::IluvatarWorker, InvokeRequest, RegisterRequest, RegisterResponse};
-use tonic::Request;
-use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, FunctionExecOutput, RunType}, trace::trace_utils::{prepare_functions, RegisterTarget, map_functions_to_prep}};
+use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, RunType}, trace::trace_utils::prepare_functions};
 use crate::trace::prepare_function_args;
-use super::{Function, CsvInvocation, TraceArgs};
-
-fn sim_register_functions(funcs: &HashMap<String, Function>, worker: Arc<IluvatarWorkerImpl>, rt: &Runtime) -> Result<()> {
-  let mut handles: Vec<JoinHandle<Result<RegisterResponse>>> = Vec::new();
-  for (_k, v) in funcs.into_iter() {
-    let r = RegisterRequest {
-      function_name: v.func_name.clone(),
-      function_version: "0.0.1".to_string(),
-      image_name: "".to_string(),
-      memory: max(5, v.mem_mb),
-      cpus: 1, 
-      parallel_invokes: 1,
-      transaction_id : format!("{}-reg-tid", v.func_name)
-    };
-    let cln = worker.clone();
-    handles.push(rt.spawn(async move {
-      let resp = cln.register(Request::new(r)).await?;
-      let resp = resp.into_inner();
-      match &resp.success {
-        true => Ok(resp),
-        false => anyhow::bail!("Registration failed beceause '{}'", resp.function_json_result),
-      }
-    }));
-  }
-  for h in handles {
-    rt.block_on(h)??;
-  }
-  Ok(())
-}
+use super::{CsvInvocation, TraceArgs};
 
 pub fn trace_worker(args: TraceArgs) -> Result<()> {
   match args.setup {
@@ -53,39 +22,12 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
   let threaded_rt = Builder::new_multi_thread()
                         .enable_all()
                         .build().unwrap();
-
   let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name, tid)?;
-  let worker = threaded_rt.block_on(create_worker(server_config.clone(), tid))?;
-  let worker = Arc::new(worker);
 
   let mut metadata = super::load_metadata(args.metadata_csv)?;
-  map_functions_to_prep(args.load_type, args.function_data, &mut metadata, args.prewarms, &args.input_csv)?;
-  sim_register_functions(&metadata, worker.clone(), &threaded_rt)?;
+  let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
 
-  let mut prewarm_calls= vec![];
-  for (func_name, func) in metadata.iter() {
-    println!("{} prewarming {:?} containers for function '{}'", LocalTime::new(&"PREWARM_LOAD_GEN".to_string())?.now_str()?, func.prewarms, func_name);
-    for i in 0..func.prewarms.ok_or_else(|| anyhow::anyhow!("Function '{}' did not have a prewarm value, supply one or pass a benchmark file", func_name))? {
-      let tid = format!("{}-{}-prewarm", i, &func_name);
-      let f_c = func_name.clone();
-      let mem = metadata.get(func_name).unwrap().mem_mb;
-      let w_c = worker.clone();
-      prewarm_calls.push(threaded_rt.spawn(async move {
-        let req = PrewarmRequest {
-            function_name: f_c,
-            function_version: "0.0.1".to_string(),
-            memory: mem,
-            cpu: 1,
-            image_name: "".to_string(),
-            transaction_id: tid,
-        };
-        w_c.prewarm(Request::new(req)).await
-      }));
-    }
-  }
-  for h in prewarm_calls {
-    threaded_rt.block_on(h)??;
-  }
+  prepare_functions(crate::utils::Target::Worker, RunType::Simulation, &mut metadata, &worker_config_pth, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
 
   let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
   let mut handles = Vec::new(); // : Vec<JoinHandle<Result<(u128, InvokeResponse)>>>
@@ -97,7 +39,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
     let invoke: CsvInvocation = result?;
     let func = metadata.get(&invoke.func_name).unwrap();
 
-    let args = SimulationInvocation {
+    let func_args = SimulationInvocation {
       warm_dur_ms: func.warm_dur_ms,
       cold_dur_ms: func.cold_dur_ms,
     };
@@ -113,33 +55,12 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
         Err(_) => (),
       }
     };
-    let cln = worker.clone();
     let f_c = func.func_name.clone();
-    let mb = func.mem_mb;
-    let start = clock.now_str()?;
+    let clk_clone = clock.clone();
+    let fct_cln = factory.clone();
+    let h_c = worker_config_pth.clone();
     handles.push(threaded_rt.spawn(async move {
-      let tid = gen_tid();
-      let req = InvokeRequest {
-        function_name: f_c.clone(),
-        function_version: VERSION.clone(),
-        memory: mb,
-        json_args: serde_json::to_string(&args)?,
-        transaction_id: tid.clone()
-      };
-  
-      let (reg_out, reg_dur) = cln.invoke(Request::new(req)).timed().await;
-      let resp = reg_out?.into_inner();
-      let result = serde_json::from_str::<FunctionExecOutput>(&resp.json_result)?;
-      let r = CompletedWorkerInvocation {
-        function_output: result,
-        client_latency_us: reg_dur.as_micros(),
-        function_name: f_c,
-        function_version: VERSION.clone(),
-        tid,
-        invoke_start: start,
-        worker_response: resp,
-      };
-      Ok(r)
+      worker_invoke(&f_c, &VERSION, &h_c, args.port, &gen_tid(), Some(serde_json::to_string(&func_args)?), clk_clone, &fct_cln, Some("simulation")).await
     }));
   }
 
@@ -163,7 +84,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
 
   let mut metadata = super::load_metadata(args.metadata_csv)?;
 
-  prepare_functions(RegisterTarget::LiveWorker, &mut metadata, &args.host, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
+  prepare_functions(crate::utils::Target::Worker, RunType::Live, &mut metadata, &args.host, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
 
   let mut trace_rdr = match csv::Reader::from_path(&args.input_csv) {
     Ok(r) => r,
@@ -197,7 +118,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
     let clk_clone = clock.clone();
     let fct_cln = factory.clone();
     handles.push(threaded_rt.spawn(async move {
-      worker_invoke(&f_c, &VERSION, &h_c, args.port, &gen_tid(), Some(func_args), clk_clone, &fct_cln).await
+      worker_invoke(&f_c, &VERSION, &h_c, args.port, &gen_tid(), Some(func_args), clk_clone, &fct_cln, None).await
     }));
   }
 
