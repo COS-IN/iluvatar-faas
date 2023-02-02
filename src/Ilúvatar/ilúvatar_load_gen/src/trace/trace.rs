@@ -58,17 +58,15 @@ pub struct TraceArgs {
 pub fn run_trace(args: TraceArgs) -> Result<()> {
   match args.target {
     Target::Worker => worker_trace::trace_worker(args),
-    Target::Controller => {
-          match args.setup {
-            RunType::Live => controller_sim::controller_trace_sim(args),
-            RunType::Simulation => controller_live::controller_trace_live(args),
-          }
-        },
+    Target::Controller => match args.setup {
+            RunType::Live => controller_live::controller_trace_live(args),
+            RunType::Simulation => controller_sim::controller_trace_sim(args),
+          },
   }
 }
 
-fn load_metadata(path: String) -> Result<HashMap<String, Function>> {
-  let mut rdr = match csv::Reader::from_path(&path) {
+fn load_metadata(path: &String) -> Result<HashMap<String, Function>> {
+  let mut rdr = match csv::Reader::from_path(path) {
     Ok(r) => r,
     Err(e) => anyhow::bail!("Unable to open metadata csv file '{}' because of error '{}'", path, e),
   };

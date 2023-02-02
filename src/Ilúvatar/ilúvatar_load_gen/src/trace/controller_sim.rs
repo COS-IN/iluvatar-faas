@@ -1,16 +1,16 @@
-use std::{collections::HashMap, time::{SystemTime, Duration}, path::Path, fs::File, io::Write, sync::Arc};
+use std::{collections::HashMap, time::{SystemTime, Duration}, sync::Arc};
 use anyhow::Result;
-use iluvatar_library::{utils::{timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID}};
-use iluvatar_controller_library::controller::{controller_structs::json::{ControllerInvokeResult, RegisterFunction}, web_server::register_function, controller::Controller};
+use iluvatar_library::{utils::{timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID, gen_tid}, logging::LocalTime};
+use iluvatar_controller_library::controller::{controller_structs::json::{ControllerInvokeResult, RegisterFunction, Prewarm}, web_server::{register_function, prewarm}, controller::Controller};
 use actix_web::{web::{Json, Data}, body::MessageBody};
 use iluvatar_controller_library::controller::web_server::{invoke, register_worker};
 use iluvatar_controller_library::controller::structs::json::Invoke;
 use tokio::{runtime::Builder, task::JoinHandle};
-use crate::{trace::CsvInvocation, utils::VERSION};
-use super::{Function, TraceArgs};
+use crate::{trace::{CsvInvocation, trace_utils::map_functions_to_prep}, utils::{VERSION, FunctionExecOutput, CompletedControllerInvocation, resolve_handles}};
+use super::{Function, TraceArgs, trace_utils::save_controller_results};
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 
-async fn register_workers(num_workers: usize, server_data: &Data<Controller>, worker_config_pth: &String, worker_config: &Arc<WorkerConfig>) -> Result<()> {
+async fn controller_sim_register_workers(num_workers: usize, server_data: &Data<Controller>, worker_config_pth: &String, worker_config: &Arc<WorkerConfig>) -> Result<()> {
   for i in 0..num_workers {
     let r = iluvatar_controller_library::controller::controller_structs::json::RegisterWorker {
       name: format!("worker_{}", i),
@@ -30,10 +30,10 @@ async fn register_workers(num_workers: usize, server_data: &Data<Controller>, wo
   Ok(())
 }
 
-async fn register_functions(metadata: &HashMap<String, Function>, server_data: &Data<Controller>) -> Result<()> {
-  for (id, func) in metadata.iter() {
+async fn controller_sim_register_functions(metadata: &HashMap<String, Function>, server_data: &Data<Controller>) -> Result<()> {
+  for (_, func) in metadata.iter() {
     let r = RegisterFunction {
-      function_name: id.to_string(),
+      function_name: func.func_name.to_string(),
       function_version: VERSION.clone(),
       image_name: "".to_string(),
       memory: func.mem_mb,
@@ -49,24 +49,54 @@ async fn register_functions(metadata: &HashMap<String, Function>, server_data: &
   Ok(())
 }
 
-async fn controller_invoke(func_name: String, server_data: Data<Controller>, warm_dur_ms: u64, cold_dur_ms: u64) -> Result<(ControllerInvokeResult, u128)> {
+async fn controller_sim_prewarm_functions(metadata: &HashMap<String, Function>, server_data: &Data<Controller>) -> Result<()> {
+  for (_, func) in metadata.iter() {
+    for _ in 0..func.prewarms.ok_or_else(|| anyhow::anyhow!("Function '{:?}' did not have a prewarm value, supply one or pass a benchmark file", func))? {
+      let r = Prewarm {
+        function_name: func.func_name.to_string(),
+        function_version: VERSION.clone(),
+      };
+      let response = prewarm(server_data.clone(), Json{0:r}).await;
+      if ! response.status().is_success() {
+        let text = response.body();
+        anyhow::bail!("Prewarm failed with '{:?}' '{:?}", response.headers(), text)
+      }
+    }
+  }
+  Ok(())
+}
+
+async fn controller_sim_invoke(func_name: String, server_data: Data<Controller>, warm_dur_ms: u64, cold_dur_ms: u64, clock: Arc<LocalTime>) -> Result<CompletedControllerInvocation> {
   let i = Invoke{function_name: func_name.clone(), function_version:VERSION.clone(), 
     args:Some(vec![format!("warm_dur_ms={}", warm_dur_ms), format!("cold_dur_ms={}", cold_dur_ms)])};
-  let (response, dur) = invoke(server_data, Json{0:i}).timed().await;
+
+  let invoke_start = clock.now_str()?;
+  let (response, invok_lat) = invoke(server_data, Json{0:i}).timed().await;
   if ! response.status().is_success() {
     let text = response.body();
-    anyhow::bail!("Invocation failed with '{:?}' '{:?}", response.headers(), text)
+    return Ok(CompletedControllerInvocation::error(format!("Invocation error: {:?}", text), &func_name, &VERSION, None, invoke_start));
   }
   let b = response.into_body();
   let bytes = match b.try_into_bytes() {
     Ok(b) => b,
-    Err(e) => anyhow::bail!("failed to reat http bytes because {:?}", e),
+    Err(e) => return Ok(CompletedControllerInvocation::error(format!("Error converting body into bytes: {:?}", e), &func_name, &VERSION, None, invoke_start)),
   };
 
-  match serde_json::from_slice::<ControllerInvokeResult>(&bytes) {
-    Ok(r) => Ok( (r, dur.as_micros()) ),
-    Err(e) => anyhow::bail!("Deserialization error of ControllerInvokeResult: {}", e),
-  }
+  let r = match serde_json::from_slice::<ControllerInvokeResult>(&bytes) {
+    Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
+      Ok(feo) => CompletedControllerInvocation {
+        controller_response: r,
+        function_output: feo,
+        client_latency_us: invok_lat.as_micros(),
+        function_name: func_name.clone(),
+        function_version: VERSION.clone(),
+        invoke_start,
+      },
+      Err(e) => CompletedControllerInvocation::error(format!("FunctionExecOutput Deserialization error: {}; {}", e, &r.json_result), &func_name, &VERSION, Some(&r.tid), invoke_start),
+    },
+    Err(e) => CompletedControllerInvocation::error(format!("Invocation error: {}", e), &func_name, &VERSION, None, invoke_start),
+  };
+  Ok(r)
 }
 
 pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
@@ -75,6 +105,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
   let threaded_rt = Builder::new_multi_thread()
       .enable_all()
       .build().unwrap();
+  let clock = Arc::new(LocalTime::new(&gen_tid())?);
 
   let tid: &TransactionId = &SIMULATION_START_TID;
   let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(false, &worker_config_pth).unwrap();
@@ -84,12 +115,14 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
   let server = threaded_rt.block_on(async { Controller::new(controller_config.clone(), tid) });
   let server_data = actix_web::web::Data::new(server);
 
-  threaded_rt.block_on(register_workers(args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize, &server_data, &worker_config_pth, &worker_config))?;
-  let metadata = super::load_metadata(args.metadata_csv)?;
-  threaded_rt.block_on(register_functions(&metadata, &server_data))?;
+  threaded_rt.block_on(controller_sim_register_workers(args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize, &server_data, &worker_config_pth, &worker_config))?;
+  let mut metadata = super::load_metadata(&args.metadata_csv)?;
+  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, 0, &args.input_csv)?;
+  threaded_rt.block_on(controller_sim_register_functions(&metadata, &server_data))?;
+  threaded_rt.block_on(controller_sim_prewarm_functions(&metadata, &server_data))?;
 
   let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
-  let mut handles: Vec<JoinHandle<Result<(ControllerInvokeResult, u128)>>> = Vec::new();
+  let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();
 
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
@@ -110,46 +143,11 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
     let warm_dur_ms = func.warm_dur_ms;
     let cold_dur_ms = func.cold_dur_ms;
     let server_data_cln = server_data.clone();
+    let clk = clock.clone();
     handles.push(threaded_rt.spawn(async move {
-      controller_invoke(invocation.func_name, server_data_cln, warm_dur_ms, cold_dur_ms).await
+      controller_sim_invoke(invocation.func_name, server_data_cln, warm_dur_ms, cold_dur_ms, clk).await
     }));
   }
-
-  let pth = Path::new(&args.input_csv);
-  let p = Path::new(&args.out_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
-  let mut f = match File::create(p) {
-    Ok(f) => f,
-    Err(e) => {
-      anyhow::bail!("Failed to create output file because {}", e);
-    }
-  };
-  let to_write = format!("success,function_name,was_cold,worker_duration_us,invocation_duration_us,code_duration_us,e2e_duration_us\n");
-  match f.write_all(to_write.as_bytes()) {
-    Ok(_) => (),
-    Err(e) => {
-      anyhow::bail!("Failed to write json of result because {}", e);
-    }
-  };
-  //   TODO: this 
-
-  // for h in handles {
-  //   match threaded_rt.block_on(h) {
-  //     Ok(r) => match r {
-  //       Ok( (resp, e2e_dur) ) => {
-  //         let result = serde_json::from_str::<FunctionExecOutput>(&resp.json_result)?;
-  //         let to_write = format!("{},{},{},{},{},{}\n", resp.success, result.function_name, result.was_cold, resp.worker_duration_us, result.duration_us, e2e_dur);
-  //         match f.write_all(to_write.as_bytes()) {
-  //           Ok(_) => (),
-  //           Err(e) => {
-  //             println!("Failed to write result because {}", e);
-  //             continue;
-  //           }
-  //         };
-  //       },
-  //       Err(e) => println!("Status error from invoke: {}", e),
-  //     },
-  //     Err(thread_e) => println!("Joining error: {}", thread_e),
-  //   };
-  // }
-  Ok(())
+  let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
+  save_controller_results(results, &args)
 }

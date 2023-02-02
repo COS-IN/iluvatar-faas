@@ -1,6 +1,6 @@
 use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc, collections::HashMap};
 use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
-use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult};
+use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult, Prewarm};
 use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::MemSizeMb, logging::LocalTime};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
@@ -231,6 +231,34 @@ pub async fn controller_register(name: &String, version: &String, image: &String
     },
     Err(e) =>{
       anyhow::bail!("HTTP error when trying to register function with the load balancer '{}'", e);
+    },
+  }
+}
+
+pub async fn controller_prewarm(name: &String, version: &String, host: &String, port: Port) -> Result<Duration> {
+  let req = Prewarm {
+    function_name: name.clone(),
+    function_version: version.clone()
+  };
+  let client = reqwest::Client::new();
+  let (reg_out, reg_dur) =  client.post(format!("http://{}:{}/prewarm", &host, port))
+      .json(&req)
+      .header("Content-Type", "application/json")
+      .send()
+      .timed()
+      .await;
+  match reg_out {
+    Ok(r) => {
+      let status = r.status();
+      if status == reqwest::StatusCode::ACCEPTED {
+        Ok(reg_dur)
+      } else {
+        let text = r.text().await?;
+        anyhow::bail!("Got unexpected HTTP status when prewarming function with the load balancer '{}'; text: {}", status, text);
+      }
+    },
+    Err(e) =>{
+      anyhow::bail!("HTTP error when trying to prewarming function with the load balancer '{}'", e);
     },
   }
 }

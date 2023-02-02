@@ -1,10 +1,10 @@
-use std::{collections::HashMap, time::Duration, cmp::{min, max}, sync::Arc};
+use std::{collections::HashMap, time::Duration, cmp::{min, max}, sync::Arc, path::Path, fs::File, io::Write};
 use anyhow::Result;
 use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tokio::{runtime::Runtime, task::JoinHandle};
-use crate::{utils::{worker_register, VERSION, worker_prewarm, LoadType, Target, RunType}, benchmark::BenchmarkStore, trace::safe_cmp};
-use super::Function;
+use crate::{utils::{worker_register, VERSION, worker_prewarm, LoadType, RunType, CompletedControllerInvocation, save_result_json}, benchmark::BenchmarkStore, trace::safe_cmp};
+use super::{Function, TraceArgs};
 
 fn compute_prewarms(func: &Function, default_prewarms: u32) -> u32 {
   match default_prewarms {
@@ -72,7 +72,7 @@ fn map_from_lookbusy(funcs: &mut HashMap<String, Function>, default_prewarms: u3
   Ok(())
 }
 
-pub fn map_functions_to_prep(load_type: LoadType, func_json_data: Option<String>, funcs: &mut HashMap<String, Function>, 
+pub fn map_functions_to_prep(load_type: LoadType, func_json_data: &Option<String>, funcs: &mut HashMap<String, Function>, 
                             default_prewarms: u32, trace_pth: &String) -> Result<()> {
   match load_type {
     LoadType::Lookbusy => { return map_from_lookbusy(funcs, default_prewarms); },
@@ -138,30 +138,28 @@ fn worker_prewarm_functions(prewarm_data: &HashMap<String, Function>, host: &Str
   Ok(())
 }
 
-pub fn prepare_functions(target: Target, runtype: RunType, funcs: &mut HashMap<String, Function>, host: &String, 
+pub fn worker_prepare_functions(runtype: RunType, funcs: &mut HashMap<String, Function>, host: &String, 
                           port: Port, load_type: LoadType, func_data: Option<String>, rt: &Runtime, 
                           prewarms: u32, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
-  map_functions_to_prep(load_type, func_data, funcs, prewarms, trace_pth)?;
-  match target {
-    Target::Worker => prepare_worker(funcs, host, port, runtype, rt, factory),
-    Target::Controller => todo!(),
-  }
+  map_functions_to_prep(load_type, &func_data, funcs, prewarms, trace_pth)?;
+  prepare_worker(funcs, host, port, runtype, rt, factory)
 }
+
 
 fn prepare_worker(funcs: &mut HashMap<String, Function>, host: &String, port: Port, runtype: RunType, rt: &Runtime, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   match runtype {
     RunType::Live => {
-      wait_reg(&funcs, rt, port, host, factory, "RPC")?;
+      worker_wait_reg(&funcs, rt, port, host, factory, "RPC")?;
       worker_prewarm_functions(&funcs, host, port, rt, factory, "RPC")
     },
     RunType::Simulation => {
-      wait_reg(&funcs, rt, port, host, factory, "simulation")?;
+      worker_wait_reg(&funcs, rt, port, host, factory, "simulation")?;
       worker_prewarm_functions(&funcs, host, port, rt, factory, "simulation")
     },
   }
 }
 
-fn wait_reg(funcs: &HashMap<String, Function>, rt: &Runtime, port: Port, host: &String, factory: &Arc<WorkerAPIFactory>, method: &str) -> Result<()> {
+fn worker_wait_reg(funcs: &HashMap<String, Function>, rt: &Runtime, port: Port, host: &String, factory: &Arc<WorkerAPIFactory>, method: &str) -> Result<()> {
   let mut func_iter = funcs.into_iter();
   let mut cont = true;
   loop {
@@ -192,4 +190,39 @@ fn wait_reg(funcs: &HashMap<String, Function>, rt: &Runtime, port: Port, host: &
       return Ok(());
     }
   }
+}
+
+pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args: &TraceArgs) -> Result<()> {
+  let pth = Path::new(&args.input_csv);
+  let p = Path::new(&args.out_folder).join(format!("output-full{}.json", pth.file_stem().unwrap().to_str().unwrap()));
+  save_result_json(p, &results)?;
+
+  let pth = Path::new(&args.input_csv);
+  let p = Path::new(&args.out_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));
+  let mut f = match File::create(p) {
+    Ok(f) => f,
+    Err(e) => {
+      anyhow::bail!("Failed to create output file because {}", e);
+    }
+  };
+  let to_write = format!("success,function_name,was_cold,worker_duration_us,invocation_duration_us,code_duration_asec,e2e_duration_us\n");
+  match f.write_all(to_write.as_bytes()) {
+    Ok(_) => (),
+    Err(e) => {
+      anyhow::bail!("Failed to write json of result because {}", e);
+    }
+  };
+
+  for r in results {
+    let to_write = format!("{},{},{},{},{},{},{}\n", r.controller_response.success, r.function_name, r.function_output.body.cold,
+          r.controller_response.worker_duration_us, r.controller_response.invoke_duration_us, r.function_output.body.latency, r.client_latency_us);
+    match f.write_all(to_write.as_bytes()) {
+      Ok(_) => (),
+      Err(e) => {
+        println!("Failed to write result because {}", e);
+        continue;
+      }
+    };
+  };
+  Ok(())
 }

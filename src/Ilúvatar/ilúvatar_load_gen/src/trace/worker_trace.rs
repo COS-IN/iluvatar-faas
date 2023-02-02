@@ -4,7 +4,7 @@ use iluvatar_library::{utils::config::args_to_json, transaction::{TransactionId,
 use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationInvocation};
 use tokio::{runtime::Builder, task::JoinHandle};
 use std::time::SystemTime;
-use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, RunType}, trace::trace_utils::prepare_functions};
+use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, RunType}, trace::trace_utils::worker_prepare_functions};
 use crate::trace::prepare_function_args;
 use super::{CsvInvocation, TraceArgs};
 
@@ -24,10 +24,10 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
                         .build().unwrap();
   let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name, tid)?;
 
-  let mut metadata = super::load_metadata(args.metadata_csv)?;
+  let mut metadata = super::load_metadata(&args.metadata_csv)?;
   let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
 
-  prepare_functions(crate::utils::Target::Worker, RunType::Simulation, &mut metadata, &worker_config_pth, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
+  worker_prepare_functions(RunType::Simulation, &mut metadata, &worker_config_pth, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
 
   let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
   let mut handles = Vec::new(); // : Vec<JoinHandle<Result<(u128, InvokeResponse)>>>
@@ -82,9 +82,9 @@ fn live_worker(args: TraceArgs) -> Result<()> {
                         .enable_all()
                         .build().unwrap();
 
-  let mut metadata = super::load_metadata(args.metadata_csv)?;
+  let mut metadata = super::load_metadata(&args.metadata_csv)?;
 
-  prepare_functions(crate::utils::Target::Worker, RunType::Live, &mut metadata, &args.host, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
+  worker_prepare_functions(RunType::Live, &mut metadata, &args.host, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
 
   let mut trace_rdr = match csv::Reader::from_path(&args.input_csv) {
     Ok(r) => r,
