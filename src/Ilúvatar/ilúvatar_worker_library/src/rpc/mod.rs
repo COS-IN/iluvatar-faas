@@ -191,6 +191,9 @@ impl WorkerAPI for RPCWorkerAPI {
         _ => parallels,
       },
       transaction_id: tid,
+      language: LanguageRuntime::Nolang.into(),
+      compute: vec![SupportedCompute::Cpu.into()],
+      isolate: vec![SupportedIsolation::Containerd.into()],
     });
     match self.client.register(request).await {
       Ok(response) => Ok(response.into_inner().function_json_result),

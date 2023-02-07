@@ -62,6 +62,11 @@ message RegisterRequest {
   uint32 cpus = 5;
   uint32 parallel_invokes = 6;
   string transaction_id = 7;
+  LanguageRuntime language = 8;
+  // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
+  repeated SupportedCompute compute = 9;
+  // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
+  repeated SupportedIsolation isolate = 10;
 }
 
 message RegisterResponse {
@@ -99,6 +104,30 @@ message HealthResponse {
   RpcHealthStatus status = 1;
 }
 
+// The language a function's code uses
+enum LanguageRuntime {
+  // Use when the the function being created is registered with an image, not code. As we don't need to know the language.
+  NOLANG = 0;
+  PYTHON3 = 1;
+}
+
+// The function image's upload means it must be run in a certain isolation backend(s)
+enum SupportedIsolation {
+  // Isolation not specified
+  NA = 0;
+  // Can run in containerd
+  CONTAINERD = 1;
+  // Can run in Docker
+  DOCKER = 2;
+}
+
+// The compute the function can use.
+enum SupportedCompute {
+  CPU = 0;
+  GPU = 1;
+  FPGA = 2;
+}
+  
 service IluvatarWorker {
   rpc ping(PingRequest) returns (PingResponse) {}
   rpc prewarm(PrewarmRequest) returns (PrewarmResponse) {}

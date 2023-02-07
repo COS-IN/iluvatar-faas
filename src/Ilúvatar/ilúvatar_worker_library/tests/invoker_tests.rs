@@ -11,6 +11,7 @@ use rstest::rstest;
 use utils::{test_invoker_svc, clean_env};
 use std::{time::Duration, collections::HashMap};
 use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
+use iluvatar_worker_library::rpc::{LanguageRuntime, SupportedCompute, SupportedIsolation};
 
 fn build_env(invoker_q: &str) -> HashMap<String, String> {
   let mut r = HashMap::new();
@@ -50,7 +51,10 @@ mod invoke {
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       parallel_invokes: 1,
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: vec![SupportedCompute::Cpu.into()],
+      isolate: vec![SupportedIsolation::Containerd.into()],
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let input = PrewarmRequest {
@@ -110,7 +114,10 @@ mod invoke {
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       parallel_invokes: 1,
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: vec![SupportedCompute::Cpu.into()],
+      isolate: vec![SupportedIsolation::Containerd.into()],
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeRequest {
@@ -166,7 +173,10 @@ mod invoke_async {
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       parallel_invokes: 1,
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: vec![SupportedCompute::Cpu.into()],
+      isolate: vec![SupportedIsolation::Containerd.into()],
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let input = PrewarmRequest {
@@ -247,7 +257,10 @@ mod invoke_async {
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
       parallel_invokes: 1,
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: vec![SupportedCompute::Cpu.into()],
+      isolate: vec![SupportedIsolation::Containerd.into()],
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeAsyncRequest {
@@ -362,7 +375,10 @@ mod fcfs_tests {
       memory: 128,
       image_name: "docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest".to_string(),
       parallel_invokes: 1,
-      transaction_id: transaction_id.clone()
+      transaction_id: transaction_id.clone(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: vec![SupportedCompute::Cpu.into()],
+      isolate: vec![SupportedIsolation::Containerd.into()],
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));

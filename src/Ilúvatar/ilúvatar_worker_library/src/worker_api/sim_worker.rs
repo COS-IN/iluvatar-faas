@@ -7,7 +7,7 @@ use tracing::{debug, error};
 use super::{HealthStatus, WorkerAPI};
 use super::ilúvatar_worker::IluvatarWorkerImpl;
 use crate::rpc::iluvatar_worker_server::IluvatarWorker;
-use crate::rpc::{StatusRequest, HealthRequest, PingRequest, InvokeRequest, InvokeAsyncRequest, InvokeAsyncLookupRequest, RegisterRequest, PrewarmRequest};
+use crate::rpc::{StatusRequest, HealthRequest, PingRequest, InvokeRequest, InvokeAsyncRequest, InvokeAsyncLookupRequest, RegisterRequest, PrewarmRequest, LanguageRuntime, SupportedCompute, SupportedIsolation};
 
 /// A simulation version of the WOrkerAPI
 ///   must match [crate::rpc::RPCWorkerAPI] in handling, etc.
@@ -132,6 +132,9 @@ impl WorkerAPI for SimWorkerAPI {
         _ => parallels,
       },
       transaction_id: tid,
+      language: LanguageRuntime::Nolang.into(),
+      compute: vec![SupportedCompute::Cpu.into()],
+      isolate: vec![SupportedIsolation::Containerd.into()]
     });
     match self.worker.register(request).await {
       Ok(response) => Ok(response.into_inner().function_json_result),
