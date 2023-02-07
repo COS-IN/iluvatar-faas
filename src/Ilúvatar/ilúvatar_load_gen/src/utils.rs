@@ -1,7 +1,7 @@
 use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc, collections::HashMap};
 use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult, Prewarm};
-use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::MemSizeMb, logging::LocalTime};
+use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::{MemSizeMb, CommunicationMethod}, logging::LocalTime};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use tokio::{runtime::Runtime, task::JoinHandle};
@@ -263,11 +263,11 @@ pub async fn controller_prewarm(name: &String, version: &String, host: &String, 
   }
 }
 
-pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port, factory: &Arc<WorkerAPIFactory>, comm_method: Option<&str>) -> Result<(String, Duration, TransactionId)> {
+pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>) -> Result<(String, Duration, TransactionId)> {
   let tid: TransactionId = format!("{}-reg-tid", name);
   let method = match comm_method {
     Some(m) => m,
-    None => "RPC",
+    None => CommunicationMethod::RPC,
   };
   let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
   let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
@@ -284,10 +284,10 @@ pub async fn worker_register(name: String, version: &String, image: String, memo
   }
 }
 
-pub async fn worker_prewarm(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, factory: &Arc<WorkerAPIFactory>, comm_method: Option<&str>) -> Result<(String, Duration)> {
+pub async fn worker_prewarm(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>) -> Result<(String, Duration)> {
   let method = match comm_method {
     Some(m) => m,
-    None => "RPC",
+    None => CommunicationMethod::RPC,
   };
   let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
   let (res, dur) = api.prewarm(name.clone(), version.clone(), None, None, None, tid.to_string()).timed().await;
@@ -297,14 +297,14 @@ pub async fn worker_prewarm(name: &String, version: &String, host: &String, port
   }
 }
 
-pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>, clock: Arc<LocalTime>, factory: &Arc<WorkerAPIFactory>, comm_method: Option<&str>) -> Result<CompletedWorkerInvocation> {
+pub async fn worker_invoke(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, args: Option<String>, clock: Arc<LocalTime>, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>) -> Result<CompletedWorkerInvocation> {
   let args = match args {
     Some(a) => a,
     None => "{}".to_string(),
   };
   let method = match comm_method {
     Some(m) => m,
-    None => "RPC",
+    None => CommunicationMethod::RPC,
   };
   let invoke_start = clock.now_str()?;
   let mut api = match factory.get_worker_api(&host, &host, port, method, &tid).await {

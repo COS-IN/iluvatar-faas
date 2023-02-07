@@ -1,6 +1,5 @@
-use crate::args::Worker;
-use iluvatar_library::utils::config::{get_val, get_val_opt, get_val_mult, args_to_json};
-use clap::ArgMatches;
+use crate::args::{Worker, InvokeArgs, AsyncCheck, PrewarmArgs, RegisterArgs};
+use iluvatar_library::utils::config::args_to_json;
 use iluvatar_worker_library::{rpc::RPCWorkerAPI, worker_api::{WorkerAPI, HealthStatus}};
 use iluvatar_library::transaction::gen_tid;
 use anyhow::Result;
@@ -12,56 +11,48 @@ pub async fn ping(worker: Box<Worker>) -> Result<()> {
   Ok(())
 }
 
-pub async fn invoke(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
+pub async fn invoke(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
   let tid = gen_tid();
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
 
-  let function_name = get_val("name", &args)?;
-  let version = get_val("version", &args)?;
-  let arguments = args_to_json(get_val_mult("arguments", &args));
-  let memory = get_val_opt("memory", &args);
+  let arguments = match args.arguments.as_ref() {
+    Some(a) => args_to_json(a),
+    None => "".to_string(),
+  };
 
-  let ret = api.invoke(function_name, version, arguments, memory, tid).await.unwrap();
+  let ret = api.invoke(args.name, args.version, arguments, None, tid).await.unwrap();
   println!("{:?}", ret);
   Ok(())
 }
 
-pub async fn invoke_async(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
+pub async fn invoke_async(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
   let tid = gen_tid();
-  let function_name = get_val("name", &args)?;
-  let version = get_val("version", &args)?;
-  let arguments = args_to_json(get_val_mult("arguments", &args));
-  let memory = get_val_opt("memory", &args);
-
-  println!("subargs: {:?} \n\n", args);
-  println!("function arguments: {:?}", arguments);
-
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
-  let ret = api.invoke_async(function_name, version, arguments, memory, tid).await.unwrap();
+
+  let arguments = match args.arguments.as_ref() {
+    Some(a) => args_to_json(a),
+    None => "".to_string(),
+  };
+  let ret = api.invoke_async(args.name, args.version, arguments, None, tid).await.unwrap();
   println!("{}", ret);
   Ok(())
 }
 
-pub async fn invoke_async_check(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
-  let cookie = get_val("cookie", &args)?;
+pub async fn invoke_async_check(worker: Box<Worker>, args: AsyncCheck) -> Result<()> {
+  // let cookie = get_val("cookie", &args)?;
   let tid = gen_tid();
 
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
-  let ret = api.invoke_async_check(&cookie, gen_tid()).await.unwrap();
+  let ret = api.invoke_async_check(&args.cookie, gen_tid()).await.unwrap();
   println!("{}", ret.json_result);
   Ok(())
 }
 
-pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
+pub async fn prewarm(worker: Box<Worker>, args: PrewarmArgs) -> Result<()> {
   let tid = gen_tid();
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
-  let function_name = get_val("name", &args)?;
-  let version = get_val("version", &args)?;
-  let memory = get_val_opt("memory", &args);
-  let cpu = get_val_opt("cpu", &args);
-  let image = get_val_opt("image", &args);
 
-  let result = api.prewarm(function_name, version, memory, cpu, image, tid).await;
+  let result = api.prewarm(args.name, args.version, args.memory, args.cpu, args.image, tid).await;
   match result {
     Ok(string) => println!("{}", string),
     Err(err) => println!("{}", err),
@@ -69,17 +60,11 @@ pub async fn prewarm(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
   Ok(())
 }
 
-pub async fn register(worker: Box<Worker>, args: &ArgMatches) -> Result<()> {
+pub async fn register(worker: Box<Worker>, args: RegisterArgs) -> Result<()> {
   let tid = gen_tid();
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
-  let function_name = get_val("name", &args)?;
-  let version = get_val("version", &args)?;
-  let memory = get_val("memory", &args)?;
-  let cpu = get_val("cpu", &args)?;
-  let image = get_val("image", &args)?;
-  let parallels = get_val("parallel-invokes", &args)?;
 
-  let ret = api.register(function_name, version, image, memory, cpu, parallels, tid).await.unwrap();
+  let ret = api.register(args.name, args.version, args.image, args.memory, args.cpu, 1, tid).await.unwrap();
   println!("{}", ret);
   Ok(())
 }

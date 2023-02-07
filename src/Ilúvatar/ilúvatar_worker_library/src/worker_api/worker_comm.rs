@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use iluvatar_library::{bail_error, transaction::TransactionId, utils::port::Port};
+use iluvatar_library::{bail_error, transaction::TransactionId, utils::port::Port, types::CommunicationMethod};
 use anyhow::Result;
 use dashmap::DashMap;
 use crate::{rpc::RPCWorkerAPI, worker_api::{ilúvatar_worker::IluvatarWorkerImpl, WorkerAPI, sim_worker::SimWorkerAPI, create_worker}};
@@ -49,38 +49,36 @@ impl WorkerAPIFactory {
   }
 
   /// Get the worker API that matches it's implemented communication method
-  pub async fn get_worker_api(&self, worker: &String, host: &String, port: Port, communication_method: &str, tid: &TransactionId) -> Result<Box<dyn WorkerAPI + Send>> {
-    if communication_method == "RPC" {
-      match self.try_get_rpcapi(worker) {
-        Some(r) => Ok(Box::new(r)),
-        None => {
-          let api = match RPCWorkerAPI::new(&host, port, &tid).await {
-            Ok(api) => api,
-            Err(e) => bail_error!(tid=%tid, worker=%worker, error=%e, "Unable to create API for worker"),
-          };
-          self.rpc_apis.insert(worker.clone(), api.clone());
-          Ok(Box::new(api))
-        },
+  pub async fn get_worker_api(&self, worker: &String, host: &String, port: Port, communication_method: CommunicationMethod, tid: &TransactionId) -> Result<Box<dyn WorkerAPI + Send>> {
+    match communication_method {
+      CommunicationMethod::RPC => { match self.try_get_rpcapi(worker) {
+          Some(r) => Ok(Box::new(r)),
+          None => {
+            let api = match RPCWorkerAPI::new(&host, port, &tid).await {
+              Ok(api) => api,
+              Err(e) => bail_error!(tid=%tid, worker=%worker, error=%e, "Unable to create API for worker"),
+            };
+            self.rpc_apis.insert(worker.clone(), api.clone());
+            Ok(Box::new(api))
+          },
+        }
+      },
+      CommunicationMethod::SIMULATION => {
+        let api = match self.try_get_simapi(worker) {
+          Some(api) => api,
+          None => {
+            let worker_config = match crate::worker_api::worker_config::Configuration::boxed(false, &host) {
+              Ok(w) => w,
+              Err(e) => anyhow::bail!("Failed to load config because '{:?}'", e),
+            };
+            let api = create_worker(worker_config, tid).await?;
+            let api = Arc::new(api);
+            self.sim_apis.insert(worker.clone(), api.clone());
+            api
+          },
+        };
+        Ok(Box::new(SimWorkerAPI::new(api)))
       }
-    } else if communication_method == "simulation" {
-      let api = match self.try_get_simapi(worker) {
-        Some(api) => api,
-        None => {
-          let worker_config = match crate::worker_api::worker_config::Configuration::boxed(false, &host) {
-            Ok(w) => w,
-            Err(e) => anyhow::bail!("Failed to load config because '{:?}'", e),
-          };
-          let api = create_worker(worker_config, tid).await?;
-          let api = Arc::new(api);
-          self.sim_apis.insert(worker.clone(), api.clone());
-          api
-        },
-      };
- 
-      let w = SimWorkerAPI::new(api);
-      return Ok(Box::new(w));
-    } else {
-      bail_error!(tid=%tid, method=%communication_method, "Unknown worker communication method");
     }
   }
 }

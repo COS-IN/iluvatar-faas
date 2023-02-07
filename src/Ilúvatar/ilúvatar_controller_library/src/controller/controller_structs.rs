@@ -62,22 +62,10 @@ use super::*;
     pub cpus: u32,
     pub parallel_invokes: u32
   }
-  
-  #[allow(unused)]
-  #[derive(Deserialize, Serialize, Debug)]
-  pub struct RegisterWorker {
-    pub name: String,
-    pub backend: String,
-    pub communication_method: String,
-    pub host: String,
-    pub port: Port,
-    pub memory: i64,
-    pub cpus: u32,
-  }
 }
 
 pub mod internal {
-  use iluvatar_library::utils::calculate_fqdn;
+  use iluvatar_library::{utils::calculate_fqdn, api_register::RegisterWorker, types::CommunicationMethod};
   use super::*;
   
   #[allow(unused)]
@@ -85,14 +73,14 @@ pub mod internal {
   pub struct RegisteredWorker {
     pub name: String,
     pub backend: String,
-    pub communication_method: String,
+    pub communication_method: CommunicationMethod,
     pub host: String,
     pub port: Port,
     pub memory: i64,
     pub cpus: u32,
   }
   impl RegisteredWorker {
-    pub fn from(req: json::RegisterWorker) -> Self {
+    pub fn from(req: RegisterWorker) -> Self {
       RegisteredWorker {
         name: req.name,
         backend: req.backend,

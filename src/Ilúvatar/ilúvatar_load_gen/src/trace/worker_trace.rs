@@ -1,6 +1,6 @@
 use std::{sync::Arc, path::Path};
 use anyhow::Result;
-use iluvatar_library::{utils::config::args_to_json, transaction::{TransactionId, gen_tid}, logging::LocalTime};
+use iluvatar_library::{utils::config::args_to_json, transaction::{TransactionId, gen_tid}, logging::LocalTime, types::CommunicationMethod};
 use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationInvocation};
 use tokio::{runtime::Builder, task::JoinHandle};
 use std::time::SystemTime;
@@ -60,7 +60,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
     let fct_cln = factory.clone();
     let h_c = worker_config_pth.clone();
     handles.push(threaded_rt.spawn(async move {
-      worker_invoke(&f_c, &VERSION, &h_c, args.port, &gen_tid(), Some(serde_json::to_string(&func_args)?), clk_clone, &fct_cln, Some("simulation")).await
+      worker_invoke(&f_c, &VERSION, &h_c, args.port, &gen_tid(), Some(serde_json::to_string(&func_args)?), clk_clone, &fct_cln, Some(CommunicationMethod::RPC)).await
     }));
   }
 
@@ -103,7 +103,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
     let func = metadata.get(&invoke.func_name).unwrap();
     let h_c = args.host.clone();
     let f_c = func.func_name.clone();
-    let func_args = args_to_json(prepare_function_args(func, args.load_type));
+    let func_args = args_to_json(&prepare_function_args(func, args.load_type));
     loop {
       match start.elapsed() {
         Ok(t) => {

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, sync::Arc};
 use anyhow::Result;
-use iluvatar_library::{utils::{timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID, gen_tid}, logging::LocalTime};
+use iluvatar_library::{utils::{timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID, gen_tid}, logging::LocalTime, api_register::RegisterWorker, types::CommunicationMethod};
 use iluvatar_controller_library::controller::{controller_structs::json::{ControllerInvokeResult, RegisterFunction, Prewarm}, web_server::{register_function, prewarm}, controller::Controller};
 use actix_web::{web::{Json, Data}, body::MessageBody};
 use iluvatar_controller_library::controller::web_server::{invoke, register_worker};
@@ -8,14 +8,14 @@ use iluvatar_controller_library::controller::structs::json::Invoke;
 use tokio::{runtime::Builder, task::JoinHandle};
 use crate::{trace::{CsvInvocation, trace_utils::map_functions_to_prep}, utils::{VERSION, FunctionExecOutput, CompletedControllerInvocation, resolve_handles}};
 use super::{Function, TraceArgs, trace_utils::save_controller_results};
-use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
+use iluvatar_worker_library::worker_api::{worker_config::Configuration as WorkerConfig};
 
 async fn controller_sim_register_workers(num_workers: usize, server_data: &Data<Controller>, worker_config_pth: &String, worker_config: &Arc<WorkerConfig>) -> Result<()> {
   for i in 0..num_workers {
-    let r = iluvatar_controller_library::controller::controller_structs::json::RegisterWorker {
+    let r = RegisterWorker {
       name: format!("worker_{}", i),
       backend: "simulation".to_string(),
-      communication_method: "simulation".to_string(),
+      communication_method: CommunicationMethod::SIMULATION,
       host: worker_config_pth.clone(),
       port: 0,
       memory: worker_config.container_resources.memory_mb,

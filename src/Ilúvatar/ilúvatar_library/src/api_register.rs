@@ -1,13 +1,13 @@
 use anyhow::Result;
 use reqwest::StatusCode;
-use crate::{transaction::TransactionId, bail_error, utils::port_utils::Port};
+use crate::{transaction::TransactionId, bail_error, utils::port_utils::Port, types::CommunicationMethod};
 
 #[allow(unused)]
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
 pub struct RegisterWorker {
   pub name: String,
   pub backend: String,
-  pub communication_method: String,
+  pub communication_method: CommunicationMethod,
   pub host: String,
   pub port: Port,
   pub memory: i64,
@@ -15,7 +15,7 @@ pub struct RegisterWorker {
 }
 
 /// Send worker details to the load balancer to register 
-pub async fn register_worker(name: &String, communication_method: &String, backend: &String, host: &String, port: Port, memory: i64, cpus: u32, loab_balancer_url: &String, tid: &TransactionId) -> Result<()> {
+pub async fn register_worker(name: &String, communication_method: CommunicationMethod, backend: &String, host: &String, port: Port, memory: i64, cpus: u32, loab_balancer_url: &String, tid: &TransactionId) -> Result<()> {
   let req = RegisterWorker {
     name: name.clone(),
     backend: backend.clone(),

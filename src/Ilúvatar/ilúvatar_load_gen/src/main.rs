@@ -17,15 +17,14 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Adds files to myapp
-    Scaling (ScalingArgs),
-    Trace (TraceArgs),
-    Benchmark (BenchmarkArgs),
+  Scaling (ScalingArgs),
+  Trace (TraceArgs),
+  Benchmark (BenchmarkArgs),
 }
 
 fn main() -> anyhow::Result<()> {
   let cli = Args::parse();
-  println!("verbose: {:?}", cli);
+  // println!("verbose: {:?}", cli);
   
   match cli.command {
     Commands::Scaling(args) => scaling::scaling(args),

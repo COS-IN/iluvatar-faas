@@ -32,7 +32,7 @@ pub fn get_val_mult(name: &str, args: &ArgMatches) -> Vec<String> {
   ret
 }
 
-pub fn args_to_json(args: Vec<String>) -> String {
+pub fn args_to_json(args: &Vec<String>) -> String {
   let mut ret = String::from("{");
   for arg in args {
     if ! arg.contains("=") {

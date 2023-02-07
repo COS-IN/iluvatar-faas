@@ -1,11 +1,12 @@
 use std::sync::Arc;
 use anyhow::Result;
 use dashmap::DashMap;
+use iluvatar_library::api_register::RegisterWorker;
 use iluvatar_library::{bail_error, utils::calculate_fqdn, transaction::TransactionId};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tracing::{info, error};
 use crate::services::load_balance::LoadBalancer;
-use crate::controller::structs::json::{RegisterWorker, RegisterFunction};
+use crate::controller::structs::json::RegisterFunction;
 use crate::controller::structs::internal::{RegisteredWorker, RegisteredFunction};
 
 #[allow(unused)]
@@ -44,7 +45,7 @@ impl RegistrationService {
 
     let reg_worker = Arc::new(RegisteredWorker::from(worker));
 
-    let mut api = self.worker_fact.get_worker_api(&reg_worker.name, &reg_worker.host, reg_worker.port, &reg_worker.communication_method, tid).await?;
+    let mut api = self.worker_fact.get_worker_api(&reg_worker.name, &reg_worker.host, reg_worker.port, reg_worker.communication_method, tid).await?;
     for item in self.functions.iter() {
       let function = item.value();
       match api.register(function.function_name.clone(), function.function_version.clone(), function.image_name.clone(), function.memory, function.cpus, function.parallel_invokes, tid.clone()).await {
@@ -77,7 +78,7 @@ impl RegistrationService {
     else {
       for item in self.workers.iter() {
         let worker = item.value();
-        let mut api = self.worker_fact.get_worker_api(&worker.name, &worker.host, worker.port, &worker.communication_method, tid).await?;
+        let mut api = self.worker_fact.get_worker_api(&worker.name, &worker.host, worker.port, worker.communication_method, tid).await?;
         match api.register(function.function_name.clone(), function.function_version.clone(), function.image_name.clone(), function.memory, function.cpus, function.parallel_invokes, tid.clone()).await {
             Ok(_) => (),
             Err(e) => error!(tid=%tid, worker=%worker.name, error=%e, "Worker failed to register new function"),

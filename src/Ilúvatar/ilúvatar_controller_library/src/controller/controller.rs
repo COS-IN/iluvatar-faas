@@ -4,11 +4,12 @@ use crate::services::controller_health::{ControllerHealthService, SimHealthServi
 use crate::services::load_balance::{get_balancer, LoadBalancer};
 use crate::services::load_reporting::LoadService;
 use crate::services::registration::RegistrationService;
+use iluvatar_library::api_register::RegisterWorker;
 use iluvatar_library::graphite::graphite_svc::GraphiteService;
 use iluvatar_library::{transaction::TransactionId, bail_error};
 use iluvatar_library::utils::{calculate_fqdn, config::args_to_json};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
-use crate::controller::structs::json::{Prewarm, Invoke, RegisterWorker, RegisterFunction};
+use crate::controller::structs::json::{Prewarm, Invoke, RegisterFunction};
 use crate::controller::controller_config::ControllerConfig;
 use iluvatar_worker_library::rpc::InvokeResponse;
 use anyhow::Result;
@@ -75,7 +76,7 @@ impl Controller {
       Some(func) => {
         info!(tid=%tid, fqdn=%fqdn, "Sending function to load balancer for invocation");
         let args = match request.args {
-            Some(args_vec) => args_to_json(args_vec),
+            Some(args_vec) => args_to_json(&args_vec),
             None => "{}".to_string(),
         };
         self.lb.send_invocation(func, args, tid).await
@@ -90,7 +91,7 @@ impl Controller {
       Some(func) => {
         info!(tid=%tid, fqdn=%fqdn, "Sending function to load balancer for async invocation");
         let args = match request.args {
-            Some(args_vec) => args_to_json(args_vec),
+            Some(args_vec) => args_to_json(&args_vec),
             None => "{}".to_string(),
         };
         match self.lb.send_async_invocation(func, args, tid).await {

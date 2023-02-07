@@ -30,9 +30,8 @@ pub fn register_rpc_to_controller(server_config: Arc<Configuration>, tid: Transa
 
       // allow RPC server time to start up
       tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-      let comm_method = "RPC".to_string();
 
-      let result = register_worker(&server_config.name, &comm_method, &server_config.container_resources.backend,
+      let result = register_worker(&server_config.name, iluvatar_library::types::CommunicationMethod::RPC, &server_config.container_resources.backend,
       &server_config.address, server_config.port, server_config.container_resources.memory_mb, server_config.container_resources.cores,
         &server_config.load_balancer_url, &tid).await;
 
