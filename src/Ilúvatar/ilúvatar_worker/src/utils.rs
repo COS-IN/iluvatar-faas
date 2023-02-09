@@ -1,27 +1,26 @@
 use std::sync::Arc;
+use clap::{Parser, command, Subcommand};
 use iluvatar_library::{transaction::TransactionId, api_register::register_worker, types::{Compute, Isolation}};
 use iluvatar_worker_library::worker_api::worker_config::Configuration;
 use tracing::{debug, info, error};
-use clap::{ArgMatches, App, SubCommand, Arg};
 
-pub fn parse() -> ArgMatches {
-  App::new("ilúvatar_worker")
-    .version("0.1.0")
-    .about("Ilúvatar worker")
-    .arg(Arg::with_name("config")
-      .short('c')
-      .long("config")
-      .help("Path to a configuration file to use")
-      .required(false)
-      .default_value("/tmp/foo/bar")
-      .takes_value(true))   
-    .arg(Arg::with_name("direct-logs")
-      .long("direct-logs")
-      .help("Use direct mode for writing logs, rather than async version. Helpful for debugging")
-      .required(false))  
-    .subcommand(SubCommand::with_name("clean")
-                .about("Clean up the system from possible previous executions"))
-    .get_matches()
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+pub struct Args {
+  #[arg(short, long)]
+  /// Sets a custom config file
+  pub config: Option<String>,
+   /// Use direct mode for writing logs, rather than async version. Helpful for debugging
+  #[arg(short, long)]
+  pub direct_logs: Option<bool>,
+
+  #[command(subcommand)]
+  pub command: Option<Commands>,
+}
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+  /// Run the worker
+  Clean,
 }
 
 pub fn register_rpc_to_controller(server_config: Arc<Configuration>, tid: TransactionId) {

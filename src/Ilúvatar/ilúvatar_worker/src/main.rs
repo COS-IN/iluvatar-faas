@@ -1,13 +1,14 @@
 use std::time::Duration;
+use clap::Parser;
 use iluvatar_library::{logging::start_tracing, nproc, bail_error, utils::wait_for_exit_signal};
 use iluvatar_worker_library::{services::containers::LifecycleFactory, worker_api::config::WorkerConfig};
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker_library::worker_api::config::Configuration;
 use iluvatar_worker_library::worker_api::create_worker;
 use tokio::runtime::Runtime;
-use crate::utils::{parse, register_rpc_to_controller};
+use utils::Args;
+use crate::utils::register_rpc_to_controller;
 use iluvatar_worker_library::rpc::iluvatar_worker_server::IluvatarWorkerServer;
-use iluvatar_library::utils::config::get_val;
 use anyhow::Result;
 use tonic::transport::Server;
 use tracing::{debug, info};
@@ -64,24 +65,23 @@ fn main() -> Result<()> {
   iluvatar_library::utils::file::ensure_temp_dir()?;
   let tid: &TransactionId = &STARTUP_TID;
 
-  let args = parse();
-  let config_pth = get_val("config", &args)?;
+  let cli = Args::parse();
 
-
-  match args.subcommand() {
-    Some(("clean", _)) => {
-      let server_config = Configuration::boxed(true, &config_pth).unwrap();
-      let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name, tid)?;
-      let worker_rt = build_runtime(server_config.clone(), tid)?;
-      worker_rt.block_on(clean(server_config, tid))?;
+  match cli.command {
+    Some(c) => match c {
+        utils::Commands::Clean => {
+          let server_config = Configuration::boxed(true, &cli.config.as_ref()).unwrap();
+          let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name, tid)?;
+          let worker_rt = build_runtime(server_config.clone(), tid)?;
+          worker_rt.block_on(clean(server_config, tid))?;
+        },
     },
-    None => { 
-      let server_config = Configuration::boxed(false, &config_pth).unwrap();
+    None => {
+      let server_config = Configuration::boxed(false, &cli.config.as_ref()).unwrap();
       let _guard = start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name, tid)?;
       let worker_rt = build_runtime(server_config.clone(), tid)?;
       worker_rt.block_on(run(server_config, tid))?;
     },
-    Some((cmd, _)) => panic!("Unknown command {}, try --help", cmd),
-  };
+  }
   Ok(())
 }

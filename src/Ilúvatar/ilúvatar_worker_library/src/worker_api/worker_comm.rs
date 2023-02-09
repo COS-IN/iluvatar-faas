@@ -67,7 +67,7 @@ impl WorkerAPIFactory {
         let api = match self.try_get_simapi(worker) {
           Some(api) => api,
           None => {
-            let worker_config = match crate::worker_api::worker_config::Configuration::boxed(false, &host) {
+            let worker_config = match crate::worker_api::worker_config::Configuration::boxed(false, &Some(host)) {
               Ok(w) => w,
               Err(e) => anyhow::bail!("Failed to load config because '{:?}'", e),
             };

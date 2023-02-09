@@ -182,7 +182,7 @@ impl WorkerAPI for RPCWorkerAPI {
     }
   }
 
-  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId) -> Result<String> {
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation) -> Result<String> {
     let request = Request::new(RegisterRequest {
       function_name,
       function_version: version,
@@ -196,7 +196,7 @@ impl WorkerAPI for RPCWorkerAPI {
       transaction_id: tid,
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
-      isolate: Isolation::CONTAINERD.bits(),
+      isolate: isolate.bits(),
     });
     match self.client.register(request).await {
       Ok(response) => Ok(response.into_inner().function_json_result),

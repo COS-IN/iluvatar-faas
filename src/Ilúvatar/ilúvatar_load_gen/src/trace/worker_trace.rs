@@ -17,7 +17,7 @@ pub fn trace_worker(args: TraceArgs) -> Result<()> {
 
 fn simulated_worker(args: TraceArgs) -> Result<()> {
   let worker_config_pth = args.worker_config.as_ref().ok_or_else(|| anyhow::anyhow!("Must have 'worker_config' for sim"))?.clone();
-  let server_config = iluvatar_worker_library::worker_api::worker_config::Configuration::boxed(false, &worker_config_pth).unwrap();
+  let server_config = iluvatar_worker_library::worker_api::worker_config::Configuration::boxed(false, &Some(&worker_config_pth)).unwrap();
   let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
   let threaded_rt = Builder::new_multi_thread()
                         .enable_all()

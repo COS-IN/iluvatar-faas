@@ -130,8 +130,11 @@ pub struct StatusConfig {
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
-  pub fn new(cleaning: bool, config_fpath: &String) -> Result<Self, ConfigError> {
-    let sources = vec!["worker/src/worker.json", "worker/src/worker.dev.json", config_fpath.as_str()];
+  pub fn new(cleaning: bool, config_fpath: &Option<&String>) -> Result<Self, ConfigError> {
+    let mut sources = vec!["worker/src/worker.json", "worker/src/worker.dev.json"];
+    if let Some(config_fpath) = config_fpath {
+      sources.push(config_fpath.as_str());
+    }
     let s = Config::builder()
       .add_source(
         sources.iter().filter(|path| {
@@ -150,7 +153,7 @@ impl Configuration {
     s.try_deserialize()
   }
 
-  pub fn boxed(cleaning: bool, config_fpath: &String) -> Result<WorkerConfig, ConfigError> {
+  pub fn boxed(cleaning: bool, config_fpath: &Option<&String>) -> Result<WorkerConfig, ConfigError> {
     Ok(Arc::new(Configuration::new(cleaning, config_fpath)?))
   }
 }

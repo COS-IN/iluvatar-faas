@@ -1,7 +1,7 @@
 use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc, collections::HashMap};
 use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult, Prewarm};
-use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::{MemSizeMb, CommunicationMethod}, logging::LocalTime};
+use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::{MemSizeMb, CommunicationMethod, Isolation}, logging::LocalTime};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use tokio::{runtime::Runtime, task::JoinHandle};
@@ -270,7 +270,7 @@ pub async fn worker_register(name: String, version: &String, image: String, memo
     None => CommunicationMethod::RPC,
   };
   let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
-  let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone()).timed().await;
+  let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone(), Isolation::CONTAINERD).timed().await;
 
   match reg_out {
     Ok(s) => match serde_json::from_str::<HashMap<String, String>>(&s) {

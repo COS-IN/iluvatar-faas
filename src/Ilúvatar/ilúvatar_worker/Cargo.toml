@@ -13,5 +13,5 @@ serde = { version = "1.0", features = ["derive"] }
 tonic = "0.7.2"
 tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util", "parking_lot"] }
 anyhow = "1.0.13"
-clap = "3"
+clap = { version = "4.1", features = ["derive"] }
 tracing = "0.1"

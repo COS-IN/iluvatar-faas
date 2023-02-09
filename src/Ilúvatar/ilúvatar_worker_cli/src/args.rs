@@ -2,7 +2,7 @@ extern crate clap;
 // use clap::{ArgMatches, App, SubCommand, Arg};
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
-use iluvatar_library::{utils::port_utils::Port, types::MemSizeMb};
+use iluvatar_library::{utils::port_utils::Port, types::{MemSizeMb, IsolationEnum}};
 use clap::{command, Parser, Subcommand};
 
 #[derive(Parser, Debug)]
@@ -58,6 +58,9 @@ pub struct RegisterArgs {
   #[arg(short, long)]
   /// Number of CPUs to allocate 
   pub cpu: u32,
+  #[arg(long, required=true)]
+  /// Isolation mechanisms supported by the function 
+  pub isolation: Vec<IsolationEnum>,
 }
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -96,7 +99,6 @@ pub struct Worker {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(unused)]
 pub struct CliSettings {
   workers: Vec<Box<Worker>>,
 }

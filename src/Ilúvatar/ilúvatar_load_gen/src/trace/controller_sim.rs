@@ -110,7 +110,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
   let clock = Arc::new(LocalTime::new(&gen_tid())?);
 
   let tid: &TransactionId = &SIMULATION_START_TID;
-  let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(false, &worker_config_pth).unwrap();
+  let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(false, &Some(&worker_config_pth)).unwrap();
   let controller_config = iluvatar_controller_library::controller::controller_config::Configuration::boxed(&controller_config_pth).unwrap();
   let _guard = iluvatar_library::logging::start_tracing(controller_config.logging.clone(), controller_config.graphite.clone(), &controller_config.name, tid)?;
 

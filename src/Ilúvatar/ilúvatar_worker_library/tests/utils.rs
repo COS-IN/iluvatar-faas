@@ -29,7 +29,7 @@ pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<S
       std::env::set_var(k,v);
     }  
   }
-  let cfg = Configuration::boxed(false, &test_cfg_pth).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
+  let cfg = Configuration::boxed(false, &Some(&test_cfg_pth)).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
   let fake_logging = Arc::new(LoggingConfig {
     level: cfg.logging.level.clone(),
     directory: "".to_string(),

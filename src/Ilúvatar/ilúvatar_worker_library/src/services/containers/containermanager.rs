@@ -421,7 +421,10 @@ impl ContainerManager {
     if function_name.contains("/") || function_name.contains("\\") {
       anyhow::bail!("Illegal characters in function name: cannot container any \\,/");
     }
-    let cont_lifecycle = self.cont_lifecycles.get(&isolation).unwrap();
+    let cont_lifecycle = match self.cont_lifecycles.get(&isolation) {
+        Some(c) => c,
+        None => anyhow::bail!("Did not have a containerization setup for isolation '{:?}'", isolation),
+    };
     
 
     let registration = cont_lifecycle.prepare_function_registration(function_name, function_version, image_name, memory, cpus, parallel_invokes, fqdn, tid).await?;
