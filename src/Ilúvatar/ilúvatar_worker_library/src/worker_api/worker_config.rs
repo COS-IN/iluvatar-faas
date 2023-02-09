@@ -48,9 +48,6 @@ pub struct ContainerResources {
   pub memory_buffer_mb: MemSizeMb,
   /// how often the container pool monitor will run, in milliseconds
   pub pool_freq_ms: u64,
-  /// container backend to use: 
-  /// containerd, docker (not implemented yet)
-  pub backend: String,
   /// the snapshotter to use with containerd (if relevant)
   /// Supported ones are [here](https://github.com/containerd/containerd/tree/main/docs/snapshotters)
   ///   WARNING: using 'overlayfs' can cause race conditions on process startup inside a container before all files are available

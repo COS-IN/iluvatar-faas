@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use iluvatar_library::{transaction::TransactionId, api_register::register_worker};
+use iluvatar_library::{transaction::TransactionId, api_register::register_worker, types::{Compute, Isolation}};
 use iluvatar_worker_library::worker_api::worker_config::Configuration;
 use tracing::{debug, info, error};
 use clap::{ArgMatches, App, SubCommand, Arg};
@@ -31,9 +31,9 @@ pub fn register_rpc_to_controller(server_config: Arc<Configuration>, tid: Transa
       // allow RPC server time to start up
       tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-      let result = register_worker(&server_config.name, iluvatar_library::types::CommunicationMethod::RPC, &server_config.container_resources.backend,
+      let result = register_worker(&server_config.name, iluvatar_library::types::CommunicationMethod::RPC,
       &server_config.address, server_config.port, server_config.container_resources.memory_mb, server_config.container_resources.cores,
-        &server_config.load_balancer_url, &tid).await;
+        &server_config.load_balancer_url, &tid, Compute::CPU, Isolation::CONTAINERD, 0).await;
 
       match result {
         Ok(_) => info!(tid=%tid, "Worker successfully registered with controller"),

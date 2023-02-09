@@ -11,7 +11,8 @@ use rstest::rstest;
 use utils::{test_invoker_svc, clean_env};
 use std::{time::Duration, collections::HashMap};
 use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
-use iluvatar_worker_library::rpc::{LanguageRuntime, SupportedCompute, SupportedIsolation};
+use iluvatar_worker_library::rpc::LanguageRuntime;
+use iluvatar_library::types::{Compute, Isolation};
 
 fn build_env(invoker_q: &str) -> HashMap<String, String> {
   let mut r = HashMap::new();
@@ -53,8 +54,8 @@ mod invoke {
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let input = PrewarmRequest {
@@ -63,7 +64,10 @@ mod invoke {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeRequest {
@@ -116,8 +120,8 @@ mod invoke {
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeRequest {
@@ -175,8 +179,8 @@ mod invoke_async {
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let input = PrewarmRequest {
@@ -185,7 +189,10 @@ mod invoke_async {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeAsyncRequest {
@@ -259,8 +266,8 @@ mod invoke_async {
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeAsyncRequest {
@@ -349,6 +356,9 @@ async fn prewarm(cm: &Arc<ContainerManager>, function_name: &String, function_ve
     memory: 512,
     image_name: image.clone(),
     transaction_id: transaction_id.clone(),
+    language: LanguageRuntime::Nolang.into(),
+    compute: Compute::CPU.bits(),
+    isolate: Isolation::CONTAINERD.bits(),
   };
   timeout(Duration::from_secs(20), cm.prewarm(&input)).await
       .unwrap_or_else(|e| panic!("prewarm timout hit: {:?}", e))
@@ -377,8 +387,8 @@ mod fcfs_tests {
       parallel_invokes: 1,
       transaction_id: transaction_id.clone(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));

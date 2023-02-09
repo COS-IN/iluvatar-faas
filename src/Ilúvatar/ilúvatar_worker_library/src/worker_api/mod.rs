@@ -20,16 +20,21 @@ pub mod ilúvatar_worker;
 pub mod sim_worker;
 pub mod worker_comm;
 
-pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
+pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId, simulation: bool) -> Result<IluvatarWorkerImpl> {
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
   let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
-  let lifecycle = match factory.get_lifecycle_service(tid, true).await {
+  // let lifecycle = match factory.get_lifecycle_service(tid, true).await {
+  //   Ok(l) => l,
+  //   Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make lifecycle"),
+  // };
+
+  let cycles = match factory.get_lifecycle_services(tid, true, simulation).await  {
     Ok(l) => l,
-    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make lifecycle"),
+    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"),
   };
 
-  let container_man = match ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), lifecycle.clone(), tid).await {
+  let container_man = match ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), cycles, tid).await {
     Ok(s) => s,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make container manger"),
   };

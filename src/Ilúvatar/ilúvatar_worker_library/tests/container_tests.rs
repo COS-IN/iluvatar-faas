@@ -4,7 +4,7 @@ pub mod utils;
 use iluvatar_worker_library::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_library::utils::calculate_fqdn;
 use iluvatar_library::transaction::TEST_TID;
-use iluvatar_worker_library::rpc::{LanguageRuntime, SupportedCompute, SupportedIsolation};
+use iluvatar_worker_library::rpc::LanguageRuntime;
 use iluvatar_worker_library::services::containers::structs::cast;
 use iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer;
 use iluvatar_library::threading::EventualItem;
@@ -13,6 +13,8 @@ use crate::utils::test_invoker_svc;
 
 #[cfg(test)]
 mod registration {
+
+use iluvatar_library::types::{Isolation, Compute};
 
 use super::*;
   
@@ -28,8 +30,8 @@ use super::*;
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
   }
@@ -46,8 +48,8 @@ use super::*;
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let input = RegisterRequest {
@@ -59,8 +61,8 @@ use super::*;
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Function test-test is already registered!", "registration succeeded when it should have failed!");
@@ -78,8 +80,8 @@ use super::*;
       parallel_invokes: 0,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Illegal parallel invokes set, must be 1", "registration succeeded when it should have failed!");
@@ -97,8 +99,8 @@ use super::*;
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Invalid function name", "registration succeeded when it should have failed!");
@@ -116,8 +118,8 @@ use super::*;
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Invalid function version", "registration succeeded when it should have failed!");
@@ -135,8 +137,8 @@ use super::*;
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Illegal cpu allocation request", "registration succeeded when it should have failed!");
@@ -154,8 +156,8 @@ use super::*;
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
@@ -173,8 +175,8 @@ use super::*;
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     let err = cm.register(&input).await;
     assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
@@ -193,8 +195,8 @@ use super::*;
       parallel_invokes: 1,
       transaction_id: "testTID".to_string(),
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     let err = cm.register(&input).await;
     match err {
@@ -211,7 +213,9 @@ use super::*;
 
 #[cfg(test)]
 mod prewarm {
-  use super::*;
+  use iluvatar_library::types::{Compute, Isolation};
+
+use super::*;
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn no_registration_prewarm_fails() {
     let (_log, _cfg, cm, _invoker) = test_invoker_svc(None, None, None).await;
@@ -241,7 +245,10 @@ mod prewarm {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
   }
@@ -255,7 +262,10 @@ mod prewarm {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -273,7 +283,9 @@ mod prewarm {
 
 #[cfg(test)]
 mod get_container {
-  use super::*;
+  use iluvatar_library::types::{Compute, Isolation};
+
+use super::*;
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cant_double_acquire() {
@@ -284,7 +296,10 @@ mod get_container {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -309,7 +324,10 @@ mod get_container {
       cpu: 1,
       memory: 2048,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -337,7 +355,10 @@ mod get_container {
       cpu: 1,
       memory: 256,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -358,7 +379,9 @@ mod get_container {
 
 #[cfg(test)]
 mod remove_container {
-  use super::*;
+  use iluvatar_library::types::{Isolation, Compute};
+
+use super::*;
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn unhealthy_container_deleted() {
@@ -369,7 +392,10 @@ mod remove_container {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -413,7 +439,10 @@ mod remove_container {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -436,7 +465,8 @@ mod remove_container {
 
 #[cfg(test)]
 mod container_state {
-  use iluvatar_worker_library::services::containers::structs::ContainerState;
+  use iluvatar_library::types::{Compute, Isolation};
+use iluvatar_worker_library::services::containers::structs::ContainerState;
   use super::*;
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -448,7 +478,10 @@ mod container_state {
       cpu: 1,
       memory: 128,
       image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string()
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -473,8 +506,8 @@ mod container_state {
       transaction_id: "testTID".to_string(),
       parallel_invokes: 1,
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("register failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -499,8 +532,8 @@ mod container_state {
       transaction_id: "testTID".to_string(),
       parallel_invokes: 1,
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("register failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());
@@ -527,8 +560,8 @@ mod container_state {
       transaction_id: "testTID".to_string(),
       parallel_invokes: 1,
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     };
     cm.register(&input).await.unwrap_or_else(|e| panic!("register failed: {:?}", e));
     let fqdn = calculate_fqdn(&"test".to_string(), &"0.1.1".to_string());

@@ -71,7 +71,7 @@ impl WorkerAPIFactory {
               Ok(w) => w,
               Err(e) => anyhow::bail!("Failed to load config because '{:?}'", e),
             };
-            let api = create_worker(worker_config, tid).await?;
+            let api = create_worker(worker_config, tid, true).await?;
             let api = Arc::new(api);
             self.sim_apis.insert(worker.clone(), api.clone());
             api

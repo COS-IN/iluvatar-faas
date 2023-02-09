@@ -1,6 +1,6 @@
 use std::sync::Arc;
-use iluvatar_library::transaction::TransactionId;
-use crate::{rpc::{RegisterRequest, HealthResponse, LanguageRuntime, SupportedCompute, SupportedIsolation}};
+use iluvatar_library::{transaction::TransactionId, types::{Compute, Isolation}};
+use crate::{rpc::{RegisterRequest, HealthResponse, LanguageRuntime}};
 use super::{invocation::invoker_trait::Invoker, containers::containermanager::ContainerManager};
 use anyhow::Result;
 use tracing::warn;
@@ -41,8 +41,8 @@ impl WorkerHealthService {
         parallel_invokes: 1,
         transaction_id: tid.clone(),
         language: LanguageRuntime::Nolang.into(),
-        compute: vec![SupportedCompute::Cpu.into()],
-        isolate: vec![SupportedIsolation::Containerd.into()]
+        compute: Compute::CPU.bits(),
+        isolate: Isolation::CONTAINERD.bits()
     };
     container_mgr.register(&health_func).await?;
 

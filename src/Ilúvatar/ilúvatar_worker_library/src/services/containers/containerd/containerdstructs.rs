@@ -1,7 +1,7 @@
 use std::{time::{SystemTime, Duration}, sync::Arc, num::NonZeroU32};
 use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
-use iluvatar_library::{types::MemSizeMb, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
+use iluvatar_library::{types::{MemSizeMb, Isolation}, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
 use reqwest::{Client, Response};
 use crate::{services::{containers::structs::{RegisteredFunction, ContainerT, ParsedResult, ContainerState}, network::network_structs::Namespace}};
 
@@ -159,6 +159,7 @@ impl ContainerT for ContainerdContainer {
   fn set_state(&self, state: ContainerState) {
     *self.state.lock() = state;
   }
+  fn container_type(&self) -> Isolation { Isolation::CONTAINERD }
 }
 
 impl crate::services::containers::structs::ToAny for ContainerdContainer {

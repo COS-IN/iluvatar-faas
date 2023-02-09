@@ -17,7 +17,7 @@ pub mod utils;
 async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
   debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
 
-  let worker = match create_worker(server_config.clone(), tid).await {
+  let worker = match create_worker(server_config.clone(), tid, false).await {
     Ok(w) => w,
     Err(e) => bail_error!(tid=%tid, error=%e, "Error creating worker on startup"),
   };
@@ -38,9 +38,11 @@ async fn clean(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
   debug!(tid=?tid, config=?server_config, "loaded configuration");
 
   let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone(), server_config.limits.clone());
-  let lifecycle = factory.get_lifecycle_service(tid, false).await?;
+  let lifecycles = factory.get_lifecycle_services(tid, false, false).await?;
 
-  lifecycle.clean_containers("default", lifecycle.clone(), tid).await?;
+  for (_, lifecycle) in lifecycles.iter() {
+    lifecycle.clean_containers("default", lifecycle.clone(), tid).await?;
+  }
   Ok(())
 }
 

@@ -5,7 +5,7 @@ use std::error::Error;
 use iluvatar_library::bail_error;
 use crate::{rpc::iluvatar_worker_client::IluvatarWorkerClient, worker_api::{HealthStatus, WorkerAPI}};
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::MemSizeMb;
+use iluvatar_library::types::{MemSizeMb, Isolation, Compute};
 use iluvatar_library::utils::port_utils::Port;
 use anyhow::{Result, bail};
 use tonic::{Status, Code, Request};
@@ -166,6 +166,9 @@ impl WorkerAPI for RPCWorkerAPI {
         _ => "".into(),
       },
       transaction_id: tid.clone(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     });
     match self.client.prewarm(request).await {
       Ok(response) => {
@@ -192,8 +195,8 @@ impl WorkerAPI for RPCWorkerAPI {
       },
       transaction_id: tid,
       language: LanguageRuntime::Nolang.into(),
-      compute: vec![SupportedCompute::Cpu.into()],
-      isolate: vec![SupportedIsolation::Containerd.into()],
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::CONTAINERD.bits(),
     });
     match self.client.register(request).await {
       Ok(response) => Ok(response.into_inner().function_json_result),

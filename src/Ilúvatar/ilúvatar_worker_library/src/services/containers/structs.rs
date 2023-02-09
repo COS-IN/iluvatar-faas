@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, bail_error};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, bail_error};
 use time::{format_description::{self, FormatItem}, OffsetDateTime, PrimitiveDateTime};
 use crate::services::containers::containermanager::ContainerManager;
 use anyhow::Result;
@@ -33,6 +33,7 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
   /// Get the current state of the container
   fn state(&self) -> ContainerState;
   fn set_state(&self, state: ContainerState);
+  fn container_type(&self) -> Isolation;
 }
 
 /// Cast a container pointer to a concrete type
@@ -109,6 +110,7 @@ pub struct RegisteredFunction {
   pub cpus: u32,
   pub snapshot_base: String,
   pub parallel_invokes: u32,
+  pub isolation_type: Isolation
 }
 
 /// A struct denoting that the owner has a lock on the container to invoke with

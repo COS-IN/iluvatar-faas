@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}};
 use self::simstructs::SimulatorContainer;
 use super::{structs::{RegisteredFunction, Container, ContainerState}, LifecycleService};
 use anyhow::Result;
@@ -22,6 +22,10 @@ impl SimulatorLifecycle {
 #[tonic::async_trait]
 #[allow(unused)]
 impl LifecycleService for SimulatorLifecycle {
+  fn backend(&self) -> Isolation {
+    Isolation::SIMULATION
+  }
+
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
@@ -45,6 +49,7 @@ impl LifecycleService for SimulatorLifecycle {
       cpus,
       snapshot_base: "".to_string(),
       parallel_invokes,
+      isolation_type: self.backend()
     })
   }
   

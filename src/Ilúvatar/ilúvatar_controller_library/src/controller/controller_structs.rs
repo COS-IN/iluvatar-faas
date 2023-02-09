@@ -65,14 +65,14 @@ use super::*;
 }
 
 pub mod internal {
-  use iluvatar_library::{utils::calculate_fqdn, api_register::RegisterWorker, types::CommunicationMethod};
+  use iluvatar_library::{utils::calculate_fqdn, api_register::RegisterWorker, types::{CommunicationMethod, Isolation}};
   use super::*;
   
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
   pub struct RegisteredWorker {
     pub name: String,
-    pub backend: String,
+    pub isolation: Isolation,
     pub communication_method: CommunicationMethod,
     pub host: String,
     pub port: Port,
@@ -83,7 +83,7 @@ pub mod internal {
     pub fn from(req: RegisterWorker) -> Self {
       RegisteredWorker {
         name: req.name,
-        backend: req.backend,
+        isolation: req.isolation,
         communication_method: req.communication_method,
         host: req.host,
         port: req.port,

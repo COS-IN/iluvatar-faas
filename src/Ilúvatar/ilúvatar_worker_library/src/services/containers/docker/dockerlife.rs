@@ -1,8 +1,7 @@
 use std::{sync::Arc, time::SystemTime};
 use dashmap::DashSet;
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::{execute_cmd, port::free_local_port}, bail_error};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, utils::{execute_cmd, port::free_local_port}, bail_error};
 use crate::{worker_api::worker_config::{ContainerResources, FunctionLimits}, services::containers::structs::ContainerState};
-
 use self::dockerstructs::DockerContainer;
 use super::{structs::{RegisteredFunction, Container}, LifecycleService};
 use anyhow::Result;
@@ -21,6 +20,14 @@ pub struct DockerLifecycle {
 }
 
 impl DockerLifecycle {
+  pub fn supported(tid: &TransactionId) -> bool {
+    let args = vec!["ps"];
+    match execute_cmd("/usr/bin/docker", &args, None, tid) {
+      Ok(out) => out.status.success(),
+      Err(_) => false,
+    }
+  }
+
   pub fn new(config: Arc<ContainerResources>, limits_config: Arc<FunctionLimits>) -> Self {
     let sem = match config.concurrent_creation {
       0 => None,
@@ -62,6 +69,10 @@ impl DockerLifecycle {
 #[tonic::async_trait]
 #[allow(unused)]
 impl LifecycleService for DockerLifecycle {
+  fn backend(&self) -> Isolation {
+    Isolation::DOCKER
+  }
+
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
@@ -129,6 +140,7 @@ impl LifecycleService for DockerLifecycle {
       cpus,
       snapshot_base: "".to_string(),
       parallel_invokes,
+      isolation_type: self.backend()
     };
     if self.pulled_images.contains(image_name) {
       return Ok(ret);

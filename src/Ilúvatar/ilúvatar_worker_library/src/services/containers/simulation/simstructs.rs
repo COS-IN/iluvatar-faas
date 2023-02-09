@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, bail_error, logging::LocalTime};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, bail_error, logging::LocalTime};
 use crate::{services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult, ContainerState}}, };
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
@@ -175,6 +175,7 @@ impl ContainerT for SimulatorContainer {
   fn set_state(&self, state: ContainerState) {
     *self.state.lock() = state;
   }
+  fn container_type(&self) -> Isolation { Isolation::all() }
 }
 
 impl crate::services::containers::structs::ToAny for SimulatorContainer {

@@ -4,6 +4,7 @@ use std::time::{Duration, SystemTime};
 use client::tonic::Code;
 use dashmap::DashMap;
 use guid_create::GUID;
+use iluvatar_library::types::Isolation;
 use crate::services::containers::containerd::containerdstructs::{Task, ContainerdContainer};
 use crate::worker_api::worker_config::{ContainerResources, FunctionLimits};
 use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb};
@@ -14,9 +15,9 @@ use sha2::{Sha256, Digest};
 use client::types::Descriptor;
 use containerd_client as client;
 use containerd_client::tonic::{transport::Channel, Request};
-use client::services::v1::{content_client::ContentClient, images_client::ImagesClient};
+use client::services::v1::{content_client::ContentClient, images_client::ImagesClient, version_client::VersionClient};
 use client::services::v1::snapshots::{snapshots_client::SnapshotsClient, PrepareSnapshotRequest};
-use client::services::v1::{CreateContainerRequest, CreateTaskRequest, StartRequest, DeleteContainerRequest, DeleteTaskRequest, KillRequest, ListContainersRequest};
+use client::services::v1::{CreateContainerRequest, CreateTaskRequest, StartRequest, DeleteContainerRequest, DeleteTaskRequest, KillRequest, ListContainersRequest, VersionResponse};
 use client::services::v1::Container as Containerd_Container;
 use client::services::v1::{containers_client::ContainersClient, tasks_client::TasksClient};
 use client::services::v1::{GetImageRequest, ReadContentRequest};
@@ -30,6 +31,7 @@ use inotify::{Inotify, WatchMask};
 use super::LifecycleService;
 
 pub mod containerdstructs;
+const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
 
 #[derive(Debug)]
 pub struct ContainerdLifecycle {
@@ -44,6 +46,22 @@ pub struct ContainerdLifecycle {
 /// A service to handle the low-level details of containerd container lifecycles:
 ///   creation, destruction, pulling images, etc
 impl ContainerdLifecycle {
+  pub async fn supported() -> bool {
+    let channel = match containerd_client::connect(CONTAINERD_SOCK).await {
+      Ok(c) => c,
+      Err(_) => return false,
+    };
+    let mut client = VersionClient::new(channel);
+    let v: client::tonic::Response<VersionResponse> = match client.version(()).await {
+      Ok(c) => c,
+      Err(_) => return false,
+    };
+    let v = v.into_inner();
+    println!("version: {}", v.version);
+    true
+  }
+
+
   pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResources>, limits_config: Arc<FunctionLimits>) -> ContainerdLifecycle {
     let sem = match config.concurrent_creation {
       0 => None,
@@ -66,7 +84,7 @@ impl ContainerdLifecycle {
     if let Some(_) = &self.channel {
       Ok(())
     } else {
-      let channel = containerd_client::connect("/run/containerd/containerd.sock").await?;
+      let channel = containerd_client::connect(CONTAINERD_SOCK).await?;
       self.channel = Some(channel);
       Ok(())  
     }
@@ -493,6 +511,10 @@ impl ContainerdLifecycle {
 
 #[tonic::async_trait]
 impl LifecycleService for ContainerdLifecycle {
+  fn backend(&self) -> Isolation {
+    Isolation::CONTAINERD
+  }
+
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
@@ -540,6 +562,7 @@ impl LifecycleService for ContainerdLifecycle {
       cpus,
       snapshot_base,
       parallel_invokes,
+      isolation_type: self.backend()
     })
   }
   

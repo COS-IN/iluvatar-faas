@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, sync::Arc};
 use anyhow::Result;
-use iluvatar_library::{utils::{timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID, gen_tid}, logging::LocalTime, api_register::RegisterWorker, types::CommunicationMethod};
+use iluvatar_library::{utils::{timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID, gen_tid}, logging::LocalTime, api_register::RegisterWorker, types::{CommunicationMethod, Compute, Isolation}};
 use iluvatar_controller_library::controller::{controller_structs::json::{ControllerInvokeResult, RegisterFunction, Prewarm}, web_server::{register_function, prewarm}, controller::Controller};
 use actix_web::{web::{Json, Data}, body::MessageBody};
 use iluvatar_controller_library::controller::web_server::{invoke, register_worker};
@@ -14,12 +14,14 @@ async fn controller_sim_register_workers(num_workers: usize, server_data: &Data<
   for i in 0..num_workers {
     let r = RegisterWorker {
       name: format!("worker_{}", i),
-      backend: "simulation".to_string(),
       communication_method: CommunicationMethod::SIMULATION,
       host: worker_config_pth.clone(),
       port: 0,
       memory: worker_config.container_resources.memory_mb,
       cpus: worker_config.container_resources.cores,
+      gpus: 0,
+      compute: Compute::CPU,
+      isolation: Isolation::SIMULATION,
     };
     let response = register_worker(server_data.clone(), Json{0:r}).await;
     if ! response.status().is_success() {

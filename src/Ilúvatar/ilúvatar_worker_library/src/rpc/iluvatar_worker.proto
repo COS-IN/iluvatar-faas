@@ -48,6 +48,11 @@ message PrewarmRequest {
   uint32 cpu = 4;
   string image_name = 5;
   string transaction_id = 6;
+  LanguageRuntime language = 7;
+  // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
+  uint32 compute = 8;
+  // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
+  uint32 isolate = 9;
 }
 message PrewarmResponse {
   bool success = 1;
@@ -64,9 +69,9 @@ message RegisterRequest {
   string transaction_id = 7;
   LanguageRuntime language = 8;
   // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
-  repeated SupportedCompute compute = 9;
+  uint32 compute = 9;
   // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
-  repeated SupportedIsolation isolate = 10;
+  uint32 isolate = 10;
 }
 
 message RegisterResponse {
@@ -111,22 +116,22 @@ enum LanguageRuntime {
   PYTHON3 = 1;
 }
 
-// The function image's upload means it must be run in a certain isolation backend(s)
-enum SupportedIsolation {
-  // Isolation not specified
-  NA = 0;
-  // Can run in containerd
-  CONTAINERD = 1;
-  // Can run in Docker
-  DOCKER = 2;
-}
+// // The function image's upload means it must be run in a certain isolation backend(s)
+// enum SupportedIsolation {
+//   // Isolation not specified
+//   NA = 0;
+//   // Can run in containerd
+//   CONTAINERD = 1;
+//   // Can run in Docker
+//   DOCKER = 2;
+// }
 
-// The compute the function can use.
-enum SupportedCompute {
-  CPU = 0;
-  GPU = 1;
-  FPGA = 2;
-}
+// // The compute the function can use.
+// enum SupportedCompute {
+//   CPU = 0;
+//   GPU = 1;
+//   FPGA = 2;
+// }
   
 service IluvatarWorker {
   rpc ping(PingRequest) returns (PingResponse) {}

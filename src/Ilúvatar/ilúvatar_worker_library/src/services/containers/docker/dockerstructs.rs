@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::{SystemTime, Duration}, num::NonZeroU32};
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
 use reqwest::Client;
 use crate::services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult, ContainerState}};
 use anyhow::Result;
@@ -125,6 +125,7 @@ impl ContainerT for DockerContainer {
   fn set_state(&self, state: ContainerState) {
     *self.state.lock() = state;
   }
+  fn container_type(&self) -> Isolation { Isolation::DOCKER }
 }
 
 impl crate::services::containers::structs::ToAny for DockerContainer {

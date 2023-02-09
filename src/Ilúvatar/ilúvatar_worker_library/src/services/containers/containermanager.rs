@@ -5,7 +5,7 @@ use iluvatar_library::threading::{tokio_runtime, EventualItem, tokio_thread};
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use crate::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID, CTR_MGR_HEALTH_WORKER_TID};
-use iluvatar_library::types::MemSizeMb;
+use iluvatar_library::types::{MemSizeMb, Isolation};
 use iluvatar_library::utils::calculate_fqdn;
 use crate::worker_api::worker_config::{FunctionLimits, ContainerResources};
 use anyhow::{Result, bail};
@@ -14,7 +14,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use parking_lot::RwLock;
-use super::LifecycleService;
+use super::LifecycleCollection;
 use super::container_pool::{ContainerPool, Subpool};
 use super::structs::{Container, RegisteredFunction, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
@@ -29,7 +29,7 @@ pub struct ContainerManager {
   limits_config: Arc<FunctionLimits>, 
   resources: Arc<ContainerResources>,
   used_mem_mb: Arc<RwLock<MemSizeMb>>,
-  cont_lifecycle: Arc<dyn LifecycleService>,
+  cont_lifecycles: LifecycleCollection,
   prioritized_list: RwLock<Subpool>,
   _worker_thread: std::thread::JoinHandle<()>,
   _health_thread: tokio::task::JoinHandle<()>,
@@ -41,7 +41,7 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>) -> ContainerManager {
+  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>) -> ContainerManager {
     let core_sem = match resources.cores {
       0 => None,
       c => Some(Arc::new(Semaphore::new(c as usize))),
@@ -52,7 +52,7 @@ impl ContainerManager {
       limits_config,
       resources,
       used_mem_mb: Arc::new(RwLock::new(0)),
-      cont_lifecycle,
+      cont_lifecycles,
       prioritized_list: RwLock::new(Vec::new()),
       _worker_thread: worker_thread,
       _health_thread: health_thread,
@@ -63,11 +63,11 @@ impl ContainerManager {
     }
   }
 
-  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycle: Arc<dyn LifecycleService>, _tid: &TransactionId) -> Result<Arc<ContainerManager>> {
+  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, _tid: &TransactionId) -> Result<Arc<ContainerManager>> {
     let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), 
           ContainerManager::monitor_pool, None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>, None)?;
     let (health_handle, health_tx) = tokio_thread(resources.pool_freq_ms, CTR_MGR_HEALTH_WORKER_TID.clone(), Self::cull_unhealthy);
-    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycle, handle, health_handle).await);
+    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycles, handle, health_handle).await);
     tx.send(cm.clone()).unwrap();
     health_tx.send(cm.clone()).unwrap();
     Ok(cm)
@@ -94,8 +94,9 @@ impl ContainerManager {
       if (*service.remove_list.read()).len() > 0 {
         let item = (*service.remove_list.write()).pop();
         if let Some(to_remove) = item {
-          let stdout = service.cont_lifecycle.read_stdout(&to_remove, &tid);
-          let stderr = service.cont_lifecycle.read_stderr(&to_remove, &tid);
+          let cont_lifecycle = service.cont_lifecycles.get(&to_remove.container_type()).unwrap();
+          let stdout = cont_lifecycle.read_stdout(&to_remove, &tid);
+          let stderr = cont_lifecycle.read_stderr(&to_remove, &tid);
           warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
           match service.remove_container(to_remove, &tid).await {
             Ok(_) => (),
@@ -173,7 +174,8 @@ impl ContainerManager {
     let mut sum_change = 0;
     for container in all_ctrs {
       let old_usage = container.get_curr_mem_usage();
-      let new_usage = self.cont_lifecycle.update_memory_usage_mb(&container, tid);
+      let cont_lifecycle = self.cont_lifecycles.get(&container.container_type()).unwrap();
+      let new_usage = cont_lifecycle.update_memory_usage_mb(&container, tid);
       let diff = new_usage - old_usage;
       debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
       sum_change += diff;
@@ -294,7 +296,8 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
   async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
-    // TODO: cpu and mem prewarm request overrides registration?
+    let cont_lifecycle = self.cont_lifecycles.get(&reg.isolation_type).unwrap();
+
     let curr_mem = *self.used_mem_mb.read();
     if curr_mem + reg.memory > self.resources.memory_mb {
       let avail = self.resources.memory_mb-curr_mem;
@@ -304,7 +307,7 @@ impl ContainerManager {
       *self.used_mem_mb.write() += reg.memory;
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
-    let cont = self.cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, tid).await;
+    let cont = cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, tid).await;
     let cont = match cont {
       Ok(cont) => {
         cont
@@ -315,11 +318,11 @@ impl ContainerManager {
       },
     };
 
-    match self.cont_lifecycle.wait_startup(&cont, self.resources.startup_timeout_ms, tid).await {
+    match cont_lifecycle.wait_startup(&cont, self.resources.startup_timeout_ms, tid).await {
       Ok(_) => (),
       Err(e) => {
         *self.used_mem_mb.write() -= reg.memory;
-        match self.cont_lifecycle.remove_container(cont, "default", tid).await {
+        match cont_lifecycle.remove_container(cont, "default", tid).await {
           Ok(_) => { return Err(e); },
           Err(inner_e) => anyhow::bail!("Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'", e, inner_e),
         };
@@ -357,7 +360,8 @@ impl ContainerManager {
         Ok(r) => r,
         Err(_) => {
           warn!(tid=%request.transaction_id, fqdn=%fqdn, "Function was attempted to be prewarmed before registering. Attempting register...");
-          match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn, &request.transaction_id).await {
+          let iso = Isolation::from_bits(request.isolate).expect("Was unable to get isolation from sent request");
+          match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn, &request.transaction_id, iso).await {
             Ok(_) => self.get_registration(&fqdn)?,
             Err(sub_e) => bail_error!(tid=%request.transaction_id, fqdn=%fqdn, error=%sub_e, "Prewarm of function was registered because it was not registered! Attempted registration failed")
           }
@@ -378,7 +382,8 @@ impl ContainerManager {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
 
     self.check_registration(&fqdn)?;
-    return self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpus, request.parallel_invokes, &fqdn, &request.transaction_id).await;
+    let iso = Isolation::from_bits(request.isolate).expect("Was unable to get isolation from sent request");
+    return self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpus, request.parallel_invokes, &fqdn, &request.transaction_id, iso).await;
   }
 
   /// Returns the function registration identified by `fqdn` if it exists, an error otherwise
@@ -397,7 +402,7 @@ impl ContainerManager {
     Ok(())
   }
 
-  async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, fqdn: &String, tid: &TransactionId) -> Result<()> {
+  async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, fqdn: &String, tid: &TransactionId, isolation: Isolation) -> Result<()> {
     if function_name.len() < 1 {
       anyhow::bail!("Invalid function name");
     }
@@ -416,8 +421,10 @@ impl ContainerManager {
     if function_name.contains("/") || function_name.contains("\\") {
       anyhow::bail!("Illegal characters in function name: cannot container any \\,/");
     }
+    let cont_lifecycle = self.cont_lifecycles.get(&isolation).unwrap();
+    
 
-    let registration = self.cont_lifecycle.prepare_function_registration(function_name, function_version, image_name, memory, cpus, parallel_invokes, fqdn, tid).await?;
+    let registration = cont_lifecycle.prepare_function_registration(function_name, function_version, image_name, memory, cpus, parallel_invokes, fqdn, tid).await?;
 
     debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to registered_functions map");
     self.registered_functions.insert(fqdn.clone(), Arc::new(registration));
@@ -433,8 +440,9 @@ impl ContainerManager {
   /// Container **must** have already been removed from the container pool
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   async fn remove_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
+    let cont_lifecycle = self.cont_lifecycles.get(&container.container_type()).unwrap();
     *self.used_mem_mb.write() -= container.get_curr_mem_usage();
-    self.cont_lifecycle.remove_container(container, "default", tid).await?;
+    cont_lifecycle.remove_container(container, "default", tid).await?;
     Ok(())
   }
 
