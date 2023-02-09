@@ -1,7 +1,7 @@
 use std::{sync::{Arc, atomic::{AtomicU32, Ordering}}, time::Duration};
-use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}};
+use crate::{worker_api::worker_config::{FunctionLimits, InvocationConfig}, services::registration::RegisteredFunction};
 use crate::services::containers::containermanager::ContainerManager;
-use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, logging::LocalTime, utils::calculate_fqdn, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
+use iluvatar_library::{transaction::{TransactionId, INVOKER_QUEUE_WORKER_TID}, logging::LocalTime, threading::tokio_runtime, characteristics_map::CharacteristicsMap};
 use anyhow::Result;
 use tokio::sync::Notify;
 use tracing::{error, debug, info};
@@ -89,10 +89,9 @@ impl Invoker for QueuelessInvoker {
     debug!(tid=%item.tid, "Added item to front of queue; waking worker thread");
     self.queue_signal.notify_waiters();
   }
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
-    let fqdn = calculate_fqdn(&function_name, &function_version);
+  async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     self.running_funcs.fetch_add(1, Ordering::Relaxed);
-    let r = self.invoke_internal(&fqdn, &function_name, &function_version, &json_args, &tid, self.timer().now(), None).await;
+    let r = self.invoke_internal(&reg, &json_args, &tid, self.timer().now(), None).await;
     self.running_funcs.fetch_sub(1, Ordering::Relaxed);
     let (result, dur) = r?;
     let r: InvocationResultPtr = InvocationResult::boxed();

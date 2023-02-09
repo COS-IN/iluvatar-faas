@@ -4,9 +4,11 @@ use anyhow::Result;
 use iluvatar_library::{types::{MemSizeMb, Isolation}, transaction::TransactionId};
 use tracing::info;
 use crate::{worker_api::worker_config::{ContainerResources, NetworkingConfig, FunctionLimits}};
-use crate::services::{containers::{structs::{Container, RegisteredFunction}, containerd::ContainerdLifecycle, simulation::SimulatorLifecycle}};
+use crate::services::{containers::{structs::{Container}, containerd::ContainerdLifecycle, simulation::SimulatorLifecycle}};
 use crate::services::network::namespace_manager::NamespaceManager;
 use self::{structs::ToAny, docker::DockerLifecycle};
+
+use super::registration::RegisteredFunction;
 
 pub mod structs;
 pub mod containermanager;
@@ -28,7 +30,7 @@ pub trait LifecycleService: ToAny + Send + Sync + std::fmt::Debug {
   async fn remove_container(&self, container_id: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;
 
   // async fn search_image_digest(&self, image: &String, namespace: &str, tid: &TransactionId) -> Result<String>;
-  async fn prepare_function_registration(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, fqdn: &String, tid: &TransactionId) -> Result<RegisteredFunction>;
+  async fn prepare_function_registration(&self, rf: &mut RegisteredFunction, fqdn: &String, tid: &TransactionId) -> Result<()>;
   
   /// Removes _all_ containers owned by the lifecycle
   async fn clean_containers(&self, namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()>;

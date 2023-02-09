@@ -58,7 +58,7 @@ pub struct RegisterArgs {
   #[arg(short, long)]
   /// Number of CPUs to allocate 
   pub cpu: u32,
-  #[arg(long, required=true)]
+  #[arg(long, required=true, num_args = 1..)]
   /// Isolation mechanisms supported by the function 
   pub isolation: Vec<IsolationEnum>,
 }

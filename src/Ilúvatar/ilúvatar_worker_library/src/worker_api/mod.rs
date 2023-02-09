@@ -4,6 +4,7 @@ use iluvatar_library::types::Isolation;
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::energy::energy_logging::EnergyLogger;
 use crate::services::invocation::InvokerFactory;
+use crate::services::registration::RegistrationService;
 use crate::services::worker_health::WorkerHealthService;
 use crate::services::containers::LifecycleFactory;
 use crate::services::status::status_service::StatusService;
@@ -25,24 +26,22 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId, sim
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
   let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
-  // let lifecycle = match factory.get_lifecycle_service(tid, true).await {
-  //   Ok(l) => l,
-  //   Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make lifecycle"),
-  // };
 
   let cycles = match factory.get_lifecycle_services(tid, true, simulation).await  {
     Ok(l) => l,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"),
   };
 
-  let container_man = match ContainerManager::boxed(worker_config.limits.clone(), worker_config.container_resources.clone(), cycles, tid).await {
+  let container_man = match ContainerManager::boxed(worker_config.container_resources.clone(), cycles.clone(), tid).await {
     Ok(s) => s,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make container manger"),
   };
 
+  let reg = RegistrationService::new(container_man.clone(), cycles.clone(), worker_config.limits.clone());
+
   let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone(), cmap.clone());
   let invoker = invoker_fact.get_invoker_service(tid)?;
-  let health = match WorkerHealthService::boxed(invoker.clone(), container_man.clone(), tid).await {
+  let health = match WorkerHealthService::boxed(invoker.clone(), reg.clone(), tid).await {
     Ok(h) => h,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make worker health service"),
   };
@@ -56,7 +55,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId, sim
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make energy logger"),
   };
   
-  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy, cmap))
+  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy, cmap, reg))
 }
 
 #[derive(Debug, PartialEq, Eq)]

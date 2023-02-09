@@ -1,13 +1,12 @@
 use crate::services::containers::structs::InsufficientMemoryError;
+use crate::services::registration::RegisteredFunction;
 use futures::Future;
-use iluvatar_library::bail_error;
 use iluvatar_library::threading::{tokio_runtime, EventualItem, tokio_thread};
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
-use crate::rpc::{RegisterRequest, PrewarmRequest};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID, CTR_MGR_HEALTH_WORKER_TID};
-use iluvatar_library::types::{MemSizeMb, Isolation};
+use iluvatar_library::types::MemSizeMb;
 use iluvatar_library::utils::calculate_fqdn;
-use crate::worker_api::worker_config::{FunctionLimits, ContainerResources};
+use crate::worker_api::worker_config::ContainerResources;
 use anyhow::{Result, bail};
 use dashmap::DashMap;
 use std::cmp::Ordering;
@@ -16,17 +15,15 @@ use std::sync::atomic::AtomicU32;
 use parking_lot::RwLock;
 use super::LifecycleCollection;
 use super::container_pool::{ContainerPool, Subpool};
-use super::structs::{Container, RegisteredFunction, ContainerLock, ContainerState};
+use super::structs::{Container, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
 
 /// A struct to manage and control access to containers
 pub struct ContainerManager {
-  registered_functions: DashMap<String, Arc<RegisteredFunction>>,
   /// Containers that are currently not running an invocation
   idle_containers: ContainerPool,
   /// Containers that are running an invocation
   running_containers: ContainerPool,
-  limits_config: Arc<FunctionLimits>, 
   resources: Arc<ContainerResources>,
   used_mem_mb: Arc<RwLock<MemSizeMb>>,
   cont_lifecycles: LifecycleCollection,
@@ -41,15 +38,13 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-  async fn new(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>) -> ContainerManager {
+  async fn new(resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>) -> ContainerManager {
     let core_sem = match resources.cores {
       0 => None,
       c => Some(Arc::new(Semaphore::new(c as usize))),
     };
     ContainerManager {
       core_sem,
-      registered_functions: DashMap::new(),
-      limits_config,
       resources,
       used_mem_mb: Arc::new(RwLock::new(0)),
       cont_lifecycles,
@@ -63,11 +58,11 @@ impl ContainerManager {
     }
   }
 
-  pub async fn boxed(limits_config: Arc<FunctionLimits>, resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, _tid: &TransactionId) -> Result<Arc<ContainerManager>> {
+  pub async fn boxed(resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, _tid: &TransactionId) -> Result<Arc<ContainerManager>> {
     let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), 
           ContainerManager::monitor_pool, None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>, None)?;
     let (health_handle, health_tx) = tokio_thread(resources.pool_freq_ms, CTR_MGR_HEALTH_WORKER_TID.clone(), Self::cull_unhealthy);
-    let cm = Arc::new(ContainerManager::new(limits_config, resources.clone(), cont_lifecycles, handle, health_handle).await);
+    let cm = Arc::new(ContainerManager::new(resources.clone(), cont_lifecycles, handle, health_handle).await);
     tx.send(cm.clone()).unwrap();
     health_tx.send(cm.clone()).unwrap();
     Ok(cm)
@@ -147,22 +142,14 @@ impl ContainerManager {
 
   /// Return a permit for the function to run on its registered number of cores
   /// If the semaphore is [None], then no permits are being tracked
-  pub fn try_acquire_cores(&self, fqdn: &String, tid: &TransactionId) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::TryAcquireError> {
-    match self.get_registration(fqdn) {
-      Ok(reg) => {
-        if let Some(sem) = &self.core_sem {
-          return match sem.clone().try_acquire_many_owned(reg.cpus) {
-            Ok(p) => Ok(Some(p)),
-            Err(e) => Err(e),
-          };
-        }
-        return Ok(None);
-      },
-      Err(e) => {
-        error!(error=%e, tid=%tid, "Failed to get function registration");
-        Err(tokio::sync::TryAcquireError::Closed)
-      }
+  pub fn try_acquire_cores(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::TryAcquireError> {
+    if let Some(sem) = &self.core_sem {
+      return match sem.clone().try_acquire_many_owned(reg.cpus) {
+        Ok(p) => Ok(Some(p)),
+        Err(e) => Err(e),
+      };
     }
+    return Ok(None);
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
@@ -194,13 +181,13 @@ impl ContainerManager {
   /// A return type [EventualItem::Now] means an existing container has been acquired
   /// Can return a custom InsufficientCoresError if an invocation cannot be started now
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
-  pub fn acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
-    let cont = self.try_acquire_container(fqdn, tid);
+  pub fn acquire_container<'a>(&'a self, reg: &Arc<RegisteredFunction>, tid: &'a TransactionId) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
+    let cont = self.try_acquire_container(&reg.fqdn, tid);
     let cont = match cont {
       Some(l) => EventualItem::Now(Ok(l)),
       None => {
         // not available container, cold start
-        EventualItem::Future(self.cold_start(fqdn.clone(), tid))
+        EventualItem::Future(self.cold_start(reg.clone(), tid))
       },
     };
     return cont;
@@ -225,9 +212,9 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   /// Starts a new container and returns a [ContainerLock] for it to be used
-  async fn cold_start<'a>(&'a self, fqdn: String, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
-    debug!(tid=%tid, fqdn=%fqdn, "Trying to cold start a new container");
-    let container = self.launch_container(&fqdn, tid).await?;
+  async fn cold_start<'a>(&'a self, reg: Arc<RegisteredFunction>, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
+    debug!(tid=%tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
+    let container = self.launch_container(&reg, tid).await?;
     info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
     container.set_state(ContainerState::Cold);
     self.try_lock_container(container, tid).ok_or(anyhow::anyhow!("Encountered an error making conatiner lock"))
@@ -279,13 +266,7 @@ impl ContainerManager {
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
-  async fn launch_container(&self, fqdn: &String, tid: &TransactionId) -> Result<Container> {
-    let reg = match self.get_registration(&fqdn) {
-      Ok(r) => r,
-      Err(_) => {
-        anyhow::bail!("Function {} was not registered! Cannot launch a container for it", fqdn);
-      },
-    };
+  async fn launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
     self.launch_container_internal(&reg, tid).await
   }
 
@@ -354,23 +335,11 @@ impl ContainerManager {
   /// Can error if not already registered and full info isn't provided
   /// Other errors caused by starting/registered the function apply
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, request), fields(tid=%request.transaction_id)))]
-  pub async fn prewarm(&self, request: &PrewarmRequest) -> Result<()> {
-    let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
-    let reg = match self.get_registration(&fqdn) {
-        Ok(r) => r,
-        Err(_) => {
-          warn!(tid=%request.transaction_id, fqdn=%fqdn, "Function was attempted to be prewarmed before registering. Attempting register...");
-          let iso = Isolation::from_bits(request.isolate).expect("Was unable to get isolation from sent request");
-          match self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpu, 1, &fqdn, &request.transaction_id, iso).await {
-            Ok(_) => self.get_registration(&fqdn)?,
-            Err(sub_e) => bail_error!(tid=%request.transaction_id, fqdn=%fqdn, error=%sub_e, "Prewarm of function was registered because it was not registered! Attempted registration failed")
-          }
-        },
-    };
-    let container = self.launch_container_internal(&reg, &request.transaction_id).await?;
+  pub async fn prewarm(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
+    let container = self.launch_container_internal(&reg, tid).await?;
     container.set_state(ContainerState::Prewarm);
-    self.add_container_to_pool(&self.idle_containers, container, &request.transaction_id)?;
-    info!(tid=%request.transaction_id, fqdn=%fqdn, "function was successfully prewarmed");
+    self.add_container_to_pool(&self.idle_containers, container, &tid)?;
+    info!(tid=%tid, fqdn=%reg.fqdn, "function was successfully prewarmed");
     Ok(())
   }
 
@@ -378,64 +347,11 @@ impl ContainerManager {
   /// 
   /// # Errors
   /// Can error if the function is already registers, the image is invalid, or many other reasons
-  pub async fn register(&self, request: &RegisterRequest) -> Result<()> {
-    let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
-
-    self.check_registration(&fqdn)?;
-    let iso = Isolation::from_bits(request.isolate).expect("Was unable to get isolation from sent request");
-    return self.register_internal(&request.function_name, &request.function_version, &request.image_name, request.memory, request.cpus, request.parallel_invokes, &fqdn, &request.transaction_id, iso).await;
-  }
-
-  /// Returns the function registration identified by `fqdn` if it exists, an error otherwise
-  fn get_registration(&self, fqdn: &String) -> Result<Arc<RegisteredFunction>> {
-    match self.registered_functions.get(fqdn) {
-      Some(val) => Ok(val.clone()),
-      None => anyhow::bail!("Function {} was not registered!", fqdn),
-    }
-  }
-
-  /// Returns an error if the function identified by `fqdn`
-  fn check_registration(&self, fqdn: &String) -> Result<()> {
-    if self.registered_functions.contains_key(fqdn) {
-      anyhow::bail!("Function {} is already registered!", fqdn);
-    }
-    Ok(())
-  }
-
-  async fn register_internal(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, fqdn: &String, tid: &TransactionId, isolation: Isolation) -> Result<()> {
-    if function_name.len() < 1 {
-      anyhow::bail!("Invalid function name");
-    }
-    if function_version.len() < 1 {
-      anyhow::bail!("Invalid function version");
-    }
-    if memory < self.limits_config.mem_min_mb || memory > self.limits_config.mem_max_mb {
-      anyhow::bail!("Illegal memory allocation request");
-    }
-    if cpus < 1 || cpus > self.limits_config.cpu_max {
-      anyhow::bail!("Illegal cpu allocation request");
-    }
-    if parallel_invokes != 1 {
-      anyhow::bail!("Illegal parallel invokes set, must be 1");
-    }
-    if function_name.contains("/") || function_name.contains("\\") {
-      anyhow::bail!("Illegal characters in function name: cannot container any \\,/");
-    }
-    let cont_lifecycle = match self.cont_lifecycles.get(&isolation) {
-        Some(c) => c,
-        None => anyhow::bail!("Did not have a containerization setup for isolation '{:?}'", isolation),
-    };
-    
-
-    let registration = cont_lifecycle.prepare_function_registration(function_name, function_version, image_name, memory, cpus, parallel_invokes, fqdn, tid).await?;
-
-    debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to registered_functions map");
-    self.registered_functions.insert(fqdn.clone(), Arc::new(registration));
-    debug!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "Adding new registration to active_containers map");
-    self.running_containers.register_fqdn(fqdn.clone());
-    self.idle_containers.register_fqdn(fqdn.clone());
-    self.outstanding_containers.insert(fqdn.clone(), AtomicU32::new(0));
-    info!(tid=%tid, function_name=%function_name, function_version=%function_version, fqdn=%fqdn, "function was successfully registered");
+  pub fn register(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
+    debug!(tid=%tid, function_name=%reg.function_name, function_version=%reg.function_version, fqdn=%reg.fqdn, "Adding new registration to active_containers map");
+    self.running_containers.register_fqdn(reg.fqdn.clone());
+    self.idle_containers.register_fqdn(reg.fqdn.clone());
+    self.outstanding_containers.insert(reg.fqdn.clone(), AtomicU32::new(0));
     Ok(())
   }
 

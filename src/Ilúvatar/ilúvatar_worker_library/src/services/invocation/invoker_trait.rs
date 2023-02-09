@@ -2,11 +2,12 @@ use std::sync::atomic::AtomicU32;
 use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{ParsedResult, InsufficientCoresError, InsufficientMemoryError, ContainerState};
 use crate::services::invocation::invoker_structs::InvocationResult;
+use crate::services::registration::RegisteredFunction;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
-use iluvatar_library::{utils::calculate_fqdn, transaction::{TransactionId}, threading::EventualItem};
+use iluvatar_library::{transaction::{TransactionId}, threading::EventualItem};
 use parking_lot::Mutex;
 use time::{OffsetDateTime, Instant};
 use tokio::sync::Semaphore;
@@ -87,21 +88,19 @@ pub trait Invoker: Send + Sync {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
   /// A synchronous invocation against this invoker
   /// Re-implementers **must** duplicate [tracing::info] logs for consistency
-  async fn sync_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
-    let fqdn = calculate_fqdn(&function_name, &function_version);
-
+  async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
     // check if the bypass counter exists, and if this fqdn can by bypassed
     if let Some(bypass_running) = self.bypass_running() {
-      if self.should_bypass(&fqdn) {
+      if self.should_bypass(&reg.fqdn) {
         // if both true, then go for the bypass
-        match self.bypassing_invoke_internal(fqdn, &json_args, &tid, bypass_running).await? {
+        match self.bypassing_invoke_internal(reg.clone(), &json_args, &tid, bypass_running).await? {
           Some(x) => return Ok(x),
           None => (), // None means the function would have run cold, so instead we put it into the queue
         };
       }
     }
 
-    let queued = self.enqueue_new_invocation(function_name, function_version, json_args, tid.clone());
+    let queued = self.enqueue_new_invocation(reg, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
     match result_ptr.completed {
@@ -114,8 +113,8 @@ pub trait Invoker: Send + Sync {
       }
     }
   }
-  fn async_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Result<String> {
-    let invoke = self.enqueue_new_invocation(function_name, function_version, json_args, tid);
+  fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String> {
+    let invoke = self.enqueue_new_invocation(reg, json_args, tid);
     self.async_functions().insert_async_invoke(invoke)
   }
   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
@@ -131,14 +130,14 @@ pub trait Invoker: Send + Sync {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn, json_args, bypass_running), fields(tid=%tid)))]
   /// Run an invocation, bypassing any concurrency restrictions
   /// A return value of [Ok(None)] means that the function would have run cold, and the caller should enqueue it instead
-  async fn bypassing_invoke_internal(&self, fqdn: String, json_args: &String, tid: &TransactionId, bypass_running: &AtomicU32) -> Result<Option<InvocationResultPtr>> {
+  async fn bypassing_invoke_internal(&self, reg: Arc<RegisteredFunction>, json_args: &String, tid: &TransactionId, bypass_running: &AtomicU32) -> Result<Option<InvocationResultPtr>> {
     info!(tid=%tid, "Bypassing internal invocation starting");
     let timer = self.timer();
     // take run time now because we may have to wait to get a container
     let remove_time = timer.now_str()?;
 
     let ctr_mgr = self.cont_manager();
-    let ctr_lock = match ctr_mgr.acquire_container(&fqdn, &tid) {
+    let ctr_lock = match ctr_mgr.acquire_container(&reg, &tid) {
       EventualItem::Future(_) => return Ok(None), // return None on a cold start, signifying the bypass didn't happen
       EventualItem::Now(n) => n?,
     };
@@ -148,11 +147,11 @@ pub trait Invoker: Send + Sync {
     bypass_running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     match ctr_lock.container.state() 
     {
-      ContainerState::Warm => {self.char_map().add(&fqdn, Characteristics::WarmTime, Values::F64(result.duration_sec), true);},
-      ContainerState::Prewarm => {self.char_map().add(&fqdn, Characteristics::PreWarmTime, Values::F64(result.duration_sec), true);},
+      ContainerState::Warm => {self.char_map().add(&reg.fqdn, Characteristics::WarmTime, Values::F64(result.duration_sec), true);},
+      ContainerState::Prewarm => {self.char_map().add(&reg.fqdn, Characteristics::PreWarmTime, Values::F64(result.duration_sec), true);},
       _ => error!(tid=%tid, container_id=ctr_lock.container.container_id(), "Got a cold container when doing a bypass invoke"), // can't have a cold container
     };
-    self.char_map().add(&fqdn, Characteristics::ExecTime, Values::F64(result.duration_sec), true);
+    self.char_map().add(&reg.fqdn, Characteristics::ExecTime, Values::F64(result.duration_sec), true);
     let r = Arc::new(Mutex::new(InvocationResult {
       completed: true,
       duration: duration,
@@ -180,7 +179,7 @@ pub trait Invoker: Send + Sync {
       },
       None => None,
     };
-    let core_perm = match self.cont_manager().try_acquire_cores(&item.fqdn, &item.tid) {
+    let core_perm = match self.cont_manager().try_acquire_cores(&item.registration, &item.tid) {
       Ok(c) => c,
       Err(e) => { 
         match e {
@@ -213,7 +212,7 @@ pub trait Invoker: Send + Sync {
   /// On failure, [Invoker::handle_invocation_error] is called
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
   async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
-    match self.invoke_internal(&item.fqdn, &item.function_name, &item.function_version, &item.json_args, &item.tid, item.queue_insert_time, Some(permit)).await {
+    match self.invoke_internal(&item.registration, &item.json_args, &item.tid, item.queue_insert_time, Some(permit)).await {
       Ok( (json, duration) ) =>  {
         let mut result_ptr = item.result_ptr.lock();
         result_ptr.duration = duration;
@@ -263,10 +262,9 @@ pub trait Invoker: Send + Sync {
   /// Forms invocation data into a [EnqueuedInvocation] that is returned
   /// The default implementation also calls [Invoker::add_item_to_queue] to optionally insert that item into the implementation's queue
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
-  fn enqueue_new_invocation(&self, function_name: String, function_version: String, json_args: String, tid: TransactionId) -> Arc<EnqueuedInvocation> {
+  fn enqueue_new_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Arc<EnqueuedInvocation> {
     debug!(tid=%tid, "Enqueueing invocation");
-    let fqdn = calculate_fqdn(&function_name, &function_version);
-    let enqueue = Arc::new(EnqueuedInvocation::new(fqdn, function_name, function_version, json_args, tid, self.timer().now()));
+    let enqueue = Arc::new(EnqueuedInvocation::new(reg, json_args, tid, self.timer().now()));
     self.add_item_to_queue(&enqueue, None);
     enqueue
   }
@@ -275,7 +273,7 @@ pub trait Invoker: Send + Sync {
   /// returns the json result and duration as a tuple
   /// The optional [permit] is dropped to return held resources
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, _function_name, _function_version, json_args, queue_insert_time, permit), fields(tid=%tid)))]
-  async fn invoke_internal(&self, fqdn: &String, _function_name: &String, _function_version: &String, json_args: &String, tid: &TransactionId, queue_insert_time: OffsetDateTime, permit: Option<Box<dyn Drop+Send>>) -> Result<(ParsedResult, Duration)> {
+  async fn invoke_internal(&self, reg: &Arc<RegisteredFunction>, json_args: &String, tid: &TransactionId, queue_insert_time: OffsetDateTime, permit: Option<Box<dyn Drop+Send>>) -> Result<(ParsedResult, Duration)> {
     debug!(tid=%tid, "Internal invocation starting");
     let timer = self.timer();
     // take run time now because we may have to wait to get a container
@@ -283,19 +281,18 @@ pub trait Invoker: Send + Sync {
 
     let ctr_mgr = self.cont_manager();
     let start = Instant::now();
-    let ctr_lock = match ctr_mgr.acquire_container(fqdn, tid) {
+    let ctr_lock = match ctr_mgr.acquire_container(reg, tid) {
       EventualItem::Future(f) => f.await?,
       EventualItem::Now(n) => n?,
     };
     info!(tid=%tid, insert_time=%timer.format_time(queue_insert_time)?, remove_time=%remove_time?, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
-    match ctr_lock.container.state() 
-    {
-      ContainerState::Warm => self.char_map().add( fqdn, Characteristics::WarmTime, Values::F64(data.duration_sec), true),
-      ContainerState::Prewarm => self.char_map().add( fqdn, Characteristics::PreWarmTime, Values::F64(data.duration_sec), true),
-      _ => self.char_map().add( fqdn, Characteristics::ColdTime, Values::F64(start.elapsed().as_seconds_f64()), true),
+    match ctr_lock.container.state() {
+      ContainerState::Warm => self.char_map().add(&reg.fqdn, Characteristics::WarmTime, Values::F64(data.duration_sec), true),
+      ContainerState::Prewarm => self.char_map().add(&reg.fqdn, Characteristics::PreWarmTime, Values::F64(data.duration_sec), true),
+      _ => self.char_map().add(&reg.fqdn, Characteristics::ColdTime, Values::F64(start.elapsed().as_seconds_f64()), true),
     };
-    self.char_map().add( fqdn, Characteristics::ExecTime, Values::F64(data.duration_sec), true);
+    self.char_map().add(&reg.fqdn, Characteristics::ExecTime, Values::F64(data.duration_sec), true);
     drop(permit);
     Ok((data, duration))
   }

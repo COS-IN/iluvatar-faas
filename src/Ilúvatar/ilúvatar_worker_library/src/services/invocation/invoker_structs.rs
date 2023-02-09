@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use anyhow::Result;
-use crate::services::containers::structs::ParsedResult;
+use crate::services::{containers::structs::ParsedResult, registration::RegisteredFunction};
 use ordered_float::OrderedFloat;
 
 #[derive(Debug)]
@@ -38,11 +38,9 @@ pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
 #[derive(Debug)]
 /// A struct to hold a function while it is in the invocation queue
 pub struct EnqueuedInvocation {
-  pub fqdn: String,
+  pub registration: Arc<RegisteredFunction>,
   /// Pointer where results will be stored on invocation completion
   pub result_ptr: InvocationResultPtr,
-  pub function_name: String, 
-  pub function_version: String, 
   pub json_args: String, 
   pub tid: TransactionId,
   signal: Notify,
@@ -51,12 +49,10 @@ pub struct EnqueuedInvocation {
 }
 
 impl EnqueuedInvocation {
-  pub fn new(fqdn: String, function_name: String, function_version: String, json_args: String, tid: TransactionId, queue_insert_time: OffsetDateTime) -> Self {
+  pub fn new(registration: Arc<RegisteredFunction>, json_args: String, tid: TransactionId, queue_insert_time: OffsetDateTime) -> Self {
     EnqueuedInvocation {
-      fqdn,
+      registration,
       result_ptr: InvocationResult::boxed(),
-      function_name,
-      function_version,
       json_args,
       tid,
       signal: Notify::new(),
@@ -121,7 +117,18 @@ mod heapstructs {
   use std::collections::BinaryHeap;
 
   fn min_item(name: &str, priority: f64, clock: &LocalTime) -> MinHeapFloat {
-    MinHeapEnqueuedInvocation::new_f(Arc::new(EnqueuedInvocation::new(name.to_string(),name.to_string(),name.to_string(),name.to_string(),name.to_string(), clock.now())), priority)
+    let rf = Arc::new(RegisteredFunction {
+      function_name: name.to_string(),
+      function_version: name.to_string(),
+      fqdn: name.to_string(),
+      image_name: name.to_string(),
+      memory: 1,
+      cpus: 1,
+      snapshot_base: "".to_string(),
+      parallel_invokes: 1,
+      isolation_type: iluvatar_library::types::Isolation::SIMULATION,
+    });
+    MinHeapEnqueuedInvocation::new_f(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now())), priority)
   }
 
   #[test]
@@ -134,13 +141,24 @@ mod heapstructs {
     heap.push(item1);
     heap.push(item2);
     heap.push(item3);
-    assert_eq!(heap.pop().expect("first item should exist").item.function_name, "1");
-    assert_eq!(heap.pop().expect("second item should exist").item.function_name, "2");
-    assert_eq!(heap.pop().expect("third item should exist").item.function_name, "3");
+    assert_eq!(heap.pop().expect("first item should exist").item.registration.function_name, "1");
+    assert_eq!(heap.pop().expect("second item should exist").item.registration.function_name, "2");
+    assert_eq!(heap.pop().expect("third item should exist").item.registration.function_name, "3");
   }
 
   fn item_i64(name: &str, priority: i64, clock: &LocalTime) -> MinHeapEnqueuedInvocation<i64> {
-    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(name.to_string(),name.to_string(),name.to_string(),name.to_string(),name.to_string(), clock.now())), priority)
+    let rf = Arc::new(RegisteredFunction {
+      function_name: name.to_string(),
+      function_version: name.to_string(),
+      fqdn: name.to_string(),
+      image_name: name.to_string(),
+      memory: 1,
+      cpus: 1,
+      snapshot_base: "".to_string(),
+      parallel_invokes: 1,
+      isolation_type: iluvatar_library::types::Isolation::SIMULATION,
+    });
+    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now())), priority)
   }
   #[test]
   fn min_i64() {
@@ -152,13 +170,24 @@ mod heapstructs {
     heap.push(item1);
     heap.push(item2);
     heap.push(item3);
-    assert_eq!(heap.pop().expect("first item should exist").item.function_name, "1");
-    assert_eq!(heap.pop().expect("second item should exist").item.function_name, "2");
-    assert_eq!(heap.pop().expect("third item should exist").item.function_name, "3");
+    assert_eq!(heap.pop().expect("first item should exist").item.registration.function_name, "1");
+    assert_eq!(heap.pop().expect("second item should exist").item.registration.function_name, "2");
+    assert_eq!(heap.pop().expect("third item should exist").item.registration.function_name, "3");
   }
   fn item_datetime(name: &str, clock: &LocalTime) -> MinHeapEnqueuedInvocation<OffsetDateTime> {
     let t = clock.now();
-    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(name.to_string(),name.to_string(),name.to_string(),name.to_string(),name.to_string(), t)), t)
+    let rf = Arc::new(RegisteredFunction {
+      function_name: name.to_string(),
+      function_version: name.to_string(),
+      fqdn: name.to_string(),
+      image_name: name.to_string(),
+      memory: 1,
+      cpus: 1,
+      snapshot_base: "".to_string(),
+      parallel_invokes: 1,
+      isolation_type: iluvatar_library::types::Isolation::SIMULATION,
+    });
+    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), t)), t)
   }
   #[test]
   fn min_datetime() {
@@ -170,8 +199,8 @@ mod heapstructs {
     heap.push(item1);
     heap.push(item2);
     heap.push(item3);
-    assert_eq!(heap.pop().expect("first item should exist").item.function_name, "1");
-    assert_eq!(heap.pop().expect("second item should exist").item.function_name, "2");
-    assert_eq!(heap.pop().expect("third item should exist").item.function_name, "3");
+    assert_eq!(heap.pop().expect("first item should exist").item.registration.function_name, "1");
+    assert_eq!(heap.pop().expect("second item should exist").item.registration.function_name, "2");
+    assert_eq!(heap.pop().expect("third item should exist").item.registration.function_name, "3");
   }
 }

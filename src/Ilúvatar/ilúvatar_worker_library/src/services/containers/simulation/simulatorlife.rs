@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}};
 use self::simstructs::SimulatorContainer;
-use super::{structs::{RegisteredFunction, Container, ContainerState}, LifecycleService};
+use super::{structs::{Container, ContainerState}, LifecycleService};
+use crate::services::registration::RegisteredFunction;
 use anyhow::Result;
 use guid_create::GUID;
 use tracing::warn;
@@ -40,17 +41,8 @@ impl LifecycleService for SimulatorLifecycle {
   }
 
   /// Read through an image's digest to find it's snapshot base
-  async fn prepare_function_registration(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, _fqdn: &String, _tid: &TransactionId) -> Result<RegisteredFunction> {
-    Ok(RegisteredFunction {
-      function_name: function_name.clone(),
-      function_version: function_version.clone(),
-      image_name: image_name.clone(),
-      memory,
-      cpus,
-      snapshot_base: "".to_string(),
-      parallel_invokes,
-      isolation_type: self.backend()
-    })
+  async fn prepare_function_registration(&self, rf: &mut RegisteredFunction, _fqdn: &String, _tid: &TransactionId) -> Result<()> {
+    Ok(())
   }
   
   async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {

@@ -1,6 +1,7 @@
 use std::sync::Arc;
+use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map::CharacteristicsMap, utils::calculate_fqdn};
-use crate::services::invocation::invoker_trait::Invoker;
+use crate::services::{invocation::invoker_trait::Invoker, registration::RegistrationService};
 use crate::services::worker_health::WorkerHealthService;
 use crate::services::status::status_service::StatusService;
 use tonic::{Request, Response, Status};
@@ -19,18 +20,13 @@ pub struct IluvatarWorkerImpl {
   health: Arc<WorkerHealthService>,
   energy: Arc<EnergyLogger>,
   cmap: Arc<CharacteristicsMap>,
+  reg: Arc<RegistrationService>,
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<dyn Invoker>, status: Arc<StatusService>, health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>, cmap: Arc<CharacteristicsMap>) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<dyn Invoker>, status: Arc<StatusService>, health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>, cmap: Arc<CharacteristicsMap>, reg: Arc<RegistrationService>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
-      container_manager,
-      config,
-      invoker,
-      status,
-      health,
-      energy,
-      cmap
+      container_manager, config, invoker, status, health, energy, cmap, reg,
     }
   }
 }
@@ -57,8 +53,18 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       let request = request.into_inner();
       info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling invocation request");
       let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
+      let reg = match self.reg.get_registration(&fqdn) {
+        Some(r) => r,
+        None => {
+          return Ok(Response::new(InvokeResponse {
+            success: false,
+            duration_us: 0,
+            json_result: format!("{{ \"Error\": \"Function was not registered\" }}"),
+          }));
+        },
+      };
       self.cmap.add_iat( &fqdn );
-      let resp = self.invoker.sync_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id).await;
+      let resp = self.invoker.sync_invocation(reg, request.json_args, request.transaction_id).await;
 
       match resp {
         Ok( result_ptr ) => {
@@ -87,8 +93,17 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       let request = request.into_inner();
       info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling async invocation request");
       let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
+      let reg = match self.reg.get_registration(&fqdn) {
+        Some(r) => r,
+        None => {
+          return Ok(Response::new(InvokeAsyncResponse {
+            lookup_cookie: "".to_string(),
+            success: false
+          }));
+        },
+      };
       self.cmap.add_iat( &fqdn );
-      let resp = self.invoker.async_invocation(request.function_name, request.function_version, request.json_args, request.transaction_id);
+      let resp = self.invoker.async_invocation(reg, request.json_args, request.transaction_id);
 
       match resp {
         Ok( cookie ) => {
@@ -133,7 +148,19 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
       let request = request.into_inner();
       info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling prewarm request");
-      let container_id = self.container_manager.prewarm(&request).await;
+      
+      let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
+      let reg = match self.reg.get_registration(&fqdn) {
+        Some(r) => r,
+        None => {
+          let resp = PrewarmResponse {
+            success: false,
+            message: format!("{{ \"Error\": \"Function was not registered\" }}"),
+          };
+          return Ok(Response::new(resp));
+        },
+      };
+      let container_id = self.container_manager.prewarm(reg, &request.transaction_id).await;
 
       match container_id {
         Ok(_) => {
@@ -158,22 +185,23 @@ impl IluvatarWorker for IluvatarWorkerImpl {
   async fn register(&self,
     request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
       let request = request.into_inner();
+      let tid: TransactionId = request.transaction_id.clone();
       info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, image=%request.image_name, "Handling register request");
-      let reg_result = self.container_manager.register(&request).await;
+      let reg_result = self.reg.register(request, &tid).await;
 
       match reg_result {
         Ok(_) => {
           let reply = RegisterResponse {
             success: true,
-            function_json_result: format!("{{\"Ok\": \"function '{}' registered\"}}", request.function_name).into(),
+            function_json_result: format!("{{\"Ok\": \"function registered\"}}").into(),
           };
           Ok(Response::new(reply))        
         },
         Err(msg) => {
-          error!(tid=%request.transaction_id, error=%msg, "Registration failed");
+          error!(tid=%tid, error=%msg, "Registration failed");
           let reply = RegisterResponse {
             success: false,
-            function_json_result: format!("{{\"Error\": \"Error during registration of '{}': '{:?}\"}}", request.function_name, msg).into(),
+            function_json_result: format!("{{\"Error\": \"Error during registration: '{:?}\"}}", msg).into(),
           };
           Ok(Response::new(reply))        
         },

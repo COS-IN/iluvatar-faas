@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use iluvatar_library::{transaction::TransactionId, types::{Compute, Isolation}};
 use crate::{rpc::{RegisterRequest, HealthResponse, LanguageRuntime}};
-use super::{invocation::invoker_trait::Invoker, containers::containermanager::ContainerManager};
+use super::{invocation::invoker_trait::Invoker, registration::{RegistrationService, RegisteredFunction}};
 use anyhow::Result;
 use tracing::warn;
 
@@ -15,7 +15,6 @@ const TEST_FUNC_ARGS: &str = "{ \"name\":\"BADCAFE\" }";
 struct TestReturnFormat {
   body: TestBody
 }
-
 #[derive(serde::Deserialize)]
 #[allow(unused)]
 struct TestBody {
@@ -27,11 +26,12 @@ struct TestBody {
 }
 
 pub struct WorkerHealthService {
-  invoker_svc: Arc<dyn Invoker>
+  invoker_svc: Arc<dyn Invoker>,
+  health_reg: Arc<RegisteredFunction>
 }
 
 impl WorkerHealthService {
-  pub async fn boxed(invoker_svc: Arc<dyn Invoker>, container_mgr: Arc<ContainerManager>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub async fn boxed(invoker_svc: Arc<dyn Invoker>, reg: Arc<RegistrationService>, tid: &TransactionId) -> Result<Arc<Self>> {
     let health_func = RegisterRequest {
         function_name: TEST_FUNC_NAME.to_string(),
         function_version: TEST_FUNC_VERSION.to_string(),
@@ -44,10 +44,11 @@ impl WorkerHealthService {
         compute: Compute::CPU.bits(),
         isolate: Isolation::CONTAINERD.bits()
     };
-    container_mgr.register(&health_func).await?;
+    let reg = reg.register(health_func, tid).await?;
 
     Ok(Arc::new(WorkerHealthService {
-      invoker_svc
+      invoker_svc,
+       health_reg: reg,
     }))
   }
 
@@ -65,7 +66,7 @@ impl WorkerHealthService {
 
   /// see if the worker is healthy by trying to run a simple invocation and verifying results
   pub async fn check_health(&self, tid: &TransactionId) -> HealthResponse {
-    match self.invoker_svc.sync_invocation(TEST_FUNC_NAME.to_string(), TEST_FUNC_VERSION.to_string(), TEST_FUNC_ARGS.to_string(), tid.clone()).await {
+    match self.invoker_svc.sync_invocation(self.health_reg.clone(), TEST_FUNC_ARGS.to_string(), tid.clone()).await {
       Ok( result_ptr ) => {
         let result = result_ptr.lock();
         match serde_json::from_str::<TestReturnFormat>(&result.result_json) {

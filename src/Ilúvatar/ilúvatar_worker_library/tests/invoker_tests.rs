@@ -2,8 +2,9 @@
 pub mod utils;
 
 use std::sync::Arc;
+use iluvatar_worker_library::services::registration::{RegisteredFunction, RegistrationService};
 use tokio::time::timeout;
-use iluvatar_worker_library::rpc::{RegisterRequest, PrewarmRequest, InvokeAsyncRequest};
+use iluvatar_worker_library::rpc::{RegisterRequest, InvokeAsyncRequest};
 use iluvatar_worker_library::rpc::InvokeRequest;
 use iluvatar_worker_library::services::invocation::invoker_trait::Invoker;
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
@@ -13,6 +14,7 @@ use std::{time::Duration, collections::HashMap};
 use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
 use iluvatar_worker_library::rpc::LanguageRuntime;
 use iluvatar_library::types::{Compute, Isolation};
+use iluvatar_library::transaction::TEST_TID;
 
 fn build_env(invoker_q: &str) -> HashMap<String, String> {
   let mut r = HashMap::new();
@@ -44,7 +46,7 @@ mod invoke {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
-    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -57,19 +59,8 @@ mod invoke {
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
     };
-    cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
-    let input = PrewarmRequest {
-      function_name: "test".to_string(),
-      function_version: "0.1.1".to_string(),
-      cpu: 1,
-      memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string(),
-      language: LanguageRuntime::Nolang.into(),
-      compute: Compute::CPU.bits(),
-      isolate: Isolation::CONTAINERD.bits(),
-    };
-    cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    let reg = _reg.register(input, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -78,7 +69,7 @@ mod invoke {
       transaction_id: "testTID".to_string()
     };
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
-    let result = invok_svc.sync_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id).await;
+    let result = invok_svc.sync_invocation(reg, req.json_args, req.transaction_id).await;
     match result {
       Ok( result_ptr ) => {
         let result = result_ptr.lock();
@@ -110,7 +101,7 @@ mod invoke {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
-    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
+    let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -123,7 +114,7 @@ mod invoke {
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
     };
-    cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let reg = _reg.register(input, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -132,7 +123,7 @@ mod invoke {
       transaction_id: "testTID".to_string()
     };
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
-    let result = invok_svc.sync_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id).await;
+    let result = invok_svc.sync_invocation(reg, req.json_args, req.transaction_id).await;
     match result {
       Ok( result_ptr ) => {
         let result = result_ptr.lock();
@@ -168,7 +159,7 @@ mod invoke_async {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
-    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
 
     let input = RegisterRequest {
       function_name: "test".to_string(),
@@ -182,19 +173,8 @@ mod invoke_async {
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
     };
-    cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
-    let input = PrewarmRequest {
-      function_name: "test".to_string(),
-      function_version: "0.1.1".to_string(),
-      cpu: 1,
-      memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      transaction_id: "testTID".to_string(),
-      language: LanguageRuntime::Nolang.into(),
-      compute: Compute::CPU.bits(),
-      isolate: Isolation::CONTAINERD.bits(),
-    };
-    cm.prewarm(&input).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    let reg = _reg.register(input, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeAsyncRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -202,7 +182,7 @@ mod invoke_async {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = invok_svc.async_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id);
+    let result = invok_svc.async_invocation(reg, req.json_args, req.transaction_id);
     let mut count = 0;
     match result {
       Ok( cookie ) => {
@@ -256,7 +236,7 @@ mod invoke_async {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
-    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
+    let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
     let input = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -269,7 +249,7 @@ mod invoke_async {
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
     };
-    cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let reg = _reg.register(input, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeAsyncRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -277,7 +257,7 @@ mod invoke_async {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let result = invok_svc.async_invocation(req.function_name, req.function_version, req.json_args, req.transaction_id);
+    let result = invok_svc.async_invocation(reg, req.json_args, req.transaction_id);
     let mut count = 0;
     match result {
       Ok( cookie ) => {
@@ -339,28 +319,34 @@ async fn get_start_end_time_from_invoke(handle: HANDLE, formatter: &ContainerTim
   }
 }
 
-fn test_invoke(invok_svc: &Arc<dyn Invoker>, function_name: &String, function_version: &String, json_args: &String, transaction_id: &TransactionId) -> HANDLE {
-  let cln = invok_svc.clone();
-  let f = function_name.clone();
-  let v = function_version.clone();
-  let j = json_args.clone();
-  let t = transaction_id.clone();
-  tokio::spawn(async move { cln.sync_invocation(f, v, j, t).await })
-}
-
-async fn prewarm(cm: &Arc<ContainerManager>, function_name: &String, function_version: &String, image: &String, transaction_id: &TransactionId) {
-  let input = PrewarmRequest {
-    function_name: function_name.clone(),
-    function_version: function_version.clone(),
-    cpu: 1,
-    memory: 512,
+async fn register(reg: &Arc<RegistrationService>, image: &String, name: &String, tid: &TransactionId) -> Arc<RegisteredFunction> {
+  let register = RegisterRequest {
+    function_name: name.clone(),
+    function_version: "0.0.1".to_string(),
+    cpus: 1,
+    memory: 128,
     image_name: image.clone(),
-    transaction_id: transaction_id.clone(),
+    parallel_invokes: 1,
+    transaction_id: tid.clone(),
     language: LanguageRuntime::Nolang.into(),
     compute: Compute::CPU.bits(),
     isolate: Isolation::CONTAINERD.bits(),
   };
-  timeout(Duration::from_secs(20), cm.prewarm(&input)).await
+  timeout(Duration::from_secs(20), reg.register(register, tid)).await
+      .unwrap_or_else(|e| panic!("prewarm timout hit: {:?}", e))
+      .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e))
+}
+
+fn test_invoke(invok_svc: &Arc<dyn Invoker>, reg: &Arc<RegisteredFunction>, json_args: &String, transaction_id: &TransactionId) -> HANDLE {
+  let cln = invok_svc.clone();
+  let j = json_args.clone();
+  let t = transaction_id.clone();
+  let r = reg.clone();
+  tokio::spawn(async move { cln.sync_invocation(r, j, t).await })
+}
+
+async fn prewarm(cm: &Arc<ContainerManager>, reg: &Arc<RegisteredFunction>, transaction_id: &TransactionId) {
+  timeout(Duration::from_secs(20), cm.prewarm(reg.clone(), transaction_id)).await
       .unwrap_or_else(|e| panic!("prewarm timout hit: {:?}", e))
       .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
 }
@@ -373,30 +359,18 @@ mod fcfs_tests {
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn no_reordering() {
     let env = build_env("fcfs");
-    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
+    let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let function_name = "test".to_string();
-    let function_version = "0.1.1".to_string();
-    let input = RegisterRequest {
-      function_name: function_name.clone(),
-      function_version: function_version.clone(),
-      cpus: 1,
-      memory: 128,
-      image_name: "docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest".to_string(),
-      parallel_invokes: 1,
-      transaction_id: transaction_id.clone(),
-      language: LanguageRuntime::Nolang.into(),
-      compute: Compute::CPU.bits(),
-      isolate: Isolation::CONTAINERD.bits(),
-    };
-    cm.register(&input).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+
+    let func_reg = register(&_reg, &"docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest".to_string(), &function_name, &transaction_id).await;
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
-    let first_invoke = test_invoke(&invok_svc, &function_name, &function_version, &json_args, &transaction_id);
+    let first_invoke = test_invoke(&invok_svc, &func_reg, &json_args, &transaction_id);
     tokio::time::sleep(Duration::from_micros(10)).await;
-    let second_invoke = test_invoke(&invok_svc, &function_name, &function_version, &json_args, &transaction_id);
+    let second_invoke = test_invoke(&invok_svc, &func_reg, &json_args, &transaction_id);
     tokio::time::sleep(Duration::from_micros(10)).await;
-    let third_invoke = test_invoke(&invok_svc, &function_name, &function_version, &json_args, &transaction_id);
+    let third_invoke = test_invoke(&invok_svc, &func_reg, &json_args, &transaction_id);
     let (first_t, _) = get_start_end_time_from_invoke(first_invoke, &formatter).await;
     let (second_t, _) = get_start_end_time_from_invoke(second_invoke, &formatter).await;
     let (third_t, _) = get_start_end_time_from_invoke(third_invoke, &formatter).await;
@@ -414,32 +388,33 @@ mod minheap_tests {
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn fast_put_first() {
     let env = build_env("minheap");
-    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let fast_name = "fast_test".to_string();
     let slow_name = "slow_test".to_string();
-    let function_version = "0.1.1".to_string();
     let fast_img = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
     let slow_img = "docker.io/alfuerst/cnn_image_classification-iluvatar-action:latest".to_string();
 
-    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
-    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
-    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
-    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
+    let fast_reg = register(&_reg, &fast_img, &fast_name, &transaction_id).await;
+    let slow_reg = register(&_reg, &slow_img, &slow_name, &transaction_id).await;
+    prewarm(&cm, &fast_reg, &transaction_id).await;
+    prewarm(&cm, &fast_reg, &transaction_id).await;
+    prewarm(&cm, &slow_reg, &transaction_id).await;
+    prewarm(&cm, &slow_reg, &transaction_id).await;
 
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
     // warm exec time cache
-    let first_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
-    let second_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    let first_invoke = test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id);
+    let second_invoke = test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
     get_start_end_time_from_invoke(first_invoke, &formatter).await;
     get_start_end_time_from_invoke(second_invoke, &formatter).await;
 
-    let first_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    let first_slow_invoke = test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
     tokio::time::sleep(Duration::from_micros(100)).await;
-    let second_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
-    let fast_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
+    let second_slow_invoke = test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
+    let fast_invoke = test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id);
     let (t1, _) = get_start_end_time_from_invoke(first_slow_invoke, &formatter).await;
     let (t2, _) = get_start_end_time_from_invoke(second_slow_invoke, &formatter).await;
     let (t3, _) = get_start_end_time_from_invoke(fast_invoke, &formatter).await;
@@ -454,32 +429,33 @@ mod minheap_tests {
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn fast_not_moved() {
     let env = build_env("minheap");
-    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let fast_name = "fast_test".to_string();
     let slow_name = "slow_test".to_string();
-    let function_version = "0.1.1".to_string();
     let fast_img = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
     let slow_img = "docker.io/alfuerst/video_processing-iluvatar-action:latest".to_string();
 
-    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
-    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
-    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
-    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
+    let fast_reg = register(&_reg, &fast_img, &fast_name, &transaction_id).await;
+    let slow_reg = register(&_reg, &slow_img, &slow_name, &transaction_id).await;
+    prewarm(&cm, &fast_reg, &transaction_id).await;
+    prewarm(&cm, &fast_reg, &transaction_id).await;
+    prewarm(&cm, &slow_reg, &transaction_id).await;
+    prewarm(&cm, &slow_reg, &transaction_id).await;
 
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
     // warm exec time cache
-    get_start_end_time_from_invoke(test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id), &formatter).await;
-    // get_start_end_time_from_invoke(test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id), &formatter).await;
-    // get_start_end_time_from_invoke(test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id), &formatter).await;
-    get_start_end_time_from_invoke(test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id), &formatter).await;
+    get_start_end_time_from_invoke(test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id), &formatter).await;
+    // get_start_end_time_from_invoke(test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id), &formatter).await;
+    // get_start_end_time_from_invoke(test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id), &formatter).await;
+    get_start_end_time_from_invoke(test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id), &formatter).await;
 
-    let first_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    let first_slow_invoke = test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
     tokio::time::sleep(Duration::from_micros(10)).await;
-    let fast_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
-    let second_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    let fast_invoke = test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id);
+    let second_slow_invoke = test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
     let (t1, _) = get_start_end_time_from_invoke(first_slow_invoke, &formatter).await;
     let (t2, _) = get_start_end_time_from_invoke(fast_invoke, &formatter).await;
     let (t3, _) = get_start_end_time_from_invoke(second_slow_invoke, &formatter).await;
@@ -501,35 +477,36 @@ use super::*;
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn fast_bypass_limits() {
     let env = build_env("fcfs_bypass");
-    let (_log, _cfg, cm, invok_svc) = test_invoker_svc(None, Some(&env), None).await;
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let fast_name = "fast_test".to_string();
     let slow_name = "slow_test".to_string();
-    let function_version = "0.1.1".to_string();
     let fast_img = "docker.io/alfuerst/hello-iluvatar-action:latest".to_string();
     let slow_img = "docker.io/alfuerst/cnn_image_classification-iluvatar-action:latest".to_string();
 
-    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
-    prewarm(&cm, &fast_name, &function_version, &fast_img, &transaction_id).await;
-    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
-    prewarm(&cm, &slow_name, &function_version, &slow_img, &transaction_id).await;
+    let fast_reg = register(&_reg, &fast_img, &fast_name, &transaction_id).await;
+    let slow_reg = register(&_reg, &slow_img, &slow_name, &transaction_id).await;
+    prewarm(&cm, &fast_reg, &transaction_id).await;
+    prewarm(&cm, &fast_reg, &transaction_id).await;
+    prewarm(&cm, &slow_reg, &transaction_id).await;
+    prewarm(&cm, &slow_reg, &transaction_id).await;
 
     let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
     // warm exec time cache
-    let first_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &"fastId".to_string());
-    let second_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &"slowID".to_string());
+    let first_invoke = test_invoke(&invok_svc, &fast_reg, &json_args, &"fastId".to_string());
+    let second_invoke = test_invoke(&invok_svc, &slow_reg, &json_args, &"slowID".to_string());
     get_start_end_time_from_invoke(first_invoke, &formatter).await;
     get_start_end_time_from_invoke(second_invoke, &formatter).await;
 
-    let first_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    let first_slow_invoke = test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
     tokio::time::sleep(Duration::from_micros(100)).await;
     assert_eq!(invok_svc.running_funcs(), 1, "Should have one thing running");
-    let second_slow_invoke = test_invoke(&invok_svc, &slow_name, &function_version, &json_args, &transaction_id);
+    let second_slow_invoke = test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
     assert_eq!(invok_svc.running_funcs(), 1, "Should have one thing running");
     let start = SystemTime::now();
-    let fast_invoke = test_invoke(&invok_svc, &fast_name, &function_version, &json_args, &transaction_id);
+    let fast_invoke = test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id);
     let mut found = false;
     while start.elapsed().expect("Time elapsed failed") < Duration::from_secs(4) {
       if invok_svc.running_funcs() > 1 {

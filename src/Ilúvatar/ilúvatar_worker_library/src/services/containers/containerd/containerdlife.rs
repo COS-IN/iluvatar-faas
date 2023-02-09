@@ -24,7 +24,8 @@ use client::services::v1::{GetImageRequest, ReadContentRequest};
 use client::services::v1::container::Runtime;
 use client::with_namespace;
 use std::process::Command;
-use crate::services::containers::structs::{Container, RegisteredFunction, ContainerState};
+use crate::services::registration::RegisteredFunction;
+use crate::services::containers::structs::{Container, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
 use tracing::{info, warn, debug, error}; 
 use inotify::{Inotify, WatchMask};
@@ -551,19 +552,11 @@ impl LifecycleService for ContainerdLifecycle {
   }
 
   /// Read through an image's digest to find it's snapshot base
-  async fn prepare_function_registration(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, _fqdn: &String, tid: &TransactionId) -> Result<RegisteredFunction> {
-    self.ensure_image(&image_name, tid).await?;
-    let snapshot_base = self.search_image_digest(&image_name, "default", tid).await?;
-    Ok(RegisteredFunction {
-      function_name: function_name.clone(),
-      function_version: function_version.clone(),
-      image_name: image_name.clone(),
-      memory,
-      cpus,
-      snapshot_base,
-      parallel_invokes,
-      isolation_type: self.backend()
-    })
+  async fn prepare_function_registration(&self, rf: &mut RegisteredFunction, _fqdn: &String, tid: &TransactionId) -> Result<()> {
+    self.ensure_image(&rf.image_name, tid).await?;
+    let snapshot_base = self.search_image_digest(&rf.image_name, "default", tid).await?;
+    rf.snapshot_base = snapshot_base;
+    Ok(())
   }
   
   async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {

@@ -73,11 +73,11 @@ impl Invoker for MinHeapEDInvoker {
     let v = v.item.clone();
     let mut func_name = "empty"; 
     if let Some(e) = invoke_queue.peek() {
-      func_name = e.item.function_name.as_str();
+      func_name = e.item.registration.function_name.as_str();
     }
     debug!(tid=%v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
            invoke_queue.len(),
-           v.function_name,
+           v.registration.function_name,
            func_name );
     v
   }
@@ -106,12 +106,12 @@ impl Invoker for MinHeapEDInvoker {
 
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    let deadline = self.cmap.get_exec_time(&item.fqdn) + time_since_epoch();
+    let deadline = self.cmap.get_exec_time(&item.registration.fqdn) + time_since_epoch();
     queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), deadline ));
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
-                        item.function_name,
-                        queue.peek().unwrap().item.function_name );
+                        item.registration.function_name,
+                        queue.peek().unwrap().item.registration.function_name );
     self.queue_signal.notify_waiters();
   }
 }

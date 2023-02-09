@@ -67,11 +67,11 @@ impl Invoker for ColdPriorityInvoker {
     let top = invoke_queue.peek();
     let func_name;
     match top {
-        Some(e) => func_name = e.item.function_name.as_str(),
+        Some(e) => func_name = e.item.registration.function_name.as_str(),
         None => func_name = "empty"
     }
     debug!(tid=%v.tid,  component="minheap", "Popped item from queue - len: {} popped: {} top: {} ",
-           invoke_queue.len(), v.function_name, func_name );
+           invoke_queue.len(), v.registration.function_name, func_name );
     v
   }
 
@@ -99,20 +99,20 @@ impl Invoker for ColdPriorityInvoker {
 
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut priority = 0.0;
-    if self.cont_manager.outstanding(Some(&item.fqdn)) == 0 {
-      priority = self.cmap.get_warm_time(&item.fqdn);
+    if self.cont_manager.outstanding(Some(&item.registration.fqdn)) == 0 {
+      priority = self.cmap.get_warm_time(&item.registration.fqdn);
     }
-    priority = match self.cont_manager.container_available(&item.fqdn) {
+    priority = match self.cont_manager.container_available(&item.registration.fqdn) {
       ContainerState::Warm => priority,
-      ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.fqdn),
-      _ => self.cmap.get_cold_time(&item.fqdn),
+      ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.registration.fqdn),
+      _ => self.cmap.get_cold_time(&item.registration.fqdn),
     };
     let mut queue = self.invoke_queue.lock();
     queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority));
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
-                        item.fqdn,
-                        queue.peek().unwrap().item.fqdn );
+                        item.registration.fqdn,
+                        queue.peek().unwrap().item.registration.fqdn );
     self.queue_signal.notify_waiters();
   }
 }

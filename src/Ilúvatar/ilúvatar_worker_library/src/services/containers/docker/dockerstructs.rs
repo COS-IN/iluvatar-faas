@@ -1,8 +1,9 @@
 use std::{sync::Arc, time::{SystemTime, Duration}, num::NonZeroU32};
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
 use reqwest::Client;
-use crate::services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult, ContainerState}};
+use crate::services::{containers::structs::{ContainerT, ParsedResult, ContainerState}};
 use anyhow::Result;
+use crate::services::registration::RegisteredFunction;
 use parking_lot::{Mutex, RwLock};
 
 #[derive(Debug)]
@@ -105,7 +106,7 @@ impl ContainerT for DockerContainer {
     // TODO: proper memory tracking for these containers
   }
 
-  fn function(&self) -> Arc<crate::services::containers::structs::RegisteredFunction>  {
+  fn function(&self) -> Arc<RegisteredFunction>  {
     self.function.clone()
   }
 

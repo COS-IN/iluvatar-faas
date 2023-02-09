@@ -43,3 +43,16 @@ impl Into<Isolation> for Vec<IsolationEnum> {
     r
   }
 }
+impl Into<Isolation> for u32 {
+  fn into(self) -> Isolation {
+    Isolation::from_bits_truncate(self)
+  }
+}
+// impl Into<Isolation> for IsolationEnum {
+//   fn into(self) -> Isolation {
+//     match self {
+//       IsolationEnum::CONTAINERD => Isolation::CONTAINERD,
+//       IsolationEnum::DOCKER => Isolation::DOCKER,
+//     }
+//   }
+// }

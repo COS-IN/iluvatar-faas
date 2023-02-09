@@ -1,9 +1,9 @@
 use std::{sync::Arc, time::SystemTime};
 use dashmap::DashSet;
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, utils::{execute_cmd, port::free_local_port}, bail_error};
-use crate::{worker_api::worker_config::{ContainerResources, FunctionLimits}, services::containers::structs::ContainerState};
+use crate::{worker_api::worker_config::{ContainerResources, FunctionLimits}, services::{containers::structs::ContainerState, registration::RegisteredFunction}};
 use self::dockerstructs::DockerContainer;
-use super::{structs::{RegisteredFunction, Container}, LifecycleService};
+use super::{structs::Container, LifecycleService};
 use anyhow::Result;
 use guid_create::GUID;
 use tracing::{warn, info, trace, debug};
@@ -131,22 +131,12 @@ impl LifecycleService for DockerLifecycle {
     Ok(())
   }
 
-  async fn prepare_function_registration(&self, function_name: &String, function_version: &String, image_name: &String, memory: MemSizeMb, cpus: u32, parallel_invokes: u32, _fqdn: &String, tid: &TransactionId) -> Result<RegisteredFunction> {
-    let ret = RegisteredFunction {
-      function_name: function_name.clone(),
-      function_version: function_version.clone(),
-      image_name: image_name.clone(),
-      memory,
-      cpus,
-      snapshot_base: "".to_string(),
-      parallel_invokes,
-      isolation_type: self.backend()
-    };
-    if self.pulled_images.contains(image_name) {
-      return Ok(ret);
+  async fn prepare_function_registration(&self, rf: &mut RegisteredFunction, _fqdn: &String, tid: &TransactionId) -> Result<()> {
+    if self.pulled_images.contains(&rf.image_name) {
+      return Ok(());
     }
 
-    let output = execute_cmd("/usr/bin/docker", &vec!["pull", image_name.as_str()], None, tid)?;
+    let output = execute_cmd("/usr/bin/docker", &vec!["pull", rf.image_name.as_str()], None, tid)?;
     if let Some(status) = output.status.code() {
       if status != 0 {
         bail_error!(tid=%tid, status=status, output=?output, "Failed to pull docker image with exit code");
@@ -154,10 +144,10 @@ impl LifecycleService for DockerLifecycle {
     } else {
       bail_error!(tid=%tid, output=?output, "Failed to pull docker image with no exit code");
     }
-    trace!(tid=%tid, name=%image_name, output=?output, "Docker image pulled successfully");
-    info!(tid=%tid, name=%image_name, "Docker image pulled successfully");
-    self.pulled_images.insert(image_name.clone());
-    Ok(ret)
+    trace!(tid=%tid, name=%rf.image_name, output=?output, "Docker image pulled successfully");
+    info!(tid=%tid, name=%rf.image_name, "Docker image pulled successfully");
+    self.pulled_images.insert(rf.image_name.clone());
+    Ok(())
   }
   
   async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {

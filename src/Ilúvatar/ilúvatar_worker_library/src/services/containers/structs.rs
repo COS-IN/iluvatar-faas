@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, bail_error};
 use time::{format_description::{self, FormatItem}, OffsetDateTime, PrimitiveDateTime};
-use crate::services::containers::containermanager::ContainerManager;
+use crate::services::{containers::containermanager::ContainerManager, registration::RegisteredFunction};
 use anyhow::Result;
 use tracing::debug;
 
@@ -101,17 +101,17 @@ impl ParsedResult {
   }
 }
 
-#[derive(Debug)]
-pub struct RegisteredFunction {
-  pub function_name: String,
-  pub function_version: String,
-  pub image_name: String,
-  pub memory: MemSizeMb,
-  pub cpus: u32,
-  pub snapshot_base: String,
-  pub parallel_invokes: u32,
-  pub isolation_type: Isolation
-}
+// #[derive(Debug)]
+// pub struct RegisteredFunction {
+//   pub function_name: String,
+//   pub function_version: String,
+//   pub image_name: String,
+//   pub memory: MemSizeMb,
+//   pub cpus: u32,
+//   pub snapshot_base: String,
+//   pub parallel_invokes: u32,
+//   pub isolation_type: Isolation
+// }
 
 /// A struct denoting that the owner has a lock on the container to invoke with
 pub struct ContainerLock<'a> {

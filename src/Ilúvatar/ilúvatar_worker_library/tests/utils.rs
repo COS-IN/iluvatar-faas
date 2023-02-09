@@ -1,6 +1,6 @@
 use std::{sync::Arc, collections::HashMap};
 use iluvatar_library::{transaction::TEST_TID, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
-use iluvatar_worker_library::worker_api::config::{Configuration, WorkerConfig};
+use iluvatar_worker_library::{worker_api::config::{Configuration, WorkerConfig}, services::registration::RegistrationService};
 use iluvatar_worker_library::services::{containers::{LifecycleFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, invoker_trait::Invoker}};
 
 #[macro_export]
@@ -19,7 +19,7 @@ macro_rules! assert_error {
 /// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
 /// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
 /// [config_pth] is an optional path to config to load
-pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<String, String>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>) {
+pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<String, String>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>) {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
   let log = log.unwrap_or(false);
   let worker_name = "TEST".to_string();
@@ -46,10 +46,11 @@ pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<S
   let factory = LifecycleFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
   let lifecycles = factory.get_lifecycle_services(&TEST_TID, true, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
-  let cm = ContainerManager::boxed(cfg.limits.clone(), cfg.container_resources.clone(), lifecycles.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
+  let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
+  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());
   let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap);
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
-  (_log, cfg, cm, invoker)
+  (_log, cfg, cm, invoker, reg)
 }
 
 pub fn clean_env(env: &HashMap<String, String>) {

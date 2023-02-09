@@ -75,10 +75,10 @@ impl Invoker for FCFSBypassInvoker {
     let v = v.item.clone();
     let mut func_name = "empty"; 
     if let Some(e) = invoke_queue.peek() {
-      func_name = e.item.function_name.as_str();
+      func_name = e.item.registration.function_name.as_str();
     }
     debug!(tid=%v.tid,  "Popped item from queue fcfs heap - len: {} popped: {} top: {} ",
-           invoke_queue.len(), v.function_name, func_name );
+           invoke_queue.len(), v.registration.function_name, func_name );
     v
   }
 

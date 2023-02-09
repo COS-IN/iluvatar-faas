@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, bail_error, logging::LocalTime};
-use crate::{services::{containers::structs::{ContainerT, RegisteredFunction, ParsedResult, ContainerState}}, };
+use crate::{services::{containers::structs::{ContainerT, ParsedResult, ContainerState}, registration::RegisteredFunction}, };
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize, Deserializer};
@@ -154,7 +154,7 @@ impl ContainerT for SimulatorContainer {
     // do nothing
   }
 
-  fn function(&self) -> Arc<crate::services::containers::structs::RegisteredFunction>  {
+  fn function(&self) -> Arc<RegisteredFunction>  {
     self.function.clone()
   }
 

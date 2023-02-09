@@ -125,14 +125,14 @@ impl ContainerPool {
 mod tests {
   use std::sync::Arc;
   use iluvatar_library::{utils::calculate_fqdn, types::Isolation};
-  use crate::services::containers::{structs::RegisteredFunction, simulation::simstructs::SimulatorContainer};
+  use crate::services::{containers::{simulation::simstructs::SimulatorContainer}, registration::RegisteredFunction};
   use super::*;
 
   #[test]
   fn reg() {
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
     let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold));
     cp.add_container(ctr, &"test".to_string()).expect("add should not error");
@@ -141,7 +141,7 @@ mod tests {
   fn no_reg_fails() {
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
     let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold));
     match cp.add_container(ctr, &"test".to_string()) {
       Ok(_) => panic!("Should not get Ok with no registration"),
@@ -153,7 +153,7 @@ mod tests {
     let tid = "test".to_string();
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
     let cp = ContainerPool::new("test");
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
     let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold));
     cp.add_container(ctr.clone(), &tid).expect("add should not error");
@@ -166,7 +166,7 @@ mod tests {
     let tid = "test".to_string();
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
     let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold)) as Container;
     cp.add_container(ctr.clone(), &tid).expect("add should not error");
@@ -178,7 +178,7 @@ mod tests {
     let tid = "test".to_string();
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
     let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold)) as Container;
     cp.add_container(ctr.clone(), &tid).expect("add should not error");
@@ -194,9 +194,9 @@ mod tests {
   fn len() {
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
     let fqdn2 = calculate_fqdn(&"name2".to_string(), &"vesr".to_string());
-    let reg2 = Arc::new(RegisteredFunction { function_name: "name2".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all() });
+    let reg2 = Arc::new(RegisteredFunction { function_name: "name2".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
     cp.register_fqdn(fqdn2.clone());
     let ctr = Arc::new(SimulatorContainer::new("cid1".to_string(), &fqdn, &reg, ContainerState::Cold));
