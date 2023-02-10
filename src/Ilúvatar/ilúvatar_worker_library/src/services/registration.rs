@@ -54,7 +54,11 @@ impl RegistrationService {
     if request.function_name.contains("/") || request.function_name.contains("\\") {
       anyhow::bail!("Illegal characters in function name: cannot container any \\,/");
     }
-    let mut isolation = request.isolate.into();
+    let mut isolation: Isolation = request.isolate.into();
+    if isolation.is_empty() {
+      anyhow::bail!("Could not register function with no specified isolation!");
+    }
+
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     if self.reg_map.read().contains_key(&fqdn) {
       anyhow::bail!(format!("Function {} is already registered!", fqdn));
@@ -71,10 +75,11 @@ impl RegistrationService {
       parallel_invokes: request.parallel_invokes,
       isolation_type: isolation,
     };
-    for (iso, lifecycle) in self.lifecycles.iter() {
-      if isolation.contains(*iso) {
-        isolation.remove(isolation);
+    for (lifecycle_iso, lifecycle) in self.lifecycles.iter() {
+      if !isolation.contains(*lifecycle_iso) {
+        continue;
       }
+      isolation.remove(*lifecycle_iso);
       lifecycle.prepare_function_registration(&mut rf, &fqdn, tid).await?;
     }
     if !isolation.is_empty() {

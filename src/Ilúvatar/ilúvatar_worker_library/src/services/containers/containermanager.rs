@@ -1,10 +1,11 @@
 use crate::services::containers::structs::InsufficientMemoryError;
 use crate::services::registration::RegisteredFunction;
 use futures::Future;
+use iluvatar_library::bail_error;
 use iluvatar_library::threading::{tokio_runtime, EventualItem, tokio_thread};
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID, CTR_MGR_HEALTH_WORKER_TID};
-use iluvatar_library::types::MemSizeMb;
+use iluvatar_library::types::{MemSizeMb, Isolation};
 use iluvatar_library::utils::calculate_fqdn;
 use crate::worker_api::worker_config::ContainerResources;
 use anyhow::{Result, bail};
@@ -13,7 +14,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use parking_lot::RwLock;
-use super::LifecycleCollection;
+use super::{LifecycleCollection, LifecycleService};
 use super::container_pool::{ContainerPool, Subpool};
 use super::structs::{Container, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
@@ -89,7 +90,13 @@ impl ContainerManager {
       if (*service.remove_list.read()).len() > 0 {
         let item = (*service.remove_list.write()).pop();
         if let Some(to_remove) = item {
-          let cont_lifecycle = service.cont_lifecycles.get(&to_remove.container_type()).unwrap();
+          let cont_lifecycle = match service.cont_lifecycles.get(&to_remove.container_type()) {
+            Some(c) => c,
+            None => {
+              error!(tid=%tid, iso=?to_remove.container_type(), "Lifecycle for container not supported");
+              continue;
+            },
+          };
           let stdout = cont_lifecycle.read_stdout(&to_remove, &tid);
           let stderr = cont_lifecycle.read_stderr(&to_remove, &tid);
           warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
@@ -161,7 +168,13 @@ impl ContainerManager {
     let mut sum_change = 0;
     for container in all_ctrs {
       let old_usage = container.get_curr_mem_usage();
-      let cont_lifecycle = self.cont_lifecycles.get(&container.container_type()).unwrap();
+      let cont_lifecycle = match self.cont_lifecycles.get(&container.container_type()) {
+        Some(c) => c,
+        None => {
+          error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported");
+          continue;
+        },
+      };
       let new_usage = cont_lifecycle.update_memory_usage_mb(&container, tid);
       let diff = new_usage - old_usage;
       debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
@@ -214,7 +227,7 @@ impl ContainerManager {
   /// Starts a new container and returns a [ContainerLock] for it to be used
   async fn cold_start<'a>(&'a self, reg: Arc<RegisteredFunction>, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     debug!(tid=%tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
-    let container = self.launch_container(&reg, tid).await?;
+    let container = self.launch_container_internal(&reg, tid).await?;
     info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
     container.set_state(ContainerState::Cold);
     self.try_lock_container(container, tid).ok_or(anyhow::anyhow!("Encountered an error making conatiner lock"))
@@ -252,7 +265,7 @@ impl ContainerManager {
     if let Some(removed_ctr) = self.running_containers.remove_container(container, tid) {
       if removed_ctr.is_healthy() {
         removed_ctr.set_state(ContainerState::Warm);
-        match self.idle_containers.add_container(removed_ctr, tid) {
+        match self.add_container_to_pool(&self.idle_containers, removed_ctr, tid) {
           Ok(_) => return,
           Err(e) => error!(tid=%tid, error=%e, container_id=%container.container_id(), "Encountered an error trying to return a container to the idle pool"),
         };
@@ -265,11 +278,6 @@ impl ContainerManager {
     (*self.remove_list.write()).push(container.clone());
   }
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
-  async fn launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
-    self.launch_container_internal(&reg, tid).await
-  }
-
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, pool, container), fields(tid=%tid)))]
   fn add_container_to_pool(&self, pool: &ContainerPool, container: Container, tid: &TransactionId) -> Result<()> {
     pool.add_container(container, tid)
@@ -277,7 +285,7 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
   async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
-    let cont_lifecycle = self.cont_lifecycles.get(&reg.isolation_type).unwrap();
+    let cont_lifecycle = self.get_optimal_lifecycle(reg, tid)?;
 
     let curr_mem = *self.used_mem_mb.read();
     if curr_mem + reg.memory > self.resources.memory_mb {
@@ -311,6 +319,21 @@ impl ContainerManager {
     };
     info!(tid=%tid, image=%reg.image_name, container_id=%cont.container_id(), "container was launched");
     Ok(cont)
+  }
+
+  /// Get the optimal lifecycle for starting a new container based on it's registration information
+  /// Consider both startup time (i.e. Containerd > Docker) and other resource options (i.e. GPU)
+  fn get_optimal_lifecycle(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<&Arc<dyn LifecycleService>> {
+    if reg.isolation_type.contains(Isolation::CONTAINERD) {
+      return Ok(self.cont_lifecycles.get(&Isolation::CONTAINERD).unwrap()); // safe to unwrap here, lifecycle must exist for container to be registered
+    }
+    if reg.isolation_type.contains(Isolation::DOCKER) {
+      return Ok(self.cont_lifecycles.get(&Isolation::DOCKER).unwrap());
+    }
+    match self.cont_lifecycles.get(&reg.isolation_type) {
+      Some(c) => Ok(c),
+      None => bail_error!(tid=%tid, iso=?reg.isolation_type, "Lifecycle(s) for container not supported") ,
+    }
   }
 
   /// Does a best effort to ensure a container is launched
@@ -359,7 +382,10 @@ impl ContainerManager {
   /// Container **must** have already been removed from the container pool
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   async fn remove_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
-    let cont_lifecycle = self.cont_lifecycles.get(&container.container_type()).unwrap();
+    let cont_lifecycle = match self.cont_lifecycles.get(&container.container_type()) {
+      Some(c) => c,
+      None => bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported"),
+    };
     *self.used_mem_mb.write() -= container.get_curr_mem_usage();
     cont_lifecycle.remove_container(container, "default", tid).await?;
     Ok(())

@@ -290,7 +290,7 @@ pub async fn worker_prewarm(name: &String, version: &String, host: &String, port
     None => CommunicationMethod::RPC,
   };
   let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
-  let (res, dur) = api.prewarm(name.clone(), version.clone(), None, None, None, tid.to_string()).timed().await;
+  let (res, dur) = api.prewarm(name.clone(), version.clone(), tid.to_string()).timed().await;
   match res {
     Ok(s) => Ok( (s, dur) ),
     Err(e) => anyhow::bail!("worker prewarm failed because {:?}", e),
@@ -312,7 +312,7 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
     Err(e) => anyhow::bail!("API creation error: {:?}", e),
   };
 
-  let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), args, None, tid.clone()).timed().await;
+  let (invok_out, invok_lat) = api.invoke(name.clone(), version.clone(), args, tid.clone()).timed().await;
   let c = match invok_out {
     Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
       Ok(b) => CompletedWorkerInvocation {

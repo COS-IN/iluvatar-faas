@@ -26,6 +26,19 @@ fn build_env(invoker_q: &str) -> HashMap<String, String> {
   r
 }
 
+fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
+  RegisterRequest {
+    function_name: name.to_string(),
+    function_version: "0.1.1".to_string(),
+    cpus: 1, memory: 128, parallel_invokes: 1,
+    image_name: image.to_string(),
+    transaction_id: "testTID".to_string(),
+    language: LanguageRuntime::Nolang.into(),
+    compute: Compute::CPU.bits(),
+    isolate: Isolation::CONTAINERD.bits(),
+  }
+}
+
 #[cfg(test)]
 mod invoke {
   use super::*;
@@ -47,24 +60,11 @@ mod invoke {
   async fn invocation_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
     let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
-    let input = RegisterRequest {
-      function_name: "test".to_string(),
-      function_version: "0.1.1".to_string(),
-      cpus: 1,
-      memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      parallel_invokes: 1,
-      transaction_id: "testTID".to_string(),
-      language: LanguageRuntime::Nolang.into(),
-      compute: Compute::CPU.bits(),
-      isolate: Isolation::CONTAINERD.bits(),
-    };
-    let reg = _reg.register(input, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
-      memory: 128,
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
@@ -102,23 +102,10 @@ mod invoke {
   async fn cold_start_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
     let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
-    let input = RegisterRequest {
-      function_name: "test".to_string(),
-      function_version: "0.1.1".to_string(),
-      cpus: 1,
-      memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      parallel_invokes: 1,
-      transaction_id: "testTID".to_string(),
-      language: LanguageRuntime::Nolang.into(),
-      compute: Compute::CPU.bits(),
-      isolate: Isolation::CONTAINERD.bits(),
-    };
-    let reg = _reg.register(input, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
-      memory: 128,
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
@@ -160,25 +147,11 @@ mod invoke_async {
   async fn invocation_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
     let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
-
-    let input = RegisterRequest {
-      function_name: "test".to_string(),
-      function_version: "0.1.1".to_string(),
-      cpus: 1,
-      memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      parallel_invokes: 1,
-      transaction_id: "testTID".to_string(),
-      language: LanguageRuntime::Nolang.into(),
-      compute: Compute::CPU.bits(),
-      isolate: Isolation::CONTAINERD.bits(),
-    };
-    let reg = _reg.register(input, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeAsyncRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
-      memory: 128,
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
@@ -237,23 +210,10 @@ mod invoke_async {
   async fn cold_start_works(#[case] invoker_q: &str) {
     let env = build_env(invoker_q);
     let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
-    let input = RegisterRequest {
-      function_name: "test".to_string(),
-      function_version: "0.1.1".to_string(),
-      cpus: 1,
-      memory: 128,
-      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-      parallel_invokes: 1,
-      transaction_id: "testTID".to_string(),
-      language: LanguageRuntime::Nolang.into(),
-      compute: Compute::CPU.bits(),
-      isolate: Isolation::CONTAINERD.bits(),
-    };
-    let reg = _reg.register(input, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeAsyncRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
-      memory: 128,
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
@@ -319,22 +279,10 @@ async fn get_start_end_time_from_invoke(handle: HANDLE, formatter: &ContainerTim
   }
 }
 
-async fn register(reg: &Arc<RegistrationService>, image: &String, name: &String, tid: &TransactionId) -> Arc<RegisteredFunction> {
-  let register = RegisterRequest {
-    function_name: name.clone(),
-    function_version: "0.0.1".to_string(),
-    cpus: 1,
-    memory: 128,
-    image_name: image.clone(),
-    parallel_invokes: 1,
-    transaction_id: tid.clone(),
-    language: LanguageRuntime::Nolang.into(),
-    compute: Compute::CPU.bits(),
-    isolate: Isolation::CONTAINERD.bits(),
-  };
-  timeout(Duration::from_secs(20), reg.register(register, tid)).await
-      .unwrap_or_else(|e| panic!("prewarm timout hit: {:?}", e))
-      .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e))
+async fn register(reg: &Arc<RegistrationService>, image: &str, name: &str, tid: &TransactionId) -> Arc<RegisteredFunction> {
+  timeout(Duration::from_secs(20), reg.register(basic_reg_req(image, name), tid)).await
+      .unwrap_or_else(|e| panic!("register timout hit: {:?}", e))
+      .unwrap_or_else(|e| panic!("register failed: {:?}", e))
 }
 
 fn test_invoke(invok_svc: &Arc<dyn Invoker>, reg: &Arc<RegisteredFunction>, json_args: &String, transaction_id: &TransactionId) -> HANDLE {

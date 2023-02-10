@@ -14,9 +14,8 @@ message PingResponse {
 message InvokeRequest {
   string function_name = 1;
   string function_version = 2;
-  int64 memory = 3;
-  string json_args = 4;
-  string transaction_id = 5;
+  string json_args = 3;
+  string transaction_id = 4;
 }
 
 message InvokeResponse {
@@ -28,9 +27,8 @@ message InvokeResponse {
 message InvokeAsyncRequest {
   string function_name = 1;
   string function_version = 2;
-  int64 memory = 3;
-  string json_args = 4;
-  string transaction_id = 5;
+  string json_args = 3;
+  string transaction_id = 4;
 }
 message InvokeAsyncResponse {
   string lookup_cookie = 1;
@@ -44,15 +42,9 @@ message InvokeAsyncLookupRequest {
 message PrewarmRequest {
   string function_name = 1;
   string function_version = 2;
-  int64 memory = 3;
-  uint32 cpu = 4;
-  string image_name = 5;
-  string transaction_id = 6;
-  LanguageRuntime language = 7;
-  // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
-  uint32 compute = 8;
-  // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
-  uint32 isolate = 9;
+  string transaction_id = 3;
+  // The compute platforms that the function can run on. Optional
+  uint32 compute = 4;
 }
 message PrewarmResponse {
   bool success = 1;
@@ -115,23 +107,6 @@ enum LanguageRuntime {
   NOLANG = 0;
   PYTHON3 = 1;
 }
-
-// // The function image's upload means it must be run in a certain isolation backend(s)
-// enum SupportedIsolation {
-//   // Isolation not specified
-//   NA = 0;
-//   // Can run in containerd
-//   CONTAINERD = 1;
-//   // Can run in Docker
-//   DOCKER = 2;
-// }
-
-// // The compute the function can use.
-// enum SupportedCompute {
-//   CPU = 0;
-//   GPU = 1;
-//   FPGA = 2;
-// }
   
 service IluvatarWorker {
   rpc ping(PingRequest) returns (PingResponse) {}

@@ -20,7 +20,7 @@ pub async fn invoke(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
     None => "{}".to_string(),
   };
 
-  let ret = api.invoke(args.name, args.version, arguments, None, tid).await.unwrap();
+  let ret = api.invoke(args.name, args.version, arguments, tid).await.unwrap();
   println!("{:?}", ret);
   Ok(())
 }
@@ -33,7 +33,7 @@ pub async fn invoke_async(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
     Some(a) => args_to_json(a),
     None => "{}".to_string(),
   };
-  let ret = api.invoke_async(args.name, args.version, arguments, None, tid).await.unwrap();
+  let ret = api.invoke_async(args.name, args.version, arguments, tid).await.unwrap();
   println!("{}", ret);
   Ok(())
 }
@@ -52,7 +52,7 @@ pub async fn prewarm(worker: Box<Worker>, args: PrewarmArgs) -> Result<()> {
   let tid = gen_tid();
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
 
-  let result = api.prewarm(args.name, args.version, args.memory, args.cpu, args.image, tid).await;
+  let result = api.prewarm(args.name, args.version, tid).await;
   match result {
     Ok(string) => println!("{}", string),
     Err(err) => println!("{}", err),

@@ -37,14 +37,10 @@ impl WorkerAPI for SimWorkerAPI {
     }
   }
 
-  async fn invoke(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<InvokeResponse> {
+  async fn invoke(&mut self, function_name: String, version: String, args: String, tid: TransactionId) -> Result<InvokeResponse> {
     let request = tonic::Request::new(InvokeRequest {
       function_name: function_name,
       function_version: version,
-      memory: match memory {
-        Some(x) => x,
-        _ => 0,
-      },
       json_args: args,
       transaction_id: tid
     });
@@ -54,14 +50,10 @@ impl WorkerAPI for SimWorkerAPI {
     }
   }
 
-  async fn invoke_async(&mut self, function_name: String, version: String, args: String, memory: Option<MemSizeMb>, tid: TransactionId) -> Result<String> {
+  async fn invoke_async(&mut self, function_name: String, version: String, args: String, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(InvokeAsyncRequest {
       function_name,
       function_version: version,
-      memory: match memory {
-        Some(x) => x,
-        _ => 0,
-      },
       json_args: args,
       transaction_id: tid.clone(),
     });
@@ -91,26 +83,12 @@ impl WorkerAPI for SimWorkerAPI {
     }
   }
 
-  async fn prewarm(&mut self, function_name: String, version: String, memory: Option<MemSizeMb>, cpu: Option<u32>, image: Option<String>, tid: TransactionId) -> Result<String> {
+  async fn prewarm(&mut self, function_name: String, version: String, tid: TransactionId) -> Result<String> {
     let request = tonic::Request::new(PrewarmRequest {
       function_name: function_name,
       function_version: version,
-      memory: match memory {
-        Some(x) => x,
-        _ => 0,
-      },
-      cpu: match cpu {
-        Some(x) => x,
-        _ => 0,
-      },
-      image_name: match image {
-        Some(x) => x,
-        _ => "".into(),
-      },
       transaction_id: tid.clone(),
-      language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
-      isolate: Isolation::CONTAINERD.bits(),
     });
     match self.worker.prewarm(request).await {
       Ok(response) => {
