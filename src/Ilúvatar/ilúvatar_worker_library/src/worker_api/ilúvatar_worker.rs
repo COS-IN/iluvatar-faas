@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::types::Compute;
 use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map::CharacteristicsMap, utils::calculate_fqdn};
 use crate::services::{invocation::invoker_trait::Invoker, registration::RegistrationService};
 use crate::services::worker_health::WorkerHealthService;
@@ -160,7 +161,15 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           return Ok(Response::new(resp));
         },
       };
-      let container_id = self.container_manager.prewarm(reg, &request.transaction_id).await;
+      let compute: Compute = request.compute.into();
+      if !reg.supported_compute.intersects(compute) {
+        let resp = PrewarmResponse {
+          success: false,
+          message: format!("{{ \"Error\": \"Function was not registered with the specified compute\" }}"),
+        };
+        return Ok(Response::new(resp));
+      }
+      let container_id = self.container_manager.prewarm(reg, &request.transaction_id, compute).await;
 
       match container_id {
         Ok(_) => {

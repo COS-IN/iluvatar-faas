@@ -40,6 +40,10 @@ pub struct ContainerResources {
   /// number of cores it can use, i.e. number of concurrent functions allowed at once
   /// If this is set to 0, then core allocations will not be managed
   pub cores: u32,
+  /// number of GPUs it can use, i.e. number of concurrent functions allowed at once
+  /// Currently one container is given exclusive access to each GPU at a time
+  /// If this is set to 0, then no GPUs will be allocated
+  pub gpus: u32,
   /// eviciton algorithm to use
   pub eviction: String,
   /// timeout on container startup before error

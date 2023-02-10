@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::{SystemTime, Duration}, num::NonZeroU32};
-use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
 use reqwest::Client;
 use crate::services::{containers::structs::{ContainerT, ParsedResult, ContainerState}};
 use anyhow::Result;
@@ -21,10 +21,11 @@ pub struct DockerContainer {
   pub base_uri: String,
   state: Mutex<ContainerState>,
   client: Client,
+  compute: Compute,
 }
 
 impl DockerContainer {
-  pub fn new(container_id: String, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, invoke_timeout: u64, state: ContainerState) -> Result<Self> {
+  pub fn new(container_id: String, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, invoke_timeout: u64, state: ContainerState, compute: Compute) -> Result<Self> {
     let client = match reqwest::Client::builder()
       .pool_max_idle_per_host(0)
       .pool_idle_timeout(None)
@@ -40,11 +41,10 @@ impl DockerContainer {
       function: function.clone(),
       last_used: RwLock::new(SystemTime::now()),
       invocations: Mutex::new(0),
-      port,
+      port, client, compute,
       invoke_uri: calculate_invoke_uri(address.as_str(), port),
       base_uri: calculate_base_uri(address.as_str(), port),
       state: Mutex::new(state),
-      client,
     };
     Ok(r)
   }
@@ -127,6 +127,7 @@ impl ContainerT for DockerContainer {
     *self.state.lock() = state;
   }
   fn container_type(&self) -> Isolation { Isolation::DOCKER }
+  fn compute_type(&self) -> Compute { self.compute }
 }
 
 impl crate::services::containers::structs::ToAny for DockerContainer {

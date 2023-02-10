@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
-use iluvatar_library::{types::{Isolation, MemSizeMb}, transaction::TransactionId, utils::calculate_fqdn};
+use iluvatar_library::{types::{Isolation, MemSizeMb, Compute}, transaction::TransactionId, utils::calculate_fqdn};
 use parking_lot::RwLock;
 use tracing::{debug, info};
 use crate::rpc::RegisterRequest;
@@ -17,7 +17,8 @@ pub struct RegisteredFunction {
   pub cpus: u32,
   pub snapshot_base: String,
   pub parallel_invokes: u32,
-  pub isolation_type: Isolation
+  pub isolation_type: Isolation,
+  pub supported_compute: Compute,
 }
 
 pub struct RegistrationService {
@@ -59,6 +60,11 @@ impl RegistrationService {
       anyhow::bail!("Could not register function with no specified isolation!");
     }
 
+    let compute: Compute = request.compute.into();
+    if compute.is_empty() {
+      anyhow::bail!("Could not register function with no specified compute!");
+    }
+
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     if self.reg_map.read().contains_key(&fqdn) {
       anyhow::bail!(format!("Function {} is already registered!", fqdn));
@@ -74,6 +80,7 @@ impl RegistrationService {
       snapshot_base: "".to_string(),
       parallel_invokes: request.parallel_invokes,
       isolation_type: isolation,
+      supported_compute: compute
     };
     for (lifecycle_iso, lifecycle) in self.lifecycles.iter() {
       if !isolation.contains(*lifecycle_iso) {

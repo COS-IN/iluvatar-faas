@@ -61,7 +61,7 @@ mod invoke {
     let env = build_env(invoker_q);
     let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
     let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -148,7 +148,7 @@ mod invoke_async {
     let env = build_env(invoker_q);
     let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
     let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeAsyncRequest {
       function_name: "test".to_string(),
       function_version: "0.1.1".to_string(),
@@ -294,7 +294,7 @@ fn test_invoke(invok_svc: &Arc<dyn Invoker>, reg: &Arc<RegisteredFunction>, json
 }
 
 async fn prewarm(cm: &Arc<ContainerManager>, reg: &Arc<RegisteredFunction>, transaction_id: &TransactionId) {
-  timeout(Duration::from_secs(20), cm.prewarm(reg.clone(), transaction_id)).await
+  timeout(Duration::from_secs(20), cm.prewarm(reg.clone(), transaction_id, Compute::CPU)).await
       .unwrap_or_else(|e| panic!("prewarm timout hit: {:?}", e))
       .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
 }

@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
-use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, bail_error, logging::LocalTime};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, bail_error, logging::LocalTime};
 use crate::{services::{containers::structs::{ContainerT, ParsedResult, ContainerState}, registration::RegisteredFunction}, };
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
@@ -18,9 +18,10 @@ pub struct SimulatorContainer {
   /// number of invocations a container has performed
   pub invocations: Mutex<u32>,
   pub state: Mutex<ContainerState>,
+  compute: Compute,
 }
 impl SimulatorContainer {
-  pub fn new(cid: String, fqdn: &String, reg: &Arc<RegisteredFunction>, state: ContainerState) -> Self {
+  pub fn new(cid: String, fqdn: &String, reg: &Arc<RegisteredFunction>, state: ContainerState, compute: Compute) -> Self {
     SimulatorContainer {
       container_id: cid,
       fqdn: fqdn.clone(),
@@ -28,6 +29,7 @@ impl SimulatorContainer {
       last_used: RwLock::new(SystemTime::now()),
       invocations: Mutex::new(0),
       state: Mutex::new(state),
+      compute,
     }
   }
 }
@@ -176,6 +178,7 @@ impl ContainerT for SimulatorContainer {
     *self.state.lock() = state;
   }
   fn container_type(&self) -> Isolation { Isolation::all() }
+  fn compute_type(&self) -> Compute { self.compute }
 }
 
 impl crate::services::containers::structs::ToAny for SimulatorContainer {

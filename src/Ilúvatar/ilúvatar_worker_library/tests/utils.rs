@@ -19,6 +19,45 @@ macro_rules! assert_error {
 /// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
 /// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
 /// [config_pth] is an optional path to config to load
+pub async fn sim_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<String, String>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>) {
+  iluvatar_library::utils::file::ensure_temp_dir().unwrap();
+  let log = log.unwrap_or(false);
+  let worker_name = "TEST".to_string();
+  let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
+  if let Some(env) = env {
+    for (k,v) in env {
+      std::env::set_var(k,v);
+    }  
+  }
+  std::env::set_var("ILUVATAR_WORKER__container_resources__backend","simulation");
+  let cfg = Configuration::boxed(false, &Some(&test_cfg_pth)).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
+  let fake_logging = Arc::new(LoggingConfig {
+    level: cfg.logging.level.clone(),
+    directory: "".to_string(),
+    basename: "".to_string(),
+    spanning: cfg.logging.spanning.clone(),
+    flame: "".to_string(),
+    span_energy_monitoring: false,
+  });
+  let _log = match log {
+    true => Some(start_tracing(fake_logging, cfg.graphite.clone(), &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e))),
+    false => None,
+  };
+  let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
+  let factory = LifecycleFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
+  let lifecycles = factory.get_lifecycle_services(&TEST_TID, false, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
+
+  let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
+  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());
+  let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap);
+  let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
+  (_log, cfg, cm, invoker, reg)
+}
+
+/// Creates/sets up the structs needed to test an invoker setup
+/// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
+/// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
+/// [config_pth] is an optional path to config to load
 pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<String, String>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>) {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
   let log = log.unwrap_or(false);

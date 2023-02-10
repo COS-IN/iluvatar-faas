@@ -1,7 +1,7 @@
 use std::{time::{SystemTime, Duration}, sync::Arc, num::NonZeroU32};
 use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
-use iluvatar_library::{types::{MemSizeMb, Isolation}, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
+use iluvatar_library::{types::{MemSizeMb, Isolation, Compute}, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
 use reqwest::{Client, Response};
 use crate::{services::{containers::structs::{ContainerT, ParsedResult, ContainerState}, network::network_structs::Namespace}};
 use crate::services::registration::RegisteredFunction;
@@ -35,10 +35,11 @@ pub struct ContainerdContainer {
   pub mem_usage: RwLock<MemSizeMb>,
   state: Mutex<ContainerState>,
   client: Client,
+  compute: Compute,
 }
 
 impl ContainerdContainer {
-  pub fn new(container_id: String, task: Task, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>, invoke_timeout: u64, state: ContainerState) -> Result<Self> {
+  pub fn new(container_id: String, task: Task, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>, invoke_timeout: u64, state: ContainerState, compute: Compute) -> Result<Self> {
     let invoke_uri = calculate_invoke_uri(&address, port);
     let base_uri = calculate_base_uri(&address, port);
     let client = match reqwest::Client::builder()
@@ -51,12 +52,7 @@ impl ContainerdContainer {
         Err(e) => bail_error!(error=%e, "Unable to build reqwest HTTP client"),
       };
     Ok(ContainerdContainer {
-      container_id,
-      task,
-      port,
-      address,
-      invoke_uri,
-      base_uri,
+      container_id, task, port, address, invoke_uri, base_uri, client, compute,
       fqdn: fqdn.clone(),
       function: function.clone(),
       last_used: RwLock::new(SystemTime::now()),
@@ -64,7 +60,6 @@ impl ContainerdContainer {
       invocations: Mutex::new(0),
       mem_usage: RwLock::new(function.memory),
       state: Mutex::new(state),
-      client,
     })
   }
 
@@ -161,6 +156,7 @@ impl ContainerT for ContainerdContainer {
     *self.state.lock() = state;
   }
   fn container_type(&self) -> Isolation { Isolation::CONTAINERD }
+  fn compute_type(&self) -> Compute { self.compute }
 }
 
 impl crate::services::containers::structs::ToAny for ContainerdContainer {

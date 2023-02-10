@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}};
 use self::simstructs::SimulatorContainer;
 use super::{structs::{Container, ContainerState}, LifecycleService};
 use crate::services::registration::RegisteredFunction;
@@ -30,9 +30,9 @@ impl LifecycleService for SimulatorLifecycle {
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  async fn run_container(&self, fqdn: &String, image_name: &String, _parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, _parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, compute: Compute, tid: &TransactionId) -> Result<Container> {
     let cid = format!("{}-{}", fqdn, GUID::rand());
-    Ok(Arc::new(SimulatorContainer::new(cid, fqdn, reg, ContainerState::Cold)))
+    Ok(Arc::new(SimulatorContainer::new(cid, fqdn, reg, ContainerState::Cold, compute)))
   }
 
   /// Removed the specified container in the containerd namespace

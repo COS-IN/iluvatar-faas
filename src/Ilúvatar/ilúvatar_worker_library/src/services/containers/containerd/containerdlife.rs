@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 use client::tonic::Code;
 use dashmap::DashMap;
 use guid_create::GUID;
-use iluvatar_library::types::Isolation;
+use iluvatar_library::types::{Isolation, Compute};
 use crate::services::containers::containerd::containerdstructs::{Task, ContainerdContainer};
 use crate::worker_api::worker_config::{ContainerResources, FunctionLimits};
 use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb};
@@ -387,7 +387,7 @@ impl ContainerdLifecycle {
   
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<ContainerdContainer> {
+  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<ContainerdContainer> {
     let port = 8080;
 
     let permit = match &self.creation_sem {
@@ -486,7 +486,7 @@ impl ContainerdLifecycle {
           running: false
         };
         unsafe {
-          Ok(ContainerdContainer::new(cid, task, port, address.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, ns, self.limits_config.timeout_sec, ContainerState::Cold)?)
+          Ok(ContainerdContainer::new(cid, task, port, address.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, ns, self.limits_config.timeout_sec, ContainerState::Cold, compute)?)
         }
       },
       Err(e) => {
@@ -520,9 +520,9 @@ impl LifecycleService for ContainerdLifecycle {
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, compute: Compute, tid: &TransactionId) -> Result<Container> {
     info!(tid=%tid, image=%image_name, namespace=%namespace, "Creating container from image");
-    let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid).await?;
+    let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid, compute).await?;
     let mut client = TasksClient::new(self.channel());
   
     let req = StartRequest {

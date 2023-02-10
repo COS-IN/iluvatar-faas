@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::SystemTime};
 use dashmap::DashSet;
-use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, utils::{execute_cmd, port::free_local_port}, bail_error};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, utils::{execute_cmd, port::free_local_port}, bail_error};
 use crate::{worker_api::worker_config::{ContainerResources, FunctionLimits}, services::{containers::structs::ContainerState, registration::RegisteredFunction}};
 use self::dockerstructs::DockerContainer;
 use super::{structs::Container, LifecycleService};
@@ -77,7 +77,7 @@ impl LifecycleService for DockerLifecycle {
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, compute: Compute, tid: &TransactionId) -> Result<Container> {
     let cid = format!("{}-{}", fqdn, GUID::rand());
     let port = free_local_port()?;
     let gunicorn_args = format!("GUNICORN_CMD_ARGS=--bind 0.0.0.0:{}", port);
@@ -113,7 +113,7 @@ impl LifecycleService for DockerLifecycle {
     debug!(tid=%tid, name=%image_name, containerid=%cid, output=?output, "Docker container started successfully");
     info!(tid=%tid, name=%image_name, containerid=%cid, "Docker container started successfully");
     unsafe {
-      let c = DockerContainer::new(cid, port, "0.0.0.0".to_string(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, self.limits_config.timeout_sec, ContainerState::Cold)?;
+      let c = DockerContainer::new(cid, port, "0.0.0.0".to_string(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, self.limits_config.timeout_sec, ContainerState::Cold, compute)?;
       Ok(Arc::new(c))
     }
   }

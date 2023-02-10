@@ -1,11 +1,27 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use dashmap::DashMap;
-use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::{transaction::TransactionId, types::Compute};
 use tracing::{debug};
 use anyhow::Result;
 use super::structs::{Container, ContainerState};
 
 pub type Subpool = Vec<Container>;
+static LEN_ORDERING: Ordering = Ordering::Relaxed;
+
+pub struct ResourcePool {
+  /// Containers that are currently not running an invocation
+  pub idle_containers: ContainerPool,
+  /// Containers that are running an invocation
+  pub running_containers: ContainerPool,
+}
+impl ResourcePool {
+  pub fn new(compute: Compute) -> Self {
+    ResourcePool {
+      idle_containers: ContainerPool::new(format!("idle-{:?}", compute).as_str()),
+      running_containers: ContainerPool::new(format!("running-{:?}", compute).as_str())
+    }
+  }
+}
 
 pub struct ContainerPool {
   pool: DashMap<String, Subpool>,
@@ -49,7 +65,7 @@ impl ContainerPool {
         match (*pool_list).pop() {
           Some(c) => {
             debug!(tid=%tid, container_id=%c.container_id(), name=%self.pool_name, "Removing random container from pool");
-            self.len.fetch_sub(1, Ordering::Relaxed);
+            self.len.fetch_sub(1, LEN_ORDERING);
             Some(c)
           },
           None => None
@@ -82,7 +98,7 @@ impl ContainerPool {
     match self.pool.get_mut(container.fqdn()) {
       Some(mut pool_list) => {
         debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, "Inserting container into pool");
-        self.len.fetch_add(1, Ordering::Relaxed);
+        self.len.fetch_add(1, LEN_ORDERING);
         (*pool_list).push(container);
         Ok(())
       },
@@ -99,7 +115,7 @@ impl ContainerPool {
         let (pos, pool_len) = self.find_container_pos(&container, &pool_list);
         if pos < pool_len {
           debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, "Removing container from pool");
-          self.len.fetch_sub(1, Ordering::Relaxed);
+          self.len.fetch_sub(1, LEN_ORDERING);
           Some(pool_list.remove(pos))
         } else {
           None
@@ -132,17 +148,17 @@ mod tests {
   fn reg() {
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), supported_compute: iluvatar_library::types::Compute::CPU, fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
-    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold));
+    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold, Compute::CPU));
     cp.add_container(ctr, &"test".to_string()).expect("add should not error");
   }
   #[test]
   fn no_reg_fails() {
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
-    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold));
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), supported_compute: iluvatar_library::types::Compute::CPU, fqdn: "".to_string() });
+    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold, Compute::CPU));
     match cp.add_container(ctr, &"test".to_string()) {
       Ok(_) => panic!("Should not get Ok with no registration"),
       Err(_) => (),
@@ -153,9 +169,9 @@ mod tests {
     let tid = "test".to_string();
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
     let cp = ContainerPool::new("test");
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), supported_compute: iluvatar_library::types::Compute::CPU, fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
-    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold));
+    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold, Compute::CPU));
     cp.add_container(ctr.clone(), &tid).expect("add should not error");
     let ctr2 = cp.get_random_container(&fqdn, &tid).expect("should return a container");
 
@@ -166,9 +182,9 @@ mod tests {
     let tid = "test".to_string();
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), supported_compute: iluvatar_library::types::Compute::CPU, fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
-    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold)) as Container;
+    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold, Compute::CPU)) as Container;
     cp.add_container(ctr.clone(), &tid).expect("add should not error");
     let removed = cp.remove_container(&ctr, &tid).expect("should remove a container");
     assert_eq!(ctr.container_id(), removed.container_id(), "Container IDs should match");
@@ -178,9 +194,9 @@ mod tests {
     let tid = "test".to_string();
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), supported_compute: iluvatar_library::types::Compute::CPU, fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
-    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold)) as Container;
+    let ctr = Arc::new(SimulatorContainer::new("cid".to_string(), &fqdn, &reg, ContainerState::Cold, Compute::CPU)) as Container;
     cp.add_container(ctr.clone(), &tid).expect("add should not error");
     let removed = cp.remove_container(&ctr, &tid).expect("should remove a container");
     assert_eq!(ctr.container_id(), removed.container_id(), "Container IDs should match");
@@ -194,25 +210,53 @@ mod tests {
   fn len() {
     let cp = ContainerPool::new("test");
     let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
-    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
+    let reg = Arc::new(RegisteredFunction { function_name: "name".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), supported_compute: iluvatar_library::types::Compute::CPU, fqdn: "".to_string() });
     let fqdn2 = calculate_fqdn(&"name2".to_string(), &"vesr".to_string());
-    let reg2 = Arc::new(RegisteredFunction { function_name: "name2".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), fqdn: "".to_string() });
+    let reg2 = Arc::new(RegisteredFunction { function_name: "name2".to_string(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), supported_compute: iluvatar_library::types::Compute::CPU, fqdn: "".to_string() });
     cp.register_fqdn(fqdn.clone());
     cp.register_fqdn(fqdn2.clone());
-    let ctr = Arc::new(SimulatorContainer::new("cid1".to_string(), &fqdn, &reg, ContainerState::Cold));
+    let ctr = Arc::new(SimulatorContainer::new("cid1".to_string(), &fqdn, &reg, ContainerState::Cold, Compute::CPU));
     cp.add_container(ctr, &"test".to_string()).expect("add should not error");
     assert_eq!(cp.len(), 1);
-    let ctr = Arc::new(SimulatorContainer::new("cid2".to_string(), &fqdn, &reg, ContainerState::Cold));
+    let ctr = Arc::new(SimulatorContainer::new("cid2".to_string(), &fqdn, &reg, ContainerState::Cold, Compute::CPU));
     cp.add_container(ctr, &"test".to_string()).expect("add should not error");
     assert_eq!(cp.len(), 2);
-    let ctr = Arc::new(SimulatorContainer::new("cid3".to_string(), &fqdn, &reg, ContainerState::Cold));
+    let ctr = Arc::new(SimulatorContainer::new("cid3".to_string(), &fqdn, &reg, ContainerState::Cold, Compute::CPU));
     cp.add_container(ctr, &"test".to_string()).expect("add should not error");
     assert_eq!(cp.len(), 3);
-    let ctr = Arc::new(SimulatorContainer::new("cid3".to_string(), &fqdn2, &reg2, ContainerState::Cold));
+    let ctr = Arc::new(SimulatorContainer::new("cid3".to_string(), &fqdn2, &reg2, ContainerState::Cold, Compute::CPU));
     cp.add_container(ctr, &"test".to_string()).expect("add should not error");
     assert_eq!(cp.len(), 4);
 
     cp.get_random_container(&fqdn, &"test".to_string()).expect("should remove a container");
     assert_eq!(cp.len(), 3);
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 11)]
+  async fn parallel_len() {
+    let cp = Arc::new(ContainerPool::new("test"));
+    let mut handles: Vec<tokio::task::JoinHandle<Result<()>>> = vec![];
+    let ts: u32 = 15;
+    let creates: u32 = 30;
+    let barrier = Arc::new(tokio::sync::Barrier::new(ts as usize));
+    for t in 0..ts {
+      let cp_c = cp.clone();
+      let b_c = barrier.clone();
+      handles.push(tokio::task::spawn(async move {
+        let fqdn = t.to_string();
+        let reg = Arc::new(RegisteredFunction { function_name: fqdn.clone(), function_version: "vesr".to_string(), image_name: "img".to_string(), memory: 0, cpus: 0, snapshot_base: "".to_string(), parallel_invokes: 1, isolation_type: Isolation::all(), supported_compute: iluvatar_library::types::Compute::CPU, fqdn: "".to_string() });
+        cp_c.register_fqdn(fqdn.clone());
+        b_c.wait().await;
+        for i in 0..creates {
+          let ctr = Arc::new(SimulatorContainer::new(format!("cid{}", i), &fqdn, &reg, ContainerState::Cold, Compute::CPU));
+          cp_c.add_container(ctr, &"test".to_string())?;
+        }
+        Ok(())
+      }));
+    }
+    for h in handles {
+      h.await.unwrap().unwrap();
+    }
+    assert_eq!(cp.len(), ts*creates);
   }
 }

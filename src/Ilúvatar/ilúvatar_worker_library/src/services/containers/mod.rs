@@ -1,13 +1,12 @@
 use std::{sync::Arc, collections::HashMap};
 use tonic::async_trait;
 use anyhow::Result;
-use iluvatar_library::{types::{MemSizeMb, Isolation}, transaction::TransactionId};
+use iluvatar_library::{types::{MemSizeMb, Isolation, Compute}, transaction::TransactionId};
 use tracing::info;
 use crate::{worker_api::worker_config::{ContainerResources, NetworkingConfig, FunctionLimits}};
 use crate::services::{containers::{structs::{Container}, containerd::ContainerdLifecycle, simulation::SimulatorLifecycle}};
 use crate::services::network::namespace_manager::NamespaceManager;
 use self::{structs::ToAny, docker::DockerLifecycle};
-
 use super::registration::RegisteredFunction;
 
 pub mod structs;
@@ -24,7 +23,8 @@ mod container_pool;
 pub trait LifecycleService: ToAny + Send + Sync + std::fmt::Debug {
   /// Return a container that has been started with the given settings
   /// NOTE: you will have to ask the lifetime again to wait on the container to be started up
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container>;
+  /// Return a [Box] so that the caller can mutate it
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, compute: Compute, tid: &TransactionId) -> Result<Container>;
 
   /// removes a specific container, and all the related resources
   async fn remove_container(&self, container_id: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;
@@ -91,22 +91,4 @@ impl LifecycleFactory {
     }
     Ok(ret)
   }
-
-  // pub async fn get_lifecycle_service(&self, tid: &TransactionId, ensure_bridge: bool) -> Result<Arc<dyn LifecycleService>> {
-  //   if self.containers.backend == "containerd" {
-  //     info!(tid=%tid, "Creating 'containerd' backend");
-  //     let netm = NamespaceManager::boxed(self.networking.clone(), tid, ensure_bridge)?;
-  //     let mut lifecycle = ContainerdLifecycle::new(netm, self.containers.clone(), self.limits_config.clone());
-  //     lifecycle.connect().await?;
-  //     Ok(Arc::new(lifecycle))
-  //   } else if self.containers.backend == "docker" {
-  //     info!(tid=%tid, "Creating 'docker' backend");
-  //     Ok(Arc::new(DockerLifecycle::new(self.containers.clone(), self.limits_config.clone())))
-  //   }  else if self.containers.backend == "simulation" {
-  //     info!(tid=%tid, "Creating 'simulation' backend");
-  //     Ok(Arc::new(SimulatorLifecycle::new()))
-  //   }else {
-  //     panic!("Unknown lifecycle backend '{}'", self.containers.backend);
-  //   }
-  // }
 }

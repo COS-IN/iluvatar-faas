@@ -33,7 +33,8 @@
     "pool_freq_ms": 5000,
     "backend": "containerd",
     "snapshotter": "zfs",
-    "concurrent_creation": 5
+    "concurrent_creation": 5,
+    "gpus": 0
   },
   "networking": {
     "bridge": "IlWorkBr0",

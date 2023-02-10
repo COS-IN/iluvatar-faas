@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
-use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation}, bail_error};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, bail_error};
 use time::{format_description::{self, FormatItem}, OffsetDateTime, PrimitiveDateTime};
 use crate::services::{containers::containermanager::ContainerManager, registration::RegisteredFunction};
 use anyhow::Result;
@@ -34,6 +34,7 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
   fn state(&self) -> ContainerState;
   fn set_state(&self, state: ContainerState);
   fn container_type(&self) -> Isolation;
+  fn compute_type(&self) -> Compute;
 }
 
 /// Cast a container pointer to a concrete type
@@ -158,6 +159,19 @@ impl std::fmt::Display for InsufficientMemoryError {
   }
 }
 impl std::error::Error for InsufficientMemoryError {
+
+}
+
+#[derive(Debug)]
+/// An container start failed because the system did not have a free GPU
+pub struct InsufficientGPUError {}
+impl std::fmt::Display for InsufficientGPUError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    write!(f, "No GPU available to launch container")?;
+    Ok(())
+  }
+}
+impl std::error::Error for InsufficientGPUError {
 
 }
 

@@ -292,7 +292,7 @@ mod prewarm {
   async fn prewarm_get_container() {
     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
     let reg = _reg.register(basic_reg_req(), &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let c = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
@@ -307,7 +307,7 @@ mod prewarm {
   async fn prewarm_get_container_docker() {
     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
     let reg = _reg.register(basic_reg_req_docker(), &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let c = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
@@ -331,7 +331,7 @@ mod prewarm {
       isolate: (Isolation::DOCKER | Isolation::CONTAINERD).bits(),
     };
     let reg = _reg.register(request, &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let c = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
@@ -353,7 +353,7 @@ mod get_container {
   async fn cant_double_acquire() {
     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
     let reg = _reg.register(basic_reg_req(), &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let c1 = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
@@ -380,7 +380,7 @@ mod get_container {
       isolate: Isolation::CONTAINERD.bits(),
     };
     let reg = _reg.register(request, &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let _c1 = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
@@ -401,7 +401,7 @@ mod get_container {
     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
 
     let reg = _reg.register(basic_reg_req(), &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let c2 = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
@@ -425,7 +425,7 @@ mod remove_container {
   async fn unhealthy_container_deleted() {
     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
     let reg = _reg.register(basic_reg_req(), &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let c1 = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
@@ -461,7 +461,7 @@ mod remove_container {
   async fn unhealthy_container_not_gettable() {
     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
     let reg = _reg.register(basic_reg_req(), &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let c1 = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
@@ -487,7 +487,7 @@ mod container_state {
   async fn prewarmed() {
     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
     let reg = _reg.register(basic_reg_req(), &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let c1 = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,
@@ -501,7 +501,7 @@ mod container_state {
   async fn prewarmed_docker() {
     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
     let reg = _reg.register(basic_reg_req_docker(), &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-    cm.prewarm(reg.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+    cm.prewarm(reg.clone(), &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let c1 = match cm.acquire_container(&reg, &TEST_TID) {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(n) => n,

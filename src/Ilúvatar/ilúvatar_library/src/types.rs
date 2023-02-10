@@ -26,6 +26,30 @@ bitflags! {
 
 #[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 /// To be used with CLI args
+pub enum ComputeEnum {
+  CPU,
+  GPU,
+}
+impl Into<Compute> for Vec<ComputeEnum> {
+  fn into(self) -> Compute {
+    let mut r = Compute::empty();
+    for i in self.iter() {
+      match i {
+        ComputeEnum::CPU => r |= Compute::CPU,
+        ComputeEnum::GPU => r |= Compute::GPU,
+      }
+    }
+    r
+  }
+}
+impl Into<Compute> for u32 {
+  fn into(self) -> Compute {
+    Compute::from_bits_truncate(self)
+  }
+}
+
+#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+/// To be used with CLI args
 pub enum IsolationEnum {
   CONTAINERD,
   DOCKER,
@@ -48,11 +72,3 @@ impl Into<Isolation> for u32 {
     Isolation::from_bits_truncate(self)
   }
 }
-// impl Into<Isolation> for IsolationEnum {
-//   fn into(self) -> Isolation {
-//     match self {
-//       IsolationEnum::CONTAINERD => Isolation::CONTAINERD,
-//       IsolationEnum::DOCKER => Isolation::DOCKER,
-//     }
-//   }
-// }

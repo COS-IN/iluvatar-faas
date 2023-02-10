@@ -1,11 +1,11 @@
-use crate::services::containers::structs::InsufficientMemoryError;
+use crate::services::containers::structs::{InsufficientMemoryError, InsufficientGPUError};
 use crate::services::registration::RegisteredFunction;
 use futures::Future;
 use iluvatar_library::bail_error;
 use iluvatar_library::threading::{tokio_runtime, EventualItem, tokio_thread};
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID, CTR_MGR_HEALTH_WORKER_TID};
-use iluvatar_library::types::{MemSizeMb, Isolation};
+use iluvatar_library::types::{MemSizeMb, Isolation, Compute};
 use iluvatar_library::utils::calculate_fqdn;
 use crate::worker_api::worker_config::ContainerResources;
 use anyhow::{Result, bail};
@@ -13,18 +13,18 @@ use dashmap::DashMap;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
-use parking_lot::RwLock;
+use parking_lot::{RwLock, Mutex};
 use super::{LifecycleCollection, LifecycleService};
-use super::container_pool::{ContainerPool, Subpool};
+use super::container_pool::{ContainerPool, Subpool, ResourcePool};
 use super::structs::{Container, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
 
 /// A struct to manage and control access to containers
 pub struct ContainerManager {
-  /// Containers that are currently not running an invocation
-  idle_containers: ContainerPool,
-  /// Containers that are running an invocation
-  running_containers: ContainerPool,
+  /// Containers that only use CPU compute resources
+  cpu_containers: ResourcePool,
+  /// Containers that have GPU compute resources (and CPU naturally)
+  gpu_containers: ResourcePool,
   resources: Arc<ContainerResources>,
   used_mem_mb: Arc<RwLock<MemSizeMb>>,
   cont_lifecycles: LifecycleCollection,
@@ -32,6 +32,7 @@ pub struct ContainerManager {
   _worker_thread: std::thread::JoinHandle<()>,
   _health_thread: tokio::task::JoinHandle<()>,
   core_sem: Option<Arc<Semaphore>>,
+  gpu_limit: Option<Mutex<u32>>,
   /// A list of containers that are to be removed
   /// Container must not be in a pool when placed here
   remove_list: RwLock<Subpool>,
@@ -44,16 +45,18 @@ impl ContainerManager {
       0 => None,
       c => Some(Arc::new(Semaphore::new(c as usize))),
     };
+    let gpu_limit = match resources.gpus {
+      0 => None,
+      g => Some(Mutex::new(g)),
+    };
     ContainerManager {
-      core_sem,
-      resources,
+      core_sem, gpu_limit, resources, cont_lifecycles,
       used_mem_mb: Arc::new(RwLock::new(0)),
-      cont_lifecycles,
+      cpu_containers: ResourcePool::new(Compute::CPU),
+      gpu_containers: ResourcePool::new(Compute::GPU),
       prioritized_list: RwLock::new(Vec::new()),
       _worker_thread: worker_thread,
       _health_thread: health_thread,
-      idle_containers: ContainerPool::new("idle"),
-      running_containers: ContainerPool::new("running"),
       remove_list: RwLock::new(vec![]),
       outstanding_containers: DashMap::new(),
     }
@@ -127,12 +130,12 @@ impl ContainerManager {
     }
   }
   pub fn num_containers(&self) -> u32 {
-    self.running_containers.len() + self.idle_containers.len()
+    self.cpu_containers.running_containers.len() + self.cpu_containers.idle_containers.len()
   }
   /// Returns the best possible idle container's [ContainerState] at this time
   /// Not a guarantee it will be available
   pub fn container_available(&self, fqdn: &String) -> ContainerState {
-    self.idle_containers.has_container(fqdn)
+    self.cpu_containers.idle_containers.has_container(fqdn)
   }
   /// The number of containers for the given FQDN that are not idle
   /// I.E. they are executing an invocation
@@ -143,7 +146,7 @@ impl ContainerManager {
         Some(cnt) => (*cnt).load(std::sync::atomic::Ordering::Relaxed),
         None => 0,
       },
-      None => self.running_containers.len() as u32,
+      None => self.cpu_containers.running_containers.len() as u32,
     }
   }
 
@@ -163,8 +166,8 @@ impl ContainerManager {
   async fn update_memory_usages(&self, tid: &TransactionId) {
     debug!(tid=%tid, "updating container memory usages");
     let old_total_mem = *self.used_mem_mb.read();
-    let mut all_ctrs = self.idle_containers.iter();
-    all_ctrs.append(&mut self.running_containers.iter());
+    let mut all_ctrs = self.cpu_containers.idle_containers.iter();
+    all_ctrs.append(&mut self.cpu_containers.running_containers.iter());
     let mut sum_change = 0;
     for container in all_ctrs {
       let old_usage = container.get_curr_mem_usage();
@@ -210,7 +213,7 @@ impl ContainerManager {
   /// Returns an warmed container if one is available
   fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     loop {
-      match self.idle_containers.get_random_container(fqdn, tid) {
+      match self.cpu_containers.idle_containers.get_random_container(fqdn, tid) {
         Some(c) => {
           if c.is_healthy() {
             return self.try_lock_container(c, tid);
@@ -227,7 +230,7 @@ impl ContainerManager {
   /// Starts a new container and returns a [ContainerLock] for it to be used
   async fn cold_start<'a>(&'a self, reg: Arc<RegisteredFunction>, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
     debug!(tid=%tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
-    let container = self.launch_container_internal(&reg, tid).await?;
+    let container = self.launch_container_internal(&reg, tid, Compute::CPU).await?;
     info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
     container.set_state(ContainerState::Cold);
     self.try_lock_container(container, tid).ok_or(anyhow::anyhow!("Encountered an error making conatiner lock"))
@@ -240,7 +243,7 @@ impl ContainerManager {
     if container.is_healthy() {
       debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
       container.touch();
-      return match self.add_container_to_pool(&self.running_containers, container.clone(), tid) {
+      return match self.add_container_to_pool(&self.cpu_containers.running_containers, container.clone(), tid) {
         Ok(_) => {
           if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
             (*cnt).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -262,10 +265,10 @@ impl ContainerManager {
     if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
       (*cnt).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
-    if let Some(removed_ctr) = self.running_containers.remove_container(container, tid) {
+    if let Some(removed_ctr) = self.cpu_containers.running_containers.remove_container(container, tid) {
       if removed_ctr.is_healthy() {
         removed_ctr.set_state(ContainerState::Warm);
-        match self.add_container_to_pool(&self.idle_containers, removed_ctr, tid) {
+        match self.add_container_to_pool(&self.cpu_containers.idle_containers, removed_ctr, tid) {
           Ok(_) => return,
           Err(e) => error!(tid=%tid, error=%e, container_id=%container.container_id(), "Encountered an error trying to return a container to the idle pool"),
         };
@@ -284,9 +287,21 @@ impl ContainerManager {
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
-  async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
-    let cont_lifecycle = self.get_optimal_lifecycle(reg, tid)?;
+  async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<Container> {
+    let cont_lifecycle = self.get_optimal_lifecycle(reg, tid, compute)?;
 
+    if compute.contains(Compute::GPU) {
+      let counter = match self.gpu_limit.as_ref() {
+        Some(g) => g,
+        None => bail_error!(tid=%tid, "Cannot provide GPU when gpu counting is disabled"),
+      };
+      let mut lck = counter.lock();
+      if *lck > 0 {
+        *lck -= 1;
+      } else {
+        anyhow::bail!(InsufficientGPUError{})
+      }
+    }
     let curr_mem = *self.used_mem_mb.read();
     if curr_mem + reg.memory > self.resources.memory_mb {
       let avail = self.resources.memory_mb-curr_mem;
@@ -296,11 +311,9 @@ impl ContainerManager {
       *self.used_mem_mb.write() += reg.memory;
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
-    let cont = cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, tid).await;
+    let cont = cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, compute, tid).await;
     let cont = match cont {
-      Ok(cont) => {
-        cont
-      },
+      Ok(cont) => cont,
       Err(e) => {
         *self.used_mem_mb.write() -= reg.memory;
         return Err(e);
@@ -311,6 +324,14 @@ impl ContainerManager {
       Ok(_) => (),
       Err(e) => {
         *self.used_mem_mb.write() -= reg.memory;
+        if compute.contains(Compute::GPU) {
+          let mut lck = self.gpu_limit.as_ref().unwrap().lock(); // safe to unwrap, check is made above and would abort function
+          if *lck > 0 {
+            *lck -= 1;
+          } else {
+            anyhow::bail!(InsufficientGPUError{})
+          }
+        }
         match cont_lifecycle.remove_container(cont, "default", tid).await {
           Ok(_) => { return Err(e); },
           Err(inner_e) => anyhow::bail!("Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'", e, inner_e),
@@ -323,7 +344,14 @@ impl ContainerManager {
 
   /// Get the optimal lifecycle for starting a new container based on it's registration information
   /// Consider both startup time (i.e. Containerd > Docker) and other resource options (i.e. GPU)
-  fn get_optimal_lifecycle(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<&Arc<dyn LifecycleService>> {
+  fn get_optimal_lifecycle(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<&Arc<dyn LifecycleService>> {
+    if compute.contains(Compute::GPU) {
+      if reg.isolation_type.contains(Isolation::DOCKER) {
+        return Ok(self.cont_lifecycles.get(&Isolation::DOCKER).unwrap());
+      } else {
+        bail_error!(tid=%tid, iso=?reg.isolation_type, compute=?compute, "GPU only supported with Docker isolation")
+      }
+    }
     if reg.isolation_type.contains(Isolation::CONTAINERD) {
       return Ok(self.cont_lifecycles.get(&Isolation::CONTAINERD).unwrap()); // safe to unwrap here, lifecycle must exist for container to be registered
     }
@@ -332,22 +360,26 @@ impl ContainerManager {
     }
     match self.cont_lifecycles.get(&reg.isolation_type) {
       Some(c) => Ok(c),
-      None => bail_error!(tid=%tid, iso=?reg.isolation_type, "Lifecycle(s) for container not supported") ,
+      None => bail_error!(tid=%tid, iso=?reg.isolation_type, "Lifecycle(s) for container not supported"),
     }
   }
 
   /// Does a best effort to ensure a container is launched
   /// If various known errors happen, it will re-try to start it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
-  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Container> {
-    match self.try_launch_container(&reg, tid).await {
+  async fn launch_container_internal(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<Container> {
+    match self.try_launch_container(&reg, tid, compute).await {
       Ok(c) => Ok(c),
-      Err(cause) => match cause.downcast_ref::<InsufficientMemoryError>() {
-        Some(mem) => {
-          self.reclaim_memory(mem.needed, tid).await?;
-          self.try_launch_container(&reg, tid).await
-        },
-        None => Err(cause),
+      Err(cause) => {
+        if let Some(mem) = cause.downcast_ref::<InsufficientMemoryError>() {
+            self.reclaim_memory(mem.needed, tid).await?;
+            return self.try_launch_container(&reg, tid, compute).await;
+        } else if let Some(_) = cause.downcast_ref::<InsufficientGPUError>() {
+          self.reclaim_gpu(tid).await?;
+          return self.try_launch_container(&reg, tid, compute).await;
+        } else {
+          return Err(cause);
+        }
       },
     }
   }
@@ -358,10 +390,10 @@ impl ContainerManager {
   /// Can error if not already registered and full info isn't provided
   /// Other errors caused by starting/registered the function apply
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, request), fields(tid=%request.transaction_id)))]
-  pub async fn prewarm(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
-    let container = self.launch_container_internal(&reg, tid).await?;
+  pub async fn prewarm(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<()> {
+    let container = self.launch_container_internal(&reg, tid, compute).await?;
     container.set_state(ContainerState::Prewarm);
-    self.add_container_to_pool(&self.idle_containers, container, &tid)?;
+    self.add_container_to_pool(&self.cpu_containers.idle_containers, container, &tid)?;
     info!(tid=%tid, fqdn=%reg.fqdn, "function was successfully prewarmed");
     Ok(())
   }
@@ -372,8 +404,10 @@ impl ContainerManager {
   /// Can error if the function is already registers, the image is invalid, or many other reasons
   pub fn register(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
     debug!(tid=%tid, function_name=%reg.function_name, function_version=%reg.function_version, fqdn=%reg.fqdn, "Adding new registration to active_containers map");
-    self.running_containers.register_fqdn(reg.fqdn.clone());
-    self.idle_containers.register_fqdn(reg.fqdn.clone());
+    self.cpu_containers.running_containers.register_fqdn(reg.fqdn.clone());
+    self.cpu_containers.idle_containers.register_fqdn(reg.fqdn.clone());
+    self.gpu_containers.running_containers.register_fqdn(reg.fqdn.clone());
+    self.gpu_containers.idle_containers.register_fqdn(reg.fqdn.clone());
     self.outstanding_containers.insert(reg.fqdn.clone(), AtomicU32::new(0));
     Ok(())
   }
@@ -391,6 +425,11 @@ impl ContainerManager {
     Ok(())
   }
 
+  async fn reclaim_gpu(&self, _tid: &TransactionId) -> Result<()> {
+    // self.gpu_containers.idle_containers.len()
+    todo!();
+  }
+
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, amount_mb), fields(tid=%tid)))]
   async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
     debug!(tid=%tid, amount=amount_mb, "Trying to reclaim memory");
@@ -400,7 +439,7 @@ impl ContainerManager {
     let mut reclaimed: MemSizeMb = 0;
     let mut to_remove = Vec::new();
     for container in self.prioritized_list.read().iter() {
-      if let Some(removed_ctr) = self.idle_containers.remove_container(container, tid) {
+      if let Some(removed_ctr) = self.cpu_containers.idle_containers.remove_container(container, tid) {
         to_remove.push(removed_ctr.clone());
         reclaimed += removed_ctr.get_curr_mem_usage();
         if reclaimed >= amount_mb {
@@ -416,8 +455,8 @@ impl ContainerManager {
 
   fn compute_eviction_priorities(&self, tid: &TransactionId) {
     debug!(tid=%tid, "Computing eviction priorities");
-    let mut ordered = self.idle_containers.iter();
-    ordered.append(&mut self.running_containers.iter());
+    let mut ordered = self.cpu_containers.idle_containers.iter();
+    ordered.append(&mut self.cpu_containers.running_containers.iter());
     let comparator = match self.resources.eviction.as_str() {
       "LRU" => ContainerManager::lru_eviction,
       _ => { 
