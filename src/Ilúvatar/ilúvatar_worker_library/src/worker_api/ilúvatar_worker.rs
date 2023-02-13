@@ -169,7 +169,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         };
         return Ok(Response::new(resp));
       }
-      let container_id = self.container_manager.prewarm(reg, &request.transaction_id, compute).await;
+      let container_id = self.container_manager.prewarm(&reg, &request.transaction_id, compute).await;
 
       match container_id {
         Ok(_) => {

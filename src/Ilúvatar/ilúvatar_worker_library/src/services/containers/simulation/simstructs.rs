@@ -4,7 +4,6 @@ use crate::{services::{containers::structs::{ContainerT, ParsedResult, Container
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize, Deserializer};
-use tracing::error;
 use std::fmt;
 
 #[derive(Debug)]
@@ -19,9 +18,10 @@ pub struct SimulatorContainer {
   pub invocations: Mutex<u32>,
   pub state: Mutex<ContainerState>,
   compute: Compute,
+  iso: Isolation,
 }
 impl SimulatorContainer {
-  pub fn new(cid: String, fqdn: &String, reg: &Arc<RegisteredFunction>, state: ContainerState, compute: Compute) -> Self {
+  pub fn new(cid: String, fqdn: &String, reg: &Arc<RegisteredFunction>, state: ContainerState, iso: Isolation, compute: Compute) -> Self {
     SimulatorContainer {
       container_id: cid,
       fqdn: fqdn.clone(),
@@ -29,7 +29,7 @@ impl SimulatorContainer {
       last_used: RwLock::new(SystemTime::now()),
       invocations: Mutex::new(0),
       state: Mutex::new(state),
-      compute,
+      compute, iso
     }
   }
 }
@@ -165,11 +165,10 @@ impl ContainerT for SimulatorContainer {
   }
 
   fn is_healthy(&self) -> bool {
-    true
+    self.state() != ContainerState::Unhealthy
   }
-
   fn mark_unhealthy(&self) {
-    error!(container_id=%self.container_id, "Cannot mark simulation container unhealthy!")
+    self.set_state(ContainerState::Unhealthy);
   }
   fn state(&self) -> ContainerState {
     *self.state.lock()
@@ -177,7 +176,7 @@ impl ContainerT for SimulatorContainer {
   fn set_state(&self, state: ContainerState) {
     *self.state.lock() = state;
   }
-  fn container_type(&self) -> Isolation { Isolation::all() }
+  fn container_type(&self) -> Isolation { self.iso }
   fn compute_type(&self) -> Compute { self.compute }
 }
 

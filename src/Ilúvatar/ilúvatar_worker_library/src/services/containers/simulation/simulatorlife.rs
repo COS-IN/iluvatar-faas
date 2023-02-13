@@ -23,16 +23,16 @@ impl SimulatorLifecycle {
 #[tonic::async_trait]
 #[allow(unused)]
 impl LifecycleService for SimulatorLifecycle {
-  fn backend(&self) -> Isolation {
-    Isolation::SIMULATION
+  fn backend(&self) -> Vec<Isolation> {
+    vec![Isolation::CONTAINERD, Isolation::DOCKER]
   }
 
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
-  async fn run_container(&self, fqdn: &String, image_name: &String, _parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, compute: Compute, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, _parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, tid: &TransactionId) -> Result<Container> {
     let cid = format!("{}-{}", fqdn, GUID::rand());
-    Ok(Arc::new(SimulatorContainer::new(cid, fqdn, reg, ContainerState::Cold, compute)))
+    Ok(Arc::new(SimulatorContainer::new(cid, fqdn, reg, ContainerState::Cold, iso, compute)))
   }
 
   /// Removed the specified container in the containerd namespace

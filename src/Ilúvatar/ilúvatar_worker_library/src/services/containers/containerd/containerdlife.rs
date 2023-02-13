@@ -512,15 +512,18 @@ impl ContainerdLifecycle {
 
 #[tonic::async_trait]
 impl LifecycleService for ContainerdLifecycle {
-  fn backend(&self) -> Isolation {
-    Isolation::CONTAINERD
+  fn backend(&self) -> Vec<Isolation> {
+    vec![Isolation::CONTAINERD]
   }
 
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, compute: Compute, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, tid: &TransactionId) -> Result<Container> {
+    if ! iso.eq(&Isolation::CONTAINERD) {
+      anyhow::bail!("Only supports containerd Isolation, now {:?}", iso);
+    }
     info!(tid=%tid, image=%image_name, namespace=%namespace, "Creating container from image");
     let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid, compute).await?;
     let mut client = TasksClient::new(self.channel());

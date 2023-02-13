@@ -29,7 +29,6 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<St
       std::env::set_var(k,v);
     }  
   }
-  std::env::set_var("ILUVATAR_WORKER__container_resources__backend","simulation");
   let cfg = Configuration::boxed(false, &Some(&test_cfg_pth)).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
   let fake_logging = Arc::new(LoggingConfig {
     level: cfg.logging.level.clone(),

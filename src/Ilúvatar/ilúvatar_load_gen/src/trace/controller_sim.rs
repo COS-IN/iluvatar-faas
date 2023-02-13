@@ -21,7 +21,7 @@ async fn controller_sim_register_workers(num_workers: usize, server_data: &Data<
       cpus: worker_config.container_resources.cores,
       gpus: 0,
       compute: Compute::CPU,
-      isolation: Isolation::SIMULATION,
+      isolation: Isolation::CONTAINERD,
     };
     let response = register_worker(server_data.clone(), Json{0:r}).await;
     if ! response.status().is_success() {

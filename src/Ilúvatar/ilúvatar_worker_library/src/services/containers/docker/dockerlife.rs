@@ -69,15 +69,18 @@ impl DockerLifecycle {
 #[tonic::async_trait]
 #[allow(unused)]
 impl LifecycleService for DockerLifecycle {
-  fn backend(&self) -> Isolation {
-    Isolation::DOCKER
+  fn backend(&self) -> Vec<Isolation> {
+    vec![Isolation::DOCKER]
   }
 
   /// creates and starts the entrypoint for a container based on the given image
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, compute: Compute, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, tid: &TransactionId) -> Result<Container> {
+    if ! iso.eq(&Isolation::DOCKER) {
+      anyhow::bail!("Only supports docker Isolation, now {:?}", iso);
+    }
     let cid = format!("{}-{}", fqdn, GUID::rand());
     let port = free_local_port()?;
     let gunicorn_args = format!("GUNICORN_CMD_ARGS=--bind 0.0.0.0:{}", port);

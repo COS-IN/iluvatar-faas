@@ -34,7 +34,8 @@
     "pool_freq_ms": 5,
     "backend": "containerd",
     "snapshotter": "zfs",
-    "concurrent_creation": 5
+    "concurrent_creation": 5,
+    "gpus": 1
   },
   "networking": {
     "bridge": "IlWorkBr0",

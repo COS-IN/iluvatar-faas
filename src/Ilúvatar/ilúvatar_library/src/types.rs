@@ -20,7 +20,8 @@ bitflags! {
   pub struct Isolation: u32 {
     const CONTAINERD = 0b00000001;
     const DOCKER = 0b00000010;
-    const SIMULATION = 0b00000100;
+    /// to only be used in testing
+    const INVALID = 0b10000000000000000000000000000000;
   }
 }
 

@@ -7,6 +7,7 @@ use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
+use iluvatar_library::types::Compute;
 use iluvatar_library::{transaction::{TransactionId}, threading::EventualItem};
 use parking_lot::Mutex;
 use time::{OffsetDateTime, Instant};
@@ -137,7 +138,7 @@ pub trait Invoker: Send + Sync {
     let remove_time = timer.now_str()?;
 
     let ctr_mgr = self.cont_manager();
-    let ctr_lock = match ctr_mgr.acquire_container(&reg, &tid) {
+    let ctr_lock = match ctr_mgr.acquire_container(&reg, &tid, Compute::CPU) {
       EventualItem::Future(_) => return Ok(None), // return None on a cold start, signifying the bypass didn't happen
       EventualItem::Now(n) => n?,
     };
@@ -281,7 +282,7 @@ pub trait Invoker: Send + Sync {
 
     let ctr_mgr = self.cont_manager();
     let start = Instant::now();
-    let ctr_lock = match ctr_mgr.acquire_container(reg, tid) {
+    let ctr_lock = match ctr_mgr.acquire_container(reg, tid, Compute::CPU) {
       EventualItem::Future(f) => f.await?,
       EventualItem::Now(n) => n?,
     };

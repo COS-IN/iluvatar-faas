@@ -126,7 +126,7 @@ mod heapstructs {
       cpus: 1,
       snapshot_base: "".to_string(),
       parallel_invokes: 1,
-      isolation_type: iluvatar_library::types::Isolation::SIMULATION,
+      isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
       supported_compute: iluvatar_library::types::Compute::CPU,
     });
     MinHeapEnqueuedInvocation::new_f(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now())), priority)
@@ -157,7 +157,7 @@ mod heapstructs {
       cpus: 1,
       snapshot_base: "".to_string(),
       parallel_invokes: 1,
-      isolation_type: iluvatar_library::types::Isolation::SIMULATION,
+      isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
       supported_compute: iluvatar_library::types::Compute::CPU,
     });
     MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now())), priority)
@@ -187,7 +187,7 @@ mod heapstructs {
       cpus: 1,
       snapshot_base: "".to_string(),
       parallel_invokes: 1,
-      isolation_type: iluvatar_library::types::Isolation::SIMULATION,
+      isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
       supported_compute: iluvatar_library::types::Compute::CPU,
     });
     MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), t)), t)

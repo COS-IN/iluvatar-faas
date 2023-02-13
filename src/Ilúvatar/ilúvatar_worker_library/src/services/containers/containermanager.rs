@@ -14,7 +14,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
 use parking_lot::{RwLock, Mutex};
-use super::{LifecycleCollection, LifecycleService};
+use super::LifecycleCollection;
 use super::container_pool::{ContainerPool, Subpool, ResourcePool};
 use super::structs::{Container, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
@@ -130,11 +130,12 @@ impl ContainerManager {
     }
   }
   pub fn num_containers(&self) -> u32 {
-    self.cpu_containers.running_containers.len() + self.cpu_containers.idle_containers.len()
+    self.cpu_containers.running_containers.len() + self.cpu_containers.idle_containers.len() + self.gpu_containers.running_containers.len() + self.gpu_containers.idle_containers.len()
   }
   /// Returns the best possible idle container's [ContainerState] at this time
   /// Not a guarantee it will be available
   pub fn container_available(&self, fqdn: &String) -> ContainerState {
+    // TODO: idle GPU container check
     self.cpu_containers.idle_containers.has_container(fqdn)
   }
   /// The number of containers for the given FQDN that are not idle
@@ -197,13 +198,13 @@ impl ContainerManager {
   /// A return type [EventualItem::Now] means an existing container has been acquired
   /// Can return a custom InsufficientCoresError if an invocation cannot be started now
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
-  pub fn acquire_container<'a>(&'a self, reg: &Arc<RegisteredFunction>, tid: &'a TransactionId) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
-    let cont = self.try_acquire_container(&reg.fqdn, tid);
+  pub fn acquire_container<'a>(&'a self, reg: &Arc<RegisteredFunction>, tid: &'a TransactionId, compute: Compute) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
+    let cont = self.try_acquire_container(&reg.fqdn, tid, compute);
     let cont = match cont {
       Some(l) => EventualItem::Now(Ok(l)),
       None => {
-        // not available container, cold start
-        EventualItem::Future(self.cold_start(reg.clone(), tid))
+        // no available container, cold start
+        EventualItem::Future(self.cold_start(reg.clone(), tid, compute))
       },
     };
     return cont;
@@ -211,9 +212,16 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   /// Returns an warmed container if one is available
-  fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
+  fn try_acquire_container<'a>(&'a self, fqdn: &String, tid: &'a TransactionId, compute: Compute) -> Option<ContainerLock<'a>> {
+    if let Ok(pool) = self.get_resource_pool(compute) {
+      return self.acquire_container_from_pool(&pool, fqdn, tid);
+    }
+    None
+  }
+
+  fn acquire_container_from_pool<'a>(&'a self, pool: &'a ResourcePool, fqdn: &String, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
     loop {
-      match self.cpu_containers.idle_containers.get_random_container(fqdn, tid) {
+      match pool.idle_containers.get_random_container(fqdn, tid) {
         Some(c) => {
           if c.is_healthy() {
             return self.try_lock_container(c, tid);
@@ -228,9 +236,9 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
   /// Starts a new container and returns a [ContainerLock] for it to be used
-  async fn cold_start<'a>(&'a self, reg: Arc<RegisteredFunction>, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
+  async fn cold_start<'a>(&'a self, reg: Arc<RegisteredFunction>, tid: &'a TransactionId, compute: Compute) -> Result<ContainerLock<'a>> {
     debug!(tid=%tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
-    let container = self.launch_container_internal(&reg, tid, Compute::CPU).await?;
+    let container = self.launch_container_internal(&reg, tid, compute).await?;
     info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
     container.set_state(ContainerState::Cold);
     self.try_lock_container(container, tid).ok_or(anyhow::anyhow!("Encountered an error making conatiner lock"))
@@ -243,7 +251,11 @@ impl ContainerManager {
     if container.is_healthy() {
       debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
       container.touch();
-      return match self.add_container_to_pool(&self.cpu_containers.running_containers, container.clone(), tid) {
+      let rpool = match self.get_resource_pool(container.compute_type()) {
+        Ok(r) => r,
+        Err(_) => return None,
+      };
+      return match self.add_container_to_pool(&rpool.running_containers, container.clone(), tid) {
         Ok(_) => {
           if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
             (*cnt).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -265,10 +277,25 @@ impl ContainerManager {
     if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
       (*cnt).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
-    if let Some(removed_ctr) = self.cpu_containers.running_containers.remove_container(container, tid) {
+    let resource_pool;
+    let compute = container.compute_type();
+    if compute.contains(Compute::CPU) {
+      resource_pool = &self.cpu_containers;
+    } else if compute.contains(Compute::GPU) {
+      match self.gpu_limit.as_ref() {
+        Some(counter) => *counter.lock() += 1,
+        None => error!(tid=%tid, "Cannot provide GPU when gpu counting is disabled"),
+      };
+      resource_pool = &self.gpu_containers;
+    } else {
+      error!(tid=%tid, container_id=%container.container_id(), compute=?compute, "Unknonwn compute for container");
+      return;
+    }
+
+    if let Some(removed_ctr) = resource_pool.running_containers.remove_container(container, tid) {
       if removed_ctr.is_healthy() {
         removed_ctr.set_state(ContainerState::Warm);
-        match self.add_container_to_pool(&self.cpu_containers.idle_containers, removed_ctr, tid) {
+        match self.add_container_to_pool(&resource_pool.idle_containers, removed_ctr, tid) {
           Ok(_) => return,
           Err(e) => error!(tid=%tid, error=%e, container_id=%container.container_id(), "Encountered an error trying to return a container to the idle pool"),
         };
@@ -288,7 +315,11 @@ impl ContainerManager {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
   async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<Container> {
-    let cont_lifecycle = self.get_optimal_lifecycle(reg, tid, compute)?;
+    let chosen_iso = self.get_optimal_lifecycle(reg, tid, compute)?;
+    let cont_lifecycle = match self.cont_lifecycles.get(&chosen_iso) {
+      Some(c) => c,
+      None => bail_error!(tid=%tid, iso=?chosen_iso, "Lifecycle(s) for container not supported"),
+    };
 
     if compute.contains(Compute::GPU) {
       let counter = match self.gpu_limit.as_ref() {
@@ -311,7 +342,7 @@ impl ContainerManager {
       *self.used_mem_mb.write() += reg.memory;
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
-    let cont = cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, compute, tid).await;
+    let cont = cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, chosen_iso, compute, tid).await;
     let cont = match cont {
       Ok(cont) => cont,
       Err(e) => {
@@ -344,24 +375,24 @@ impl ContainerManager {
 
   /// Get the optimal lifecycle for starting a new container based on it's registration information
   /// Consider both startup time (i.e. Containerd > Docker) and other resource options (i.e. GPU)
-  fn get_optimal_lifecycle(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<&Arc<dyn LifecycleService>> {
+  fn get_optimal_lifecycle(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<Isolation> {
+    if !reg.supported_compute.contains(compute) {
+      bail_error!(tid=%tid, iso=?reg.supported_compute, compute=?compute, "Registration did not contain requested compute")
+    }
     if compute.contains(Compute::GPU) {
       if reg.isolation_type.contains(Isolation::DOCKER) {
-        return Ok(self.cont_lifecycles.get(&Isolation::DOCKER).unwrap());
+        return Ok(Isolation::DOCKER);
       } else {
         bail_error!(tid=%tid, iso=?reg.isolation_type, compute=?compute, "GPU only supported with Docker isolation")
       }
     }
     if reg.isolation_type.contains(Isolation::CONTAINERD) {
-      return Ok(self.cont_lifecycles.get(&Isolation::CONTAINERD).unwrap()); // safe to unwrap here, lifecycle must exist for container to be registered
+      return Ok(Isolation::CONTAINERD);
     }
     if reg.isolation_type.contains(Isolation::DOCKER) {
-      return Ok(self.cont_lifecycles.get(&Isolation::DOCKER).unwrap());
+      return Ok(Isolation::DOCKER);
     }
-    match self.cont_lifecycles.get(&reg.isolation_type) {
-      Some(c) => Ok(c),
-      None => bail_error!(tid=%tid, iso=?reg.isolation_type, "Lifecycle(s) for container not supported"),
-    }
+    Ok(reg.isolation_type)
   }
 
   /// Does a best effort to ensure a container is launched
@@ -375,6 +406,7 @@ impl ContainerManager {
             self.reclaim_memory(mem.needed, tid).await?;
             return self.try_launch_container(&reg, tid, compute).await;
         } else if let Some(_) = cause.downcast_ref::<InsufficientGPUError>() {
+          println!("reclaim attempt");
           self.reclaim_gpu(tid).await?;
           return self.try_launch_container(&reg, tid, compute).await;
         } else {
@@ -390,10 +422,11 @@ impl ContainerManager {
   /// Can error if not already registered and full info isn't provided
   /// Other errors caused by starting/registered the function apply
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, request), fields(tid=%request.transaction_id)))]
-  pub async fn prewarm(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<()> {
+  pub async fn prewarm(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<()> {
     let container = self.launch_container_internal(&reg, tid, compute).await?;
     container.set_state(ContainerState::Prewarm);
-    self.add_container_to_pool(&self.cpu_containers.idle_containers, container, &tid)?;
+    let pool = self.get_resource_pool(compute)?;
+    self.add_container_to_pool(&pool.idle_containers, container, &tid)?;
     info!(tid=%tid, fqdn=%reg.fqdn, "function was successfully prewarmed");
     Ok(())
   }
@@ -401,7 +434,7 @@ impl ContainerManager {
   /// Registers a function using the given request
   /// 
   /// # Errors
-  /// Can error if the function is already registers, the image is invalid, or many other reasons
+  /// Can error if the function is already registered, the image is invalid, or many other reasons
   pub fn register(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
     debug!(tid=%tid, function_name=%reg.function_name, function_version=%reg.function_version, fqdn=%reg.fqdn, "Adding new registration to active_containers map");
     self.cpu_containers.running_containers.register_fqdn(reg.fqdn.clone());
@@ -425,12 +458,39 @@ impl ContainerManager {
     Ok(())
   }
 
-  async fn reclaim_gpu(&self, _tid: &TransactionId) -> Result<()> {
-    // self.gpu_containers.idle_containers.len()
-    todo!();
+  fn get_resource_pool(&self, compute: Compute) -> Result<&ResourcePool> {
+    if compute.contains(Compute::CPU) {
+      return Ok(&self.cpu_containers);
+    }
+    if compute.contains(Compute::GPU) {
+      return Ok(&self.gpu_containers);
+    }
+    anyhow::bail!("No pool for compute: {:?}", compute)
+  }
+
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+  /// Reclaim a single GPU from a container via eviction
+  /// If any are free to be removed
+  async fn reclaim_gpu(&self, tid: &TransactionId) -> Result<()> {
+    // TODO: Eviction ordering, have list sorted
+    let mut killable = self.gpu_containers.idle_containers.iter();
+    loop {
+      match killable.pop() {
+        Some(chosen) =>  {
+          if let Some(_) = self.gpu_containers.idle_containers.remove_container(&chosen, tid) {
+            self.remove_container(chosen, tid).await?;
+            break;
+          }
+        },
+        None => break,
+      }
+    }
+    Ok(())
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, amount_mb), fields(tid=%tid)))]
+  /// Reclaim at least the specified amount of memory by evicting containers
+  /// Not guaranteed to do so, as all containers could be busy
   async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
     debug!(tid=%tid, amount=amount_mb, "Trying to reclaim memory");
     if amount_mb <= 0 {
