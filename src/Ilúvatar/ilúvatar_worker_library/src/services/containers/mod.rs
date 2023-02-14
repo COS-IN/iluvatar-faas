@@ -6,7 +6,7 @@ use tracing::info;
 use crate::{worker_api::worker_config::{ContainerResources, NetworkingConfig, FunctionLimits}};
 use crate::services::{containers::{structs::{Container}, containerd::ContainerdLifecycle, simulation::SimulatorLifecycle}};
 use crate::services::network::namespace_manager::NamespaceManager;
-use self::{structs::ToAny, docker::DockerLifecycle};
+use self::{structs::ToAny, docker::DockerLifecycle, resources::gpu::GPU};
 use super::registration::RegisteredFunction;
 
 pub mod structs;
@@ -18,12 +18,13 @@ pub mod simulation;
 #[path ="./docker/dockerlife.rs"]
 pub mod docker;
 mod container_pool;
+mod resources;
 
 #[async_trait]
 pub trait LifecycleService: ToAny + Send + Sync + std::fmt::Debug {
   /// Return a container that has been started with the given settings
   /// NOTE: you will have to ask the lifetime again to wait on the container to be started up
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, tid: &TransactionId) -> Result<Container>;
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, device_resource: Option<Arc<GPU>>, tid: &TransactionId) -> Result<Container>;
 
   /// removes a specific container, and all the related resources
   async fn remove_container(&self, container_id: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;
@@ -69,14 +70,14 @@ impl LifecycleFactory {
     }
   }
 
-  pub async fn get_lifecycle_services(&self, tid: &TransactionId, ensure_bridge: bool, simulation: bool) -> Result<LifecycleCollection> {
+  pub async fn get_lifecycle_services(&self, tid: &TransactionId, ensure_bridge: bool) -> Result<LifecycleCollection> {
     let mut ret = HashMap::new();
-    if simulation {
+    if iluvatar_library::utils::is_simulation() {
       info!(tid=%tid, "Creating 'simulation' backend");
       let c = SimulatorLifecycle::new();
       self.insert_cycle(&mut ret, Arc::new(c))?;
     } else {
-      if ContainerdLifecycle::supported().await {
+      if ContainerdLifecycle::supported(tid).await {
         info!(tid=%tid, "Creating 'containerd' backend");
         let netm = NamespaceManager::boxed(self.networking.clone(), tid, ensure_bridge)?;
         let mut lifecycle = ContainerdLifecycle::new(netm, self.containers.clone(), self.limits_config.clone());
@@ -89,6 +90,10 @@ impl LifecycleFactory {
         self.insert_cycle(&mut ret, d)?;
       } 
     }
+    if ret.len() < 1 {
+      anyhow::bail!("No lifecycles were able to be made");
+    }
+  
     Ok(Arc::new(ret))
   }
 

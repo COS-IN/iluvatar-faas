@@ -102,7 +102,7 @@ impl WorkerAPI for SimWorkerAPI {
     }
   }
 
-  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation) -> Result<String> {
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation, compute: Compute) -> Result<String> {
     let request = tonic::Request::new(RegisterRequest {
       function_name,
       function_version: version,
@@ -115,7 +115,7 @@ impl WorkerAPI for SimWorkerAPI {
       },
       transaction_id: tid,
       language: LanguageRuntime::Nolang.into(),
-      compute: Compute::CPU.bits(),
+      compute: compute.bits(),
       isolate: isolate.bits(),
     });
     match self.worker.register(request).await {

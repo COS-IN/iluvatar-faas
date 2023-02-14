@@ -18,6 +18,19 @@ use tracing::{debug, info};
 use anyhow::Result;
 use tokio::signal::unix::{signal, SignalKind, Signal};
 
+lazy_static::lazy_static! {
+  pub static ref SIMULATION_CHECK: parking_lot::Mutex<bool>  = parking_lot::Mutex::new(false);
+}
+/// Set globally that the system is being run as a simulation
+pub fn set_simulation() {
+  *SIMULATION_CHECK.lock() = true;
+}
+/// A method for anyone to check if the system is being run as a simulation
+pub fn is_simulation() -> bool {
+  // false
+  *SIMULATION_CHECK.lock()
+}
+
 /// get the fully qualified domain name for a function from its name and version
 pub fn calculate_fqdn(function_name: &String, function_version: &String) -> String {
   format!("{}-{}", function_name, function_version)
@@ -31,8 +44,11 @@ pub fn calculate_base_uri(address: &str, port: Port) -> String {
   format!("http://{}:{}/", address, port)
 }
 
-fn prepare_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Command>
-  where S: AsRef<std::ffi::OsStr> + ?Sized + std::fmt::Display {
+fn prepare_cmd<S, S2, I>(cmd_pth: &S, args: I, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Command>
+where
+  I: IntoIterator<Item = S2> + std::fmt::Debug,
+  S2: AsRef<std::ffi::OsStr> + std::fmt::Debug + std::fmt::Display,
+  S: AsRef<std::ffi::OsStr> + std::fmt::Display + ?Sized {
   
   debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
   if ! std::path::Path::new(&cmd_pth).exists() {
@@ -48,8 +64,11 @@ fn prepare_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, St
 
 /// Executes the specified executable with args and environment
 /// cmd_pth **must** be an absolute path
-pub fn execute_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> 
-  where S: AsRef<std::ffi::OsStr> + ?Sized + std::fmt::Display {
+pub fn execute_cmd<S, S2, I>(cmd_pth: &S, args: I, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Output> 
+where
+  I: IntoIterator<Item = S2> + std::fmt::Debug,
+  S2: AsRef<std::ffi::OsStr> + std::fmt::Debug + std::fmt::Display,
+  S: AsRef<std::ffi::OsStr> + std::fmt::Display + ?Sized {
   
   let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
   match cmd.output() {
@@ -61,8 +80,11 @@ pub fn execute_cmd<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String
 /// Executes the specified executable with args and environment
 /// cmd_pth **must** be an absolute path
 /// All std* pipes will be sent to null for the process
-pub fn execute_cmd_nonblocking<S>(cmd_pth: &S, args: &Vec<&str>, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Child>
-  where S: AsRef<std::ffi::OsStr> + ?Sized + std::fmt::Display {
+pub fn execute_cmd_nonblocking<S, S2, I>(cmd_pth: &S, args: I, env: Option<&HashMap<String, String>>, tid: &TransactionId) -> Result<Child>
+where
+  I: IntoIterator<Item = S2> + std::fmt::Debug,
+  S2: AsRef<std::ffi::OsStr> + std::fmt::Debug + std::fmt::Display,
+  S: AsRef<std::ffi::OsStr> + std::fmt::Display + ?Sized {
 
   debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
   let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;

@@ -21,6 +21,7 @@ macro_rules! assert_error {
 /// [config_pth] is an optional path to config to load
 pub async fn sim_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<String, String>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>) {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
+  iluvatar_library::utils::set_simulation();
   let log = log.unwrap_or(false);
   let worker_name = "TEST".to_string();
   let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
@@ -44,7 +45,7 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<St
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let factory = LifecycleFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
-  let lifecycles = factory.get_lifecycle_services(&TEST_TID, false, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
+  let lifecycles = factory.get_lifecycle_services(&TEST_TID, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
   let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());
@@ -82,7 +83,7 @@ pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<S
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let factory = LifecycleFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
-  let lifecycles = factory.get_lifecycle_services(&TEST_TID, true, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
+  let lifecycles = factory.get_lifecycle_services(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
   let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());

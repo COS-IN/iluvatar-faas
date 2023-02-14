@@ -47,21 +47,24 @@ pub struct ContainerdLifecycle {
 /// A service to handle the low-level details of containerd container lifecycles:
 ///   creation, destruction, pulling images, etc
 impl ContainerdLifecycle {
-  pub async fn supported() -> bool {
+  pub async fn supported(tid: &TransactionId) -> bool {
     let channel = match containerd_client::connect(CONTAINERD_SOCK).await {
       Ok(c) => c,
-      Err(_) => return false,
+      Err(e) => {
+        warn!(tid=%tid, error=?e, "Failed to connect to containerd socket");
+        return false;
+      },
     };
     let mut client = VersionClient::new(channel);
-    let v: client::tonic::Response<VersionResponse> = match client.version(()).await {
+    let _: client::tonic::Response<VersionResponse> = match client.version(()).await {
       Ok(c) => c,
-      Err(_) => return false,
+      Err(e) => {
+        warn!(tid=%tid, error=?e, "Failed to query Containerd version");
+        return false;
+      },
     };
-    let v = v.into_inner();
-    println!("version: {}", v.version);
     true
   }
-
 
   pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResources>, limits_config: Arc<FunctionLimits>) -> ContainerdLifecycle {
     let sem = match config.concurrent_creation {
@@ -387,7 +390,7 @@ impl ContainerdLifecycle {
   
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<ContainerdContainer> {
+  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute, device_resource: Option<Arc<super::resources::gpu::GPU>>) -> Result<ContainerdContainer> {
     let port = 8080;
 
     let permit = match &self.creation_sem {
@@ -486,7 +489,7 @@ impl ContainerdLifecycle {
           running: false
         };
         unsafe {
-          Ok(ContainerdContainer::new(cid, task, port, address.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, ns, self.limits_config.timeout_sec, ContainerState::Cold, compute)?)
+          Ok(ContainerdContainer::new(cid, task, port, address.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, ns, self.limits_config.timeout_sec, ContainerState::Cold, compute, device_resource)?)
         }
       },
       Err(e) => {
@@ -520,12 +523,12 @@ impl LifecycleService for ContainerdLifecycle {
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, device_resource: Option<Arc<super::resources::gpu::GPU>>, tid: &TransactionId) -> Result<Container> {
     if ! iso.eq(&Isolation::CONTAINERD) {
       anyhow::bail!("Only supports containerd Isolation, now {:?}", iso);
     }
     info!(tid=%tid, image=%image_name, namespace=%namespace, "Creating container from image");
-    let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid, compute).await?;
+    let mut container = self.create_container(fqdn, image_name, namespace, parallel_invokes, mem_limit_mb, cpus, reg, tid, compute, device_resource).await?;
     let mut client = TasksClient::new(self.channel());
   
     let req = StartRequest {

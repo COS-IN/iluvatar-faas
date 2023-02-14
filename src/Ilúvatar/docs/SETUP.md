@@ -62,6 +62,11 @@ sudo mkdir -p /usr/local/lib/systemd/system/
 sudo mv containerd.service /usr/local/lib/systemd/system/containerd.service
 ```
 
+## GPU support
+
+https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
+https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#id6
+
 ## Container forwarding
 
 ```bash

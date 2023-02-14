@@ -102,6 +102,7 @@ async fn controller_sim_invoke(func_name: String, server_data: Data<Controller>,
 }
 
 pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
+  iluvatar_library::utils::set_simulation();
   let worker_config_pth = args.worker_config.as_ref().ok_or_else(|| anyhow::anyhow!("Must have 'worker_config' for sim"))?.clone();
   let controller_config_pth = args.controller_config.as_ref().ok_or_else(|| anyhow::anyhow!("Must have 'controller_config' for sim"))?.clone();
   let threaded_rt = Builder::new_multi_thread()

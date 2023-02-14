@@ -23,10 +23,7 @@ enum Commands {
 }
 
 fn main() -> anyhow::Result<()> {
-  let cli = Args::parse();
-  // println!("verbose: {:?}", cli);
-  
-  match cli.command {
+  match Args::parse().command {
     Commands::Scaling(args) => scaling::scaling(args),
     Commands::Trace(args) => trace::run_trace(args),
     Commands::Benchmark(args) => benchmark::benchmark_functions(args),

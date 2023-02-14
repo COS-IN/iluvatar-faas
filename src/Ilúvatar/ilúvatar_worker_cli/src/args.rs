@@ -2,7 +2,7 @@ extern crate clap;
 // use clap::{ArgMatches, App, SubCommand, Arg};
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
-use iluvatar_library::{utils::port_utils::Port, types::{MemSizeMb, IsolationEnum}};
+use iluvatar_library::{utils::port_utils::Port, types::{MemSizeMb, IsolationEnum, ComputeEnum}};
 use clap::{command, Parser, Subcommand};
 
 #[derive(Parser, Debug)]
@@ -61,6 +61,9 @@ pub struct RegisterArgs {
   #[arg(long, required=true, num_args = 1..)]
   /// Isolation mechanisms supported by the function 
   pub isolation: Vec<IsolationEnum>,
+  #[arg(long, required=true, num_args = 1..)]
+  /// Supported compute by the function
+  pub compute: Vec<ComputeEnum>,
 }
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

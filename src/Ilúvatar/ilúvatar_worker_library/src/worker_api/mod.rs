@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use iluvatar_library::characteristics_map::AgExponential;
-use iluvatar_library::types::Isolation;
+use iluvatar_library::types::{Isolation, Compute};
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::energy::energy_logging::EnergyLogger;
 use crate::services::invocation::InvokerFactory;
@@ -22,12 +22,12 @@ pub mod ilúvatar_worker;
 pub mod sim_worker;
 pub mod worker_comm;
 
-pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId, simulation: bool) -> Result<IluvatarWorkerImpl> {
+pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
   let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
 
-  let cycles = match factory.get_lifecycle_services(tid, true, simulation).await  {
+  let cycles = match factory.get_lifecycle_services(tid, true).await  {
     Ok(l) => l,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"),
   };
@@ -71,7 +71,7 @@ pub trait WorkerAPI {
   async fn invoke_async(&mut self, function_name: String, version: String, args: String, tid: TransactionId) -> Result<String>;
   async fn invoke_async_check(&mut self, cookie: &String, tid: TransactionId) -> Result<InvokeResponse>;
   async fn prewarm(&mut self, function_name: String, version: String, tid: TransactionId) -> Result<String>;
-  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation) -> Result<String>;
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation, compute: Compute) -> Result<String>;
   async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse>;
   async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus>;
 }

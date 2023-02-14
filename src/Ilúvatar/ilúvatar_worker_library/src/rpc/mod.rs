@@ -146,21 +146,22 @@ impl WorkerAPI for RPCWorkerAPI {
       function_name: function_name,
       function_version: version,
       transaction_id: tid.clone(),
-      compute: Compute::CPU.bits(),
+      compute: Compute::GPU.bits(),
     });
     match self.client.prewarm(request).await {
       Ok(response) => {
         let response = response.into_inner();
+        let err =format!("Prewarm request failed: {:?}", response.message);
         match response.success {
-          true => Ok("".to_string()),
-          false => bail_error!(tid=%tid, message=%response.message, "Prewarm request failed"),
+          true => Ok(response.message),
+          false => bail_error!(tid=%tid, message=%response.message, err),
         }
       },
       Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:prewarm]".to_string())),
     }
   }
 
-  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation) -> Result<String> {
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation, compute: Compute) -> Result<String> {
     let request = Request::new(RegisterRequest {
       function_name,
       function_version: version,
@@ -173,7 +174,7 @@ impl WorkerAPI for RPCWorkerAPI {
       },
       transaction_id: tid,
       language: LanguageRuntime::Nolang.into(),
-      compute: Compute::CPU.bits(),
+      compute: compute.bits(),
       isolate: isolate.bits(),
     });
     match self.client.register(request).await {

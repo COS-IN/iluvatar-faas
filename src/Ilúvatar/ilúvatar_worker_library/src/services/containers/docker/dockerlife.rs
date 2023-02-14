@@ -77,7 +77,7 @@ impl LifecycleService for DockerLifecycle {
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, device_resource: Option<Arc<super::resources::gpu::GPU>>, tid: &TransactionId) -> Result<Container> {
     if ! iso.eq(&Isolation::DOCKER) {
       anyhow::bail!("Only supports docker Isolation, now {:?}", iso);
     }
@@ -87,8 +87,18 @@ impl LifecycleService for DockerLifecycle {
     let bind_args = format!("--bind 0.0.0.0:{}", port);
     let port_args = format!("{}:{}", port, port);
     let il_port = format!("__IL_PORT={}", port);
-
-    let args = vec!["run", "--detach", "--name", cid.as_str(), "-e", gunicorn_args.as_str(), "-e", il_port.as_str(), "-e", "__IL_HOST=0.0.0.0", "--label", "owner=iluvatar_worker", "--cpus", "1", "-p", port_args.as_str(), image_name.as_str(), "-w 1"];
+    let gpu = match device_resource.as_ref() {
+      Some(g) => Some(format!("device={}", g.name)),
+      None => None
+    };
+    
+    let mut args = vec!["run", "--detach", "--name", &cid, "-e", &gunicorn_args, "-e", &il_port, "-e", "__IL_HOST=0.0.0.0", "--label", "owner=iluvatar_worker", "--cpus", "1", "-p", &port_args];
+    if let Some(dev) = gpu.as_ref() {
+      args.push("--gpus");
+      args.push(dev);
+    }
+    args.push(image_name);
+    args.push("-w 1");
 
     let permit = match &self.creation_sem {
       Some(sem) => match sem.acquire().await {
@@ -112,11 +122,10 @@ impl LifecycleService for DockerLifecycle {
       bail_error!(tid=%tid, output=?output, "Failed to create docker container with no exit code");
     }
     drop(permit);
-    debug!(tid=%tid, "Dropped docker creation semaphore after load_mounts error");
     debug!(tid=%tid, name=%image_name, containerid=%cid, output=?output, "Docker container started successfully");
     info!(tid=%tid, name=%image_name, containerid=%cid, "Docker container started successfully");
     unsafe {
-      let c = DockerContainer::new(cid, port, "0.0.0.0".to_string(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, self.limits_config.timeout_sec, ContainerState::Cold, compute)?;
+      let c = DockerContainer::new(cid, port, "0.0.0.0".to_string(), std::num::NonZeroU32::new_unchecked(parallel_invokes), &fqdn, &reg, self.limits_config.timeout_sec, ContainerState::Cold, compute, device_resource)?;
       Ok(Arc::new(c))
     }
   }

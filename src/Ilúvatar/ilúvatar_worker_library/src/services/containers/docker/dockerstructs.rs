@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::{SystemTime, Duration}, num::NonZeroU32};
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
 use reqwest::Client;
-use crate::services::{containers::structs::{ContainerT, ParsedResult, ContainerState}};
+use crate::services::{containers::{structs::{ContainerT, ParsedResult, ContainerState}, resources::gpu::GPU}};
 use anyhow::Result;
 use crate::services::registration::RegisteredFunction;
 use parking_lot::{Mutex, RwLock};
@@ -22,10 +22,11 @@ pub struct DockerContainer {
   state: Mutex<ContainerState>,
   client: Client,
   compute: Compute,
+  device: Option<Arc<GPU>>,
 }
 
 impl DockerContainer {
-  pub fn new(container_id: String, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, invoke_timeout: u64, state: ContainerState, compute: Compute) -> Result<Self> {
+  pub fn new(container_id: String, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, invoke_timeout: u64, state: ContainerState, compute: Compute, device: Option<Arc<GPU>>,) -> Result<Self> {
     let client = match reqwest::Client::builder()
       .pool_max_idle_per_host(0)
       .pool_idle_timeout(None)
@@ -45,6 +46,7 @@ impl DockerContainer {
       invoke_uri: calculate_invoke_uri(address.as_str(), port),
       base_uri: calculate_base_uri(address.as_str(), port),
       state: Mutex::new(state),
+      device
     };
     Ok(r)
   }
@@ -128,6 +130,7 @@ impl ContainerT for DockerContainer {
   }
   fn container_type(&self) -> Isolation { Isolation::DOCKER }
   fn compute_type(&self) -> Compute { self.compute }
+  fn device_resource(&self) -> &Option<Arc<GPU>> { &self.device }
 }
 
 impl crate::services::containers::structs::ToAny for DockerContainer {

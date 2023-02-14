@@ -5,6 +5,7 @@ use utils::execute_cmd;
 
 pub mod utils;
 pub mod transaction;
+#[macro_use]
 pub mod macros;
 pub mod logging;
 pub mod types;

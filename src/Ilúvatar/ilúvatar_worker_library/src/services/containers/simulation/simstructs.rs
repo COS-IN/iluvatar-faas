@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, bail_error, logging::LocalTime};
-use crate::{services::{containers::structs::{ContainerT, ParsedResult, ContainerState}, registration::RegisteredFunction}, };
+use crate::{services::{containers::{structs::{ContainerT, ParsedResult, ContainerState}, resources::gpu::GPU}, registration::RegisteredFunction}, };
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize, Deserializer};
@@ -19,9 +19,10 @@ pub struct SimulatorContainer {
   pub state: Mutex<ContainerState>,
   compute: Compute,
   iso: Isolation,
+  device: Option<Arc<GPU>>,
 }
 impl SimulatorContainer {
-  pub fn new(cid: String, fqdn: &String, reg: &Arc<RegisteredFunction>, state: ContainerState, iso: Isolation, compute: Compute) -> Self {
+  pub fn new(cid: String, fqdn: &String, reg: &Arc<RegisteredFunction>, state: ContainerState, iso: Isolation, compute: Compute, device: Option<Arc<GPU>>) -> Self {
     SimulatorContainer {
       container_id: cid,
       fqdn: fqdn.clone(),
@@ -29,7 +30,7 @@ impl SimulatorContainer {
       last_used: RwLock::new(SystemTime::now()),
       invocations: Mutex::new(0),
       state: Mutex::new(state),
-      compute, iso
+      compute, iso, device
     }
   }
 }
@@ -178,6 +179,7 @@ impl ContainerT for SimulatorContainer {
   }
   fn container_type(&self) -> Isolation { self.iso }
   fn compute_type(&self) -> Compute { self.compute }
+  fn device_resource(&self) -> &Option<Arc<GPU>> { &self.device }
 }
 
 impl crate::services::containers::structs::ToAny for SimulatorContainer {

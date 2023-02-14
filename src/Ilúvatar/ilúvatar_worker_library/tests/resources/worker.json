@@ -34,7 +34,7 @@
     "backend": "containerd",
     "snapshotter": "zfs",
     "concurrent_creation": 5,
-    "gpus": 1
+    "gpus": 0
   },
   "networking": {
     "bridge": "IlWorkBr0",

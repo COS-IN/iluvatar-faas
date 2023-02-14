@@ -3,7 +3,7 @@ use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
 use iluvatar_library::{types::{MemSizeMb, Isolation, Compute}, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
 use reqwest::{Client, Response};
-use crate::{services::{containers::structs::{ContainerT, ParsedResult, ContainerState}, network::network_structs::Namespace}};
+use crate::{services::{containers::{structs::{ContainerT, ParsedResult, ContainerState}, resources::gpu::GPU}, network::network_structs::Namespace}};
 use crate::services::registration::RegisteredFunction;
 
 #[derive(Debug)]
@@ -36,10 +36,11 @@ pub struct ContainerdContainer {
   state: Mutex<ContainerState>,
   client: Client,
   compute: Compute,
+  device: Option<Arc<GPU>>,
 }
 
 impl ContainerdContainer {
-  pub fn new(container_id: String, task: Task, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>, invoke_timeout: u64, state: ContainerState, compute: Compute) -> Result<Self> {
+  pub fn new(container_id: String, task: Task, port: Port, address: String, _parallel_invokes: NonZeroU32, fqdn: &String, function: &Arc<RegisteredFunction>, ns: Arc<Namespace>, invoke_timeout: u64, state: ContainerState, compute: Compute, device: Option<Arc<GPU>>,) -> Result<Self> {
     let invoke_uri = calculate_invoke_uri(&address, port);
     let base_uri = calculate_base_uri(&address, port);
     let client = match reqwest::Client::builder()
@@ -60,6 +61,7 @@ impl ContainerdContainer {
       invocations: Mutex::new(0),
       mem_usage: RwLock::new(function.memory),
       state: Mutex::new(state),
+      device
     })
   }
 
@@ -157,6 +159,7 @@ impl ContainerT for ContainerdContainer {
   }
   fn container_type(&self) -> Isolation { Isolation::CONTAINERD }
   fn compute_type(&self) -> Compute { self.compute }
+  fn device_resource(&self) -> &Option<Arc<GPU>> { &self.device }
 }
 
 impl crate::services::containers::structs::ToAny for ContainerdContainer {

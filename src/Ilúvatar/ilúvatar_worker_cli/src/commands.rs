@@ -65,7 +65,8 @@ pub async fn register(worker: Box<Worker>, args: RegisterArgs) -> Result<()> {
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
 
   let iso = args.isolation.into();
-  let ret = api.register(args.name, args.version, args.image, args.memory, args.cpu, 1, tid, iso).await.unwrap();
+  let compute = args.compute.into();
+  let ret = api.register(args.name, args.version, args.image, args.memory, args.cpu, 1, tid, iso, compute).await.unwrap();
   println!("{}", ret);
   Ok(())
 }

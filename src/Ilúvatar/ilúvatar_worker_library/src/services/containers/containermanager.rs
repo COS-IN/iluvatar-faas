@@ -11,11 +11,11 @@ use crate::worker_api::worker_config::ContainerResources;
 use anyhow::{Result, bail};
 use dashmap::DashMap;
 use std::cmp::Ordering;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU32;
-use parking_lot::{RwLock, Mutex};
+use std::sync::{Arc, atomic::AtomicU32};
+use parking_lot::RwLock;
 use super::LifecycleCollection;
 use super::container_pool::{ContainerPool, Subpool, ResourcePool};
+use super::resources::gpu::GpuResourceTracker;
 use super::structs::{Container, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
 
@@ -32,7 +32,7 @@ pub struct ContainerManager {
   _worker_thread: std::thread::JoinHandle<()>,
   _health_thread: tokio::task::JoinHandle<()>,
   core_sem: Option<Arc<Semaphore>>,
-  gpu_limit: Option<Mutex<u32>>,
+  gpu_limiter: Arc<GpuResourceTracker>,
   /// A list of containers that are to be removed
   /// Container must not be in a pool when placed here
   remove_list: RwLock<Subpool>,
@@ -40,17 +40,16 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-  async fn new(resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>) -> ContainerManager {
+  async fn new(resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>, tid: &TransactionId) -> Result<ContainerManager> {
     let core_sem = match resources.cores {
       0 => None,
       c => Some(Arc::new(Semaphore::new(c as usize))),
     };
-    let gpu_limit = match resources.gpus {
-      0 => None,
-      g => Some(Mutex::new(g)),
-    };
-    ContainerManager {
-      core_sem, gpu_limit, resources, cont_lifecycles,
+    
+    let gpu_resource = GpuResourceTracker::boxed(resources.clone(), tid)?;
+    Ok(ContainerManager {
+      core_sem, resources, cont_lifecycles,
+      gpu_limiter: gpu_resource,
       used_mem_mb: Arc::new(RwLock::new(0)),
       cpu_containers: ResourcePool::new(Compute::CPU),
       gpu_containers: ResourcePool::new(Compute::GPU),
@@ -59,14 +58,14 @@ impl ContainerManager {
       _health_thread: health_thread,
       remove_list: RwLock::new(vec![]),
       outstanding_containers: DashMap::new(),
-    }
+    })
   }
 
-  pub async fn boxed(resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, _tid: &TransactionId) -> Result<Arc<ContainerManager>> {
+  pub async fn boxed(resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, tid: &TransactionId) -> Result<Arc<ContainerManager>> {
     let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), 
           ContainerManager::monitor_pool, None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>, None)?;
     let (health_handle, health_tx) = tokio_thread(resources.pool_freq_ms, CTR_MGR_HEALTH_WORKER_TID.clone(), Self::cull_unhealthy);
-    let cm = Arc::new(ContainerManager::new(resources.clone(), cont_lifecycles, handle, health_handle).await);
+    let cm = Arc::new(ContainerManager::new(resources.clone(), cont_lifecycles, handle, health_handle, tid).await?);
     tx.send(cm.clone()).unwrap();
     health_tx.send(cm.clone()).unwrap();
     Ok(cm)
@@ -282,10 +281,6 @@ impl ContainerManager {
     if compute.contains(Compute::CPU) {
       resource_pool = &self.cpu_containers;
     } else if compute.contains(Compute::GPU) {
-      match self.gpu_limit.as_ref() {
-        Some(counter) => *counter.lock() += 1,
-        None => error!(tid=%tid, "Cannot provide GPU when gpu counting is disabled"),
-      };
       resource_pool = &self.gpu_containers;
     } else {
       error!(tid=%tid, container_id=%container.container_id(), compute=?compute, "Unknonwn compute for container");
@@ -321,18 +316,12 @@ impl ContainerManager {
       None => bail_error!(tid=%tid, iso=?chosen_iso, "Lifecycle(s) for container not supported"),
     };
 
-    if compute.contains(Compute::GPU) {
-      let counter = match self.gpu_limit.as_ref() {
-        Some(g) => g,
-        None => bail_error!(tid=%tid, "Cannot provide GPU when gpu counting is disabled"),
-      };
-      let mut lck = counter.lock();
-      if *lck > 0 {
-        *lck -= 1;
-      } else {
-        anyhow::bail!(InsufficientGPUError{})
+    let counter = if compute == Compute::GPU {
+      match self.gpu_limiter.acquire_gpu() {
+        Some(g) => Some(g),
+        None => anyhow::bail!(InsufficientGPUError{}),
       }
-    }
+    } else { None };
     let curr_mem = *self.used_mem_mb.read();
     if curr_mem + reg.memory > self.resources.memory_mb {
       let avail = self.resources.memory_mb-curr_mem;
@@ -342,7 +331,7 @@ impl ContainerManager {
       *self.used_mem_mb.write() += reg.memory;
     }
     let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
-    let cont = cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, chosen_iso, compute, tid).await;
+    let cont = cont_lifecycle.run_container(&fqdn, &reg.image_name, reg.parallel_invokes, "default", reg.memory, reg.cpus, reg, chosen_iso, compute, counter, tid).await;
     let cont = match cont {
       Ok(cont) => cont,
       Err(e) => {
@@ -355,14 +344,6 @@ impl ContainerManager {
       Ok(_) => (),
       Err(e) => {
         *self.used_mem_mb.write() -= reg.memory;
-        if compute.contains(Compute::GPU) {
-          let mut lck = self.gpu_limit.as_ref().unwrap().lock(); // safe to unwrap, check is made above and would abort function
-          if *lck > 0 {
-            *lck -= 1;
-          } else {
-            anyhow::bail!(InsufficientGPUError{})
-          }
-        }
         match cont_lifecycle.remove_container(cont, "default", tid).await {
           Ok(_) => { return Err(e); },
           Err(inner_e) => anyhow::bail!("Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'", e, inner_e),
@@ -406,7 +387,6 @@ impl ContainerManager {
             self.reclaim_memory(mem.needed, tid).await?;
             return self.try_launch_container(&reg, tid, compute).await;
         } else if let Some(_) = cause.downcast_ref::<InsufficientGPUError>() {
-          println!("reclaim attempt");
           self.reclaim_gpu(tid).await?;
           return self.try_launch_container(&reg, tid, compute).await;
         } else {
@@ -454,6 +434,9 @@ impl ContainerManager {
       None => bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported"),
     };
     *self.used_mem_mb.write() -= container.get_curr_mem_usage();
+    if let Some(dev) = container.device_resource() {
+      self.gpu_limiter.return_gpu(dev.clone());
+    }
     cont_lifecycle.remove_container(container, "default", tid).await?;
     Ok(())
   }

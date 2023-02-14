@@ -29,12 +29,12 @@ unsafe impl Send for Controller{}
 impl Controller {
   pub fn new(config: ControllerConfig, tid: &TransactionId) -> Self {
     let worker_fact = WorkerAPIFactory::boxed();
-    let health_svc: Arc<dyn ControllerHealthService>= match config.simulation {
+    let health_svc: Arc<dyn ControllerHealthService>= match iluvatar_library::utils::is_simulation() {
       true => SimHealthService::boxed(),
       false => HealthService::boxed(worker_fact.clone()),
     };
     let graphite_svc = GraphiteService::boxed(config.graphite.clone());
-    let load_svc = LoadService::boxed(graphite_svc, config.load_balancer.clone(), tid, worker_fact.clone(), config.simulation);
+    let load_svc = LoadService::boxed(graphite_svc, config.load_balancer.clone(), tid, worker_fact.clone());
     let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()).unwrap();
     let reg_svc = RegistrationService::boxed(lb.clone(), worker_fact.clone());
     let async_svc = AsyncService::boxed(worker_fact.clone());

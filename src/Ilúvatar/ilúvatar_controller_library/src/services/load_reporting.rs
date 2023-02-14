@@ -14,19 +14,17 @@ pub struct LoadService {
   workers: RwLock<HashMap<String, f64>>,
   config: Arc<LoadBalancingConfig>,
   fact: Arc<WorkerAPIFactory>,
-  simulation: bool,
 }
 
 impl LoadService {
-  pub fn boxed(graphite: Arc<GraphiteService>, config: Arc<LoadBalancingConfig>, _tid: &TransactionId, fact: Arc<WorkerAPIFactory>, simulation: bool) -> Arc<Self> {
+  pub fn boxed(graphite: Arc<GraphiteService>, config: Arc<LoadBalancingConfig>, _tid: &TransactionId, fact: Arc<WorkerAPIFactory>) -> Arc<Self> {
     let (handle, tx) = tokio_thread(config.thread_sleep_sec, LOAD_MONITOR_TID.clone(), LoadService::monitor_worker_status);
     let ret = Arc::new(LoadService {
       _worker_thread: handle,
       graphite,
       workers: RwLock::new(HashMap::new()),
       config,
-      fact, 
-      simulation,
+      fact,
     });
     tx.send(ret.clone()).unwrap();
 
@@ -34,7 +32,7 @@ impl LoadService {
   }
 
   async fn monitor_worker_status(service: Arc<Self>, tid: TransactionId) {
-    if service.simulation {
+    if iluvatar_library::utils::is_simulation() {
       service.mointor_simulation(&tid).await;
     } else {
       service.monitor_live(&tid).await;
