@@ -18,6 +18,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def index():
+  global msg
   if msg is not None:
     return {"Status":"code import error", "code import error":msg}, 500
   else:
