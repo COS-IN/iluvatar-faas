@@ -19,6 +19,25 @@ def downloadFromURL(url, local_path):
   if not os.path.exists(local_path):
     urllib.request.urlretrieve(url, local_path)
 
+def create_graph():
+    with tf.compat.v1.gfile.FastGFile(os.path.join('/tmp/imagenet/', 'classify_image_graph_def.pb'), 'rb') as f:
+        graph_def = tf.compat.v1.GraphDef()
+        graph_def.ParseFromString(f.read())
+        _ = tf.import_graph_def(graph_def, name='')
+
+if not os.path.exists('/tmp/imagenet/'):
+    os.makedirs('/tmp/imagenet/')
+
+downloadFromURL(
+    url='http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz',
+    local_path='/tmp/imagenet/inception-2015-12-05.tgz'
+)
+
+if not os.path.exists("/tmp/imagenet/classify_image_graph_def.pb"):
+  file = tarfile.open('/tmp/imagenet/inception-2015-12-05.tgz', 'r:gz')
+  file.extractall('/tmp/imagenet/')
+create_graph()
+
 class NodeLookup(object):
     """Converts integer node ID's to human readable labels."""
 
@@ -74,20 +93,10 @@ class NodeLookup(object):
             return ''
         return self.node_lookup[node_id]
 
-
-def create_graph():
-    with tf.compat.v1.gfile.FastGFile(os.path.join('/tmp/imagenet/', 'classify_image_graph_def.pb'), 'rb') as f:
-        graph_def = tf.compat.v1.GraphDef()
-        graph_def.ParseFromString(f.read())
-        _ = tf.import_graph_def(graph_def, name='')
-
 def run_inference_on_image(image):
     if not tf.io.gfile.exists(image):
         tf.logging.fatal('File does not exist %s', image)
     image_data = tf.compat.v1.gfile.FastGFile(image, 'rb').read()
-
-  # Creates graph from saved GraphDef.
-    create_graph()
 
     with tf.compat.v1.Session() as sess:
         # Some useful tensors:
@@ -122,17 +131,6 @@ def main(args):
   cold = False
   try:
     start = time()
-    if not os.path.exists('/tmp/imagenet/'):
-        os.makedirs('/tmp/imagenet/')
-
-    downloadFromURL(
-        url='http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz',
-        local_path='/tmp/imagenet/inception-2015-12-05.tgz'
-    )
-
-    if not os.path.exists("/tmp/imagenet/classify_image_graph_def.pb"):
-      file = tarfile.open('/tmp/imagenet/inception-2015-12-05.tgz', 'r:gz')
-      file.extractall('/tmp/imagenet/')
 
     if 'imagelink' in args:
       urllib.request.urlretrieve(args['imagelink'], '/tmp/imagenet/inputimage.jpg')
@@ -141,9 +139,10 @@ def main(args):
         image = os.path.join('/tmp/imagenet/', 'inputimage.jpg')
     else: 
         image = '/tmp/imagenet/cropped_panda.jpg'
+    inter_start = time()
     strResult = run_inference_on_image(image)
     end = time()
-    return {"body": { "latency":end-start, "cold":was_cold, "start":start, "end":end, "output":strResult }}
+    return {"body": { "latency":end-start, "cold":was_cold, "start":start, "end":end, "output":strResult, "infer_latency":end-inter_start }}
   except Exception as e:
     err = str(e)
     try:
