@@ -8,6 +8,10 @@ try:
   import re
   import urllib.request, urllib.parse, urllib.error
   from time import time
+  import logging
+  # tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.WARNING)
+  tf.get_logger().setLevel('WARNING')
+  tf.keras.utils.disable_interactive_logging()
 except Exception as e:
   msg = traceback.format_exc()
 

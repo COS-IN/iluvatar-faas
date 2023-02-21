@@ -2,8 +2,8 @@ msg = "good"
 import traceback
 try:
     import os, sys
-    # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-    # os.environ['AUTOGRAPH_VERBOSITY'] = '1'
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    os.environ['AUTOGRAPH_VERBOSITY'] = '2'
     # sys.stdout = open(os.devnull, 'w')
     # sys.stderr = open(os.devnull, 'w')
     import numpy as np
@@ -22,6 +22,10 @@ try:
     # tf.get_logger().setLevel('ERROR')
     # tf.get_logger().setLevel(logging.ERROR)
     # logging.getLogger("tensorflow").setLevel(logging.WARNING)
+    # tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.WARNING)
+    tf.get_logger().setLevel('WARNING')
+    tf.get_logger().setLevel(logging.WARNING)
+    logging.getLogger("tensorflow").setLevel(logging.WARNING)
     tf.keras.utils.disable_interactive_logging()
 
     # s3_client = boto3.client('s3')

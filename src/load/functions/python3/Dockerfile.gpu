@@ -1,9 +1,32 @@
-FROM nvcr.io/nvidia/tensorrt:21.12-py3
+FROM nvcr.io/nvidia/tensorrt:21.12-py3 as base
 
-RUN ln -s /usr/lib/x86_64-linux-gnu/libnvinfer.so.8 /usr/lib/x86_64-linux-gnu/libnvinfer.so.7 && \
-  ln -s /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so.8 /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so.7 && \
-   python3 -m pip install flask gunicorn
-ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/"
+FROM nvidia/cuda:11.4.0-base-ubuntu20.04
+
+# COPY --from=base /usr/lib/x86_64-linux-gnu/libnvinfer.so.8 /usr/lib/x86_64-linux-gnu/libnvinfer.so.8
+# COPY --from=base /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so.8 /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so.8
+# COPY --from=base /usr/lib/x86_64-linux-gnu/libcudnn.so.8 /usr/lib/x86_64-linux-gnu/libcudnn.so.8
+# COPY --from=base /usr/lib/x86_64-linux-gnu/libcudnn_ops_infer.so.8 /usr/lib/x86_64-linux-gnu/libcudnn_ops_infer.so.8
+# COPY --from=base /usr/lib/x86_64-linux-gnu/libcudnn_cnn_infer.so.8 /usr/lib/x86_64-linux-gnu/libcudnn_cnn_infer.so.8
+COPY --from=base /usr/lib/x86_64-linux-gnu/ /usr/lib/x86_64-linux-gnu/
+
+# COPY --from=base /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcublas.so.11 /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcublas.so.11
+# COPY --from=base /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcufft.so.10 /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcufft.so.10
+# COPY --from=base /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcurand.so.10 /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcurand.so.10
+# COPY --from=base /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcusolver.so.11 /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcusolver.so.11
+# COPY --from=base /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcusparse.so.11 /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcusparse.so.11
+# COPY --from=base /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcublasLt.so.11 /usr/local/cuda-11.5/targets/x86_64-linux/lib/libcublasLt.so.11
+COPY --from=base /usr/local/cuda-11.5/targets/x86_64-linux/lib/ /usr/local/cuda-11.5/targets/x86_64-linux/lib/
+
+# RUN ln -s /usr/lib/x86_64-linux-gnu/libnvinfer.so.8 /usr/lib/x86_64-linux-gnu/libnvinfer.so.7 && \
+#   ln -s /usr/lib/x86_64-linux-gnu/libnvinfer.so.8 /usr/lib/x86_64-linux-gnu/libnvinfer.so && \
+#   ln -s /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so.8 /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so.7 && \
+#   ln -s /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so.8 /usr/lib/x86_64-linux-gnu/libnvinfer_plugin.so && \
+#   ln -s /usr/lib/x86_64-linux-gnu/libcudnn_cnn_infer.so.8 /usr/lib/x86_64-linux-gnu/libcudnn_cnn_infer.so && \
+#   ln -s /usr/lib/x86_64-linux-gnu/libcudnn_ops_infer.so.8 /usr/lib/x86_64-linux-gnu/libcudnn_ops_infer.so && \
+RUN apt-get update && apt-get upgrade -y && \
+   apt-get install -y python3 python3-pip && python3 -m pip install flask gunicorn
+
+ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/:/usr/local/cuda-11.5/targets/x86_64-linux/lib/"
 
 WORKDIR /app
 COPY reqs.txt .
