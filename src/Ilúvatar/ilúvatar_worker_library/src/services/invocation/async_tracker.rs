@@ -6,7 +6,6 @@ use super::invoker_structs::{InvocationResultPtr, EnqueuedInvocation};
 use crate::rpc::InvokeResponse;
 use anyhow::Result;
 
-
 pub struct AsyncHelper {
   pub async_functions: Arc<DashMap<String, InvocationResultPtr>>,
 }
@@ -50,11 +49,14 @@ impl AsyncHelper {
   pub fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
     let entry = match self.get_async_entry(cookie, tid) {
       Some(entry) => entry,
-      None => return Ok(InvokeResponse {
-        json_result: "{ \"Error\": \"Invocation not found\" }".to_string(),
-        success: false,
-        duration_us: 0
-      }),
+      None => return Ok(InvokeResponse::error("Invocation not found")),
+      //   InvokeResponse {
+      //   json_result: "{ \"Error\": \"Invocation not found\" }".to_string(),
+      //   success: false,
+      //   duration_us: 0,
+      //   exec_resource: Compute::empty().bits(),
+      //   container_state: ContainerState::Error.into(),
+      // }),
     };
 
     let entry = entry.lock();
@@ -64,12 +66,17 @@ impl AsyncHelper {
         json_result: entry.result_json.to_string(),
         success: true,
         duration_us: entry.duration.as_micros() as u64,
+        compute: entry.compute.bits(),
+        container_state: entry.container_state.into(),
       });
     }
-    Ok(InvokeResponse {
-      json_result: "{ \"Status\": \"Invocation not completed\" }".to_string(),
-      success: false,
-      duration_us: 0
-    })
+    Ok(InvokeResponse::error("Invocation not completed"))
+    // Ok(InvokeResponse {
+    //   json_result: "{ \"Status\": \"Invocation not completed\" }".to_string(),
+    //   success: false,
+    //   duration_us: 0,
+    //   exec_resource: Compute::empty().bits(),
+    //   container_state: ContainerState::Error.into(),
+    // })
   }
 }

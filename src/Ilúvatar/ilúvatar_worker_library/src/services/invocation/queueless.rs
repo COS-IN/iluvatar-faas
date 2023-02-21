@@ -93,13 +93,15 @@ impl Invoker for QueuelessInvoker {
     self.running_funcs.fetch_add(1, Ordering::Relaxed);
     let r = self.invoke_internal(&reg, &json_args, &tid, self.timer().now(), None).await;
     self.running_funcs.fetch_sub(1, Ordering::Relaxed);
-    let (result, dur) = r?;
+    let (result, dur, compute, container_state) = r?;
     let r: InvocationResultPtr = InvocationResult::boxed();
     let mut temp = r.lock();
     temp.exec_time = result.duration_sec;
     temp.result_json = result.result_string()?;
     temp.worker_result = Some(result);
     temp.duration = dur;
+    temp.compute = compute;
+    temp.container_state = container_state;
     info!(tid=%tid, "Invocation complete");
     Ok( r.clone() )
   }

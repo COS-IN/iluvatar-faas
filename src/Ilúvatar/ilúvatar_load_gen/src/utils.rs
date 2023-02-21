@@ -85,7 +85,7 @@ pub struct CompletedWorkerInvocation {
 impl CompletedWorkerInvocation {
   pub fn error(msg: String, name: &String, version: &String, tid: &TransactionId, invoke_start: String) -> Self {
     CompletedWorkerInvocation {
-      worker_response: InvokeResponse { json_result: msg, success: false, duration_us: 0 },
+      worker_response: InvokeResponse::error(&msg),
       function_output: FunctionExecOutput { body: Body { cold: false, start: 0.0, end: 0.0, latency: 0.0 } },
       client_latency_us: 0,
       function_name: name.clone(),
@@ -263,14 +263,14 @@ pub async fn controller_prewarm(name: &String, version: &String, host: &String, 
   }
 }
 
-pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>) -> Result<(String, Duration, TransactionId)> {
+pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>, isolation: Isolation, compute: Compute) -> Result<(String, Duration, TransactionId)> {
   let tid: TransactionId = format!("{}-reg-tid", name);
   let method = match comm_method {
     Some(m) => m,
     None => CommunicationMethod::RPC,
   };
   let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
-  let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone(), Isolation::CONTAINERD, Compute::CPU).timed().await;
+  let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone(), isolation, compute).timed().await;
 
   match reg_out {
     Ok(s) => match serde_json::from_str::<HashMap<String, String>>(&s) {
@@ -284,13 +284,13 @@ pub async fn worker_register(name: String, version: &String, image: String, memo
   }
 }
 
-pub async fn worker_prewarm(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>) -> Result<(String, Duration)> {
+pub async fn worker_prewarm(name: &String, version: &String, host: &String, port: Port, tid: &TransactionId, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>, compute: Compute) -> Result<(String, Duration)> {
   let method = match comm_method {
     Some(m) => m,
     None => CommunicationMethod::RPC,
   };
   let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
-  let (res, dur) = api.prewarm(name.clone(), version.clone(), tid.to_string()).timed().await;
+  let (res, dur) = api.prewarm(name.clone(), version.clone(), tid.to_string(), compute).timed().await;
   match res {
     Ok(s) => Ok( (s, dur) ),
     Err(e) => anyhow::bail!("worker prewarm failed because {:?}", e),
@@ -402,7 +402,12 @@ pub fn save_result_json<P: AsRef<Path> + std::fmt::Debug, T: Serialize>(path: P,
     }
   };
 
-  let to_write = serde_json::to_string(&results)?;
+  let to_write = match serde_json::to_string(&results) {
+    Ok(f) => f,
+    Err(e) => {
+      anyhow::bail!("Failed to convert results to json because {}", e);
+    }
+  };
   f.write_all(to_write.as_bytes())?;
   Ok(())
 }

@@ -30,7 +30,7 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
       .enable_all()
       .build().unwrap();
 
-  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, 0, &args.input_csv)?;
+  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv)?;
   threaded_rt.block_on(controller_live_register_functions(&metadata, &args.host, args.port))?;
   threaded_rt.block_on(prewarm_funcs(&metadata, &args.host, args.port))?;
 

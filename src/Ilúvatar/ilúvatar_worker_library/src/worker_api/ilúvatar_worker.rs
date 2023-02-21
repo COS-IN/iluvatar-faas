@@ -57,11 +57,12 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       let reg = match self.reg.get_registration(&fqdn) {
         Some(r) => r,
         None => {
-          return Ok(Response::new(InvokeResponse {
-            success: false,
-            duration_us: 0,
-            json_result: format!("{{ \"Error\": \"Function was not registered\" }}"),
-          }));
+          return Ok(Response::new(InvokeResponse::error("Function was not registered")));
+          // return Ok(Response::new(InvokeResponse {
+          //   success: false,
+          //   duration_us: 0,
+          //   json_result: format!("{{ \"Error\": \"Function was not registered\" }}"),
+          // }));
         },
       };
       self.cmap.add_iat( &fqdn );
@@ -73,17 +74,20 @@ impl IluvatarWorker for IluvatarWorkerImpl {
           let reply = InvokeResponse {
             json_result: result.result_json.clone(),
             success: true,
-            duration_us: result.duration.as_micros() as u64
+            duration_us: result.duration.as_micros() as u64,
+            compute: result.compute.bits(),
+            container_state: result.container_state.into(),
           };
           Ok(Response::new(reply))    
         },
         Err(e) => {
           error!("Invoke failed with error: {}", e);
-          Ok(Response::new(InvokeResponse {
-            json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
-            success: false,
-            duration_us: 0
-          }))
+          Ok(Response::new(InvokeResponse::error(&e.to_string())))
+          // {
+          //   json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
+          //   success: false,
+          //   duration_us: 0
+          // }))
         },
       }
     }
@@ -135,11 +139,12 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       },
       Err(e) => {
         error!(tid=%request.transaction_id, error=%e, "Failed to check async invocation status");
-        Ok(Response::new(InvokeResponse {
-          json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
-          success: false,
-          duration_us: 0
-        }))
+        Ok(Response::new(InvokeResponse::error(&e.to_string())))
+        // Ok(Response::new(InvokeResponse {
+        //   json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
+        //   success: false,
+        //   duration_us: 0
+        // }))
       },
     }
   }

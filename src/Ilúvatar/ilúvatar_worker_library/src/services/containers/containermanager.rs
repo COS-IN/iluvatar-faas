@@ -429,6 +429,7 @@ impl ContainerManager {
   /// Container **must** have already been removed from the container pool
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   async fn remove_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
+    info!(tid=%tid, container_id=%container.container_id(), "Removing container");
     let cont_lifecycle = match self.cont_lifecycles.get(&container.container_type()) {
       Some(c) => c,
       None => bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported"),

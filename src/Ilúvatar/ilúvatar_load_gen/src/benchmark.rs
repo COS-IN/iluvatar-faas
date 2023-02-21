@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::time::{SystemTime, Duration};
 use std::{collections::HashMap, path::Path};
-// use clap::{ArgMatches, App, SubCommand, Arg};
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::transaction::gen_tid;
+use iluvatar_library::types::{Compute, Isolation, IsolationEnum, ComputeEnum, MemSizeMb};
 use iluvatar_library::utils::port_utils::Port;
 use serde::{Serialize, Deserialize};
 use tokio::sync::Barrier;
@@ -16,6 +16,15 @@ use crate::utils::*;
 pub struct ToBenchmarkFunction {
   pub name: String,
   pub image_name: String,
+  /// The compute(s) to test the function with, in the form CPU|GPU|etc.
+  /// If empty, will default to CPU
+  pub compute: Option<String>,
+  /// The isolations(s) to test the function with
+  /// If empty, will default to CONTAINERD
+  pub isolation: Option<IsolationEnum>,
+  /// The memory to give the func
+  /// If empty, will default to 512
+  pub memory: Option<MemSizeMb>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -36,6 +45,10 @@ impl BenchmarkStore {
 pub struct FunctionStore {
   pub function_name: String,
   pub image_name: String,
+  pub resource_data: HashMap<ComputeEnum, ResourceStore>,
+}
+#[derive(Serialize, Deserialize)]
+pub struct ResourceStore {
   /// list of warm execution duration in seconds
   pub warm_results_sec: Vec<f64>,
   /// list of warm overhead times
@@ -57,11 +70,9 @@ pub struct FunctionStore {
   /// cold invocation latency time recorded on worker 
   pub cold_invoke_duration_us: Vec<u128>,
 }
-impl FunctionStore {
-  pub fn new(image_name: String, function_name: String) -> Self {
-    FunctionStore {
-      function_name,
-      image_name,
+impl ResourceStore {
+  pub fn new() -> Self {
+    ResourceStore {
       warm_results_sec: Vec::new(),
       warm_over_results_us: Vec::new(),
       cold_results_sec: Vec::new(),
@@ -70,6 +81,15 @@ impl FunctionStore {
       cold_worker_duration_us: Vec::new(),
       warm_invoke_duration_us: Vec::new(),
       cold_invoke_duration_us: Vec::new(),
+    }
+  }
+}
+impl FunctionStore {
+  pub fn new(image_name: String, function_name: String) -> Self {
+    FunctionStore {
+      function_name,
+      image_name,
+      resource_data: HashMap::new(),
     }
   }
 }
@@ -85,10 +105,7 @@ pub struct BenchmarkArgs {
   target: Target,
   #[arg(long)]
   /// The csv with all the functions to be benchmarked listed inside of it. In the form <f_name>,<f_image>
-  function_file: Option<String>,
-  #[arg(long)]
-  /// The directory with all the functions to be benchmarked inside it, each in their own folder
-  function_dir: Option<String>,
+  function_file: String,
   #[arg(long, default_value="10")]
   /// Number of times to run each function cold
   cold_iters: u32,
@@ -117,33 +134,19 @@ pub struct BenchmarkArgs {
 pub fn load_functions(args: &BenchmarkArgs) -> Result<Vec<ToBenchmarkFunction>> {
   let mut functions = Vec::new();
 
-  if let Some(directory) = args.function_dir.as_ref() {
-    let paths = std::fs::read_dir(directory).expect(&format!("was unable to read directory '{}'", directory).as_str());
-    for path in paths {
-      let pth = path.expect("Error reading directory entry");
-      let fname = (&pth.file_name().to_str().expect(&format!("Unable to convert file name '{:?}' os_str to String", pth).as_str())).to_string();
-      let image = format!("docker.io/alfuerst/{}-iluvatar-action:latest", &fname);
-      functions.push( ToBenchmarkFunction{name:fname, image_name:image} );
-    }
-  } else if let Some(directory) = args.function_file.as_ref() {
-    let mut rdr = match csv::Reader::from_path(directory) {
-      Ok(r) => r,
-      Err(e) => anyhow::bail!("Unable to open metadata csv file '{}' because of error '{}'", directory, e),
-    };
-    for result in rdr.deserialize() {
-      let func: ToBenchmarkFunction = result.expect("Error deserializing ToBenchmarkFunction");
-      functions.push(func);
-    }
-  } else {
-    anyhow::bail!("Neither 'functions-file' nor 'functions-dir' was passed as an argument. Bailing");
+  let mut rdr = match csv::Reader::from_path(&args.function_file) {
+    Ok(r) => r,
+    Err(e) => anyhow::bail!("Unable to open metadata csv file '{}' because of error '{}'", &args.function_file, e),
+  };
+  for result in rdr.deserialize() {
+    let func: ToBenchmarkFunction = result.expect("Error deserializing ToBenchmarkFunction");
+    functions.push(func);
   }
   Ok(functions)
 }
 
 pub fn benchmark_functions(args: BenchmarkArgs) -> Result<()> {
   let functions = load_functions(&args)?;
-  println!("Benchmarking functions: {:?}", functions);
-
   let threaded_rt = Builder::new_multi_thread()
       .enable_all()
       .build().unwrap();
@@ -183,16 +186,21 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
             if invoke_result.controller_response.success {
               let func_exec_us = invoke_result.function_output.body.latency * 1000000.0;
               let invoke_lat = invoke_result.client_latency_us as f64;
+              let compute = Compute::CPU; // TODO: update when controller returns more details
+              let resource_entry = match func_data.resource_data.get_mut(&(&compute).try_into()?) {
+                Some(r) => r,
+                None => func_data.resource_data.entry((&compute).try_into()?).or_insert(ResourceStore::new()),
+              };
               if invoke_result.function_output.body.cold {
-                func_data.cold_results_sec.push(invoke_result.function_output.body.latency);
-                func_data.cold_over_results_us.push(invoke_lat - func_exec_us);
-                func_data.cold_worker_duration_us.push(invoke_result.controller_response.worker_duration_us);
-                func_data.cold_invoke_duration_us.push(invoke_result.controller_response.invoke_duration_us);
+                resource_entry.cold_results_sec.push(invoke_result.function_output.body.latency);
+                resource_entry.cold_over_results_us.push(invoke_lat - func_exec_us);
+                resource_entry.cold_worker_duration_us.push(invoke_result.controller_response.worker_duration_us);
+                resource_entry.cold_invoke_duration_us.push(invoke_result.controller_response.invoke_duration_us);
               } else {
-                func_data.warm_results_sec.push(invoke_result.function_output.body.latency);
-                func_data.warm_over_results_us.push(invoke_lat - func_exec_us);
-                func_data.warm_worker_duration_us.push(invoke_result.controller_response.worker_duration_us);
-                func_data.warm_invoke_duration_us.push(invoke_result.controller_response.invoke_duration_us);
+                resource_entry.warm_results_sec.push(invoke_result.function_output.body.latency);
+                resource_entry.warm_over_results_us.push(invoke_lat - func_exec_us);
+                resource_entry.warm_worker_duration_us.push(invoke_result.controller_response.worker_duration_us);
+                resource_entry.warm_invoke_duration_us.push(invoke_result.controller_response.invoke_duration_us);
               }
             }
           },
@@ -237,16 +245,25 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
     let d = full_data.data.get_mut(parts[0]).expect("Unable to find function in result hash, but it should have been there");
     let invok_lat_f = invoke.client_latency_us as f64;
     let func_exec_us = invoke.function_output.body.latency * 1000000.0;
-    if invoke.function_output.body.cold {
-      d.cold_results_sec.push(invoke.function_output.body.latency);
-      d.cold_over_results_us.push(invok_lat_f - func_exec_us);
-      d.cold_worker_duration_us.push(invoke.worker_response.duration_us as u128);
-      d.cold_invoke_duration_us.push(invoke.client_latency_us);
+    let compute = Compute::from_bits_truncate(invoke.worker_response.compute);
+    if invoke.worker_response.success {
+      let resource_entry = match d.resource_data.get_mut(&(&compute).try_into()?) {
+        Some(r) => r,
+        None => d.resource_data.entry((&compute).try_into()?).or_insert(ResourceStore::new()),
+      };
+      if invoke.function_output.body.cold {
+        resource_entry.cold_results_sec.push(invoke.function_output.body.latency);
+        resource_entry.cold_over_results_us.push(invok_lat_f - func_exec_us);
+        resource_entry.cold_worker_duration_us.push(invoke.worker_response.duration_us as u128);
+        resource_entry.cold_invoke_duration_us.push(invoke.client_latency_us);
+      } else {
+        resource_entry.warm_results_sec.push(invoke.function_output.body.latency);
+        resource_entry.warm_over_results_us.push(invok_lat_f - func_exec_us);
+        resource_entry.warm_worker_duration_us.push(invoke.worker_response.duration_us as u128);
+        resource_entry.warm_invoke_duration_us.push(invoke.client_latency_us);
+      }  
     } else {
-      d.warm_results_sec.push(invoke.function_output.body.latency);
-      d.warm_over_results_us.push(invok_lat_f - func_exec_us);
-      d.warm_worker_duration_us.push(invoke.worker_response.duration_us as u128);
-      d.warm_invoke_duration_us.push(invoke.client_latency_us);
+      println!("invoke failure {:?}", invoke.worker_response.json_result);
     }
   }
 
@@ -264,44 +281,59 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenc
   let clock = Arc::new(LocalTime::new(&gen_tid())?);
 
   for function in &functions {
-    println!("{}", &function.name);
     match duration_sec {
       0 => (),
       _ => {
         cold_repeats = 1;
       }
     };
-
-    for iter in 0..cold_repeats {
-      let name = format!("{}.{}.{}", &function.name, thread_cnt, iter);
-      let version = iter.to_string();
-      let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, function.image_name.clone(), 512, host.clone(), port, &factory, None).await {
-        Ok(r) => r,
-        Err(e) => {
-          println!("{}", e);
-          continue;
-        },
-      };
+    let compute = match function.compute.as_ref() {
+      Some(c) => Compute::try_from(c)?,
+      None => Compute::CPU,
+    };
+    let isolation = match function.isolation.as_ref() {
+      Some(c) => c.into(),
+      None => Isolation::CONTAINERD,
+    };
+    let memory = match function.memory.as_ref() {
+      Some(c) => *c,
+      None => 512,
+    };
+    for supported_compute in compute {
+      println!("{} {:?}", &function.name, supported_compute);
       barrier.wait().await;
 
-      if duration_sec != 0 {
-        let timeout = Duration::from_secs(duration_sec as u64);
-        let start = SystemTime::now();
-        while start.elapsed()? < timeout {
-          match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory, None).await {
-            Ok(r) => ret.push(r),
-            Err(_) => continue,
-          };
+      for iter in 0..cold_repeats {
+        let name = format!("{}.{:?}.{}.{}", &function.name, supported_compute, thread_cnt, iter);
+        let version = iter.to_string();
+        let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, function.image_name.clone(), memory, host.clone(), port, &factory, None, isolation, supported_compute).await {
+          Ok(r) => r,
+          Err(e) => {
+            println!("{:?}", e);
+            continue;
+          },
+        };
+        barrier.wait().await;
+  
+        if duration_sec != 0 {
+          let timeout = Duration::from_secs(duration_sec as u64);
+          let start = SystemTime::now();
+          while start.elapsed()? < timeout {
+            match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory, None).await {
+              Ok(r) => ret.push(r),
+              Err(_) => continue,
+            };
+          }
+        } else {
+          for _ in 0..warm_repeats+1 {
+            match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory, None).await {
+              Ok(r) => ret.push(r),
+              Err(_) => continue,
+            };
+          }  
         }
-      } else {
-        for _ in 0..warm_repeats+1 {
-          match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory, None).await {
-            Ok(r) => ret.push(r),
-            Err(_) => continue,
-          };
-        }  
+        barrier.wait().await;
       }
-      barrier.wait().await;
     }
   }
   Ok(ret)

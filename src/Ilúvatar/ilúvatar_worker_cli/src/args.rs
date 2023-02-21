@@ -40,6 +40,9 @@ pub struct PrewarmArgs {
   #[arg(short, long)]
   /// Image of function to register
   pub image: Option<String>,
+  #[arg(long)]
+  /// Supported compute by the function
+  pub compute: Option<ComputeEnum>,
 }
 #[derive(Parser, Debug)]
 pub struct RegisterArgs {

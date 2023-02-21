@@ -1,34 +1,39 @@
 use std::{collections::HashMap, time::Duration, cmp::{min, max}, sync::Arc, path::Path, fs::File, io::Write};
 use anyhow::Result;
-use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime, types::CommunicationMethod};
+use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime, types::{CommunicationMethod, Compute, Isolation}};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tokio::{runtime::Runtime, task::JoinHandle};
 use crate::{utils::{worker_register, VERSION, worker_prewarm, LoadType, RunType, CompletedControllerInvocation, save_result_json}, benchmark::BenchmarkStore, trace::safe_cmp};
 use super::{Function, TraceArgs};
 
-fn compute_prewarms(func: &Function, default_prewarms: u32) -> u32 {
+fn compute_prewarms(func: &Function, default_prewarms: Option<u32>) -> u32 {
+  if func.parsed_compute.unwrap() == Compute::GPU {
+    return 0;
+  }
   match default_prewarms {
-    0 => 0,
-    default_prewarms => match func.mean_iat {
+    None => 0,
+    Some(0) => 0,
+    Some(p) => match func.mean_iat {
       Some(iat_ms) => {
         let mut prewarms = f64::ceil(func.warm_dur_ms as f64 * 1.0/iat_ms) as u32;
         let cold_prewarms = f64::ceil(func.cold_dur_ms as f64 * 1.0/iat_ms) as u32;
         println!("{}'s IAT of {} -> {} * {} = {} OR {} = {}", func.image_name.as_ref().unwrap(), iat_ms, func.warm_dur_ms, 1.0/iat_ms, prewarms, func.cold_dur_ms, cold_prewarms);
         prewarms = max(prewarms, cold_prewarms);
-        min(prewarms, default_prewarms+30)
+        min(prewarms, p+30)
       },
-      None => default_prewarms,
+      None => p,
     }
   }
 }
 
 fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkStore, 
-                      default_prewarms: u32, _trace_pth: &String) -> Result<()> {
+                      default_prewarms: Option<u32>, _trace_pth: &String) -> Result<()> {
   let mut data = Vec::new();
   for (k, v) in bench.data.iter() {
-    let tot: u128 = v.warm_invoke_duration_us.iter().sum();
-    let avg_cold_us = v.cold_invoke_duration_us.iter().sum::<u128>() as f64 / v.cold_invoke_duration_us.len() as f64;
-    let avg_warm_us = tot as f64 / v.warm_invoke_duration_us.len() as f64;
+    let cpu_data = v.resource_data.get(&(&Compute::CPU).try_into()?).unwrap(); // TODO, do this right
+    let tot: u128 = cpu_data.warm_invoke_duration_us.iter().sum();
+    let avg_cold_us = cpu_data.cold_invoke_duration_us.iter().sum::<u128>() as f64 / cpu_data.cold_invoke_duration_us.len() as f64;
+    let avg_warm_us = tot as f64 / cpu_data.warm_invoke_duration_us.len() as f64;
                           // Cold uses E2E duration because of the cold start time needed
     data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
   }
@@ -63,7 +68,7 @@ fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkSt
   Ok(())
 }
 
-fn map_from_lookbusy(funcs: &mut HashMap<String, Function>, default_prewarms: u32) -> Result<()> {
+fn map_from_lookbusy(funcs: &mut HashMap<String, Function>, default_prewarms: Option<u32>) -> Result<()> {
   for (_fname, func) in funcs.iter_mut() {
     func.image_name = Some("docker.io/alfuerst/lookbusy-iluvatar-action:latest".to_string());
     func.prewarms = Some(compute_prewarms(func, default_prewarms));
@@ -73,7 +78,17 @@ fn map_from_lookbusy(funcs: &mut HashMap<String, Function>, default_prewarms: u3
 }
 
 pub fn map_functions_to_prep(load_type: LoadType, func_json_data: &Option<String>, funcs: &mut HashMap<String, Function>, 
-                            default_prewarms: u32, trace_pth: &String) -> Result<()> {
+                            default_prewarms: Option<u32>, trace_pth: &String) -> Result<()> {
+  for (_, v) in funcs.iter_mut() {
+    v.parsed_compute = match v.compute.as_ref() {
+      Some(c) => Some(Compute::try_from(c)?),
+      None => Some(Compute::CPU),
+    };
+    v.parsed_isolation = match v.isolation.as_ref() {
+      Some(c) => Some(c.into()),
+      None => Some(Isolation::CONTAINERD),
+    };
+  }
   match load_type {
     LoadType::Lookbusy => { return map_from_lookbusy(funcs, default_prewarms); },
     LoadType::Functions => {
@@ -107,7 +122,7 @@ fn worker_prewarm_functions(prewarm_data: &HashMap<String, Function>, host: &Str
         let mut errors="Prewarm errors:".to_string();
         let mut it = (1..4).into_iter().peekable();
         while let Some(i) = it.next() {
-          match worker_prewarm(&f_c, &VERSION, &h_c, port, &tid, &fct_cln, Some(communication_method)).await {
+          match worker_prewarm(&f_c, &VERSION, &h_c, port, &tid, &fct_cln, Some(communication_method), Compute::CPU).await {
             Ok((_s, _prewarm_dur)) => break,
             Err(e) => { 
               errors = format!("{} iteration {}: '{}';\n", errors, i, e);
@@ -139,7 +154,7 @@ fn worker_prewarm_functions(prewarm_data: &HashMap<String, Function>, host: &Str
 
 pub fn worker_prepare_functions(runtype: RunType, funcs: &mut HashMap<String, Function>, host: &String, 
                           port: Port, load_type: LoadType, func_data: Option<String>, rt: &Runtime, 
-                          prewarms: u32, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
+                          prewarms: Option<u32>, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   map_functions_to_prep(load_type, &func_data, funcs, prewarms, trace_pth)?;
   prepare_worker(funcs, host, port, runtype, rt, factory)
 }
@@ -176,10 +191,12 @@ fn worker_wait_reg(funcs: &HashMap<String, Function>, rt: &Runtime, port: Port, 
       let fct_cln = factory.clone();
       let image = match &func.image_name {
         Some(i) => i.clone(),
-        None => anyhow::bail!("Unable to get prep data for function '{}'", id),
+        None => anyhow::bail!("Unable to get prepared `image_name` for function '{}'", id),
       };
+      let comp = func.parsed_compute.expect("Did not have a `parsed_compute` when going to register");
+      let isol = func.parsed_isolation.expect("Did not have a `parsed_coparsed_isolationmpute` when going to register");
       let mem = func.mem_mb;
-      handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mem, h_c, port, &fct_cln, Some(method)).await }));
+      handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mem, h_c, port, &fct_cln, Some(method), isol, comp).await }));
     }
     for h in handles {
       let (_s,_d,_s2) = rt.block_on(h)??;

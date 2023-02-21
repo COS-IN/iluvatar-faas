@@ -4,6 +4,7 @@ use time::{format_description::{self, FormatItem}, OffsetDateTime, PrimitiveDate
 use crate::services::{containers::containermanager::ContainerManager, registration::RegisteredFunction};
 use anyhow::Result;
 use tracing::debug;
+pub use crate::rpc::ContainerState;
 
 #[tonic::async_trait]
 pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
@@ -57,17 +58,17 @@ pub trait ToAny: 'static {
 }
 pub type Container = Arc<dyn ContainerT>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Copy)]
-pub enum ContainerState {
-  /// The container has completed at least one invocation
-  Warm = 0,
-  /// The container was pre-warmed by a request and as not run anything yet
-  Prewarm = 1,
-  /// The container was started on-demand for an invocation and nothing has run on it yet
-  Cold = 2,
-  /// The container is unhealthy and should not be used
-  Unhealthy = 3
-}
+// #[derive(Debug, PartialEq, Eq, PartialOrd, Clone, Copy)]
+// pub enum ContainerState {
+//   /// The container has completed at least one invocation
+//   Warm = 0,
+//   /// The container was pre-warmed by a request and as not run anything yet
+//   Prewarm = 1,
+//   /// The container was started on-demand for an invocation and nothing has run on it yet
+//   Cold = 2,
+//   /// The container is unhealthy and should not be used
+//   Unhealthy = 3
+// }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct ParsedResult {

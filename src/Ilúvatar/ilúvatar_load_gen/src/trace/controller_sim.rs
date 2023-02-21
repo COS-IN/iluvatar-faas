@@ -120,7 +120,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
 
   threaded_rt.block_on(controller_sim_register_workers(args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize, &server_data, &worker_config_pth, &worker_config))?;
   let mut metadata = super::load_metadata(&args.metadata_csv)?;
-  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, 0, &args.input_csv)?;
+  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv)?;
   threaded_rt.block_on(controller_sim_register_functions(&metadata, &server_data))?;
   threaded_rt.block_on(controller_sim_prewarm_functions(&metadata, &server_data))?;
 

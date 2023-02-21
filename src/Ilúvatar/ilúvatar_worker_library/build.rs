@@ -40,6 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     .type_attribute("iluvatar_worker.PrewarmResponse", "#[derive(serde::Serialize,serde::Deserialize)]")
     .type_attribute("iluvatar_worker.RegisterResponse", "#[derive(serde::Serialize,serde::Deserialize)]")
     .type_attribute("iluvatar_worker.StatusResponse", "#[derive(serde::Serialize,serde::Deserialize)]")
+    .type_attribute("iluvatar_worker.ContainerState", "#[derive(serde::Serialize,serde::Deserialize)]")
     .compile(&["src/rpc/iluvatar_worker.proto"], &["src"])?;
   copy_folder(Path::new("resources")).unwrap();
   Ok(())

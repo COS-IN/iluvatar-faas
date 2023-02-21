@@ -51,8 +51,11 @@ pub async fn invoke_async_check(worker: Box<Worker>, args: AsyncCheck) -> Result
 pub async fn prewarm(worker: Box<Worker>, args: PrewarmArgs) -> Result<()> {
   let tid = gen_tid();
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
-
-  let result = api.prewarm(args.name, args.version, tid).await;
+  let c = match &args.compute {
+    Some(c) => c.into(),
+    None => iluvatar_library::types::Compute::CPU,
+  };
+  let result = api.prewarm(args.name, args.version, tid, c).await;
   match result {
     Ok(string) => println!("{}", string),
     Err(err) => println!("{}", err),

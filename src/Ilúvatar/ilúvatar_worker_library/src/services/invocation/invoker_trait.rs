@@ -6,16 +6,14 @@ use crate::services::registration::RegisteredFunction;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
-use iluvatar_library::logging::LocalTime;
 use iluvatar_library::types::Compute;
-use iluvatar_library::{transaction::{TransactionId}, threading::EventualItem};
+use iluvatar_library::{transaction::TransactionId, threading::EventualItem, logging::LocalTime};
 use parking_lot::Mutex;
 use time::{OffsetDateTime, Instant};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
 use super::invoker_structs::{EnqueuedInvocation, InvocationResultPtr};
-use crate::rpc::InvokeResponse;
 
 /// Check the invocation queue, running things when there are sufficient resources
 #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoker_svc), fields(tid=%_tid)))]
@@ -118,7 +116,7 @@ pub trait Invoker: Send + Sync {
     let invoke = self.enqueue_new_invocation(reg, json_args, tid);
     self.async_functions().insert_async_invoke(invoke)
   }
-  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
+  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse> {
     self.async_functions().invoke_async_check(cookie, tid)
   }
 
@@ -138,7 +136,7 @@ pub trait Invoker: Send + Sync {
     let remove_time = timer.now_str()?;
 
     let ctr_mgr = self.cont_manager();
-    let ctr_lock = match ctr_mgr.acquire_container(&reg, &tid, Compute::CPU) {
+    let ctr_lock = match ctr_mgr.acquire_container(&reg, &tid, reg.supported_compute) {
       EventualItem::Future(_) => return Ok(None), // return None on a cold start, signifying the bypass didn't happen
       EventualItem::Now(n) => n?,
     };
@@ -160,6 +158,8 @@ pub trait Invoker: Send + Sync {
       attempts: 0,
       exec_time: result.duration_sec,
       worker_result: Some(result),
+      compute: ctr_lock.container.compute_type(),
+      container_state: ctr_lock.container.state(),
     }));
     Ok(Some(r))
   }
@@ -214,13 +214,15 @@ pub trait Invoker: Send + Sync {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
   async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
     match self.invoke_internal(&item.registration, &item.json_args, &item.tid, item.queue_insert_time, Some(permit)).await {
-      Ok( (json, duration) ) =>  {
+      Ok( (json, duration, compute, container_state) ) =>  {
         let mut result_ptr = item.result_ptr.lock();
         result_ptr.duration = duration;
         result_ptr.exec_time = json.duration_sec;
         result_ptr.result_json = json.result_string().unwrap_or_else(|cause| format!("{{ \"Error\": \"{}\" }}", cause));
         result_ptr.completed = true;
         result_ptr.worker_result = Some(json);
+        result_ptr.compute = compute;
+        result_ptr.container_state = container_state;
         item.signal();
         debug!(tid=%item.tid, "queued invocation completed successfully");
       },
@@ -274,7 +276,7 @@ pub trait Invoker: Send + Sync {
   /// returns the json result and duration as a tuple
   /// The optional [permit] is dropped to return held resources
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, _function_name, _function_version, json_args, queue_insert_time, permit), fields(tid=%tid)))]
-  async fn invoke_internal(&self, reg: &Arc<RegisteredFunction>, json_args: &String, tid: &TransactionId, queue_insert_time: OffsetDateTime, permit: Option<Box<dyn Drop+Send>>) -> Result<(ParsedResult, Duration)> {
+  async fn invoke_internal(&self, reg: &Arc<RegisteredFunction>, json_args: &String, tid: &TransactionId, queue_insert_time: OffsetDateTime, permit: Option<Box<dyn Drop+Send>>) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
     debug!(tid=%tid, "Internal invocation starting");
     let timer = self.timer();
     // take run time now because we may have to wait to get a container
@@ -282,7 +284,7 @@ pub trait Invoker: Send + Sync {
 
     let ctr_mgr = self.cont_manager();
     let start = Instant::now();
-    let ctr_lock = match ctr_mgr.acquire_container(reg, tid, Compute::CPU) {
+    let ctr_lock = match ctr_mgr.acquire_container(reg, tid, reg.supported_compute) {
       EventualItem::Future(f) => f.await?,
       EventualItem::Now(n) => n?,
     };
@@ -295,6 +297,6 @@ pub trait Invoker: Send + Sync {
     };
     self.char_map().add(&reg.fqdn, Characteristics::ExecTime, Values::F64(data.duration_sec), true);
     drop(permit);
-    Ok((data, duration))
+    Ok((data, duration, ctr_lock.container.compute_type(), ctr_lock.container.state()))
   }
 }

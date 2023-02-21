@@ -1,10 +1,10 @@
 use std::{sync::Arc, time::Duration, cmp::Ordering};
-use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::{transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use anyhow::Result;
-use crate::services::{containers::structs::ParsedResult, registration::RegisteredFunction};
+use crate::services::{containers::structs::{ParsedResult, ContainerState}, registration::RegisteredFunction};
 use ordered_float::OrderedFloat;
 
 #[derive(Debug)]
@@ -18,7 +18,9 @@ pub struct InvocationResult {
   pub completed: bool,
   /// The invocation time as recorded by the platform inside the container
   pub exec_time: f64,
-  pub worker_result: Option<ParsedResult>
+  pub worker_result: Option<ParsedResult>,
+  pub compute: Compute,
+  pub container_state: ContainerState,
 }
 impl InvocationResult {
   pub fn boxed() -> InvocationResultPtr {
@@ -29,6 +31,8 @@ impl InvocationResult {
       attempts: 0,
       exec_time: 0.0,
       worker_result: None,
+      compute: Compute::empty(),
+      container_state: ContainerState::Error,
     }))
   }
 }

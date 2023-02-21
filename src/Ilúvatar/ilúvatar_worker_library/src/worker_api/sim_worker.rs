@@ -83,12 +83,12 @@ impl WorkerAPI for SimWorkerAPI {
     }
   }
 
-  async fn prewarm(&mut self, function_name: String, version: String, tid: TransactionId) -> Result<String> {
+  async fn prewarm(&mut self, function_name: String, version: String, tid: TransactionId, compute: Compute) -> Result<String> {
     let request = tonic::Request::new(PrewarmRequest {
       function_name: function_name,
       function_version: version,
       transaction_id: tid.clone(),
-      compute: Compute::CPU.bits(),
+      compute: compute.bits(),
     });
     match self.worker.prewarm(request).await {
       Ok(response) => {

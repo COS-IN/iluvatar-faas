@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use anyhow::Result;
 use iluvatar_library::{utils::port::Port, types::MemSizeMb};
 use clap::Parser;
-
 use crate::utils::{RunType, LoadType, Target};
 
 mod worker_trace;
@@ -12,13 +11,13 @@ mod trace_utils;
 
 #[derive(Parser, Debug)]
 pub struct TraceArgs {
-  #[arg(short, long, value_enum)]
+  #[arg(short, long, value_enum, default_value_t=RunType::Live)]
   /// System setup
   setup: RunType,
-  #[arg(short, long, value_enum)]
+  #[arg(short, long, value_enum, default_value_t=Target::Worker)]
   /// Target for the load
   target: Target,
-  #[arg(short, long, value_enum)]
+  #[arg(short, long, value_enum, default_value_t=LoadType::Functions)]
   /// Type of load to apply
   load_type: LoadType,
   #[arg(short, long)]
@@ -30,8 +29,9 @@ pub struct TraceArgs {
   #[arg(long)]
   /// The number of pre-warmed containers to create for each function. 
   /// Computes how many containers to prewarm based on function characteristics. 
+  /// There will be no prewarmed GPU containers
   /// If this is 0, then there will be _no_ prewarms.
-  prewarms: u32,
+  prewarms: Option<u32>,
   #[arg(long)]
   /// Configuration file for the simuated worker(s)
   worker_config: Option<String>,
@@ -97,7 +97,18 @@ pub struct Function {
   /// One will be chosen if not provided
   pub image_name: Option<String>,
   /// An optioanl value denoting the number of prewarms for the function
+  /// There will be no prewarmed GPU containers
   pub prewarms: Option<u32>,
+  /// The compute(s) to test the function with, in the form CPU|GPU|etc.
+  /// If empty, will default to CPU
+  pub compute: Option<String>,
+  /// Used internally, the parsed value from [Function::compute]
+  pub parsed_compute: Option<iluvatar_library::types::Compute>,
+  /// The isolations(s) to test the function with
+  /// If empty, will default to CONTAINERD
+  pub isolation: Option<iluvatar_library::types::IsolationEnum>,
+  /// Used internally, the parsed value from [Function::isolation]
+  pub parsed_isolation: Option<iluvatar_library::types::Isolation>,
 }
 #[derive(Debug, serde::Deserialize)]
 pub struct CsvInvocation {

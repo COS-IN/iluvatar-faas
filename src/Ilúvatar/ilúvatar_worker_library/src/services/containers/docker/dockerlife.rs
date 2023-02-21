@@ -91,8 +91,9 @@ impl LifecycleService for DockerLifecycle {
       Some(g) => Some(format!("device={}", g.name)),
       None => None
     };
+    let memory_arg = format!("{}MB", mem_limit_mb);
     
-    let mut args = vec!["run", "--detach", "--name", &cid, "-e", &gunicorn_args, "-e", &il_port, "-e", "__IL_HOST=0.0.0.0", "--label", "owner=iluvatar_worker", "--cpus", "1", "-p", &port_args];
+    let mut args = vec!["run", "--detach", "--name", &cid, "-e", &gunicorn_args, "-e", &il_port, "--memory", &memory_arg, "-e", "__IL_HOST=0.0.0.0", "--label", "owner=iluvatar_worker", "--cpus", "1", "-p", &port_args];
     if let Some(dev) = gpu.as_ref() {
       args.push("--gpus");
       args.push(dev);

@@ -81,6 +81,18 @@ impl Error for RPCError {
 
 }
 
+impl InvokeResponse {
+  pub fn error(message: &str) -> Self {
+    InvokeResponse {
+      json_result: format!("{{ \"Error\": \"{}\" }}", message),
+      success: false,
+      duration_us: 0,
+      compute: Compute::empty().bits(),
+      container_state: ContainerState::Error.into(),
+    }
+  }
+}
+
 /// An implementation of the worker API that communicates with workers via RPC
 #[tonic::async_trait]
 impl WorkerAPI for RPCWorkerAPI {
@@ -141,12 +153,12 @@ impl WorkerAPI for RPCWorkerAPI {
     }
   }
 
-  async fn prewarm(&mut self, function_name: String, version: String, tid: TransactionId) -> Result<String> {
+  async fn prewarm(&mut self, function_name: String, version: String, tid: TransactionId, compute: Compute) -> Result<String> {
     let request = Request::new(PrewarmRequest {
       function_name: function_name,
       function_version: version,
       transaction_id: tid.clone(),
-      compute: Compute::GPU.bits(),
+      compute: compute.bits(),
     });
     match self.client.prewarm(request).await {
       Ok(response) => {

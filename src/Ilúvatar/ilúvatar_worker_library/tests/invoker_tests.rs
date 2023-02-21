@@ -12,7 +12,7 @@ use rstest::rstest;
 use utils::{test_invoker_svc, clean_env};
 use std::{time::Duration, collections::HashMap};
 use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
-use iluvatar_worker_library::rpc::LanguageRuntime;
+use iluvatar_worker_library::rpc::{LanguageRuntime, ContainerState};
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::transaction::TEST_TID;
 
@@ -78,7 +78,9 @@ mod invoke {
         let parsed_end = formatter.parse_python_container_time(&worker_result.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.end, e));
         assert!(parsed_start < parsed_end, "Start and end times cannot be inversed!");
         assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
-        assert_ne!(result.result_json, ""); 
+        assert_ne!(result.result_json, "");
+        assert_eq!(result.compute, Compute::CPU); 
+        assert_eq!(result.container_state, ContainerState::Cold); 
       },
       Err(e) => panic!("Invocation failed: {}", e),
     }
