@@ -73,13 +73,16 @@ fn create_concurrency_semaphore(permits: Option<u32>) -> Result<Option<Arc<Semap
 /// A trait representing the functionality a queue policy must implement
 /// Overriding functions _must_ re-implement [info] level log statements for consistency
 pub trait Invoker: Send + Sync {
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
   /// A synchronous invocation against this invoker
   /// Re-implementers **must** duplicate [tracing::info] logs for consistency
   async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr>;
 
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
   fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String>;
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, cookie), fields(tid=%tid)))]
   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse>;
+
   fn queue_len(&self) -> usize;
   fn running_funcs(&self) -> u32;
 }

@@ -1,17 +1,15 @@
 #[macro_use]
 pub mod utils;
 
-use tokio::time::timeout;
 use iluvatar_worker_library::rpc::{RegisterRequest, InvokeAsyncRequest};
 use iluvatar_worker_library::rpc::InvokeRequest;
 use rstest::rstest;
-use utils::{test_invoker_svc, background_test_invoke, clean_env, register, cust_register, prewarm, HANDLE};
+use utils::{test_invoker_svc, background_test_invoke, clean_env, register, cust_register, prewarm, get_start_end_time_from_invoke};
 use std::{time::Duration, collections::HashMap};
 use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
 use iluvatar_worker_library::rpc::{LanguageRuntime, ContainerState};
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::transaction::TEST_TID;
-use time::OffsetDateTime;
 
 fn build_env(invoker_q: &str) -> HashMap<String, String> {
   let mut r = HashMap::new();
@@ -65,7 +63,7 @@ mod invoke {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+    let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
     let result = invok_svc.sync_invocation(reg, req.json_args, req.transaction_id).await;
     match result {
       Ok( result_ptr ) => {
@@ -108,7 +106,7 @@ mod invoke {
       json_args:"{\"name\":\"TESTING\"}".to_string(),
       transaction_id: "testTID".to_string()
     };
-    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+    let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
     let result = invok_svc.sync_invocation(reg, req.json_args, req.transaction_id).await;
     match result {
       Ok( result_ptr ) => {
@@ -256,26 +254,6 @@ mod invoke_async {
   }
 }
 
-
-async fn get_start_end_time_from_invoke(handle: HANDLE, formatter: &ContainerTimeFormatter) -> (OffsetDateTime, OffsetDateTime) {
-  let result = timeout(Duration::from_secs(20), handle).await
-                                                .unwrap_or_else(|e| panic!("Error joining invocation thread handle: {:?}", e))
-                                                .unwrap_or_else(|e| panic!("Error joining invocation thread handle: {:?}", e));
-  match result {
-    Ok( result_ptr ) => {
-      let result = result_ptr.lock();
-      let worker_result = result.worker_result.as_ref().unwrap_or_else(|| panic!("worker_result should have been set on '{:?}'", result));
-      let parsed_start = formatter.parse_python_container_time(&worker_result.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.start, e));
-      let parsed_end = formatter.parse_python_container_time(&worker_result.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.end, e));
-      assert!(parsed_start < parsed_end, "Start and end times cannot be inversed!");
-      assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
-      assert_ne!(result.result_json, "", "result_json should not be empty!");
-      return (parsed_start, parsed_end);
-    },
-    Err(e) => panic!("Invocation failed: {}", e),
-  }
-}
-
 #[cfg(test)]
 mod fcfs_tests {
   use super::*;
@@ -290,7 +268,7 @@ mod fcfs_tests {
     let function_name = "test".to_string();
 
     let func_reg = register(&_reg, &"docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest".to_string(), &function_name, &transaction_id).await;
-    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+    let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
     let first_invoke = background_test_invoke(&invok_svc, &func_reg, &json_args, &transaction_id);
     tokio::time::sleep(Duration::from_micros(10)).await;
     let second_invoke = background_test_invoke(&invok_svc, &func_reg, &json_args, &transaction_id);
@@ -328,7 +306,7 @@ mod minheap_tests {
     prewarm(&cm, &slow_reg, &transaction_id).await;
     prewarm(&cm, &slow_reg, &transaction_id).await;
 
-    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+    let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
     // warm exec time cache
     let first_invoke = background_test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id);
@@ -369,7 +347,7 @@ mod minheap_tests {
     prewarm(&cm, &slow_reg, &transaction_id).await;
     prewarm(&cm, &slow_reg, &transaction_id).await;
 
-    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+    let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
     // warm exec time cache
     get_start_end_time_from_invoke(background_test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id), &formatter).await;
@@ -417,7 +395,7 @@ use super::*;
     prewarm(&cm, &slow_reg, &transaction_id).await;
     prewarm(&cm, &slow_reg, &transaction_id).await;
 
-    let formatter = ContainerTimeFormatter::new().unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+    let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
     // warm exec time cache
     let first_invoke = background_test_invoke(&invok_svc, &fast_reg, &json_args, &"fastId".to_string());

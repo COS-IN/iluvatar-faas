@@ -130,11 +130,11 @@ pub fn safe_cmp(a:&f64, b:&f64) -> std::cmp::Ordering {
 fn prepare_function_args(func: &Function, load_type: LoadType) -> Vec<String> {
   if let Some(b) = func.use_lookbusy {
     if b {
-      return vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)];
+      return vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.mem_mb)];
     }
   }
   match load_type {
-    LoadType::Lookbusy => vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.warm_dur_ms)],
+    LoadType::Lookbusy => vec![format!("cold_run={}", func.cold_dur_ms), format!("warm_run={}", func.warm_dur_ms), format!("mem_mb={}", func.mem_mb)],
     LoadType::Functions => vec![],
   }
 }

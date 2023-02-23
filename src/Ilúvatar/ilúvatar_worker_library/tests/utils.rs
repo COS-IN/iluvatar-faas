@@ -1,10 +1,11 @@
 use std::{sync::Arc, collections::HashMap, time::Duration};
 use iluvatar_library::types::{Isolation, Compute, MemSizeMb};
-use iluvatar_worker_library::{rpc::{RegisterRequest, LanguageRuntime}, services::invocation::invoker_structs::InvocationResult};
+use iluvatar_worker_library::{rpc::{RegisterRequest, LanguageRuntime}, services::{invocation::invoker_structs::InvocationResult, containers::structs::ContainerTimeFormatter}};
 use iluvatar_library::{transaction::{TEST_TID, TransactionId}, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
 use iluvatar_worker_library::{worker_api::config::{Configuration, WorkerConfig}, services::registration::{RegistrationService, RegisteredFunction}};
 use iluvatar_worker_library::services::{containers::{LifecycleFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, Invoker}};
 use parking_lot::Mutex;
+use time::OffsetDateTime;
 use tokio::{time::timeout, task::JoinHandle};
 
 #[macro_export]
@@ -127,17 +128,11 @@ pub async fn cust_register(reg: &Arc<RegistrationService>, image: &str, name: &s
     isolate: Isolation::CONTAINERD.bits(),
   };
   register_internal(reg, req, tid).await
-  // timeout(Duration::from_secs(20), reg.register(basic_reg_req(image, name), tid)).await
-  //     .unwrap_or_else(|e| panic!("register timout hit: {:?}", e))
-  //     .unwrap_or_else(|e| panic!("register failed: {:?}", e))
 }
 
 
 pub async fn register(reg: &Arc<RegistrationService>, image: &str, name: &str, tid: &TransactionId) -> Arc<RegisteredFunction> {
   register_internal(reg, basic_reg_req(image, name), tid).await
-  // timeout(Duration::from_secs(20), reg.register(basic_reg_req(image, name), tid)).await
-  //     .unwrap_or_else(|e| panic!("register timout hit: {:?}", e))
-  //     .unwrap_or_else(|e| panic!("register failed: {:?}", e))
 }
 
 async fn register_internal(reg: &Arc<RegistrationService>, req: RegisterRequest, tid: &TransactionId) -> Arc<RegisteredFunction> {
@@ -155,6 +150,29 @@ pub fn background_test_invoke(invok_svc: &Arc<dyn Invoker>, reg: &Arc<Registered
   tokio::spawn(async move { cln.sync_invocation(r, j, t).await })
 }
 
+pub async fn get_start_end_time_from_invoke(handle: HANDLE, formatter: &ContainerTimeFormatter) -> (OffsetDateTime, OffsetDateTime) {
+  let result = resolve_invoke(handle).await;
+  match result {
+    Ok( result_ptr ) => {
+      let result = result_ptr.lock();
+      let worker_result = result.worker_result.as_ref().unwrap_or_else(|| panic!("worker_result should have been set on '{:?}'", result));
+      let parsed_start = formatter.parse_python_container_time(&worker_result.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.start, e));
+      let parsed_end = formatter.parse_python_container_time(&worker_result.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", worker_result.end, e));
+      assert!(parsed_start < parsed_end, "Start and end times cannot be inversed!");
+      assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
+      assert_ne!(result.result_json, "", "result_json should not be empty!");
+      return (parsed_start, parsed_end);
+    },
+    Err(e) => panic!("Invocation failed: {}", e),
+  }
+}
+
+pub async fn resolve_invoke(handle: HANDLE) -> anyhow::Result<Arc<Mutex<InvocationResult>>> {
+  timeout(Duration::from_secs(20), handle).await
+    .unwrap_or_else(|e| panic!("Timeout error on invocation: {:?}", e))
+    .unwrap_or_else(|e| panic!("Error joining invocation thread handle: {:?}", e))
+}
+
 pub async fn test_invoke(invok_svc: &Arc<dyn Invoker>, reg: &Arc<RegisteredFunction>, json_args: &str, tid: &TransactionId) -> Arc<Mutex<InvocationResult>> {
   timeout(Duration::from_secs(20), background_test_invoke(invok_svc, reg, json_args, tid)).await
       .unwrap_or_else(|e| panic!("invoke timout hit: {:?}", e))
@@ -166,4 +184,9 @@ pub async fn prewarm(cm: &Arc<ContainerManager>, reg: &Arc<RegisteredFunction>, 
   timeout(Duration::from_secs(20), cm.prewarm(&reg, transaction_id, Compute::CPU)).await
       .unwrap_or_else(|e| panic!("prewarm timout hit: {:?}", e))
       .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+}
+
+pub fn sim_args() -> String {
+  let fmt = vec![format!("cold_dur_ms={}", 5000), format!("warm_dur_ms={}", 1000), format!("mem_mb={}", 512)];
+  iluvatar_library::utils::config::args_to_json(&fmt)
 }

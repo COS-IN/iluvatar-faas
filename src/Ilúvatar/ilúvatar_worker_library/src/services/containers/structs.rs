@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
-use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, bail_error};
-use time::{format_description::{self, FormatItem}, OffsetDateTime, PrimitiveDateTime};
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, bail_error, logging::timezone};
+use time::{format_description::{self, FormatItem}, OffsetDateTime, PrimitiveDateTime, UtcOffset};
 use crate::services::{containers::containermanager::ContainerManager, registration::RegisteredFunction};
 use anyhow::Result;
 use tracing::debug;
@@ -210,9 +210,10 @@ impl std::error::Error for ContainerStartupError {
 pub struct ContainerTimeFormatter {
   py_tz_formatter: Vec<FormatItem<'static>>,
   py_formatter: Vec<FormatItem<'static>>,
+  local_offset: UtcOffset,
 }
 impl ContainerTimeFormatter {
-  pub fn new() -> Result<Self> {
+  pub fn new(tid: &TransactionId) -> Result<Self> {
 
     let py_tz_formatter = format_description::parse(
       "[year]-[month]-[day] [hour]:[minute]:[second]:[subsecond]+[offset_hour]",
@@ -220,9 +221,22 @@ impl ContainerTimeFormatter {
     let py_formatter = format_description::parse(
       "[year]-[month]-[day] [hour]:[minute]:[second]:[subsecond]+",
     )?;
+    let now = OffsetDateTime::now_utc();
+    let tz_str = timezone(tid)?;
+    let time_zone = match tzdb::tz_by_name(&tz_str) {
+      Some(t) => t,
+      None => anyhow::bail!("parsed local timezone string was invalid: {}", tz_str),
+    };
+    let tm = match time_zone.find_local_time_type(now.unix_timestamp()) {
+      Ok(t) => t,
+      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to find time zone type"),
+    };
+    let offset = UtcOffset::from_whole_seconds(tm.ut_offset())?;
+
     Ok(ContainerTimeFormatter {
       py_tz_formatter,
-      py_formatter
+      py_formatter,
+      local_offset: offset
     })
   }
 
@@ -233,5 +247,21 @@ impl ContainerTimeFormatter {
     } else {
       Ok(OffsetDateTime::parse(date, &self.py_tz_formatter)?)
     }
+  }
+
+  /// The number of nanoseconds since the unix epoch start
+  pub fn now(&self) -> OffsetDateTime {
+    OffsetDateTime::now_utc().to_offset(self.local_offset)
+  }
+  /// The number of nanoseconds since the unix epoch start
+  /// As a String
+  /// Useful for simuation container
+  pub fn now_str(&self) -> Result<String> {
+    let time = self.now();
+    self.format_time(time)
+  }
+
+  pub fn format_time(&self, time: OffsetDateTime) -> Result<String> {
+    Ok(time.format(&self.py_formatter)?)
   }
 }

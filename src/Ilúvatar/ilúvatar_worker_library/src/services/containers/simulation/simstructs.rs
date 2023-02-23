@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
-use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, bail_error, logging::LocalTime};
-use crate::{services::{containers::{structs::{ContainerT, ParsedResult, ContainerState}, resources::gpu::GPU}, registration::RegisteredFunction}, };
+use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, bail_error};
+use crate::{services::{containers::{structs::{ContainerT, ParsedResult, ContainerState, ContainerTimeFormatter}, resources::gpu::GPU}, registration::RegisteredFunction}, };
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize, Deserializer};
@@ -99,7 +99,7 @@ impl ContainerT for SimulatorContainer {
       _ => (data.warm_dur_ms * 1000, false)
     };
     *self.invocations.lock() += 1;
-    let timer = LocalTime::new(tid)?;
+    let timer = ContainerTimeFormatter::new(tid)?;
 
     // "networking" overhead
     tokio::time::sleep(Duration::from_micros(1400)).await;

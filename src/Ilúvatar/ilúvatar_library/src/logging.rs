@@ -112,7 +112,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
   Ok(drops)
 }
 
-fn timezone(tid: &TransactionId) -> Result<String> {
+pub fn timezone(tid: &TransactionId) -> Result<String> {
   let mut tz_str = match std::fs::read_to_string("/etc/timezone") {
     Ok(t) => t,
     Err(e) => bail_error!(tid=%tid, error=%e, "/etc/timezone doesn ot exist!!"),
