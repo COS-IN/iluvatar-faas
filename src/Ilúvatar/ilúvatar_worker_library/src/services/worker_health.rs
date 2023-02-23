@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use iluvatar_library::{transaction::TransactionId, types::{Compute, Isolation}};
 use crate::{rpc::{RegisterRequest, HealthResponse, LanguageRuntime}};
-use super::{invocation::invoker_trait::Invoker, registration::{RegistrationService, RegisteredFunction}};
+use super::{registration::{RegistrationService, RegisteredFunction}, invocation::Invoker};
 use anyhow::Result;
 use tracing::warn;
 

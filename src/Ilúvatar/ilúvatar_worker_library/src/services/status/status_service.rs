@@ -6,7 +6,7 @@ use iluvatar_library::{nproc, threading, load_avg};
 use tracing::{info, debug, error};
 use parking_lot::Mutex;
 use crate::services::containers::containermanager::ContainerManager;
-use crate::services::invocation::invoker_trait::Invoker;
+use crate::services::invocation::Invoker;
 use crate::worker_api::worker_config::StatusConfig;
 use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
 use iluvatar_library::transaction::{TransactionId, STATUS_WORKER_TID};

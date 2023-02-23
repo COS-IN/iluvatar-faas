@@ -1,7 +1,11 @@
-use std::{sync::Arc, collections::HashMap};
-use iluvatar_library::{transaction::TEST_TID, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
-use iluvatar_worker_library::{worker_api::config::{Configuration, WorkerConfig}, services::registration::RegistrationService};
-use iluvatar_worker_library::services::{containers::{LifecycleFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, invoker_trait::Invoker}};
+use std::{sync::Arc, collections::HashMap, time::Duration};
+use iluvatar_library::types::{Isolation, Compute, MemSizeMb};
+use iluvatar_worker_library::{rpc::{RegisterRequest, LanguageRuntime}, services::invocation::invoker_structs::InvocationResult};
+use iluvatar_library::{transaction::{TEST_TID, TransactionId}, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
+use iluvatar_worker_library::{worker_api::config::{Configuration, WorkerConfig}, services::registration::{RegistrationService, RegisteredFunction}};
+use iluvatar_worker_library::services::{containers::{LifecycleFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, Invoker}};
+use parking_lot::Mutex;
+use tokio::{time::timeout, task::JoinHandle};
 
 #[macro_export]
 macro_rules! assert_error {
@@ -96,4 +100,70 @@ pub fn clean_env(env: &HashMap<String, String>) {
   for (k,_) in env {
     std::env::remove_var(k);
   }  
+}
+
+fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
+  RegisterRequest {
+    function_name: name.to_string(),
+    function_version: "0.1.1".to_string(),
+    cpus: 1, memory: 128, parallel_invokes: 1,
+    image_name: image.to_string(),
+    transaction_id: "testTID".to_string(),
+    language: LanguageRuntime::Nolang.into(),
+    compute: Compute::CPU.bits(),
+    isolate: Isolation::CONTAINERD.bits(),
+  }
+}
+
+pub async fn cust_register(reg: &Arc<RegistrationService>, image: &str, name: &str, memory: MemSizeMb, tid: &TransactionId) -> Arc<RegisteredFunction> {
+  let req = RegisterRequest {
+    function_name: name.to_string(),
+    function_version: "0.1.1".to_string(),
+    cpus: 1, memory: memory, parallel_invokes: 1,
+    image_name: image.to_string(),
+    transaction_id: "testTID".to_string(),
+    language: LanguageRuntime::Nolang.into(),
+    compute: Compute::CPU.bits(),
+    isolate: Isolation::CONTAINERD.bits(),
+  };
+  register_internal(reg, req, tid).await
+  // timeout(Duration::from_secs(20), reg.register(basic_reg_req(image, name), tid)).await
+  //     .unwrap_or_else(|e| panic!("register timout hit: {:?}", e))
+  //     .unwrap_or_else(|e| panic!("register failed: {:?}", e))
+}
+
+
+pub async fn register(reg: &Arc<RegistrationService>, image: &str, name: &str, tid: &TransactionId) -> Arc<RegisteredFunction> {
+  register_internal(reg, basic_reg_req(image, name), tid).await
+  // timeout(Duration::from_secs(20), reg.register(basic_reg_req(image, name), tid)).await
+  //     .unwrap_or_else(|e| panic!("register timout hit: {:?}", e))
+  //     .unwrap_or_else(|e| panic!("register failed: {:?}", e))
+}
+
+async fn register_internal(reg: &Arc<RegistrationService>, req: RegisterRequest, tid: &TransactionId) -> Arc<RegisteredFunction> {
+  timeout(Duration::from_secs(20), reg.register(req, tid)).await
+      .unwrap_or_else(|e| panic!("register timout hit: {:?}", e))
+      .unwrap_or_else(|e| panic!("register failed: {:?}", e))
+}
+
+pub type HANDLE = JoinHandle<Result<Arc<Mutex<InvocationResult>>, anyhow::Error>>;
+pub fn background_test_invoke(invok_svc: &Arc<dyn Invoker>, reg: &Arc<RegisteredFunction>, json_args: &str, transaction_id: &TransactionId) -> HANDLE {
+  let cln = invok_svc.clone();
+  let j = json_args.to_string();
+  let t = transaction_id.clone();
+  let r = reg.clone();
+  tokio::spawn(async move { cln.sync_invocation(r, j, t).await })
+}
+
+pub async fn test_invoke(invok_svc: &Arc<dyn Invoker>, reg: &Arc<RegisteredFunction>, json_args: &str, tid: &TransactionId) -> Arc<Mutex<InvocationResult>> {
+  timeout(Duration::from_secs(20), background_test_invoke(invok_svc, reg, json_args, tid)).await
+      .unwrap_or_else(|e| panic!("invoke timout hit: {:?}", e))
+      .unwrap_or_else(|e| panic!("invoke tokio join error: {:?}", e))
+      .unwrap_or_else(|e| panic!("invoke failed: {:?}", e))
+}
+
+pub async fn prewarm(cm: &Arc<ContainerManager>, reg: &Arc<RegisteredFunction>, transaction_id: &TransactionId) {
+  timeout(Duration::from_secs(20), cm.prewarm(&reg, transaction_id, Compute::CPU)).await
+      .unwrap_or_else(|e| panic!("prewarm timout hit: {:?}", e))
+      .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
 }

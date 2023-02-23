@@ -89,10 +89,10 @@ pub struct InvocationConfig {
   /// The number of concurrent invocations allowed on the worker
   /// If this number is hit, items will be left in the queue until work completes
   /// Not affected by other resource limitations
-  pub concurrent_invokes: u32,
+  pub concurrent_invokes: Option<u32>,
   /// If not zero, invocations with an execution duration less than this
   ///   will bypass concurrency restrictions and be run immediately
-  pub bypass_duration_ms: u64,
+  pub bypass_duration_ms: Option<u64>,
   /// Frequency at which to check the system load and optionally increase the allowed invocation concurreny.
   /// Used with [AvailableScalingInvoker] and cannot be 0
   pub concurrency_udpate_check_ms: Option<u64>,
