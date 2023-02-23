@@ -2,12 +2,12 @@
 pub mod utils;
 
 use std::collections::HashMap;
-
 use iluvatar_worker_library::rpc::{RegisterRequest, LanguageRuntime};
 use iluvatar_library::transaction::TEST_TID;
 use crate::utils::{sim_invoker_svc, clean_env, background_test_invoke, resolve_invoke, sim_args};
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::threading::EventualItem;
+use iluvatar_worker_library::services::containers::structs::ContainerState;
 
 fn cpu_reg() -> RegisterRequest {
   RegisterRequest {
@@ -38,6 +38,7 @@ fn gpu_reg() -> RegisterRequest {
 fn build_gpu_env() -> HashMap<String, String> {
   let mut r = HashMap::new();
   r.insert("ILUVATAR_WORKER__container_resources__gpus".to_string(), "1".to_string());
+  r.insert("ILUVATAR_WORKER__invocation__concurrent_invokes".to_string(), "5".to_string());
   r
 }
 
@@ -285,13 +286,12 @@ use super::*;
     assert_eq!(ctr.container.function().function_name, "test2", "Got incorrect container");
     clean_env(&env);
   }
-  use iluvatar_worker_library::services::{containers::structs::{ContainerState}};
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn multiple_invokes_blocks() {
     let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
     let env = build_gpu_env();
-    let (_log, _cfg, cm, invoker, reg) = sim_invoker_svc(None, Some(&env), Some(true)).await;
+    let (_log, _cfg, cm, invoker, reg) = sim_invoker_svc(None, Some(&env), None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
     let args = sim_args();
@@ -303,7 +303,7 @@ use super::*;
     let invoke3 = background_test_invoke(&invoker, &func, args.as_str(), &"invoke3".to_string());
     let r1 = resolve_invoke(invoke1).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
     let r1_lck = r1.lock();
-    let r1_res = r1_lck.worker_result.as_ref().expect("Invoke 1 did not have a result");
+    let r1_res = r1_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 1 '{:?}' did not have a result", *r1_lck)).unwrap();
     
     let r2 = resolve_invoke(invoke2).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
 
@@ -313,7 +313,7 @@ use super::*;
 
     let r1_end = formatter.parse_python_container_time(&r1_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r1_res.end, e));
     let r2_lck = r2.lock();
-    let r2_res = r2_lck.worker_result.as_ref().expect("Invoke 2 did not have a result");
+    let r2_res = r2_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 2 '{:?}' did not have a result", *r2_lck)).unwrap();
     let r2_start = formatter.parse_python_container_time(&r2_res.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r2_res.start, e));
 
     assert_eq!(r2_lck.compute, Compute::GPU, "Second invoke should run on GPU");
@@ -323,7 +323,7 @@ use super::*;
 
     let r3 = resolve_invoke(invoke3).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
     let r3_lck = r3.lock();
-    let r3_res = r3_lck.worker_result.as_ref().expect("Invoke 3 did not have a result");
+    let r3_res = r3_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 3 '{:?}' did not have a result", *r3_lck)).unwrap();
     let r3_start = formatter.parse_python_container_time(&r3_res.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.start, e));
     let r2_end = formatter.parse_python_container_time(&r2_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.end, e));
 
@@ -362,7 +362,7 @@ use super::*;
     let invoke3 = background_test_invoke(&invoker, &func1, args.as_str(), &"invoke3".to_string());
     let r1 = resolve_invoke(invoke1).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
     let r1_lck = r1.lock();
-    let r1_res = r1_lck.worker_result.as_ref().expect("Invoke 1 did not have a result");
+    let r1_res = r1_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 1 '{:?}' did not have a result", *r1_lck)).unwrap();
     
     let r2 = resolve_invoke(invoke2).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
 
@@ -372,7 +372,7 @@ use super::*;
 
     let r1_end = formatter.parse_python_container_time(&r1_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r1_res.end, e));
     let r2_lck = r2.lock();
-    let r2_res = r2_lck.worker_result.as_ref().expect("Invoke 2 did not have a result");
+    let r2_res = r2_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 2 '{:?}' did not have a result", *r2_lck)).unwrap();
     let r2_start = formatter.parse_python_container_time(&r2_res.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r2_res.start, e));
 
     assert_eq!(r2_lck.compute, Compute::GPU, "Second invoke should run on GPU");
@@ -382,7 +382,7 @@ use super::*;
 
     let r3 = resolve_invoke(invoke3).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
     let r3_lck = r3.lock();
-    let r3_res = r3_lck.worker_result.as_ref().expect("Invoke 3 did not have a result");
+    let r3_res = r3_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 2 '{:?}' did not have a result", *r3_lck)).unwrap();
     let r3_start = formatter.parse_python_container_time(&r3_res.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.start, e));
     let r2_end = formatter.parse_python_container_time(&r2_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.end, e));
 

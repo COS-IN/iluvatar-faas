@@ -196,7 +196,7 @@ impl ContainerManager {
   ///    The process to start the container has not begun, and will not until the future is awaited on. A product of Rust's implementation of async/futures.
   /// A return type [EventualItem::Now] means an existing container has been acquired
   /// Can return a custom InsufficientCoresError if an invocation cannot be started now
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
   pub fn acquire_container<'a>(&'a self, reg: &Arc<RegisteredFunction>, tid: &'a TransactionId, compute: Compute) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
     let cont = self.try_acquire_container(&reg.fqdn, tid, compute);
     let cont = match cont {
@@ -233,7 +233,7 @@ impl ContainerManager {
     }
   }
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
   /// Starts a new container and returns a [ContainerLock] for it to be used
   async fn cold_start<'a>(&'a self, reg: Arc<RegisteredFunction>, tid: &'a TransactionId, compute: Compute) -> Result<ContainerLock<'a>> {
     debug!(tid=%tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
@@ -401,7 +401,7 @@ impl ContainerManager {
   /// # Errors
   /// Can error if not already registered and full info isn't provided
   /// Other errors caused by starting/registered the function apply
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, request), fields(tid=%request.transaction_id)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
   pub async fn prewarm(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<()> {
     let container = self.launch_container_internal(&reg, tid, compute).await?;
     container.set_state(ContainerState::Prewarm);

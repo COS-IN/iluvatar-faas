@@ -72,18 +72,20 @@ fn create_concurrency_semaphore(permits: Option<u32>) -> Result<Option<Arc<Semap
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
 /// Overriding functions _must_ re-implement [info] level log statements for consistency
+/// Re-implementers **must** duplicate [tracing::info] logs for consistency
 pub trait Invoker: Send + Sync {
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
   /// A synchronous invocation against this invoker
-  /// Re-implementers **must** duplicate [tracing::info] logs for consistency
   async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr>;
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
+  /// Launch an async invocation of the function
+  /// Return a lookup cookie that can be queried for results
   fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String>;
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, cookie), fields(tid=%tid)))]
-  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse>;
 
+  /// Check the status of the result, if found is returned destructively
+  fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse>;
+  /// Number of invocations enqueued
   fn queue_len(&self) -> usize;
+  /// Number of running invocations
   fn running_funcs(&self) -> u32;
 }
 

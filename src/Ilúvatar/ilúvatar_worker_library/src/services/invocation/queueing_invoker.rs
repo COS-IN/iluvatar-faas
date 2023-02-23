@@ -65,6 +65,7 @@ impl QueueingInvoker {
           // TODO: continuity of spans here
           invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item, permit);  
         }else { 
+          debug!(tid=%peek_item.tid, "Insufficient resources to run item");
           break; 
         }
         // nothing can be run, or nothing to run
@@ -85,7 +86,7 @@ impl QueueingInvoker {
     }
   }
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn, json_args, bypass_running), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, bypass_running), fields(tid=%tid)))]
   /// Run an invocation, bypassing any concurrency restrictions
   /// A return value of [Ok(None)] means that the function would have run cold, and the caller should enqueue it instead
   async fn bypassing_invoke_internal(&self, reg: Arc<RegisteredFunction>, json_args: &String, tid: &TransactionId, bypass_running: &AtomicU32) -> Result<Option<InvocationResultPtr>> {
@@ -118,6 +119,7 @@ impl QueueingInvoker {
       compute: ctr_lock.container.compute_type(),
       container_state: ctr_lock.container.state(),
     }));
+    self.queue_signal.notify_waiters();
     Ok(Some(r))
   }
 
@@ -215,7 +217,7 @@ impl QueueingInvoker {
 
   /// Forms invocation data into a [EnqueuedInvocation] that is returned
   /// The default implementation also calls [Invoker::add_item_to_queue] to optionally insert that item into the implementation's queue
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
   fn enqueue_new_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Arc<EnqueuedInvocation> {
     debug!(tid=%tid, "Enqueueing invocation");
     let enqueue = Arc::new(EnqueuedInvocation::new(reg, json_args, tid, self.clock.now()));
@@ -247,13 +249,14 @@ impl QueueingInvoker {
     };
     self.cmap.add(&reg.fqdn, Characteristics::ExecTime, Values::F64(data.duration_sec), true);
     drop(permit);
+    self.queue_signal.notify_waiters();
     Ok((data, duration, ctr_lock.container.compute_type(), ctr_lock.container.state()))
   }
 }
 
 #[tonic::async_trait]
 impl Invoker for QueueingInvoker {
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, function_name, function_version, json_args), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
   /// A synchronous invocation against this invoker
   /// Re-implementers **must** duplicate [tracing::info] logs for consistency
   async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
