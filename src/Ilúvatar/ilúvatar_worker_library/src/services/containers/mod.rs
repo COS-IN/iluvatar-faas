@@ -3,7 +3,7 @@ use tonic::async_trait;
 use anyhow::Result;
 use iluvatar_library::{types::{MemSizeMb, Isolation, Compute}, transaction::TransactionId};
 use tracing::info;
-use crate::{worker_api::worker_config::{ContainerResources, NetworkingConfig, FunctionLimits}};
+use crate::{worker_api::worker_config::{ContainerResourceConfig, NetworkingConfig, FunctionLimits}};
 use crate::services::{containers::{structs::{Container}, containerd::ContainerdLifecycle, simulation::SimulatorLifecycle}};
 use crate::services::network::namespace_manager::NamespaceManager;
 use self::{structs::ToAny, docker::DockerLifecycle, resources::gpu::GPU};
@@ -56,13 +56,13 @@ pub trait LifecycleService: ToAny + Send + Sync + std::fmt::Debug {
 pub type LifecycleCollection = Arc<std::collections::HashMap<Isolation, Arc<dyn LifecycleService>>>;
 
 pub struct LifecycleFactory {
-  containers: Arc<ContainerResources>,
+  containers: Arc<ContainerResourceConfig>,
   networking: Arc<NetworkingConfig>,
   limits_config: Arc<FunctionLimits>,
 }
 
 impl LifecycleFactory {
-  pub fn new(containers: Arc<ContainerResources>, networking: Arc<NetworkingConfig>, limits_config: Arc<FunctionLimits>) -> Self {
+  pub fn new(containers: Arc<ContainerResourceConfig>, networking: Arc<NetworkingConfig>, limits_config: Arc<FunctionLimits>) -> Self {
     LifecycleFactory {
       containers,
       networking,

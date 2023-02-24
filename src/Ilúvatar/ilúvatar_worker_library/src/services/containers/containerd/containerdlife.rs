@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::types::{Isolation, Compute};
 use crate::services::containers::containerd::containerdstructs::{Task, ContainerdContainer};
-use crate::worker_api::worker_config::{ContainerResources, FunctionLimits};
+use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb};
 use iluvatar_library::utils::{cgroup::cgroup_namespace, port::Port, file::{try_remove_pth, temp_file_pth, touch}};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
@@ -38,7 +38,7 @@ const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
 pub struct ContainerdLifecycle {
   channel: Option<Channel>,
   namespace_manager: Arc<NamespaceManager>,
-  config: Arc<ContainerResources>,
+  config: Arc<ContainerResourceConfig>,
   limits_config: Arc<FunctionLimits>,
   downloaded_images: Arc<DashMap<String, bool>>,
   creation_sem: Option<tokio::sync::Semaphore>,
@@ -66,7 +66,7 @@ impl ContainerdLifecycle {
     true
   }
 
-  pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResources>, limits_config: Arc<FunctionLimits>) -> ContainerdLifecycle {
+  pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResourceConfig>, limits_config: Arc<FunctionLimits>) -> ContainerdLifecycle {
     let sem = match config.concurrent_creation {
       0 => None,
       i => Some(tokio::sync::Semaphore::new(i as usize))

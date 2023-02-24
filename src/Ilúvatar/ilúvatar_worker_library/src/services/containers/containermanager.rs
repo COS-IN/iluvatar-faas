@@ -7,7 +7,7 @@ use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID, CTR_MGR_HEALTH_WORKER_TID};
 use iluvatar_library::types::{MemSizeMb, Isolation, Compute};
 use iluvatar_library::utils::calculate_fqdn;
-use crate::worker_api::worker_config::ContainerResources;
+use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{Result, bail};
 use dashmap::DashMap;
 use std::cmp::Ordering;
@@ -15,17 +15,17 @@ use std::sync::{Arc, atomic::AtomicU32};
 use parking_lot::RwLock;
 use super::LifecycleCollection;
 use super::container_pool::{ContainerPool, Subpool, ResourcePool};
-use super::resources::gpu::GpuResourceTracker;
+use super::resources::{gpu::GpuResourceTracker, cpu::CPUResourceMananger};
 use super::structs::{Container, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
 
-/// A struct to manage and control access to containers
+/// A struct to manage and control access to containers and system resources
 pub struct ContainerManager {
   /// Containers that only use CPU compute resources
   cpu_containers: ResourcePool,
   /// Containers that have GPU compute resources (and CPU naturally)
   gpu_containers: ResourcePool,
-  resources: Arc<ContainerResources>,
+  resources: Arc<ContainerResourceConfig>,
   used_mem_mb: Arc<RwLock<MemSizeMb>>,
   cont_lifecycles: LifecycleCollection,
   prioritized_list: RwLock<Subpool>,
@@ -40,12 +40,13 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-  async fn new(resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>, tid: &TransactionId) -> Result<ContainerManager> {
+  async fn new(resources: Arc<ContainerResourceConfig>, cont_lifecycles: LifecycleCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>, tid: &TransactionId) -> Result<ContainerManager> {
     let core_sem = match resources.cores {
       0 => None,
       c => Some(Arc::new(Semaphore::new(c as usize))),
     };
-    
+    let _cpu = CPUResourceMananger::new(resources.clone(), tid)?;
+
     let gpu_resource = GpuResourceTracker::boxed(resources.clone(), tid)?;
     Ok(ContainerManager {
       core_sem, resources, cont_lifecycles,
@@ -61,7 +62,7 @@ impl ContainerManager {
     })
   }
 
-  pub async fn boxed(resources: Arc<ContainerResources>, cont_lifecycles: LifecycleCollection, tid: &TransactionId) -> Result<Arc<ContainerManager>> {
+  pub async fn boxed(resources: Arc<ContainerResourceConfig>, cont_lifecycles: LifecycleCollection, tid: &TransactionId) -> Result<Arc<ContainerManager>> {
     let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), 
           ContainerManager::monitor_pool, None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>, None)?;
     let (health_handle, health_tx) = tokio_thread(resources.pool_freq_ms, CTR_MGR_HEALTH_WORKER_TID.clone(), Self::cull_unhealthy);
@@ -140,13 +141,10 @@ impl ContainerManager {
   /// The number of containers for the given FQDN that are not idle
   /// I.E. they are executing an invocation
   /// 0 if the fqdn is unknown
-  pub fn outstanding(&self, fqdn: Option<&String>) -> u32 {
-    match fqdn {
-      Some(f) => match self.outstanding_containers.get(f) {
-        Some(cnt) => (*cnt).load(std::sync::atomic::Ordering::Relaxed),
-        None => 0,
-      },
-      None => self.cpu_containers.running_containers.len() as u32,
+  pub fn outstanding(&self, fqdn: &String) -> u32 {
+    match self.outstanding_containers.get(fqdn) {
+      Some(cnt) => (*cnt).load(std::sync::atomic::Ordering::Relaxed),
+      None => 0,
     }
   }
 

@@ -93,7 +93,7 @@ impl StatusService {
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();
     let num_containers = self.container_manager.num_containers();
-    let running = self.container_manager.outstanding(None);
+    let running = self.invoker.running_funcs();
     let hw_freqs = self.cpu.hardware_cpu_freqs(tid);
     let kernel_freqs = self.cpu.kernel_cpu_freqs(tid);
 

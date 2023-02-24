@@ -301,10 +301,10 @@ impl Invoker for QueueingInvoker {
       Some(x) => x.load(std::sync::atomic::Ordering::Relaxed),
       None => 0,
     };
-    let concur = match self.queue.concurrency_semaphore() {
-      Some(x) => self.invocation_config.concurrent_invokes.unwrap_or(u32::MAX) - x.available_permits() as u32,
-      None => 0,
-    };
-    bypass + concur
+    // let concur = match self.queue.concurrency_semaphore() {
+    //   Some(x) => self.invocation_config.concurrent_invokes.unwrap_or(u32::MAX) - x.available_permits() as u32,
+    //   None => 0,
+    // };
+    bypass //+ concur
   }
 }

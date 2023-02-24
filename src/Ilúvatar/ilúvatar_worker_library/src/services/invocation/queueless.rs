@@ -4,13 +4,13 @@ use tracing::debug;
 use super::{invoker_structs::EnqueuedInvocation, InvokerQueuePolicy};
 
 /// This implementation does not support [crate::worker_api::worker_config::InvocationConfig::concurrent_invokes]
-pub struct QueuelessInvoker {
+pub struct Queueless {
   async_queue: parking_lot::Mutex<Vec<Arc<EnqueuedInvocation>>>,
   running_funcs: AtomicU32,
 }
-impl QueuelessInvoker {
+impl Queueless {
   pub fn new() -> Result<Arc<Self>> {
-    let svc = Arc::new(QueuelessInvoker {
+    let svc = Arc::new(Queueless {
       running_funcs: AtomicU32::new(0),
       async_queue: parking_lot::Mutex::new(Vec::new()),
     });
@@ -20,9 +20,8 @@ impl QueuelessInvoker {
 
 #[tonic::async_trait]
 #[allow(dyn_drop)]
-impl InvokerQueuePolicy for QueuelessInvoker {
+impl InvokerQueuePolicy for Queueless {
   fn bypass_running(&self) -> Option<&AtomicU32> { Some(&self.running_funcs) }
-  fn concurrency_semaphore(&self) -> Option<&Arc<tokio::sync::Semaphore>> { None }
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let q = self.async_queue.lock();
     if let Some(r) = q.get(0) {

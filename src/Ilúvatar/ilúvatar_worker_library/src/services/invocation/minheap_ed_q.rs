@@ -1,51 +1,50 @@
 use std::sync::Arc;
-use crate::services::invocation::create_concurrency_semaphore;
-use crate::services::invocation::invoker_structs::MinHeapEnqueuedInvocation;
-use crate::worker_api::worker_config::InvocationConfig;
+use std::time::{SystemTime, UNIX_EPOCH};
 use iluvatar_library::{transaction::TransactionId, characteristics_map::CharacteristicsMap};
 use anyhow::Result;
 use parking_lot::Mutex;
-use tokio::sync::Semaphore;
 use tracing::debug;
 use super::InvokerQueuePolicy;
-use super::invoker_structs::{EnqueuedInvocation, MinHeapFloat};
+use super::invoker_structs::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat};
 use std::collections::BinaryHeap;
 
-pub struct MinHeapIATInvoker {
-  invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
-  cmap: Arc<CharacteristicsMap>,
-  concurrency_semaphore: Arc<Semaphore>,
+fn time_since_epoch() -> f64 {
+    let start = SystemTime::now();
+    start.duration_since( UNIX_EPOCH )
+         .expect("Time went backwards")
+         .as_secs_f64()
 }
 
-impl MinHeapIATInvoker {
-  pub fn new(invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
-    let svc = Arc::new(MinHeapIATInvoker {
-      concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?.ok_or(anyhow::anyhow!("Must provide `concurrent_invokes`"))?,
+pub struct MinHeapEDQueue {
+  invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
+  cmap: Arc<CharacteristicsMap>,
+}
+
+impl MinHeapEDQueue {
+  pub fn new(tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
+    let svc = Arc::new(MinHeapEDQueue {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       cmap,
     });
-    debug!(tid=%tid, "Created MinHeapIATInvoker");
+    debug!(tid=%tid, "Created MinHeapEDInvoker");
     Ok(svc)
   }
 }
 
 #[tonic::async_trait]
-impl InvokerQueuePolicy for MinHeapIATInvoker {
+impl InvokerQueuePolicy for MinHeapEDQueue {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
-    let r = r.item.clone();
-    return Some(r);
+    Some(r.item.clone())
   }
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
     let v = v.item.clone();
-    let top = invoke_queue.peek();
-    let func_name; 
-    match top {
-        Some(e) => func_name = e.item.registration.function_name.clone(),
-        None => func_name = "empty".to_string()
+    let mut func_name = "empty"; 
+    if let Some(e) = invoke_queue.peek() {
+      func_name = e.item.registration.function_name.as_str();
     }
     debug!(tid=%v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
            invoke_queue.len(),
@@ -57,14 +56,11 @@ impl InvokerQueuePolicy for MinHeapIATInvoker {
   fn queue_len(&self) -> usize {
     self.invoke_queue.lock().len()
   }
-  fn concurrency_semaphore(&self) -> Option<&Arc<Semaphore>> {
-    Some(&self.concurrency_semaphore)
-  }
 
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut queue = self.invoke_queue.lock();
-    let iat = self.cmap.get_iat( &item.registration.fqdn );
-    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), iat ));
+    let deadline = self.cmap.get_exec_time(&item.registration.fqdn) + time_since_epoch();
+    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), deadline ));
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.registration.function_name,

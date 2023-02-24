@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::SystemTime};
 use dashmap::DashSet;
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, utils::{execute_cmd, port::free_local_port}, bail_error};
-use crate::{worker_api::worker_config::{ContainerResources, FunctionLimits}, services::{containers::structs::ContainerState, registration::RegisteredFunction}};
+use crate::{worker_api::worker_config::{ContainerResourceConfig, FunctionLimits}, services::{containers::structs::ContainerState, registration::RegisteredFunction}};
 use self::dockerstructs::DockerContainer;
 use super::{structs::Container, LifecycleService};
 use anyhow::Result;
@@ -13,7 +13,7 @@ pub mod dockerstructs;
 #[derive(Debug)]
 #[allow(unused)]
 pub struct DockerLifecycle {
-  config: Arc<ContainerResources>,
+  config: Arc<ContainerResourceConfig>,
   limits_config: Arc<FunctionLimits>,
   creation_sem: Option<tokio::sync::Semaphore>,
   pulled_images: DashSet<String>
@@ -28,7 +28,7 @@ impl DockerLifecycle {
     }
   }
 
-  pub fn new(config: Arc<ContainerResources>, limits_config: Arc<FunctionLimits>) -> Self {
+  pub fn new(config: Arc<ContainerResourceConfig>, limits_config: Arc<FunctionLimits>) -> Self {
     let sem = match config.concurrent_creation {
       0 => None,
       i => Some(tokio::sync::Semaphore::new(i as usize))

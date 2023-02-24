@@ -26,7 +26,7 @@ bitflags! {
   }
 }
 
-#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
+#[derive(clap::ValueEnum, std::fmt::Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 /// To be used with CLI args
 pub enum ComputeEnum {
   CPU,

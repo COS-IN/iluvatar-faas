@@ -1,38 +1,38 @@
 use std::sync::Arc;
 use crate::services::containers::structs::ContainerState;
-use crate::services::invocation::create_concurrency_semaphore;
-use crate::worker_api::worker_config::InvocationConfig;
+use crate::services::invocation::invoker_structs::MinHeapEnqueuedInvocation;
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::{transaction::TransactionId, characteristics_map::CharacteristicsMap};
 use anyhow::Result;
 use parking_lot::Mutex;
-use tokio::sync::Semaphore;
 use tracing::debug;
 use super::InvokerQueuePolicy;
-use super::invoker_structs::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat};
+use super::invoker_structs::{MinHeapFloat, EnqueuedInvocation};
 use std::collections::BinaryHeap;
 
-pub struct ColdPriorityInvoker {
+/// An invoker that scales concurrency based on system load
+/// Prioritizes based on container availability
+/// Increases concurrency by 1 every [InvocationConfig::concurrency_udpate_check_ms]
+/// If system load is above [InvocationConfig::max_load], then the concurrency is reduced by half the distance to [InvocationConfig::concurrent_invokes] rounded up
+pub struct AvailableScalingQueue {
   cont_manager: Arc<ContainerManager>,
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
   cmap: Arc<CharacteristicsMap>,
-  concurrency_semaphore: Arc<Semaphore>,
 }
 
-impl ColdPriorityInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
-    let svc = Arc::new(ColdPriorityInvoker {
-      concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?.ok_or(anyhow::anyhow!("Must provide `concurrent_invokes`"))?,
+impl AvailableScalingQueue {
+  pub fn new(cont_manager: Arc<ContainerManager>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
+    let svc = Arc::new(AvailableScalingQueue {
       cont_manager,
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       cmap,
     });
-    debug!(tid=%tid, "Created ColdPriorityInvoker");
+    debug!(tid=%tid, "Created AvailableScalingInvoker");
     Ok(svc)
   }
 }
 
-impl InvokerQueuePolicy for ColdPriorityInvoker {
+impl InvokerQueuePolicy for AvailableScalingQueue {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
@@ -44,7 +44,7 @@ impl InvokerQueuePolicy for ColdPriorityInvoker {
     let v = invoke_queue.pop().unwrap();
     let v = v.item.clone();
     let top = invoke_queue.peek();
-    let func_name;
+    let func_name; 
     match top {
         Some(e) => func_name = e.item.registration.function_name.as_str(),
         None => func_name = "empty"
@@ -54,16 +54,9 @@ impl InvokerQueuePolicy for ColdPriorityInvoker {
     v
   }
 
-  fn queue_len(&self) -> usize {
-    self.invoke_queue.lock().len()
-  }
-  fn concurrency_semaphore(&self) -> Option<&Arc<Semaphore>> {
-    Some(&self.concurrency_semaphore)
-  }
-
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
     let mut priority = 0.0;
-    if self.cont_manager.outstanding(Some(&item.registration.fqdn)) == 0 {
+    if self.cont_manager.outstanding(&item.registration.fqdn) == 0 {
       priority = self.cmap.get_warm_time(&item.registration.fqdn);
     }
     priority = match self.cont_manager.container_available(&item.registration.fqdn) {
@@ -72,7 +65,7 @@ impl InvokerQueuePolicy for ColdPriorityInvoker {
       _ => self.cmap.get_cold_time(&item.registration.fqdn),
     };
     let mut queue = self.invoke_queue.lock();
-    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority));
+    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority).into());
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.registration.fqdn,

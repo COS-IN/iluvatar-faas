@@ -1,32 +1,40 @@
-use std::collections::BinaryHeap;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU32, Arc};
 use crate::worker_api::worker_config::InvocationConfig;
 use anyhow::Result;
+use iluvatar_library::transaction::TransactionId;
 use parking_lot::Mutex;
 use time::OffsetDateTime;
-use tokio::sync::Semaphore;
-use tracing::debug;
-use super::{InvokerQueuePolicy, create_concurrency_semaphore};
-use super::invoker_structs::MinHeapEnqueuedInvocation;
-use super::invoker_structs::EnqueuedInvocation;
+use tracing::{debug, info};
+use super::InvokerQueuePolicy;
+use super::invoker_structs::{MinHeapEnqueuedInvocation, EnqueuedInvocation};
+use std::collections::BinaryHeap;
 
-pub struct FCFSInvoker {
+/// A First-Come-First-Serve queue management policy
+/// Items with an execution duration of less than [InvocationConfig::bypass_duration_ms] will skip the queue
+/// In the event of a cold start on such an invocation, it will be enqueued
+pub struct FCFSBypassQueue {
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapEnqueuedInvocation<OffsetDateTime>>>>,
-  concurrency_semaphore: Arc<Semaphore>,
+  bypass_running: AtomicU32
 }
 
-impl FCFSInvoker {
-  pub fn new(invocation_config: Arc<InvocationConfig>) -> Result<Arc<Self>> {
-    let svc = Arc::new(FCFSInvoker {
-      concurrency_semaphore: create_concurrency_semaphore(invocation_config.concurrent_invokes)?.ok_or(anyhow::anyhow!("Must provide `concurrent_invokes`"))?,
+impl FCFSBypassQueue {
+  pub fn new(invocation_config: Arc<InvocationConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+    if let Some(bp) = invocation_config.bypass_duration_ms {
+      if bp <= 0 {
+        anyhow::bail!("Cannot have a bypass_duration_ms of zero for this invoker queue policy")
+      }
+    }
+    let svc = Arc::new(FCFSBypassQueue {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
+      bypass_running: AtomicU32::new(0)
     });
+    info!(tid=%tid, "Created FCFSBypassInvoker");
     Ok(svc)
   }
 }
 
 #[tonic::async_trait]
-impl InvokerQueuePolicy for FCFSInvoker {
+impl InvokerQueuePolicy for FCFSBypassQueue {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
@@ -44,9 +52,11 @@ impl InvokerQueuePolicy for FCFSInvoker {
            invoke_queue.len(), v.registration.function_name, func_name );
     v
   }
-  fn queue_len(&self) -> usize { self.invoke_queue.lock().len() }
-  fn concurrency_semaphore(&self) -> Option<&Arc<Semaphore>> { Some(&self.concurrency_semaphore) }
-  fn bypass_running(&self) -> Option<&std::sync::atomic::AtomicU32> { None }
+
+  fn queue_len(&self) -> usize {
+    self.invoke_queue.lock().len()
+  }
+  fn bypass_running(&self) -> Option<&AtomicU32> { Some(&self.bypass_running) }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {

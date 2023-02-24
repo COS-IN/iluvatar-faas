@@ -2,7 +2,7 @@ use std::sync::Arc;
 use iluvatar_library::{utils::execute_cmd, transaction::TransactionId};
 use parking_lot::RwLock;
 use anyhow::Result;
-use crate::worker_api::worker_config::ContainerResources;
+use crate::worker_api::worker_config::ContainerResourceConfig;
 
 #[allow(unused)]
 #[derive(Debug)]
@@ -14,13 +14,13 @@ pub struct GpuResourceTracker {
   gpus: RwLock<Vec<Arc<GPU>>>,
 }
 impl GpuResourceTracker {
-  pub fn boxed(resources: Arc<ContainerResources>, tid: &TransactionId) -> Result<Arc<Self>> {
+  pub fn boxed(resources: Arc<ContainerResourceConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     Ok(Arc::new(GpuResourceTracker {
       gpus: RwLock::new(GpuResourceTracker::prepare_structs(resources, tid)?)
     }))
   }
 
-  fn prepare_structs(resources: Arc<ContainerResources>, tid: &TransactionId) -> Result<Vec<Arc<GPU>>> {
+  fn prepare_structs(resources: Arc<ContainerResourceConfig>, tid: &TransactionId) -> Result<Vec<Arc<GPU>>> {
     let mut ret = vec![];
     if iluvatar_library::utils::is_simulation() {
       for i in 0..resources.gpus {

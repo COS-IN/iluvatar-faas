@@ -1,12 +1,13 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use iluvatar_library::energy::EnergyConfig;
+use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{types::MemSizeMb, utils::port_utils::Port, logging::LoggingConfig};
 use iluvatar_library::graphite::GraphiteConfig;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 
 #[derive(Debug, Deserialize)]
-#[allow(unused)]
 pub struct Configuration {
   /// name for the server
   pub name: String,
@@ -23,7 +24,7 @@ pub struct Configuration {
   pub limits: Arc<FunctionLimits>,
   pub logging: Arc<LoggingConfig>,
   pub networking: Arc<NetworkingConfig>,
-  pub container_resources: Arc<ContainerResources>,
+  pub container_resources: Arc<ContainerResourceConfig>,
   /// full URL to access the controller/load balancer, required for worker registration
   pub load_balancer_url: String,
   pub graphite: Arc<GraphiteConfig>,
@@ -34,7 +35,7 @@ pub struct Configuration {
 
 #[derive(Debug, Deserialize)]
 /// total resources the worker is allowed to allocate to conainers
-pub struct ContainerResources {
+pub struct ContainerResourceConfig {
   /// total memory pool in MB
   pub memory_mb: MemSizeMb,
   /// number of cores it can use, i.e. number of concurrent functions allowed at once
@@ -60,6 +61,25 @@ pub struct ContainerResources {
   ///   Calls to containerd can become extremely delayed if too many happen at once, ~10 
   ///   If 0 then the concurreny is unlimited
   pub concurrent_creation: u32,
+
+  pub resource_map: HashMap<ComputeEnum, Arc<ComputeResourceConfig>>,
+}
+#[derive(Debug, Deserialize)]
+/// Configuration detailing a single type of compute
+pub struct ComputeResourceConfig {
+  /// number of cores it can use, i.e. number of concurrent functions allowed at once
+  /// If this is set to 0, then allocations of the resource will not be managed.
+  /// Depending on resource type, will not be allowed (i.e. GPU must have exact number)
+  pub count: u32,
+  /// If provided and greated than [Self::count], the resource will be over-subscribed
+  /// Not all resources support oversubscription 
+  pub max_oversubscribe: Option<u32>,
+  /// Frequency at which to check the system load and optionally increase the allowed invocation concurrency.
+  /// Used with [max_oversubscribe] and cannot be 0
+  pub concurrency_udpate_check_ms: Option<u64>,
+  /// The maximum normalized load average before reducing concurrency. 
+  /// Used with [max_oversubscribe] and cannot be 0
+  pub max_load: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,22 +106,9 @@ pub struct InvocationConfig {
   /// Queueing policy to use.
   /// Cerrently implemented are [none (no queue), fcfs (first come first serve), ]
   pub queue_policy: String,
-  /// The number of concurrent invocations allowed on the worker
-  /// If this number is hit, items will be left in the queue until work completes
-  /// Not affected by other resource limitations
-  pub concurrent_invokes: Option<u32>,
   /// If not zero, invocations with an execution duration less than this
   ///   will bypass concurrency restrictions and be run immediately
   pub bypass_duration_ms: Option<u64>,
-  /// Frequency at which to check the system load and optionally increase the allowed invocation concurreny.
-  /// Used with [AvailableScalingInvoker] and cannot be 0
-  pub concurrency_udpate_check_ms: Option<u64>,
-  /// The maximum allowable concurrency. 
-  /// Used with [AvailableScalingInvoker] and cannot be 0
-  pub max_concurrency: Option<u64>,
-  /// The maximum normalized load average before reducing concurrency. 
-  /// Used with [AvailableScalingInvoker] and cannot be 0
-  pub max_load: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
