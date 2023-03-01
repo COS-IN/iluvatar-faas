@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::{SystemTime, Duration}, num::NonZeroU32};
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
 use reqwest::Client;
-use crate::services::{containers::{structs::{ContainerT, ParsedResult, ContainerState}, resources::gpu::GPU}};
+use crate::services::{containers::structs::{ContainerT, ParsedResult, ContainerState}, resources::gpu::GPU};
 use anyhow::Result;
 use crate::services::registration::RegisteredFunction;
 use parking_lot::{Mutex, RwLock};

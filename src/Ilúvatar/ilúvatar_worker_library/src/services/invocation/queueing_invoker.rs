@@ -3,6 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{ParsedResult, InsufficientCoresError, InsufficientMemoryError, ContainerState};
 use crate::services::invocation::invoker_structs::InvocationResult;
 use crate::services::registration::RegisteredFunction;
+use crate::services::resources::cpu::CPUResourceMananger;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
@@ -27,14 +28,15 @@ pub struct QueueingInvoker {
   _worker_thread: std::thread::JoinHandle<()>,
   queue_signal: Notify,
   clock: LocalTime,
-  queue: Arc<dyn InvokerQueuePolicy>
+  queue: Arc<dyn InvokerQueuePolicy>,
+  cpu: Arc<CPUResourceMananger>,
 }
 
 #[allow(dyn_drop)]
 /// A trait representing the functionality a queue policy must implement
 /// Overriding functions _must_ re-implement [info] level log statements for consistency
 impl QueueingInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>, queue: Arc<dyn InvokerQueuePolicy>) -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>, queue: Arc<dyn InvokerQueuePolicy>, cpu: Arc<CPUResourceMananger>) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), Self::monitor_queue, Some(Self::wait_on_queue), Some(function_config.cpu_max as usize))?;
     let svc = Arc::new(QueueingInvoker {
       cont_manager, invocation_config,
@@ -44,6 +46,7 @@ impl QueueingInvoker {
       _worker_thread: handle,
       clock: LocalTime::new(tid)?,
       queue,
+      cpu
     });
     tx.send(svc.clone())?;
     debug!(tid=%tid, "Created MinHeapInvoker");
@@ -126,30 +129,17 @@ impl QueueingInvoker {
   /// Returns an owned permit if there are sufficient resources to run a function
   /// A return value of [None] means the resources failed to be acquired
   fn acquire_resources_to_run(&self, item: &Arc<EnqueuedInvocation>) -> Option<Box<dyn Drop+Send>> {
-    let invoke_perm = match self.queue.concurrency_semaphore() {
-      Some(s) => match s.clone().try_acquire_many_owned(1) {
-        Ok(c) => Some(c),
-        Err(e) => { 
-          match e {
-            tokio::sync::TryAcquireError::Closed => error!(tid=%item.tid, "invoker concurrency semaphore `try_acquire_many_owned` returned a closed error!"),
-            tokio::sync::TryAcquireError::NoPermits => (),
-          };
-          return None;
-        },
-      },
-      None => None,
-    };
-    let core_perm = match self.cont_manager.try_acquire_cores(&item.registration, &item.tid) {
+    let core_perm = match self.cpu.try_acquire_cores(&item.registration, &item.tid) {
       Ok(c) => c,
       Err(e) => { 
         match e {
-          tokio::sync::TryAcquireError::Closed => error!(tid=%item.tid, "Container manager `try_acquire_cores` returned a closed error!"),
+          tokio::sync::TryAcquireError::Closed => error!(tid=%item.tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!"),
           tokio::sync::TryAcquireError::NoPermits => (),
         };
         return None;
       },
     };
-    Some(Box::new(vec![core_perm, invoke_perm]))
+    Some(Box::new(vec![core_perm]))
   }
 
   /// Runs the specific invocation inside a new tokio worker thread

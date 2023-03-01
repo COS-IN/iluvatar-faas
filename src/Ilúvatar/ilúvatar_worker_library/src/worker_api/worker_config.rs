@@ -38,13 +38,6 @@ pub struct Configuration {
 pub struct ContainerResourceConfig {
   /// total memory pool in MB
   pub memory_mb: MemSizeMb,
-  /// number of cores it can use, i.e. number of concurrent functions allowed at once
-  /// If this is set to 0, then core allocations will not be managed
-  pub cores: u32,
-  /// number of GPUs it can use, i.e. number of concurrent functions allowed at once
-  /// Currently one container is given exclusive access to each GPU at a time
-  /// If this is set to 0, then no GPUs will be allocated
-  pub gpus: u32,
   /// eviciton algorithm to use
   pub eviction: String,
   /// timeout on container startup before error
@@ -62,6 +55,7 @@ pub struct ContainerResourceConfig {
   ///   If 0 then the concurreny is unlimited
   pub concurrent_creation: u32,
 
+  /// Settings for the different compute resources the worker can use
   pub resource_map: HashMap<ComputeEnum, Arc<ComputeResourceConfig>>,
 }
 #[derive(Debug, Deserialize)]

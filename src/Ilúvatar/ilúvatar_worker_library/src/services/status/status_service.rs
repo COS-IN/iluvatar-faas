@@ -66,8 +66,6 @@ impl StatusService {
   }
 
   fn update_status(&self, tid: &TransactionId) {
-    let _free_cs = self.container_manager.free_cores();
-
     let cpu_now = match self.cpu.instant_cpu_util(tid) {
       Ok(i) => i,
       Err(e) => {

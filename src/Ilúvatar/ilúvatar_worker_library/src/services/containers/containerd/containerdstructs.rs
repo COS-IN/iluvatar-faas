@@ -3,8 +3,7 @@ use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
 use iluvatar_library::{types::{MemSizeMb, Isolation, Compute}, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
 use reqwest::{Client, Response};
-use crate::{services::{containers::{structs::{ContainerT, ParsedResult, ContainerState}, resources::gpu::GPU}, network::network_structs::Namespace}};
-use crate::services::registration::RegisteredFunction;
+use crate::services::{registration::RegisteredFunction, network::network_structs::Namespace, containers::structs::{ParsedResult, ContainerT, ContainerState}, resources::gpu::GPU};
 
 #[derive(Debug)]
 pub struct Task {

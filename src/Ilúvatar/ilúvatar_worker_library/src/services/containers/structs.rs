@@ -37,7 +37,7 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
   fn container_type(&self) -> Isolation;
   fn compute_type(&self) -> Compute;
   /// An optional value, returned with [Some(GPU)] if the container has extra resources
-  fn device_resource(&self) -> &Option<Arc<super::resources::gpu::GPU>>;
+  fn device_resource(&self) -> &Option<Arc<crate::services::resources::gpu::GPU>>;
 }
 
 /// Cast a container pointer to a concrete type

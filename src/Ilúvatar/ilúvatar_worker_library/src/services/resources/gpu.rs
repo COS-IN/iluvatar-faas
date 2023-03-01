@@ -1,7 +1,8 @@
 use std::sync::Arc;
-use iluvatar_library::{utils::execute_cmd, transaction::TransactionId};
+use iluvatar_library::{utils::execute_cmd, transaction::TransactionId, types::ComputeEnum};
 use parking_lot::RwLock;
 use anyhow::Result;
+use tracing::warn;
 use crate::worker_api::worker_config::ContainerResourceConfig;
 
 #[allow(unused)]
@@ -22,8 +23,14 @@ impl GpuResourceTracker {
 
   fn prepare_structs(resources: Arc<ContainerResourceConfig>, tid: &TransactionId) -> Result<Vec<Arc<GPU>>> {
     let mut ret = vec![];
+    let gpu_config = match resources.resource_map.get(&ComputeEnum::gpu) {
+      Some(c) => c.clone(),
+      None => {
+        warn!(tid=%tid, "resource_map did not have a GPU entry, skipping GPU resource setup");
+        return Ok(ret)},
+    };
     if iluvatar_library::utils::is_simulation() {
-      for i in 0..resources.gpus {
+      for i in 0..gpu_config.count {
         ret.push(Arc::new(GPU { name: format!("GPU-{}", i) }))
       }
     } else {
@@ -38,8 +45,8 @@ impl GpuResourceTracker {
         }
       }
     }
-    if ret.len() != resources.gpus as usize {
-      anyhow::bail!("Was able to prepare {} GPUs, but configuration expected {}", ret.len(), resources.gpus);
+    if ret.len() != gpu_config.count as usize {
+      anyhow::bail!("Was able to prepare {} GPUs, but configuration expected {}", ret.len(), gpu_config.count);
     }
     Ok(ret)
   }

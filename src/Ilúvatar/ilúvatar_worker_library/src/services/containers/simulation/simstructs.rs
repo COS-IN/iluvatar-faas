@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::{SystemTime, Duration}};
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, bail_error};
-use crate::{services::{containers::{structs::{ContainerT, ParsedResult, ContainerState, ContainerTimeFormatter}, resources::gpu::GPU}, registration::RegisteredFunction}, };
+use crate::{services::{containers::structs::{ContainerT, ParsedResult, ContainerState, ContainerTimeFormatter}, registration::RegisteredFunction, resources::gpu::GPU}, };
 use anyhow::Result;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize, Deserializer};

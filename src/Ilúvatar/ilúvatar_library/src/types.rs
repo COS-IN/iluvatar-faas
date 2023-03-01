@@ -28,17 +28,18 @@ bitflags! {
 
 #[derive(clap::ValueEnum, std::fmt::Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 /// To be used with CLI args
+#[allow(non_camel_case_types)]
 pub enum ComputeEnum {
-  CPU,
-  GPU,
+  cpu,
+  gpu,
 }
 /// To turn Compute back into a string-serializable format for hashmaps
 impl TryInto<ComputeEnum> for &Compute {
   fn try_into(self) -> Result<ComputeEnum, Self::Error> {
     if self.contains(Compute::CPU) {
-      Ok(ComputeEnum::CPU)
+      Ok(ComputeEnum::cpu)
     } else if self.contains(Compute::GPU) {
-      Ok(ComputeEnum::GPU)
+      Ok(ComputeEnum::gpu)
     } else {
       anyhow::bail!("Cannot convert Compute '{:?}' to enum", self)
     }
@@ -72,8 +73,8 @@ impl Into<Compute> for Vec<ComputeEnum> {
 impl Into<Compute> for &ComputeEnum {
   fn into(self) -> Compute {
     match self {
-      ComputeEnum::CPU => Compute::CPU,
-      ComputeEnum::GPU => Compute::GPU,
+      ComputeEnum::cpu => Compute::CPU,
+      ComputeEnum::gpu => Compute::GPU,
     }
   }
 }

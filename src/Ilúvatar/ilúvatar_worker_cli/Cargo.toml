@@ -9,7 +9,7 @@ authors = ["Alex Fuerst alfuerst@iu.edu"]
 [dependencies]
 iluvatar_library = { path = "../ilúvatar_library" }
 iluvatar_worker_library = { path = "../ilúvatar_worker_library" }
-config = "0.13.1"
+config = "0.13"
 serde = { version = "1.0", features = ["derive"] }
 clap = { version = "4.1", features = ["derive"] }
 tonic = "0.7.2"

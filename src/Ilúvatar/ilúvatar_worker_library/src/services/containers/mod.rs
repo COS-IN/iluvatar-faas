@@ -6,8 +6,8 @@ use tracing::info;
 use crate::{worker_api::worker_config::{ContainerResourceConfig, NetworkingConfig, FunctionLimits}};
 use crate::services::{containers::{structs::{Container}, containerd::ContainerdLifecycle, simulation::SimulatorLifecycle}};
 use crate::services::network::namespace_manager::NamespaceManager;
-use self::{structs::ToAny, docker::DockerLifecycle, resources::gpu::GPU};
-use super::registration::RegisteredFunction;
+use self::{structs::ToAny, docker::DockerLifecycle};
+use super::{registration::RegisteredFunction, resources::gpu::GPU};
 
 pub mod structs;
 pub mod containermanager;
@@ -18,7 +18,6 @@ pub mod simulation;
 #[path ="./docker/dockerlife.rs"]
 pub mod docker;
 mod container_pool;
-mod resources;
 
 #[async_trait]
 pub trait LifecycleService: ToAny + Send + Sync + std::fmt::Debug {

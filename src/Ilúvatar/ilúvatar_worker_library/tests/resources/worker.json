@@ -26,7 +26,6 @@
   },
   "container_resources": {
     "memory_mb": 2048,
-    "cores": 16,
     "eviction": "LRU",
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 1024,
@@ -34,7 +33,14 @@
     "backend": "containerd",
     "snapshotter": "zfs",
     "concurrent_creation": 5,
-    "gpus": 0
+    "resource_map": {
+      "cpu": {
+        "count": 16
+      },
+      "gpu": {
+        "count": 0
+      }
+    }
   },
   "networking": {
     "bridge": "IlWorkBr0",

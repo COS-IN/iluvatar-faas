@@ -77,7 +77,7 @@ impl LifecycleService for DockerLifecycle {
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, device_resource: Option<Arc<super::resources::gpu::GPU>>, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, device_resource: Option<Arc<crate::services::resources::gpu::GPU>>, tid: &TransactionId) -> Result<Container> {
     if ! iso.eq(&Isolation::DOCKER) {
       anyhow::bail!("Only supports docker Isolation, now {:?}", iso);
     }

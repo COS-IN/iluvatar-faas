@@ -390,7 +390,7 @@ impl ContainerdLifecycle {
   
   /// Create a container using the given image in the specified namespace
   /// Does not start any process in it
-  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute, device_resource: Option<Arc<super::resources::gpu::GPU>>) -> Result<ContainerdContainer> {
+  async fn create_container(&self, fqdn: &String, image_name: &String, namespace: &str, parallel_invokes: u32, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute, device_resource: Option<Arc<crate::services::resources::gpu::GPU>>) -> Result<ContainerdContainer> {
     let port = 8080;
 
     let permit = match &self.creation_sem {
@@ -523,7 +523,7 @@ impl LifecycleService for ContainerdLifecycle {
   /// Run inside the specified namespace
   /// returns a new, unique ID representing it
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
-  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, device_resource: Option<Arc<super::resources::gpu::GPU>>, tid: &TransactionId) -> Result<Container> {
+  async fn run_container(&self, fqdn: &String, image_name: &String, parallel_invokes: u32, namespace: &str, mem_limit_mb: MemSizeMb, cpus: u32, reg: &Arc<RegisteredFunction>, iso: Isolation, compute: Compute, device_resource: Option<Arc<crate::services::resources::gpu::GPU>>, tid: &TransactionId) -> Result<Container> {
     if ! iso.eq(&Isolation::CONTAINERD) {
       anyhow::bail!("Only supports containerd Isolation, now {:?}", iso);
     }

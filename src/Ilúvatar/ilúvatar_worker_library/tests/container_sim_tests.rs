@@ -37,7 +37,7 @@ fn gpu_reg() -> RegisterRequest {
 
 fn build_gpu_env() -> HashMap<String, String> {
   let mut r = HashMap::new();
-  r.insert("ILUVATAR_WORKER__container_resources__gpus".to_string(), "1".to_string());
+  r.insert("ILUVATAR_WORKER__container_resources__resource_map__GPU__count".to_string(), "1".to_string());
   r.insert("ILUVATAR_WORKER__invocation__concurrent_invokes".to_string(), "5".to_string());
   r
 }

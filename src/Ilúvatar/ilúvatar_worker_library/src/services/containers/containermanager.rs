@@ -1,9 +1,9 @@
 use crate::services::containers::structs::{InsufficientMemoryError, InsufficientGPUError};
 use crate::services::registration::RegisteredFunction;
+use crate::services::resources::gpu::GpuResourceTracker;
 use futures::Future;
 use iluvatar_library::bail_error;
 use iluvatar_library::threading::{tokio_runtime, EventualItem, tokio_thread};
-use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID, CTR_MGR_HEALTH_WORKER_TID};
 use iluvatar_library::types::{MemSizeMb, Isolation, Compute};
 use iluvatar_library::utils::calculate_fqdn;
@@ -15,7 +15,6 @@ use std::sync::{Arc, atomic::AtomicU32};
 use parking_lot::RwLock;
 use super::LifecycleCollection;
 use super::container_pool::{ContainerPool, Subpool, ResourcePool};
-use super::resources::{gpu::GpuResourceTracker, cpu::CPUResourceMananger};
 use super::structs::{Container, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
 
@@ -31,7 +30,6 @@ pub struct ContainerManager {
   prioritized_list: RwLock<Subpool>,
   _worker_thread: std::thread::JoinHandle<()>,
   _health_thread: tokio::task::JoinHandle<()>,
-  core_sem: Option<Arc<Semaphore>>,
   gpu_limiter: Arc<GpuResourceTracker>,
   /// A list of containers that are to be removed
   /// Container must not be in a pool when placed here
@@ -41,15 +39,9 @@ pub struct ContainerManager {
 
 impl ContainerManager {
   async fn new(resources: Arc<ContainerResourceConfig>, cont_lifecycles: LifecycleCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>, tid: &TransactionId) -> Result<ContainerManager> {
-    let core_sem = match resources.cores {
-      0 => None,
-      c => Some(Arc::new(Semaphore::new(c as usize))),
-    };
-    let _cpu = CPUResourceMananger::new(resources.clone(), tid)?;
-
     let gpu_resource = GpuResourceTracker::boxed(resources.clone(), tid)?;
     Ok(ContainerManager {
-      core_sem, resources, cont_lifecycles,
+      resources, cont_lifecycles,
       gpu_limiter: gpu_resource,
       used_mem_mb: Arc::new(RwLock::new(0)),
       cpu_containers: ResourcePool::new(Compute::CPU),
@@ -123,12 +115,6 @@ impl ContainerManager {
   pub fn total_memory(&self) -> MemSizeMb {
     self.resources.memory_mb
   }
-  pub fn free_cores(&self) -> u32 {
-    match &self.core_sem {
-      Some(s) => s.available_permits() as u32,
-      None => 0
-    }
-  }
   pub fn num_containers(&self) -> u32 {
     self.cpu_containers.running_containers.len() + self.cpu_containers.idle_containers.len() + self.gpu_containers.running_containers.len() + self.gpu_containers.idle_containers.len()
   }
@@ -146,18 +132,6 @@ impl ContainerManager {
       Some(cnt) => (*cnt).load(std::sync::atomic::Ordering::Relaxed),
       None => 0,
     }
-  }
-
-  /// Return a permit for the function to run on its registered number of cores
-  /// If the semaphore is [None], then no permits are being tracked
-  pub fn try_acquire_cores(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::TryAcquireError> {
-    if let Some(sem) = &self.core_sem {
-      return match sem.clone().try_acquire_many_owned(reg.cpus) {
-        Ok(p) => Ok(Some(p)),
-        Err(e) => Err(e),
-      };
-    }
-    return Ok(None);
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
