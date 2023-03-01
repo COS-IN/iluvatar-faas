@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 use tracing::{debug, info};
 use crate::rpc::RegisterRequest;
 use crate::worker_api::worker_config::FunctionLimits;
-use super::containers::{containermanager::ContainerManager, LifecycleCollection};
+use super::containers::{containermanager::ContainerManager, ContainerIsolationCollection};
 use anyhow::Result;
 
 #[derive(Debug)]
@@ -24,12 +24,12 @@ pub struct RegisteredFunction {
 pub struct RegistrationService {
   reg_map: RwLock<HashMap<String, Arc<RegisteredFunction>>>,
   cm: Arc<ContainerManager>, 
-  lifecycles: LifecycleCollection,
+  lifecycles: ContainerIsolationCollection,
   limits_config: Arc<FunctionLimits>,
 }
 
 impl RegistrationService {
-  pub fn new(cm: Arc<ContainerManager>, lifecycles: LifecycleCollection, limits_config: Arc<FunctionLimits>,) -> Arc<Self> {
+  pub fn new(cm: Arc<ContainerManager>, lifecycles: ContainerIsolationCollection, limits_config: Arc<FunctionLimits>,) -> Arc<Self> {
     Arc::new(RegistrationService {
       reg_map: RwLock::new(HashMap::new()),
       cm, lifecycles, limits_config

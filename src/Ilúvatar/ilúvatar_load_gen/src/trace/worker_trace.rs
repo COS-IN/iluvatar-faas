@@ -1,7 +1,7 @@
 use std::{sync::Arc, path::Path};
 use anyhow::Result;
 use iluvatar_library::{utils::config::args_to_json, transaction::{TransactionId, gen_tid}, logging::LocalTime, types::CommunicationMethod};
-use iluvatar_worker_library::{services::containers::simulation::simstructs::SimulationInvocation};
+use iluvatar_worker_library::{services::containers::simulator::simstructs::SimulationInvocation};
 use tokio::{runtime::Builder, task::JoinHandle};
 use std::time::SystemTime;
 use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, RunType}, trace::trace_utils::worker_prepare_functions};

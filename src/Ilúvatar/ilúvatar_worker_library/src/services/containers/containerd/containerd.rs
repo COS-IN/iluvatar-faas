@@ -29,13 +29,13 @@ use crate::services::containers::structs::{Container, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
 use tracing::{info, warn, debug, error}; 
 use inotify::{Inotify, WatchMask};
-use super::LifecycleService;
+use super::ContainerIsolationService;
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
 
 #[derive(Debug)]
-pub struct ContainerdLifecycle {
+pub struct ContainerdIsolation {
   channel: Option<Channel>,
   namespace_manager: Arc<NamespaceManager>,
   config: Arc<ContainerResourceConfig>,
@@ -46,7 +46,7 @@ pub struct ContainerdLifecycle {
 
 /// A service to handle the low-level details of containerd container lifecycles:
 ///   creation, destruction, pulling images, etc
-impl ContainerdLifecycle {
+impl ContainerdIsolation {
   pub async fn supported(tid: &TransactionId) -> bool {
     let channel = match containerd_client::connect(CONTAINERD_SOCK).await {
       Ok(c) => c,
@@ -66,12 +66,12 @@ impl ContainerdLifecycle {
     true
   }
 
-  pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResourceConfig>, limits_config: Arc<FunctionLimits>) -> ContainerdLifecycle {
+  pub fn new(ns_man: Arc<NamespaceManager>, config: Arc<ContainerResourceConfig>, limits_config: Arc<FunctionLimits>) -> ContainerdIsolation {
     let sem = match config.concurrent_creation {
       0 => None,
       i => Some(tokio::sync::Semaphore::new(i as usize))
     };
-    ContainerdLifecycle {
+    ContainerdIsolation {
       // this is threadsafe if we clone channel
       // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
       channel: None,
@@ -514,7 +514,7 @@ impl ContainerdLifecycle {
 }
 
 #[tonic::async_trait]
-impl LifecycleService for ContainerdLifecycle {
+impl ContainerIsolationService for ContainerdIsolation {
   fn backend(&self) -> Vec<Isolation> {
     vec![Isolation::CONTAINERD]
   }
@@ -565,7 +565,7 @@ impl LifecycleService for ContainerdLifecycle {
     Ok(())
   }
   
-  async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {
+  async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn ContainerIsolationService>, tid: &TransactionId) -> Result<()> {
     info!(tid=%tid, namespace=%ctd_namespace, "Cleaning containers in namespace");
     let mut ctr_client = ContainersClient::new(self.channel());
     let req = ListContainersRequest {
@@ -591,10 +591,10 @@ impl LifecycleService for ContainerdLifecycle {
       let ns_clone = ctd_namespace.to_string();
       let tid_clone = tid.to_string();
       handles.push( tokio::spawn( async move {
-        let fut = match svc_clone.as_any().downcast_ref::<ContainerdLifecycle>() {
+        let fut = match svc_clone.as_any().downcast_ref::<ContainerdIsolation>() {
           Some(i) => futures::future::Either::Left(i.remove_container_internal(&container_id, &ns_clone, &tid_clone)),
           None => {
-            futures::future::Either::Right(async { anyhow::bail!("Failed to cast ContainerT type {} to {:?}", std::any::type_name::<Arc<dyn LifecycleService>>(), std::any::type_name::<ContainerdLifecycle>())  })
+            futures::future::Either::Right(async { anyhow::bail!("Failed to cast ContainerT type {} to {:?}", std::any::type_name::<Arc<dyn ContainerIsolationService>>(), std::any::type_name::<ContainerdIsolation>())  })
           },
         };
         fut.await
@@ -725,7 +725,7 @@ impl LifecycleService for ContainerdLifecycle {
     }
   }
 }
-impl crate::services::containers::structs::ToAny for ContainerdLifecycle {
+impl crate::services::containers::structs::ToAny for ContainerdIsolation {
   fn as_any(&self) -> &dyn std::any::Any {
       self
   }

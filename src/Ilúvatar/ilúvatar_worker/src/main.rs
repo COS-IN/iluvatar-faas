@@ -1,7 +1,7 @@
 use std::time::Duration;
 use clap::Parser;
 use iluvatar_library::{logging::start_tracing, nproc, bail_error, utils::wait_for_exit_signal};
-use iluvatar_worker_library::{services::containers::LifecycleFactory, worker_api::config::WorkerConfig};
+use iluvatar_worker_library::{services::containers::IsolationFactory, worker_api::config::WorkerConfig};
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_worker_library::worker_api::config::Configuration;
 use iluvatar_worker_library::worker_api::create_worker;
@@ -38,8 +38,8 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
 async fn clean(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
   debug!(tid=?tid, config=?server_config, "loaded configuration");
 
-  let factory = LifecycleFactory::new(server_config.container_resources.clone(), server_config.networking.clone(), server_config.limits.clone());
-  let lifecycles = factory.get_lifecycle_services(tid, false).await?;
+  let factory = IsolationFactory::new(server_config.container_resources.clone(), server_config.networking.clone(), server_config.limits.clone());
+  let lifecycles = factory.get_isolation_services(tid, false).await?;
 
   for (_, lifecycle) in lifecycles.iter() {
     lifecycle.clean_containers("default", lifecycle.clone(), tid).await?;

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}};
 use self::simstructs::SimulatorContainer;
-use super::{structs::{Container, ContainerState}, LifecycleService};
+use super::{structs::{Container, ContainerState}, ContainerIsolationService};
 use crate::services::registration::RegisteredFunction;
 use anyhow::Result;
 use guid_create::GUID;
@@ -10,19 +10,19 @@ use tracing::warn;
 pub mod simstructs;
 
 #[derive(Debug)]
-pub struct SimulatorLifecycle {
+pub struct SimulatorIsolation {
 
 }
 
-impl SimulatorLifecycle {
+impl SimulatorIsolation {
   pub fn new() -> Self {
-    SimulatorLifecycle { }
+    SimulatorIsolation { }
   }
 }
 
 #[tonic::async_trait]
 #[allow(unused)]
-impl LifecycleService for SimulatorLifecycle {
+impl ContainerIsolationService for SimulatorIsolation {
   fn backend(&self) -> Vec<Isolation> {
     vec![Isolation::CONTAINERD, Isolation::DOCKER]
   }
@@ -45,7 +45,7 @@ impl LifecycleService for SimulatorLifecycle {
     Ok(())
   }
   
-  async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {
+  async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn ContainerIsolationService>, tid: &TransactionId) -> Result<()> {
     Ok(())
   }
 
@@ -71,7 +71,7 @@ impl LifecycleService for SimulatorLifecycle {
     "".to_string()
   }
 }
-impl crate::services::containers::structs::ToAny for SimulatorLifecycle {
+impl crate::services::containers::structs::ToAny for SimulatorIsolation {
   fn as_any(&self) -> &dyn std::any::Any {
       self
   }

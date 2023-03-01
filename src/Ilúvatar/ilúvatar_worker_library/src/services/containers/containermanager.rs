@@ -13,7 +13,7 @@ use dashmap::DashMap;
 use std::cmp::Ordering;
 use std::sync::{Arc, atomic::AtomicU32};
 use parking_lot::RwLock;
-use super::LifecycleCollection;
+use super::ContainerIsolationCollection;
 use super::container_pool::{ContainerPool, Subpool, ResourcePool};
 use super::structs::{Container, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
@@ -26,7 +26,7 @@ pub struct ContainerManager {
   gpu_containers: ResourcePool,
   resources: Arc<ContainerResourceConfig>,
   used_mem_mb: Arc<RwLock<MemSizeMb>>,
-  cont_lifecycles: LifecycleCollection,
+  cont_isolations: ContainerIsolationCollection,
   prioritized_list: RwLock<Subpool>,
   _worker_thread: std::thread::JoinHandle<()>,
   _health_thread: tokio::task::JoinHandle<()>,
@@ -38,10 +38,10 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-  async fn new(resources: Arc<ContainerResourceConfig>, cont_lifecycles: LifecycleCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>, tid: &TransactionId) -> Result<ContainerManager> {
+  async fn new(resources: Arc<ContainerResourceConfig>, cont_isolations: ContainerIsolationCollection, worker_thread: std::thread::JoinHandle<()>, health_thread: tokio::task::JoinHandle<()>, tid: &TransactionId) -> Result<ContainerManager> {
     let gpu_resource = GpuResourceTracker::boxed(resources.clone(), tid)?;
     Ok(ContainerManager {
-      resources, cont_lifecycles,
+      resources, cont_isolations: cont_isolations,
       gpu_limiter: gpu_resource,
       used_mem_mb: Arc::new(RwLock::new(0)),
       cpu_containers: ResourcePool::new(Compute::CPU),
@@ -54,11 +54,11 @@ impl ContainerManager {
     })
   }
 
-  pub async fn boxed(resources: Arc<ContainerResourceConfig>, cont_lifecycles: LifecycleCollection, tid: &TransactionId) -> Result<Arc<ContainerManager>> {
+  pub async fn boxed(resources: Arc<ContainerResourceConfig>, cont_isolations: ContainerIsolationCollection, tid: &TransactionId) -> Result<Arc<ContainerManager>> {
     let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), 
           ContainerManager::monitor_pool, None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>, None)?;
     let (health_handle, health_tx) = tokio_thread(resources.pool_freq_ms, CTR_MGR_HEALTH_WORKER_TID.clone(), Self::cull_unhealthy);
-    let cm = Arc::new(ContainerManager::new(resources.clone(), cont_lifecycles, handle, health_handle, tid).await?);
+    let cm = Arc::new(ContainerManager::new(resources.clone(), cont_isolations, handle, health_handle, tid).await?);
     tx.send(cm.clone()).unwrap();
     health_tx.send(cm.clone()).unwrap();
     Ok(cm)
@@ -85,7 +85,7 @@ impl ContainerManager {
       if (*service.remove_list.read()).len() > 0 {
         let item = (*service.remove_list.write()).pop();
         if let Some(to_remove) = item {
-          let cont_lifecycle = match service.cont_lifecycles.get(&to_remove.container_type()) {
+          let cont_lifecycle = match service.cont_isolations.get(&to_remove.container_type()) {
             Some(c) => c,
             None => {
               error!(tid=%tid, iso=?to_remove.container_type(), "Lifecycle for container not supported");
@@ -143,7 +143,7 @@ impl ContainerManager {
     let mut sum_change = 0;
     for container in all_ctrs {
       let old_usage = container.get_curr_mem_usage();
-      let cont_lifecycle = match self.cont_lifecycles.get(&container.container_type()) {
+      let cont_lifecycle = match self.cont_isolations.get(&container.container_type()) {
         Some(c) => c,
         None => {
           error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported");
@@ -283,7 +283,7 @@ impl ContainerManager {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
   async fn try_launch_container(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<Container> {
     let chosen_iso = self.get_optimal_lifecycle(reg, tid, compute)?;
-    let cont_lifecycle = match self.cont_lifecycles.get(&chosen_iso) {
+    let cont_lifecycle = match self.cont_isolations.get(&chosen_iso) {
       Some(c) => c,
       None => bail_error!(tid=%tid, iso=?chosen_iso, "Lifecycle(s) for container not supported"),
     };
@@ -402,7 +402,7 @@ impl ContainerManager {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   async fn remove_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
     info!(tid=%tid, container_id=%container.container_id(), "Removing container");
-    let cont_lifecycle = match self.cont_lifecycles.get(&container.container_type()) {
+    let cont_lifecycle = match self.cont_isolations.get(&container.container_type()) {
       Some(c) => c,
       None => bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported"),
     };

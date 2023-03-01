@@ -3,7 +3,7 @@ use iluvatar_library::types::{Isolation, Compute, MemSizeMb};
 use iluvatar_worker_library::{rpc::{RegisterRequest, LanguageRuntime}, services::{invocation::invoker_structs::InvocationResult, containers::structs::ContainerTimeFormatter, resources::cpu::CPUResourceMananger}};
 use iluvatar_library::{transaction::{TEST_TID, TransactionId}, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
 use iluvatar_worker_library::{worker_api::config::{Configuration, WorkerConfig}, services::registration::{RegistrationService, RegisteredFunction}};
-use iluvatar_worker_library::services::{containers::{LifecycleFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, Invoker}};
+use iluvatar_worker_library::services::{containers::{IsolationFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, Invoker}};
 use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tokio::{time::timeout, task::JoinHandle};
@@ -50,8 +50,8 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<St
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let cpu = CPUResourceMananger::new(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
-  let factory = LifecycleFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
-  let lifecycles = factory.get_lifecycle_services(&TEST_TID, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
+  let factory = IsolationFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
+  let lifecycles = factory.get_isolation_services(&TEST_TID, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
   let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());
@@ -89,8 +89,8 @@ pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<S
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let cpu = CPUResourceMananger::new(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
-  let factory = LifecycleFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
-  let lifecycles = factory.get_lifecycle_services(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
+  let factory = IsolationFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
+  let lifecycles = factory.get_isolation_services(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
   let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());

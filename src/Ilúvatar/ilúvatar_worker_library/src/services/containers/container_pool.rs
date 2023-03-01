@@ -141,7 +141,7 @@ impl ContainerPool {
 mod tests {
   use std::sync::Arc;
   use iluvatar_library::{utils::calculate_fqdn, types::Isolation};
-  use crate::services::{containers::{simulation::simstructs::SimulatorContainer}, registration::RegisteredFunction};
+  use crate::services::{containers::{simulator::simstructs::SimulatorContainer}, registration::RegisteredFunction};
   use super::*;
 
   #[test]

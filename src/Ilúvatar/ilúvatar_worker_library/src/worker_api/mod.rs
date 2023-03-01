@@ -7,7 +7,7 @@ use crate::services::invocation::InvokerFactory;
 use crate::services::registration::RegistrationService;
 use crate::services::resources::cpu::CPUResourceMananger;
 use crate::services::worker_health::WorkerHealthService;
-use crate::services::containers::LifecycleFactory;
+use crate::services::containers::IsolationFactory;
 use crate::services::status::status_service::StatusService;
 use crate::services::containers::containermanager::ContainerManager;
 use crate::worker_api::ilúvatar_worker::IluvatarWorkerImpl;
@@ -26,20 +26,20 @@ pub mod worker_comm;
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
-  let factory = LifecycleFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
+  let factory = IsolationFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
   let cpu = CPUResourceMananger::new(worker_config.container_resources.clone(), tid)?;
   
-  let cycles = match factory.get_lifecycle_services(tid, true).await  {
+  let isos = match factory.get_isolation_services(tid, true).await  {
     Ok(l) => l,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"),
   };
 
-  let container_man = match ContainerManager::boxed(worker_config.container_resources.clone(), cycles.clone(), tid).await {
+  let container_man = match ContainerManager::boxed(worker_config.container_resources.clone(), isos.clone(), tid).await {
     Ok(s) => s,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make container manger"),
   };
 
-  let reg = RegistrationService::new(container_man.clone(), cycles.clone(), worker_config.limits.clone());
+  let reg = RegistrationService::new(container_man.clone(), isos.clone(), worker_config.limits.clone());
 
   let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone(), cmap.clone(), cpu);
   let invoker = invoker_fact.get_invoker_service(tid)?;

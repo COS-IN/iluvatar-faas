@@ -3,7 +3,7 @@ use dashmap::DashSet;
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, utils::{execute_cmd, port::free_local_port}, bail_error};
 use crate::{worker_api::worker_config::{ContainerResourceConfig, FunctionLimits}, services::{containers::structs::ContainerState, registration::RegisteredFunction}};
 use self::dockerstructs::DockerContainer;
-use super::{structs::Container, LifecycleService};
+use super::{structs::Container, ContainerIsolationService};
 use anyhow::Result;
 use guid_create::GUID;
 use tracing::{warn, info, trace, debug};
@@ -12,14 +12,14 @@ pub mod dockerstructs;
 
 #[derive(Debug)]
 #[allow(unused)]
-pub struct DockerLifecycle {
+pub struct DockerIsolation {
   config: Arc<ContainerResourceConfig>,
   limits_config: Arc<FunctionLimits>,
   creation_sem: Option<tokio::sync::Semaphore>,
   pulled_images: DashSet<String>
 }
 
-impl DockerLifecycle {
+impl DockerIsolation {
   pub fn supported(tid: &TransactionId) -> bool {
     let args = vec!["ps"];
     match execute_cmd("/usr/bin/docker", &args, None, tid) {
@@ -33,7 +33,7 @@ impl DockerLifecycle {
       0 => None,
       i => Some(tokio::sync::Semaphore::new(i as usize))
     };
-    DockerLifecycle {
+    DockerIsolation {
       config,
       limits_config,
       creation_sem: sem,
@@ -68,7 +68,7 @@ impl DockerLifecycle {
 
 #[tonic::async_trait]
 #[allow(unused)]
-impl LifecycleService for DockerLifecycle {
+impl ContainerIsolationService for DockerIsolation {
   fn backend(&self) -> Vec<Isolation> {
     vec![Isolation::DOCKER]
   }
@@ -163,7 +163,7 @@ impl LifecycleService for DockerLifecycle {
     Ok(())
   }
   
-  async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn LifecycleService>, tid: &TransactionId) -> Result<()> {
+  async fn clean_containers(&self, ctd_namespace: &str, self_src: Arc<dyn ContainerIsolationService>, tid: &TransactionId) -> Result<()> {
     let output = execute_cmd("/usr/bin/docker", &vec!["ps", "--filter", "label=owner=iluvatar_worker", "-q"], None, tid)?;
     if let Some(status) = output.status.code() {
       if status != 0 {
@@ -243,7 +243,7 @@ impl LifecycleService for DockerLifecycle {
     }
   }
 }
-impl crate::services::containers::structs::ToAny for DockerLifecycle {
+impl crate::services::containers::structs::ToAny for DockerIsolation {
   fn as_any(&self) -> &dyn std::any::Any {
       self
   }
