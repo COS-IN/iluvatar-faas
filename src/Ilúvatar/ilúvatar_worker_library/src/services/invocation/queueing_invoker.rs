@@ -37,6 +37,7 @@ pub struct QueueingInvoker {
   gpu: Arc<GpuResourceTracker>,
   gpu_queue_signal: Notify,
   gpu_queue: Arc<dyn InvokerQueuePolicy>,
+  running: AtomicU32,
 }
 
 #[allow(dyn_drop)]
@@ -59,6 +60,7 @@ impl QueueingInvoker {
       cpu_queue: cpu_queue.clone(),
       gpu_queue: gpu_queue,
       cpu, gpu, cmap,
+      running: AtomicU32::new(0),
     });
     cpu_tx.send(svc.clone())?;
     gpu_tx.send(svc.clone())?;
@@ -126,43 +128,6 @@ impl QueueingInvoker {
     } else {
       return false;
     }
-  }
-
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, bypass_running), fields(tid=%tid)))]
-  /// Run an invocation, bypassing any concurrency restrictions
-  /// A return value of [Ok(None)] means that the function would have run cold, and the caller should enqueue it instead
-  async fn bypassing_invoke_internal(&self, reg: Arc<RegisteredFunction>, json_args: &String, tid: &TransactionId, bypass_running: &AtomicU32) -> Result<Option<InvocationResultPtr>> {
-    info!(tid=%tid, "Bypassing internal invocation starting");
-    // take run time now because we may have to wait to get a container
-    let remove_time = self.clock.now_str()?;
-
-    let ctr_lock = match self.cont_manager.acquire_container(&reg, &tid, reg.supported_compute) {
-      EventualItem::Future(_) => return Ok(None), // return None on a cold start, signifying the bypass didn't happen
-      EventualItem::Now(n) => n?,
-    };
-    info!(tid=%tid, insert_time=%remove_time, remove_time=%remove_time, "Item starting to execute");
-    bypass_running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let (result, duration) = ctr_lock.invoke(&json_args).await?;
-    bypass_running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    match ctr_lock.container.state() 
-    {
-      ContainerState::Warm => {self.cmap.add(&reg.fqdn, Characteristics::WarmTime, Values::F64(result.duration_sec), true);},
-      ContainerState::Prewarm => {self.cmap.add(&reg.fqdn, Characteristics::PreWarmTime, Values::F64(result.duration_sec), true);},
-      _ => error!(tid=%tid, container_id=ctr_lock.container.container_id(), "Got a cold container when doing a bypass invoke"), // can't have a cold container
-    };
-    self.cmap.add(&reg.fqdn, Characteristics::ExecTime, Values::F64(result.duration_sec), true);
-    let r = Arc::new(Mutex::new(InvocationResult {
-      completed: true,
-      duration: duration,
-      result_json: result.result_string()?,
-      attempts: 0,
-      exec_time: result.duration_sec,
-      worker_result: Some(result),
-      compute: ctr_lock.container.compute_type(),
-      container_state: ctr_lock.container.state(),
-    }));
-    self.cpu_queue_signal.notify_waiters();
-    Ok(Some(r))
   }
 
   /// Returns an owned permit if there are sufficient resources to run a function
@@ -276,6 +241,43 @@ impl QueueingInvoker {
     enqueue
   }
 
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, bypass_running), fields(tid=%tid)))]
+  /// Run an invocation, bypassing any concurrency restrictions
+  /// A return value of [Ok(None)] means that the function would have run cold, and the caller should enqueue it instead
+  async fn bypassing_invoke_internal(&self, reg: Arc<RegisteredFunction>, json_args: &String, tid: &TransactionId) -> Result<Option<InvocationResultPtr>> {
+    info!(tid=%tid, "Bypassing internal invocation starting");
+    // take run time now because we may have to wait to get a container
+    let remove_time = self.clock.now_str()?;
+
+    let ctr_lock = match self.cont_manager.acquire_container(&reg, &tid, reg.supported_compute) {
+      EventualItem::Future(_) => return Ok(None), // return None on a cold start, signifying the bypass didn't happen
+      EventualItem::Now(n) => n?,
+    };
+    info!(tid=%tid, insert_time=%remove_time, remove_time=%remove_time, "Item starting to execute");
+    self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (result, duration) = ctr_lock.invoke(&json_args).await?;
+    self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    match ctr_lock.container.state() 
+    {
+      ContainerState::Warm => {self.cmap.add(&reg.fqdn, Characteristics::WarmTime, Values::F64(result.duration_sec), true);},
+      ContainerState::Prewarm => {self.cmap.add(&reg.fqdn, Characteristics::PreWarmTime, Values::F64(result.duration_sec), true);},
+      _ => error!(tid=%tid, container_id=ctr_lock.container.container_id(), "Got a cold container when doing a bypass invoke"), // can't have a cold container
+    };
+    self.cmap.add(&reg.fqdn, Characteristics::ExecTime, Values::F64(result.duration_sec), true);
+    let r = Arc::new(Mutex::new(InvocationResult {
+      completed: true,
+      duration: duration,
+      result_json: result.result_string()?,
+      attempts: 0,
+      exec_time: result.duration_sec,
+      worker_result: Some(result),
+      compute: ctr_lock.container.compute_type(),
+      container_state: ctr_lock.container.state(),
+    }));
+    self.cpu_queue_signal.notify_waiters();
+    Ok(Some(r))
+  }
+
   /// acquires a container and invokes the function inside it
   /// returns the json result and duration as a tuple
   /// The optional [permit] is dropped to return held resources
@@ -291,7 +293,9 @@ impl QueueingInvoker {
       EventualItem::Now(n) => n?,
     };
     info!(tid=%tid, insert_time=%self.clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
+    self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (data, duration) = ctr_lock.invoke(json_args).await?;
+    self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     match ctr_lock.container.state() {
       ContainerState::Warm => self.cmap.add(&reg.fqdn, Characteristics::WarmTime, Values::F64(data.duration_sec), true),
       ContainerState::Prewarm => self.cmap.add(&reg.fqdn, Characteristics::PreWarmTime, Values::F64(data.duration_sec), true),
@@ -311,15 +315,14 @@ impl Invoker for QueueingInvoker {
   /// Re-implementers **must** duplicate [tracing::info] logs for consistency
   async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
     // check if the bypass counter exists, and if this fqdn can by bypassed
-    if let Some(bypass_running) = self.cpu_queue.bypass_running() {
-      if self.should_bypass(&reg) {
-        // if both true, then go for the bypass
-        match self.bypassing_invoke_internal(reg.clone(), &json_args, &tid, bypass_running).await? {
-          Some(x) => return Ok(x),
-          None => (), // None means the function would have run cold, so instead we put it into the queue
-        };
-      }
+    if self.should_bypass(&reg) {
+      // if both true, then go for the bypass
+      match self.bypassing_invoke_internal(reg.clone(), &json_args, &tid).await? {
+        Some(x) => return Ok(x),
+        None => (), // None means the function would have run cold, so instead we put it into the queue
+      };
     }
+
     let queued = self.enqueue_new_invocation(&reg, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
@@ -347,10 +350,6 @@ impl Invoker for QueueingInvoker {
 
   /// The number of functions currently running
   fn running_funcs(&self) -> u32 {
-    let bypass = match self.cpu_queue.bypass_running() {
-      Some(x) => x.load(std::sync::atomic::Ordering::Relaxed),
-      None => 0,
-    };
-    bypass //+ concur
+    self.running.load(std::sync::atomic::Ordering::Relaxed)
   }
 }

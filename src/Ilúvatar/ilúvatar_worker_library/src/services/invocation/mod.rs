@@ -7,9 +7,7 @@ use self::avail_scale_q::AvailableScalingQueue;
 use self::cold_priority_q::ColdPriorityQueue;
 use self::invoker_structs::{EnqueuedInvocation, InvocationResultPtr};
 use self::queueing_invoker::QueueingInvoker;
-use self::{queueless::Queueless, fcfs_q::FCFSQueue, minheap_q::MinHeapQueue};
-use self::{minheap_ed_q::MinHeapEDQueue, fcfs_bypass_q::FCFSBypassQueue, minheap_bypass_q::MinHeapBPQueue, minheap_ed_bypass_q::MinHeapEDBPQueue, minheap_iat_bypass_q::MinHeapIATBPQueue };
-use self::minheap_iat_q::MinHeapIATQueue;
+use self::{queueless::Queueless, fcfs_q::FCFSQueue, minheap_q::MinHeapQueue, minheap_ed_q::MinHeapEDQueue, minheap_iat_q::MinHeapIATQueue};
 use super::containers::containermanager::ContainerManager;
 use super::registration::RegisteredFunction;
 use super::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
@@ -21,10 +19,6 @@ pub mod fcfs_q;
 pub mod minheap_q;
 pub mod minheap_ed_q;
 pub mod minheap_iat_q;
-pub mod fcfs_bypass_q;
-pub mod minheap_bypass_q;
-pub mod minheap_ed_bypass_q;
-pub mod minheap_iat_bypass_q;
 mod cold_priority_q;
 mod avail_scale_q;
 pub mod queueing_invoker;
@@ -53,8 +47,6 @@ pub trait InvokerQueuePolicy: Send + Sync {
   /// Wakes up the queue monitor thread
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, _item, _index), fields(tid=%_item.tid)))]
   fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>) { }
-
-  fn bypass_running(&self) -> Option<&std::sync::atomic::AtomicU32> { None }
 }
 
 #[tonic::async_trait]
@@ -108,10 +100,6 @@ impl InvokerFactory {
       "minheap" => MinHeapQueue::new(tid, self.cmap.clone())?,
       "minheap_ed" => MinHeapEDQueue::new(tid, self.cmap.clone())?,
       "minheap_iat" => MinHeapIATQueue::new(tid, self.cmap.clone())?,
-      "minheap_iat_bypass" => MinHeapIATBPQueue::new(self.invocation_config.clone(), tid, self.cmap.clone())?,
-      "minheap_ed_bypass" => MinHeapEDBPQueue::new(self.invocation_config.clone(), tid, self.cmap.clone())?,
-      "minheap_bypass" => MinHeapBPQueue::new(self.invocation_config.clone(), tid, self.cmap.clone())?,
-      "fcfs_bypass" => FCFSBypassQueue::new(self.invocation_config.clone(), tid)?,
       "cold_pri" => ColdPriorityQueue::new(self.cont_manager.clone(), tid, self.cmap.clone())?,
       "scaling" => AvailableScalingQueue::new(self.cont_manager.clone(), tid, self.cmap.clone())?,
       unknown => panic!("Unknown queueing policy '{}'", unknown),

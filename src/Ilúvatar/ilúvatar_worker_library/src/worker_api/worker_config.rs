@@ -100,7 +100,7 @@ pub struct InvocationConfig {
   /// Queueing policy to use.
   /// Cerrently implemented are [none (no queue), fcfs (first come first serve), ]
   pub queue_policy: String,
-  /// If not zero, invocations with an execution duration less than this
+  /// If present and not zero, invocations with an execution duration less than this
   ///   will bypass concurrency restrictions and be run immediately
   pub bypass_duration_ms: Option<u64>,
 }

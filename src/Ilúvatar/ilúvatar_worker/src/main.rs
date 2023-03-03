@@ -64,7 +64,6 @@ fn build_runtime(server_config: WorkerConfig, tid: &TransactionId) -> Result<Run
 fn main() -> Result<()> {
   iluvatar_library::utils::file::ensure_temp_dir()?;
   let tid: &TransactionId = &STARTUP_TID;
-
   let cli = Args::parse();
 
   match cli.command {

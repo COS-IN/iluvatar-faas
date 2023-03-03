@@ -40,7 +40,6 @@ impl InvokerQueuePolicy for FCFSQueue {
     v
   }
   fn queue_len(&self) -> usize { self.invoke_queue.lock().len() }
-  fn bypass_running(&self) -> Option<&std::sync::atomic::AtomicU32> { None }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {

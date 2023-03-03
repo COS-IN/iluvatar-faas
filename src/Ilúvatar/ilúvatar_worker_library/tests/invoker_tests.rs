@@ -12,7 +12,6 @@ use iluvatar_library::transaction::TEST_TID;
 fn build_overrides(invoker_q: &str) -> Vec<(String, String)> {
   let mut r = vec![];
   r.push(("invocation.queue_policy".to_string(), invoker_q.to_string()));
-  r.push(("invocation.bypass_duration_ms".to_string(), "20".to_string()));
   r.push(("invocation.concurrency_udpate_check_ms".to_string(), "1000".to_string()));
   r.push(("invocation.max_load".to_string(), "10".to_string()));
   r.push(("invocation.max_concurrency".to_string(), "10".to_string()));
@@ -39,10 +38,6 @@ mod invoke {
   #[rstest]
   #[case("fcfs")]
   #[case("minheap")]
-  #[case("fcfs_bypass")]
-  #[case("minheap_iat_bypass")]
-  #[case("minheap_ed_bypass")]
-  #[case("minheap_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
   #[case("none")]
@@ -81,10 +76,6 @@ mod invoke {
   #[rstest]
   #[case("fcfs")]
   #[case("minheap")]
-  #[case("fcfs_bypass")]
-  #[case("minheap_iat_bypass")]
-  #[case("minheap_ed_bypass")]
-  #[case("minheap_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
   #[case("none")]
@@ -127,10 +118,6 @@ mod invoke_async {
   #[rstest]
   #[case("fcfs")]
   #[case("minheap")]
-  #[case("fcfs_bypass")]
-  #[case("minheap_iat_bypass")]
-  #[case("minheap_ed_bypass")]
-  #[case("minheap_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
   #[case("none")]
@@ -188,10 +175,6 @@ mod invoke_async {
   #[rstest]
   #[case("fcfs")]
   #[case("minheap")]
-  #[case("fcfs_bypass")]
-  #[case("minheap_iat_bypass")]
-  #[case("minheap_ed_bypass")]
-  #[case("minheap_bypass")]
   #[case("minheap_iat")]
   #[case("minheap_ed")]
   #[case("none")]
@@ -275,8 +258,9 @@ mod fcfs_tests {
 
 #[cfg(test)]
 mod minheap_tests {
+  use crate::utils::test_invoke;
   use super::*;
-  
+
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn fast_put_first() {
     let env = build_overrides("minheap");
@@ -298,10 +282,10 @@ mod minheap_tests {
     let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
     // warm exec time cache
-    let first_invoke = background_test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id);
-    let second_invoke = background_test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
-    get_start_end_time_from_invoke(first_invoke, &formatter).await;
-    get_start_end_time_from_invoke(second_invoke, &formatter).await;
+    test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id).await;
+    test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id).await;
+    test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id).await;
+    test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id).await;
 
     let first_slow_invoke = background_test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
     tokio::time::sleep(Duration::from_micros(100)).await;
@@ -356,13 +340,30 @@ mod minheap_tests {
   }
 }
 
+fn build_bypass_overrides(invoker_q: &str) -> Vec<(String, String)> {
+  let mut r = vec![];
+  r.push(("invocation.queue_policy".to_string(), invoker_q.to_string()));
+  r.push(("invocation.bypass_duration_ms".to_string(), "20".to_string()));
+  r.push(("invocation.concurrency_udpate_check_ms".to_string(), "1000".to_string()));
+  r.push(("invocation.max_load".to_string(), "10".to_string()));
+  r.push(("invocation.max_concurrency".to_string(), "10".to_string()));
+  r
+}
+
 #[cfg(test)]
-mod fcfs_bypass_tests {
+mod bypass_tests {
   use super::*;
   
+  #[rstest]
+  #[case("fcfs")]
+  #[case("minheap")]
+  #[case("minheap_iat")]
+  #[case("minheap_ed")]
+  #[case("cold_pri")]
+  #[case("scaling")]
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-  async fn fast_bypass_limits() {
-    let env = build_overrides("fcfs_bypass");
+  async fn fast_bypass_limits(#[case] invoker_q: &str) {
+    let env = build_bypass_overrides(invoker_q);
     let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
@@ -408,6 +409,5 @@ mod fcfs_bypass_tests {
     assert!(t2_s < t3_s, "Fast invoke should not have been reordered to start before slow: {} !< {}", t2_s, t3_s);
     assert!(t2_e < t3_e, "Fast invoke should have finished before slow: {} !< {}", t2_e, t3_e);
     assert!(found, "`found` was never 2");
-
   }
 }
