@@ -3,13 +3,11 @@ use std::{sync::Arc, time::Duration};
 use crate::services::containers::structs::{ParsedResult, InsufficientCoresError, InsufficientMemoryError, ContainerState};
 use crate::services::invocation::invoker_structs::InvocationResult;
 use crate::services::registration::RegisteredFunction;
-use crate::services::resources::cpu::CPUResourceMananger;
+use crate::services::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
-use iluvatar_library::threading::tokio_runtime;
-use iluvatar_library::transaction::INVOKER_QUEUE_WORKER_TID;
-use iluvatar_library::types::Compute;
+use iluvatar_library::{types::Compute, threading::tokio_runtime};
 use iluvatar_library::{transaction::TransactionId, threading::EventualItem, logging::LocalTime};
 use parking_lot::Mutex;
 use time::{OffsetDateTime, Instant};
@@ -20,53 +18,89 @@ use super::{InvokerQueuePolicy, Invoker};
 use super::async_tracker::AsyncHelper;
 use super::invoker_structs::{EnqueuedInvocation, InvocationResultPtr};
 
+lazy_static::lazy_static! {
+  pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
+  pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
+}
+
 pub struct QueueingInvoker {
   cont_manager: Arc<ContainerManager>,
   async_functions: AsyncHelper,
   invocation_config: Arc<InvocationConfig>,
   cmap: Arc<CharacteristicsMap>,
-  _worker_thread: std::thread::JoinHandle<()>,
-  queue_signal: Notify,
   clock: LocalTime,
-  queue: Arc<dyn InvokerQueuePolicy>,
+  _cpu_thread: std::thread::JoinHandle<()>,
+  cpu_queue_signal: Notify,
   cpu: Arc<CPUResourceMananger>,
+  cpu_queue: Arc<dyn InvokerQueuePolicy>,
+  _gpu_thread: std::thread::JoinHandle<()>,
+  gpu: Arc<GpuResourceTracker>,
+  gpu_queue_signal: Notify,
+  gpu_queue: Arc<dyn InvokerQueuePolicy>,
 }
 
 #[allow(dyn_drop)]
 /// A trait representing the functionality a queue policy must implement
 /// Overriding functions _must_ re-implement [info] level log statements for consistency
 impl QueueingInvoker {
-  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, tid: &TransactionId, cmap: Arc<CharacteristicsMap>, queue: Arc<dyn InvokerQueuePolicy>, cpu: Arc<CPUResourceMananger>) -> Result<Arc<Self>> {
-    let (handle, tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_QUEUE_WORKER_TID.clone(), Self::monitor_queue, Some(Self::wait_on_queue), Some(function_config.cpu_max as usize))?;
+  pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, 
+      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu_queue: Arc<dyn InvokerQueuePolicy>, gpu_queue: Arc<dyn InvokerQueuePolicy>, 
+      cpu: Arc<CPUResourceMananger>, gpu: Arc<GpuResourceTracker>) -> Result<Arc<Self>> {
+    let (cpu_handle, cpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_CPU_QUEUE_WORKER_TID.clone(), Self::monitor_cpu_queue, Some(Self::cpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
+    let (gpu_handle, gpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_GPU_QUEUE_WORKER_TID.clone(), Self::monitor_gpu_queue, Some(Self::gpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
     let svc = Arc::new(QueueingInvoker {
       cont_manager, invocation_config,
       async_functions: AsyncHelper::new(),
-      queue_signal: Notify::new(),
-      cmap,
-      _worker_thread: handle,
+      cpu_queue_signal: Notify::new(),
+      _cpu_thread: cpu_handle,
+      gpu_queue_signal: Notify::new(),
+      _gpu_thread: gpu_handle,
       clock: LocalTime::new(tid)?,
-      queue,
-      cpu
+      cpu_queue: cpu_queue.clone(),
+      gpu_queue: gpu_queue,
+      cpu, gpu, cmap,
     });
-    tx.send(svc.clone())?;
+    cpu_tx.send(svc.clone())?;
+    gpu_tx.send(svc.clone())?;
     debug!(tid=%tid, "Created MinHeapInvoker");
     Ok(svc)
   }
   
   /// Wait on the Notify object for the queue to be available again
-  async fn wait_on_queue(invoker_svc: Arc<QueueingInvoker>, tid: TransactionId) {
-    invoker_svc.queue_signal.notified().await;
+  async fn cpu_wait_on_queue(invoker_svc: Arc<QueueingInvoker>, tid: TransactionId) {
+    invoker_svc.cpu_queue_signal.notified().await;
     debug!(tid=%tid, "Invoker waken up by signal");
   }
   /// Check the invocation queue, running things when there are sufficient resources
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoker_svc), fields(tid=%_tid)))]
-  async fn monitor_queue(invoker_svc: Arc<Self>, _tid: TransactionId) {
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoker_svc), fields(tid=%tid)))]
+  async fn monitor_cpu_queue(invoker_svc: Arc<Self>, tid: TransactionId) {
+    invoker_svc.clone().monitor_queue(invoker_svc.cpu_queue.clone(), tid).await;
+  }
+  async fn gpu_wait_on_queue(invoker_svc: Arc<QueueingInvoker>, tid: TransactionId) {
+    invoker_svc.gpu_queue_signal.notified().await;
+    debug!(tid=%tid, "Invoker waken up by signal");
+  }
+  /// Check the invocation queue, running things when there are sufficient resources
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoker_svc), fields(tid=%tid)))]
+  async fn monitor_gpu_queue(invoker_svc: Arc<Self>, tid: TransactionId) {
+    invoker_svc.clone().monitor_queue(invoker_svc.gpu_queue.clone(), tid).await;
+  }
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, queue), fields(tid=%_tid)))]
+  async fn monitor_queue(self: Arc<Self>, queue: Arc<dyn InvokerQueuePolicy>, _tid: TransactionId) {
     loop {
-      if let Some(peek_item) = invoker_svc.queue.peek_queue() {
-        if let Some(permit) = invoker_svc.acquire_resources_to_run(&peek_item) {
-          let item = invoker_svc.queue.pop_queue();
+      if let Some(peek_item) = queue.peek_queue() {
+        if let Some(permit) = self.acquire_resources_to_run(&peek_item, true, true) {
+          let item = queue.pop_queue();
+          let mut started = item.started.lock();
+          match *started {
+            true => continue, // item was started on another resource
+            false => {
+              *started = true;
+              drop(started);
+            },
+          }
           // TODO: continuity of spans here
-          invoker_svc.spawn_tokio_worker(invoker_svc.clone(), item, permit);  
+          self.spawn_tokio_worker(self.clone(), item, permit);  
         }else { 
           debug!(tid=%peek_item.tid, "Insufficient resources to run item");
           break; 
@@ -78,14 +112,19 @@ impl QueueingInvoker {
     }
   }
 
-  /// Return [true] if the item should bypass concurrency restrictions 
-  fn should_bypass(&self, fqdn: &String) -> bool {
-    match self.invocation_config.bypass_duration_ms {
-      Some(bypass_duration_ms) => {
-        let exec_time = self.cmap.get_exec_time(fqdn);
-        exec_time != 0.0 && exec_time < Duration::from_millis(bypass_duration_ms).as_secs_f64()
-      },
-      None => false,
+  /// Return [true] if the item should bypass concurrency restrictions
+  /// Only CPU supported functions can possibly be bypassed
+  fn should_bypass(&self, reg: &Arc<RegisteredFunction>) -> bool {
+    if reg.supported_compute.contains(Compute::CPU) {
+      return match self.invocation_config.bypass_duration_ms {
+        Some(bypass_duration_ms) => {
+          let exec_time = self.cmap.get_exec_time(&reg.fqdn);
+          exec_time != 0.0 && exec_time < Duration::from_millis(bypass_duration_ms).as_secs_f64()
+        },
+        None => false,
+      };
+    } else {
+      return false;
     }
   }
 
@@ -122,24 +161,39 @@ impl QueueingInvoker {
       compute: ctr_lock.container.compute_type(),
       container_state: ctr_lock.container.state(),
     }));
-    self.queue_signal.notify_waiters();
+    self.cpu_queue_signal.notify_waiters();
     Ok(Some(r))
   }
 
   /// Returns an owned permit if there are sufficient resources to run a function
   /// A return value of [None] means the resources failed to be acquired
-  fn acquire_resources_to_run(&self, item: &Arc<EnqueuedInvocation>) -> Option<Box<dyn Drop+Send>> {
-    let core_perm = match self.cpu.try_acquire_cores(&item.registration, &item.tid) {
-      Ok(c) => c,
-      Err(e) => { 
-        match e {
-          tokio::sync::TryAcquireError::Closed => error!(tid=%item.tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!"),
-          tokio::sync::TryAcquireError::NoPermits => (),
-        };
-        return None;
-      },
-    };
-    Some(Box::new(vec![core_perm]))
+  fn acquire_resources_to_run(&self, item: &Arc<EnqueuedInvocation>, cpu: bool, gpu: bool) -> Option<Box<dyn Drop+Send>> {
+    let mut ret = vec![];
+    if cpu {
+      match self.cpu.try_acquire_cores(&item.registration, &item.tid) {
+        Ok(c) => ret.push(c),
+        Err(e) => { 
+          match e {
+            tokio::sync::TryAcquireError::Closed => error!(tid=%item.tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!"),
+            tokio::sync::TryAcquireError::NoPermits => (),
+          };
+          return None;
+        },
+      };
+    }
+    if gpu {
+      match self.gpu.try_acquire_resource() {
+        Ok(c) => ret.push(Some(c)),
+        Err(e) => { 
+          match e {
+            tokio::sync::TryAcquireError::Closed => error!(tid=%item.tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!"),
+            tokio::sync::TryAcquireError::NoPermits => (),
+          };
+          return None;
+        },
+      };
+    }
+    Some(Box::new(ret))
   }
 
   /// Runs the specific invocation inside a new tokio worker thread
@@ -184,10 +238,10 @@ impl QueueingInvoker {
   fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
     if let Some(_core_err) = cause.downcast_ref::<InsufficientCoresError>() {
       debug!(tid=%item.tid, "Insufficient cores to run item right now");
-      self.queue.add_item_to_queue(&item, Some(0));
+      self.cpu_queue.add_item_to_queue(&item, Some(0));
     } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
       warn!(tid=%item.tid, "Insufficient memory to run item right now");
-      self.queue.add_item_to_queue(&item, Some(0));
+      self.cpu_queue.add_item_to_queue(&item, Some(0));
     } else {
       error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
       let mut result_ptr = item.result_ptr.lock();
@@ -200,7 +254,7 @@ impl QueueingInvoker {
       } else {
         result_ptr.attempts += 1;
         debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
-        self.queue.add_item_to_queue(&item, Some(0));
+        self.cpu_queue.add_item_to_queue(&item, Some(0));
       }
     }
   }
@@ -208,11 +262,17 @@ impl QueueingInvoker {
   /// Forms invocation data into a [EnqueuedInvocation] that is returned
   /// The default implementation also calls [Invoker::add_item_to_queue] to optionally insert that item into the implementation's queue
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
-  fn enqueue_new_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Arc<EnqueuedInvocation> {
+  fn enqueue_new_invocation(&self, reg: &Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Arc<EnqueuedInvocation> {
     debug!(tid=%tid, "Enqueueing invocation");
-    let enqueue = Arc::new(EnqueuedInvocation::new(reg, json_args, tid, self.clock.now()));
-    self.queue.add_item_to_queue(&enqueue, None);
-    self.queue_signal.notify_waiters();
+    let enqueue = Arc::new(EnqueuedInvocation::new(reg.clone(), json_args, tid, self.clock.now()));
+    if reg.supported_compute.contains(Compute::CPU) {
+      self.cpu_queue.add_item_to_queue(&enqueue, None);
+      self.cpu_queue_signal.notify_waiters();
+    }
+    if reg.supported_compute.contains(Compute::GPU) {
+      self.gpu_queue.add_item_to_queue(&enqueue, None);
+      self.gpu_queue_signal.notify_waiters();
+    }
     enqueue
   }
 
@@ -239,7 +299,7 @@ impl QueueingInvoker {
     };
     self.cmap.add(&reg.fqdn, Characteristics::ExecTime, Values::F64(data.duration_sec), true);
     drop(permit);
-    self.queue_signal.notify_waiters();
+    self.cpu_queue_signal.notify_waiters();
     Ok((data, duration, ctr_lock.container.compute_type(), ctr_lock.container.state()))
   }
 }
@@ -251,8 +311,8 @@ impl Invoker for QueueingInvoker {
   /// Re-implementers **must** duplicate [tracing::info] logs for consistency
   async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
     // check if the bypass counter exists, and if this fqdn can by bypassed
-    if let Some(bypass_running) = self.queue.bypass_running() {
-      if self.should_bypass(&reg.fqdn) {
+    if let Some(bypass_running) = self.cpu_queue.bypass_running() {
+      if self.should_bypass(&reg) {
         // if both true, then go for the bypass
         match self.bypassing_invoke_internal(reg.clone(), &json_args, &tid, bypass_running).await? {
           Some(x) => return Ok(x),
@@ -260,7 +320,7 @@ impl Invoker for QueueingInvoker {
         };
       }
     }
-    let queued = self.enqueue_new_invocation(reg, json_args, tid.clone());
+    let queued = self.enqueue_new_invocation(&reg, json_args, tid.clone());
     queued.wait(&tid).await?;
     let result_ptr = queued.result_ptr.lock();
     match result_ptr.completed {
@@ -274,7 +334,7 @@ impl Invoker for QueueingInvoker {
     }
   }
   fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String> {
-    let invoke = self.enqueue_new_invocation(reg, json_args, tid);
+    let invoke = self.enqueue_new_invocation(&reg, json_args, tid);
     self.async_functions.insert_async_invoke(invoke)
   }
   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse> {
@@ -282,19 +342,15 @@ impl Invoker for QueueingInvoker {
   }
 
   fn queue_len(&self) -> usize {
-    self.queue.queue_len()
+    self.cpu_queue.queue_len() + self.gpu_queue.queue_len()
   }
 
   /// The number of functions currently running
   fn running_funcs(&self) -> u32 {
-    let bypass = match self.queue.bypass_running() {
+    let bypass = match self.cpu_queue.bypass_running() {
       Some(x) => x.load(std::sync::atomic::Ordering::Relaxed),
       None => 0,
     };
-    // let concur = match self.queue.concurrency_semaphore() {
-    //   Some(x) => self.invocation_config.concurrent_invokes.unwrap_or(u32::MAX) - x.available_permits() as u32,
-    //   None => 0,
-    // };
     bypass //+ concur
   }
 }

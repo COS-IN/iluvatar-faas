@@ -2,6 +2,7 @@ use std::sync::Arc;
 use iluvatar_library::{utils::execute_cmd, transaction::TransactionId, types::ComputeEnum};
 use parking_lot::RwLock;
 use anyhow::Result;
+use tokio::sync::{Semaphore, OwnedSemaphorePermit};
 use tracing::warn;
 use crate::worker_api::worker_config::ContainerResourceConfig;
 
@@ -13,11 +14,15 @@ pub struct GPU {
 
 pub struct GpuResourceTracker {
   gpus: RwLock<Vec<Arc<GPU>>>,
+  concurrency_semaphore: Arc<Semaphore>,
 }
 impl GpuResourceTracker {
   pub fn boxed(resources: Arc<ContainerResourceConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+    let gpus = GpuResourceTracker::prepare_structs(resources, tid)?;
+    let sem =Arc::new(Semaphore::new(gpus.len()));
     Ok(Arc::new(GpuResourceTracker {
-      gpus: RwLock::new(GpuResourceTracker::prepare_structs(resources, tid)?)
+      gpus: RwLock::new(gpus),
+      concurrency_semaphore: sem,
     }))
   }
 
@@ -51,6 +56,16 @@ impl GpuResourceTracker {
     Ok(ret)
   }
 
+  /// Return a permit access to a single GPU
+  /// Returns an error if none are available
+  pub fn try_acquire_resource(&self) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
+    match self.concurrency_semaphore.clone().try_acquire_many_owned(1) {
+      Ok(p) => Ok(p),
+      Err(e) => Err(e),
+    }
+  }
+
+  /// Acquire a GPU so it can be attached to a container
   pub fn acquire_gpu(self: &Arc<Self>) -> Option<Arc<GPU>> {
     match self.gpus.write().pop() {
       Some(gpu) =>  Some(gpu),
@@ -58,6 +73,7 @@ impl GpuResourceTracker {
     }
   }
 
+  /// Return a GPU that has been removed from a container
   pub fn return_gpu(&self, gpu: Arc<GPU>) {
     self.gpus.write().push(gpu);
   }

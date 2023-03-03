@@ -12,7 +12,7 @@ use self::{minheap_ed_q::MinHeapEDQueue, fcfs_bypass_q::FCFSBypassQueue, minheap
 use self::minheap_iat_q::MinHeapIATQueue;
 use super::containers::containermanager::ContainerManager;
 use super::registration::RegisteredFunction;
-use super::resources::cpu::CPUResourceMananger;
+use super::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
 
 pub mod invoker_structs;
 pub mod queueless;
@@ -83,11 +83,13 @@ pub struct InvokerFactory {
   invocation_config: Arc<InvocationConfig>,
   cmap: Arc<CharacteristicsMap>,
   cpu: Arc<CPUResourceMananger>,
+  gpu_resources: Arc<GpuResourceTracker>,
 }
 
 impl InvokerFactory {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>,
-    invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, cpu: Arc<CPUResourceMananger>) -> Self {
+    invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, cpu: Arc<CPUResourceMananger>,
+    gpu_resources: Arc<GpuResourceTracker>) -> Self {
 
     InvokerFactory {
       cont_manager,
@@ -95,6 +97,7 @@ impl InvokerFactory {
       invocation_config,
       cmap,
       cpu,
+      gpu_resources,
     }
   }
 
@@ -118,7 +121,8 @@ impl InvokerFactory {
 
   pub fn get_invoker_service(&self, tid: &TransactionId) -> Result<Arc<dyn Invoker>> {
     let q = self.get_invoker_queue(tid)?;
-    let invoker = QueueingInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone(), q, self.cpu.clone())?;
+    let q2 = self.get_invoker_queue(tid)?;
+    let invoker = QueueingInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone(), q, q2, self.cpu.clone(), self.gpu_resources.clone())?;
     Ok(invoker)
   }
 }

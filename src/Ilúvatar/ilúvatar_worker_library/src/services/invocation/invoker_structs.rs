@@ -48,6 +48,9 @@ pub struct EnqueuedInvocation {
   pub json_args: String, 
   pub tid: TransactionId,
   signal: Notify,
+  /// Used to ensure an invocation is started only once
+  /// Items can currently be placed into multiple queues if they can run on multiple resources
+  pub started: Mutex<bool>,
   /// The local time at which the item was inserted into the queue
   pub queue_insert_time: OffsetDateTime,
 }
@@ -60,7 +63,8 @@ impl EnqueuedInvocation {
       json_args,
       tid,
       signal: Notify::new(),
-      queue_insert_time
+      queue_insert_time,
+      started: Mutex::new(false),
     }
   }
 

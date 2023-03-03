@@ -12,7 +12,6 @@ lazy_static::lazy_static! {
   pub static ref CTR_MGR_HEALTH_WORKER_TID: TransactionId = "CtrMrgHealthWorker".to_string();
   pub static ref STARTUP_TID: TransactionId = "Startup".to_string();
   pub static ref TEST_TID: TransactionId = "TestTest".to_string();
-  pub static ref INVOKER_QUEUE_WORKER_TID: TransactionId = "InvokerQueue".to_string();
   pub static ref LOAD_BALANCER_TID: TransactionId = "LoadBalancer".to_string();
   pub static ref STATUS_WORKER_TID: TransactionId = "Status".to_string();
   pub static ref HEALTH_TID: TransactionId = "HealthCheck".to_string();

@@ -1,6 +1,6 @@
 use std::{sync::Arc, collections::HashMap, time::Duration};
 use iluvatar_library::types::{Isolation, Compute, MemSizeMb};
-use iluvatar_worker_library::{rpc::{RegisterRequest, LanguageRuntime}, services::{invocation::invoker_structs::InvocationResult, containers::structs::ContainerTimeFormatter, resources::cpu::CPUResourceMananger}};
+use iluvatar_worker_library::{rpc::{RegisterRequest, LanguageRuntime}, services::{invocation::invoker_structs::InvocationResult, containers::structs::ContainerTimeFormatter, resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker}}};
 use iluvatar_library::{transaction::{TEST_TID, TransactionId}, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
 use iluvatar_worker_library::{worker_api::config::{Configuration, WorkerConfig}, services::registration::{RegistrationService, RegisteredFunction}};
 use iluvatar_worker_library::services::{containers::{IsolationFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, Invoker}};
@@ -50,12 +50,13 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<St
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let cpu = CPUResourceMananger::new(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
+  let gpu_resource = GpuResourceTracker::boxed(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
   let factory = IsolationFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
   let lifecycles = factory.get_isolation_services(&TEST_TID, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
-  let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
+  let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
   let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());
-  let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap, cpu);
+  let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap, cpu, gpu_resource);
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
   (_log, cfg, cm, invoker, reg)
 }
@@ -89,12 +90,14 @@ pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<S
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let cpu = CPUResourceMananger::new(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
+  let gpu_resource = GpuResourceTracker::boxed(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
+
   let factory = IsolationFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
   let lifecycles = factory.get_isolation_services(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
-  let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
+  let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
   let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());
-  let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap, cpu);
+  let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap, cpu, gpu_resource);
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
   (_log, cfg, cm, invoker, reg)
 }

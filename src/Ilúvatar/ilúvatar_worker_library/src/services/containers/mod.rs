@@ -18,7 +18,6 @@ pub mod simulator;
 #[path ="./docker/docker.rs"]
 pub mod docker;
 mod container_pool;
-mod lifecycle;
 
 #[async_trait]
 pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
