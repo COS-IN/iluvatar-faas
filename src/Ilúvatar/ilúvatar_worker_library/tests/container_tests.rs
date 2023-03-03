@@ -552,10 +552,7 @@ use tokio::time::timeout;
   async fn warm() {
     let (_log, _cfg, cm, invoker, _reg) = test_invoker_svc(None, None, None).await;
     let reg = register(&_reg, "docker.io/alfuerst/hello-iluvatar-action:latest", "test", &TEST_TID).await;
-    // let reg = _reg.register(basic_reg_req(), &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
     let _result = test_invoke(&invoker, &reg, "{}", &TEST_TID).await;
-    // timeout(Duration::from_secs(20), invoker.sync_invocation(reg.clone(), "{}".to_string(), "TEST_TID".to_string())).await
-      // .expect("Timeout on basic invocation").expect("Basic invocation should succeed");
 
     let c1 = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
       EventualItem::Future(f) => timeout(Duration::from_secs(20), f).await.expect("Timeout error"),

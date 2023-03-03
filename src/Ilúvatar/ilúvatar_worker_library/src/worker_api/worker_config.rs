@@ -135,12 +135,12 @@ pub struct StatusConfig {
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
-  pub fn new(cleaning: bool, config_fpath: &Option<&String>) -> Result<Self, ConfigError> {
+  pub fn new(config_fpath: &Option<&String>, overrides: Option<Vec<(String,String)>>) -> Result<Self, ConfigError> {
     let mut sources = vec!["worker/src/worker.json", "worker/src/worker.dev.json"];
     if let Some(config_fpath) = config_fpath {
       sources.push(config_fpath.as_str());
     }
-    let s = Config::builder()
+    let mut s = Config::builder()
       .add_source(
         sources.iter().filter(|path| {
           std::path::Path::new(&path).exists()
@@ -150,15 +150,15 @@ impl Configuration {
       .add_source(config::Environment::with_prefix("ILUVATAR_WORKER")
           .try_parsing(true)
           .separator("__"));
-    let s = match cleaning {
-      false => s.build()?,
-      // disable network pool during cleaning
-      true => s.set_override("networking.use_pool", false)?.build()?,
-    };
-    s.try_deserialize()
+    if let Some(overrides) = overrides {
+      for (k, v) in overrides {
+        s = s.set_override(k, v)?;
+      }
+    }
+    s.build()?.try_deserialize()
   }
 
-  pub fn boxed(cleaning: bool, config_fpath: &Option<&String>) -> Result<WorkerConfig, ConfigError> {
-    Ok(Arc::new(Configuration::new(cleaning, config_fpath)?))
+  pub fn boxed(config_fpath: &Option<&String>, overrides: Option<Vec<(String,String)>>) -> Result<WorkerConfig, ConfigError> {
+    Ok(Arc::new(Configuration::new(config_fpath, overrides)?))
   }
 }

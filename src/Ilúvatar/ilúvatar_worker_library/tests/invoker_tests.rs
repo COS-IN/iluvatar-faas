@@ -1,23 +1,21 @@
 #[macro_use]
 pub mod utils;
 
-use iluvatar_worker_library::rpc::{RegisterRequest, InvokeAsyncRequest};
-use iluvatar_worker_library::rpc::InvokeRequest;
+use iluvatar_worker_library::rpc::{RegisterRequest, InvokeAsyncRequest, InvokeRequest, LanguageRuntime, ContainerState};
 use rstest::rstest;
-use utils::{test_invoker_svc, background_test_invoke, clean_env, register, cust_register, prewarm, get_start_end_time_from_invoke};
-use std::{time::Duration, collections::HashMap};
+use utils::{test_invoker_svc, background_test_invoke, register, cust_register, prewarm, get_start_end_time_from_invoke};
+use std::time::{Duration, SystemTime};
 use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
-use iluvatar_worker_library::rpc::{LanguageRuntime, ContainerState};
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::transaction::TEST_TID;
 
-fn build_env(invoker_q: &str) -> HashMap<String, String> {
-  let mut r = HashMap::new();
-  r.insert("ILUVATAR_WORKER__invocation__queue_policy".to_string(), invoker_q.to_string());
-  r.insert("ILUVATAR_WORKER__invocation__bypass_duration_ms".to_string(), "20".to_string());
-  r.insert("ILUVATAR_WORKER__invocation__concurrency_udpate_check_ms".to_string(), "1000".to_string());
-  r.insert("ILUVATAR_WORKER__invocation__max_load".to_string(), "10".to_string());
-  r.insert("ILUVATAR_WORKER__invocation__max_concurrency".to_string(), "10".to_string());
+fn build_overrides(invoker_q: &str) -> Vec<(String, String)> {
+  let mut r = vec![];
+  r.push(("invocation.queue_policy".to_string(), invoker_q.to_string()));
+  r.push(("invocation.bypass_duration_ms".to_string(), "20".to_string()));
+  r.push(("invocation.concurrency_udpate_check_ms".to_string(), "1000".to_string()));
+  r.push(("invocation.max_load".to_string(), "10".to_string()));
+  r.push(("invocation.max_concurrency".to_string(), "10".to_string()));
   r
 }
 
@@ -50,11 +48,10 @@ mod invoke {
   #[case("none")]
   #[case("cold_pri")]
   #[case("scaling")]
-  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
-    let env = build_env(invoker_q);
-    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
+    let env = build_overrides(invoker_q);
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
     let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&reg, &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeRequest {
@@ -79,7 +76,6 @@ mod invoke {
       },
       Err(e) => panic!("Invocation failed: {}", e),
     }
-    clean_env(&env);
   }
 
   #[rstest]
@@ -94,11 +90,10 @@ mod invoke {
   #[case("none")]
   #[case("cold_pri")]
   #[case("scaling")]
-  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {
-    let env = build_env(invoker_q);
-    let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
+    let env = build_overrides(invoker_q);
+    let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
     let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeRequest {
       function_name: "test".to_string(),
@@ -141,11 +136,10 @@ mod invoke_async {
   #[case("none")]
   #[case("cold_pri")]
   #[case("scaling")]
-  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn invocation_works(#[case] invoker_q: &str) {
-    let env = build_env(invoker_q);
-    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
+    let env = build_overrides(invoker_q);
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
     let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&reg, &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
     let req = InvokeAsyncRequest {
@@ -189,7 +183,6 @@ mod invoke_async {
       },
       Err(e) => panic!("Async invocation failed: {}", e),
     }
-    clean_env(&env);
   }
 
   #[rstest]
@@ -204,11 +197,10 @@ mod invoke_async {
   #[case("none")]
   #[case("cold_pri")]
   #[case("scaling")]
-  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cold_start_works(#[case] invoker_q: &str) {
-    let env = build_env(invoker_q);
-    let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
+    let env = build_overrides(invoker_q);
+    let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
     let reg = _reg.register(basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let req = InvokeAsyncRequest {
       function_name: "test".to_string(),
@@ -258,11 +250,10 @@ mod invoke_async {
 mod fcfs_tests {
   use super::*;
 
-  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn no_reordering() {
-    let env = build_env("fcfs");
-    let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
+    let env = build_overrides("fcfs");
+    let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let function_name = "test".to_string();
@@ -279,7 +270,6 @@ mod fcfs_tests {
     let (third_t, _) = get_start_end_time_from_invoke(third_invoke, &formatter).await;
     assert!(first_t < second_t, "First invoke did not start before second {} !< {}", first_t, second_t);
     assert!(second_t < third_t, "Second invoke did not start before third {} !< {}", second_t, third_t);
-    clean_env(&env);
   }
 }
 
@@ -287,11 +277,10 @@ mod fcfs_tests {
 mod minheap_tests {
   use super::*;
   
-  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn fast_put_first() {
-    let env = build_env("minheap");
-    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
+    let env = build_overrides("minheap");
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let fast_name = "fast_test".to_string();
@@ -325,14 +314,12 @@ mod minheap_tests {
     assert!(t1 < t3, "third invoke was out of order: {} !< {}", t1, t3);
     assert!(t3 < t2, "Fast invoke should not have been reordered to after slow: {} !< {}", t3, t2);
 
-    clean_env(&env);
   }
 
-  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn fast_not_moved() {
-    let env = build_env("minheap");
-    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
+    let env = build_overrides("minheap");
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let fast_name = "fast_test".to_string();
@@ -366,21 +353,17 @@ mod minheap_tests {
     assert!(t1 < t3, "third invoke was out of order: {} !< {}", t1, t3);
     assert!(t2 < t3, "Fast invoke should not have been reordered to after slow: {} !< {}", t2, t3);
 
-    clean_env(&env);
   }
 }
 
 #[cfg(test)]
 mod fcfs_bypass_tests {
-  use std::time::SystemTime;
-
-use super::*;
+  use super::*;
   
-  #[ignore="Must be run serially because of env var clashing"]
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
   async fn fast_bypass_limits() {
-    let env = build_env("fcfs_bypass");
-    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(&env), None).await;
+    let env = build_overrides("fcfs_bypass");
+    let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
     let json_args = "{\"name\":\"TESTING\"}".to_string();
     let transaction_id = "testTID".to_string();
     let fast_name = "fast_test".to_string();
@@ -426,6 +409,5 @@ use super::*;
     assert!(t2_e < t3_e, "Fast invoke should have finished before slow: {} !< {}", t2_e, t3_e);
     assert!(found, "`found` was never 2");
 
-    clean_env(&env);
   }
 }

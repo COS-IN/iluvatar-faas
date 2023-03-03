@@ -1,4 +1,4 @@
-use std::{sync::Arc, collections::HashMap, time::Duration};
+use std::{sync::Arc, time::Duration};
 use iluvatar_library::types::{Isolation, Compute, MemSizeMb};
 use iluvatar_worker_library::{rpc::{RegisterRequest, LanguageRuntime}, services::{invocation::invoker_structs::InvocationResult, containers::structs::ContainerTimeFormatter, resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker}}};
 use iluvatar_library::{transaction::{TEST_TID, TransactionId}, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
@@ -24,18 +24,13 @@ macro_rules! assert_error {
 /// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
 /// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
 /// [config_pth] is an optional path to config to load
-pub async fn sim_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<String, String>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>) {
+pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(String,String)>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>) {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
   iluvatar_library::utils::set_simulation();
   let log = log.unwrap_or(false);
   let worker_name = "TEST".to_string();
   let test_cfg_pth = config_pth.unwrap_or_else(|| "/N/u/a/alfuerst/repos/efaas/src/Ilúvatar/ilúvatar_worker_library/tests/resources/worker.dev.json".to_string());
-  if let Some(env) = env {
-    for (k,v) in env {
-      std::env::set_var(k,v);
-    }  
-  }
-  let cfg = Configuration::boxed(false, &Some(&test_cfg_pth)).unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
+  let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides).unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
   let fake_logging = Arc::new(LoggingConfig {
     level: cfg.logging.level.clone(),
     directory: "".to_string(),
@@ -65,17 +60,12 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<St
 /// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
 /// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
 /// [config_pth] is an optional path to config to load
-pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<String, String>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>) {
+pub async fn test_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(String,String)>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>) {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
   let log = log.unwrap_or(false);
   let worker_name = "TEST".to_string();
   let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
-  if let Some(env) = env {
-    for (k,v) in env {
-      std::env::set_var(k,v);
-    }  
-  }
-  let cfg = Configuration::boxed(false, &Some(&test_cfg_pth)).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
+  let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
   let fake_logging = Arc::new(LoggingConfig {
     level: cfg.logging.level.clone(),
     directory: "".to_string(),
@@ -100,12 +90,6 @@ pub async fn test_invoker_svc(config_pth: Option<String>, env: Option<&HashMap<S
   let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap, cpu, gpu_resource);
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
   (_log, cfg, cm, invoker, reg)
-}
-
-pub fn clean_env(env: &HashMap<String, String>) {
-  for (k,_) in env {
-    std::env::remove_var(k);
-  }  
 }
 
 fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
