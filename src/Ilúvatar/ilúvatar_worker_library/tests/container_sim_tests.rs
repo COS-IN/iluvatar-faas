@@ -41,6 +41,13 @@ fn build_gpu_env() -> Vec<(String, String)> {
   r
 }
 
+fn two_gpu_env() -> Vec<(String, String)> {
+  let mut r = vec![];
+  r.push(("container_resources.resource_map.gpu.count".to_string(), "2".to_string()));
+  r.push(("invocation.concurrent_invokes".to_string(), "5".to_string()));
+  r
+}
+
 mod compute_iso_matching {
   use super::*;
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -126,8 +133,7 @@ mod compute_iso_matching {
 #[cfg(test)]
 mod gpu {
   use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
-
-use super::*;
+  use super::*;
   
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn gpu_container_must_use_docker() {
@@ -382,5 +388,22 @@ use super::*;
     assert!(r3_lck.duration.as_micros() > 0, "Invoke 3 should have duration time");
     assert!(r2_end < r3_start, "Invoke 3 should have started {} after invoke 2 ended {}", r3_start, r2_end);
 
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn two_gpu_allowed() {
+    let env = two_gpu_env();
+    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
+    let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
+      EventualItem::Future(_) => panic!("Should have gotten prewarmed container"),
+      EventualItem::Now(n) => n,
+    }.unwrap_or_else(|e| panic!("First acquire container failed: {:?}", e));
+    let c2 = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(_) => panic!("Should not have gotten prewarmed container"),
+    }.unwrap_or_else(|e| panic!("Second acquire container failed: {:?}", e));
+    assert_ne!(c1.container.device_resource().as_ref().unwrap().name, c2.container.device_resource().as_ref().unwrap().name, "Two containers cannot have same GPU");
   }
 }

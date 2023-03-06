@@ -172,10 +172,7 @@ impl ContainerManager {
     let cont = self.try_acquire_container(&reg.fqdn, tid, compute);
     let cont = match cont {
       Some(l) => EventualItem::Now(Ok(l)),
-      None => {
-        // no available container, cold start
-        EventualItem::Future(self.cold_start(reg.clone(), tid, compute))
-      },
+      None => EventualItem::Future(self.cold_start(reg.clone(), tid, compute)) // no available container, cold start
     };
     return cont;
   }
@@ -383,9 +380,6 @@ impl ContainerManager {
   }
 
   /// Registers a function using the given request
-  /// 
-  /// # Errors
-  /// Can error if the function is already registered, the image is invalid, or many other reasons
   pub fn register(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
     debug!(tid=%tid, function_name=%reg.function_name, function_version=%reg.function_version, fqdn=%reg.fqdn, "Adding new registration to active_containers map");
     self.cpu_containers.running_containers.register_fqdn(reg.fqdn.clone());
