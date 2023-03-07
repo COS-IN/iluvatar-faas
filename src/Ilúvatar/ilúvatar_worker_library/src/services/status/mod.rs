@@ -5,6 +5,8 @@ pub use status_service::StatusService;
 
 use iluvatar_library::types::MemSizeMb;
 
+use super::resources::gpu::GpuStatus;
+
 #[derive(Debug, serde::Serialize)]
 /// Load metrics recorded by the local machine
 pub struct WorkerStatus {
@@ -40,6 +42,7 @@ pub struct WorkerStatus {
   pub kernel_cpu_freqs: Vec<u64>,
   /// The number of containers currently in the system
   pub num_containers: u32,
+  pub gpu_utilization: Vec<GpuStatus>,
 }
 
 impl Display for WorkerStatus {

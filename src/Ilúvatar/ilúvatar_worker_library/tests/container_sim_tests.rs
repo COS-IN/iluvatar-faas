@@ -404,6 +404,6 @@ mod gpu {
       EventualItem::Future(f) => f.await,
       EventualItem::Now(_) => panic!("Should not have gotten prewarmed container"),
     }.unwrap_or_else(|e| panic!("Second acquire container failed: {:?}", e));
-    assert_ne!(c1.container.device_resource().as_ref().unwrap().name, c2.container.device_resource().as_ref().unwrap().name, "Two containers cannot have same GPU");
+    assert_ne!(c1.container.device_resource().as_ref().unwrap().gpu_uuid, c2.container.device_resource().as_ref().unwrap().gpu_uuid, "Two containers cannot have same GPU");
   }
 }

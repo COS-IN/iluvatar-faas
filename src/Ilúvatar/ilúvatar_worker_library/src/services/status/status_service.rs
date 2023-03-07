@@ -5,8 +5,7 @@ use iluvatar_library::cpu_interaction::{CPUService, CPUUtilInstant};
 use iluvatar_library::{nproc, threading, load_avg};
 use tracing::{info, debug, error};
 use parking_lot::Mutex;
-use crate::services::containers::containermanager::ContainerManager;
-use crate::services::invocation::Invoker;
+use crate::services::{containers::containermanager::ContainerManager, invocation::Invoker, resources::gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::StatusConfig;
 use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
 use iluvatar_library::transaction::{TransactionId, STATUS_WORKER_TID};
@@ -25,10 +24,11 @@ pub struct StatusService {
   config: Arc<StatusConfig>,
   cpu_instant: Mutex<CPUUtilInstant>,
   invoker: Arc<dyn Invoker>,
+  gpu: Arc<GpuResourceTracker>
 }
 
 impl StatusService {
-  pub fn boxed(cm: Arc<ContainerManager>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>, invoker: Arc<dyn Invoker>) -> Result<Arc<Self>> {
+  pub fn boxed(cm: Arc<ContainerManager>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>, invoker: Arc<dyn Invoker>, gpu: Arc<GpuResourceTracker>) -> Result<Arc<Self>> {
     let (handle, sender) = 
           threading::os_thread::<Self>(config.report_freq_ms, STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status))?;
     let cpu_svc = CPUService::boxed(tid)?;
@@ -48,7 +48,8 @@ impl StatusService {
         num_running_funcs: 0,
         hardware_cpu_freqs: vec![],
         kernel_cpu_freqs: vec![],
-        num_containers: 0
+        num_containers: 0,
+        gpu_utilization: vec![],
       })),
       worker_thread: handle,
       graphite: GraphiteService::new(graphite_cfg),
@@ -58,8 +59,7 @@ impl StatusService {
                     "worker.load.used_mem"],
       cpu_instant: Mutex::new(cpu_svc.instant_cpu_util(tid)?),
       cpu: cpu_svc,
-      config,
-      invoker,
+      config, invoker, gpu
     });
     sender.send(ret.clone())?;
     Ok(ret)
@@ -83,6 +83,14 @@ impl StatusService {
       },
     };
 
+    let gpu_utilization = match self.gpu.gpu_utilization(tid) {
+      Ok(n) => n,
+      Err(e) => {
+        error!(tid=%tid, error=%e, "Unable to get gpu utilization");
+        vec![]
+      },
+    };
+
     let mut cpu_instant_lck = self.cpu_instant.lock();
     let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
     *cpu_instant_lck = cpu_now;
@@ -96,9 +104,8 @@ impl StatusService {
     let kernel_freqs = self.cpu.kernel_cpu_freqs(tid);
 
     let new_status = Arc::new(WorkerStatus {
-      queue_len,
-      used_mem,
-      total_mem,
+      num_containers, gpu_utilization,
+      queue_len, used_mem, total_mem,
       cpu_us: computed_util.cpu_user + computed_util.cpu_nice,
       cpu_sy: computed_util.cpu_system + computed_util.cpu_irq + computed_util.cpu_softirq + computed_util.cpu_steal + computed_util.cpu_guest + computed_util.cpu_guest_nice,
       cpu_id: computed_util.cpu_idle,
@@ -108,7 +115,6 @@ impl StatusService {
       num_running_funcs: running,
       hardware_cpu_freqs: hw_freqs,
       kernel_cpu_freqs: kernel_freqs,
-      num_containers
     });
     info!(tid=%tid, status=%new_status,"current load status");
 

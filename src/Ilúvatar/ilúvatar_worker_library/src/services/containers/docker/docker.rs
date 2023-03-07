@@ -88,7 +88,7 @@ impl ContainerIsolationService for DockerIsolation {
     let port_args = format!("{}:{}", port, port);
     let il_port = format!("__IL_PORT={}", port);
     let gpu = match device_resource.as_ref() {
-      Some(g) => Some(format!("device={}", g.name)),
+      Some(g) => Some(format!("device={}", g.gpu_uuid)),
       None => None
     };
     let memory_arg = format!("{}MB", mem_limit_mb);

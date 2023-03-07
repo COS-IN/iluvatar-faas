@@ -1,15 +1,37 @@
 use std::sync::Arc;
-use iluvatar_library::{utils::execute_cmd, transaction::TransactionId, types::ComputeEnum};
+use iluvatar_library::{utils::execute_cmd, transaction::TransactionId, types::ComputeEnum, bail_error};
 use parking_lot::RwLock;
 use anyhow::Result;
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
-use tracing::warn;
+use tracing::{warn, debug};
 use crate::worker_api::worker_config::ContainerResourceConfig;
 
-#[allow(unused)]
+#[derive(Debug,serde::Deserialize, serde::Serialize)]
+pub struct GpuStatus {
+  pub gpu_uuid: GpuUuid,
+  /// The current performance state for the GPU. States range from P0 (maximum performance) to P12 (minimum performance).
+  pub pstate: String,
+  /// Total installed GPU memory.
+  pub memory_total: u32,
+  /// Total memory allocated by active contexts.
+  pub memory_used: u32,
+  /// Percent of time over the past sample period during which one or more kernels was executing on the GPU.
+  /// The sample period may be between 1 second and 1/6 second depending on the product.
+  pub utilization_gpu: f64,
+  /// Percent of time over the past sample period during which global (device) memory was being read or written.
+  /// The sample period may be between 1 second and 1/6 second depending on the product.
+  pub utilization_memory: f64,
+  /// The last measured power draw for the entire board, in watts. Only available if power management is supported. This reading is accurate to within +/- 5 watts.
+  pub power_draw: f64,
+  /// The software power limit in watts. Set by software like nvidia-smi.
+  pub power_limit: f64,
+}
+
+pub type GpuUuid = String;
+
 #[derive(Debug)]
 pub struct GPU {
-  pub name: String,
+  pub gpu_uuid: GpuUuid,
 }
 
 pub struct GpuResourceTracker {
@@ -36,7 +58,7 @@ impl GpuResourceTracker {
     };
     if iluvatar_library::utils::is_simulation() {
       for i in 0..gpu_config.count {
-        ret.push(Arc::new(GPU { name: format!("GPU-{}", i) }))
+        ret.push(Arc::new(GPU { gpu_uuid: format!("GPU-{}", i) }))
       }
     } else {
       let output = execute_cmd("/usr/bin/nvidia-smi", &vec!["-L"], None, tid)?;
@@ -46,7 +68,7 @@ impl GpuResourceTracker {
         let pos = row.find("UUID: ");
         if let Some(pos) = pos {
           let slice = &row[(pos+"UUID: ".len())..row.len()-1];
-          ret.push(Arc::new(GPU { name: slice.to_string() }));
+          ret.push(Arc::new(GPU { gpu_uuid: slice.to_string() }));
         }
       }
     }
@@ -76,5 +98,24 @@ impl GpuResourceTracker {
   /// Return a GPU that has been removed from a container
   pub fn return_gpu(&self, gpu: Arc<GPU>) {
     self.gpus.write().push(gpu);
+  }
+
+  /// get the utilization of GPUs on the system
+  pub fn gpu_utilization(&self, tid: &TransactionId) -> Result<Vec<GpuStatus>> {
+    let mut ret: Vec<GpuStatus> = vec![];
+    if !std::path:: Path::new("/usr/bin/nvidia-smi").exists() {
+      debug!(tid=%tid, "nvidia-smi not found, not checking GPU utilization");
+      return Ok(ret);
+    }
+    let args = vec!["--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit", "--format=csv,noheader,nounits"];
+    let nvidia = execute_cmd("/usr/bin/nvidia-smi", &args, None, tid)?;
+    let mut rdr = csv::ReaderBuilder::new().has_headers(false).delimiter(b',').trim(csv::Trim::All).from_reader(nvidia.stdout.as_slice());
+    for record in rdr.deserialize() {
+      match record {
+        Ok(rec) => ret.push(rec),
+        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to deserialized GPU record from nvidia-smi"),
+      }
+    }
+    Ok(ret)
   }
 }

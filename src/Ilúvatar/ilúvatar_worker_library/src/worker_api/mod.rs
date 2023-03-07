@@ -42,13 +42,13 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
   let reg = RegistrationService::new(container_man.clone(), isos.clone(), worker_config.limits.clone());
 
-  let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone(), cmap.clone(), cpu, gpu_resource);
+  let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone(), cmap.clone(), cpu, gpu_resource.clone());
   let invoker = invoker_fact.get_invoker_service(tid)?;
   let health = match WorkerHealthService::boxed(invoker.clone(), reg.clone(), tid).await {
     Ok(h) => h,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make worker health service"),
   };
-  let status = match StatusService::boxed(container_man.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid, worker_config.status.clone(), invoker.clone()) {
+  let status = match StatusService::boxed(container_man.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid, worker_config.status.clone(), invoker.clone(), gpu_resource.clone()) {
     Ok(s) => s,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make status service"),
   };
