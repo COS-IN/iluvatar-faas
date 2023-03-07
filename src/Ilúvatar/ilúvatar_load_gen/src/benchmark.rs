@@ -164,7 +164,14 @@ pub fn benchmark_functions(args: BenchmarkArgs) -> Result<()> {
 
 pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBenchmarkFunction>, out_folder: String, cold_repeats: u32, warm_repeats: u32) -> Result<()> {
   let mut full_data = BenchmarkStore::new();
-
+  let client = match reqwest::Client::builder()
+    .pool_max_idle_per_host(0)
+    .pool_idle_timeout(None)
+    .connect_timeout(Duration::from_secs(60))
+    .build() {
+      Ok(c) => Arc::new(c),
+      Err(e) => panic!("Unable to build reqwest HTTP client: {:?}", e),
+    };
   for function in &functions {
     let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
     println!("{}", function.name);
@@ -181,7 +188,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
       };
 
       'inner: for _ in 0..warm_repeats {
-        match crate::utils::controller_invoke(&name, &version, &host, port, None, clock.clone()).await {
+        match crate::utils::controller_invoke(&name, &version, &host, port, None, clock.clone(), client.clone()).await {
           Ok( invoke_result ) => {
             if invoke_result.controller_response.success {
               let func_exec_us = invoke_result.function_output.body.latency * 1000000.0;

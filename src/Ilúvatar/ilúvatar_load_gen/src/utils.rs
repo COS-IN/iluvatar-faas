@@ -2,6 +2,7 @@ use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc, collection
 use iluvatar_worker_library::{rpc::{InvokeResponse, ContainerState}, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult, Prewarm};
 use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::{MemSizeMb, CommunicationMethod, Isolation, Compute}, logging::LocalTime};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 use tokio::{runtime::Runtime, task::JoinHandle};
@@ -161,8 +162,7 @@ impl PartialEq for CompletedControllerInvocation {
 /// Run an invocation against the controller
 /// Return the [iluvatar_controller_library::load_balancer_api::lb_structs::json::ControllerInvokeResult] result after parsing
 /// also return the latency in milliseconds of the request
-pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>, clock: Arc<LocalTime>) -> Result<CompletedControllerInvocation> {
-  let client = reqwest::Client::new();
+pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>, clock: Arc<LocalTime>, client: Arc<Client>) -> Result<CompletedControllerInvocation> {
   let req = Invoke {
     function_name: name.clone(),
     function_version: version.clone(),

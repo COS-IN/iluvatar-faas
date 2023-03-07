@@ -29,7 +29,14 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
   let threaded_rt = Builder::new_multi_thread()
       .enable_all()
       .build().unwrap();
-
+  let client = match reqwest::Client::builder()
+    .pool_max_idle_per_host(0)
+    .pool_idle_timeout(None)
+    .connect_timeout(Duration::from_secs(60))
+    .build() {
+      Ok(c) => Arc::new(c),
+      Err(e) => panic!("Unable to build reqwest HTTP client: {:?}", e),
+    };
   map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv)?;
   threaded_rt.block_on(controller_live_register_functions(&metadata, &args.host, args.port))?;
   threaded_rt.block_on(prewarm_funcs(&metadata, &args.host, args.port))?;
@@ -61,8 +68,9 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
       }
     };
     let clk_cln = clock.clone();
+    let http_c = client.clone();
     handles.push(threaded_rt.spawn(async move {
-      controller_invoke(&f_c, &VERSION, &h_c, args.port, Some(func_args), clk_cln).await
+      controller_invoke(&f_c, &VERSION, &h_c, args.port, Some(func_args), clk_cln, http_c).await
     }));
   }
   let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
