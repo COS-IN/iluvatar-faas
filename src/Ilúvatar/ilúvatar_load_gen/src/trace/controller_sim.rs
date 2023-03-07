@@ -85,7 +85,7 @@ async fn controller_sim_invoke(func_name: String, server_data: Data<Controller>,
   };
 
   let r = match serde_json::from_slice::<ControllerInvokeResult>(&bytes) {
-    Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
+    Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.result.json_result) {
       Ok(feo) => CompletedControllerInvocation {
         controller_response: r,
         function_output: feo,
@@ -94,7 +94,7 @@ async fn controller_sim_invoke(func_name: String, server_data: Data<Controller>,
         function_version: VERSION.clone(),
         invoke_start,
       },
-      Err(e) => CompletedControllerInvocation::error(format!("FunctionExecOutput Deserialization error: {}; {}", e, &r.json_result), &func_name, &VERSION, Some(&r.tid), invoke_start),
+      Err(e) => CompletedControllerInvocation::error(format!("FunctionExecOutput Deserialization error: {}; {}", e, &r.result.json_result), &func_name, &VERSION, Some(&r.tid), invoke_start),
     },
     Err(e) => CompletedControllerInvocation::error(format!("Invocation error: {}", e), &func_name, &VERSION, None, invoke_start),
   };

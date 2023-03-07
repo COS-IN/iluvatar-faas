@@ -230,7 +230,7 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
 
   for r in results {
     let to_write = format!("{},{},{},{},{},{},{}\n", r.controller_response.success, r.function_name, r.function_output.body.cold,
-          r.controller_response.worker_duration_us, r.controller_response.invoke_duration_us, r.function_output.body.latency, r.client_latency_us);
+          r.controller_response.worker_duration_us, r.controller_response.result.duration_us, r.function_output.body.latency, r.client_latency_us);
     match f.write_all(to_write.as_bytes()) {
       Ok(_) => (),
       Err(e) => {

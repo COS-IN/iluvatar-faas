@@ -16,7 +16,7 @@ pub async fn invoke(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
 
   let arguments = match args.arguments.as_ref() {
-    Some(a) => args_to_json(a),
+    Some(a) => args_to_json(a)?,
     None => "{}".to_string(),
   };
 
@@ -30,7 +30,7 @@ pub async fn invoke_async(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
   let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
 
   let arguments = match args.arguments.as_ref() {
-    Some(a) => args_to_json(a),
+    Some(a) => args_to_json(a)?,
     None => "{}".to_string(),
   };
   let ret = api.invoke_async(args.name, args.version, arguments, tid).await.unwrap();

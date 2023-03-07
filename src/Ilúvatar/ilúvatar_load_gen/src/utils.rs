@@ -1,5 +1,5 @@
 use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc, collections::HashMap};
-use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
+use iluvatar_worker_library::{rpc::{InvokeResponse, ContainerState}, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult, Prewarm};
 use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::{MemSizeMb, CommunicationMethod, Isolation, Compute}, logging::LocalTime};
 use serde::{Deserialize, Serialize};
@@ -132,7 +132,7 @@ impl CompletedControllerInvocation {
       None => "ERROR_TID".to_string(),
     };
     CompletedControllerInvocation {
-        controller_response: ControllerInvokeResult { json_result: msg, worker_duration_us: 0, success: false, invoke_duration_us: 0, tid: r_tid },
+        controller_response: ControllerInvokeResult { worker_duration_us: 0, success: false, tid: r_tid, result: InvokeResponse { json_result: msg, success: false, duration_us: 0, compute: Compute::empty().bits(), container_state: ContainerState::Error.into() } },
         function_output: FunctionExecOutput { body: Body { cold: false, start: 0.0, end: 0.0, latency: 0.0 } },
         client_latency_us: 0,
         function_name: name.clone(),
@@ -147,16 +147,15 @@ impl Ord for CompletedControllerInvocation {
   }
 }
 impl PartialOrd for CompletedControllerInvocation {
-fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-  self.invoke_start.partial_cmp(&other.invoke_start)
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    self.invoke_start.partial_cmp(&other.invoke_start)
+  }
 }
-}
-impl Eq for CompletedControllerInvocation {
-}
+impl Eq for CompletedControllerInvocation {}
 impl PartialEq for CompletedControllerInvocation {
-fn eq(&self, other: &Self) -> bool {
-  self.invoke_start == other.invoke_start
-}
+  fn eq(&self, other: &Self) -> bool {
+    self.invoke_start == other.invoke_start
+  }
 }
 
 /// Run an invocation against the controller
@@ -167,7 +166,7 @@ pub async fn controller_invoke(name: &String, version: &String, host: &String, p
   let req = Invoke {
     function_name: name.clone(),
     function_version: version.clone(),
-    args: args
+    args,
   };
   let invoke_start = clock.now_str()?;
   let (invok_out, invok_lat) =  client.post(format!("http://{}:{}/invoke", &host, port))
@@ -184,7 +183,7 @@ pub async fn controller_invoke(name: &String, version: &String, host: &String, p
           Err(e) => return Ok(CompletedControllerInvocation::error(format!("Get text error: {};", e), &name, &version, None, invoke_start)),
       };
       match serde_json::from_str::<ControllerInvokeResult>(&txt) {
-        Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
+        Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.result.json_result) {
           Ok(feo) => CompletedControllerInvocation {
             controller_response: r,
             function_output: feo,

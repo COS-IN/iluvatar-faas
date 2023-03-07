@@ -195,12 +195,12 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
                 resource_entry.cold_results_sec.push(invoke_result.function_output.body.latency);
                 resource_entry.cold_over_results_us.push(invoke_lat - func_exec_us);
                 resource_entry.cold_worker_duration_us.push(invoke_result.controller_response.worker_duration_us);
-                resource_entry.cold_invoke_duration_us.push(invoke_result.controller_response.invoke_duration_us);
+                resource_entry.cold_invoke_duration_us.push(invoke_result.controller_response.result.duration_us.into());
               } else {
                 resource_entry.warm_results_sec.push(invoke_result.function_output.body.latency);
                 resource_entry.warm_over_results_us.push(invoke_lat - func_exec_us);
                 resource_entry.warm_worker_duration_us.push(invoke_result.controller_response.worker_duration_us);
-                resource_entry.warm_invoke_duration_us.push(invoke_result.controller_response.invoke_duration_us);
+                resource_entry.warm_invoke_duration_us.push(invoke_result.controller_response.result.duration_us.into());
               }
             }
           },

@@ -175,7 +175,7 @@ pub async fn prewarm(cm: &Arc<ContainerManager>, reg: &Arc<RegisteredFunction>, 
       .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
 }
 
-pub fn sim_args() -> String {
+pub fn sim_args() -> anyhow::Result<String> {
   let fmt = vec![format!("cold_dur_ms={}", 5000), format!("warm_dur_ms={}", 1000), format!("mem_mb={}", 512)];
   iluvatar_library::utils::config::args_to_json(&fmt)
 }

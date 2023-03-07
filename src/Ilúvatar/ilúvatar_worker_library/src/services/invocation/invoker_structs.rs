@@ -12,7 +12,7 @@ use ordered_float::OrderedFloat;
 pub struct InvocationResult {
   /// The output from the invocation
   pub result_json: String,
-  /// The invocation time as tracked by the worker
+  /// The E2E latency between the worker and the container
   pub duration: Duration,
   pub attempts: u32,
   pub completed: bool,

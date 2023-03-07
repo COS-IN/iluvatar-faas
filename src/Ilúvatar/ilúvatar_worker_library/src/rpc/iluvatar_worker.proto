@@ -21,6 +21,7 @@ message InvokeRequest {
 message InvokeResponse {
   string json_result = 1;
   bool success = 2;
+  // The E2E latency between the worker and the container
   uint64 duration_us = 3;
   // The compute resource the invocation was run on
   uint32 compute = 4;

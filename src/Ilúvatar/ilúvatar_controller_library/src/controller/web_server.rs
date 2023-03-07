@@ -29,11 +29,9 @@ pub async fn invoke(server: Data<Controller>, req: Json<Invoke>) -> HttpResponse
     Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
   };
   let ret = ControllerInvokeResult {
-    json_result: result.json_result,
     worker_duration_us: duration.as_micros(),
     success: result.success,
-    invoke_duration_us: result.duration_us as u128,
-    tid
+    result, tid
   };
   HttpResponse::Ok().json(ret)
 }

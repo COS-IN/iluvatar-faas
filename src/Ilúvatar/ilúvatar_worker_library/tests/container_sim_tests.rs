@@ -292,7 +292,7 @@ mod gpu {
     let (_log, _cfg, cm, invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
-    let args = sim_args();
+    let args = sim_args().unwrap();
 
     let invoke1 = background_test_invoke(&invoker, &func, args.as_str(), &"invoke1".to_string());
     tokio::time::sleep(std::time::Duration::from_micros(10)).await; // queue insertion can be kind of racy, sleep to ensure ordering
@@ -350,7 +350,7 @@ mod gpu {
     };
     let func2 = reg.register(r2, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func1, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
-    let args = sim_args();
+    let args = sim_args().unwrap();
 
     let invoke1 = background_test_invoke(&invoker, &func1, args.as_str(), &"invoke1".to_string());
     tokio::time::sleep(std::time::Duration::from_micros(10)).await; // queue insertion can be kind of racy, sleep to ensure ordering

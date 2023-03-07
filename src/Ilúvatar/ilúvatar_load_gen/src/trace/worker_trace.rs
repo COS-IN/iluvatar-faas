@@ -104,7 +104,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
     let func = metadata.get(&invoke.func_name).unwrap();
     let h_c = args.host.clone();
     let f_c = func.func_name.clone();
-    let func_args = args_to_json(&prepare_function_args(func, args.load_type));
+    let func_args = args_to_json(&prepare_function_args(func, args.load_type))?;
     loop {
       match start.elapsed() {
         Ok(t) => {

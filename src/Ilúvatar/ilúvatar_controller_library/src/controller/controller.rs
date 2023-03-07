@@ -70,13 +70,15 @@ impl Controller {
     }
   }
 
+  /// Returns the invocation result and the E2E duration of the invocation recorded by the load balancer  
+  ///   Thus including both the time spent on the worker and the invocation time, plus networking
   pub async fn invoke(&self, request: Invoke, tid: &TransactionId) -> Result<(InvokeResponse, Duration)> {
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
     match self.registration_svc.get_function(&fqdn) {
       Some(func) => {
         info!(tid=%tid, fqdn=%fqdn, "Sending function to load balancer for invocation");
         let args = match request.args {
-            Some(args_vec) => args_to_json(&args_vec),
+            Some(args_vec) => args_to_json(&args_vec)?,
             None => "{}".to_string(),
         };
         self.lb.send_invocation(func, args, tid).await
@@ -91,7 +93,7 @@ impl Controller {
       Some(func) => {
         info!(tid=%tid, fqdn=%fqdn, "Sending function to load balancer for async invocation");
         let args = match request.args {
-            Some(args_vec) => args_to_json(&args_vec),
+            Some(args_vec) => args_to_json(&args_vec)?,
             None => "{}".to_string(),
         };
         match self.lb.send_async_invocation(func, args, tid).await {

@@ -18,7 +18,7 @@ pub trait LoadBalancerTrait {
   /// assumed to be unhealthy until told otherwise
   fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId);
   /// Send a synchronous invocation to a worker
-  /// Returns the invocation result and the duration of the invocation recorded by the load balancer  
+  /// Returns the invocation result and the E2E duration of the invocation recorded by the load balancer  
   ///   Thus including both the time spent on the worker and the invocation time, plus networking
   async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(InvokeResponse, Duration)>;
   /// Start an async invocation on a server

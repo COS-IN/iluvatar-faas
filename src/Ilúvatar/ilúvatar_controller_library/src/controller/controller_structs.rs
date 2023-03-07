@@ -4,27 +4,27 @@ use iluvatar_library::transaction::TransactionId;
 
 pub mod json {
 
+use iluvatar_worker_library::rpc::InvokeResponse;
+
 use super::*;
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
   pub struct Invoke {
     pub function_name: String,
     pub function_version: String,
-    pub args: Option<Vec<String>>
+    pub args: Option<Vec<String>>,
   }
   
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
   pub struct ControllerInvokeResult {
-    /// json returned by the function
-    pub json_result: String,
-    /// latency of the invocation as recorded by the controller
+    /// E2E latency of the invocation between the controller and the worker
     pub worker_duration_us: u128,
     /// false if there was no platform error
     ///   could still have an internal error in the function
     pub success: bool,
-    /// latency of the invocation as recorded by the worker
-    pub invoke_duration_us: u128,
+    /// The response from the worker
+    pub result: InvokeResponse,
     /// The TransactionId the request was run under
     pub tid: TransactionId,
   }

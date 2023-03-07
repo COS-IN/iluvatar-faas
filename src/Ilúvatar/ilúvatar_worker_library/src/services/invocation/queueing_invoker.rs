@@ -263,6 +263,11 @@ impl QueueingInvoker {
   /// acquires a container and invokes the function inside it
   /// returns the json result and duration as a tuple
   /// The optional [permit] is dropped to return held resources
+  /// Returns
+  /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
+  /// [Duration]: The E2E latency between the worker and the container
+  /// [Compute]: Compute the invocation was run on
+  /// [ContainerState]: State the container was in for the invocation
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit), fields(tid=%tid)))]
   async fn invoke<'a>(&'a self, reg: &'a Arc<RegisteredFunction>, json_args: &'a String, tid: &'a TransactionId, queue_insert_time: OffsetDateTime, permit: Option<Box<dyn Drop+Send>>) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
     debug!(tid=%tid, "Internal invocation starting");
@@ -277,6 +282,11 @@ impl QueueingInvoker {
     self.invoke_internal(reg, json_args, tid, queue_insert_time, permit, ctr_lock, remove_time, start).await
   }
 
+  /// Returns
+  /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
+  /// [Duration]: The E2E latency between the worker and the container
+  /// [Compute]: Compute the invocation was run on
+  /// [ContainerState]: State the container was in for the invocation
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit, ctr_lock, remove_time,cold_time_start) fields(tid=%tid)))]
   async fn invoke_internal<'a>(&'a self, reg: &'a Arc<RegisteredFunction>, json_args: &'a String, tid: &'a TransactionId, queue_insert_time: OffsetDateTime, 
       permit: Option<Box<dyn Drop+Send>>, ctr_lock: ContainerLock<'a>, remove_time: String, cold_time_start: Instant) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {

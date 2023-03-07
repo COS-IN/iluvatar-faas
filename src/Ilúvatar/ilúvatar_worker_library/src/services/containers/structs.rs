@@ -133,7 +133,10 @@ impl<'a> ContainerLock<'a> {
     }
   }
 
-  /// ask the internal container to invoke the function
+  /// Ask the internal container to invoke the function
+  /// Returns
+  /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
+  /// [Duration]: The E2E latency between the worker and the container
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args), fields(tid=%self.transaction_id), name="ContainerLock::invoke"))]
   pub async fn invoke(&self, json_args: &String) -> Result<(ParsedResult, Duration)> {
     self.container.invoke(json_args, self.transaction_id).await
