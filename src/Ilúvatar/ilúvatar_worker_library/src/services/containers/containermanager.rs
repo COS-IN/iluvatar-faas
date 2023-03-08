@@ -285,7 +285,10 @@ impl ContainerManager {
 
     let counter = if compute == Compute::GPU {
       match self.gpu_resources.acquire_gpu() {
-        Some(g) => Some(g),
+        Some(g) => {
+          info!(tid=%tid, uuid=%g.gpu_uuid, "Assigning GPU to container");
+          Some(g)
+        },
         None => anyhow::bail!(InsufficientGPUError{}),
       }
     } else { None };
@@ -317,7 +320,7 @@ impl ContainerManager {
         };
       },
     };
-    info!(tid=%tid, image=%reg.image_name, container_id=%cont.container_id(), "container was launched");
+    info!(tid=%tid, image=%reg.image_name, container_id=%cont.container_id(), "Container was launched");
     Ok(cont)
   }
 
