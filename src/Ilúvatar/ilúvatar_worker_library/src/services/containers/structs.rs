@@ -182,20 +182,6 @@ impl std::error::Error for InsufficientGPUError {
 }
 
 #[derive(Debug)]
-/// An container start failed because the system did not have enough CPU cores
-pub struct InsufficientCoresError {
-}
-impl std::fmt::Display for InsufficientCoresError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-    write!(f, "No available cores to service container")?;
-    Ok(())
-  }
-}
-impl std::error::Error for InsufficientCoresError {
-
-}
-
-#[derive(Debug)]
 /// An container start failed with a platform error
 pub struct ContainerStartupError {
   pub message: String

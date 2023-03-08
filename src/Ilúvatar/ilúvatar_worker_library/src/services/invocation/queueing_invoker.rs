@@ -187,22 +187,27 @@ impl QueueingInvoker {
         item.signal();
         debug!(tid=%item.tid, "queued invocation completed successfully");
       },
-      Err(cause) =>
-      {
-        self.handle_invocation_error(item, cause);
-      },
+      Err(cause) => self.handle_invocation_error(item, cause, compute),
     };
   }
 
   /// Handle an error with the given enqueued invocation
-  /// By default re-enters item if a resource exhaustion error occurs ([InsufficientCoresError] or[InsufficientMemoryError])
+  /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
   ///   Calls [Self::add_item_to_queue] to do this
   /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
-  fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
+  fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error, compute: Compute) {
     if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
       warn!(tid=%item.tid, "Insufficient memory to run item right now");
-      self.cpu_queue.add_item_to_queue(&item, Some(0));
+      *item.started.lock() = false;
+      if compute == Compute::CPU {
+        self.cpu_queue.add_item_to_queue(&item, Some(0));
+        self.cpu_queue_signal.notify_waiters();
+      }
+      if compute == Compute::GPU {
+        self.gpu_queue.add_item_to_queue(&item, Some(0));
+        self.gpu_queue_signal.notify_waiters();
+      }
     } else {
       error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
       let mut result_ptr = item.result_ptr.lock();

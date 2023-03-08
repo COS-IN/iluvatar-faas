@@ -77,6 +77,13 @@ fn map_from_lookbusy(funcs: &mut HashMap<String, Function>, default_prewarms: Op
   Ok(())
 }
 
+fn map_from_args(funcs: &mut HashMap<String, Function>, default_prewarms: Option<u32>) -> Result<()> {
+  for (_fname, func) in funcs.iter_mut() {
+    func.prewarms = Some(compute_prewarms(func, default_prewarms));
+  }
+  Ok(())
+}
+
 pub fn map_functions_to_prep(load_type: LoadType, func_json_data: &Option<String>, funcs: &mut HashMap<String, Function>, 
                             default_prewarms: Option<u32>, trace_pth: &String) -> Result<()> {
   for (_, v) in funcs.iter_mut() {
@@ -102,7 +109,7 @@ pub fn map_functions_to_prep(load_type: LoadType, func_json_data: &Option<String
           Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
         }
       } else {
-        return Ok(())
+        return map_from_args(funcs, default_prewarms)
       }
     }
   }

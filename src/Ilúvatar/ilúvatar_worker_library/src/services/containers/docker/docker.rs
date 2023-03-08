@@ -6,7 +6,7 @@ use self::dockerstructs::DockerContainer;
 use super::{structs::Container, ContainerIsolationService};
 use anyhow::Result;
 use guid_create::GUID;
-use tracing::{warn, info, trace, debug};
+use tracing::{warn, info, trace, debug, error};
 
 pub mod dockerstructs;
 
@@ -64,10 +64,37 @@ impl DockerIsolation {
     let (out, _err) = self.get_logs(container, tid)?;
     Ok(out)
   }
+
+  /// example input: "1.366GiB / 2.5GiB"
+  /// returns 1398
+  fn parse_mem(&self, input: std::borrow::Cow<str>) -> Result<MemSizeMb> {
+    let parts: Vec<&str> = input.split('/').collect();
+    if parts.len() != 2 {
+      anyhow::bail!("Input '{}' was incorrect size", input);
+    }
+    let end_of_size = parts[0].find("B");
+    if let Some(end_of_size) = end_of_size {
+      let number = &parts[0][0..parts[0].len()-(end_of_size-3)];
+      let parsed = match number.parse::<f64>() {
+        Ok(p) => p,
+        Err(_) => anyhow::bail!("Unable to parse '{}'", number),
+      };
+      let scale = &parts[0][end_of_size-2..end_of_size+1];
+      let scale = match scale {
+        "GiB" => 1024.0,
+        "MiB" => 1.0,
+        "KiB" => 1.0/1024.0,
+        unknown => anyhow::bail!("Memory scale '{}' had an unsupported size format", unknown),
+      };
+      return Ok((parsed * scale) as MemSizeMb)
+    } else {
+      anyhow::bail!("Input '{}' had an unknown size format", input);
+    }
+  }
 }
 
-#[tonic::async_trait]
 #[allow(unused)]
+#[tonic::async_trait]
 impl ContainerIsolationService for DockerIsolation {
   fn backend(&self) -> Vec<Isolation> {
     vec![Isolation::DOCKER]
@@ -227,7 +254,32 @@ impl ContainerIsolationService for DockerIsolation {
         return container.get_curr_mem_usage();
       },
     };
-    cast_container.function.memory
+    let mut memory = cast_container.function.memory;
+    let output = match execute_cmd("/usr/bin/docker", &vec!["stats", "--no-stream", "--format", "{{.MemUsage}}", cast_container.container_id.as_str()], None, tid) {
+      Ok(o) => o,
+      Err(e) => {
+        error!(tid=%tid, error=%e, "Failed to run 'docker stats' with error");
+        return memory;        
+      },
+    };
+    if let Some(status) = output.status.code() {
+      if status != 0 {
+        error!(tid=%tid, status=status, output=?output, "Failed to run 'docker stats' with exit code");
+        return memory;
+      }
+      let stdout = String::from_utf8_lossy(&output.stdout);
+      match self.parse_mem(stdout) {
+        Ok(m) => return m,
+        Err(e) => {
+          error!(tid=%tid, error=%e, "Failed to parse memory value");
+          return memory;
+        },
+      };
+    } else {
+      error!(tid=%tid, output=?output, "Failed to run 'docker stats' with no exit code");
+      return memory;
+    }
+    memory
   }
 
   fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
@@ -245,6 +297,6 @@ impl ContainerIsolationService for DockerIsolation {
 }
 impl crate::services::containers::structs::ToAny for DockerIsolation {
   fn as_any(&self) -> &dyn std::any::Any {
-      self
+    self
   }
 }

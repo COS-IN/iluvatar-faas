@@ -166,7 +166,6 @@ impl ContainerManager {
   /// A return type [EventualItem::Future] means a container will have to be started to run the invocation.
   ///    The process to start the container has not begun, and will not until the future is awaited on. A product of Rust's implementation of async/futures.
   /// A return type [EventualItem::Now] means an existing container has been acquired
-  /// Can return a custom InsufficientCoresError if an invocation cannot be started now
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
   pub fn acquire_container<'a>(&'a self, reg: &Arc<RegisteredFunction>, tid: &'a TransactionId, compute: Compute) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
     let cont = self.try_acquire_container(&reg.fqdn, tid, compute);
@@ -441,7 +440,7 @@ impl ContainerManager {
   /// Reclaim at least the specified amount of memory by evicting containers
   /// Not guaranteed to do so, as all containers could be busy
   async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
-    debug!(tid=%tid, amount=amount_mb, "Trying to reclaim memory");
+    info!(tid=%tid, amount=amount_mb, "Trying to reclaim memory");
     if amount_mb <= 0 {
       bail!("Cannot reclaim '{}' amount of memory", amount_mb);
     }
@@ -456,6 +455,7 @@ impl ContainerManager {
         }
       }
     }
+    debug!(tid=%tid, memory=reclaimed, "Memory to be reclaimed");
     for container in to_remove {
       self.remove_container(container, tid).await?;
     }
@@ -469,8 +469,8 @@ impl ContainerManager {
     let comparator = match self.resources.eviction.as_str() {
       "LRU" => ContainerManager::lru_eviction,
       _ => { 
-          error!(tid=%tid, algorithm=%self.resources.eviction, "Unkonwn eviction algorithm");
-          return;
+        error!(tid=%tid, algorithm=%self.resources.eviction, "Unkonwn eviction algorithm");
+        return;
       }
     };
     ordered.sort_by(|c1, c2| comparator(c1,c2));
