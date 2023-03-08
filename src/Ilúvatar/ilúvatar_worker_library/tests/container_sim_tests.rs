@@ -183,6 +183,27 @@ mod gpu {
   }
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn polymorphic_invoke_only_one_compute() {
+    let env = build_gpu_env();
+    let (_log, _cfg, _cm, invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let req =   RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: (Compute::CPU|Compute::GPU).bits(),
+      isolate: Isolation::DOCKER.bits(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let invoke = invoke.lock();
+    println!("{:?}", invoke);
+    assert_eq!(invoke.compute.into_iter().len(), 1, "Invoke compute was {:?}", invoke.compute);
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn gpu_docker_works() {
     let env = build_gpu_env();
     let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
