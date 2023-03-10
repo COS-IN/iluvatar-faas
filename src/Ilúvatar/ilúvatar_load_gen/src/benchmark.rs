@@ -340,6 +340,13 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenc
           }  
         }
         barrier.wait().await;
+        if supported_compute != Compute::CPU {
+          match worker_clean(&host, port, &gen_tid(), &factory, None).await {
+            Ok(_) => (),
+            Err(e) => println!("{:?}", e),
+          }
+          barrier.wait().await;
+        }
       }
     }
   }

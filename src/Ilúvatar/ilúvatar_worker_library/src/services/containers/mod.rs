@@ -31,7 +31,7 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
   // async fn search_image_digest(&self, image: &String, namespace: &str, tid: &TransactionId) -> Result<String>;
   async fn prepare_function_registration(&self, rf: &mut RegisteredFunction, fqdn: &String, tid: &TransactionId) -> Result<()>;
   
-  /// Removes _all_ containers owned by the lifecycle
+  /// Removes _all_ containers owned by the lifecycle, returns the number removed
   async fn clean_containers(&self, namespace: &str, self_src: Arc<dyn ContainerIsolationService>, tid: &TransactionId) -> Result<()>;
 
   /// Waits for the startup message for a container to come through
@@ -39,6 +39,7 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
   async fn wait_startup(&self, container: &Container, timout_ms: u64, tid: &TransactionId) -> Result<()>;
 
   /// Update the current resident memory size of the container
+  /// If an error occurs, the memory usage will not be change and the container will be marked unhealthy
   fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb;
 
   /// get the contents of the container's stdout as a string

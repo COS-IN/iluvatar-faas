@@ -138,7 +138,10 @@ impl ContainerManager {
     debug!(tid=%tid, "updating container memory usages");
     let old_total_mem = *self.used_mem_mb.read();
     let mut all_ctrs = self.cpu_containers.idle_containers.iter();
-    all_ctrs.append(&mut self.cpu_containers.running_containers.iter());
+    all_ctrs.extend(self.cpu_containers.running_containers.iter());
+    all_ctrs.extend(self.gpu_containers.running_containers.iter());
+    all_ctrs.extend(self.gpu_containers.idle_containers.iter());
+    all_ctrs = all_ctrs.into_iter().filter(|x| x.is_healthy()).collect();
     let mut sum_change = 0;
     for container in all_ctrs {
       let old_usage = container.get_curr_mem_usage();
@@ -158,6 +161,9 @@ impl ContainerManager {
 
     let new_total_mem = *self.used_mem_mb.read();
     debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Total container memory usage");
+    if new_total_mem < 0 {
+      error!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Container memory usage has gone negative");
+    }
   }
 
   /// acquire_container
@@ -243,16 +249,13 @@ impl ContainerManager {
     if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
       (*cnt).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
-    let resource_pool;
-    let compute = container.compute_type();
-    if compute.contains(Compute::CPU) {
-      resource_pool = &self.cpu_containers;
-    } else if compute.contains(Compute::GPU) {
-      resource_pool = &self.gpu_containers;
-    } else {
-      error!(tid=%tid, container_id=%container.container_id(), compute=?compute, "Unknonwn compute for container");
-      return;
-    }
+    let resource_pool = match self.get_resource_pool(container.compute_type()) {
+      Ok(r) => r,
+      Err(_) =>  {
+        error!(tid=%tid, container_id=%container.container_id(), compute=?container.compute_type(), "Unknonwn compute for container");
+        return;
+      },
+    };
 
     if let Some(removed_ctr) = resource_pool.running_containers.remove_container(container, tid) {
       if removed_ctr.is_healthy() {
@@ -410,10 +413,10 @@ impl ContainerManager {
   }
 
   fn get_resource_pool(&self, compute: Compute) -> Result<&ResourcePool> {
-    if compute.contains(Compute::CPU) {
+    if compute == Compute::CPU {
       return Ok(&self.cpu_containers);
     }
-    if compute.contains(Compute::GPU) {
+    if compute == Compute::GPU {
       return Ok(&self.gpu_containers);
     }
     anyhow::bail!("No pool for compute: {:?}", compute)
@@ -483,5 +486,23 @@ impl ContainerManager {
 
   fn lru_eviction(c1: &Container, c2: &Container) -> Ordering {
     c1.last_used().cmp(&c2.last_used())
+  }
+
+  pub async fn remove_idle_containers(&self, tid: &TransactionId) -> Result<std::collections::HashMap<Compute, i32>> {
+    let mut ret = std::collections::HashMap::new();
+    let mut conts = self.gpu_containers.idle_containers.iter();
+    conts.extend(self.cpu_containers.idle_containers.iter());
+    for c in conts {
+      let compute = c.compute_type();
+      let pool = self.get_resource_pool(compute)?;
+      if let Some(c) = pool.idle_containers.remove_container(&c, tid) {
+        self.remove_container(c, tid).await?;
+        match ret.get_mut(&compute) {
+          Some(v) => *v += 1,
+          None => {ret.insert(compute, 1);},
+        }
+      }
+    }
+    Ok(ret)
   }
 }

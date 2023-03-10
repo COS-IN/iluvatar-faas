@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicU32;
 use std::{sync::Arc, time::Duration};
-use crate::services::containers::structs::{ParsedResult, InsufficientMemoryError, ContainerState, ContainerLock};
+use crate::services::containers::structs::{ParsedResult, InsufficientMemoryError, ContainerState, ContainerLock, InsufficientGPUError};
 use crate::services::invocation::invoker_structs::InvocationResult;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
@@ -208,6 +208,11 @@ impl QueueingInvoker {
         self.gpu_queue.add_item_to_queue(&item, Some(0));
         self.gpu_queue_signal.notify_waiters();
       }
+    } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
+      warn!(tid=%item.tid, "No GPU available to run item right now");
+      *item.started.lock() = false;
+      self.gpu_queue.add_item_to_queue(&item, Some(0));
+      self.gpu_queue_signal.notify_waiters();
     } else {
       error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
       let mut result_ptr = item.result_ptr.lock();

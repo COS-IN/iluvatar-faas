@@ -199,7 +199,6 @@ mod gpu {
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
     let invoke = invoke.lock();
-    println!("{:?}", invoke);
     assert_eq!(invoke.compute.into_iter().len(), 1, "Invoke compute was {:?}", invoke.compute);
   }
 
@@ -426,5 +425,116 @@ mod gpu {
       EventualItem::Now(_) => panic!("Should not have gotten prewarmed container"),
     }.unwrap_or_else(|e| panic!("Second acquire container failed: {:?}", e));
     assert_ne!(c1.container.device_resource().as_ref().unwrap().gpu_uuid, c2.container.device_resource().as_ref().unwrap().gpu_uuid, "Two containers cannot have same GPU");
+  }
+}
+
+#[cfg(test)]
+mod clean_tests {
+  use super::*;
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn all_cpu_container_removed() {
+    let env = build_gpu_env();
+    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let req = RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::CPU.bits(),
+      isolate: Isolation::DOCKER.bits(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let c = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+    assert_eq!(c.container.compute_type(), Compute::CPU);
+    drop(c);
+    let removed = cm.remove_idle_containers(&TEST_TID).await.unwrap_or_else(|e| panic!("clean failed: {}", e));
+    assert_eq!(removed.len(), 1);
+    let cpus = removed.get(&Compute::CPU).unwrap_or_else(|| panic!("Did not have a cpu removal, but: {:?}", removed));
+    assert_eq!(*cpus, 1);
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn all_gpu_container_removed() {
+    let env = build_gpu_env();
+    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let req = RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::GPU.bits(),
+      isolate: Isolation::DOCKER.bits(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let c = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+    drop(c);
+    let removed = cm.remove_idle_containers(&TEST_TID).await.unwrap_or_else(|e| panic!("clean failed: {}", e));
+    assert_eq!(removed.len(), 1);
+    let cpus = removed.get(&Compute::GPU).unwrap_or_else(|| panic!("Did not have a gpu removal, but: {:?}", removed));
+    assert_eq!(*cpus, 1);
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn cpu_container_removed() {
+    let env = build_gpu_env();
+    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let req = RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: (Compute::CPU|Compute::GPU).bits(),
+      isolate: Isolation::DOCKER.bits(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let c = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+    assert_eq!(c.container.compute_type(), Compute::CPU);
+    drop(c);
+    let removed = cm.remove_idle_containers(&TEST_TID).await.unwrap_or_else(|e| panic!("clean failed: {}", e));
+    assert_eq!(removed.len(), 1);
+    let cpus = removed.get(&Compute::CPU).unwrap_or_else(|| panic!("Did not have a cpu removal, but: {:?}", removed));
+    assert_eq!(*cpus, 1);
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn gpu_container_removed() {
+    let env = build_gpu_env();
+    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let req = RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: (Compute::CPU|Compute::GPU).bits(),
+      isolate: Isolation::DOCKER.bits(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let c = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
+      EventualItem::Future(f) => f.await,
+      EventualItem::Now(n) => n,
+    }.unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+    drop(c);
+    let removed = cm.remove_idle_containers(&TEST_TID).await.unwrap_or_else(|e| panic!("clean failed: {}", e));
+    assert_eq!(removed.len(), 1);
+    let gpus = removed.get(&Compute::GPU).unwrap_or_else(|| panic!("Did not have a gpu removal, but: {:?}", removed));
+    assert_eq!(*gpus, 1);
   }
 }

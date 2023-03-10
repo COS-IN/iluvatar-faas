@@ -217,7 +217,15 @@ impl WorkerAPI for RPCWorkerAPI {
           }),
         }  
       },
-      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:register]".to_string())),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:health]".to_string())),
+    }
+  }
+
+  async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse> {
+    let request = Request::new(CleanRequest { transaction_id: tid, });
+    match self.client.clean(request).await {
+      Ok(response) => Ok(response.into_inner()),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:clean]".to_string())),
     }
   }
 }

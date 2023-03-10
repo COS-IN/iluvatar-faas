@@ -97,7 +97,7 @@ impl TryFrom<&String> for Compute {
   type Error = anyhow::Error;
 }
 
-#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 /// To be used with CLI args
 pub enum IsolationEnum {
   CONTAINERD,

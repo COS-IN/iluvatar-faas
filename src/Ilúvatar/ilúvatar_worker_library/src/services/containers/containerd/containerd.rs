@@ -677,7 +677,8 @@ impl ContainerIsolationService for ContainerdIsolation {
       Ok(c) => c,
       Err(e) => { 
         warn!(tid=%tid, error=%e, "Error casting container to ContainerdContainer");
-        return container.get_curr_mem_usage() 
+        container.mark_unhealthy();
+        return container.get_curr_mem_usage()
       },
     };
     let contents = match std::fs::read_to_string(format!("/proc/{}/statm", cast_container.task.pid)) {
@@ -685,7 +686,6 @@ impl ContainerIsolationService for ContainerdIsolation {
       Err(e) => { 
         warn!(tid=%tid, error=%e, container_id=%cast_container.container_id, "Error trying to read container /proc/<pid>/statm");
         container.mark_unhealthy();
-        container.set_curr_mem_usage(cast_container.function.memory);
         return container.get_curr_mem_usage(); 
       },
     };
@@ -698,7 +698,8 @@ impl ContainerIsolationService for ContainerdIsolation {
       Ok(size_pages) => (size_pages * 4096) / (1024*1024),
       Err(e) => {
         warn!(tid=%tid, error=%e, vmrss=%vmrss, "Error trying to parse virtual memory resource set size");
-        cast_container.function.memory
+        container.mark_unhealthy();
+        container.get_curr_mem_usage()
       },
     });
     container.get_curr_mem_usage()

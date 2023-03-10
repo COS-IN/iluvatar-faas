@@ -25,9 +25,10 @@ pub struct IluvatarWorkerImpl {
 }
 
 impl IluvatarWorkerImpl {
-  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<dyn Invoker>, status: Arc<StatusService>, health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>, cmap: Arc<CharacteristicsMap>, reg: Arc<RegistrationService>) -> IluvatarWorkerImpl {
+  pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<dyn Invoker>, status: Arc<StatusService>, 
+            health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>, cmap: Arc<CharacteristicsMap>, reg: Arc<RegistrationService>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
-      container_manager, config, invoker, status, health, energy, cmap, reg,
+      container_manager, config, invoker, status, health, energy, cmap, reg, 
     }
   }
 }
@@ -254,4 +255,14 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       let reply = self.health.check_health(&request.transaction_id).await;
       Ok(Response::new(reply))
     }
+
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+  async fn clean(&self, request: Request<CleanRequest>) -> Result<Response<CleanResponse>, Status> {
+    let request = request.into_inner();
+    info!(tid=%request.transaction_id, "Handling clean request");
+    match self.container_manager.remove_idle_containers(&request.transaction_id).await {
+      Ok(_) => Ok(Response::new(CleanResponse {})),
+      Err(e) => Err(Status::internal(format!("{:?}",e)))
+    }
+  }
 }

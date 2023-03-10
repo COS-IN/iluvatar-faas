@@ -23,6 +23,7 @@ pub struct DockerContainer {
   client: Client,
   compute: Compute,
   device: Option<Arc<GPU>>,
+  mem_usage: RwLock<MemSizeMb>,
 }
 
 impl DockerContainer {
@@ -37,6 +38,7 @@ impl DockerContainer {
         Err(e) => bail_error!(error=%e, "Unable to build reqwest HTTP client"),
       };
     let r = DockerContainer {
+      mem_usage: RwLock::new(function.memory),
       container_id: container_id,
       fqdn: fqdn.clone(),
       function: function.clone(),
@@ -46,7 +48,7 @@ impl DockerContainer {
       invoke_uri: calculate_invoke_uri(address.as_str(), port),
       base_uri: calculate_base_uri(address.as_str(), port),
       state: Mutex::new(state),
-      device
+      device,
     };
     Ok(r)
   }
@@ -101,11 +103,11 @@ impl ContainerT for DockerContainer {
   }
 
   fn get_curr_mem_usage(&self) -> MemSizeMb {
-    self.function.memory
+    *self.mem_usage.read()
   }
 
-  fn set_curr_mem_usage(&self, _usage:MemSizeMb) {
-    // TODO: proper memory tracking for these containers
+  fn set_curr_mem_usage(&self, usage:MemSizeMb) {
+    *self.mem_usage.write() = usage;
   }
 
   fn function(&self) -> Arc<RegisteredFunction>  {

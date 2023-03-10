@@ -119,6 +119,12 @@ message HealthResponse {
   RpcHealthStatus status = 1;
 }
 
+message CleanRequest {
+  string transaction_id = 1;
+}
+message CleanResponse {
+}
+
 // The language a function's code uses
 enum LanguageRuntime {
   // Use when the the function being created is registered with an image, not code. As we don't need to know the language.
@@ -135,4 +141,6 @@ service IluvatarWorker {
   rpc register(RegisterRequest) returns (RegisterResponse) {}
   rpc health(HealthRequest) returns (HealthResponse) {}
   rpc status(StatusRequest) returns (StatusResponse) {}
+  // Instruct the worker to remove all containers it has created
+  rpc clean(CleanRequest) returns (CleanResponse) {}
 }

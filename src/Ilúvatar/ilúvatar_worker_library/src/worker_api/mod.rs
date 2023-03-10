@@ -13,7 +13,7 @@ use crate::services::containers::containermanager::ContainerManager;
 use crate::worker_api::ilúvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
-use crate::rpc::{StatusResponse, InvokeResponse};
+use crate::rpc::{StatusResponse, InvokeResponse, CleanResponse};
 use self::worker_config::WorkerConfig;
 
 pub mod worker_config;
@@ -77,4 +77,5 @@ pub trait WorkerAPI {
   async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation, compute: Compute) -> Result<String>;
   async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse>;
   async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus>;
+  async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse>;
 }

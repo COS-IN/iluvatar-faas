@@ -1,4 +1,4 @@
 name,image_name,compute,isolation,memory
-imagenet,docker.io/alfuerst/tf_imagenet-iluvatar-gpu:latest,CPU|GPU,DOCKER,2048
-squeezenet,docker.io/alfuerst/tf_squeezenet-iluvatar-gpu:latest,CPU|GPU,DOCKER,2048
-torch_rnn,docker.io/alfuerst/rnn_generate_character_level-iluvatar-gpu:latest,CPU|GPU,DOCKER,2048
+imagenet,docker.io/alfuerst/tf_imagenet-iluvatar-gpu:latest,CPU|GPU,DOCKER,3072
+squeezenet,docker.io/alfuerst/tf_squeezenet-iluvatar-gpu:latest,CPU|GPU,DOCKER,3072
+torch_rnn,docker.io/alfuerst/rnn_generate_character_level-iluvatar-gpu:latest,CPU|GPU,DOCKER,3072

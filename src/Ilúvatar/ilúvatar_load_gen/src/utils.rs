@@ -1,5 +1,5 @@
 use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc, collections::HashMap};
-use iluvatar_worker_library::{rpc::{InvokeResponse, ContainerState}, worker_api::worker_comm::WorkerAPIFactory};
+use iluvatar_worker_library::{rpc::{InvokeResponse, ContainerState, CleanResponse}, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult, Prewarm};
 use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::{MemSizeMb, CommunicationMethod, Isolation, Compute}, logging::LocalTime};
 use reqwest::Client;
@@ -328,6 +328,18 @@ pub async fn worker_invoke(name: &String, version: &String, host: &String, port:
     Err(e) => CompletedWorkerInvocation::error(format!("Invocation error: {:?}", e), &name, &version, &tid, invoke_start),
   };
   Ok(c)
+}
+
+pub async fn worker_clean(host: &String, port: Port, tid: &TransactionId, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>) -> Result<CleanResponse> {
+  let method = match comm_method {
+    Some(m) => m,
+    None => CommunicationMethod::RPC,
+  };
+  let mut api = match factory.get_worker_api(&host, &host, port, method, &tid).await {
+    Ok(a) => a,
+    Err(e) => anyhow::bail!("API creation error: {:?}", e),
+  };
+  api.clean(tid.clone()).await
 }
 
 /// How to handle per-thread errors that appear when joining load workers

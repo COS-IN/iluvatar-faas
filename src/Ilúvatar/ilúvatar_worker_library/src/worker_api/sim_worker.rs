@@ -8,7 +8,7 @@ use tracing::{debug, error};
 use super::{HealthStatus, WorkerAPI};
 use super::ilúvatar_worker::IluvatarWorkerImpl;
 use crate::rpc::iluvatar_worker_server::IluvatarWorker;
-use crate::rpc::{StatusRequest, HealthRequest, PingRequest, InvokeRequest, InvokeAsyncRequest, InvokeAsyncLookupRequest, RegisterRequest, PrewarmRequest, LanguageRuntime};
+use crate::rpc::{StatusRequest, HealthRequest, PingRequest, InvokeRequest, InvokeAsyncRequest, InvokeAsyncLookupRequest, RegisterRequest, PrewarmRequest, LanguageRuntime, CleanResponse, CleanRequest};
 
 /// A simulation version of the WOrkerAPI
 ///   must match [crate::rpc::RPCWorkerAPI] in handling, etc.
@@ -145,6 +145,14 @@ impl WorkerAPI for SimWorkerAPI {
         }
       },
       Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:register]".to_string())),
+    }
+  }
+
+  async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse> {
+    let request = tonic::Request::new(CleanRequest { transaction_id: tid, });
+    match self.worker.clean(request).await {
+      Ok(response) => Ok(response.into_inner()),
+      Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:clean]".to_string())),
     }
   }
 }
