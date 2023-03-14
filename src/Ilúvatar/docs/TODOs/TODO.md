@@ -95,6 +95,16 @@ We want to remove & replace too-large containers, but not have such failures.
 Perhaps use `reservation` or `disableOOMKiller`?
 We can handle removal ourselves after an invocation is done.
 
+## Improved Agent Server
+
+If a signal is received by gunicorn, SIGABRT for various errors or SIGKILL for OOM issues, the worker is given an empty response.
+Actually returning something would be better, so the worker can handle it more gracefully.
+
+## Improved data & output of load gen
+
+Use something like [polars](https://github.com/pola-rs/polars) to store/compute data from load gen.
+Better than hand-parsing / computing data structs and json everywhere.
+
 ## Controller optionally return internal data
 
 Currently the controller just returns a function's output to the user.
