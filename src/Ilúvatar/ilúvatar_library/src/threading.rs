@@ -16,7 +16,7 @@ fn sleep_time<T>(call_ms: u64, start_t: SystemTime, tid: &TransactionId) -> u64 
   match start_t.elapsed() {
     Ok(d) => std::cmp::max(1, call_ms as i128 - d.as_millis() as i128) as u64,
     Err(e) => {
-      warn!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Failed to get elapsed time of OW worker thread service computation");
+      warn!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Failed to get elapsed time of worker thread service computation");
       call_ms
     },
   }
@@ -31,7 +31,7 @@ pub fn os_thread<T: Send + Sync + 'static>(call_ms: u64, tid: TransactionId, fun
     let recv_svc = match rx.recv() {
       Ok(svc) => svc,
       Err(e) => {
-        error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "OW worker thread failed to receive service from channel!");
+        error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "OS worker thread failed to receive service from channel!");
         return;
       },
     };

@@ -1,12 +1,10 @@
 use crate::services::containers::structs::{InsufficientMemoryError, InsufficientGPUError};
-use crate::services::registration::RegisteredFunction;
-use crate::services::resources::gpu::GpuResourceTracker;
+use crate::services::{registration::RegisteredFunction, resources::gpu::GpuResourceTracker};
 use futures::Future;
-use iluvatar_library::bail_error;
-use iluvatar_library::threading::{tokio_runtime, EventualItem, tokio_thread};
-use iluvatar_library::transaction::{TransactionId, CTR_MGR_WORKER_TID, CTR_MGR_HEALTH_WORKER_TID};
+use iluvatar_library::threading::{tokio_runtime, EventualItem};
 use iluvatar_library::types::{MemSizeMb, Isolation, Compute};
-use iluvatar_library::utils::calculate_fqdn;
+use iluvatar_library::{utils::calculate_fqdn, transaction::TransactionId, bail_error};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{Result, bail};
 use dashmap::DashMap;
@@ -17,6 +15,12 @@ use super::ContainerIsolationCollection;
 use super::container_pool::{ContainerPool, Subpool, ResourcePool};
 use super::structs::{Container, ContainerLock, ContainerState};
 use tracing::{info, warn, debug, error};
+
+lazy_static::lazy_static! {
+  pub static ref CTR_MGR_WORKER_TID: TransactionId = "CtrMrgWorker".to_string();
+  pub static ref CTR_MGR_HEALTH_WORKER_TID: TransactionId = "CtrMrgHealthWorker".to_string();
+  pub static ref CTR_MGR_REMOVER_TID: TransactionId = "CtrMrgUnhealthyRemobed".to_string();
+}
 
 /// A struct to manage and control access to containers and system resources
 pub struct ContainerManager {
@@ -31,15 +35,15 @@ pub struct ContainerManager {
   _worker_thread: std::thread::JoinHandle<()>,
   _health_thread: tokio::task::JoinHandle<()>,
   gpu_resources: Arc<GpuResourceTracker>,
-  /// A list of containers that are to be removed
-  /// Container must not be in a pool when placed here
-  remove_list: RwLock<Subpool>,
+  /// A channel to send unhealthy containers to to be removed async to the sender
+  /// Containers must not be in a pool when sent here
+  unhealthy_removal_rx: UnboundedSender<Container>,
   outstanding_containers: DashMap<String, AtomicU32>,
 }
 
 impl ContainerManager {
   fn new(resources: Arc<ContainerResourceConfig>, cont_isolations: ContainerIsolationCollection, worker_thread: std::thread::JoinHandle<()>, 
-    health_thread: tokio::task::JoinHandle<()>, gpu_resources: Arc<GpuResourceTracker>) -> Self {
+    health_thread: tokio::task::JoinHandle<()>, gpu_resources: Arc<GpuResourceTracker>, removal_rx: UnboundedSender<Container>) -> Self {
     ContainerManager {
       resources, cont_isolations, gpu_resources,
       used_mem_mb: Arc::new(RwLock::new(0)),
@@ -48,18 +52,36 @@ impl ContainerManager {
       prioritized_list: RwLock::new(Vec::new()),
       _worker_thread: worker_thread,
       _health_thread: health_thread,
-      remove_list: RwLock::new(vec![]),
+      unhealthy_removal_rx: removal_rx,
       outstanding_containers: DashMap::new(),
     }
+  }
+
+  fn deletion_thread() -> (tokio::task::JoinHandle<()>, std::sync::mpsc::Sender<Arc<Self>>, UnboundedSender<Container>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (del_tx, del_rx) = tokio::sync::mpsc::unbounded_channel::<Container>();
+    let handle = tokio::spawn(async move {
+      let tid: &TransactionId = &CTR_MGR_REMOVER_TID;
+      let service: Arc<Self> = match rx.recv() {
+        Ok(cm) => cm,
+        Err(e) => {
+          error!(tid=%tid, error=%e, "Tokio service thread failed to receive service from channel!");
+          return;
+        },
+      };
+      service.cull_unhealthy(tid, del_rx).await;
+    });
+  
+    (handle, tx, del_tx)
   }
 
   pub async fn boxed(resources: Arc<ContainerResourceConfig>, cont_isolations: ContainerIsolationCollection, gpu_resources: Arc<GpuResourceTracker>, _tid: &TransactionId) -> Result<Arc<Self>> {
     let (handle, tx) = tokio_runtime(resources.pool_freq_ms, CTR_MGR_WORKER_TID.clone(), 
           ContainerManager::monitor_pool, None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>, None)?;
-    let (health_handle, health_tx) = tokio_thread(resources.pool_freq_ms, CTR_MGR_HEALTH_WORKER_TID.clone(), Self::cull_unhealthy);
-    let cm = Arc::new(ContainerManager::new(resources.clone(), cont_isolations, handle, health_handle, gpu_resources));
-    tx.send(cm.clone()).unwrap();
-    health_tx.send(cm.clone()).unwrap();
+    let (health_handle, health_tx, del_ctr_tx) = Self::deletion_thread();
+    let cm = Arc::new(ContainerManager::new(resources.clone(), cont_isolations, handle, health_handle, gpu_resources, del_ctr_tx));
+    tx.send(cm.clone())?;
+    health_tx.send(cm.clone())?;
     Ok(cm)
   }
 
@@ -78,30 +100,27 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument(skip(service), fields(tid=%tid))]
-  async fn cull_unhealthy(service: Arc<Self>, tid: TransactionId) {
+  #[tracing::instrument(skip(self), fields(tid=%tid))]
+  async fn cull_unhealthy(&self, tid: &TransactionId, mut rx: UnboundedReceiver<Container>) {
     loop {
-      if (*service.remove_list.read()).len() > 0 {
-        let item = (*service.remove_list.write()).pop();
-        if let Some(to_remove) = item {
-          let cont_lifecycle = match service.cont_isolations.get(&to_remove.container_type()) {
-            Some(c) => c,
-            None => {
-              error!(tid=%tid, iso=?to_remove.container_type(), "Lifecycle for container not supported");
-              continue;
-            },
-          };
-          let stdout = cont_lifecycle.read_stdout(&to_remove, &tid);
-          let stderr = cont_lifecycle.read_stderr(&to_remove, &tid);
-          warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
-          match service.remove_container(to_remove, &tid).await {
-            Ok(_) => (),
-            Err(cause) => error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container"),
-          };  
-        }
-      } else {
-        break;
-      }
+      let to_remove = match rx.recv().await {
+        Some(c) => c,
+        None => return,      
+      };
+      let cont_lifecycle = match self.cont_isolations.get(&to_remove.container_type()) {
+        Some(c) => c,
+        None => {
+          error!(tid=%tid, iso=?to_remove.container_type(), "Lifecycle for container not supported");
+          continue;
+        },
+      };
+      let stdout = cont_lifecycle.read_stdout(&to_remove, &tid);
+      let stderr = cont_lifecycle.read_stderr(&to_remove, &tid);
+      warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
+      match self.remove_container(to_remove, &tid).await {
+        Ok(_) => (),
+        Err(cause) => error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container"),
+      };  
     }
   }
 
@@ -198,7 +217,9 @@ impl ContainerManager {
           if c.is_healthy() {
             return self.try_lock_container(c, tid);
           } else {
-            (*self.remove_list.write()).push(c);
+            if let Err(e) = self.unhealthy_removal_rx.send(c) {
+              error!(tid=%tid, error=%e, "Failed to send unhealthy container for removal");
+            }
           }
         },
         None => return None,
@@ -270,7 +291,9 @@ impl ContainerManager {
     }
     container.mark_unhealthy();
     warn!(tid=%tid, container_id=%container.container_id(), "Marking unhealthy container for removal");
-    (*self.remove_list.write()).push(container.clone());
+    if let Err(e) = self.unhealthy_removal_rx.send(container.clone()) {
+      error!(tid=%tid, error=%e, "Failed to send container for removal on return");
+    }
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, pool, container), fields(tid=%tid)))]
