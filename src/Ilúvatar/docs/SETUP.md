@@ -64,8 +64,37 @@ sudo mv containerd.service /usr/local/lib/systemd/system/containerd.service
 
 ## GPU support
 
-https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
-https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#id6
+The machine will require recent NVIDIA drivers. We have testest with machines running driver version 470.161.03 and CUDA Version: 11.4.
+A significant shift, particularly a downgrade may result in failures for the applications running inside of containers.
+But this cannot be known without live testing.
+
+These steps need to be followed to enable NVIDIA GPU support for Ilúvatar containers.
+
+Install NVIDIA Container Toolkit for Docker & containerd extensions.
+* https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
+* https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#id6
+
+Create a service to run `nvidia-persistenced` on the machine, providing lower GPU context start times and faster container booting.
+This will live across potential system restarts.
+```
+echo "[Unit]
+Description=NVIDIA Persistence Daemon
+Wants=syslog.target
+StopWhenUnneeded=true
+Before=systemd-backlight@backlight:nvidia_0.service
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/nvidia-persistenced --user nvidia-persistenced --persistence-mode --verbose
+ExecStopPost=/bin/rm -rf /var/run/nvidia-persistenced" > /lib/systemd/system/nvidia-persistenced.service
+systemctl restart nvidia-persistenced
+systemctl status nvidia-persistenced
+```
+
+Success can be verified with this command:
+```sh
+nvidia-smi --format=csv,noheader --query-gpu=uuid,persistence_mode
+```
 
 ## Container forwarding
 

@@ -1,22 +1,17 @@
-use std::sync::atomic::AtomicU32;
-use std::{sync::Arc, time::Duration};
-use crate::services::containers::structs::{ParsedResult, InsufficientMemoryError, ContainerState, ContainerLock, InsufficientGPUError};
-use crate::services::invocation::invoker_structs::InvocationResult;
-use crate::services::registration::RegisteredFunction;
+use std::{sync::{Arc, atomic::AtomicU32}, time::Duration};
+use crate::services::containers::{structs::{ParsedResult, InsufficientMemoryError, ContainerState, ContainerLock, InsufficientGPUError}, containermanager::ContainerManager};
+use crate::services::{invocation::invoker_structs::InvocationResult, registration::RegisteredFunction};
 use crate::services::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
-use crate::services::containers::containermanager::ContainerManager;
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
-use iluvatar_library::{types::Compute, threading::tokio_runtime};
-use iluvatar_library::{transaction::TransactionId, threading::EventualItem, logging::LocalTime};
+use iluvatar_library::{transaction::TransactionId, threading::EventualItem, logging::LocalTime, types::Compute, threading::tokio_runtime};
 use parking_lot::Mutex;
 use time::{OffsetDateTime, Instant};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
-use super::{InvokerQueuePolicy, Invoker};
-use super::async_tracker::AsyncHelper;
-use super::invoker_structs::{EnqueuedInvocation, InvocationResultPtr};
+use super::{async_tracker::AsyncHelper, InvokerQueuePolicy, Invoker, invoker_structs::{EnqueuedInvocation, InvocationResultPtr}};
+use super::{avail_scale_q::AvailableScalingQueue, queueless::Queueless, fcfs_q::FCFSQueue, minheap_q::MinHeapQueue, minheap_ed_q::MinHeapEDQueue, minheap_iat_q::MinHeapIATQueue, cold_priority_q::ColdPriorityQueue};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -41,15 +36,16 @@ pub struct QueueingInvoker {
 }
 
 #[allow(dyn_drop)]
-/// A trait representing the functionality a queue policy must implement
-/// Overriding functions _must_ re-implement [info] level log statements for consistency
+/// An invoker implementation that enqueues invocations and orders them based on a variety of characteristics
+/// Queueing method is configurable
 impl QueueingInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, 
-      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu_queue: Arc<dyn InvokerQueuePolicy>, gpu_queue: Arc<dyn InvokerQueuePolicy>, 
-      cpu: Arc<CPUResourceMananger>, gpu: Arc<GpuResourceTracker>) -> Result<Arc<Self>> {
+      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CPUResourceMananger>, gpu: Arc<GpuResourceTracker>) -> Result<Arc<Self>> {
     let (cpu_handle, cpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_CPU_QUEUE_WORKER_TID.clone(), Self::monitor_cpu_queue, Some(Self::cpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
     let (gpu_handle, gpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_GPU_QUEUE_WORKER_TID.clone(), Self::monitor_gpu_queue, Some(Self::gpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
     let svc = Arc::new(QueueingInvoker {
+      cpu_queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid)?,
+      gpu_queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid)?,
       cont_manager, invocation_config,
       async_functions: AsyncHelper::new(),
       cpu_queue_signal: Notify::new(),
@@ -57,8 +53,6 @@ impl QueueingInvoker {
       gpu_queue_signal: Notify::new(),
       _gpu_thread: gpu_handle,
       clock: LocalTime::new(tid)?,
-      cpu_queue: cpu_queue.clone(),
-      gpu_queue: gpu_queue,
       cpu, gpu, cmap,
       running: AtomicU32::new(0),
     });
@@ -66,6 +60,20 @@ impl QueueingInvoker {
     gpu_tx.send(svc.clone())?;
     debug!(tid=%tid, "Created MinHeapInvoker");
     Ok(svc)
+  }
+
+  fn get_invoker_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, tid: &TransactionId)  -> Result<Arc<dyn InvokerQueuePolicy>> {
+    let r: Arc<dyn InvokerQueuePolicy> = match invocation_config.queue_policy.to_lowercase().as_str() {
+      "none" => Queueless::new()?,
+      "fcfs" => FCFSQueue::new()?,
+      "minheap" => MinHeapQueue::new(tid, cmap.clone())?,
+      "minheap_ed" => MinHeapEDQueue::new(tid, cmap.clone())?,
+      "minheap_iat" => MinHeapIATQueue::new(tid, cmap.clone())?,
+      "cold_pri" => ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?,
+      "scaling" => AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?,
+      unknown => panic!("Unknown queueing policy '{}'", unknown),
+    };
+    Ok(r)
   }
   
   /// Wait on the Notify object for the queue to be available again

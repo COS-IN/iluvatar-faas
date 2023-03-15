@@ -3,25 +3,22 @@ use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::transaction::TransactionId;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
-use self::avail_scale_q::AvailableScalingQueue;
-use self::cold_priority_q::ColdPriorityQueue;
 use self::invoker_structs::{EnqueuedInvocation, InvocationResultPtr};
 use self::queueing_invoker::QueueingInvoker;
-use self::{queueless::Queueless, fcfs_q::FCFSQueue, minheap_q::MinHeapQueue, minheap_ed_q::MinHeapEDQueue, minheap_iat_q::MinHeapIATQueue};
 use super::containers::containermanager::ContainerManager;
 use super::registration::RegisteredFunction;
 use super::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
 
 pub mod invoker_structs;
-pub mod queueless;
-pub mod async_tracker;
-pub mod fcfs_q;
-pub mod minheap_q;
-pub mod minheap_ed_q;
-pub mod minheap_iat_q;
+mod queueless;
+mod async_tracker;
+mod fcfs_q;
+mod minheap_q;
+mod minheap_ed_q;
+mod minheap_iat_q;
 mod cold_priority_q;
 mod avail_scale_q;
-pub mod queueing_invoker;
+mod queueing_invoker;
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
@@ -93,24 +90,8 @@ impl InvokerFactory {
     }
   }
 
-  fn get_invoker_queue(&self, tid: &TransactionId)  -> Result<Arc<dyn InvokerQueuePolicy>> {
-    let r: Arc<dyn InvokerQueuePolicy> = match self.invocation_config.queue_policy.to_lowercase().as_str() {
-      "none" => Queueless::new()?,
-      "fcfs" => FCFSQueue::new()?,
-      "minheap" => MinHeapQueue::new(tid, self.cmap.clone())?,
-      "minheap_ed" => MinHeapEDQueue::new(tid, self.cmap.clone())?,
-      "minheap_iat" => MinHeapIATQueue::new(tid, self.cmap.clone())?,
-      "cold_pri" => ColdPriorityQueue::new(self.cont_manager.clone(), tid, self.cmap.clone())?,
-      "scaling" => AvailableScalingQueue::new(self.cont_manager.clone(), tid, self.cmap.clone())?,
-      unknown => panic!("Unknown queueing policy '{}'", unknown),
-    };
-    Ok(r)
-  }
-
   pub fn get_invoker_service(&self, tid: &TransactionId) -> Result<Arc<dyn Invoker>> {
-    let q = self.get_invoker_queue(tid)?;
-    let q2 = self.get_invoker_queue(tid)?;
-    let invoker = QueueingInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone(), q, q2, self.cpu.clone(), self.gpu_resources.clone())?;
+    let invoker = QueueingInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone(), self.cpu.clone(), self.gpu_resources.clone())?;
     Ok(invoker)
   }
 }

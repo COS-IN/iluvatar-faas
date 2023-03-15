@@ -67,8 +67,8 @@ impl GpuResourceTracker {
       for row in data {
         let pos = row.find("UUID: ");
         if let Some(pos) = pos {
-          let slice = &row[(pos+"UUID: ".len())..row.len()-1];
-          ret.push(Arc::new(GPU { gpu_uuid: slice.to_string() }));
+          let gpu_uuid = &row[(pos+"UUID: ".len())..row.len()-1];
+          ret.push(Arc::new(GPU { gpu_uuid: gpu_uuid.to_string() }));
         }
       }
     }
