@@ -13,11 +13,10 @@ use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
 
 #[derive(Debug, serde::Deserialize)]
-#[allow(unused)]
 /// details about how/where to log to
 pub struct LoggingConfig {
   /// the min log level
-  /// see [tracing_core::metadata::LevelFilter]
+  /// see [tracing_subscriber::filter::Builder::parse()]
   pub level: String,
   /// directory to store logs in
   /// logs to stdout if empty
@@ -25,11 +24,11 @@ pub struct LoggingConfig {
   /// log filename start string
   pub basename: String,
   /// How to log spans, in all caps
-  /// look at for details [tracing_subscriber::fmt::format]
+  /// look at for details [mod@tracing_subscriber::fmt::format]
   /// Multiple options can be passed by listing them as a list using '+' between values
   pub spanning: String,
   /// a file to put flame trace data in 
-  /// See (here)[https://docs.rs/tracing-flame/latest/tracing_flame/index.html] for details
+  /// See (here)<https://docs.rs/tracing-flame/latest/tracing_flame/index.html> for details
   /// If empty, do not record flame data
   /// Enabling this loses some logging information
   pub flame: String,

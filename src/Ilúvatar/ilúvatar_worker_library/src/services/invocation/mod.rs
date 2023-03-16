@@ -11,7 +11,7 @@ use super::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
 
 pub mod invoker_structs;
 mod queueless;
-mod async_tracker;
+pub mod async_tracker;
 mod fcfs_q;
 mod minheap_q;
 mod minheap_ed_q;
@@ -22,34 +22,28 @@ mod queueing_invoker;
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
-/// Overriding functions _must_ re-implement [info] level log statements for consistency
 pub trait InvokerQueuePolicy: Send + Sync {
   /// The length of a queue, if the implementation has one
-  /// Default is 0 if not overridden
-  /// An implementing struct only needs to implement this if it uses [monitor_queue]
-  fn queue_len(&self) -> usize { 0 }
+  fn queue_len(&self) -> usize;
 
   /// A peek at the first item in the queue.
-  /// Returns [Some(Arc<EnqueuedInvocation>)] if there is anything in the queue, [None] otherwise.
-  /// An implementing struct only needs to implement this if it uses [monitor_queue].
-  fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {todo!()}
+  /// Returns an [EnqueuedInvocation] if there is anything in the queue, [None] otherwise.
+  fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>>;
 
   /// Destructively return the first item in the queue.
   /// This function will only be called if something is known to be un the queue, so using `unwrap` to remove an [Option] is safe
-  /// An implementing struct only needs to implement this if it uses [monitor_queue]
-  fn pop_queue(&self) -> Arc<EnqueuedInvocation> {todo!()}
+  fn pop_queue(&self) -> Arc<EnqueuedInvocation>;
 
   /// Insert an item into the queue, optionally at a specific index
   /// If not specified, added to the end
   /// Wakes up the queue monitor thread
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, _item, _index), fields(tid=%_item.tid)))]
-  fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>) { }
+  fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>);
 }
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
-/// Overriding functions _must_ re-implement [info] level log statements for consistency
-/// Re-implementers **must** duplicate [tracing::info] logs for consistency
+/// Overriding functions _must_ re-implement [tracing::info] level log statements for consistency
 pub trait Invoker: Send + Sync {
   /// A synchronous invocation against this invoker
   async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr>;

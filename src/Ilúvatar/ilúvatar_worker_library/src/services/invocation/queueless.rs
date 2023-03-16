@@ -19,6 +19,8 @@ impl Queueless {
 #[tonic::async_trait]
 #[allow(dyn_drop)]
 impl InvokerQueuePolicy for Queueless {
+  fn queue_len(&self) -> usize { 0 }
+  
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let q = self.async_queue.lock();
     if let Some(r) = q.get(0) {

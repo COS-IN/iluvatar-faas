@@ -160,7 +160,7 @@ impl PartialEq for CompletedControllerInvocation {
 }
 
 /// Run an invocation against the controller
-/// Return the [iluvatar_controller_library::load_balancer_api::lb_structs::json::ControllerInvokeResult] result after parsing
+/// Return the [ControllerInvokeResult] result after parsing
 /// also return the latency in milliseconds of the request
 pub async fn controller_invoke(name: &String, version: &String, host: &String, port: Port, args: Option<Vec<String>>, clock: Arc<LocalTime>, client: Arc<Client>) -> Result<CompletedControllerInvocation> {
   let req = Invoke {

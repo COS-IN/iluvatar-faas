@@ -69,10 +69,10 @@ pub struct ComputeResourceConfig {
   /// Not all resources support oversubscription 
   pub max_oversubscribe: Option<u32>,
   /// Frequency at which to check the system load and optionally increase the allowed invocation concurrency.
-  /// Used with [max_oversubscribe] and cannot be 0
+  /// Used with [Self::max_oversubscribe] and cannot be 0
   pub concurrency_udpate_check_ms: Option<u64>,
   /// The maximum normalized load average before reducing concurrency. 
-  /// Used with [max_oversubscribe] and cannot be 0
+  /// Used with [Self::max_oversubscribe] and cannot be 0
   pub max_load: Option<f64>,
 }
 

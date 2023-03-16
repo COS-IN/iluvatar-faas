@@ -87,23 +87,36 @@ impl AgExponential {
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Characteristics {
     /// Running avg of _all_ times on CPU for invocations
-    /// Recorded by [Invoker::invoke_internal]
+    /// Recorded by QueueingInvoker::invoke_on_container
     ExecTime,
     /// Time on CPU for a warm invocation
-    /// Recorded by [Invoker::invoke_internal]
+    /// Recorded by QueueingInvoker::invoke_on_container
     WarmTime,
     /// Time on CPU for a pre-warmed invocation
     /// The container was previously started, but no invocation was run on it
-    /// Recorded by [Invoker::invoke_internal]
+    /// Recorded by QueueingInvoker::invoke_on_container
     PreWarmTime,
-    /// E2E time for a cold start
-    /// Recorded by [Invoker::invoke_internal]
+    /// E2E time for a CPU cold start
+    /// Recorded by QueueingInvoker::invoke_on_container
     ColdTime,
+    /// Running avg of _all_ times on GPU for invocations
+    /// Recorded by QueueingInvoker::invoke_on_container
+    GPUExecTime,
+    /// Time on GPU for a warm invocation
+    /// Recorded by QueueingInvoker::invoke_on_container
+    GPUWarmTime,
+    /// Time on GPU for a pre-warmed invocation
+    /// The container was previously started, but no invocation was run on it
+    /// Recorded by QueueingInvoker::invoke_on_container
+    GPUPreWarmTime,
+    /// E2E time for a GPU cold start
+    /// Recorded by QueueingInvoker::invoke_on_container
+    GPUColdTime,
     /// The last time an invocation happened 
-    /// Recorded internally by the [CharacteristicsMap::get_iat] function
+    /// Recorded internally by the [CharacteristicsMap::add_iat] function
     LastInvTime,
     /// The running avg IAT
-    /// Recorded by [IluvatarWorkerImpl::invoke] and [IluvatarWorkerImpl::invoke_async] 
+    /// Recorded by iluvatar_worker_library::worker_api::ilúvatar_worker::IluvatarWorkerImpl::invoke and iluvatar_worker_library::worker_api::ilúvatar_worker::IluvatarWorkerImpl::invoke_async 
     IAT,
     /// The running avg memory usage
     /// TODO: record this somewhere

@@ -23,7 +23,7 @@ fn sleep_time<T>(call_ms: u64, start_t: SystemTime, tid: &TransactionId) -> u64 
 }
 
 /// run a function within an OS thread
-/// It will be executed every [call_ms] milliseconds
+/// It will be executed every `call_ms` milliseconds
 pub fn os_thread<T: Send + Sync + 'static>(call_ms: u64, tid: TransactionId, function: Arc<dyn Fn(&T, &TransactionId) -> () + Send + Sync + 'static>) -> anyhow::Result<(OsHandle<()>, Sender<Arc<T>>)> {
   let (tx, rx) = channel::<Arc<T>>();
 
@@ -50,7 +50,7 @@ pub fn os_thread<T: Send + Sync + 'static>(call_ms: u64, tid: TransactionId, fun
 }
 
 /// Start an async function inside of a Tokio worker
-/// It will be executed every [call_ms] milliseconds
+/// It will be executed every `call_ms` milliseconds
 pub fn tokio_thread<S, T>(call_ms: u64, tid: TransactionId, function: fn(Arc<S>, TransactionId) -> T) -> (TokioHandle<()>, Sender<Arc<S>>)
 where
   T: Future<Output = ()> + Send + 'static,
@@ -79,10 +79,9 @@ where
 }
 
 /// Start an async function on a new OS thread inside of a private Tokio runtime
-/// It will be executed every [call_ms] milliseconds
-/// An optional [waiter_function] can be passed
-///   If done, they worker will wait on that future with a _timeout_ of [call_ms] instead
-///   After either case is met, the main [function] is called again
+/// * `call_ms` - The frequency with which the function will be executed every given milliseconds
+/// * `waiter_function` - An optional that can be passed that makes the thread wait on the future it returns with a timeout of `call_ms` instead
+/// * `function` is called after either case is met
 pub fn tokio_runtime<'a, S: Send + Sync + 'static, T, T2>(call_ms: u64, tid: TransactionId, function: fn(Arc<S>, TransactionId) -> T, 
                                                   waiter_function: Option<fn(Arc<S>, TransactionId) -> T2>, num_worker_threads: Option<usize>) 
   -> anyhow::Result<(OsHandle<()>, Sender<Arc<S>>)>

@@ -74,7 +74,7 @@ Install NVIDIA Container Toolkit for Docker & containerd extensions.
 * https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
 * https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#id6
 
-Create a service to run `nvidia-persistenced` on the machine, providing lower GPU context start times and faster container booting.
+Create a service to run [nvidia-persistenced](https://docs.nvidia.com/deploy/driver-persistence/index.html#persistence-daemon) on the machine, providing lower GPU context start times and faster container booting.
 This will live across potential system restarts.
 ```
 echo "[Unit]

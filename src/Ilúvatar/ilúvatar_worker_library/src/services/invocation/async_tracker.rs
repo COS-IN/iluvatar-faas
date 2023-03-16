@@ -45,6 +45,7 @@ impl AsyncHelper {
   /// Destructively returns results if they are found
   /// returns a JSON blob of "{ "Error": "Invocation not found" }" if the invocation is not found
   /// returns a JSON blob of "{ "Status": "Invocation not completed" }" if the invocation has not completed yet
+  /// NOTE: If these keys for non-completion are changed, then the controller will need modification to match
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, cookie), fields(tid=%tid)))]
   pub fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
     let entry = match self.get_async_entry(cookie, tid) {

@@ -6,12 +6,13 @@ use tracing::{debug, info};
 use crate::transaction::TransactionId;
 
 lazy_static::lazy_static! {
+  /// A global static [Continuation] struct to enable proper exiting by informing background threads of an exit signal
   pub static ref GLOB_CONT_CHECK: Continuation = Continuation::new();
 }
 
 /// A struct to track background threads and notify them of application exit
-/// Threads must call [thread_start], and loop on the [check_continue] member until it returns [false]
-/// Then call [thread_exit] after they have finished
+/// Threads must call `thread_start`, and loop on the `check_continue` member until it returns [false]
+/// Threads that register should call `thread_exit` after they have finished
 pub struct Continuation {
   signal: Arc<RwLock<bool>>,
   outstanding_threads: Arc<RwLock<u32>>,

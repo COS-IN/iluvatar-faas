@@ -100,7 +100,7 @@ where
 
 /// Waits for an expected exit signal from the OS
 /// Any of these: sigint, sig_term, sig_usr1, sig_usr2, sig_quit
-/// Notifies [crate::continuation::GLOB_CONT_CHECK] of the impending exit
+/// Notifies [static@crate::continuation::GLOB_CONT_CHECK] of the impending exit
 pub async fn wait_for_exit_signal(tid: &TransactionId) -> Result<()> {
   let mut sig_int = try_create_signal(tid, SignalKind::interrupt())?;
   let mut sig_term = try_create_signal(tid, SignalKind::terminate())?;

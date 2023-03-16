@@ -334,8 +334,6 @@ impl QueueingInvoker {
 #[tonic::async_trait]
 impl Invoker for QueueingInvoker {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
-  /// A synchronous invocation against this invoker
-  /// Re-implementers **must** duplicate [tracing::info] logs for consistency
   async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
     // check if the bypass counter exists, and if this fqdn can by bypassed
     if self.should_bypass(&reg) {

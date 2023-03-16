@@ -29,7 +29,7 @@ impl AsyncService {
 
   /// Checks the worker for the status of the async invocation
   /// Returns Some(string) if it is complete, None if waiting, and an error if something went wrong
-  /// Relies on informational json set by [this function](iluvatar_worker_library::services::invocation::async_tracker::invoke_async_check)
+  /// Assumes that [this function](iluvatar_worker_library::services::invocation::async_tracker::AsyncHelper::invoke_async_check) will return a dictionary with known keys
   pub async fn check_async_invocation(&self, cookie: String, tid: &TransactionId) -> Result<Option<String>> {
     debug!(tid=%tid, cookie=%cookie, "Checking async invocation");
     if let Some(worker) = self.async_invokes.get(&cookie) {
@@ -41,8 +41,8 @@ impl AsyncService {
         return Ok(Some(result.json_result));
       } else {
         let json: HashMap<String, String> = match serde_json::from_str(&result.json_result) {
-            Ok(r) => r,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Got an error trying to deserialize async check message"),
+          Ok(r) => r,
+          Err(e) => bail_error!(tid=%tid, error=%e, "Got an error trying to deserialize async check message"),
         };
         match json.get("Status") {
           // if we have this key then the invocation is still running

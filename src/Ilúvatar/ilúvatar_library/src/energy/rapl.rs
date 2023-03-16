@@ -16,7 +16,7 @@ use super::EnergyConfig;
 const RAPL_PTH: &str = "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj";
 const MAX_ENERGY_PTH: &str = "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj";
 
-/// Basic interactions with (RAPL)[https://lwn.net/Articles/545745/] 
+/// Basic interactions with (RAPL)<https://lwn.net/Articles/545745/>
 pub struct RAPL {
   max_uj: u128,
 }

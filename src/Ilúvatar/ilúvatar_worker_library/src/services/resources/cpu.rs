@@ -16,8 +16,8 @@ lazy_static::lazy_static! {
 
 /// An invoker that scales concurrency based on system load
 /// Prioritizes based on container availability
-/// Increases concurrency by 1 every [InvocationConfig::concurrency_udpate_check_ms]
-/// If system load is above [InvocationConfig::max_load], then the concurrency is reduced by half the distance to [crate::worker_api::worker_config::ComputeResourceConfig::max_oversubscribe] rounded up
+/// Increases concurrency by 1 every [crate::worker_api::worker_config::ComputeResourceConfig::concurrency_udpate_check_ms]
+/// If system load is above [crate::worker_api::worker_config::ComputeResourceConfig::max_load], then the concurrency is reduced by half the distance to [crate::worker_api::worker_config::ComputeResourceConfig::max_oversubscribe] rounded up
 pub struct CPUResourceMananger {
   _load_thread: Option<tokio::task::JoinHandle<()>>,
   concurrency_semaphore: Option<Arc<Semaphore>>,

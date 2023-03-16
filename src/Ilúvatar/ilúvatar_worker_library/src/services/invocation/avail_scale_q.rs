@@ -12,8 +12,6 @@ use std::collections::BinaryHeap;
 
 /// An invoker that scales concurrency based on system load
 /// Prioritizes based on container availability
-/// Increases concurrency by 1 every [InvocationConfig::concurrency_udpate_check_ms]
-/// If system load is above [InvocationConfig::max_load], then the concurrency is reduced by half the distance to [InvocationConfig::concurrent_invokes] rounded up
 pub struct AvailableScalingQueue {
   cont_manager: Arc<ContainerManager>,
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
@@ -33,6 +31,10 @@ impl AvailableScalingQueue {
 }
 
 impl InvokerQueuePolicy for AvailableScalingQueue {
+  fn queue_len(&self) -> usize { 
+    self.invoke_queue.lock().len()
+  }
+
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
