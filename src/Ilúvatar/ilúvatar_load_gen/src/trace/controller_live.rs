@@ -2,15 +2,22 @@ use std::{collections::HashMap, time::{SystemTime, Duration},sync::Arc};
 use anyhow::Result;
 use iluvatar_library::{utils::port::Port, logging::LocalTime, transaction::gen_tid};
 use tokio::{runtime::Builder, task::JoinHandle};
-use crate::{utils::{controller_register, controller_invoke, VERSION, CompletedControllerInvocation, resolve_handles, controller_prewarm}, trace::trace_utils::save_controller_results};
+use crate::{utils::{controller_register, controller_invoke, VERSION, CompletedControllerInvocation, resolve_handles, controller_prewarm, load_benchmark_data}, trace::trace_utils::save_controller_results, benchmark::BenchmarkStore};
 use crate::trace::{CsvInvocation, prepare_function_args, trace_utils::map_functions_to_prep};
 use super::{Function, TraceArgs};
 
-async fn controller_live_register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port) -> Result<()> {
+async fn controller_live_register_functions(funcs: &HashMap<String, Function>, host: &String, port: Port, benchmark: Option<&BenchmarkStore>) -> Result<()> {
   for (fid, func) in funcs.into_iter() {
     let image = func.image_name.as_ref().ok_or_else(|| anyhow::anyhow!("Unable to get image name for function '{}'", fid))?;
     println!("{}, {}", func.func_name, image);
-    let _reg_dur = controller_register(&func.func_name, &VERSION, &image, func.mem_mb+50, host, port).await?;
+    let func_timings = match benchmark {
+      Some(t) => match t.data.get(&func.func_name) {
+        Some(d) => Some(&d.resource_data),
+        None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", func.func_name)),
+      },
+      None => None,
+    };
+    let _reg_dur = controller_register(&func.func_name, &VERSION, &image, func.mem_mb+50, host, port, func_timings).await?;
   }
   Ok(())
 }
@@ -38,7 +45,8 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
       Err(e) => panic!("Unable to build reqwest HTTP client: {:?}", e),
     };
   map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv)?;
-  threaded_rt.block_on(controller_live_register_functions(&metadata, &args.host, args.port))?;
+  let bench_data = load_benchmark_data(&args.function_data)?;
+  threaded_rt.block_on(controller_live_register_functions(&metadata, &args.host, args.port, bench_data.as_ref()))?;
   threaded_rt.block_on(prewarm_funcs(&metadata, &args.host, args.port))?;
 
   let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;

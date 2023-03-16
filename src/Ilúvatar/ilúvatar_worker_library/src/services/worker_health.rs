@@ -42,7 +42,8 @@ impl WorkerHealthService {
         transaction_id: tid.clone(),
         language: LanguageRuntime::Nolang.into(),
         compute: Compute::CPU.bits(),
-        isolate: Isolation::CONTAINERD.bits()
+        isolate: Isolation::CONTAINERD.bits(),
+        resource_timings_json: "{}".to_string(),
     };
     let reg = reg.register(health_func, tid).await?;
 

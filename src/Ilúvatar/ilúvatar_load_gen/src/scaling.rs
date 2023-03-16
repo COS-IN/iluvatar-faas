@@ -92,7 +92,7 @@ async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usiz
 
   let name = format!("scaling-{}", thread_id);
   let version = format!("0.0.{}", thread_id);
-  let (reg_result, reg_tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port, &factory, None, isolation, compute).await {
+  let (reg_result, reg_tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port, &factory, None, isolation, compute, None).await {
     Ok((s, reg_dur, tid)) => (RegistrationResult {
       duration_us: reg_dur.as_micros(),
       result: s

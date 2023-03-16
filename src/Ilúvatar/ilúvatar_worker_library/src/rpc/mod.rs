@@ -2,7 +2,7 @@ tonic::include_proto!("iluvatar_worker");
 use tracing::{error, debug, warn};
 use tonic::transport::Channel;
 use std::error::Error;
-use iluvatar_library::bail_error;
+use iluvatar_library::{bail_error, types::ResourceTimings};
 use crate::{rpc::iluvatar_worker_client::IluvatarWorkerClient, worker_api::{HealthStatus, WorkerAPI}};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::{MemSizeMb, Isolation, Compute};
@@ -173,7 +173,8 @@ impl WorkerAPI for RPCWorkerAPI {
     }
   }
 
-  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation, compute: Compute) -> Result<String> {
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, 
+      isolate: Isolation, compute: Compute, timings: Option<&ResourceTimings>) -> Result<String> {
     let request = Request::new(RegisterRequest {
       function_name,
       function_version: version,
@@ -188,6 +189,10 @@ impl WorkerAPI for RPCWorkerAPI {
       language: LanguageRuntime::Nolang.into(),
       compute: compute.bits(),
       isolate: isolate.bits(),
+      resource_timings_json: match timings {
+        Some(r) => serde_json::to_string(r)?,
+        None => "{}".to_string()
+      }
     });
     match self.client.register(request).await {
       Ok(response) => Ok(response.into_inner().function_json_result),

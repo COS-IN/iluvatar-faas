@@ -3,7 +3,7 @@ use anyhow::Result;
 use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime, types::{CommunicationMethod, Compute, Isolation}};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tokio::{runtime::Runtime, task::JoinHandle};
-use crate::{utils::{worker_register, VERSION, worker_prewarm, LoadType, RunType, CompletedControllerInvocation, save_result_json}, benchmark::BenchmarkStore, trace::safe_cmp};
+use crate::{utils::{worker_register, VERSION, worker_prewarm, LoadType, RunType, CompletedControllerInvocation, save_result_json, load_benchmark_data}, benchmark::BenchmarkStore, trace::safe_cmp};
 use super::{Function, TraceArgs};
 
 fn compute_prewarms(func: &Function, default_prewarms: Option<u32>) -> u32 {
@@ -84,7 +84,7 @@ fn map_from_args(funcs: &mut HashMap<String, Function>, default_prewarms: Option
   Ok(())
 }
 
-pub fn map_functions_to_prep(load_type: LoadType, func_json_data: &Option<String>, funcs: &mut HashMap<String, Function>, 
+pub fn map_functions_to_prep(load_type: LoadType, func_json_data_path: &Option<String>, funcs: &mut HashMap<String, Function>, 
                             default_prewarms: Option<u32>, trace_pth: &String) -> Result<()> {
   for (_, v) in funcs.iter_mut() {
     v.parsed_compute = match v.compute.as_ref() {
@@ -99,15 +99,8 @@ pub fn map_functions_to_prep(load_type: LoadType, func_json_data: &Option<String
   match load_type {
     LoadType::Lookbusy => { return map_from_lookbusy(funcs, default_prewarms); },
     LoadType::Functions => {
-      if let Some(func_json_data) = func_json_data {
-        // Choosing functions from json file benchmark data
-        let contents = std::fs::read_to_string(func_json_data).expect("Something went wrong reading the benchmark file");
-        match serde_json::from_str::<BenchmarkStore>(&contents) {
-          Ok(d) => {
-            return map_from_benchmark(funcs, &d, default_prewarms, trace_pth);
-          },
-          Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
-        }
+      if let Some(func_json_data) = load_benchmark_data(func_json_data_path)? {
+        return map_from_benchmark(funcs, &func_json_data, default_prewarms, trace_pth);
       } else {
         return map_from_args(funcs, default_prewarms)
       }
@@ -163,26 +156,26 @@ pub fn worker_prepare_functions(runtype: RunType, funcs: &mut HashMap<String, Fu
                           port: Port, load_type: LoadType, func_data: Option<String>, rt: &Runtime, 
                           prewarms: Option<u32>, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
   map_functions_to_prep(load_type, &func_data, funcs, prewarms, trace_pth)?;
-  prepare_worker(funcs, host, port, runtype, rt, factory)
+  prepare_worker(funcs, host, port, runtype, rt, factory, &func_data)
 }
 
-
-fn prepare_worker(funcs: &mut HashMap<String, Function>, host: &String, port: Port, runtype: RunType, rt: &Runtime, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
+fn prepare_worker(funcs: &mut HashMap<String, Function>, host: &String, port: Port, runtype: RunType, rt: &Runtime, factory: &Arc<WorkerAPIFactory>, func_data: &Option<String>) -> Result<()> {
   match runtype {
     RunType::Live => {
-      worker_wait_reg(&funcs, rt, port, host, factory, CommunicationMethod::RPC)?;
+      worker_wait_reg(&funcs, rt, port, host, factory, CommunicationMethod::RPC, func_data)?;
       worker_prewarm_functions(&funcs, host, port, rt, factory, CommunicationMethod::RPC)
     },
     RunType::Simulation => {
-      worker_wait_reg(&funcs, rt, port, host, factory, CommunicationMethod::SIMULATION)?;
+      worker_wait_reg(&funcs, rt, port, host, factory, CommunicationMethod::SIMULATION, func_data)?;
       worker_prewarm_functions(&funcs, host, port, rt, factory, CommunicationMethod::SIMULATION)
     },
   }
 }
 
-fn worker_wait_reg(funcs: &HashMap<String, Function>, rt: &Runtime, port: Port, host: &String, factory: &Arc<WorkerAPIFactory>, method: CommunicationMethod) -> Result<()> {
+fn worker_wait_reg(funcs: &HashMap<String, Function>, rt: &Runtime, port: Port, host: &String, factory: &Arc<WorkerAPIFactory>, method: CommunicationMethod, func_data: &Option<String>) -> Result<()> {
   let mut func_iter = funcs.into_iter();
   let mut cont = true;
+  let bench_data = load_benchmark_data(&func_data)?;
   loop {
     let mut handles: Vec<JoinHandle<Result<(String, Duration, TransactionId)>>> = Vec::new();
     for _ in 0..40 {
@@ -203,7 +196,14 @@ fn worker_wait_reg(funcs: &HashMap<String, Function>, rt: &Runtime, port: Port, 
       let comp = func.parsed_compute.expect("Did not have a `parsed_compute` when going to register");
       let isol = func.parsed_isolation.expect("Did not have a `parsed_coparsed_isolationmpute` when going to register");
       let mem = func.mem_mb;
-      handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mem, h_c, port, &fct_cln, Some(method), isol, comp).await }));
+      let func_timings = match bench_data.as_ref() {
+        Some(t) => match t.data.get(&func.func_name) {
+          Some(d) => Some(d.resource_data.clone()),
+          None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", func.func_name)),
+        },
+        None => None,
+      };
+      handles.push(rt.spawn(async move { worker_register(f_c, &VERSION, image, mem, h_c, port, &fct_cln, Some(method), isol, comp, func_timings.as_ref()).await }));
     }
     for h in handles {
       let (_s,_d,_s2) = rt.block_on(h)??;

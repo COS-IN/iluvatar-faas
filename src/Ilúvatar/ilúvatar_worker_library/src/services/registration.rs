@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
-use iluvatar_library::{types::{Isolation, MemSizeMb, Compute}, transaction::TransactionId, utils::calculate_fqdn};
+use iluvatar_library::{types::{Isolation, MemSizeMb, Compute, ResourceTimings}, transaction::TransactionId, utils::calculate_fqdn, characteristics_map::{CharacteristicsMap, Characteristics, Values}};
 use parking_lot::RwLock;
 use tracing::{debug, info};
 use crate::rpc::RegisterRequest;
@@ -26,13 +26,14 @@ pub struct RegistrationService {
   cm: Arc<ContainerManager>, 
   lifecycles: ContainerIsolationCollection,
   limits_config: Arc<FunctionLimits>,
+  characteristics_map: Arc<CharacteristicsMap>,
 }
 
 impl RegistrationService {
-  pub fn new(cm: Arc<ContainerManager>, lifecycles: ContainerIsolationCollection, limits_config: Arc<FunctionLimits>,) -> Arc<Self> {
+  pub fn new(cm: Arc<ContainerManager>, lifecycles: ContainerIsolationCollection, limits_config: Arc<FunctionLimits>, characteristics_map: Arc<CharacteristicsMap>,) -> Arc<Self> {
     Arc::new(RegistrationService {
       reg_map: RwLock::new(HashMap::new()),
-      cm, lifecycles, limits_config
+      cm, lifecycles, limits_config, characteristics_map,
     })
   }
 
@@ -96,10 +97,37 @@ impl RegistrationService {
     debug!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "Adding new registration to registered_functions map");
     self.reg_map.write().insert(fqdn.clone(), ret.clone());
 
+    match serde_json::from_str::<ResourceTimings>(&request.resource_timings_json) {
+      Ok(r) => {
+        for dev_compute in compute {
+          if let Some(timings) = r.get(&((&dev_compute).try_into()?)) {
+            let (cold, warm, exec) = Self::get_characteristics(dev_compute)?;
+            for v in timings.cold_results_sec.iter() {
+              self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
+            }
+            for v in timings.warm_results_sec.iter() {
+              self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
+            }
+          }
+        }
+      },
+      Err(e) => anyhow::bail!("Failed to parse resource timings because {:?}", e),
+    };    
+
     self.cm.register(&ret, tid)?;
     
     info!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "function was successfully registered");
     Ok(ret)
+  }
+
+  fn get_characteristics(compute: Compute) -> Result<(Characteristics, Characteristics, Characteristics)> {
+    if compute == Compute::CPU {
+      return Ok((Characteristics::ColdTime, Characteristics::WarmTime, Characteristics::ExecTime));
+    } else if compute == Compute::GPU {
+      return Ok((Characteristics::GPUColdTime, Characteristics::GPUWarmTime, Characteristics::GPUExecTime));
+    } else {
+      anyhow::bail!("Unknown compute to get characteristics for registration: {:?}", compute)
+    }
   }
 
   pub fn get_registration(&self, fqdn: &String) -> Option<Arc<RegisteredFunction>> {

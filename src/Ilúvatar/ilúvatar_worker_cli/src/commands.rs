@@ -69,7 +69,7 @@ pub async fn register(worker: Box<Worker>, args: RegisterArgs) -> Result<()> {
 
   let iso = args.isolation.into();
   let compute = args.compute.into();
-  let ret = api.register(args.name, args.version, args.image, args.memory, args.cpu, 1, tid, iso, compute).await.unwrap();
+  let ret = api.register(args.name, args.version, args.image, args.memory, args.cpu, 1, tid, iso, compute, None).await.unwrap();
   println!("{}", ret);
   Ok(())
 }

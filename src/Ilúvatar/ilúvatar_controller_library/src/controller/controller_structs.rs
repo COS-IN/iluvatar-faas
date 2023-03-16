@@ -55,12 +55,14 @@ use super::*;
   #[allow(unused)]
   #[derive(Deserialize, Serialize, Debug)]
   pub struct RegisterFunction {
+    // TODO: Add specifying compute to controller registration
     pub function_name: String,
     pub function_version: String,
     pub image_name: String,
     pub memory: i64,
     pub cpus: u32,
-    pub parallel_invokes: u32
+    pub parallel_invokes: u32,
+    pub timings: Option<iluvatar_library::types::ResourceTimings>,
   }
 }
 
@@ -102,7 +104,8 @@ pub mod internal {
     pub image_name: String,
     pub memory: i64,
     pub cpus: u32,
-    pub parallel_invokes: u32
+    pub parallel_invokes: u32,
+    pub timings: Option<iluvatar_library::types::ResourceTimings>,
   }
 
   impl RegisteredFunction {
@@ -114,7 +117,8 @@ pub mod internal {
         image_name: req.image_name,
         memory: req.memory,
         cpus: req.cpus,
-        parallel_invokes: req.parallel_invokes
+        parallel_invokes: req.parallel_invokes,
+        timings: req.timings,
       }
     }
   }

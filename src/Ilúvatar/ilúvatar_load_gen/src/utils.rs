@@ -1,11 +1,13 @@
 use std::{time::Duration, path::Path, fs::File, io::Write, sync::Arc, collections::HashMap};
 use iluvatar_worker_library::{rpc::{InvokeResponse, ContainerState, CleanResponse}, worker_api::worker_comm::WorkerAPIFactory};
 use iluvatar_controller_library::controller::controller_structs::json::{RegisterFunction, Invoke, ControllerInvokeResult, Prewarm};
-use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::{MemSizeMb, CommunicationMethod, Isolation, Compute}, logging::LocalTime};
+use iluvatar_library::{utils::{timing::TimedExt, port::Port}, transaction::TransactionId, types::{MemSizeMb, CommunicationMethod, Isolation, Compute, ResourceTimings}, logging::LocalTime};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use anyhow::Result;
+use anyhow::{Result, Context};
 use tokio::{runtime::Runtime, task::JoinHandle};
+
+use crate::benchmark::BenchmarkStore;
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
@@ -159,6 +161,22 @@ impl PartialEq for CompletedControllerInvocation {
   }
 }
 
+/// Load benchmark data if the path contains a vaild path.
+/// Raises an error if the file is missing or parsing fails
+pub fn load_benchmark_data(path: &Option<String>) -> Result<Option<BenchmarkStore>> {
+  match path {
+    Some(pth) => {
+      // Choosing functions from json file benchmark data
+      let contents = std::fs::read_to_string(pth).context("Something went wrong reading the benchmark file")?;
+      match serde_json::from_str::<BenchmarkStore>(&contents) {
+        Ok(d) => Ok(Some(d)),
+        Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
+      }
+    },
+    None => Ok(None)
+  }
+}
+
 /// Run an invocation against the controller
 /// Return the [ControllerInvokeResult] result after parsing
 /// also return the latency in milliseconds of the request
@@ -202,14 +220,18 @@ pub async fn controller_invoke(name: &String, version: &String, host: &String, p
   Ok(r)
 }
 
-pub async fn controller_register(name: &String, version: &String, image: &String, memory: MemSizeMb, host: &String, port: Port) -> Result<Duration> {
+pub async fn controller_register(name: &String, version: &String, image: &String, memory: MemSizeMb, host: &String, port: Port, timings: Option<&ResourceTimings>) -> Result<Duration> {
   let req = RegisterFunction {
     function_name: name.clone(),
     function_version: version.clone(),
     image_name: image.clone(),
     memory,
     cpus: 1,
-    parallel_invokes: 1
+    parallel_invokes: 1,
+    timings: match timings {
+      Some(r) => Some(r.clone()),
+      None => None,
+    },
   };
   let client = reqwest::Client::new();
   let (reg_out, reg_dur) =  client.post(format!("http://{}:{}/register_function", &host, port))
@@ -262,14 +284,14 @@ pub async fn controller_prewarm(name: &String, version: &String, host: &String, 
   }
 }
 
-pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>, isolation: Isolation, compute: Compute) -> Result<(String, Duration, TransactionId)> {
+pub async fn worker_register(name: String, version: &String, image: String, memory: MemSizeMb, host: String, port: Port, factory: &Arc<WorkerAPIFactory>, comm_method: Option<CommunicationMethod>, isolation: Isolation, compute: Compute, timings: Option<&ResourceTimings>) -> Result<(String, Duration, TransactionId)> {
   let tid: TransactionId = format!("{}-reg-tid", name);
   let method = match comm_method {
     Some(m) => m,
     None => CommunicationMethod::RPC,
   };
   let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
-  let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone(), isolation, compute).timed().await;
+  let (reg_out, reg_dur) = api.register(name, version.clone(), image, memory, 1, 1, tid.clone(), isolation, compute, timings).timed().await;
 
   match reg_out {
     Ok(s) => match serde_json::from_str::<HashMap<String, String>>(&s) {

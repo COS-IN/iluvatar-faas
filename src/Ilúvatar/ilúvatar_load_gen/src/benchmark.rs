@@ -5,7 +5,7 @@ use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::transaction::gen_tid;
-use iluvatar_library::types::{Compute, Isolation, IsolationEnum, ComputeEnum, MemSizeMb};
+use iluvatar_library::types::{Compute, Isolation, IsolationEnum, MemSizeMb, ResourceTimings, FunctionInvocationTimings};
 use iluvatar_library::utils::port_utils::Port;
 use serde::{Serialize, Deserialize};
 use tokio::sync::Barrier;
@@ -45,44 +45,7 @@ impl BenchmarkStore {
 pub struct FunctionStore {
   pub function_name: String,
   pub image_name: String,
-  pub resource_data: HashMap<ComputeEnum, ResourceStore>,
-}
-#[derive(Serialize, Deserialize)]
-pub struct ResourceStore {
-  /// list of warm execution duration in seconds
-  pub warm_results_sec: Vec<f64>,
-  /// list of warm overhead times
-  pub warm_over_results_us: Vec<f64>,
-  /// list of cold execution duration in seconds
-  pub cold_results_sec: Vec<f64>,
-  /// list of cold overhead times
-  pub cold_over_results_us: Vec<f64>,
-  /// warm invocation latency time, including communication time from worker
-  ///   if targeting worker, recorded by benchmark
-  ///   if targeting controller, recorded by controller 
-  pub warm_worker_duration_us: Vec<u128>,
-  /// cold invocation latency time, including communication time from worker 
-  ///   if targeting worker, recorded by benchmark
-  ///   if targeting controller, recorded by controller 
-  pub cold_worker_duration_us: Vec<u128>,
-  /// warm invocation latency time recorded on worker 
-  pub warm_invoke_duration_us: Vec<u128>,
-  /// cold invocation latency time recorded on worker 
-  pub cold_invoke_duration_us: Vec<u128>,
-}
-impl ResourceStore {
-  pub fn new() -> Self {
-    ResourceStore {
-      warm_results_sec: Vec::new(),
-      warm_over_results_us: Vec::new(),
-      cold_results_sec: Vec::new(),
-      cold_over_results_us: Vec::new(),
-      warm_worker_duration_us: Vec::new(),
-      cold_worker_duration_us: Vec::new(),
-      warm_invoke_duration_us: Vec::new(),
-      cold_invoke_duration_us: Vec::new(),
-    }
-  }
+  pub resource_data: ResourceTimings,
 }
 impl FunctionStore {
   pub fn new(image_name: String, function_name: String) -> Self {
@@ -93,7 +56,6 @@ impl FunctionStore {
     }
   }
 }
-
 
 #[derive(Parser, Debug)]
 /// Benchmark functions through the system. 
@@ -179,7 +141,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
     for iter in 0..cold_repeats {
       let name = format!("{}-bench-{}", function.name, iter);
       let version = format!("0.0.{}", iter);
-      let _reg_dur = match crate::utils::controller_register(&name, &version, &function.image_name, 512, &host, port).await {
+      let _reg_dur = match crate::utils::controller_register(&name, &version, &function.image_name, 512, &host, port, None).await {
         Ok(d) => d,
         Err(e) => {
           println!("{}", e);
@@ -196,7 +158,7 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
               let compute = Compute::CPU; // TODO: update when controller returns more details
               let resource_entry = match func_data.resource_data.get_mut(&(&compute).try_into()?) {
                 Some(r) => r,
-                None => func_data.resource_data.entry((&compute).try_into()?).or_insert(ResourceStore::new()),
+                None => func_data.resource_data.entry((&compute).try_into()?).or_insert(FunctionInvocationTimings::new()),
               };
               if invoke_result.function_output.body.cold {
                 resource_entry.cold_results_sec.push(invoke_result.function_output.body.latency);
@@ -256,7 +218,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
     if invoke.worker_response.success {
       let resource_entry = match d.resource_data.get_mut(&(&compute).try_into()?) {
         Some(r) => r,
-        None => d.resource_data.entry((&compute).try_into()?).or_insert(ResourceStore::new()),
+        None => d.resource_data.entry((&compute).try_into()?).or_insert(FunctionInvocationTimings::new()),
       };
       if invoke.function_output.body.cold {
         resource_entry.cold_results_sec.push(invoke.function_output.body.latency);
@@ -313,7 +275,7 @@ async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenc
       for iter in 0..cold_repeats {
         let name = format!("{}.{:?}.{}.{}", &function.name, supported_compute, thread_cnt, iter);
         let version = iter.to_string();
-        let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, function.image_name.clone(), memory, host.clone(), port, &factory, None, isolation, supported_compute).await {
+        let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, function.image_name.clone(), memory, host.clone(), port, &factory, None, isolation, supported_compute, None).await {
           Ok(r) => r,
           Err(e) => {
             println!("{:?}", e);

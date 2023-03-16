@@ -6,7 +6,7 @@ use actix_web::{web::{Json, Data}, body::MessageBody};
 use iluvatar_controller_library::controller::web_server::{invoke, register_worker};
 use iluvatar_controller_library::controller::structs::json::Invoke;
 use tokio::{runtime::Builder, task::JoinHandle};
-use crate::{trace::{CsvInvocation, trace_utils::map_functions_to_prep}, utils::{VERSION, FunctionExecOutput, CompletedControllerInvocation, resolve_handles}};
+use crate::{trace::{CsvInvocation, trace_utils::map_functions_to_prep}, utils::{VERSION, FunctionExecOutput, CompletedControllerInvocation, resolve_handles, load_benchmark_data}, benchmark::BenchmarkStore};
 use super::{Function, TraceArgs, trace_utils::save_controller_results};
 use iluvatar_worker_library::worker_api::{worker_config::Configuration as WorkerConfig};
 
@@ -32,15 +32,23 @@ async fn controller_sim_register_workers(num_workers: usize, server_data: &Data<
   Ok(())
 }
 
-async fn controller_sim_register_functions(metadata: &HashMap<String, Function>, server_data: &Data<Controller>) -> Result<()> {
+async fn controller_sim_register_functions(metadata: &HashMap<String, Function>, server_data: &Data<Controller>, benchmark: Option<&BenchmarkStore>) -> Result<()> {
   for (_, func) in metadata.iter() {
+    let func_timings = match benchmark {
+      Some(t) => match t.data.get(&func.func_name) {
+        Some(d) => Some(d.resource_data.clone()),
+        None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", func.func_name)),
+      },
+      None => None,
+    };
     let r = RegisterFunction {
       function_name: func.func_name.to_string(),
       function_version: VERSION.clone(),
       image_name: "".to_string(),
       memory: func.mem_mb,
       cpus: 1,
-      parallel_invokes: 1
+      parallel_invokes: 1,
+      timings: func_timings,
     };
     let response = register_function(server_data.clone(), Json{0:r}).await;
     if ! response.status().is_success() {
@@ -121,7 +129,8 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
   threaded_rt.block_on(controller_sim_register_workers(args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize, &server_data, &worker_config_pth, &worker_config))?;
   let mut metadata = super::load_metadata(&args.metadata_csv)?;
   map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv)?;
-  threaded_rt.block_on(controller_sim_register_functions(&metadata, &server_data))?;
+  let bench_data = load_benchmark_data(&args.function_data)?;
+  threaded_rt.block_on(controller_sim_register_functions(&metadata, &server_data, bench_data.as_ref()))?;
   threaded_rt.block_on(controller_sim_prewarm_functions(&metadata, &server_data))?;
 
   let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;

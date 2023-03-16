@@ -1,8 +1,8 @@
 use std::sync::Arc;
-use iluvatar_library::characteristics_map::AgExponential;
-use iluvatar_library::types::{Isolation, Compute};
+use iluvatar_library::types::{Isolation, Compute, ResourceTimings};
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
-use iluvatar_library::energy::energy_logging::EnergyLogger;
+use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map::AgExponential};
+use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use crate::services::invocation::InvokerFactory;
 use crate::services::registration::RegistrationService;
 use crate::services::resources::{gpu::GpuResourceTracker, cpu::CPUResourceMananger};
@@ -12,7 +12,6 @@ use crate::services::status::status_service::StatusService;
 use crate::services::containers::containermanager::ContainerManager;
 use crate::worker_api::ilúvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use crate::rpc::{StatusResponse, InvokeResponse, CleanResponse};
 use self::worker_config::WorkerConfig;
 
@@ -40,7 +39,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make container manger"),
   };
 
-  let reg = RegistrationService::new(container_man.clone(), isos.clone(), worker_config.limits.clone());
+  let reg = RegistrationService::new(container_man.clone(), isos.clone(), worker_config.limits.clone(), cmap.clone());
 
   let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone(), cmap.clone(), cpu, gpu_resource.clone());
   let invoker = invoker_fact.get_invoker_service(tid)?;
@@ -74,7 +73,8 @@ pub trait WorkerAPI {
   async fn invoke_async(&mut self, function_name: String, version: String, args: String, tid: TransactionId) -> Result<String>;
   async fn invoke_async_check(&mut self, cookie: &String, tid: TransactionId) -> Result<InvokeResponse>;
   async fn prewarm(&mut self, function_name: String, version: String, tid: TransactionId, compute: Compute) -> Result<String>;
-  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation, compute: Compute) -> Result<String>;
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, 
+      isolate: Isolation, compute: Compute, timings: Option<&ResourceTimings>) -> Result<String>;
   async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse>;
   async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus>;
   async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse>;

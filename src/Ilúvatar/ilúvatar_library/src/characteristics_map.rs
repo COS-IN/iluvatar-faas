@@ -84,7 +84,7 @@ impl AgExponential {
 ////////////////////////////////////////////////////////////////
 /// CharacteristicsMap Implementation  
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Characteristics {
     /// Running avg of _all_ times on CPU for invocations
     /// Recorded by QueueingInvoker::invoke_on_container

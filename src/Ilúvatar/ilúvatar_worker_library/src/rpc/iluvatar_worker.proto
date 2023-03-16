@@ -82,6 +82,8 @@ message RegisterRequest {
   uint32 compute = 9;
   // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
   uint32 isolate = 10;
+  // Optional. A serialized string of the iluvatar_library::types::ResourceTimings struct to pre-populate the worker with information
+  string resource_timings_json = 11;
 }
 
 message RegisterResponse {

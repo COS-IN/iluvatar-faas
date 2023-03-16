@@ -52,13 +52,7 @@ impl IntoIterator for Compute {
 
   /// Get a list of the individual compute components in the [Compute] bitmap
   fn into_iter(self) -> Self::IntoIter {
-    let mut r = vec![];
-    for supported_compute in vec![Compute::CPU, Compute::GPU, Compute::FPGA] {
-      if self.contains(supported_compute){
-        r.push(supported_compute);
-      }
-    }
-    r.into_iter()
+    vec![Compute::CPU, Compute::GPU, Compute::FPGA].into_iter().filter(|x| self.contains(*x)).collect::<Vec<Compute>>().into_iter()
   } 
 }
 impl Into<Compute> for Vec<ComputeEnum> {
@@ -138,4 +132,47 @@ impl TryFrom<&String> for Isolation {
     Ok(vec.into())
   }
   type Error = anyhow::Error;
+}
+
+/// A collection of function timing data, allowing for polymorphic functions that run on several computes
+pub type ResourceTimings = std::collections::HashMap<ComputeEnum, FunctionInvocationTimings>;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+/// A struct holding the invocation timings of a single function.
+/// Broken down into several categories along warm and cold invocations.
+pub struct FunctionInvocationTimings {
+  /// list of warm execution duration in seconds
+  pub warm_results_sec: Vec<f64>,
+  /// list of warm overhead times
+  pub warm_over_results_us: Vec<f64>,
+  /// list of cold execution duration in seconds
+  pub cold_results_sec: Vec<f64>,
+  /// list of cold overhead times
+  pub cold_over_results_us: Vec<f64>,
+  /// warm invocation latency time, including communication time from worker
+  ///   if targeting worker, recorded by benchmark
+  ///   if targeting controller, recorded by controller 
+  pub warm_worker_duration_us: Vec<u128>,
+  /// cold invocation latency time, including communication time from worker 
+  ///   if targeting worker, recorded by benchmark
+  ///   if targeting controller, recorded by controller 
+  pub cold_worker_duration_us: Vec<u128>,
+  /// warm invocation latency time recorded on worker 
+  pub warm_invoke_duration_us: Vec<u128>,
+  /// cold invocation latency time recorded on worker 
+  pub cold_invoke_duration_us: Vec<u128>,
+}
+impl FunctionInvocationTimings {
+  pub fn new() -> Self {
+    FunctionInvocationTimings {
+      warm_results_sec: Vec::new(),
+      warm_over_results_us: Vec::new(),
+      cold_results_sec: Vec::new(),
+      cold_over_results_us: Vec::new(),
+      warm_worker_duration_us: Vec::new(),
+      cold_worker_duration_us: Vec::new(),
+      warm_invoke_duration_us: Vec::new(),
+      cold_invoke_duration_us: Vec::new(),
+    }
+  }
 }

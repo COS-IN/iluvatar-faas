@@ -102,7 +102,8 @@ impl WorkerAPI for SimWorkerAPI {
     }
   }
 
-  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, isolate: Isolation, compute: Compute) -> Result<String> {
+  async fn register(&mut self, function_name: String, version: String, image_name: String, memory: MemSizeMb, cpus: u32, parallels: u32, tid: TransactionId, 
+      isolate: Isolation, compute: Compute, timings: Option<&iluvatar_library::types::ResourceTimings>) -> Result<String> {
     let request = tonic::Request::new(RegisterRequest {
       function_name,
       function_version: version,
@@ -117,6 +118,10 @@ impl WorkerAPI for SimWorkerAPI {
       language: LanguageRuntime::Nolang.into(),
       compute: compute.bits(),
       isolate: isolate.bits(),
+      resource_timings_json: match timings {
+        Some(r) => serde_json::to_string(r)?,
+        None => "{}".to_string()
+      }
     });
     match self.worker.register(request).await {
       Ok(response) => Ok(response.into_inner().function_json_result),
