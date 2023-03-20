@@ -55,7 +55,7 @@ pub trait Invoker: Send + Sync {
   /// Check the status of the result, if found is returned destructively
   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse>;
   /// Number of invocations enqueued
-  fn queue_len(&self) -> usize;
+  fn queue_len(&self) -> (usize,usize);
   /// Number of running invocations
   fn running_funcs(&self) -> u32;
 }

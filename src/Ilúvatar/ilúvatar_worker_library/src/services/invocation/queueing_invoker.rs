@@ -33,6 +33,7 @@ pub struct QueueingInvoker {
   gpu_queue_signal: Notify,
   gpu_queue: Arc<dyn InvokerQueuePolicy>,
   running: AtomicU32,
+  last_memory_warning: Mutex<Instant>,
 }
 
 #[allow(dyn_drop)]
@@ -55,6 +56,7 @@ impl QueueingInvoker {
       clock: LocalTime::new(tid)?,
       cpu, gpu, cmap,
       running: AtomicU32::new(0),
+      last_memory_warning: Mutex::new(Instant::now()),
     });
     cpu_tx.send(svc.clone())?;
     gpu_tx.send(svc.clone())?;
@@ -206,7 +208,11 @@ impl QueueingInvoker {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
   fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error, compute: Compute) {
     if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
-      warn!(tid=%item.tid, "Insufficient memory to run item right now");
+      let mut warn_time = self.last_memory_warning.lock();
+      if warn_time.elapsed() > Duration::from_millis(500) {
+        warn!(tid=%item.tid, "Insufficient memory to run item right now");
+        *warn_time = Instant::now();
+      }
       *item.started.lock() = false;
       if compute == Compute::CPU {
         self.cpu_queue.add_item_to_queue(&item, Some(0));
@@ -365,8 +371,9 @@ impl Invoker for QueueingInvoker {
     self.async_functions.invoke_async_check(cookie, tid)
   }
 
-  fn queue_len(&self) -> usize {
-    self.cpu_queue.queue_len() + self.gpu_queue.queue_len()
+  /// The queue length of both CPU and GPU queues
+  fn queue_len(&self) -> (usize,usize) {
+    (self.cpu_queue.queue_len(), self.gpu_queue.queue_len())
   }
 
   /// The number of functions currently running

@@ -10,8 +10,10 @@ use super::resources::gpu::GpuStatus;
 #[derive(Debug, serde::Serialize)]
 /// Load metrics recorded by the local machine
 pub struct WorkerStatus {
-  /// length of the invoker queue
-  pub queue_len: i64,
+  /// length of the invoker CPU queue
+  pub cpu_queue_len: i64,
+  /// length of the invoker GPU queue
+  pub gpu_queue_len: i64,
   /// amount of memory used by containers
   pub used_mem: MemSizeMb,
   /// amount of memory usable by containers, used and unused

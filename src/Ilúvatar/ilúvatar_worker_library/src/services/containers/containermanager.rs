@@ -92,6 +92,7 @@ impl ContainerManager {
     if service.resources.memory_buffer_mb > 0 {
       let reclaim = service.resources.memory_buffer_mb - service.free_memory();
       if reclaim > 0 {
+        info!(tid=%tid, amount=reclaim, "Trying to reclaim memory for monitor pool");
         match service.reclaim_memory(reclaim, &tid).await {
           Ok(_) => {},
           Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
@@ -380,6 +381,7 @@ impl ContainerManager {
       Ok(c) => Ok(c),
       Err(cause) => {
         if let Some(mem) = cause.downcast_ref::<InsufficientMemoryError>() {
+            debug!(tid=%tid, amount=mem.needed, "Trying to reclaim memory to cold-start a container");
             self.reclaim_memory(mem.needed, tid).await?;
             return self.try_launch_container(&reg, tid, compute).await;
         } else if let Some(_) = cause.downcast_ref::<InsufficientGPUError>() {
@@ -469,7 +471,6 @@ impl ContainerManager {
   /// Reclaim at least the specified amount of memory by evicting containers
   /// Not guaranteed to do so, as all containers could be busy
   async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
-    info!(tid=%tid, amount=amount_mb, "Trying to reclaim memory");
     if amount_mb <= 0 {
       bail!("Cannot reclaim '{}' amount of memory", amount_mb);
     }

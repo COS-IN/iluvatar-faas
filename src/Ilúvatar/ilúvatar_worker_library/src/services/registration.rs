@@ -97,22 +97,30 @@ impl RegistrationService {
     debug!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "Adding new registration to registered_functions map");
     self.reg_map.write().insert(fqdn.clone(), ret.clone());
 
-    match serde_json::from_str::<ResourceTimings>(&request.resource_timings_json) {
-      Ok(r) => {
-        for dev_compute in compute {
-          if let Some(timings) = r.get(&((&dev_compute).try_into()?)) {
-            let (cold, warm, exec) = Self::get_characteristics(dev_compute)?;
-            for v in timings.cold_results_sec.iter() {
-              self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
-            }
-            for v in timings.warm_results_sec.iter() {
-              self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
+    if request.resource_timings_json.len() > 0 {
+      match serde_json::from_str::<ResourceTimings>(&request.resource_timings_json) {
+        Ok(r) => {
+          for dev_compute in compute {
+            if let Some(timings) = r.get(&((&dev_compute).try_into()?)) {
+              let (cold, warm, exec) = Self::get_characteristics(dev_compute)?;
+              for v in timings.cold_results_sec.iter() {
+                self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
+              }
+              for v in timings.warm_results_sec.iter() {
+                self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
+              }
+              for v in timings.warm_worker_duration_us.iter() {
+                self.characteristics_map.add(&fqdn, warm, Values::F64(*v as f64), true);
+              }
+              for v in timings.cold_worker_duration_us.iter() {
+                self.characteristics_map.add(&fqdn, cold, Values::F64(*v as f64), true);
+              }
             }
           }
-        }
-      },
-      Err(e) => anyhow::bail!("Failed to parse resource timings because {:?}", e),
-    };    
+        },
+        Err(e) => anyhow::bail!("Failed to parse resource timings because {:?}", e),
+      };  
+    }
 
     self.cm.register(&ret, tid)?;
     
@@ -120,6 +128,7 @@ impl RegistrationService {
     Ok(ret)
   }
 
+  /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute
   fn get_characteristics(compute: Compute) -> Result<(Characteristics, Characteristics, Characteristics)> {
     if compute == Compute::CPU {
       return Ok((Characteristics::ColdTime, Characteristics::WarmTime, Characteristics::ExecTime));

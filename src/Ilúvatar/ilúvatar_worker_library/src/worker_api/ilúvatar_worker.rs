@@ -233,7 +233,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
 
       let resp = StatusResponse { 
         success: true, 
-        queue_len: stat.queue_len,
+        queue_len: stat.cpu_queue_len + stat.gpu_queue_len,
         used_mem: stat.used_mem,
         total_mem: stat.total_mem,
         cpu_us: stat.cpu_us,

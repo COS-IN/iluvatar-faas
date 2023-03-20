@@ -57,12 +57,12 @@ fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkSt
     }
     func.cold_dur_ms = chosen_cold_time_ms as u64;
     func.warm_dur_ms = chosen_warm_time_ms as u64;
-    func.mem_mb = 512;
 
     let prewarms = compute_prewarms(func, default_prewarms);
-    func.prewarms = Some(prewarms);
-    total_prewarms += prewarms;
     println!("{} mapped to function '{}'", &func.func_name, chosen_name);
+    func.prewarms = Some(prewarms);
+    func.chosen_name = Some(chosen_name);
+    total_prewarms += prewarms;
   }
   println!("A total of {} prewarmed containers", total_prewarms);
   Ok(())
@@ -196,10 +196,13 @@ fn worker_wait_reg(funcs: &HashMap<String, Function>, rt: &Runtime, port: Port, 
       let comp = func.parsed_compute.expect("Did not have a `parsed_compute` when going to register");
       let isol = func.parsed_isolation.expect("Did not have a `parsed_coparsed_isolationmpute` when going to register");
       let mem = func.mem_mb;
-      let func_timings = match bench_data.as_ref() {
-        Some(t) => match t.data.get(&func.func_name) {
-          Some(d) => Some(d.resource_data.clone()),
-          None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", func.func_name)),
+      let func_timings = match &func.chosen_name {
+        Some(chosen_name) => match bench_data.as_ref() {
+          Some(t) => match t.data.get(chosen_name) {
+            Some(d) => Some(d.resource_data.clone()),
+            None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", func.func_name)),
+          },
+          None => None,
         },
         None => None,
       };

@@ -36,7 +36,8 @@ impl StatusService {
     let ret = Arc::new(StatusService { 
       container_manager: cm, 
       current_status: Mutex::new(Arc::new(WorkerStatus {
-        queue_len: 0,
+        cpu_queue_len: 0,
+        gpu_queue_len: 0,
         used_mem: 0,
         total_mem: 0,
         cpu_us: 0.0,
@@ -95,7 +96,7 @@ impl StatusService {
     let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
     *cpu_instant_lck = cpu_now;
 
-    let queue_len = self.invoker.queue_len() as i64;
+    let (cpu_queue_len, gpu_queue_len) = self.invoker.queue_len();
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();
     let num_containers = self.container_manager.num_containers();
@@ -104,8 +105,9 @@ impl StatusService {
     let kernel_freqs = self.cpu.kernel_cpu_freqs(tid);
 
     let new_status = Arc::new(WorkerStatus {
-      num_containers, gpu_utilization,
-      queue_len, used_mem, total_mem,
+      num_containers, gpu_utilization, used_mem, total_mem,
+      cpu_queue_len: cpu_queue_len as i64,
+      gpu_queue_len: gpu_queue_len as i64,
       cpu_us: computed_util.cpu_user + computed_util.cpu_nice,
       cpu_sy: computed_util.cpu_system + computed_util.cpu_irq + computed_util.cpu_softirq + computed_util.cpu_steal + computed_util.cpu_guest + computed_util.cpu_guest_nice,
       cpu_id: computed_util.cpu_idle,
@@ -119,7 +121,7 @@ impl StatusService {
     info!(tid=%tid, status=%new_status,"current load status");
 
     let values = vec![(minute_load_avg / nprocs as f64), (new_status.cpu_us+new_status.cpu_sy) as f64,
-                                    queue_len as f64, (used_mem as f64 / total_mem as f64), 
+                                    (cpu_queue_len + gpu_queue_len) as f64, (used_mem as f64 / total_mem as f64), 
                                     used_mem as f64];
     self.graphite.publish_metrics(&self.metrics, values, tid, self.tags.as_str());
 

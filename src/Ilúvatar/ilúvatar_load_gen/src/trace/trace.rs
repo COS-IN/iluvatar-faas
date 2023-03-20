@@ -109,6 +109,8 @@ pub struct Function {
   pub isolation: Option<iluvatar_library::types::IsolationEnum>,
   /// Used internally, the parsed value from [Function::isolation]
   pub parsed_isolation: Option<iluvatar_library::types::Isolation>,
+  /// Used internally, The code name the function was mapped to
+  pub chosen_name: Option<String>,
 }
 #[derive(Debug, serde::Deserialize)]
 pub struct CsvInvocation {
