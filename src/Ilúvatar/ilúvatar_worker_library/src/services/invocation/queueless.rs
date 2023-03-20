@@ -20,6 +20,7 @@ impl Queueless {
 #[allow(dyn_drop)]
 impl InvokerQueuePolicy for Queueless {
   fn queue_len(&self) -> usize { 0 }
+  fn est_queue_time(&self) -> f64 { 0.0 }
   
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let q = self.async_queue.lock();

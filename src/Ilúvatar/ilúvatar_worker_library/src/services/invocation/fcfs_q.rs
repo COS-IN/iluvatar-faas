@@ -9,12 +9,14 @@ use super::invoker_structs::{MinHeapEnqueuedInvocation, EnqueuedInvocation};
 
 pub struct FCFSQueue {
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapEnqueuedInvocation<OffsetDateTime>>>>,
+  est_time: Mutex<f64>
 }
 
 impl FCFSQueue {
   pub fn new() -> Result<Arc<Self>> {
     let svc = Arc::new(FCFSQueue {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
+      est_time: Mutex::new(0.0),
     });
     Ok(svc)
   }
@@ -40,9 +42,13 @@ impl InvokerQueuePolicy for FCFSQueue {
     v
   }
   fn queue_len(&self) -> usize { self.invoke_queue.lock().len() }
-
+  fn est_queue_time(&self) -> f64 { 
+    *self.est_time.lock() 
+  }
+  
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
+    *self.est_time.lock() += item.est_execution_time;
     let mut queue = self.invoke_queue.lock();
     queue.push(MinHeapEnqueuedInvocation::new(item.clone(), item.queue_insert_time));
   }

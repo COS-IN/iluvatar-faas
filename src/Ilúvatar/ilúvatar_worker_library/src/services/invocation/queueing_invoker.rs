@@ -24,6 +24,8 @@ pub struct QueueingInvoker {
   invocation_config: Arc<InvocationConfig>,
   cmap: Arc<CharacteristicsMap>,
   clock: LocalTime,
+  running: AtomicU32,
+  last_memory_warning: Mutex<Instant>,
   _cpu_thread: std::thread::JoinHandle<()>,
   cpu_queue_signal: Notify,
   cpu: Arc<CPUResourceMananger>,
@@ -32,8 +34,6 @@ pub struct QueueingInvoker {
   gpu: Arc<GpuResourceTracker>,
   gpu_queue_signal: Notify,
   gpu_queue: Arc<dyn InvokerQueuePolicy>,
-  running: AtomicU32,
-  last_memory_warning: Mutex<Instant>,
 }
 
 #[allow(dyn_drop)]
@@ -249,7 +249,14 @@ impl QueueingInvoker {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
   fn enqueue_new_invocation(&self, reg: &Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<Arc<EnqueuedInvocation>> {
     debug!(tid=%tid, "Enqueueing invocation");
-    let enqueue = Arc::new(EnqueuedInvocation::new(reg.clone(), json_args, tid, self.clock.now()));
+    let mut exec = 0.0;
+    if reg.supported_compute.contains(Compute::CPU) {
+      exec = self.cmap.get_exec_time(&reg.fqdn);
+    }
+    if reg.supported_compute.contains(Compute::GPU) {
+      exec = self.cmap.get_gpu_exec_time(&reg.fqdn);
+    }
+    let enqueue = Arc::new(EnqueuedInvocation::new(reg.clone(), json_args, tid, self.clock.now(), exec));
     let mut enqueues = 0;
 
     if reg.supported_compute == Compute::CPU {
@@ -301,7 +308,21 @@ impl QueueingInvoker {
           enqueues += 1;
         }
       },
-      EnqueueingPolicy::EstCompTime => todo!(), // TODO: implement this
+      EnqueueingPolicy::EstCompTime => {
+        let mut opts = vec![];
+        if reg.supported_compute.contains(Compute::CPU) {
+          opts.push((self.cpu_queue.est_queue_time() + self.cmap.get_exec_time(&reg.fqdn), &self.cpu_queue, &self.cpu_queue_signal));
+        }
+        if reg.supported_compute.contains(Compute::GPU) {
+          opts.push((self.gpu_queue.est_queue_time() + self.cmap.get_gpu_exec_time(&reg.fqdn), &self.gpu_queue, &self.gpu_queue_signal));
+        }
+        let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
+        if let Some((_, q, signal)) = best {
+          q.add_item_to_queue(&enqueue, None);
+          signal.notify_waiters();
+          enqueues += 1;
+        }
+      },
     }
 
     if enqueues == 0 {

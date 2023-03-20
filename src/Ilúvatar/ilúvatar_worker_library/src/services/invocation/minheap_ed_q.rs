@@ -18,12 +18,14 @@ fn time_since_epoch() -> f64 {
 pub struct MinHeapEDQueue {
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
   cmap: Arc<CharacteristicsMap>,
+  est_time: Mutex<f64>
 }
 
 impl MinHeapEDQueue {
   pub fn new(tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let svc = Arc::new(MinHeapEDQueue {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
+      est_time: Mutex::new(0.0),
       cmap,
     });
     debug!(tid=%tid, "Created MinHeapEDInvoker");
@@ -56,8 +58,12 @@ impl InvokerQueuePolicy for MinHeapEDQueue {
   fn queue_len(&self) -> usize {
     self.invoke_queue.lock().len()
   }
-
+  fn est_queue_time(&self) -> f64 { 
+    *self.est_time.lock() 
+  }
+  
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
+    *self.est_time.lock() += item.est_execution_time;
     let mut queue = self.invoke_queue.lock();
     let deadline = self.cmap.get_exec_time(&item.registration.fqdn) + time_since_epoch();
     queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), deadline ));

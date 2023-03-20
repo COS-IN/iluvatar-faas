@@ -40,6 +40,10 @@ pub trait InvokerQueuePolicy: Send + Sync {
   /// The length of a queue, if the implementation has one
   fn queue_len(&self) -> usize;
 
+  /// The estimated time of running everything in the queue
+  /// In seconds
+  fn est_queue_time(&self) -> f64;
+
   /// A peek at the first item in the queue.
   /// Returns an [EnqueuedInvocation] if there is anything in the queue, [None] otherwise.
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>>;

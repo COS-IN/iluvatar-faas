@@ -53,17 +53,16 @@ pub struct EnqueuedInvocation {
   pub started: Mutex<bool>,
   /// The local time at which the item was inserted into the queue
   pub queue_insert_time: OffsetDateTime,
+  /// The estimated time the invocation will take to execute, in seconds
+  pub est_execution_time: f64,
 }
 
 impl EnqueuedInvocation {
-  pub fn new(registration: Arc<RegisteredFunction>, json_args: String, tid: TransactionId, queue_insert_time: OffsetDateTime) -> Self {
+  pub fn new(registration: Arc<RegisteredFunction>, json_args: String, tid: TransactionId, queue_insert_time: OffsetDateTime, est_execution_time: f64) -> Self {
     EnqueuedInvocation {
-      registration,
+      registration, est_execution_time, json_args, tid, queue_insert_time,
       result_ptr: InvocationResult::boxed(),
-      json_args,
-      tid,
       signal: Notify::new(),
-      queue_insert_time,
       started: Mutex::new(false),
     }
   }
@@ -137,7 +136,7 @@ mod heapstructs {
       isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
       supported_compute: iluvatar_library::types::Compute::CPU,
     });
-    MinHeapEnqueuedInvocation::new_f(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now())), priority)
+    MinHeapEnqueuedInvocation::new_f(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now(), 0.0)), priority)
   }
 
   #[test]
@@ -168,7 +167,7 @@ mod heapstructs {
       isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
       supported_compute: iluvatar_library::types::Compute::CPU,
     });
-    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now())), priority)
+    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now(), 0.0)), priority)
   }
   #[test]
   fn min_i64() {
@@ -198,7 +197,7 @@ mod heapstructs {
       isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
       supported_compute: iluvatar_library::types::Compute::CPU,
     });
-    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), t)), t)
+    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), t, 0.0)), t)
   }
   #[test]
   fn min_datetime() {

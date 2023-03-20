@@ -16,6 +16,7 @@ pub struct AvailableScalingQueue {
   cont_manager: Arc<ContainerManager>,
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
   cmap: Arc<CharacteristicsMap>,
+  est_time: Mutex<f64>
 }
 
 impl AvailableScalingQueue {
@@ -24,6 +25,7 @@ impl AvailableScalingQueue {
       cont_manager,
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       cmap,
+      est_time: Mutex::new(0.0),
     });
     debug!(tid=%tid, "Created AvailableScalingInvoker");
     Ok(svc)
@@ -34,7 +36,10 @@ impl InvokerQueuePolicy for AvailableScalingQueue {
   fn queue_len(&self) -> usize { 
     self.invoke_queue.lock().len()
   }
-
+  fn est_queue_time(&self) -> f64 { 
+    *self.est_time.lock() 
+  }
+  
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
@@ -57,6 +62,7 @@ impl InvokerQueuePolicy for AvailableScalingQueue {
   }
 
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
+    *self.est_time.lock() += item.est_execution_time;
     let mut priority = 0.0;
     if self.cont_manager.outstanding(&item.registration.fqdn) == 0 {
       priority = self.cmap.get_warm_time(&item.registration.fqdn);

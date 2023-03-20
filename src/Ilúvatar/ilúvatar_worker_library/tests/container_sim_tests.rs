@@ -646,4 +646,58 @@ mod enqueueing_tests {
     let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await;
     assert_error!(invoke, "Cannot enqueue invocation using AlwaysCPU strategy because it does not support CPU", "Non-CPU poly function fails under only-cpu policy");
   }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn est_time_becomes_exec_time_cpu() {
+    let mut env = build_gpu_env();
+    env.push(("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()));
+    let (_log, _cfg, _cm, invoker, reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let req =  RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: (Compute::CPU|Compute::GPU).bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(1.0), true);
+    cmap.add(&func.fqdn, Characteristics::GPUExecTime, Values::F64(0.5), true);
+    let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let invoke = invoke.lock();
+    assert_eq!(invoke.compute, Compute::GPU, "Item should have been run on CPU");
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn faster_gpu_path_chosen() {
+    let mut env = vec![];
+    env.push(("container_resources.resource_map.gpu.count".to_string(), "1".to_string()));
+    env.push(("container_resources.resource_map.cpu.count".to_string(), "1".to_string()));
+    env.push(("container_resources.resource_map.cpu.max_oversubscribe".to_string(), "1".to_string()));
+    env.push(("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()));
+    let (_log, _cfg, _cm, invoker, reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let req =  RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: (Compute::CPU|Compute::GPU).bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(1.0), true);
+    cmap.add(&func.fqdn, Characteristics::GPUExecTime, Values::F64(1.5), true);
+    let _async_invoke1 = invoker.async_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let _async_invoke2 = invoker.async_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let _async_invoke3 = invoker.async_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let invoke = invoke.lock();
+    assert_eq!(invoke.compute, Compute::GPU, "Item should have been run on CPU");
+  }
 }
