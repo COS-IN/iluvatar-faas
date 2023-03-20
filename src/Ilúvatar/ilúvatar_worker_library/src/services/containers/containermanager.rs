@@ -139,9 +139,14 @@ impl ContainerManager {
   }
   /// Returns the best possible idle container's [ContainerState] at this time
   /// Not a guarantee it will be available
-  pub fn container_available(&self, fqdn: &String) -> ContainerState {
-    // TODO: idle GPU container check
-    self.cpu_containers.idle_containers.has_container(fqdn)
+  pub fn container_available(&self, fqdn: &String, compute: Compute) -> Result<ContainerState> {
+    if compute == Compute::CPU {
+      return Ok(self.cpu_containers.idle_containers.has_container(fqdn));
+    }
+    if compute == Compute::GPU {
+      return Ok(self.gpu_containers.idle_containers.has_container(fqdn));
+    }
+    anyhow::bail!("Unknown compute to get available containers: {:?}", compute)
   }
   /// The number of containers for the given FQDN that are not idle
   /// I.E. they are executing an invocation

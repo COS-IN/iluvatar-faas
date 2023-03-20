@@ -54,9 +54,9 @@ pub trait InvokerQueuePolicy: Send + Sync {
 
   /// Insert an item into the queue, optionally at a specific index
   /// If not specified, added to the end
-  /// Wakes up the queue monitor thread
+  /// If an error is returned, the item was not put enqueued
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, _item, _index), fields(tid=%_item.tid)))]
-  fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>);
+  fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()>;
 }
 
 #[tonic::async_trait]

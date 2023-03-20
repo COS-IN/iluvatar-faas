@@ -61,13 +61,13 @@ impl InvokerQueuePolicy for AvailableScalingQueue {
     v
   }
 
-  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
+  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
     *self.est_time.lock() += item.est_execution_time;
     let mut priority = 0.0;
     if self.cont_manager.outstanding(&item.registration.fqdn) == 0 {
       priority = self.cmap.get_warm_time(&item.registration.fqdn);
     }
-    priority = match self.cont_manager.container_available(&item.registration.fqdn) {
+    priority = match self.cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::CPU)? {
       ContainerState::Warm => priority,
       ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.registration.fqdn),
       _ => self.cmap.get_cold_time(&item.registration.fqdn),
@@ -78,5 +78,6 @@ impl InvokerQueuePolicy for AvailableScalingQueue {
                         queue.len(),
                         item.registration.fqdn,
                         queue.peek().unwrap().item.registration.fqdn );
+    Ok(())
   }
 }

@@ -34,9 +34,10 @@ impl InvokerQueuePolicy for Queueless {
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
-  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
+  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
     let mut queue = self.async_queue.lock();
     queue.push(item.clone());
     debug!(tid=%item.tid, "Added item to front of queue; waking worker thread");
+    Ok(())
   }
 }

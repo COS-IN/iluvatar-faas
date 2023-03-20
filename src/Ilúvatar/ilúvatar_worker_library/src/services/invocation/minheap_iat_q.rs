@@ -58,7 +58,7 @@ impl InvokerQueuePolicy for MinHeapIATQueue {
     *self.est_time.lock() 
   }
   
-  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
+  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
     *self.est_time.lock() += item.est_execution_time;
     let mut queue = self.invoke_queue.lock();
     let iat = self.cmap.get_iat( &item.registration.fqdn );
@@ -67,5 +67,6 @@ impl InvokerQueuePolicy for MinHeapIATQueue {
                         queue.len(),
                         item.registration.function_name,
                         queue.peek().unwrap().item.registration.function_name );
+    Ok(())
   }
 }

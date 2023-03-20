@@ -215,18 +215,24 @@ impl QueueingInvoker {
       }
       *item.started.lock() = false;
       if compute == Compute::CPU {
-        self.cpu_queue.add_item_to_queue(&item, Some(0));
-        self.cpu_queue_signal.notify_waiters();
+        match self.cpu_queue.add_item_to_queue(&item, Some(0)) {
+          Ok(_) => self.cpu_queue_signal.notify_waiters(),
+          Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item in CPU queue after memory exhaustion"),
+        };
       }
       if compute == Compute::GPU {
-        self.gpu_queue.add_item_to_queue(&item, Some(0));
-        self.gpu_queue_signal.notify_waiters();
+        match self.gpu_queue.add_item_to_queue(&item, Some(0)) {
+          Ok(_) => self.gpu_queue_signal.notify_waiters(),
+          Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item in GPU queue after memory exhaustion"),
+        };
       }
     } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
       warn!(tid=%item.tid, "No GPU available to run item right now");
       *item.started.lock() = false;
-      self.gpu_queue.add_item_to_queue(&item, Some(0));
-      self.gpu_queue_signal.notify_waiters();
+      match self.gpu_queue.add_item_to_queue(&item, Some(0)) {
+        Ok(_) => self.gpu_queue_signal.notify_waiters(),
+        Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item after GPU exhaustion"),
+      };
     } else {
       error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
       let mut result_ptr = item.result_ptr.lock();
@@ -239,7 +245,10 @@ impl QueueingInvoker {
       } else {
         result_ptr.attempts += 1;
         debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
-        self.cpu_queue.add_item_to_queue(&item, Some(0));
+        match self.cpu_queue.add_item_to_queue(&item, Some(0)) {
+          Ok(_) => self.cpu_queue_signal.notify_waiters(),
+          Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt"),
+        };
       }
     }
   }
@@ -260,12 +269,12 @@ impl QueueingInvoker {
     let mut enqueues = 0;
 
     if reg.supported_compute == Compute::CPU {
-      self.cpu_queue.add_item_to_queue(&enqueue, None);
+      self.cpu_queue.add_item_to_queue(&enqueue, None)?;
       self.cpu_queue_signal.notify_waiters();
       return Ok(enqueue);
     }
     if reg.supported_compute == Compute::GPU {
-      self.gpu_queue.add_item_to_queue(&enqueue, None);
+      self.gpu_queue.add_item_to_queue(&enqueue, None)?;
       self.gpu_queue_signal.notify_waiters();
       return Ok(enqueue);
     }
@@ -274,19 +283,19 @@ impl QueueingInvoker {
     match policy {
       EnqueueingPolicy::All => {
         if reg.supported_compute.contains(Compute::CPU) {
-          self.cpu_queue.add_item_to_queue(&enqueue, None);
+          self.cpu_queue.add_item_to_queue(&enqueue, None)?;
           self.cpu_queue_signal.notify_waiters();
           enqueues += 1;
         }
         if reg.supported_compute.contains(Compute::GPU) {
-          self.gpu_queue.add_item_to_queue(&enqueue, None);
+          self.gpu_queue.add_item_to_queue(&enqueue, None)?;
           self.gpu_queue_signal.notify_waiters();
           enqueues += 1;
         }
       },
       EnqueueingPolicy::AlwaysCPU => {
         if reg.supported_compute.contains(Compute::CPU) {
-          self.cpu_queue.add_item_to_queue(&enqueue, None);
+          self.cpu_queue.add_item_to_queue(&enqueue, None)?;
           self.cpu_queue_signal.notify_waiters();
           enqueues += 1;
         } else {
@@ -303,7 +312,7 @@ impl QueueingInvoker {
         }
         let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
         if let Some((_, q, signal)) = best {
-          q.add_item_to_queue(&enqueue, None);
+          q.add_item_to_queue(&enqueue, None)?;
           signal.notify_waiters();
           enqueues += 1;
         }
@@ -318,7 +327,7 @@ impl QueueingInvoker {
         }
         let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
         if let Some((_, q, signal)) = best {
-          q.add_item_to_queue(&enqueue, None);
+          q.add_item_to_queue(&enqueue, None)?;
           signal.notify_waiters();
           enqueues += 1;
         }

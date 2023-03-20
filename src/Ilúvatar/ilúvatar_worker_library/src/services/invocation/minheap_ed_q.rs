@@ -62,7 +62,7 @@ impl InvokerQueuePolicy for MinHeapEDQueue {
     *self.est_time.lock() 
   }
   
-  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) {
+  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
     *self.est_time.lock() += item.est_execution_time;
     let mut queue = self.invoke_queue.lock();
     let deadline = self.cmap.get_exec_time(&item.registration.fqdn) + time_since_epoch();
@@ -71,5 +71,6 @@ impl InvokerQueuePolicy for MinHeapEDQueue {
                         queue.len(),
                         item.registration.function_name,
                         queue.peek().unwrap().item.registration.function_name );
+                        Ok(())
   }
 }
