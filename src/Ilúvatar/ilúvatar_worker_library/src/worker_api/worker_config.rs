@@ -6,6 +6,7 @@ use iluvatar_library::{types::MemSizeMb, utils::port_utils::Port, logging::Loggi
 use iluvatar_library::graphite::GraphiteConfig;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
+use crate::services::invocation::EnqueueingPolicy;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
@@ -100,6 +101,9 @@ pub struct InvocationConfig {
   /// Queueing policy to use.
   /// Cerrently implemented are [none (no queue), fcfs (first come first serve), ]
   pub queue_policy: String,
+  /// The policy by which the worker decides how to enqueue polymorphic functions
+  /// By default it uses [EnqueueingPolicy::Both] 
+  pub enqueueing_policy: Option<EnqueueingPolicy>,
   /// If present and not zero, invocations with an execution duration less than this
   ///   will bypass concurrency restrictions and be run immediately
   pub bypass_duration_ms: Option<u64>,

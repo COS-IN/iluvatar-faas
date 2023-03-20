@@ -2,11 +2,11 @@
 pub mod utils;
 
 use iluvatar_worker_library::rpc::{RegisterRequest, LanguageRuntime};
-use iluvatar_library::transaction::TEST_TID;
 use crate::utils::{sim_invoker_svc, background_test_invoke, resolve_invoke, sim_args};
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_library::threading::EventualItem;
+use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
 use iluvatar_worker_library::services::containers::structs::ContainerState;
+use iluvatar_library::characteristics_map::{Characteristics, Values};
 
 fn cpu_reg() -> RegisterRequest {
   RegisterRequest {
@@ -18,6 +18,7 @@ fn cpu_reg() -> RegisterRequest {
     language: LanguageRuntime::Nolang.into(),
     compute: Compute::CPU.bits(),
     isolate: Isolation::CONTAINERD.bits(),
+    resource_timings_json: "".to_string(),
   }
 }
 
@@ -31,6 +32,7 @@ fn gpu_reg() -> RegisterRequest {
     language: LanguageRuntime::Nolang.into(),
     compute: Compute::GPU.bits(),
     isolate: Isolation::DOCKER.bits(),
+    resource_timings_json: "".to_string(),
   }
 }
 
@@ -52,7 +54,7 @@ mod compute_iso_matching {
   use super::*;
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cpu_docker_works() {
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, None, None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
     let req =   RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -62,6 +64,7 @@ mod compute_iso_matching {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
@@ -75,7 +78,7 @@ mod compute_iso_matching {
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cpu_ctr_works() {
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, None, None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
     let func = reg.register(cpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
     let c = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
@@ -89,7 +92,7 @@ mod compute_iso_matching {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn two_compute_works() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let req =   RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -99,6 +102,7 @@ mod compute_iso_matching {
       language: LanguageRuntime::Nolang.into(),
       compute: (Compute::CPU|Compute::GPU).bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let c = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
@@ -117,14 +121,14 @@ mod compute_iso_matching {
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cant_request_not_registered_compute_gpu() {
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, None, None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
     let func = reg.register(cpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     assert_error!(cm.prewarm(&func, &TEST_TID, Compute::GPU).await, "Registration did not contain requested compute", "Perwarm did not error correctly");
   }
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cant_request_not_registered_compute_cpu() {
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, None, None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     assert_error!(cm.prewarm(&func, &TEST_TID, Compute::CPU).await, "Registration did not contain requested compute", "Perwarm did not error correctly");
   }
@@ -137,7 +141,7 @@ mod gpu {
   
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn gpu_container_must_use_docker() {
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, None, None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
     let request = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -147,6 +151,7 @@ mod gpu {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::GPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func = reg.register(request, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let err = cm.prewarm(&func, &TEST_TID, Compute::GPU).await;
@@ -156,7 +161,7 @@ mod gpu {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn gpu_forces_docker() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let req =   RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -166,6 +171,7 @@ mod gpu {
       language: LanguageRuntime::Nolang.into(),
       compute: (Compute::CPU|Compute::GPU).bits(),
       isolate: (Isolation::DOCKER|Isolation::CONTAINERD).bits(),
+      resource_timings_json: "".to_string(),
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let c = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
@@ -185,7 +191,7 @@ mod gpu {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn polymorphic_invoke_only_one_compute() {
     let env = build_gpu_env();
-    let (_log, _cfg, _cm, invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let req =   RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -195,6 +201,7 @@ mod gpu {
       language: LanguageRuntime::Nolang.into(),
       compute: (Compute::CPU|Compute::GPU).bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
@@ -205,7 +212,7 @@ mod gpu {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn gpu_docker_works() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
     let _c = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
@@ -217,7 +224,7 @@ mod gpu {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn returned_container_ok() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
     let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
@@ -237,7 +244,7 @@ mod gpu {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn unhealthy_not_used() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
     let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
@@ -259,7 +266,7 @@ mod gpu {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn gpu_resource_limiting() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
     let _c1 = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
@@ -276,7 +283,7 @@ mod gpu {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn gpu_container_removed() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let reg2 = RegisterRequest {
       function_name: "test2".to_string(),
@@ -287,6 +294,7 @@ mod gpu {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::GPU.bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func2 = reg.register(reg2, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration 2 failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
@@ -309,7 +317,7 @@ mod gpu {
   async fn multiple_invokes_blocks() {
     let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
     let env = build_gpu_env();
-    let (_log, _cfg, cm, invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
     let args = sim_args().unwrap();
@@ -356,7 +364,7 @@ mod gpu {
   async fn diff_funcs_multiple_invokes_blocks() {
     let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
     let env = build_gpu_env();
-    let (_log, _cfg, cm, invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let func1 = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let r2 = RegisterRequest {
       function_name: "test2".to_string(),
@@ -367,6 +375,7 @@ mod gpu {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::GPU.bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func2 = reg.register(r2, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func1, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
@@ -413,7 +422,7 @@ mod gpu {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn two_gpu_allowed() {
     let env = two_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cm.prewarm(&func, &TEST_TID, Compute::GPU).await.unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
     let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
@@ -435,7 +444,7 @@ mod clean_tests {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn all_cpu_container_removed() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let req = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -445,6 +454,7 @@ mod clean_tests {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let c = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
@@ -462,7 +472,7 @@ mod clean_tests {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn all_gpu_container_removed() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let req = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -472,6 +482,7 @@ mod clean_tests {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::GPU.bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let c = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
@@ -488,7 +499,7 @@ mod clean_tests {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn cpu_container_removed() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let req = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -498,6 +509,7 @@ mod clean_tests {
       language: LanguageRuntime::Nolang.into(),
       compute: (Compute::CPU|Compute::GPU).bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let c = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
@@ -515,7 +527,7 @@ mod clean_tests {
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
   async fn gpu_container_removed() {
     let env = build_gpu_env();
-    let (_log, _cfg, cm, _invoker, reg) = sim_invoker_svc(None, Some(env), None).await;
+    let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let req = RegisterRequest {
       function_name: "test".to_string(),
       function_version: "test".to_string(),
@@ -525,6 +537,7 @@ mod clean_tests {
       language: LanguageRuntime::Nolang.into(),
       compute: (Compute::CPU|Compute::GPU).bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let c = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
@@ -536,5 +549,101 @@ mod clean_tests {
     assert_eq!(removed.len(), 1);
     let gpus = removed.get(&Compute::GPU).unwrap_or_else(|| panic!("Did not have a gpu removal, but: {:?}", removed));
     assert_eq!(*gpus, 1);
+  }
+}
+
+mod enqueueing_tests {
+  use super::*;
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn picks_gpu_queueing_exec() {
+    let mut env = build_gpu_env();
+    env.push(("invocation.enqueueing_policy".to_string(), "ShortestExecTime".to_string()));
+    let (_log, _cfg, _cm, invoker, reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let req =  RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: (Compute::CPU|Compute::GPU).bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(1.0), true);
+    cmap.add(&func.fqdn, Characteristics::GPUExecTime, Values::F64(0.5), true);
+    let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let invoke = invoke.lock();
+    assert_eq!(invoke.compute, Compute::GPU, "Item should have been run on CPU");
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn picks_cpu_queueing_exec() {
+    let mut env = build_gpu_env();
+    env.push(("invocation.enqueueing_policy".to_string(), "ShortestExecTime".to_string()));
+    let (_log, _cfg, _cm, invoker, reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let req =  RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: (Compute::CPU|Compute::GPU).bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(0.5), true);
+    cmap.add(&func.fqdn, Characteristics::GPUExecTime, Values::F64(1.0), true);
+    let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let invoke = invoke.lock();
+    assert_eq!(invoke.compute, Compute::CPU, "Item should have been run on CPU");
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn always_cpu() {
+    let mut env = build_gpu_env();
+    env.push(("invocation.enqueueing_policy".to_string(), "AlwaysCPU".to_string()));
+    let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let req =  RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: (Compute::CPU|Compute::GPU).bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let invoke = invoke.lock();
+    assert_eq!(invoke.compute, Compute::CPU, "Item should have been run on CPU");
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  /// This test will change/be removed if the assumption on AlwaysCPU changes
+  async fn always_cpu_errors_no_support() {
+    let mut env = build_gpu_env();
+    env.push(("invocation.enqueueing_policy".to_string(), "AlwaysCPU".to_string()));
+    let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let req =  RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: (Compute::GPU|Compute::FPGA).bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await;
+    assert_error!(invoke, "Cannot enqueue invocation using AlwaysCPU strategy because it does not support CPU", "Non-CPU poly function fails under only-cpu policy");
   }
 }

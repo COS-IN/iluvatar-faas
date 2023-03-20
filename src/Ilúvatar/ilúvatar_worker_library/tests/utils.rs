@@ -24,7 +24,7 @@ macro_rules! assert_error {
 /// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
 /// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
 /// [config_pth] is an optional path to config to load
-pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(String,String)>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>) {
+pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(String,String)>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>, Arc<CharacteristicsMap>) {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
   iluvatar_library::utils::set_simulation();
   let log = log.unwrap_or(false);
@@ -50,10 +50,10 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(
   let lifecycles = factory.get_isolation_services(&TEST_TID, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
-  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());
-  let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap, cpu, gpu_resource);
+  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone(), cmap.clone());
+  let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap.clone(), cpu, gpu_resource);
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
-  (_log, cfg, cm, invoker, reg)
+  (_log, cfg, cm, invoker, reg, cmap)
 }
 
 /// Creates/sets up the structs needed to test an invoker setup
@@ -86,7 +86,7 @@ pub async fn test_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<
   let lifecycles = factory.get_isolation_services(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
-  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone());
+  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone(), cmap.clone());
   let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap, cpu, gpu_resource);
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
   (_log, cfg, cm, invoker, reg)
@@ -102,6 +102,7 @@ fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
     language: LanguageRuntime::Nolang.into(),
     compute: Compute::CPU.bits(),
     isolate: Isolation::CONTAINERD.bits(),
+    resource_timings_json: "".to_string(),
   }
 }
 
@@ -115,6 +116,7 @@ pub async fn cust_register(reg: &Arc<RegistrationService>, image: &str, name: &s
     language: LanguageRuntime::Nolang.into(),
     compute: Compute::CPU.bits(),
     isolate: Isolation::CONTAINERD.bits(),
+    resource_timings_json: "".to_string(),
   };
   register_internal(reg, req, tid).await
 }

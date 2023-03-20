@@ -21,6 +21,7 @@ fn basic_reg_req() -> RegisterRequest {
     language: LanguageRuntime::Nolang.into(),
     compute: Compute::CPU.bits(),
     isolate: Isolation::CONTAINERD.bits(),
+    resource_timings_json: "".to_string(),
   }
 }
 
@@ -34,6 +35,7 @@ fn basic_reg_req_docker() -> RegisterRequest {
     language: LanguageRuntime::Nolang.into(),
     compute: Compute::CPU.bits(),
     isolate: Isolation::DOCKER.bits(),
+    resource_timings_json: "".to_string(),
   }
 }
 
@@ -69,6 +71,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     assert_error!(err, "Illegal parallel invokes set, must be 1", "registration succeeded when it should have failed!");
@@ -88,6 +91,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     assert_error!(err, "Invalid function name", "registration succeeded when it should have failed!");
@@ -107,6 +111,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     assert_error!(err, "Invalid function version", "registration succeeded when it should have failed!");
@@ -126,6 +131,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     assert_error!(err, "Illegal cpu allocation request", "registration succeeded when it should have failed!");
@@ -145,6 +151,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
@@ -164,6 +171,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
@@ -184,6 +192,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     match err {
@@ -212,6 +221,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     match err {
@@ -239,6 +249,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::empty().bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     assert_error!(err, "Could not register function with no specified isolation!", "registration succeeded when it should have failed!");
@@ -258,6 +269,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::INVALID.bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     assert_error!(err, "Could not register function with isolation(s): INVALID", "registration succeeded when it should have failed!");
@@ -277,6 +289,7 @@ mod registration {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: (Isolation::DOCKER | Isolation::CONTAINERD | Isolation::INVALID).bits(),
+      resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
     assert_error!(err, "Could not register function with isolation(s): INVALID", "registration succeeded when it should have failed!");
@@ -333,6 +346,7 @@ mod prewarm {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: (Isolation::DOCKER | Isolation::CONTAINERD).bits(),
+      resource_timings_json: "".to_string(),
     };
     let reg = _reg.register(request, &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
     cm.prewarm(&reg, &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
@@ -384,6 +398,7 @@ mod get_container {
       language: LanguageRuntime::Nolang.into(),
       compute: Compute::CPU.bits(),
       isolate: Isolation::CONTAINERD.bits(),
+      resource_timings_json: "".to_string(),
     };
     let reg = _reg.register(request, &TEST_TID).await.unwrap_or_else(|e| panic!("registration failed: {:?}", e));
     cm.prewarm(&reg, &TEST_TID, Compute::CPU).await.unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));

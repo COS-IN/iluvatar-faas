@@ -1,5 +1,5 @@
 use std::{sync::{Arc, atomic::AtomicU32}, time::Duration};
-use crate::services::containers::{structs::{ParsedResult, InsufficientMemoryError, ContainerState, ContainerLock, InsufficientGPUError}, containermanager::ContainerManager};
+use crate::services::{containers::{structs::{ParsedResult, InsufficientMemoryError, ContainerState, ContainerLock, InsufficientGPUError}, containermanager::ContainerManager}, invocation::EnqueueingPolicy};
 use crate::services::{invocation::invoker_structs::InvocationResult, registration::RegisteredFunction};
 use crate::services::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
@@ -251,16 +251,59 @@ impl QueueingInvoker {
     debug!(tid=%tid, "Enqueueing invocation");
     let enqueue = Arc::new(EnqueuedInvocation::new(reg.clone(), json_args, tid, self.clock.now()));
     let mut enqueues = 0;
-    if reg.supported_compute.contains(Compute::CPU) {
+
+    if reg.supported_compute == Compute::CPU {
       self.cpu_queue.add_item_to_queue(&enqueue, None);
       self.cpu_queue_signal.notify_waiters();
-      enqueues += 1;
+      return Ok(enqueue);
     }
-    if reg.supported_compute.contains(Compute::GPU) {
+    if reg.supported_compute == Compute::GPU {
       self.gpu_queue.add_item_to_queue(&enqueue, None);
       self.gpu_queue_signal.notify_waiters();
-      enqueues += 1;
+      return Ok(enqueue);
     }
+
+    let policy = self.invocation_config.enqueueing_policy.as_ref().unwrap_or(&EnqueueingPolicy::All);
+    match policy {
+      EnqueueingPolicy::All => {
+        if reg.supported_compute.contains(Compute::CPU) {
+          self.cpu_queue.add_item_to_queue(&enqueue, None);
+          self.cpu_queue_signal.notify_waiters();
+          enqueues += 1;
+        }
+        if reg.supported_compute.contains(Compute::GPU) {
+          self.gpu_queue.add_item_to_queue(&enqueue, None);
+          self.gpu_queue_signal.notify_waiters();
+          enqueues += 1;
+        }
+      },
+      EnqueueingPolicy::AlwaysCPU => {
+        if reg.supported_compute.contains(Compute::CPU) {
+          self.cpu_queue.add_item_to_queue(&enqueue, None);
+          self.cpu_queue_signal.notify_waiters();
+          enqueues += 1;
+        } else {
+          anyhow::bail!("Cannot enqueue invocation using {:?} strategy because it does not support CPU", EnqueueingPolicy::AlwaysCPU);
+        }
+      },
+      EnqueueingPolicy::ShortestExecTime => {
+        let mut opts = vec![];
+        if reg.supported_compute.contains(Compute::CPU) {
+          opts.push((self.cmap.get_exec_time(&reg.fqdn), &self.cpu_queue, &self.cpu_queue_signal));
+        }
+        if reg.supported_compute.contains(Compute::GPU) {
+          opts.push((self.cmap.get_gpu_exec_time(&reg.fqdn), &self.gpu_queue, &self.gpu_queue_signal));
+        }
+        let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
+        if let Some((_, q, signal)) = best {
+          q.add_item_to_queue(&enqueue, None);
+          signal.notify_waiters();
+          enqueues += 1;
+        }
+      },
+      EnqueueingPolicy::EstCompTime => todo!(), // TODO: implement this
+    }
+
     if enqueues == 0 {
       anyhow::bail!("Unable to enqueue function invocation, not matching compute");
     }

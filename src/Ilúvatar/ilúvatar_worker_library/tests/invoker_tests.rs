@@ -28,6 +28,7 @@ fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
     language: LanguageRuntime::Nolang.into(),
     compute: Compute::CPU.bits(),
     isolate: Isolation::CONTAINERD.bits(),
+    resource_timings_json: "".to_string(),
   }
 }
 
@@ -136,7 +137,7 @@ mod invoke_async {
       transaction_id: "testTID".to_string()
     };
     let result = invok_svc.async_invocation(reg, req.json_args, req.transaction_id);
-    let mut count = 0;
+    let start = std::time::Instant::now();
     match result {
       Ok( cookie ) => {
         assert_ne!(cookie, "");
@@ -154,8 +155,7 @@ mod invoke_async {
                 } else if result.json_result == "{ \"Status\": \"Invocation not completed\" }" {
                   // keep waiting on invocation
                   tokio::time::sleep(Duration::from_millis(100)).await;
-                  count += 1;
-                  if count > 100 {
+                  if start.elapsed() > Duration::from_secs(10) {
                     panic!("Waited too long for invocation result; cookie: {}; response: {:?}", cookie, result);
                   }
                   continue
