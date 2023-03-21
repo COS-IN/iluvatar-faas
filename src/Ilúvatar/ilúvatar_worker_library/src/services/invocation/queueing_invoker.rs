@@ -68,12 +68,10 @@ impl QueueingInvoker {
 
     if reg.supported_compute == Compute::CPU {
       self.cpu_queue.enqueue_item(&enqueue)?;
-      // self.cpu_queue.add_item_to_queue(&enqueue, None)?;
       return Ok(enqueue);
     }
     if reg.supported_compute == Compute::GPU {
       self.gpu_queue.enqueue_item(&enqueue)?;
-      // self.gpu_queue.add_item_to_queue(&enqueue, None)?;
       return Ok(enqueue);
     }
 
@@ -81,19 +79,16 @@ impl QueueingInvoker {
     match policy {
       EnqueueingPolicy::All => {
         if reg.supported_compute.contains(Compute::CPU) {
-          // self.cpu_queue.add_item_to_queue(&enqueue, None)?;
           self.cpu_queue.enqueue_item(&enqueue)?;
           enqueues += 1;
         }
         if reg.supported_compute.contains(Compute::GPU) {
-          // self.gpu_queue.add_item_to_queue(&enqueue, None)?;
           self.gpu_queue.enqueue_item(&enqueue)?;
           enqueues += 1;
         }
       },
       EnqueueingPolicy::AlwaysCPU => {
         if reg.supported_compute.contains(Compute::CPU) {
-          // self.cpu_queue.add_item_to_queue(&enqueue, None)?;
           self.cpu_queue.enqueue_item(&enqueue)?;
           enqueues += 1;
         } else {
@@ -110,7 +105,6 @@ impl QueueingInvoker {
         }
         let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
         if let Some((_, q)) = best {
-          // q.add_item_to_queue(&enqueue, None)?;
           q.enqueue_item(&enqueue)?;
           enqueues += 1;
         }
@@ -125,7 +119,6 @@ impl QueueingInvoker {
         }
         let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
         if let Some((_, q)) = best {
-          // q.add_item_to_queue(&enqueue, None)?;
           q.enqueue_item(&enqueue)?;
           enqueues += 1;
         }
