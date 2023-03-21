@@ -4,17 +4,16 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tracing::debug;
-use super::InvokerQueuePolicy;
-use super::invoker_structs::{MinHeapEnqueuedInvocation, EnqueuedInvocation};
+use crate::services::invocation::{InvokerQueuePolicy, EnqueuedInvocation, MinHeapEnqueuedInvocation};
 
-pub struct FCFSQueue {
+pub struct FcfsGpuQueue {
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapEnqueuedInvocation<OffsetDateTime>>>>,
   est_time: Mutex<f64>
 }
 
-impl FCFSQueue {
+impl FcfsGpuQueue {
   pub fn new() -> Result<Arc<Self>> {
-    let svc = Arc::new(FCFSQueue {
+    let svc = Arc::new(FcfsGpuQueue {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       est_time: Mutex::new(0.0),
     });
@@ -23,7 +22,7 @@ impl FCFSQueue {
 }
 
 #[tonic::async_trait]
-impl InvokerQueuePolicy for FCFSQueue {
+impl InvokerQueuePolicy for FcfsGpuQueue {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;

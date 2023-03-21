@@ -1,6 +1,6 @@
 use std::{sync::{Arc, atomic::AtomicU32}, time::Duration};
 use crate::services::{containers::{structs::{ParsedResult, InsufficientMemoryError, ContainerState, ContainerLock, InsufficientGPUError}, containermanager::ContainerManager}, invocation::EnqueueingPolicy};
-use crate::services::{invocation::invoker_structs::InvocationResult, registration::RegisteredFunction};
+use crate::services::{invocation::InvocationResult, registration::RegisteredFunction};
 use crate::services::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
@@ -10,8 +10,8 @@ use time::{OffsetDateTime, Instant};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
-use super::{async_tracker::AsyncHelper, InvokerQueuePolicy, Invoker, invoker_structs::{EnqueuedInvocation, InvocationResultPtr}};
-use super::{avail_scale_q::AvailableScalingQueue, queueless::Queueless, fcfs_q::FCFSQueue, minheap_q::MinHeapQueue, minheap_ed_q::MinHeapEDQueue, minheap_iat_q::MinHeapIATQueue, cold_priority_q::ColdPriorityQueue};
+use super::{async_tracker::AsyncHelper, InvokerQueuePolicy, Invoker, EnqueuedInvocation, InvocationResultPtr, queueing::fcfs_gpu::FcfsGpuQueue};
+use super::queueing::{avail_scale::AvailableScalingQueue, queueless::Queueless, fcfs::FCFSQueue, minheap::MinHeapQueue, minheap_ed::MinHeapEDQueue, minheap_iat::MinHeapIATQueue, cold_priority::ColdPriorityQueue};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -46,7 +46,7 @@ impl QueueingInvoker {
     let (gpu_handle, gpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_GPU_QUEUE_WORKER_TID.clone(), Self::monitor_gpu_queue, Some(Self::gpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
     let svc = Arc::new(QueueingInvoker {
       cpu_queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid)?,
-      gpu_queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid)?,
+      gpu_queue: Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid)?,
       cont_manager, invocation_config,
       async_functions: AsyncHelper::new(),
       cpu_queue_signal: Notify::new(),
@@ -65,17 +65,33 @@ impl QueueingInvoker {
   }
 
   fn get_invoker_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, tid: &TransactionId)  -> Result<Arc<dyn InvokerQueuePolicy>> {
-    let r: Arc<dyn InvokerQueuePolicy> = match invocation_config.queue_policy.to_lowercase().as_str() {
-      "none" => Queueless::new()?,
-      "fcfs" => FCFSQueue::new()?,
-      "minheap" => MinHeapQueue::new(tid, cmap.clone())?,
-      "minheap_ed" => MinHeapEDQueue::new(tid, cmap.clone())?,
-      "minheap_iat" => MinHeapIATQueue::new(tid, cmap.clone())?,
-      "cold_pri" => ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?,
-      "scaling" => AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?,
-      unknown => panic!("Unknown queueing policy '{}'", unknown),
-    };
-    Ok(r)
+    if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::CPU).try_into()?) {
+      let r: Arc<dyn InvokerQueuePolicy> = match pol.as_str() {
+        "none" => Queueless::new()?,
+        "fcfs" => FCFSQueue::new()?,
+        "minheap" => MinHeapQueue::new(tid, cmap.clone())?,
+        "minheap_ed" => MinHeapEDQueue::new(tid, cmap.clone())?,
+        "minheap_iat" => MinHeapIATQueue::new(tid, cmap.clone())?,
+        "cold_pri" => ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?,
+        "scaling" => AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?,
+        unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
+      };
+      Ok(r)
+    } else {
+      anyhow::bail!("No queue policy listed for compute '{:?}'", Compute::CPU)
+    }
+  }
+
+  fn get_invoker_gpu_queue(invocation_config: &Arc<InvocationConfig>, _cmap: &Arc<CharacteristicsMap>, _cont_manager: &Arc<ContainerManager>, _tid: &TransactionId)  -> Result<Arc<dyn InvokerQueuePolicy>> {
+    if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::GPU).try_into()?) {
+      let r: Arc<dyn InvokerQueuePolicy> = match pol.as_str() {
+        "fcfs" => FcfsGpuQueue::new()?,
+        unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
+      };
+      Ok(r)
+    } else {
+      anyhow::bail!("No queue policy listed for compute '{:?}'", Compute::GPU)
+    }
   }
   
   /// Wait on the Notify object for the queue to be available again
@@ -413,7 +429,7 @@ impl QueueingInvoker {
 #[tonic::async_trait]
 impl Invoker for QueueingInvoker {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
-  async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<super::invoker_structs::InvocationResultPtr> {
+  async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     // check if the bypass counter exists, and if this fqdn can by bypassed
     if self.should_bypass(&reg) {
       // if both true, then go for the bypass

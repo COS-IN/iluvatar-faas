@@ -1,52 +1,47 @@
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use iluvatar_library::{transaction::TransactionId, characteristics_map::CharacteristicsMap};
 use anyhow::Result;
 use parking_lot::Mutex;
 use tracing::debug;
-use super::InvokerQueuePolicy;
-use super::invoker_structs::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat};
+use crate::services::invocation::InvokerQueuePolicy;
+use crate::services::invocation::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat};
 use std::collections::BinaryHeap;
 
-fn time_since_epoch() -> f64 {
-    let start = SystemTime::now();
-    start.duration_since( UNIX_EPOCH )
-         .expect("Time went backwards")
-         .as_secs_f64()
-}
-
-pub struct MinHeapEDQueue {
+pub struct MinHeapIATQueue {
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
   cmap: Arc<CharacteristicsMap>,
   est_time: Mutex<f64>
 }
 
-impl MinHeapEDQueue {
+impl MinHeapIATQueue {
   pub fn new(tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
-    let svc = Arc::new(MinHeapEDQueue {
+    let svc = Arc::new(MinHeapIATQueue {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       est_time: Mutex::new(0.0),
       cmap,
     });
-    debug!(tid=%tid, "Created MinHeapEDInvoker");
+    debug!(tid=%tid, "Created MinHeapIATInvoker");
     Ok(svc)
   }
 }
 
 #[tonic::async_trait]
-impl InvokerQueuePolicy for MinHeapEDQueue {
+impl InvokerQueuePolicy for MinHeapIATQueue {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
-    Some(r.item.clone())
+    let r = r.item.clone();
+    return Some(r);
   }
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
     let v = v.item.clone();
-    let mut func_name = "empty"; 
-    if let Some(e) = invoke_queue.peek() {
-      func_name = e.item.registration.function_name.as_str();
+    let top = invoke_queue.peek();
+    let func_name; 
+    match top {
+        Some(e) => func_name = e.item.registration.function_name.clone(),
+        None => func_name = "empty".to_string()
     }
     debug!(tid=%v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
            invoke_queue.len(),
@@ -65,12 +60,12 @@ impl InvokerQueuePolicy for MinHeapEDQueue {
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
     *self.est_time.lock() += item.est_execution_time;
     let mut queue = self.invoke_queue.lock();
-    let deadline = self.cmap.get_exec_time(&item.registration.fqdn) + time_since_epoch();
-    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), deadline ));
+    let iat = self.cmap.get_iat( &item.registration.fqdn );
+    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), iat ));
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.registration.function_name,
                         queue.peek().unwrap().item.registration.function_name );
-                        Ok(())
+    Ok(())
   }
 }

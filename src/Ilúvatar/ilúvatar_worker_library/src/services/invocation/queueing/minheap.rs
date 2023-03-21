@@ -1,11 +1,10 @@
 use std::sync::Arc;
-use crate::services::invocation::invoker_structs::MinHeapEnqueuedInvocation;
 use iluvatar_library::{transaction::TransactionId, characteristics_map::CharacteristicsMap};
 use anyhow::Result;
 use parking_lot::Mutex;
 use tracing::debug;
-use super::InvokerQueuePolicy;
-use super::invoker_structs::{EnqueuedInvocation, MinHeapFloat};
+use crate::services::invocation::InvokerQueuePolicy;
+use crate::services::invocation::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat};
 use std::collections::BinaryHeap;
 
 pub struct MinHeapQueue {

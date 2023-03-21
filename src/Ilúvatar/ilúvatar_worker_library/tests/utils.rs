@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 use iluvatar_library::types::{Isolation, Compute, MemSizeMb};
-use iluvatar_worker_library::{rpc::{RegisterRequest, LanguageRuntime}, services::{invocation::invoker_structs::InvocationResult, containers::structs::ContainerTimeFormatter, resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker}}};
+use iluvatar_worker_library::{rpc::{RegisterRequest, LanguageRuntime}, services::{invocation::InvocationResult, containers::structs::ContainerTimeFormatter, resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker}}};
 use iluvatar_library::{transaction::{TEST_TID, TransactionId}, logging::{start_tracing, LoggingConfig}, characteristics_map::{CharacteristicsMap, AgExponential}};
 use iluvatar_worker_library::{worker_api::config::{Configuration, WorkerConfig}, services::registration::{RegistrationService, RegisteredFunction}};
 use iluvatar_worker_library::services::{containers::{IsolationFactory, containermanager::ContainerManager}, invocation::{InvokerFactory, Invoker}};

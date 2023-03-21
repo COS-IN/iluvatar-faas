@@ -98,9 +98,8 @@ pub struct InvocationConfig {
   pub retries: u32,
   /// Duration in milliseconds the worker queue will sleep between checking for new invocations
   pub queue_sleep_ms: u64,
-  /// Queueing policy to use.
-  /// Cerrently implemented are [none (no queue), fcfs (first come first serve), ]
-  pub queue_policy: String,
+  /// Queueing policy to use for different compute resources
+  pub queue_policies: HashMap<ComputeEnum, String>,
   /// The policy by which the worker decides how to enqueue polymorphic functions
   /// By default it uses [EnqueueingPolicy::Both] 
   pub enqueueing_policy: Option<EnqueueingPolicy>,
