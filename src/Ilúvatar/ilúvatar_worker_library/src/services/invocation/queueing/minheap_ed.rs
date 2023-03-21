@@ -4,8 +4,7 @@ use iluvatar_library::{transaction::TransactionId, characteristics_map::Characte
 use anyhow::Result;
 use parking_lot::Mutex;
 use tracing::debug;
-use crate::services::invocation::InvokerQueuePolicy;
-use crate::services::invocation::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat};
+use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat, InvokerQueuePolicy};
 use std::collections::BinaryHeap;
 
 fn time_since_epoch() -> f64 {

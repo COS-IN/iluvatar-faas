@@ -4,7 +4,7 @@ use guid_create::GUID;
 use iluvatar_library::transaction::TransactionId;
 use crate::rpc::{InvokeResponse, ContainerState};
 use anyhow::Result;
-use super::{InvocationResultPtr, EnqueuedInvocation};
+use super::{InvocationResultPtr, queueing::EnqueuedInvocation};
 
 pub struct AsyncHelper {
   pub async_functions: Arc<DashMap<String, InvocationResultPtr>>,

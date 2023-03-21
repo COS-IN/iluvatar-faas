@@ -4,7 +4,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tracing::debug;
-use crate::services::invocation::{InvokerQueuePolicy, EnqueuedInvocation, MinHeapEnqueuedInvocation};
+use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, InvokerQueuePolicy};
 
 pub struct FcfsGpuQueue {
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapEnqueuedInvocation<OffsetDateTime>>>>,

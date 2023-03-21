@@ -4,7 +4,7 @@ use iluvatar_library::{transaction::TransactionId, characteristics_map::Characte
 use anyhow::Result;
 use parking_lot::Mutex;
 use tracing::debug;
-use crate::services::invocation::{InvokerQueuePolicy, EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat};
+use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat, InvokerQueuePolicy};
 use std::collections::BinaryHeap;
 
 pub struct ColdPriorityQueue {

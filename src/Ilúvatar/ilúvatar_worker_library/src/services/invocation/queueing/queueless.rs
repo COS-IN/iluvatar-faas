@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use anyhow::Result;
 use tracing::debug;
-use crate::services::invocation::{EnqueuedInvocation, InvokerQueuePolicy};
+use super::{EnqueuedInvocation, InvokerQueuePolicy};
 
 /// This implementation does not support [crate::worker_api::worker_config::InvocationConfig::concurrent_invokes]
 pub struct Queueless {

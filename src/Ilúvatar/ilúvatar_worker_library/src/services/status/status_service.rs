@@ -2,6 +2,7 @@
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use iluvatar_library::cpu_interaction::{CPUService, CPUUtilInstant};
+use iluvatar_library::types::Compute;
 use iluvatar_library::{nproc, threading, load_avg};
 use tracing::{info, debug, error};
 use parking_lot::Mutex;
@@ -96,7 +97,7 @@ impl StatusService {
     let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
     *cpu_instant_lck = cpu_now;
 
-    let (cpu_queue_len, gpu_queue_len) = self.invoker.queue_len();
+    let queue_lengths = self.invoker.queue_len();
     let used_mem = self.container_manager.used_memory();
     let total_mem = self.container_manager.total_memory();
     let num_containers = self.container_manager.num_containers();
@@ -106,8 +107,8 @@ impl StatusService {
 
     let new_status = Arc::new(WorkerStatus {
       num_containers, gpu_utilization, used_mem, total_mem,
-      cpu_queue_len: cpu_queue_len as i64,
-      gpu_queue_len: gpu_queue_len as i64,
+      cpu_queue_len: *queue_lengths.get(&Compute::CPU).unwrap_or(&0) as i64,
+      gpu_queue_len: *queue_lengths.get(&Compute::GPU).unwrap_or(&0) as i64,
       cpu_us: computed_util.cpu_user + computed_util.cpu_nice,
       cpu_sy: computed_util.cpu_system + computed_util.cpu_irq + computed_util.cpu_softirq + computed_util.cpu_steal + computed_util.cpu_guest + computed_util.cpu_guest_nice,
       cpu_id: computed_util.cpu_idle,
@@ -121,7 +122,7 @@ impl StatusService {
     info!(tid=%tid, status=%new_status,"current load status");
 
     let values = vec![(minute_load_avg / nprocs as f64), (new_status.cpu_us+new_status.cpu_sy) as f64,
-                                    (cpu_queue_len + gpu_queue_len) as f64, (used_mem as f64 / total_mem as f64), 
+                                    (new_status.cpu_queue_len + new_status.gpu_queue_len) as f64, (used_mem as f64 / total_mem as f64), 
                                     used_mem as f64];
     self.graphite.publish_metrics(&self.metrics, values, tid, self.tags.as_str());
 

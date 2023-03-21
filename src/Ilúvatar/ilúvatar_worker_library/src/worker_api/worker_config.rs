@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use iluvatar_library::energy::EnergyConfig;
-use iluvatar_library::types::ComputeEnum;
-use iluvatar_library::{types::MemSizeMb, utils::port_utils::Port, logging::LoggingConfig};
-use iluvatar_library::graphite::GraphiteConfig;
+use iluvatar_library::{types::{MemSizeMb, ComputeEnum}, utils::port_utils::Port, logging::LoggingConfig};
+use iluvatar_library::{graphite::GraphiteConfig, energy::EnergyConfig};
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
-use crate::services::invocation::EnqueueingPolicy;
+use crate::services::invocation::queueing::EnqueueingPolicy;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
