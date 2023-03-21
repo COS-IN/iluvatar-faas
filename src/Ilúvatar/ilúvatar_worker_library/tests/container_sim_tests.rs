@@ -402,7 +402,7 @@ mod gpu {
     let r2_start = formatter.parse_python_container_time(&r2_res.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r2_res.start, e));
 
     assert_eq!(r2_lck.compute, Compute::GPU, "Second invoke should run on GPU");
-    assert_eq!(r2_lck.container_state, ContainerState::Cold, "Invoke 2 should be warm");
+    assert_eq!(r2_lck.container_state, ContainerState::Cold, "Invoke 2 should be cold");
     assert!(r2_lck.duration.as_micros() > 0, "Invoke 2 should have duration time");
     assert!(r1_end < r2_start, "Invoke 2 should have started {} after invoke 1 ended {}", r2_start, r1_end);
 
@@ -413,7 +413,7 @@ mod gpu {
     let r2_end = formatter.parse_python_container_time(&r2_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.end, e));
 
     assert_eq!(r3_lck.compute, Compute::GPU, "Third invoke should run on GPU");
-    assert_eq!(r3_lck.container_state, ContainerState::Cold, "Invoke 3 should be warm");
+    assert_eq!(r3_lck.container_state, ContainerState::Cold, "Invoke 3 should be cold");
     assert!(r3_lck.duration.as_micros() > 0, "Invoke 3 should have duration time");
     assert!(r2_end < r3_start, "Invoke 3 should have started {} after invoke 2 ended {}", r3_start, r2_end);
 

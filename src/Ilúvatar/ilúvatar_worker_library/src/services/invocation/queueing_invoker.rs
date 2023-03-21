@@ -164,6 +164,6 @@ impl Invoker for QueueingInvoker {
 
   /// The number of functions currently running
   fn running_funcs(&self) -> u32 {
-    0
+    self.cpu_queue.running() + self.gpu_queue.running()
   }
 }

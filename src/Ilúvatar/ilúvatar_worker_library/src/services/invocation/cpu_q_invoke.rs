@@ -6,7 +6,7 @@ use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics,
 use iluvatar_library::{transaction::TransactionId, threading::EventualItem, logging::LocalTime, types::Compute, threading::tokio_runtime};
 use parking_lot::Mutex;
 use time::{OffsetDateTime, Instant};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, mpsc::UnboundedSender};
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
 use super::queueing::{InvokerQueuePolicy, EnqueuedInvocation, DeviceQueue};
@@ -28,6 +28,8 @@ pub struct CpuQueueingInvoker {
   _cpu_thread: std::thread::JoinHandle<()>,
   signal: Notify,
   queue: Arc<dyn InvokerQueuePolicy>,
+  _bypass_thread: tokio::task::JoinHandle<()>,
+  bypass_rx: UnboundedSender<Arc<EnqueuedInvocation>>
 }
 
 #[allow(dyn_drop)]
@@ -37,9 +39,12 @@ impl CpuQueueingInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, 
       tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CPUResourceMananger>) -> Result<Arc<Self>> {
     let (cpu_handle, cpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_CPU_QUEUE_WORKER_TID.clone(), Self::monitor_cpu_queue, Some(Self::cpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
+    let (bypass_thread, bypass_tx, bypass_rx) = Self::bypass_thread();
+
     let svc = Arc::new(CpuQueueingInvoker {
       queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid)?,
-      cont_manager, invocation_config, cpu, cmap,
+      cont_manager, invocation_config, cpu, cmap, bypass_rx,
+      _bypass_thread: bypass_thread,
       signal: Notify::new(),
       _cpu_thread: cpu_handle,
       clock: LocalTime::new(tid)?,
@@ -47,13 +52,14 @@ impl CpuQueueingInvoker {
       last_memory_warning: Mutex::new(Instant::now()),
     });
     cpu_tx.send(svc.clone())?;
+    bypass_tx.send(svc.clone())?;
     debug!(tid=%tid, "Created CpuQueueingInvoker");
     Ok(svc)
   }
 
   fn get_invoker_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, tid: &TransactionId)  -> Result<Arc<dyn InvokerQueuePolicy>> {
     if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::CPU).try_into()?) {
-      let r: Arc<dyn InvokerQueuePolicy> = match pol.as_str() {
+      Ok(match pol.as_str() {
         "none" => Queueless::new()?,
         "fcfs" => FCFSQueue::new()?,
         "minheap" => MinHeapQueue::new(tid, cmap.clone())?,
@@ -62,8 +68,7 @@ impl CpuQueueingInvoker {
         "cold_pri" => ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?,
         "scaling" => AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?,
         unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
-      };
-      Ok(r)
+      })
     } else {
       anyhow::bail!("No queue policy listed for compute '{:?}'", Compute::CPU)
     }
@@ -115,6 +120,42 @@ impl CpuQueueingInvoker {
       },
       None => false,
     }
+  }
+
+  fn bypass_thread() -> (tokio::task::JoinHandle<()>, std::sync::mpsc::Sender<Arc<Self>>, UnboundedSender<Arc<EnqueuedInvocation>>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (del_tx, mut del_rx) = tokio::sync::mpsc::unbounded_channel::<Arc<EnqueuedInvocation>>();
+    let handle = tokio::spawn(async move {
+      let tid: &TransactionId = &INVOKER_CPU_QUEUE_WORKER_TID;
+      let service: Arc<Self> = match rx.recv() {
+        Ok(cm) => cm,
+        Err(e) => {
+          error!(tid=%tid, error=%e, "Tokio service thread failed to receive service from channel!");
+          return;
+        },
+      };
+      loop {
+        if let Some(item) = del_rx.recv().await {
+          let s_c = service.clone();
+          println!("item: {}", item.registration.fqdn);
+          tokio::task::spawn(async move {
+            match s_c.bypassing_invoke(&item).await {
+              Ok(true) => (), // bypass happened successfully
+              Ok(false) => {
+                if let Err(cause) = s_c.enqueue_item(&item) {
+                  s_c.handle_invocation_error(item, cause);
+                };
+              },
+              Err(cause) => s_c.handle_invocation_error(item, cause),
+            };
+          });
+        } else {
+          break;
+        }
+      }
+    });
+  
+    (handle, tx, del_tx)
   }
 
   /// Returns an owned permit if there are sufficient resources to run a function
@@ -214,7 +255,7 @@ impl CpuQueueingInvoker {
     // take run time now because we may have to wait to get a container
     let remove_time = self.clock.now();
     let ctr_lock = match self.cont_manager.acquire_container(&item.registration, &item.tid, Compute::CPU) {
-      EventualItem::Future(_) => return Ok(false), // return None on a cold start, signifying the bypass didn't happen
+      EventualItem::Future(_) => return Ok(false), // no bypass
       EventualItem::Now(n) => n?,
     };
     match self.invoke_on_container(&item.registration, &item.json_args, &item.tid, remove_time, None, ctr_lock, self.clock.format_time(remove_time)?, Instant::now()).await {
@@ -227,6 +268,7 @@ impl CpuQueueingInvoker {
         result_ptr.worker_result = Some(result);
         result_ptr.compute = compute;
         result_ptr.container_state = container_state;
+        item.signal();
       },
       Err(e) => self.handle_invocation_error(item.clone(), e),
     };
@@ -281,53 +323,6 @@ impl CpuQueueingInvoker {
   }
 }
 
-// #[tonic::async_trait]
-// impl Invoker for CpuQueueingInvoker {
-//   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
-//   async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
-//     // check if the bypass counter exists, and if this fqdn can by bypassed
-//     if self.should_bypass(&reg) {
-//       // if both true, then go for the bypass
-//       match self.bypassing_invoke(reg.clone(), &json_args, &tid).await? {
-//         Some(x) => return Ok(x),
-//         None => (), // None means the function would have run cold, so instead we put it into the queue
-//       };
-//     }
-
-//     let queued = self.enqueue_new_invocation(&reg, json_args, tid.clone())?;
-//     queued.wait(&tid).await?;
-//     let result_ptr = queued.result_ptr.lock();
-//     match result_ptr.completed {
-//       true => {
-//         info!(tid=%tid, "Invocation complete");
-//         Ok( queued.result_ptr.clone() )
-//       },
-//       false => {
-//         anyhow::bail!("Invocation was signaled completion but completion value was not set")
-//       }
-//     }
-//   }
-//   fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String> {
-//     let invoke = self.enqueue_new_invocation(&reg, json_args, tid)?;
-//     self.async_functions.insert_async_invoke(invoke)
-//   }
-//   fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse> {
-//     self.async_functions.invoke_async_check(cookie, tid)
-//   }
-
-//   /// The queue length of both CPU and GPU queues
-//   fn queue_len(&self) -> (usize,usize) {
-//     // (self.cpu_queue.queue_len(), self.gpu_queue.queue_len())
-//     (self.cpu_queue.queue_len(),0)
-//   }
-
-//   /// The number of functions currently running
-//   fn running_funcs(&self) -> u32 {
-//     self.running.load(std::sync::atomic::Ordering::Relaxed)
-//   }
-// }
-
-
 #[tonic::async_trait]
 impl DeviceQueue for CpuQueueingInvoker {
   fn queue_len(&self) -> usize {
@@ -340,11 +335,10 @@ impl DeviceQueue for CpuQueueingInvoker {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
   fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
-    // if self.should_bypass(&item.registration) {
-    //   if self.bypassing_invoke(item)? {
-    //     return Ok(());
-    //   }
-    // }
+    if self.should_bypass(&item.registration) {
+      self.bypass_rx.send(item.clone())?;
+      return Ok(());
+    }
     self.queue.add_item_to_queue(item, None)?;
     self.signal.notify_waiters();
     Ok(())

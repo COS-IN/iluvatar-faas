@@ -54,11 +54,10 @@ impl GpuQueueingInvoker {
 
   fn get_invoker_gpu_queue(invocation_config: &Arc<InvocationConfig>, _cmap: &Arc<CharacteristicsMap>, _cont_manager: &Arc<ContainerManager>, _tid: &TransactionId)  -> Result<Arc<dyn InvokerQueuePolicy>> {
     if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::GPU).try_into()?) {
-      let r: Arc<dyn InvokerQueuePolicy> = match pol.as_str() {
+      Ok(match pol.as_str() {
         "fcfs" => FcfsGpuQueue::new()?,
         unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
-      };
-      Ok(r)
+      })
     } else {
       anyhow::bail!("No queue policy listed for compute '{:?}'", Compute::GPU)
     }

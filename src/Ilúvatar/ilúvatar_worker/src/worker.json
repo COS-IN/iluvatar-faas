@@ -14,7 +14,10 @@
   "invocation": {
     "retries": 0,
     "queue_sleep_ms": 10,
-    "queue_policy": "fcfs",
+    "queue_policies": {
+      "cpu": "fcfs",
+      "gpu": "fcfs"
+    },
     "concurrent_invokes": 4
   },
   "logging": {
