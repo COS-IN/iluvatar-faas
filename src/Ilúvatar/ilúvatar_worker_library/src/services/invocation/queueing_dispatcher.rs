@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use crate::services::{containers::containermanager::ContainerManager, invocation::queueing::EnqueueingPolicy};
 use crate::services::registration::RegisteredFunction;
-use crate::services::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
+use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::{transaction::TransactionId, logging::LocalTime, types::Compute};
@@ -15,7 +15,7 @@ lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
 }
 
-pub struct QueueingInvoker {
+pub struct QueueingDispatcher {
   async_functions: AsyncHelper,
   invocation_config: Arc<InvocationConfig>,
   cmap: Arc<CharacteristicsMap>,
@@ -25,12 +25,12 @@ pub struct QueueingInvoker {
 }
 
 #[allow(dyn_drop)]
-/// An invoker implementation that enqueues invocations and orders them based on a variety of characteristics
-/// Queueing method is configurable
-impl QueueingInvoker {
+/// An invoker implementation that enqueues invocations
+/// This struct creates separate queues for supported hardware devices, and sends invocations into those queues based on configuration
+impl QueueingDispatcher {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, 
-      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CPUResourceMananger>, gpu: Arc<GpuResourceTracker>) -> Result<Arc<Self>> {
-    let svc = Arc::new(QueueingInvoker {
+      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>, gpu: Arc<GpuResourceTracker>) -> Result<Arc<Self>> {
+    let svc = Arc::new(QueueingDispatcher {
       cpu_queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid, &function_config, &cpu)?,
       gpu_queue: Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid, &function_config, &cpu, &gpu)?,
       async_functions: AsyncHelper::new(),
@@ -42,12 +42,12 @@ impl QueueingInvoker {
   }
 
   fn get_invoker_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, 
-      tid: &TransactionId, function_config: &Arc<FunctionLimits>, cpu: &Arc<CPUResourceMananger>)  -> Result<Arc<dyn DeviceQueue>> {
+      tid: &TransactionId, function_config: &Arc<FunctionLimits>, cpu: &Arc<CpuResourceTracker>)  -> Result<Arc<dyn DeviceQueue>> {
     Ok(CpuQueueingInvoker::new(cont_manager.clone(), function_config.clone(), invocation_config.clone(), tid, cmap.clone(), cpu.clone())?)
   }
 
   fn get_invoker_gpu_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, 
-     tid: &TransactionId, function_config: &Arc<FunctionLimits>, cpu: &Arc<CPUResourceMananger>, gpu: &Arc<GpuResourceTracker>)  -> Result<Arc<dyn DeviceQueue>> {
+     tid: &TransactionId, function_config: &Arc<FunctionLimits>, cpu: &Arc<CpuResourceTracker>, gpu: &Arc<GpuResourceTracker>)  -> Result<Arc<dyn DeviceQueue>> {
     Ok(GpuQueueingInvoker::new(cont_manager.clone(), function_config.clone(), invocation_config.clone(), tid, cmap.clone(), cpu.clone(), gpu.clone())?)
   }
 
@@ -112,10 +112,10 @@ impl QueueingInvoker {
       EnqueueingPolicy::EstCompTime => {
         let mut opts = vec![];
         if reg.supported_compute.contains(Compute::CPU) {
-          opts.push((self.cpu_queue.est_queue_time(&reg), &self.cpu_queue));
+          opts.push((self.cpu_queue.est_completion_time(&reg), &self.cpu_queue));
         }
         if reg.supported_compute.contains(Compute::GPU) {
-          opts.push((self.gpu_queue.est_queue_time(&reg), &self.gpu_queue));
+          opts.push((self.gpu_queue.est_completion_time(&reg), &self.gpu_queue));
         }
         let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
         if let Some((_, q)) = best {
@@ -133,7 +133,7 @@ impl QueueingInvoker {
 }
 
 #[tonic::async_trait]
-impl Invoker for QueueingInvoker {
+impl Invoker for QueueingDispatcher {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
   async fn sync_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<InvocationResultPtr> {
     let queued = self.enqueue_new_invocation(&reg, json_args, tid.clone())?;

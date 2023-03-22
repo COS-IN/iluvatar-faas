@@ -2,11 +2,13 @@
 pub mod utils;
 
 use iluvatar_worker_library::rpc::{RegisterRequest, LanguageRuntime};
-use crate::utils::{sim_invoker_svc, background_test_invoke, resolve_invoke, sim_args};
+use crate::utils::{sim_invoker_svc, background_test_invoke, resolve_invoke, sim_args, full_sim_invoker};
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
-use iluvatar_worker_library::services::containers::structs::ContainerState;
+use iluvatar_worker_library::services::containers::structs::{ContainerState, ContainerTimeFormatter};
 use iluvatar_library::characteristics_map::{Characteristics, Values};
+use std::time::Duration;
+use rstest::rstest;
 
 fn cpu_reg() -> RegisterRequest {
   RegisterRequest {
@@ -136,7 +138,6 @@ mod compute_iso_matching {
 
 #[cfg(test)]
 mod gpu {
-  use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
   use super::*;
   
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -436,6 +437,147 @@ mod gpu {
     assert_ne!(c1.container.device_resource().as_ref().unwrap().gpu_uuid, c2.container.device_resource().as_ref().unwrap().gpu_uuid, "Two containers cannot have same GPU");
   }
 }
+
+#[cfg(test)]
+mod gpu_queueuing {
+  use super::*;
+
+  #[rstest]
+  #[case("fcfs")]
+  #[case("oldest_batch")]
+  #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+  async fn queues_work(#[case] invoker_q: &str) {
+    let mut env = build_gpu_env();
+    env.push(("invocation.queue_policies.gpu".to_string(), invoker_q.to_string()));
+    let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    
+    let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
+    let invoke = invoke.lock();
+    assert_eq!(invoke.compute, Compute::GPU, "Invoke compute must be GPU");
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+  async fn oldest_queued_batch_run() {
+    let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+    let mut env = build_gpu_env();
+    env.push(("invocation.queue_policies.gpu".to_string(), "oldest_batch".to_string()));
+    let (_,_,_, invoker, reg, _cmap, gpu, _cpu) = full_sim_invoker(None, Some(env), None).await;
+    let func1 = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let reg2 = RegisterRequest {
+      function_name: "test2".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::GPU.bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func2 = reg.register(reg2, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+
+    let gpu_lck = gpu.try_acquire_resource().expect("Should return GPU permit"); // hold GPU to force queueing
+    let inv1 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    let inv2 = background_test_invoke(&invoker, &func2, &sim_args().unwrap(), &TEST_TID);
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    let inv3 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    drop(gpu_lck);
+
+    let inv1 = resolve_invoke(inv1).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
+    let inv2 = resolve_invoke(inv2).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
+    let inv3 = resolve_invoke(inv3).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
+
+    let r1_lck = inv1.lock();
+    let r1_res = r1_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 1 '{:?}' did not have a result", *r1_lck)).unwrap();
+    assert_eq!(r1_lck.compute, Compute::GPU, "First invoke should run on GPU");
+    assert_eq!(r1_lck.container_state, ContainerState::Cold, "Invoke 1 should be cold");
+    assert!(r1_lck.duration.as_micros() > 0, "Invoke 1 should have duration time");
+
+    let r2_lck = inv2.lock();
+    let r2_res = r2_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 2 '{:?}' did not have a result", *r2_lck)).unwrap();
+    assert_eq!(r2_lck.compute, Compute::GPU, "Second invoke should run on GPU");
+    assert_eq!(r2_lck.container_state, ContainerState::Cold, "Invoke 2 should be cold");
+    assert!(r2_lck.duration.as_micros() > 0, "Invoke 2 should have duration time");
+
+    let r3_lck = inv3.lock();
+    let r3_res = r3_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 3 '{:?}' did not have a result", *r3_lck)).unwrap();
+    assert_eq!(r3_lck.compute, Compute::GPU, "Third invoke should run on GPU");
+    assert_eq!(r3_lck.container_state, ContainerState::Warm, "Invoke 3 should be warm because of batching");
+    assert!(r3_lck.duration.as_micros() > 0, "Invoke 3 should have duration time");
+
+    let r1_end = formatter.parse_python_container_time(&r1_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.end, e));
+    let r2_start = formatter.parse_python_container_time(&r2_res.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.end, e));
+    let r3_start = formatter.parse_python_container_time(&r3_res.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.start, e));
+    let r3_end = formatter.parse_python_container_time(&r3_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.start, e));
+
+    assert!(r1_end < r3_start, "Invoke 3 should have started {} after invoke 1 ended {}", r3_start, r1_end);
+    assert!(r3_end < r2_start, "Invoke 3 should have ended {} before invoke 1 started {}", r2_start, r3_end);
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+  async fn fcfs_ordering_kept() {
+    let mut env = build_gpu_env();
+    env.push(("invocation.queue_policies.gpu".to_string(), "fcfs".to_string()));
+    let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
+    let (_,_,_, invoker, reg, _cmap, gpu, _cpu) = full_sim_invoker(None, Some(env), None).await;
+    let func1 = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+    let reg2 = RegisterRequest {
+      function_name: "test2".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::GPU.bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func2 = reg.register(reg2, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
+
+    let gpu_lck = gpu.try_acquire_resource().expect("Should return GPU permit"); // hold GPU to force queueing
+    let inv1 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    let inv2 = background_test_invoke(&invoker, &func2, &sim_args().unwrap(), &TEST_TID);
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    let inv3 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    drop(gpu_lck);
+
+    let inv1 = resolve_invoke(inv1).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
+    let inv2 = resolve_invoke(inv2).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
+    let inv3 = resolve_invoke(inv3).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
+
+    let r1_lck = inv1.lock();
+    let r1_res = r1_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 1 '{:?}' did not have a result", *r1_lck)).unwrap();
+    assert_eq!(r1_lck.compute, Compute::GPU, "First invoke should run on GPU");
+    assert_eq!(r1_lck.container_state, ContainerState::Cold, "Invoke 1 should be cold");
+    assert!(r1_lck.duration.as_micros() > 0, "Invoke 1 should have duration time");
+
+    let r2_lck = inv2.lock();
+    let r2_res = r2_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 2 '{:?}' did not have a result", *r2_lck)).unwrap();
+    assert_eq!(r2_lck.compute, Compute::GPU, "Second invoke should run on GPU");
+    assert_eq!(r2_lck.container_state, ContainerState::Cold, "Invoke 2 should be cold");
+    assert!(r2_lck.duration.as_micros() > 0, "Invoke 2 should have duration time");
+
+    let r3_lck = inv3.lock();
+    let r3_res = r3_lck.worker_result.as_ref().ok_or_else(|| anyhow::anyhow!("Invoke 3 '{:?}' did not have a result", *r3_lck)).unwrap();
+    assert_eq!(r3_lck.compute, Compute::GPU, "Third invoke should run on GPU");
+    assert_eq!(r3_lck.container_state, ContainerState::Cold, "Invoke 3 should be warm because of batching");
+    assert!(r3_lck.duration.as_micros() > 0, "Invoke 3 should have duration time");
+
+    let r1_end = formatter.parse_python_container_time(&r1_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.end, e));
+    let r2_start = formatter.parse_python_container_time(&r2_res.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.end, e));
+    let r2_end = formatter.parse_python_container_time(&r2_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.end, e));
+    let r3_start = formatter.parse_python_container_time(&r3_res.start).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.start, e));
+
+    assert!(r1_end < r2_start, "Invoke 2 should have started {} after invoke 1 ended {}", r2_start, r1_end);
+    assert!(r2_end < r3_start, "Invoke 3 should have started {} after invoke 2 ended {}", r3_start, r2_end);
+  }
+}
+
 
 #[cfg(test)]
 mod clean_tests {

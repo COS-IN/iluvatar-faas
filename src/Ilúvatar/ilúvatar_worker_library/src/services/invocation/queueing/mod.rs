@@ -18,6 +18,7 @@ pub mod minheap_ed;
 pub mod minheap_iat;
 pub mod cold_priority;
 pub mod avail_scale;
+pub mod oldest_gpu;
 
 // GPU focused queues
 pub mod fcfs_gpu;
@@ -70,7 +71,7 @@ pub trait DeviceQueue: Send + Sync {
 
   /// The estimated time from now the item would be completed if run on the device
   /// In seconds
-  fn est_queue_time(&self, reg: &Arc<RegisteredFunction>) -> f64;
+  fn est_completion_time(&self, reg: &Arc<RegisteredFunction>) -> f64;
 
   /// Insert an item into the queue
   /// If an error is returned, the item was not put enqueued

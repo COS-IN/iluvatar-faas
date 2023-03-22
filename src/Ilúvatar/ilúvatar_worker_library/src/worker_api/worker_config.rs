@@ -99,7 +99,7 @@ pub struct InvocationConfig {
   /// Queueing policy to use for different compute resources
   pub queue_policies: HashMap<ComputeEnum, String>,
   /// The policy by which the worker decides how to enqueue polymorphic functions
-  /// By default it uses [EnqueueingPolicy::Both] 
+  /// By default it uses [EnqueueingPolicy::All] 
   pub enqueueing_policy: Option<EnqueueingPolicy>,
   /// If present and not zero, invocations with an execution duration less than this
   ///   will bypass concurrency restrictions and be run immediately

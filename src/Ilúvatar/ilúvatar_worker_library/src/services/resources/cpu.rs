@@ -18,7 +18,7 @@ lazy_static::lazy_static! {
 /// Prioritizes based on container availability
 /// Increases concurrency by 1 every [crate::worker_api::worker_config::ComputeResourceConfig::concurrency_udpate_check_ms]
 /// If system load is above [crate::worker_api::worker_config::ComputeResourceConfig::max_load], then the concurrency is reduced by half the distance to [crate::worker_api::worker_config::ComputeResourceConfig::max_oversubscribe] rounded up
-pub struct CPUResourceMananger {
+pub struct CpuResourceTracker {
   _load_thread: Option<tokio::task::JoinHandle<()>>,
   concurrency_semaphore: Option<Arc<Semaphore>>,
   max_concur: u32,
@@ -28,7 +28,7 @@ pub struct CPUResourceMananger {
   cores: f64,
 }
 
-impl CPUResourceMananger {
+impl CpuResourceTracker {
   pub fn new(config: Arc<ContainerResourceConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     let config = match config.resource_map.get(&ComputeEnum::cpu) {
       Some(c) => c.clone(),
@@ -58,7 +58,7 @@ impl CPUResourceMananger {
       },
       None => (None, None)
     };
-    let svc = Arc::new(CPUResourceMananger {
+    let svc = Arc::new(CpuResourceTracker {
       concurrency_semaphore: sem,
       min_concur: config.count,
       current_concur: Mutex::new(config.count),
@@ -86,7 +86,7 @@ impl CPUResourceMananger {
     return Ok(None);
   }
 
-  async fn monitor_load(svc: Arc<CPUResourceMananger>, tid: TransactionId) {
+  async fn monitor_load(svc: Arc<CpuResourceTracker>, tid: TransactionId) {
     let load_avg = load_avg(&tid);
     if load_avg < 0.0 {
       return;

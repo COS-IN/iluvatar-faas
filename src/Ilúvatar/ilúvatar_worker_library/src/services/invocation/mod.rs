@@ -1,8 +1,8 @@
 use anyhow::Result;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
-use self::queueing_invoker::QueueingInvoker;
+use self::queueing_dispatcher::QueueingDispatcher;
 use super::containers::containermanager::ContainerManager;
-use super::resources::{cpu::CPUResourceMananger, gpu::GpuResourceTracker};
+use super::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use std::{sync::Arc, time::Duration};
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
@@ -10,7 +10,7 @@ use crate::services::{containers::structs::{ParsedResult, ContainerState}, regis
 
 pub mod queueing;
 pub mod async_tracker;
-mod queueing_invoker;
+mod queueing_dispatcher;
 mod gpu_q_invoke;
 mod cpu_q_invoke;
 
@@ -38,13 +38,13 @@ pub struct InvokerFactory {
   function_config: Arc<FunctionLimits>, 
   invocation_config: Arc<InvocationConfig>,
   cmap: Arc<CharacteristicsMap>,
-  cpu: Arc<CPUResourceMananger>,
+  cpu: Arc<CpuResourceTracker>,
   gpu_resources: Arc<GpuResourceTracker>,
 }
 
 impl InvokerFactory {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>,
-    invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, cpu: Arc<CPUResourceMananger>,
+    invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>,
     gpu_resources: Arc<GpuResourceTracker>) -> Self {
 
     InvokerFactory {
@@ -58,7 +58,7 @@ impl InvokerFactory {
   }
 
   pub fn get_invoker_service(&self, tid: &TransactionId) -> Result<Arc<dyn Invoker>> {
-    let invoker = QueueingInvoker::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone(), self.cpu.clone(), self.gpu_resources.clone())?;
+    let invoker = QueueingDispatcher::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone(), self.cpu.clone(), self.gpu_resources.clone())?;
     Ok(invoker)
   }
 }

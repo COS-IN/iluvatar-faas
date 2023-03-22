@@ -5,7 +5,7 @@ use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use crate::services::invocation::InvokerFactory;
 use crate::services::registration::RegistrationService;
-use crate::services::resources::{gpu::GpuResourceTracker, cpu::CPUResourceMananger};
+use crate::services::resources::{gpu::GpuResourceTracker, cpu::CpuResourceTracker};
 use crate::services::worker_health::WorkerHealthService;
 use crate::services::containers::IsolationFactory;
 use crate::services::status::status_service::StatusService;
@@ -26,7 +26,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
   let factory = IsolationFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
-  let cpu = CPUResourceMananger::new(worker_config.container_resources.clone(), tid)?;
+  let cpu = CpuResourceTracker::new(worker_config.container_resources.clone(), tid)?;
   let gpu_resource = GpuResourceTracker::boxed(worker_config.container_resources.clone(), tid)?;
   
   let isos = match factory.get_isolation_services(tid, true).await  {

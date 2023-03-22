@@ -1,6 +1,6 @@
 use std::{sync::{Arc, atomic::AtomicU32}, time::Duration};
 use crate::services::containers::{structs::{ParsedResult, InsufficientMemoryError, ContainerState, ContainerLock, InsufficientGPUError}, containermanager::ContainerManager};
-use crate::services::{resources::cpu::CPUResourceMananger, registration::RegisteredFunction};
+use crate::services::{resources::cpu::CpuResourceTracker, registration::RegisteredFunction};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use iluvatar_library::characteristics_map::{CharacteristicsMap, Characteristics, Values};
 use iluvatar_library::{transaction::TransactionId, threading::EventualItem, logging::LocalTime, types::Compute, threading::tokio_runtime};
@@ -14,7 +14,6 @@ use super::queueing::{avail_scale::AvailableScalingQueue, queueless::Queueless, 
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
-  pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
 }
 
 pub struct CpuQueueingInvoker {
@@ -24,7 +23,7 @@ pub struct CpuQueueingInvoker {
   clock: LocalTime,
   running: AtomicU32,
   last_memory_warning: Mutex<Instant>,
-  cpu: Arc<CPUResourceMananger>,
+  cpu: Arc<CpuResourceTracker>,
   _cpu_thread: std::thread::JoinHandle<()>,
   signal: Notify,
   queue: Arc<dyn InvokerQueuePolicy>,
@@ -37,7 +36,7 @@ pub struct CpuQueueingInvoker {
 /// Queueing method is configurable
 impl CpuQueueingInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, 
-      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CPUResourceMananger>) -> Result<Arc<Self>> {
+      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>) -> Result<Arc<Self>> {
     let (cpu_handle, cpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_CPU_QUEUE_WORKER_TID.clone(), Self::monitor_cpu_queue, Some(Self::cpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
     let (bypass_thread, bypass_tx, bypass_rx) = Self::bypass_thread();
 
@@ -329,7 +328,7 @@ impl DeviceQueue for CpuQueueingInvoker {
     self.queue.queue_len()
   }
 
-  fn est_queue_time(&self, reg: &Arc<RegisteredFunction>) -> f64 {
+  fn est_completion_time(&self, reg: &Arc<RegisteredFunction>) -> f64 {
     self.queue.est_queue_time() + self.cmap.get_exec_time(&reg.fqdn)
   }
 
