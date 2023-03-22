@@ -2,12 +2,11 @@
 pub mod utils;
 
 use iluvatar_worker_library::rpc::{RegisterRequest, LanguageRuntime};
-use crate::utils::{sim_invoker_svc, background_test_invoke, resolve_invoke, sim_args, full_sim_invoker};
+use crate::utils::{sim_invoker_svc, background_test_invoke, resolve_invoke, sim_args, full_sim_invoker, wait_for_queue_len};
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
 use iluvatar_worker_library::services::containers::structs::{ContainerState, ContainerTimeFormatter};
 use iluvatar_library::characteristics_map::{Characteristics, Values};
-use std::time::Duration;
 use rstest::rstest;
 
 fn cpu_reg() -> RegisterRequest {
@@ -479,11 +478,11 @@ mod gpu_queueuing {
 
     let gpu_lck = gpu.try_acquire_resource().expect("Should return GPU permit"); // hold GPU to force queueing
     let inv1 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
-    tokio::time::sleep(Duration::from_millis(1)).await;
+    wait_for_queue_len(&invoker, Compute::GPU, 1).await;
     let inv2 = background_test_invoke(&invoker, &func2, &sim_args().unwrap(), &TEST_TID);
-    tokio::time::sleep(Duration::from_millis(1)).await;
+    wait_for_queue_len(&invoker, Compute::GPU, 2).await;
     let inv3 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
-    tokio::time::sleep(Duration::from_millis(1)).await;
+    wait_for_queue_len(&invoker, Compute::GPU, 3).await;
     drop(gpu_lck);
 
     let inv1 = resolve_invoke(inv1).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
@@ -514,7 +513,7 @@ mod gpu_queueuing {
     let r3_end = formatter.parse_python_container_time(&r3_res.end).unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r3_res.start, e));
 
     assert!(r1_end < r3_start, "Invoke 3 should have started {} after invoke 1 ended {}", r3_start, r1_end);
-    assert!(r3_end < r2_start, "Invoke 3 should have ended {} before invoke 1 started {}", r2_start, r3_end);
+    assert!(r3_end < r2_start, "Invoke 3 should have ended {} before invoke 2 started {}", r3_end, r2_start);
   }
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -539,11 +538,11 @@ mod gpu_queueuing {
 
     let gpu_lck = gpu.try_acquire_resource().expect("Should return GPU permit"); // hold GPU to force queueing
     let inv1 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
-    tokio::time::sleep(Duration::from_millis(1)).await;
+    wait_for_queue_len(&invoker, Compute::GPU, 1).await;
     let inv2 = background_test_invoke(&invoker, &func2, &sim_args().unwrap(), &TEST_TID);
-    tokio::time::sleep(Duration::from_millis(1)).await;
+    wait_for_queue_len(&invoker, Compute::GPU, 2).await;
     let inv3 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
-    tokio::time::sleep(Duration::from_millis(1)).await;
+    wait_for_queue_len(&invoker, Compute::GPU, 3).await;
     drop(gpu_lck);
 
     let inv1 = resolve_invoke(inv1).await.unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));

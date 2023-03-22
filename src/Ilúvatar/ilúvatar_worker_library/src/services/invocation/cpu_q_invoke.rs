@@ -89,13 +89,8 @@ impl CpuQueueingInvoker {
       if let Some(peek_item) = queue.peek_queue() {
         if let Some(permit) = self.acquire_resources_to_run(&peek_item) {
           let item = queue.pop_queue();
-          let mut started = item.started.lock();
-          match *started {
-            true => continue, // item was started on another resource
-            false => {
-              *started = true;
-              drop(started);
-            },
+          if ! item.lock() {
+            continue;
           }
           // TODO: continuity of spans here
           self.spawn_tokio_worker(self.clone(), item, permit);  
@@ -189,18 +184,7 @@ impl CpuQueueingInvoker {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
   async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
     match self.invoke(&item.registration, &item.json_args, &item.tid, item.queue_insert_time, Some(permit)).await {
-      Ok( (json, duration, compute, container_state) ) =>  {
-        let mut result_ptr = item.result_ptr.lock();
-        result_ptr.duration = duration;
-        result_ptr.exec_time = json.duration_sec;
-        result_ptr.result_json = json.result_string().unwrap_or_else(|cause| format!("{{ \"Error\": \"{}\" }}", cause));
-        result_ptr.completed = true;
-        result_ptr.worker_result = Some(json);
-        result_ptr.compute = compute;
-        result_ptr.container_state = container_state;
-        item.signal();
-        debug!(tid=%item.tid, "queued invocation completed successfully");
-      },
+      Ok( (result, duration, compute, state) ) => item.mark_successful(result, duration, compute, state),
       Err(cause) => self.handle_invocation_error(item, cause),
     };
   }
@@ -217,26 +201,17 @@ impl CpuQueueingInvoker {
         warn!(tid=%item.tid, "Insufficient memory to run item right now");
         *warn_time = Instant::now();
       }
-      *item.started.lock() = false;
+      item.unlock();
       match self.queue.add_item_to_queue(&item, Some(0)) {
         Ok(_) => self.signal.notify_waiters(),
         Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item in CPU queue after memory exhaustion"),
       };
     } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
       warn!(tid=%item.tid, "No GPU available to run item right now");
-      *item.started.lock() = false;
+      item.unlock();
     } else {
       error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
-      let mut result_ptr = item.result_ptr.lock();
-      if result_ptr.attempts >= self.invocation_config.retries {
-        error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
-        result_ptr.duration = Duration::from_micros(0);
-        result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
-        result_ptr.completed = true;
-        item.signal();
-      } else {
-        result_ptr.attempts += 1;
-        debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
+      if item.increment_error_retry(cause, self.invocation_config.retries) {
         match self.queue.add_item_to_queue(&item, Some(0)) {
           Ok(_) => self.signal.notify_waiters(),
           Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt"),
@@ -258,17 +233,7 @@ impl CpuQueueingInvoker {
       EventualItem::Now(n) => n?,
     };
     match self.invoke_on_container(&item.registration, &item.json_args, &item.tid, remove_time, None, ctr_lock, self.clock.format_time(remove_time)?, Instant::now()).await {
-      Ok((result, duration, compute, container_state)) => {
-        let mut result_ptr = item.result_ptr.lock();
-        result_ptr.duration = duration;
-        result_ptr.exec_time = result.duration_sec;
-        result_ptr.result_json = result.result_string().unwrap_or_else(|cause| format!("{{ \"Error\": \"{}\" }}", cause));
-        result_ptr.completed = true;
-        result_ptr.worker_result = Some(result);
-        result_ptr.compute = compute;
-        result_ptr.container_state = container_state;
-        item.signal();
-      },
+      Ok((result, duration, compute, state)) => item.mark_successful(result, duration, compute, state),
       Err(e) => self.handle_invocation_error(item.clone(), e),
     };
     Ok(true)

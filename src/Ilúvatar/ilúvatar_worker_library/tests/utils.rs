@@ -177,6 +177,17 @@ pub fn background_test_invoke(invok_svc: &Arc<dyn Invoker>, reg: &Arc<Registered
   tokio::spawn(async move { cln.sync_invocation(r, j, t).await })
 }
 
+pub async fn wait_for_queue_len(invok_svc: &Arc<dyn Invoker>, compute_queue: Compute, len: usize) {
+  timeout(Duration::from_secs(20), async move {
+    loop {
+      if invok_svc.queue_len().get(&compute_queue).unwrap() >= &len {
+        break;
+      } 
+      tokio::time::sleep(Duration::from_millis(5)).await;
+    }  
+  }).await.unwrap_or_else(|_| panic!("Timeout error waiting for queue length to reach length {}", len));
+}
+
 pub async fn get_start_end_time_from_invoke(handle: HANDLE, formatter: &ContainerTimeFormatter) -> (OffsetDateTime, OffsetDateTime) {
   let result = resolve_invoke(handle).await;
   match result {

@@ -127,6 +127,7 @@ impl GpuQueueingInvoker {
     Ok(svc)
   }
 
+  /// Create the GPU queue to use
   fn get_invoker_gpu_queue(invocation_config: &Arc<InvocationConfig>, _cmap: &Arc<CharacteristicsMap>, _cont_manager: &Arc<ContainerManager>, _tid: &TransactionId)  -> Result<Arc<dyn GpuQueuePolicy>> {
     if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::GPU).try_into()?) {
       Ok(match pol.as_str() {
@@ -144,10 +145,6 @@ impl GpuQueueingInvoker {
     debug!(tid=%tid, "Invoker waken up by signal");
   }
   /// Check the invocation queue, running things when there are sufficient resources
-  // #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoker_svc), fields(tid=%tid)))]
-  // async fn monitor_gpu_queue(invoker_svc: Arc<Self>, tid: TransactionId) {
-  //   invoker_svc.clone().monitor_queue(invoker_svc.queue.clone(), tid).await;
-  // }
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, queue, compute), fields(tid=%_tid)))]
   async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
     loop {
@@ -197,7 +194,7 @@ impl GpuQueueingInvoker {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, item, permit), fields(tid=%item.tid)))]
   fn spawn_tokio_worker(&self, invoker_svc: Arc<Self>, batch: GpuBatch, permit: Box<dyn Drop + Send>, tid: &TransactionId) {
     debug!(tid=%tid, "Launching invocation thread for queued item");
-    let _handle = tokio::spawn(async move {
+    tokio::spawn(async move {
       invoker_svc.invocation_worker_thread(batch, permit).await;
     });
   }
@@ -208,39 +205,17 @@ impl GpuQueueingInvoker {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
   async fn invocation_worker_thread(&self, batch: GpuBatch, permit: Box<dyn Drop + Send>) {
     for item in batch {
-      if !self.should_run(&item) {
+      if !item.lock() {
         continue;
       }
       match self.invoke(&item.registration, &item.json_args, &item.tid, item.queue_insert_time).await {
-        Ok( (json, duration, compute, container_state) ) =>  {
-          let mut result_ptr = item.result_ptr.lock();
-          result_ptr.duration = duration;
-          result_ptr.exec_time = json.duration_sec;
-          result_ptr.result_json = json.result_string().unwrap_or_else(|cause| format!("{{ \"Error\": \"{}\" }}", cause));
-          result_ptr.completed = true;
-          result_ptr.worker_result = Some(json);
-          result_ptr.compute = compute;
-          result_ptr.container_state = container_state;
-          item.signal();
-          debug!(tid=%item.tid, "queued invocation completed successfully");
+        Ok( (result, duration, compute, container_state) ) => {
+          item.mark_successful(result, duration, compute, container_state);
         },
-        Err(cause) => {
-          self.handle_invocation_error(item, cause)
-        },
+        Err(cause) => self.handle_invocation_error(item, cause),
       };
     }
     drop(permit);
-  }
-
-  fn should_run(&self, item: &Arc<EnqueuedInvocation>) -> bool {
-    let mut started = item.started.lock();
-    match *started {
-      true => false, // item was started on another resource
-      false => {
-        *started = true;
-        true
-      },
-    }
   }
 
   /// Handle an error with the given enqueued invocation
@@ -255,30 +230,21 @@ impl GpuQueueingInvoker {
         warn!(tid=%item.tid, "Insufficient memory to run item right now");
         *warn_time = Instant::now();
       }
-      *item.started.lock() = false;
+      item.unlock();
       match self.queue.add_item_to_queue(&item) {
         Ok(_) => self.signal.notify_waiters(),
         Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item in GPU queue after memory exhaustion"),
       };
     } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
       warn!(tid=%item.tid, "No GPU available to run item right now");
-      *item.started.lock() = false;
+      item.unlock();
       match self.queue.add_item_to_queue(&item) {
         Ok(_) => self.signal.notify_waiters(),
         Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item after GPU exhaustion"),
       };
     } else {
       error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
-      let mut result_ptr = item.result_ptr.lock();
-      if result_ptr.attempts >= self.invocation_config.retries {
-        error!(tid=%item.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
-        result_ptr.duration = Duration::from_micros(0);
-        result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", cause);
-        result_ptr.completed = true;
-        item.signal();
-      } else {
-        result_ptr.attempts += 1;
-        debug!(tid=%item.tid, attempts=result_ptr.attempts, "re-queueing invocation attempt after attempting");
+      if item.increment_error_retry(cause, self.invocation_config.retries) {
         match self.queue.add_item_to_queue(&item) {
           Ok(_) => self.signal.notify_waiters(),
           Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt"),

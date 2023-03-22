@@ -1,13 +1,15 @@
+use std::time::Duration;
 use std::{sync::Arc, cmp::Ordering};
 use anyhow::Result;
 use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
 use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
-
+use tracing::{debug, error};
+use crate::services::containers::structs::{ParsedResult, ContainerState};
 use crate::services::registration::RegisteredFunction;
-
 use super::{InvocationResultPtr, InvocationResult};
 
 //  CPU focused queues
@@ -122,6 +124,55 @@ impl EnqueuedInvocation {
   /// If no one is waiting, the next person to check will continue immediately
   pub fn signal(&self) {
     self.signal.notify_one();
+  }
+
+  /// Return true if this item has not been locked by another resource yet.
+  /// Meaning it can be run here
+  pub fn lock(&self) -> bool {
+    let mut started = self.started.lock();
+    match *started {
+      true => false,
+      false => {
+        *started = true;
+        true
+      },
+    }
+  }
+
+  /// Reset the marker stating this as locked, so it can be attempted to run again
+  pub fn unlock(&self) {
+    *self.started.lock() = false;
+  }
+
+  pub fn mark_successful(&self, result: ParsedResult, duration: Duration, compute: Compute, state: ContainerState) {
+    let mut result_ptr = self.result_ptr.lock();
+    result_ptr.duration = duration;
+    result_ptr.exec_time = result.duration_sec;
+    result_ptr.result_json = result.result_string().unwrap_or_else(|cause| format!("{{ \"Error\": \"{}\" }}", cause));
+    result_ptr.completed = true;
+    result_ptr.worker_result = Some(result);
+    result_ptr.compute = compute;
+    result_ptr.container_state = state;
+    self.signal();
+    debug!(tid=%self.tid, "queued invocation completed successfully");
+  }
+
+  /// Increment the attempts counter on the function
+  /// If the number of errors has exceeded the retries, mark it as complete and return `false` to indicate no re-trying
+  pub fn increment_error_retry(&self, error: anyhow::Error, retries: u32) -> bool {
+    let mut result_ptr = self.result_ptr.lock();
+    if result_ptr.attempts >= retries {
+      error!(tid=%self.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
+      result_ptr.duration = Duration::from_micros(0);
+      result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", error);
+      result_ptr.completed = true;
+      self.signal();
+      return false;
+    } else {
+      result_ptr.attempts += 1;
+      self.unlock();
+      return true;
+    }
   }
 }
 
