@@ -3,7 +3,7 @@ use iluvatar_library::{utils::execute_cmd, transaction::TransactionId, types::Co
 use parking_lot::RwLock;
 use anyhow::Result;
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
-use tracing::{warn, debug};
+use tracing::{warn, debug, info};
 use crate::worker_api::worker_config::ContainerResourceConfig;
 
 #[derive(Debug,serde::Deserialize, serde::Serialize)]
@@ -34,6 +34,9 @@ pub struct GPU {
   pub gpu_uuid: GpuUuid,
 }
 
+/// Struct that manages GPU control between containers
+/// A GPU can only be assigned to one container at a time, and must be reutrned via [GpuResourceTracker::return_gpu] after container deletion
+/// For an invocation to use the GPU, it must have isolation over that resource by acquiring it via [GpuResourceTracker::try_acquire_resource]
 pub struct GpuResourceTracker {
   gpus: RwLock<Vec<Arc<GPU>>>,
   concurrency_semaphore: Arc<Semaphore>,
@@ -56,6 +59,10 @@ impl GpuResourceTracker {
         warn!(tid=%tid, "resource_map did not have a GPU entry, skipping GPU resource setup");
         return Ok(ret)},
     };
+    if gpu_config.count == 0 {
+      info!(tid=%tid, "resource_map had 0 GPUs, skipping GPU resource setup");
+      return Ok(ret);
+    }
     if iluvatar_library::utils::is_simulation() {
       for i in 0..gpu_config.count {
         ret.push(Arc::new(GPU { gpu_uuid: format!("GPU-{}", i) }))
@@ -81,18 +88,13 @@ impl GpuResourceTracker {
   /// Return a permit access to a single GPU
   /// Returns an error if none are available
   pub fn try_acquire_resource(&self) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
-    match self.concurrency_semaphore.clone().try_acquire_many_owned(1) {
-      Ok(p) => Ok(p),
-      Err(e) => Err(e),
-    }
+    self.concurrency_semaphore.clone().try_acquire_many_owned(1)
   }
 
   /// Acquire a GPU so it can be attached to a container
+  /// [None] means no GPU is available
   pub fn acquire_gpu(self: &Arc<Self>) -> Option<Arc<GPU>> {
-    match self.gpus.write().pop() {
-      Some(gpu) =>  Some(gpu),
-      None => None
-    }
+    self.gpus.write().pop()
   }
 
   /// Return a GPU that has been removed from a container

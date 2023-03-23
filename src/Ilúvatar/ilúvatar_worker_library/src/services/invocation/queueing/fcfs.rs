@@ -4,7 +4,7 @@ use anyhow::Result;
 use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tracing::debug;
-use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, InvokerQueuePolicy};
+use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, InvokerCpuQueuePolicy};
 
 pub struct FCFSQueue {
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapEnqueuedInvocation<OffsetDateTime>>>>,
@@ -22,7 +22,7 @@ impl FCFSQueue {
 }
 
 #[tonic::async_trait]
-impl InvokerQueuePolicy for FCFSQueue {
+impl InvokerCpuQueuePolicy for FCFSQueue {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;

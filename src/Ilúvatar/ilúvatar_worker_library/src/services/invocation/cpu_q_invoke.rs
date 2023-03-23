@@ -9,7 +9,7 @@ use time::{OffsetDateTime, Instant};
 use tokio::sync::{Notify, mpsc::UnboundedSender};
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
-use super::queueing::{InvokerQueuePolicy, EnqueuedInvocation, DeviceQueue};
+use super::queueing::{InvokerCpuQueuePolicy, EnqueuedInvocation, DeviceQueue};
 use super::queueing::{avail_scale::AvailableScalingQueue, queueless::Queueless, fcfs::FCFSQueue, minheap::MinHeapQueue, minheap_ed::MinHeapEDQueue, minheap_iat::MinHeapIATQueue, cold_priority::ColdPriorityQueue};
 
 lazy_static::lazy_static! {
@@ -26,7 +26,7 @@ pub struct CpuQueueingInvoker {
   cpu: Arc<CpuResourceTracker>,
   _cpu_thread: std::thread::JoinHandle<()>,
   signal: Notify,
-  queue: Arc<dyn InvokerQueuePolicy>,
+  queue: Arc<dyn InvokerCpuQueuePolicy>,
   _bypass_thread: tokio::task::JoinHandle<()>,
   bypass_rx: UnboundedSender<Arc<EnqueuedInvocation>>
 }
@@ -56,7 +56,7 @@ impl CpuQueueingInvoker {
     Ok(svc)
   }
 
-  fn get_invoker_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, tid: &TransactionId)  -> Result<Arc<dyn InvokerQueuePolicy>> {
+  fn get_invoker_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, tid: &TransactionId)  -> Result<Arc<dyn InvokerCpuQueuePolicy>> {
     if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::CPU).try_into()?) {
       Ok(match pol.as_str() {
         "none" => Queueless::new()?,
@@ -84,7 +84,7 @@ impl CpuQueueingInvoker {
     invoker_svc.clone().monitor_queue(invoker_svc.queue.clone(), tid).await;
   }
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, queue, compute), fields(tid=%_tid)))]
-  async fn monitor_queue(self: Arc<Self>, queue: Arc<dyn InvokerQueuePolicy>, _tid: TransactionId) {
+  async fn monitor_queue(self: Arc<Self>, queue: Arc<dyn InvokerCpuQueuePolicy>, _tid: TransactionId) {
     loop {
       if let Some(peek_item) = queue.peek_queue() {
         if let Some(permit) = self.acquire_resources_to_run(&peek_item) {

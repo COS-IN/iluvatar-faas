@@ -34,7 +34,6 @@
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 0,
     "pool_freq_ms": 5,
-    "backend": "containerd",
     "snapshotter": "zfs",
     "concurrent_creation": 5,
     "resource_map": {

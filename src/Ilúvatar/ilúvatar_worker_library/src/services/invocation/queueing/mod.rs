@@ -20,10 +20,10 @@ pub mod minheap_ed;
 pub mod minheap_iat;
 pub mod cold_priority;
 pub mod avail_scale;
-pub mod oldest_gpu;
 
 // GPU focused queues
 pub mod fcfs_gpu;
+pub mod oldest_gpu;
 
 #[derive(Debug, serde::Deserialize)]
 /// The policy by which polymorphic functions will be enqueued in the CPU/GPU/etc. queues
@@ -41,7 +41,7 @@ pub enum EnqueueingPolicy {
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
-pub trait InvokerQueuePolicy: Send + Sync {
+pub trait InvokerCpuQueuePolicy: Send + Sync {
   /// The length of a queue, if the implementation has one
   fn queue_len(&self) -> usize;
 

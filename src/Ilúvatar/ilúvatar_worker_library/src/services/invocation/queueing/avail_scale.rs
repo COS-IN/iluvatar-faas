@@ -4,7 +4,7 @@ use iluvatar_library::{transaction::TransactionId, characteristics_map::Characte
 use anyhow::Result;
 use parking_lot::Mutex;
 use tracing::debug;
-use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat, InvokerQueuePolicy};
+use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat, InvokerCpuQueuePolicy};
 use std::collections::BinaryHeap;
 
 /// An invoker that scales concurrency based on system load
@@ -29,7 +29,7 @@ impl AvailableScalingQueue {
   }
 }
 
-impl InvokerQueuePolicy for AvailableScalingQueue {
+impl InvokerCpuQueuePolicy for AvailableScalingQueue {
   fn queue_len(&self) -> usize { 
     self.invoke_queue.lock().len()
   }

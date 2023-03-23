@@ -3,7 +3,7 @@ use iluvatar_library::{transaction::TransactionId, characteristics_map::Characte
 use anyhow::Result;
 use parking_lot::Mutex;
 use tracing::debug;
-use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat, InvokerQueuePolicy};
+use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat, InvokerCpuQueuePolicy};
 use std::collections::BinaryHeap;
 
 pub struct MinHeapIATQueue {
@@ -25,7 +25,7 @@ impl MinHeapIATQueue {
 }
 
 #[tonic::async_trait]
-impl InvokerQueuePolicy for MinHeapIATQueue {
+impl InvokerCpuQueuePolicy for MinHeapIATQueue {
   fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
     let r = self.invoke_queue.lock();
     let r = r.peek()?;
