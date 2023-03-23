@@ -128,10 +128,10 @@
       "ILUVATAR_WORKER__graphite__enabled" : "{{ graphite.enabled }}"
       # Invocation config
       "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
-      "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(10) }}"
+      "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(100) }}"
       "ILUVATAR_WORKER__invocation__cpu__queue_policy" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
       "ILUVATAR_WORKER__invocation__gpu__queue_policy" : "{{ worker_gpu_queue_policy | default('fcfs') }}"
-      "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('') }}"
+      "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
 

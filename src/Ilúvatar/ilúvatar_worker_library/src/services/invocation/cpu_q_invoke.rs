@@ -37,7 +37,7 @@ pub struct CpuQueueingInvoker {
 impl CpuQueueingInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, 
       tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>) -> Result<Arc<Self>> {
-    let (cpu_handle, cpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_CPU_QUEUE_WORKER_TID.clone(), Self::monitor_cpu_queue, Some(Self::cpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
+    let (cpu_handle, cpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_CPU_QUEUE_WORKER_TID.clone(), Self::monitor_queue, Some(Self::cpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
     let (bypass_thread, bypass_tx, bypass_rx) = Self::bypass_thread();
 
     let svc = Arc::new(CpuQueueingInvoker {
@@ -78,17 +78,14 @@ impl CpuQueueingInvoker {
     invoker_svc.signal.notified().await;
     debug!(tid=%tid, "Invoker waken up by signal");
   }
+
   /// Check the invocation queue, running things when there are sufficient resources
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(invoker_svc), fields(tid=%tid)))]
-  async fn monitor_cpu_queue(invoker_svc: Arc<Self>, tid: TransactionId) {
-    invoker_svc.clone().monitor_queue(invoker_svc.queue.clone(), tid).await;
-  }
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, queue, compute), fields(tid=%_tid)))]
-  async fn monitor_queue(self: Arc<Self>, queue: Arc<dyn InvokerCpuQueuePolicy>, _tid: TransactionId) {
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%_tid)))]
+  async fn monitor_queue(self: Arc<Self>, _tid: TransactionId) {
     loop {
-      if let Some(peek_item) = queue.peek_queue() {
+      if let Some(peek_item) = self.queue.peek_queue() {
         if let Some(permit) = self.acquire_resources_to_run(&peek_item) {
-          let item = queue.pop_queue();
+          let item = self.queue.pop_queue();
           if ! item.lock() {
             continue;
           }
@@ -220,7 +217,7 @@ impl CpuQueueingInvoker {
     }
   }
 
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
   /// Run an invocation, bypassing any concurrency restrictions
   /// A return value of `false` means that the function would have run cold, and the caller should enqueue it instead
   /// `true` means the invocation was already run successfully
@@ -247,7 +244,7 @@ impl CpuQueueingInvoker {
   /// [Duration]: The E2E latency between the worker and the container
   /// [Compute]: Compute the invocation was run on
   /// [ContainerState]: State the container was in for the invocation
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit, compute), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit), fields(tid=%tid)))]
   async fn invoke<'a>(&'a self, reg: &'a Arc<RegisteredFunction>, json_args: &'a String, tid: &'a TransactionId, 
     queue_insert_time: OffsetDateTime, permit: Option<Box<dyn Drop+Send>>) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
     debug!(tid=%tid, "Internal invocation starting");

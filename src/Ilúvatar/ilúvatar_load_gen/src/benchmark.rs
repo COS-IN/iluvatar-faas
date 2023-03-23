@@ -88,7 +88,7 @@ pub struct BenchmarkArgs {
   #[arg(short, long)]
   /// Folder to output results to
   out_folder: String,
-  #[arg(long)]
+  #[arg(long, default_value="1")]
   /// Number of concurrent threads to run benchmark with
   thread_count: u32,
 }

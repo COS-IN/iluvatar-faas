@@ -88,8 +88,7 @@ pub trait GpuQueuePolicy: Send + Sync {
 
   /// Insert an item into the queue
   /// If an error is returned, the item was not put enqueued
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, _item), fields(tid=%_item.tid)))]
-  fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>) -> Result<()>;
+  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()>;
 }
 
 pub struct GpuQueueingInvoker {
@@ -145,7 +144,7 @@ impl GpuQueueingInvoker {
     debug!(tid=%tid, "Invoker waken up by signal");
   }
   /// Check the invocation queue, running things when there are sufficient resources
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, queue, compute), fields(tid=%_tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
   async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
     loop {
       if let Some(peek_reg) = self.queue.next_batch() {
@@ -191,7 +190,7 @@ impl GpuQueueingInvoker {
   }
 
   /// Runs the specific invocation inside a new tokio worker thread
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, item, permit), fields(tid=%item.tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, batch, permit), fields(tid=%tid)))]
   fn spawn_tokio_worker(&self, invoker_svc: Arc<Self>, batch: GpuBatch, permit: Box<dyn Drop + Send>, tid: &TransactionId) {
     debug!(tid=%tid, "Launching invocation thread for queued item");
     tokio::spawn(async move {
@@ -202,7 +201,7 @@ impl GpuQueueingInvoker {
   /// Handle executing an invocation, plus account for its success or failure
   /// On success, the results are moved to the pointer and it is signaled
   /// On failure, [Invoker::handle_invocation_error] is called
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, batch, permit), fields(fqdn=batch.peek().registration.fqdn)))]
   async fn invocation_worker_thread(&self, batch: GpuBatch, permit: Box<dyn Drop + Send>) {
     for item in batch {
       if !item.lock() {
@@ -261,7 +260,7 @@ impl GpuQueueingInvoker {
   /// [Duration]: The E2E latency between the worker and the container
   /// [Compute]: Compute the invocation was run on
   /// [ContainerState]: State the container was in for the invocation
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, compute), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time), fields(tid=%tid)))]
   async fn invoke<'a>(&'a self, reg: &'a Arc<RegisteredFunction>, json_args: &'a String, tid: &'a TransactionId, 
     queue_insert_time: OffsetDateTime) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
     debug!(tid=%tid, "Internal invocation starting");

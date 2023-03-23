@@ -60,7 +60,6 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
   /// Insert an item into the queue, optionally at a specific index
   /// If not specified, added to the end
   /// If an error is returned, the item was not put enqueued
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, _item, _index), fields(tid=%_item.tid)))]
   fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()>;
 }
 
@@ -77,7 +76,6 @@ pub trait DeviceQueue: Send + Sync {
 
   /// Insert an item into the queue
   /// If an error is returned, the item was not put enqueued
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
   fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()>;
 
   /// Number of invocations currently running
