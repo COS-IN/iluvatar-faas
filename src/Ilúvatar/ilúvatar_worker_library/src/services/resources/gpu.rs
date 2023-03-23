@@ -82,6 +82,7 @@ impl GpuResourceTracker {
     if ret.len() != gpu_config.count as usize {
       anyhow::bail!("Was able to prepare {} GPUs, but configuration expected {}", ret.len(), gpu_config.count);
     }
+    info!(tid=%tid, gpus=?ret, "GPUs prepared");
     Ok(ret)
   }
 

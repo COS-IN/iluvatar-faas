@@ -39,7 +39,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make container manger"),
   };
 
-  let reg = RegistrationService::new(container_man.clone(), isos.clone(), worker_config.limits.clone(), cmap.clone());
+  let reg = RegistrationService::new(container_man.clone(), isos.clone(), worker_config.limits.clone(), cmap.clone(), worker_config.container_resources.clone());
 
   let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone(), cmap.clone(), cpu, gpu_resource.clone());
   let invoker = invoker_fact.get_invoker_service(tid)?;

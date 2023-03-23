@@ -50,7 +50,7 @@ pub async fn full_sim_invoker(config_pth: Option<String>, overrides: Option<Vec<
   let lifecycles = factory.get_isolation_services(&TEST_TID, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
-  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone(), cmap.clone());
+  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone(), cmap.clone(), cfg.container_resources.clone());
   let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap.clone(), cpu.clone(), gpu_resource.clone());
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
   (_log, cfg, cm, invoker, reg, cmap, gpu_resource, cpu)
@@ -86,7 +86,7 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(
   let lifecycles = factory.get_isolation_services(&TEST_TID, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
-  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone(), cmap.clone());
+  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone(), cmap.clone(), cfg.container_resources.clone());
   let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap.clone(), cpu, gpu_resource);
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
   (_log, cfg, cm, invoker, reg, cmap)
@@ -122,7 +122,7 @@ pub async fn test_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<
   let lifecycles = factory.get_isolation_services(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
-  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone(), cmap.clone());
+  let reg = RegistrationService::new(cm.clone(), lifecycles.clone(), cfg.limits.clone(), cmap.clone(), cfg.container_resources.clone());
   let invoker_fact = InvokerFactory::new(cm.clone(), cfg.limits.clone(), cfg.invocation.clone(), cmap, cpu, gpu_resource);
   let invoker = invoker_fact.get_invoker_service(&TEST_TID).unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
   (_log, cfg, cm, invoker, reg)

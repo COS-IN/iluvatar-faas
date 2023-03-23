@@ -32,6 +32,7 @@ bitflags! {
 pub enum ComputeEnum {
   cpu,
   gpu,
+  fpga,
 }
 /// To turn Compute back into a string-serializable format for hashmaps
 impl TryInto<ComputeEnum> for &Compute {
@@ -40,6 +41,8 @@ impl TryInto<ComputeEnum> for &Compute {
       Ok(ComputeEnum::cpu)
     } else if self.contains(Compute::GPU) {
       Ok(ComputeEnum::gpu)
+    } else if self.contains(Compute::FPGA) {
+      Ok(ComputeEnum::fpga)
     } else {
       anyhow::bail!("Cannot convert Compute '{:?}' to enum", self)
     }
@@ -69,6 +72,7 @@ impl Into<Compute> for &ComputeEnum {
     match self {
       ComputeEnum::cpu => Compute::CPU,
       ComputeEnum::gpu => Compute::GPU,
+      ComputeEnum::fpga => Compute::FPGA,
     }
   }
 }

@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 use iluvatar_library::{types::{Isolation, MemSizeMb, Compute, ResourceTimings}, transaction::TransactionId, utils::calculate_fqdn, characteristics_map::{CharacteristicsMap, Characteristics, Values}};
 use parking_lot::RwLock;
 use tracing::{debug, info};
-use crate::rpc::RegisterRequest;
+use crate::{rpc::RegisterRequest, worker_api::worker_config::ContainerResourceConfig};
 use crate::worker_api::worker_config::FunctionLimits;
 use super::containers::{containermanager::ContainerManager, ContainerIsolationCollection};
 use anyhow::Result;
@@ -27,13 +27,15 @@ pub struct RegistrationService {
   lifecycles: ContainerIsolationCollection,
   limits_config: Arc<FunctionLimits>,
   characteristics_map: Arc<CharacteristicsMap>,
+  resources: Arc<ContainerResourceConfig>, 
 }
 
 impl RegistrationService {
-  pub fn new(cm: Arc<ContainerManager>, lifecycles: ContainerIsolationCollection, limits_config: Arc<FunctionLimits>, characteristics_map: Arc<CharacteristicsMap>,) -> Arc<Self> {
+  pub fn new(cm: Arc<ContainerManager>, lifecycles: ContainerIsolationCollection, limits_config: Arc<FunctionLimits>, characteristics_map: Arc<CharacteristicsMap>,
+      resources: Arc<ContainerResourceConfig>, ) -> Arc<Self> {
     Arc::new(RegistrationService {
       reg_map: RwLock::new(HashMap::new()),
-      cm, lifecycles, limits_config, characteristics_map,
+      cm, lifecycles, limits_config, characteristics_map, resources,
     })
   }
 
@@ -64,6 +66,20 @@ impl RegistrationService {
     let compute: Compute = request.compute.into();
     if compute.is_empty() {
       anyhow::bail!("Could not register function with no specified compute!");
+    }
+
+    for specific_compute in compute {
+      let compute_config = match self.resources.resource_map.get(&(&specific_compute).try_into()?) {
+        Some(c) => Some(c.clone()),
+        None => None,
+      };
+      if let Some(compute_config) = compute_config {
+        if compute_config.count == 0 {
+          anyhow::bail!("Could not register function for compute {:?} because the worker has no devices of that type!", specific_compute);
+        }
+      } else {
+        anyhow::bail!("Could not register function for compute {:?} because the worker was not configured for it!", specific_compute);
+      }
     }
 
     let fqdn = calculate_fqdn(&request.function_name, &request.function_version);

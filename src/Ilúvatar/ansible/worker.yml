@@ -101,14 +101,18 @@
       "ILUVATAR_WORKER__timeout_sec" : "{{ worker_timeout_sec | default(6000) }}"
       "ILUVATAR_WORKER__tokio_event_interval" : "{{ worker_tokio_event_interval | default(20) }}"
       "ILUVATAR_WORKER__tokio_queue_interval" : "{{ worker_tokio_queue_interval | default(20) }}"
+      # Limits
+      "ILUVATAR_WORKER__limits__mem_max_mb" : "{{ worker_mem_max | default(5000) }}"
+
       # Container resources
       "ILUVATAR_WORKER__container_resources__memory_mb" : "{{ worker_memory_mb | default(2048) }}"
       "ILUVATAR_WORKER__container_resources__eviction" : "{{ worker_eviction | default('LRU') }}"
       "ILUVATAR_WORKER__container_resources__startup_timeout_ms" : "{{ worker_startup_timeout_ms | default(10000) }}"
       "ILUVATAR_WORKER__container_resources__pool_freq_ms" : "{{ worker_cm_pool_freq_ms | default(1000) }}"
       "ILUVATAR_WORKER__container_resources__concurrent_creation" : "{{ worker_concurrent_creation | default(5) }}"
-      "ILUVATAR_WORKER__container__resource_map__cpu__count" : "{{ worker_cores | default(4) }}"
-      "ILUVATAR_WORKER__container__resource_map__gpu__count" : "{{ worker_gpus | default(0) }}"
+      "ILUVATAR_WORKER__container_resources__concurrent_creation" : "{{ worker_concurrent_creation | default(5) }}"
+      "ILUVATAR_WORKER__container_resources__resource_map__cpu__count" : "{{ worker_cores | default(4) }}"
+      "ILUVATAR_WORKER__container_resources__memory_buffer_mb" : "{{ worker_memory_buffer | default(0) }}"
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
       "ILUVATAR_WORKER__networking__use_pool" : "{{ worker_use_pool | default(true) }}"

@@ -294,8 +294,10 @@ impl GpuQueueingInvoker {
       _ => self.cmap.add(&reg.fqdn, Characteristics::ColdTime, Values::F64(cold_time_start.elapsed().as_seconds_f64()), true),
     };
     self.cmap.add(&reg.fqdn, Characteristics::ExecTime, Values::F64(data.duration_sec), true);
+    let (compute, state) = (ctr_lock.container.compute_type(), ctr_lock.container.state());
+    drop(ctr_lock);
     self.signal.notify_waiters();
-    Ok((data, duration, ctr_lock.container.compute_type(), ctr_lock.container.state()))
+    Ok((data, duration, compute, state))
   }
 }
 

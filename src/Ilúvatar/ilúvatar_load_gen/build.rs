@@ -23,5 +23,6 @@ fn copy_file(infile: &Path) -> Result<(), Box<dyn Error>> {
 
 fn main() -> Result<(), Box<dyn Error>> {
   copy_file(Path::new("packaged-benchmark.csv")).unwrap();
+  copy_file(Path::new("gpu-benchmark.csv")).unwrap();
   Ok(())
 }

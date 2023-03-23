@@ -133,6 +133,45 @@ mod compute_iso_matching {
     let func = reg.register(gpu_reg(), &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     assert_error!(cm.prewarm(&func, &TEST_TID, Compute::CPU).await, "Registration did not contain requested compute", "Perwarm did not error correctly");
   }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn no_gpu_fails_register() {
+    let mut env = vec![];
+    env.push(("container_resources.resource_map.gpu.count".to_string(), "0".to_string()));
+    env.push(("invocation.concurrent_invokes".to_string(), "5".to_string()));
+    let (_log, _cfg, _cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let req =   RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::GPU.bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func = reg.register(req, &TEST_TID).await;
+    assert_error!(func, "Could not register function for compute GPU because the worker has no devices of that type!", "");
+  }
+
+  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+  async fn no_fpga_fails_register() {
+    let (_log, _cfg, _cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+    let req =   RegisterRequest {
+      function_name: "test".to_string(),
+      function_version: "test".to_string(),
+      cpus: 1, memory: 128, parallel_invokes: 1,
+      image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+      transaction_id: "testTID".to_string(),
+      language: LanguageRuntime::Nolang.into(),
+      compute: Compute::FPGA.bits(),
+      isolate: Isolation::DOCKER.bits(),
+      resource_timings_json: "".to_string(),
+    };
+    let func = reg.register(req, &TEST_TID).await;
+    assert_error!(func, "Could not register function for compute FPGA because the worker was not configured for it!", "");
+  }
 }
 
 #[cfg(test)]
@@ -771,6 +810,7 @@ mod enqueueing_tests {
   async fn always_cpu_errors_no_support() {
     let mut env = build_gpu_env();
     env.push(("invocation.enqueueing_policy".to_string(), "AlwaysCPU".to_string()));
+    env.push(("container_resources.resource_map.fpga.count".to_string(), "1".to_string()));
     let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
     let req =  RegisterRequest {
       function_name: "test".to_string(),
@@ -785,7 +825,7 @@ mod enqueueing_tests {
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await;
-    assert_error!(invoke, "Cannot enqueue invocation using AlwaysCPU strategy because it does not support CPU", "Non-CPU poly function fails under only-cpu policy");
+    assert_error!(invoke, "Cannot enqueue invocation using AlwaysCPU strategy because it does not support CPU", "Non-CPU poly function must fail under only-cpu policy");
   }
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
