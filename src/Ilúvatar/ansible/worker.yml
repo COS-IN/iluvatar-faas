@@ -110,7 +110,7 @@
       "ILUVATAR_WORKER__container_resources__startup_timeout_ms" : "{{ worker_startup_timeout_ms | default(10000) }}"
       "ILUVATAR_WORKER__container_resources__pool_freq_ms" : "{{ worker_cm_pool_freq_ms | default(1000) }}"
       "ILUVATAR_WORKER__container_resources__concurrent_creation" : "{{ worker_concurrent_creation | default(5) }}"
-      "ILUVATAR_WORKER__container_resources__concurrent_creation" : "{{ worker_concurrent_creation | default(5) }}"
+      "ILUVATAR_WORKER__container_resources__resource_map__gpu__count" : "{{ worker_gpus | default(0) }}"
       "ILUVATAR_WORKER__container_resources__resource_map__cpu__count" : "{{ worker_cores | default(4) }}"
       "ILUVATAR_WORKER__container_resources__memory_buffer_mb" : "{{ worker_memory_buffer | default(0) }}"
       # Networking
