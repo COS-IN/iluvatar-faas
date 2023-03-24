@@ -101,6 +101,7 @@ pub struct Function {
   pub prewarms: Option<u32>,
   /// The compute(s) to test the function with, in the form CPU|GPU|etc.
   /// If empty, will default to CPU
+  /// Functions that want GPU compute will be mapped to code that can use it from the benchmark, if found
   pub compute: Option<String>,
   /// Used internally, the parsed value from [Function::compute]
   pub parsed_compute: Option<iluvatar_library::types::Compute>,

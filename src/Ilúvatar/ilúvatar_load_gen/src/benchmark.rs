@@ -3,12 +3,9 @@ use std::time::{SystemTime, Duration};
 use std::{collections::HashMap, path::Path};
 use anyhow::Result;
 use clap::Parser;
-use iluvatar_library::logging::LocalTime;
-use iluvatar_library::transaction::gen_tid;
+use iluvatar_library::{utils::port_utils::Port, transaction::gen_tid, logging::LocalTime};
 use iluvatar_library::types::{Compute, Isolation, IsolationEnum, MemSizeMb, ResourceTimings, FunctionInvocationTimings};
-use iluvatar_library::utils::port_utils::Port;
 use serde::{Serialize, Deserialize};
-use tokio::sync::Barrier;
 use tokio::runtime::{Runtime, Builder};
 use crate::utils::*;
 
@@ -88,9 +85,6 @@ pub struct BenchmarkArgs {
   #[arg(short, long)]
   /// Folder to output results to
   out_folder: String,
-  #[arg(long, default_value="1")]
-  /// Number of concurrent threads to run benchmark with
-  thread_count: u32,
 }
 
 pub fn load_functions(args: &BenchmarkArgs) -> Result<Vec<ToBenchmarkFunction>> {
@@ -117,7 +111,6 @@ pub fn benchmark_functions(args: BenchmarkArgs) -> Result<()> {
     Target::Worker => {
       benchmark_worker(&threaded_rt, functions, args)
     },
-    // TODO: implement threads, cold/warm vs timed completion for controller
     Target::Controller => {
       threaded_rt.block_on(benchmark_controller(args.host.clone(), args.port, functions, args.out_folder.clone(), args.cold_iters, args.warm_iters))
     },
@@ -189,27 +182,99 @@ pub async fn benchmark_controller(host: String, port: Port, functions: Vec<ToBen
 }
 
 pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunction>, args: BenchmarkArgs) -> Result<()> {
-  let barrier = Arc::new(Barrier::new(args.thread_count as usize));
-  let mut handles = Vec::new();
+  // let barrier = Arc::new(Barrier::new(args.thread_count as usize));
+  // let mut handles = Vec::new();
   let mut full_data = BenchmarkStore::new();
   for f in &functions {
     full_data.data.insert(f.name.clone(), FunctionStore::new(f.image_name.clone(), f.name.clone()));
   }
 
-  for thread_id in 0..args.thread_count as usize {
-    let h_c = args.host.clone();
-    let f_c = functions.clone();
-    let b_c = barrier.clone();
-    handles.push(threaded_rt.spawn(async move { benchmark_worker_thread(h_c, args.port, f_c, args.cold_iters, args.warm_iters, args.runtime, thread_id, b_c).await }));
+  // for thread_id in 0..args.thread_count as usize {
+  //   let h_c = args.host.clone();
+  //   let f_c = functions.clone();
+  //   let b_c = barrier.clone();
+  //   handles.push(threaded_rt.spawn(async move { benchmark_worker_thread(h_c, args.port, f_c, args.cold_iters, args.warm_iters, args.runtime, thread_id, b_c).await }));
+  // }
+
+  // let mut results = resolve_handles(threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
+  let mut invokes = vec![];
+  // for thread_result in results.iter_mut() {
+  //   combined.append(thread_result);
+  // }
+  let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
+  let clock = Arc::new(LocalTime::new(&gen_tid())?);
+  let mut cold_repeats = args.cold_iters;
+
+  for function in &functions {
+    match args.runtime {
+      0 => (),
+      _ => {
+        cold_repeats = 1;
+      }
+    };
+    let compute = match function.compute.as_ref() {
+      Some(c) => Compute::try_from(c)?,
+      None => Compute::CPU,
+    };
+    let isolation = match function.isolation.as_ref() {
+      Some(c) => c.into(),
+      None => Isolation::CONTAINERD,
+    };
+    let memory = match function.memory.as_ref() {
+      Some(c) => *c,
+      None => 512,
+    };
+    for supported_compute in compute {
+      println!("{} {:?}", &function.name, supported_compute);
+
+      for iter in 0..cold_repeats {
+        let name = format!("{}.{:?}.{}", &function.name, supported_compute, iter);
+        let version = iter.to_string();
+        let (_s, _reg_dur, _tid) = match threaded_rt.block_on(worker_register(name.clone(), &version, function.image_name.clone(), memory, args.host.clone(), args.port, &factory, None, isolation, supported_compute, None)) {
+          Ok(r) => r,
+          Err(e) => {
+            println!("{:?}", e);
+            continue;
+          },
+        };
+  
+        match args.runtime {
+          0 => {
+            for _ in 0..args.warm_iters+1 {
+              match threaded_rt.block_on(worker_invoke(&name, &version, &args.host, args.port, &gen_tid(), None, clock.clone(), &factory, None)) {
+                Ok(r) => invokes.push(r),
+                Err(e) => {
+                  println!("Invocation error: {}", e);
+                  continue;
+                },
+              };
+            }
+          }
+          duration_sec => {
+            let timeout = Duration::from_secs(duration_sec as u64);
+            let start = SystemTime::now();
+            while start.elapsed()? < timeout {
+              match threaded_rt.block_on(worker_invoke(&name, &version, &args.host, args.port, &gen_tid(), None, clock.clone(), &factory, None)) {
+                Ok(r) => invokes.push(r),
+                Err(e) => {
+                  println!("Invocation error: {}", e);
+                  continue;
+                },
+              };
+            }
+          }
+        };
+        if supported_compute != Compute::CPU {
+          match threaded_rt.block_on(worker_clean(&args.host, args.port, &gen_tid(), &factory, None)) {
+            Ok(_) => (),
+            Err(e) => println!("{:?}", e),
+          }
+        }
+      }
+    }
   }
 
-  let mut results = resolve_handles(threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
-  let mut combined = vec![];
-  for thread_result in results.iter_mut() {
-    combined.append(thread_result);
-  }
-
-  for invoke in &combined {
+  for invoke in invokes.iter() {
     let parts = invoke.function_name.split(".").collect::<Vec<&str>>();
     let d = full_data.data.get_mut(parts[0]).expect("Unable to find function in result hash, but it should have been there");
     let invok_lat_f = invoke.client_latency_us as f64;
@@ -230,87 +295,15 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
         resource_entry.warm_over_results_us.push(invok_lat_f - func_exec_us);
         resource_entry.warm_worker_duration_us.push(invoke.worker_response.duration_us as u128);
         resource_entry.warm_invoke_duration_us.push(invoke.client_latency_us);
-      }  
+      }
     } else {
       println!("invoke failure {:?}", invoke.worker_response.json_result);
     }
   }
-
   let p = Path::new(&args.out_folder).join(format!("worker_function_benchmarks.json"));
   save_result_json(p, &full_data)?;
   let p = Path::new(&args.out_folder).join(format!("benchmark-full.json"));
-  save_result_json(p, &combined)?;
+  save_result_json(p, &invokes)?;
   let p = Path::new(&args.out_folder).join("benchmark-output.csv".to_string());
-  save_worker_result_csv(p, &combined)
-}
-
-async fn benchmark_worker_thread(host: String, port: Port, functions: Vec<ToBenchmarkFunction>, mut cold_repeats: u32, warm_repeats: u32, duration_sec: u32, thread_cnt: usize, barrier: Arc<Barrier>) -> Result<Vec<CompletedWorkerInvocation>> {
-  let mut ret = vec![];
-  let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
-  let clock = Arc::new(LocalTime::new(&gen_tid())?);
-
-  for function in &functions {
-    match duration_sec {
-      0 => (),
-      _ => {
-        cold_repeats = 1;
-      }
-    };
-    let compute = match function.compute.as_ref() {
-      Some(c) => Compute::try_from(c)?,
-      None => Compute::CPU,
-    };
-    let isolation = match function.isolation.as_ref() {
-      Some(c) => c.into(),
-      None => Isolation::CONTAINERD,
-    };
-    let memory = match function.memory.as_ref() {
-      Some(c) => *c,
-      None => 512,
-    };
-    for supported_compute in compute {
-      println!("{} {:?}", &function.name, supported_compute);
-      barrier.wait().await;
-
-      for iter in 0..cold_repeats {
-        let name = format!("{}.{:?}.{}.{}", &function.name, supported_compute, thread_cnt, iter);
-        let version = iter.to_string();
-        let (_s, _reg_dur, _tid) = match worker_register(name.clone(), &version, function.image_name.clone(), memory, host.clone(), port, &factory, None, isolation, supported_compute, None).await {
-          Ok(r) => r,
-          Err(e) => {
-            println!("{:?}", e);
-            continue;
-          },
-        };
-        barrier.wait().await;
-  
-        if duration_sec != 0 {
-          let timeout = Duration::from_secs(duration_sec as u64);
-          let start = SystemTime::now();
-          while start.elapsed()? < timeout {
-            match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory, None).await {
-              Ok(r) => ret.push(r),
-              Err(_) => continue,
-            };
-          }
-        } else {
-          for _ in 0..warm_repeats+1 {
-            match worker_invoke(&name, &version, &host, port, &gen_tid(), None, clock.clone(), &factory, None).await {
-              Ok(r) => ret.push(r),
-              Err(_) => continue,
-            };
-          }  
-        }
-        barrier.wait().await;
-        if supported_compute != Compute::CPU {
-          match worker_clean(&host, port, &gen_tid(), &factory, None).await {
-            Ok(_) => (),
-            Err(e) => println!("{:?}", e),
-          }
-          barrier.wait().await;
-        }
-      }
-    }
-  }
-  Ok(ret)
+  save_worker_result_csv(p, &invokes)
 }

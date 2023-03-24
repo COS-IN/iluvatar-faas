@@ -26,29 +26,57 @@ fn compute_prewarms(func: &Function, default_prewarms: Option<u32>) -> u32 {
   }
 }
 
+fn choose_bench_data_for_func<'a>(func: &'a Function, cpu_data: &'a Vec<(String, f64, f64)>, gpu_data: &'a Vec<(String, f64, f64)>) -> Result<&'a Vec<(String, f64, f64)>> {
+  if let Some(func_compute) = func.parsed_compute {
+    if func_compute.contains(Compute::GPU) {
+      if gpu_data.len() == 0 {
+        anyhow::bail!("Function '{}' wants GPU compute but there are no items in the benchmark that support it", func.func_name);  
+      }
+      return Ok(gpu_data);
+    } else if func_compute.contains(Compute::CPU) {
+      return Ok(cpu_data);
+    } else {
+      anyhow::bail!("Unsupported compute {:?} in 'choose_bench_data_for_func' for function '{}'", func_compute, func.func_name);
+    }
+  }
+  return Ok(cpu_data);
+}
+
 fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkStore, 
                       default_prewarms: Option<u32>, _trace_pth: &String) -> Result<()> {
-  let mut data = Vec::new();
+  let mut cpu_data = Vec::new();
   for (k, v) in bench.data.iter() {
-    let cpu_data = v.resource_data.get(&(&Compute::CPU).try_into()?).unwrap(); // TODO, do this right
-    let tot: u128 = cpu_data.warm_invoke_duration_us.iter().sum();
-    let avg_cold_us = cpu_data.cold_invoke_duration_us.iter().sum::<u128>() as f64 / cpu_data.cold_invoke_duration_us.len() as f64;
-    let avg_warm_us = tot as f64 / cpu_data.warm_invoke_duration_us.len() as f64;
-                          // Cold uses E2E duration because of the cold start time needed
-    data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
+    if let Some(cpu_timings) = v.resource_data.get(&(&Compute::CPU).try_into()?) {
+      let tot: u128 = cpu_timings.warm_invoke_duration_us.iter().sum();
+      let avg_cold_us = cpu_timings.cold_invoke_duration_us.iter().sum::<u128>() as f64 / cpu_timings.cold_invoke_duration_us.len() as f64;
+      let avg_warm_us = tot as f64 / cpu_timings.warm_invoke_duration_us.len() as f64;
+                            // Cold uses E2E duration because of the cold start time needed
+      cpu_data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
+    }
+  }
+  let mut gpu_data = Vec::new();
+  for (k, v) in bench.data.iter() {
+    if let Some(gpu_timings) = v.resource_data.get(&(&Compute::GPU).try_into()?) {
+      let tot: u128 = gpu_timings.warm_invoke_duration_us.iter().sum();
+      let avg_cold_us = gpu_timings.cold_invoke_duration_us.iter().sum::<u128>() as f64 / gpu_timings.cold_invoke_duration_us.len() as f64;
+      let avg_warm_us = tot as f64 / gpu_timings.warm_invoke_duration_us.len() as f64;
+                            // Cold uses E2E duration because of the cold start time needed
+      gpu_data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
+    }
   }
   
   let mut total_prewarms=0;
   for (_fname, func) in funcs.iter_mut(){
-    let chosen = match data.iter().min_by(|a, b| safe_cmp(&a.1,&b.1)) {
+    let device_data = choose_bench_data_for_func(func, &cpu_data, &gpu_data)?;
+    let chosen = match device_data.iter().min_by(|a, b| safe_cmp(&a.1,&b.1)) {
       Some(n) => n,
-      None => panic!("failed to get a minimum func from {:?}", data),
+      None => panic!("failed to get a minimum func from {:?}", cpu_data),
     };
     let mut chosen_name = chosen.0.clone();
     let mut chosen_warm_time_ms = chosen.1;
     let mut chosen_cold_time_ms = chosen.1;
   
-    for (name, avg_warm, avg_cold) in data.iter() {
+    for (name, avg_warm, avg_cold) in cpu_data.iter() {
       if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
         chosen_name = name.clone();
         chosen_warm_time_ms = *avg_warm;

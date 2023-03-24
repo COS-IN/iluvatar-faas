@@ -11,6 +11,6 @@ lin_pack,docker.io/alfuerst/lin_pack-iluvatar-action:latest,CPU,CONTAINERD,512
 model_training,docker.io/alfuerst/model_training-iluvatar-action:latest,CPU,CONTAINERD,512
 pyaes,docker.io/alfuerst/pyaes-iluvatar-action:latest,CPU,CONTAINERD,512
 video_processing,docker.io/alfuerst/video_processing-iluvatar-action:latest,CPU,CONTAINERD,512
-imagenet,docker.io/alfuerst/tf_imagenet-iluvatar-gpu:latest,CPU|GPU,DOCKER,3000
-squeezenet,docker.io/alfuerst/tf_squeezenet-iluvatar-gpu:latest,CPU|GPU,DOCKER,3000
-torch_rnn,docker.io/alfuerst/rnn_generate_character_level-iluvatar-gpu:latest,CPU|GPU,DOCKER,3000
+imagenet,docker.io/alfuerst/tf_imagenet-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3000
+squeezenet,docker.io/alfuerst/tf_squeezenet-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3000
+torch_rnn,docker.io/alfuerst/rnn_generate_character_level-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3000
