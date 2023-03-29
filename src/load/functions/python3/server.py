@@ -12,7 +12,7 @@ try:
 except:
   msg = traceback.format_exc()
   def main(args):
-    return {"Code import error":msg}, 500
+    return {"user_error":msg, "start": datetime.strftime(datetime.now(), FORMAT), "end": datetime.strftime(datetime.now(), FORMAT), "was_cold":True, "duration_sec": 0.0}, 500
 
 app = Flask(__name__)
 
@@ -20,7 +20,7 @@ app = Flask(__name__)
 def index():
   global msg
   if msg is not None:
-    return {"Status":"code import error", "code import error":msg}, 500
+    return {"Status":"code import error", "user_error":msg}, 500
   else:
     return jsonify({"Status":"OK"})
 

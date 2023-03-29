@@ -105,18 +105,6 @@ impl ParsedResult {
   }
 }
 
-// #[derive(Debug)]
-// pub struct RegisteredFunction {
-//   pub function_name: String,
-//   pub function_version: String,
-//   pub image_name: String,
-//   pub memory: MemSizeMb,
-//   pub cpus: u32,
-//   pub snapshot_base: String,
-//   pub parallel_invokes: u32,
-//   pub isolation_type: Isolation
-// }
-
 /// A struct denoting that the owner has a lock on the container to invoke with
 pub struct ContainerLock<'a> {
   pub container: Container,

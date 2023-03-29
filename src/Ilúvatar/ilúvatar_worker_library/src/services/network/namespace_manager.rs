@@ -106,13 +106,19 @@ impl NamespaceManager {
   }
 
   fn try_ensure_bridge(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
+    if !Self::hardware_exists(tid, config)? {
+      anyhow::bail!("Hardware interface '{}' does not exist or cannot be found!", config.hardware_interface);
+    }
+
     let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "conf");
 
     let mut file = match File::create(temp_file) {
       Ok(f) => f,
       Err(e) => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
     };
-    let bridge_json = include_str!("../../resources/cni/il_worker_br.json");
+    let bridge_json = include_str!("../../resources/cni/il_worker_br.json").to_string()
+                                .replace("$BRIDGE", &config.bridge);
+
     match writeln!(&mut file, "{}", bridge_json) {
       Ok(_) => (),
       Err(e) => bail_error!(tid=%tid, error=%e, "Failed to write 'il_worker_br' conf file"),
@@ -171,6 +177,26 @@ impl NamespaceManager {
       Err(e) => bail_error!(tid=%tid, error=%e, "Forwarding bridge to interface failed"),
     };
     Ok(())
+  }
+
+  fn hardware_exists(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<bool> {
+    let env = Self::cmd_environment(config);
+    let output = execute_cmd("/usr/sbin/ifconfig", &vec![&config.hardware_interface],
+      Some(&env), tid);
+    match output {
+        Ok(output) => {
+        if let Some(status) = output.status.code() {
+          if status == 0 {
+            Ok(true)
+          } else {
+            Ok(false)
+          }
+        } else {
+          bail_error!(tid=%tid, output=?output, "No error code when checking hardware interface status");
+        }
+      },
+      Err(e) => bail_error!(tid=%tid, error=%e, "Error checking hardware interface status")
+    }
   }
 
   fn bridge_exists(nspth: &String, tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<bool> {

@@ -120,7 +120,7 @@ pub fn map_functions_to_prep(load_type: LoadType, func_json_data_path: &Option<S
       None => Some(Compute::CPU),
     };
     v.parsed_isolation = match v.isolation.as_ref() {
-      Some(c) => Some(c.into()),
+      Some(c) => Some(Isolation::try_from(c)?),
       None => Some(Isolation::CONTAINERD),
     };
   }

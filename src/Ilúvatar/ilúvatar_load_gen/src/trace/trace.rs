@@ -105,9 +105,9 @@ pub struct Function {
   pub compute: Option<String>,
   /// Used internally, the parsed value from [Function::compute]
   pub parsed_compute: Option<iluvatar_library::types::Compute>,
-  /// The isolations(s) to test the function with
+  /// The isolations(s) to test the function with, in the form CONTAINERD|DOCKER|etc.
   /// If empty, will default to CONTAINERD
-  pub isolation: Option<iluvatar_library::types::IsolationEnum>,
+  pub isolation: Option<String>,
   /// Used internally, the parsed value from [Function::isolation]
   pub parsed_isolation: Option<iluvatar_library::types::Isolation>,
   /// Used internally, The code name the function was mapped to

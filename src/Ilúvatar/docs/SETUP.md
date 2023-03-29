@@ -7,6 +7,11 @@ sudo apt-get update -y
 sudo apt-get install -y curl runc bridge-utils iptables zfsutils-linux cmake net-tools gcc g++ libssl-dev pkg-config linux-tools-common linux-tools-`uname -r` libprotobuf-dev protobuf-compiler sysstat
 ```
 
+Optional dependencies
+```
+sudo apt-get install -y ipmitool
+```
+
 ## Go
 
 ```bash
@@ -44,15 +49,15 @@ curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI
 ## Containerd
 
 ```bash
-  export VER=1.6.4
-  curl -sSL https://github.com/containerd/containerd/releases/download/v$VER/containerd-$VER-linux-amd64.tar.gz > /tmp/containerd.tar.gz \
-    && sudo tar -xvf /tmp/containerd.tar.gz -C /usr/local/bin/ --strip-components=1
+export VER=1.6.4
+curl -sSL https://github.com/containerd/containerd/releases/download/v$VER/containerd-$VER-linux-amd64.tar.gz > /tmp/containerd.tar.gz \
+  && sudo tar -xvf /tmp/containerd.tar.gz -C /usr/local/bin/ --strip-components=1
 
-  containerd -version
-  sudo systemctl enable containerd
-  sudo systemctl daemon-reload
-  sudo systemctl restart containerd
-  ```
+containerd -version
+sudo systemctl enable containerd
+sudo systemctl daemon-reload
+sudo systemctl restart containerd
+```
 
 If `systemctl enable containerd` gives an error about masking such as "Failed to enable unit: Unit file /etc/systemd/system/containerd.service is masked."
 Run these commands, then re-run the `systemctl` commands

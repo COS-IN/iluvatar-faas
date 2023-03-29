@@ -2,7 +2,7 @@
   "cniVersion":"0.4.0",
   "name": "il_worker_br",
   "type": "bridge",
-  "bridge": "IlWorkBr0",
+  "bridge": "$BRIDGE",
   "isDefaultGateway": true,
   "forceAddress": false,
   "ipMasq": true,
