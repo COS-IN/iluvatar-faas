@@ -1,19 +1,40 @@
 # Ilúvatar Setup
 
-## Linux Dependencies
+## Worker Runtime dependencies
+
+These steps are required on a system that is going to *run* a worker.
+
+### Packages
 
 ```bash
 sudo apt-get update -y
-sudo apt-get install -y curl runc bridge-utils iptables zfsutils-linux cmake net-tools gcc g++ libssl-dev pkg-config linux-tools-common linux-tools-`uname -r` libprotobuf-dev protobuf-compiler sysstat
+sudo apt-get install -y curl runc bridge-utils iptables zfsutils-linux net-tools sysstat
 ```
 
 Optional dependencies
 ```
-sudo apt-get install -y ipmitool
+sudo apt-get install -y ipmitool linux-tools-common linux-tools-`uname -r`
 ```
 
-## CNITool
+`ipmitool` - needed to get hardware energy usage from ipmi.
+`linux-tools-common` - needed to get perf metrics for energy and processor.
 
+### Isolation
+
+The Ilúvatar worker can support one or multiple types of container isolation on the same host, so long as they are set up correctly.
+It must have at least _one_ available to be useful, naturally.
+
+#### Docker
+
+Follow the Docker installation guide [here](https://docs.docker.com/engine/install/#server).
+This will work out-of-the-box.
+
+#### Containerd
+
+**CNI tool.** 
+These provide a lazy solution for performing the networking setup for Containerd containers.
+
+Start by installing go if it isn't available.
 ```bash
 ARCH=amd64
 GO_VERSION=1.18.3
@@ -23,34 +44,32 @@ wget https://go.dev/dl/${tar}
 sudo rm -rf /usr/local/go/
 sudo tar -C /usr/local -xzf ${tar}
 rm ${tar}
-
 export PATH=$PATH:/usr/local/go/bin
+```
 
+Then install the actual tool.
+```bash
 go install github.com/containernetworking/cni/cnitool@latest
 gopth=$(go env GOPATH)
 sudo mkdir -p /opt/cni/bin
 sudo mv ${gopth}/bin/cnitool /opt/cni/bin
-```
 
-**Note**: you can remove Go after this step.
-
-### CNI plugins
-
-```bash
 ARCH=amd64
 CNI_VERSION=v1.1.1
 
 curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz | sudo tar -xz -C /opt/cni/bin
 ```
 
-## Containerd
+**Note**: you can remove Go after this step.
 
+**Containerd.**
+If you didn't install Docker earlier, then you will need to install containerd manually with these commands.
+To check if it's needed, run `containerd -version`.
 ```bash
 export VER=1.6.4
 curl -sSL https://github.com/containerd/containerd/releases/download/v$VER/containerd-$VER-linux-amd64.tar.gz > /tmp/containerd.tar.gz \
   && sudo tar -xvf /tmp/containerd.tar.gz -C /usr/local/bin/ --strip-components=1
 
-containerd -version
 sudo systemctl enable containerd
 sudo systemctl daemon-reload
 sudo systemctl restart containerd
@@ -64,7 +83,48 @@ sudo mkdir -p /usr/local/lib/systemd/system/
 sudo mv containerd.service /usr/local/lib/systemd/system/containerd.service
 ```
 
-## GPU support
+**Container forwarding.**
+Enables forwarding of IP traffic from containers.
+```bash
+sudo /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
+echo "net.ipv4.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
+```
+
+
+**ZFS and file system.**
+Containerd supports a [variety of different snapshotters](https://github.com/containerd/containerd/tree/main/docs/snapshotters).
+After initially using the default `overlayfs`, we chose to focus on using the `ZFS` snapshotter.
+You are welcome to choose any supported one, simply set it up accordingly and specify the name in the worker configuration file.
+These instructions are to set up a ZFS pool for use with Ilúvatar.
+
+```bash
+# vary these based on your setup
+ilu_base=/data2/ilúvatar
+sudo mkdir -p $ilu_base/zfs
+
+sudo fallocate -l 100G $ilu_base/zfs/ilu-pool
+# optionally this can be created using whole devices, not a file
+sudo zpool create ilu-pool $ilu_base/zfs/ilu-pool
+sudo zfs create -o mountpoint=/var/lib/containerd/io.containerd.snapshotter.v1.zfs ilu-pool/containerd
+sudo systemctl restart containerd
+```
+
+
+**File limits.**
+Add the following lines to `/etc/security/limits.conf` and reboot the machine.
+
+```sh
+root            soft    nofile          1000000
+root            hard    nofile          1000000
+root            soft    nproc           1000000
+root            hard    nproc           1000000
+*            soft    nofile          1000000
+*            hard    nofile          1000000
+*            soft    nproc           1000000
+*            hard    nproc           1000000
+```
+
+### GPU support
 
 The machine will require recent NVIDIA drivers. We have testest with machines running driver version 470.161.03 and CUDA Version: 11.4.
 A significant shift, particularly a downgrade may result in failures for the applications running inside of containers.
@@ -99,59 +159,17 @@ Success can be verified with this command:
 nvidia-smi --format=csv,noheader --query-gpu=uuid,persistence_mode
 ```
 
-## Container forwarding
+## Build Setup
+
+Install the build dependencies.
 
 ```bash
-sudo /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
-echo "net.ipv4.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
+sudo apt-get install -y cmake gcc g++ libssl-dev pkg-config libprotobuf-dev
 ```
 
-## ZFS and file system
+Follow the instructions [here](https://www.rust-lang.org/tools/install) to install Rust.
 
-Containerd supports a [variety of different snapshotters](https://github.com/containerd/containerd/tree/main/docs/snapshotters).
-After initially using the default `overlayfs`, we chose to focus on using the `ZFS` snapshotter.
-You are welcome to choose any supported one, simply set it up accordingly and specify the name in the worker configuration file.
-These instructions are to set up a ZFS pool for use with Ilúvatar.
-
-```bash
-# vary these based on your setup
-ilu_base=/data2/ilúvatar
-sudo mkdir -p $ilu_base/zfs
-
-sudo fallocate -l 100G $ilu_base/zfs/ilu-pool
-# optionally this can be created using whole devices, not a file
-sudo zpool create ilu-pool $ilu_base/zfs/ilu-pool
-sudo zfs create -o mountpoint=/var/lib/containerd/io.containerd.snapshotter.v1.zfs ilu-pool/containerd
-sudo systemctl restart containerd
-```
-
-## File limits
-
-Add the following lines to `/etc/security/limits.conf` and reboot the machine
-```sh
-root            soft    nofile          1000000
-root            hard    nofile          1000000
-root            soft    nproc           1000000
-root            hard    nproc           1000000
-*            soft    nofile          1000000
-*            hard    nofile          1000000
-*            soft    nproc           1000000
-*            hard    nproc           1000000
-```
-
-## Rust
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-## Config
+Build the solution with `make`.
 
 Create a `worker.dev.json` and `controller.dev.json` if you are setting up locally.
 See [config](CONFIG.md) for details on how this can be done.
-
-## Build solution
-
-```bash
-cargo build -j $(nproc --all)
-```
