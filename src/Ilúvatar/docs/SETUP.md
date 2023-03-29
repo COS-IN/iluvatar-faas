@@ -12,7 +12,7 @@ Optional dependencies
 sudo apt-get install -y ipmitool
 ```
 
-## Go
+## CNITool
 
 ```bash
 ARCH=amd64
@@ -25,24 +25,21 @@ sudo tar -C /usr/local -xzf ${tar}
 rm ${tar}
 
 export PATH=$PATH:/usr/local/go/bin
-```
 
-## CNITool
-
-```bash
-go install github.com/containernetworking/cni/cnitool
+go install github.com/containernetworking/cni/cnitool@latest
 gopth=$(go env GOPATH)
-mkdir -p /opt/cni/bin
-mv ${gopth}/bin/cnitool /opt/cni/bin
+sudo mkdir -p /opt/cni/bin
+sudo mv ${gopth}/bin/cnitool /opt/cni/bin
 ```
 
-## CNI tools
+**Note**: you can remove Go after this step.
+
+### CNI plugins
 
 ```bash
 ARCH=amd64
 CNI_VERSION=v1.1.1
 
-mkdir -p /opt/cni/bin
 curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz | sudo tar -xz -C /opt/cni/bin
 ```
 
@@ -81,7 +78,7 @@ Install NVIDIA Container Toolkit for Docker & containerd extensions.
 
 Create a service to run [nvidia-persistenced](https://docs.nvidia.com/deploy/driver-persistence/index.html#persistence-daemon) on the machine, providing lower GPU context start times and faster container booting.
 This will live across potential system restarts.
-```
+```bash
 echo "[Unit]
 Description=NVIDIA Persistence Daemon
 Wants=syslog.target
@@ -92,9 +89,9 @@ Before=systemd-backlight@backlight:nvidia_0.service
 Type=forking
 ExecStart=/usr/bin/nvidia-persistenced --user nvidia-persistenced --persistence-mode --verbose
 ExecStopPost=/bin/rm -rf /var/run/nvidia-persistenced" | sudo tee /lib/systemd/system/nvidia-persistenced.service
-systemctl daemon-reload
-systemctl restart nvidia-persistenced
-systemctl status nvidia-persistenced
+sudo systemctl daemon-reload
+sudo systemctl restart nvidia-persistenced
+sudo systemctl status nvidia-persistenced
 ```
 
 Success can be verified with this command:
@@ -117,12 +114,9 @@ You are welcome to choose any supported one, simply set it up accordingly and sp
 These instructions are to set up a ZFS pool for use with Ilúvatar.
 
 ```bash
-ilu_base=/data2/ilúvatar
 # vary these based on your setup
-# make sure these make it to your config files
-sudo mkdir -p $ilu_base/azure
+ilu_base=/data2/ilúvatar
 sudo mkdir -p $ilu_base/zfs
-sudo mkdir -p $ilu_base/logs
 
 sudo fallocate -l 100G $ilu_base/zfs/ilu-pool
 # optionally this can be created using whole devices, not a file
