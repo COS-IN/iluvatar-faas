@@ -91,7 +91,8 @@ Before=systemd-backlight@backlight:nvidia_0.service
 [Service]
 Type=forking
 ExecStart=/usr/bin/nvidia-persistenced --user nvidia-persistenced --persistence-mode --verbose
-ExecStopPost=/bin/rm -rf /var/run/nvidia-persistenced" > /lib/systemd/system/nvidia-persistenced.service
+ExecStopPost=/bin/rm -rf /var/run/nvidia-persistenced" | sudo tee /lib/systemd/system/nvidia-persistenced.service
+systemctl daemon-reload
 systemctl restart nvidia-persistenced
 systemctl status nvidia-persistenced
 ```

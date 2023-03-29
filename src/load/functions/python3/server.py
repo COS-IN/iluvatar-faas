@@ -2,6 +2,7 @@ from shutil import ExecError
 from flask import Flask, request, jsonify
 import os, traceback, json
 from datetime import datetime
+from http import HTTPStatus
 
 FORMAT="%Y-%m-%d %H:%M:%S:%f+%z"
 cold=True
@@ -12,7 +13,7 @@ try:
 except:
   msg = traceback.format_exc()
   def main(args):
-    return {"user_error":msg, "start": datetime.strftime(datetime.now(), FORMAT), "end": datetime.strftime(datetime.now(), FORMAT), "was_cold":True, "duration_sec": 0.0}, 500
+    return {"user_error":msg, "start": datetime.strftime(datetime.now(), FORMAT), "end": datetime.strftime(datetime.now(), FORMAT), "was_cold":True, "duration_sec": 0.0}, HTTPStatus.UNPROCESSABLE_ENTITY
 
 app = Flask(__name__)
 
@@ -20,14 +21,12 @@ app = Flask(__name__)
 def index():
   global msg
   if msg is not None:
-    return {"Status":"code import error", "user_error":msg}, 500
+    return {"Status":"code import error", "user_error":msg}, HTTPStatus.INTERNAL_SERVER_ERROR
   else:
     return jsonify({"Status":"OK"})
 
 @app.route('/invoke', methods=["POST"])
 def invoke():
-  # TODO: enforce concurrency limit
-  # TODO: security to confirm invocation is from authorized source?
   global cold
   was_cold = cold
   cold = False
@@ -48,7 +47,7 @@ def invoke():
   except Exception as e:
     end = datetime.now()
     duration = (end - start).total_seconds()
-    return jsonify({"user_error":str(e), "start": datetime.strftime(start, FORMAT), "end": datetime.strftime(end, FORMAT), "was_cold":was_cold, "duration_sec": duration}), 500
+    return jsonify({"user_error":str(e), "start": datetime.strftime(start, FORMAT), "end": datetime.strftime(end, FORMAT), "was_cold":was_cold, "duration_sec": duration}), HTTPStatus.UNPROCESSABLE_ENTITY
 
 port = os.environ.get("__IL_PORT", 8080)
 host = os.environ.get("__IL_HOST", "0.0.0.0")

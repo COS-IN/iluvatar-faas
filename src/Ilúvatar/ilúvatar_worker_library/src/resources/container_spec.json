@@ -116,6 +116,12 @@
                 "relatime",
                 "ro"
             ]
+        },
+        {
+            "destination": "/etc/resolv.conf",
+            "type": "none",
+            "source": "$RESOLV_CONF",
+            "options": [ "ro", "bind" ]
         }
     ],
     "hooks": {},

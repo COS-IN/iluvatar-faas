@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::{SystemTime, Duration}, num::NonZeroU32};
 use iluvatar_library::{transaction::TransactionId, types::{MemSizeMb, Isolation, Compute}, utils::{port::Port, calculate_invoke_uri, calculate_base_uri}, bail_error};
 use reqwest::Client;
+use tracing::warn;
 use crate::services::{containers::structs::{ContainerT, ParsedResult, ContainerState}, resources::gpu::GPU};
 use anyhow::Result;
 use crate::services::registration::RegisteredFunction;
@@ -65,7 +66,7 @@ impl ContainerT for DockerContainer {
                         .header("Content-Type", "application/json");
 
     let start = SystemTime::now();
-    let result = match build.send()
+    let response = match build.send()
       .await {
         Ok(r) => r,
         Err(e) =>{
@@ -77,10 +78,26 @@ impl ContainerT for DockerContainer {
       Ok(dur) => dur,
       Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
     };
-    let r = match result.text().await {
+    let status = response.status();
+    let r = match response.text().await {
       Ok(r) => r,
       Err(e) => bail_error!(tid=%tid, error=%e, container_id=%self.container_id, "Error reading text data from container"),
     };
+    match status {
+      reqwest::StatusCode::OK => (),
+      reqwest::StatusCode::UNPROCESSABLE_ENTITY => {
+        self.mark_unhealthy();
+        warn!(tid=%tid, status=422, "A user code error occured in the container, marking for removal");
+      },
+      reqwest::StatusCode::INTERNAL_SERVER_ERROR => {
+        self.mark_unhealthy();
+        bail_error!(tid=%tid, status=500, result=%r, "A platform error occured in the container, making for removal");
+      },
+      other => {
+        self.mark_unhealthy();
+        bail_error!(tid=%tid, status=%other, result=%r, "Unknown status code from container call");
+      },
+    }
     let result = ParsedResult::parse(r, tid)?;
     Ok( (result,duration) )
   }

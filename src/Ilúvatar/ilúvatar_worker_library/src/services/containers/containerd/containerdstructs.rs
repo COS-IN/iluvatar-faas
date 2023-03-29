@@ -3,6 +3,7 @@ use anyhow::Result;
 use parking_lot::{RwLock, Mutex};
 use iluvatar_library::{types::{MemSizeMb, Isolation, Compute}, utils::{calculate_invoke_uri, port_utils::Port, calculate_base_uri}, bail_error, transaction::TransactionId};
 use reqwest::{Client, Response};
+use tracing::warn;
 use crate::services::{registration::RegisteredFunction, network::network_structs::Namespace, containers::structs::{ParsedResult, ContainerT, ContainerState}, resources::gpu::GPU};
 
 #[derive(Debug)]
@@ -76,7 +77,7 @@ impl ContainerdContainer {
                   .body(json_args.to_owned())
                   .header("Content-Type", "application/json");
     let start = SystemTime::now();
-    let result = match builder.send()
+    let response = match builder.send()
       .await {
         Ok(r) => r,
         Err(e) =>{
@@ -88,7 +89,7 @@ impl ContainerdContainer {
       Ok(dur) => dur,
       Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
     };
-    Ok( (result, duration) )
+    Ok( (response, duration) )
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, response), fields(tid=%tid, fqdn=%self.fqdn)))]
@@ -107,7 +108,24 @@ impl ContainerT for ContainerdContainer {
   async fn invoke(&self, json_args: &String, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
     self.update_metadata_on_invoke(tid);
     let (response, duration) = self.call_container(json_args, tid).await?;
+    let status = response.status();
     let result = self.download_text(response, tid).await?;
+    match status {
+      reqwest::StatusCode::OK => (),
+      reqwest::StatusCode::UNPROCESSABLE_ENTITY => {
+        self.mark_unhealthy();
+        warn!(tid=%tid, status=422, result=?result, "A user code error occured in the container, marking for removal");
+      },
+      reqwest::StatusCode::INTERNAL_SERVER_ERROR => {
+        self.mark_unhealthy();
+        bail_error!(tid=%tid, status=500, result=?result, "A platform error occured in the container, making for removal");
+      },
+      other => {
+        self.mark_unhealthy();
+        bail_error!(tid=%tid, status=%other, "Unknown status code from container call");
+      },
+    };
+
     Ok( (result,duration) )
   }
 

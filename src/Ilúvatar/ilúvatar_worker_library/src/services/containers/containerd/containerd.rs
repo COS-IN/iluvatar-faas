@@ -119,7 +119,8 @@ impl ContainerdIsolation {
         .replace("\"$CPUQUOTA\"", &((cpus as u64)*one_sec_in_us).to_string())
         .replace("\"$CPUPERIOD\"", &one_sec_in_us.to_string())
         .replace("$INVOKE_TIMEOUT", &self.limits_config.timeout_sec.to_string())
-        .replace("$CGROUPSPATH", &cgroup_namespace(container_id));
+        .replace("$CGROUPSPATH", &cgroup_namespace(container_id))
+        .replace("$RESOLV_CONF", &NamespaceManager::resolv_conf_path());
     prost_types::Any {
         type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
         value: spec.into_bytes(),

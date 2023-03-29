@@ -105,11 +105,30 @@ impl NamespaceManager {
     Ok(())
   }
 
+  /// The path to the resolv.conf file created by the namespace manager, for DNS resolution
+  pub fn resolv_conf_path() -> String {
+    utils::file::temp_file_pth(&"resolv".to_string(), "conf")
+  }
+
+  /// Create a resolv.conf file to be available globally
+  fn make_resolv_conf(tid: &TransactionId) -> Result<()> {
+    let resolv_conf = include_str!("../../resources/resolv.conf").to_string();
+    let temp_file = Self::resolv_conf_path();
+    let mut file = match File::create(temp_file) {
+      Ok(f) => f,
+      Err(e) => anyhow::bail!("[{}] error creating 'resolv' temp file: {}", tid, e),
+    };
+    match writeln!(&mut file, "{}", resolv_conf) {
+      Ok(_) => Ok(()),
+      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to write 'resolv' conf file"),
+    }
+  }
+
   fn try_ensure_bridge(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
     if !Self::hardware_exists(tid, config)? {
       anyhow::bail!("Hardware interface '{}' does not exist or cannot be found!", config.hardware_interface);
     }
-
+    Self::make_resolv_conf(tid)?;
     let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "conf");
 
     let mut file = match File::create(temp_file) {
@@ -179,6 +198,7 @@ impl NamespaceManager {
     Ok(())
   }
 
+  /// Return `true` if the hardware network interface exists
   fn hardware_exists(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<bool> {
     let env = Self::cmd_environment(config);
     let output = execute_cmd("/usr/sbin/ifconfig", &vec![&config.hardware_interface],
@@ -220,6 +240,7 @@ impl NamespaceManager {
     }
   }
   
+  /// Format the network namespace name to the full path
   pub fn net_namespace(name: &String) -> String {
     format!("/run/netns/{}", name)
   }
