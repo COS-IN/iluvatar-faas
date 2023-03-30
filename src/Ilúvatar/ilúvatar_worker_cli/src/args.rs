@@ -1,7 +1,4 @@
-extern crate clap;
-// use clap::{ArgMatches, App, SubCommand, Arg};
-use serde::Deserialize;
-use config::{Config, ConfigError, File};
+// extern crate clap;
 use iluvatar_library::{utils::port_utils::Port, types::{MemSizeMb, IsolationEnum, ComputeEnum}};
 use clap::{command, Parser, Subcommand};
 
@@ -72,12 +69,10 @@ pub struct RegisterArgs {
 #[command(author, version, about, long_about = None)]
 pub struct Args {
   #[arg(short, long)]
-  /// Sets a custom config file
-  pub config: Option<String>,
+  /// 
+  pub address: String,
   #[arg(short, long)]
-  /// Name of worker to send request to
-  pub worker: String,
-
+  pub port: Port,
   #[command(subcommand)]
   pub command: Commands,
 }
@@ -89,51 +84,14 @@ pub enum Commands {
   InvokeAsync (InvokeArgs),
   /// Check on the status of an asynchronously invoked function
   InvokeAsyncCheck (AsyncCheck),
+  /// Prewarm an instance of a function on the worker
   Prewarm (PrewarmArgs),
+  /// Register a function with a worker, this must be done before prewarming or invoking
   Register (RegisterArgs),
+  /// Print the resource status of the worker
   Status,
+  /// Query worker health
   Health,
+  /// Play table tennis
   Ping
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(unused)]
-pub struct Worker {
-  pub name: String,
-  pub address: String,
-  pub port: Port,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CliSettings {
-  workers: Vec<Box<Worker>>,
-}
-
-impl CliSettings {
-  pub fn new(args: &Args) -> Result<Self, ConfigError> {
-    let mut sources = vec!["worker_cli/src/worker_cli.json".to_string(), "~/.config/Ilúvatar/worker_cli.json".to_string()];
-    if let Some(c) = args.config.as_ref() {
-      sources.push(c.clone());
-    }
-    let s = Config::builder()
-    .add_source(
-      sources.iter()
-      .filter(|path| {
-        std::path::Path::new(&path).exists()
-      })
-              .map(|path| File::with_name(path))
-              .collect::<Vec<_>>()
-    )
-    .build()?;
-    s.try_deserialize()
-  }
-
-  pub fn get_worker(self, name: &String) -> Result<Box<Worker>, &'static str> {
-    for item in self.workers {
-      if &item.name == name {
-        return Ok(item);
-      }
-    }
-    Err("Could not find worker")
-  }
 }

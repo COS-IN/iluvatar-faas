@@ -1,19 +1,19 @@
-use crate::args::{Worker, InvokeArgs, AsyncCheck, PrewarmArgs, RegisterArgs};
-use iluvatar_library::utils::config::args_to_json;
+use crate::args::{InvokeArgs, AsyncCheck, PrewarmArgs, RegisterArgs};
+use iluvatar_library::utils::{config::args_to_json, port::Port};
 use iluvatar_worker_library::{rpc::RPCWorkerAPI, worker_api::{WorkerAPI, HealthStatus}};
 use iluvatar_library::transaction::gen_tid;
 use anyhow::Result;
 
-pub async fn ping(worker: Box<Worker>) -> Result<()> {
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &gen_tid()).await?;
+pub async fn ping(host: String, port: Port) -> Result<()> {
+  let mut api = RPCWorkerAPI::new(&host, port, &gen_tid()).await?;
   let ret = api.ping(gen_tid()).await.unwrap();
   println!("{}", ret);
   Ok(())
 }
 
-pub async fn invoke(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
+pub async fn invoke(host: String, port: Port, args: InvokeArgs) -> Result<()> {
   let tid = gen_tid();
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
+  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
 
   let arguments = match args.arguments.as_ref() {
     Some(a) => args_to_json(a)?,
@@ -25,9 +25,9 @@ pub async fn invoke(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
   Ok(())
 }
 
-pub async fn invoke_async(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
+pub async fn invoke_async(host: String, port: Port, args: InvokeArgs) -> Result<()> {
   let tid = gen_tid();
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
+  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
 
   let arguments = match args.arguments.as_ref() {
     Some(a) => args_to_json(a)?,
@@ -38,19 +38,19 @@ pub async fn invoke_async(worker: Box<Worker>, args: InvokeArgs) -> Result<()> {
   Ok(())
 }
 
-pub async fn invoke_async_check(worker: Box<Worker>, args: AsyncCheck) -> Result<()> {
+pub async fn invoke_async_check(host: String, port: Port, args: AsyncCheck) -> Result<()> {
   // let cookie = get_val("cookie", &args)?;
   let tid = gen_tid();
 
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
+  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
   let ret = api.invoke_async_check(&args.cookie, gen_tid()).await.unwrap();
   println!("{}", ret.json_result);
   Ok(())
 }
 
-pub async fn prewarm(worker: Box<Worker>, args: PrewarmArgs) -> Result<()> {
+pub async fn prewarm(host: String, port: Port, args: PrewarmArgs) -> Result<()> {
   let tid = gen_tid();
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
+  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
   let c = match &args.compute {
     Some(c) => c.into(),
     None => iluvatar_library::types::Compute::CPU,
@@ -63,9 +63,9 @@ pub async fn prewarm(worker: Box<Worker>, args: PrewarmArgs) -> Result<()> {
   Ok(())
 }
 
-pub async fn register(worker: Box<Worker>, args: RegisterArgs) -> Result<()> {
+pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()> {
   let tid = gen_tid();
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &tid).await?;
+  let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
 
   let iso = args.isolation.into();
   let compute = args.compute.into();
@@ -74,15 +74,15 @@ pub async fn register(worker: Box<Worker>, args: RegisterArgs) -> Result<()> {
   Ok(())
 }
 
-pub async fn status(worker: Box<Worker>) -> Result<()> {
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &gen_tid()).await?;
+pub async fn status(host: String, port: Port) -> Result<()> {
+  let mut api = RPCWorkerAPI::new(&host, port, &gen_tid()).await?;
   let ret = api.status(gen_tid()).await.unwrap();
   println!("{:?}", ret);
   Ok(())
 }
 
-pub async fn health(worker: Box<Worker>) -> Result<()> {
-  let mut api = RPCWorkerAPI::new(&worker.address, worker.port, &gen_tid()).await?;
+pub async fn health(host: String, port: Port) -> Result<()> {
+  let mut api = RPCWorkerAPI::new(&host, port, &gen_tid()).await?;
   let ret = api.health(gen_tid()).await.unwrap();
   match ret {
     HealthStatus::HEALTHY => println!("Worker is healthy"),
