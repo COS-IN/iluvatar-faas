@@ -27,7 +27,7 @@ build() {
   back=$PWD
 
   img_name=$REPO/$func_name-iluvatar-action:$VERSION
-
+  log="$pth/build.log"
   if ! [ -f "$pth/Dockerfile" ]; then
     cp $docker_base $pth/Dockerfile
     cd $pth
@@ -37,8 +37,14 @@ build() {
   else
     cp $docker_base $pth
     cd $pth
-    docker build -f $docker_base -t "$REPO/iluvatar-action-base:$VERSION" .
-    docker build -f "Dockerfile" -t $img_name .
+    docker build -f $docker_base -t "$REPO/iluvatar-action-base:$VERSION" . &> $log || {
+      echo "Failed to build $func_name, check $log";
+      exit 1;
+    }
+    docker build -f "Dockerfile" -t $img_name . &> $log || {
+      echo "Failed to push $func_name, check $log";
+      exit 1;
+    }
     rm $docker_base
     rm server.py
   fi
@@ -53,7 +59,8 @@ do
   func_name=${dir##*/}
 
   # if [[ "$func_name" == "cnn_image_classification" ]]; then
-  build $dir $func_name
+  build $dir $func_name &
   # fi
 done
 
+wait $(jobs -p)

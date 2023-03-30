@@ -20,5 +20,11 @@ esac
 done
 
 name="$REPO/lookbusy-iluvatar-action:$VERSION"
-docker build -t $name .
-docker push $name
+docker build -t $name . || {
+  echo "Failed to build lookbusy";
+  exit 1;
+}
+docker push $name || {
+  echo "Failed to build lookbusy";
+  exit 1;
+}

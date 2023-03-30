@@ -28,10 +28,17 @@ build() {
 
   cp $docker_base $pth/Dockerfile
   cd $pth
-  docker build -t "$REPO/$func_name-iluvatar-gpu:$VERSION" . &> build.log
+  log="$PWD/build.log"
+  docker build -t "$REPO/$func_name-iluvatar-gpu:$VERSION" . &> $log || {
+    echo "Failed to build $func_name, check $log";
+    exit 1;
+  }
   rm Dockerfile
   rm server.py
-  docker push "$REPO/$func_name-iluvatar-gpu:$VERSION" &>> build.log
+  docker push "$REPO/$func_name-iluvatar-gpu:$VERSION" &>> $log || {
+    echo "Failed to push $func_name, check $log";
+    exit 1;
+  }
   cd $back
 }
 
