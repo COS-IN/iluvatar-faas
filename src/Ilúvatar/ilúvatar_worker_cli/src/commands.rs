@@ -21,7 +21,7 @@ pub async fn invoke(host: String, port: Port, args: InvokeArgs) -> Result<()> {
   };
 
   let ret = api.invoke(args.name, args.version, arguments, tid).await.unwrap();
-  println!("{:?}", ret);
+  println!("{}", serde_json::to_string(&ret)?);
   Ok(())
 }
 
@@ -43,7 +43,7 @@ pub async fn invoke_async_check(host: String, port: Port, args: AsyncCheck) -> R
 
   let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
   let ret = api.invoke_async_check(&args.cookie, gen_tid()).await.unwrap();
-  println!("{}", ret.json_result);
+  println!("{}", serde_json::to_string(&ret)?);
   Ok(())
 }
 
