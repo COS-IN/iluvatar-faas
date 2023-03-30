@@ -1,5 +1,24 @@
 #!/bin/bash
+# Builds and pushes the lookbusy image
 
-name="alfuerst/lookbusy-iluvatar-action:latest"
+REPO="alfuerst"
+VERSION="latest"
+
+for i in "$@"
+do
+case $i in
+    --repo=*)
+    REPO="${i#*=}"
+    ;;
+    --version=*)
+    VERSION="${i#*=}"
+    ;;
+    *)
+    # unknown option
+    ;;
+esac
+done
+
+name="$REPO/lookbusy-iluvatar-action:$VERSION"
 docker build -t $name .
 docker push $name

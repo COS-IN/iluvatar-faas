@@ -1,4 +1,23 @@
 #!/bin/bash
+# Build and pushes the GPU enabled functions into images
+
+REPO="alfuerst"
+VERSION="latest"
+
+for i in "$@"
+do
+case $i in
+    --repo=*)
+    REPO="${i#*=}"
+    ;;
+    --version=*)
+    VERSION="${i#*=}"
+    ;;
+    *)
+    # unknown option
+    ;;
+esac
+done
 
 build() {
   pth=$1
@@ -9,10 +28,10 @@ build() {
 
   cp $docker_base $pth/Dockerfile
   cd $pth
-  docker build -t "alfuerst/$func_name-iluvatar-gpu:latest" . &> build.log
+  docker build -t "$REPO/$func_name-iluvatar-gpu:$VERSION" . &> build.log
   rm Dockerfile
   rm server.py
-  docker push "alfuerst/$func_name-iluvatar-gpu:latest" &>> build.log
+  docker push "$REPO/$func_name-iluvatar-gpu:$VERSION" &>> build.log
   cd $back
 }
 
