@@ -128,7 +128,6 @@ impl CpuQueueingInvoker {
       loop {
         if let Some(item) = del_rx.recv().await {
           let s_c = service.clone();
-          println!("item: {}", item.registration.fqdn);
           tokio::task::spawn(async move {
             match s_c.bypassing_invoke(&item).await {
               Ok(true) => (), // bypass happened successfully

@@ -58,10 +58,10 @@ pub struct RegisterArgs {
   #[arg(short, long)]
   /// Number of CPUs to allocate 
   pub cpu: u32,
-  #[arg(long, required=true, num_args = 1..)]
+  #[arg(long, value_enum, num_args = 1.., required=false, default_values_t = [IsolationEnum::CONTAINERD])]
   /// Isolation mechanisms supported by the function 
   pub isolation: Vec<IsolationEnum>,
-  #[arg(long, required=true, num_args = 1..)]
+  #[arg(long, value_enum, num_args = 1.., required=false, default_values_t = [ComputeEnum::cpu])]
   /// Supported compute by the function
   pub compute: Vec<ComputeEnum>,
 }

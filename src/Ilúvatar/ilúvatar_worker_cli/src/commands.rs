@@ -39,7 +39,6 @@ pub async fn invoke_async(host: String, port: Port, args: InvokeArgs) -> Result<
 }
 
 pub async fn invoke_async_check(host: String, port: Port, args: AsyncCheck) -> Result<()> {
-  // let cookie = get_val("cookie", &args)?;
   let tid = gen_tid();
 
   let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
@@ -66,7 +65,6 @@ pub async fn prewarm(host: String, port: Port, args: PrewarmArgs) -> Result<()> 
 pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()> {
   let tid = gen_tid();
   let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
-
   let iso = args.isolation.into();
   let compute = args.compute.into();
   let ret = api.register(args.name, args.version, args.image, args.memory, args.cpu, 1, tid, iso, compute, None).await.unwrap();

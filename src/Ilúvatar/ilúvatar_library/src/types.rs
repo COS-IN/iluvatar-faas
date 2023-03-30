@@ -5,6 +5,8 @@ use bitflags::bitflags;
 pub type MemSizeMb = i64;
 
 #[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+/// How to communicate with a worker.
+/// Generally not needed to know, but live = RPC, otherwise simulation
 pub enum CommunicationMethod {
   RPC,
   SIMULATION
@@ -12,12 +14,17 @@ pub enum CommunicationMethod {
 
 bitflags! {
   #[derive(serde::Deserialize, serde::Serialize)]
+  /// The compute methods that a function supports
+  /// Having each one of these means it can run on each compute independently.
+  /// e.g. having `CPU|GPU` will run fine in a CPU-only container, or one with an attached GPU
   pub struct Compute: u32 {
     const CPU = 0b00000001;
     const GPU = 0b00000010;
     const FPGA = 0b00000100;
   }
   #[derive(serde::Deserialize, serde::Serialize)]
+  /// The isolation mechanism the function supports.
+  /// e.g. our Docker images are OSI-compliant and can be run by Docker or Containerd, so could specify `CONTAINERD|DOCKER` or `CONTAINERD`
   pub struct Isolation: u32 {
     const CONTAINERD = 0b00000001;
     const DOCKER = 0b00000010;
@@ -27,7 +34,10 @@ bitflags! {
 }
 
 #[derive(clap::ValueEnum, std::fmt::Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
-/// To be used with CLI args
+/// To be used with CLI args and other places where it needs to be converted into a string
+/// The compute methods that a function supports
+/// Having each one of these means it can run on each compute independently.
+/// I.E. having [Self::CPU|Self::GPU] will run fine in a CPU-only container, or one with an attached GPU
 #[allow(non_camel_case_types)]
 pub enum ComputeEnum {
   cpu,
@@ -96,7 +106,7 @@ impl TryFrom<&String> for Compute {
 }
 
 #[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
-/// To be used with CLI args
+/// To be used with CLI args and other places it needs to be converted into a string
 pub enum IsolationEnum {
   CONTAINERD,
   DOCKER,
