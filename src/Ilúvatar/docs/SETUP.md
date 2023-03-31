@@ -11,18 +11,19 @@ sudo apt-get update -y
 sudo apt-get install -y curl runc bridge-utils iptables zfsutils-linux net-tools sysstat
 ```
 
-Optional dependencies
-```
+Optional dependencies.
+
+```bash
 sudo apt-get install -y ipmitool linux-tools-common linux-tools-`uname -r`
 ```
 
-`ipmitool` - needed to get hardware energy usage from ipmi.
-`linux-tools-common` - needed to get perf metrics for energy and processor.
+`ipmitool` - needed to get hardware energy usage from `ipmi`.
+`linux-tools-common` - needed to get `perf` metrics for energy and processor.
 
 ### Isolation
 
 The Ilúvatar worker can support one or multiple types of container isolation on the same host, so long as they are set up correctly.
-It must have at least _one_ available to be useful, naturally.
+It must have at least *one* available to be useful, naturally.
 
 #### Docker
 
@@ -31,10 +32,11 @@ This will work out-of-the-box.
 
 #### Containerd
 
-**CNI tool.** 
+**CNI tool.**
 These provide a lazy solution for performing the networking setup for Containerd containers.
 
 Start by installing go if it isn't available.
+
 ```bash
 ARCH=amd64
 GO_VERSION=1.18.3
@@ -48,6 +50,7 @@ export PATH=$PATH:/usr/local/go/bin
 ```
 
 Then install the actual tool.
+
 ```bash
 go install github.com/containernetworking/cni/cnitool@latest
 gopth=$(go env GOPATH)
@@ -63,8 +66,9 @@ curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI
 **Note**: you can remove Go after this step.
 
 **Containerd.**
-If you didn't install Docker earlier, then you will need to install containerd manually with these commands.
+If you didn't install Docker earlier, then you will need to install Containerd manually with these commands.
 To check if it's needed, run `containerd -version`.
+
 ```bash
 export VER=1.6.4
 curl -sSL https://github.com/containerd/containerd/releases/download/v$VER/containerd-$VER-linux-amd64.tar.gz > /tmp/containerd.tar.gz \
@@ -75,8 +79,9 @@ sudo systemctl daemon-reload
 sudo systemctl restart containerd
 ```
 
-If `systemctl enable containerd` gives an error about masking such as "Failed to enable unit: Unit file /etc/systemd/system/containerd.service is masked."
-Run these commands, then re-run the `systemctl` commands
+If `systemctl enable containerd` gives an error about masking such as `Failed to enable unit: Unit file /etc/systemd/system/containerd.service is masked.`
+Run these commands, then re-run the `systemctl` commands.
+
 ```bash
 wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service
 sudo mkdir -p /usr/local/lib/systemd/system/
@@ -85,11 +90,11 @@ sudo mv containerd.service /usr/local/lib/systemd/system/containerd.service
 
 **Container forwarding.**
 Enables forwarding of IP traffic from containers.
+
 ```bash
 sudo /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
 echo "net.ipv4.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
 ```
-
 
 **ZFS and file system.**
 Containerd supports a [variety of different snapshotters](https://github.com/containerd/containerd/tree/main/docs/snapshotters).
@@ -109,7 +114,6 @@ sudo zfs create -o mountpoint=/var/lib/containerd/io.containerd.snapshotter.v1.z
 sudo systemctl restart containerd
 ```
 
-
 **File limits.**
 Add the following lines to `/etc/security/limits.conf` and reboot the machine.
 
@@ -126,18 +130,20 @@ root            hard    nproc           1000000
 
 ### GPU support
 
-The machine will require recent NVIDIA drivers. We have testest with machines running driver version 470.161.03 and CUDA Version: 11.4.
+The machine will require recent NVIDIA drivers. We have testesd with machines running driver version 470.161.03 and CUDA Version: 11.4.
 A significant shift, particularly a downgrade may result in failures for the applications running inside of containers.
 But this cannot be known without live testing.
 
 These steps need to be followed to enable NVIDIA GPU support for Ilúvatar containers.
 
 Install NVIDIA Container Toolkit for Docker & containerd extensions.
-* https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker
-* https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#id6
+
+* [Docker setup](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#docker)
+* [Containerd setup](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#id6)
 
 Create a service to run [nvidia-persistenced](https://docs.nvidia.com/deploy/driver-persistence/index.html#persistence-daemon) on the machine, providing lower GPU context start times and faster container booting.
 This will live across potential system restarts.
+
 ```bash
 echo "[Unit]
 Description=NVIDIA Persistence Daemon
@@ -155,7 +161,8 @@ sudo systemctl status nvidia-persistenced
 ```
 
 Success can be verified with this command:
-```sh
+
+```bash
 nvidia-smi --format=csv,noheader --query-gpu=uuid,persistence_mode
 ```
 
@@ -171,5 +178,4 @@ Follow the instructions [here](https://www.rust-lang.org/tools/install) to insta
 
 Build the solution with `make`.
 
-Create a `worker.dev.json` and `controller.dev.json` if you are setting up locally.
-See [config](CONFIG.md) for details on how this can be done.
+Create a `worker.dev.json` with your [worker config](./WORKER.md#configuration) and `controller.dev.json` with your [controller config](./CONTROLLER.md#configuration), if you are setting up locally.

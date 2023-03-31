@@ -1,8 +1,9 @@
 # Design
 
-Three custom-implemented parts, plus one external piece, make up the design of 
+Ilúvatar is built in three primary parts, a controller, worker, and load generator.
+It also includes two secondary pieces, a time series database and a standalone energy monitor.
 
-SYS DIAG HERE
+SYSTEM DIAGRAM HERE
 
 ## Worker
 
@@ -11,13 +12,19 @@ Information on running the Ilúvatar worker can be found [here](docs/WORKER.md).
 
 ## Controller
 
-[controller documentation](docs/CONTROLLER.md)
+[Controller documentation](docs/CONTROLLER.md)
 
 ## Load Generator
 
-Advanced load generation to both controller and workers can be can be found [here](docs/LOAD.md).
+Advanced load generation to both controller and workers can be found [here](docs/LOAD.md).
 
-## Timeseries Database
+## Time series Database
 
-We make use of a third-party timeseries, `Graphite`, to pool metrics reported by the workers and controller.
-This enables online policy making using information from workers, without the excessive overhead of communication between all nodes.
+We make use of a third-party time series, `Graphite`, to pool metrics reported by the workers and controller.
+This enables online policymaking using information from workers, without the excessive overhead of communication between all nodes.
+
+## Energy Monitor
+
+The worker has built-in capability to monitor the system energy usage from various sources, RAPL, IPMI, etc.
+However, there are cases where one wants to capture that information in the same format without running the worker.
+The [energy monitor executable](./ENERGY.md) provides that functionality.
