@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
 
   let log_config = Arc::new(LoggingConfig {
     level: "info".to_string(),
-    directory: config.log_folder.clone(),
+    directory: Some(config.log_folder.clone()),
     basename: "energy_monitor".to_string(),
     spanning: "NONE".to_string(),
     flame: "".to_string(),

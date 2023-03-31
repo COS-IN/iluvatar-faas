@@ -9,6 +9,7 @@ macro_rules! last {
 }
 
 #[macro_export]
+/// test
 macro_rules! bail_error {
   ($($arg:tt)+) => {
     {

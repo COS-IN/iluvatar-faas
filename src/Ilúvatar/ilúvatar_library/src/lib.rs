@@ -1,3 +1,7 @@
+//! Ilúvatar Library
+//! 
+//! This crate is for shared code and utilities that are not specific to any executable in the Ilúvatar stack.
+
 use std::{fs::File, io::Read};
 use tracing::error;
 use transaction::TransactionId;

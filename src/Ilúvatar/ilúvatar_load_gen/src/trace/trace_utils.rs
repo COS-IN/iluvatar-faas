@@ -83,14 +83,18 @@ fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkSt
         chosen_cold_time_ms = *avg_cold;
       }
     }
-    func.cold_dur_ms = chosen_cold_time_ms as u64;
-    func.warm_dur_ms = chosen_warm_time_ms as u64;
 
-    let prewarms = compute_prewarms(func, default_prewarms);
-    println!("{} mapped to function '{}'", &func.func_name, chosen_name);
-    func.prewarms = Some(prewarms);
-    func.chosen_name = Some(chosen_name);
-    total_prewarms += prewarms;
+    if func.prewarms.is_none() {
+      let prewarms = compute_prewarms(func, default_prewarms);
+      func.prewarms = Some(prewarms);
+      total_prewarms += prewarms;
+    }
+    if func.chosen_name.is_none() {
+      println!("{} mapped to function '{}'", &func.func_name, chosen_name);
+      func.cold_dur_ms = chosen_cold_time_ms as u64;
+      func.warm_dur_ms = chosen_warm_time_ms as u64;
+      func.chosen_name = Some(chosen_name);
+    }
   }
   println!("A total of {} prewarmed containers", total_prewarms);
   Ok(())

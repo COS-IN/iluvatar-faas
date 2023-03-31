@@ -3,8 +3,12 @@
 
 ## Configuration
 
+
+
 ## Development
 
-## Flame graphs
-
 ## Ansible setup
+
+Check out [here](./ANSIBLE.md) for how to use ansible to simplify deployment of Ilúvatar to one or more nodes.
+
+## Flame graphs

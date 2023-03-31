@@ -13,14 +13,14 @@ use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
 
 #[derive(Debug, serde::Deserialize)]
-/// details about how/where to log to
+/// Details about how/where to log to
 pub struct LoggingConfig {
   /// the min log level
   /// see [tracing_subscriber::filter::Builder::parse()]
   pub level: String,
-  /// directory to store logs in
-  /// logs to stdout if empty
-  pub directory: String,
+  /// Directory to store logs in, formatted as JSON
+  /// If empty then logs are sent to stdout, in a plaintext format
+  pub directory: Option<String>,
   /// log filename start string
   pub basename: String,
   /// How to log spans, in all caps
@@ -57,13 +57,13 @@ fn str_to_span(spanning: &String) -> FmtSpan {
 pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfig>, worker_name: &String, tid: &TransactionId) -> Result<impl Drop> {
   #[allow(dyn_drop)]
   let mut drops:Vec<Box<dyn Drop>> = Vec::new();
-  let (non_blocking, _guard) = match config.directory.as_str() {
-    "" => tracing_appender::non_blocking(std::io::stdout()),
-    _ => {
+  let (non_blocking, _guard) = match config.directory.as_ref() {
+    None => tracing_appender::non_blocking(std::io::stdout()),
+    Some(log_dir) => {
       let fname = format!("{}.log", config.basename.clone());
       let buff = PathBuf::new();
-      ensure_dir(&buff.join(&config.directory))?;
-      let dir = std::fs::canonicalize(config.directory.clone())?;
+      ensure_dir(&buff.join(&log_dir))?;
+      let dir = std::fs::canonicalize(log_dir.clone())?;
       ensure_dir(&dir)?;
 
       let full_path = std::path::Path::new(&dir).join(&fname);
@@ -94,9 +94,9 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
 
   match config.flame.as_str() {
     "" => {
-      match config.directory.as_str() {
-        "" => layers.with(writer_layer).init(),
-        _ => layers.with(writer_layer.json()).init(),
+      match config.directory {
+        None => layers.with(writer_layer).init(),
+        Some(_) => layers.with(writer_layer.json()).init(),
       };
     },
     _ => {

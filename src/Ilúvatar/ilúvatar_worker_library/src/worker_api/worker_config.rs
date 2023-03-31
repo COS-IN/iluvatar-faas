@@ -20,6 +20,7 @@ pub struct Configuration {
   pub tokio_event_interval: u32,
   /// See documentation [here](https://docs.rs/tokio/latest/tokio/runtime/struct.Builder.html#method.global_queue_interval) for details
   pub tokio_queue_interval: u32,
+  /// Restrictions on functions on registration
   pub limits: Arc<FunctionLimits>,
   pub logging: Arc<LoggingConfig>,
   pub networking: Arc<NetworkingConfig>,
@@ -133,6 +134,7 @@ pub struct StatusConfig {
   pub report_freq_ms: u64
 }
 
+/// A wrapper type for the loaded global worker configuration
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {

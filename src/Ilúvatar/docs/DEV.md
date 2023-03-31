@@ -8,6 +8,10 @@ Following the commands in `setup.sh` to prepare the required dependencies.
 
 Some standards to follow to keep the codebase consistent.
 
+### Documentation
+
+
+
 ### Warnings
 
 Code **must** compile without warnings
@@ -32,3 +36,7 @@ This looks like:
 ```rust
 debug!(tid=%tid, query=%url, "querying graphite render");
 ```
+
+## Automated Testing
+
+New code and features should add tests to ensure correctness and identify future errors.

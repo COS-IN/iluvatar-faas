@@ -33,7 +33,7 @@ pub async fn full_sim_invoker(config_pth: Option<String>, overrides: Option<Vec<
   let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides).unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
   let fake_logging = Arc::new(LoggingConfig {
     level: cfg.logging.level.clone(),
-    directory: "".to_string(),
+    directory: None,
     basename: "".to_string(),
     spanning: cfg.logging.spanning.clone(),
     flame: "".to_string(),
@@ -69,7 +69,7 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(
   let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides).unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
   let fake_logging = Arc::new(LoggingConfig {
     level: cfg.logging.level.clone(),
-    directory: "".to_string(),
+    directory: None,
     basename: "".to_string(),
     spanning: cfg.logging.spanning.clone(),
     flame: "".to_string(),
@@ -104,7 +104,7 @@ pub async fn test_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<
   let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides).unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
   let fake_logging = Arc::new(LoggingConfig {
     level: cfg.logging.level.clone(),
-    directory: "".to_string(),
+    directory: None,
     basename: "".to_string(),
     spanning: cfg.logging.spanning.clone(),
     flame: "".to_string(),
