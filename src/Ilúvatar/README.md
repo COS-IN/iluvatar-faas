@@ -1,11 +1,11 @@
 # Ilúvatar
 
-Ilúvatar is an open Serverless platform built with the goal of jumpstating and streamlining FaaS research.
+Ilúvatar is an open Serverless platform built with the goal of jumpstarting and streamlining FaaS research.
 It provides a system that is easy and consistent to use, highly modifiable, and directly reports experimental results.
 
-
 If you use, extend, comare against, etc., Ilúvatar, please reference our HPDC 2023 paper in your work.
-```
+
+```sh
 CITATION HERE
 ```
 
@@ -20,8 +20,13 @@ Information on preparing a node to run any of Ilúvatar's pieces can be found [h
 
 ## Examples
 
-Run a sample function using [these instructions](docs/FUNCTIONS.md).
+Quickly run a sample function using [these instructions](docs/FUNCTIONS.md).
 Or run more advanced load scenarios using the [load generation documentation](docs/LOAD.md).
+
+## Develop & Extend
+
+Being a platform for research requires it to be easily extendible by future researchers.
+Check out the [development documentation](./docs/DEV.md) for a breakdown of the codebase and how to implement features.
 
 ## Why 'Ilúvatar'?
 

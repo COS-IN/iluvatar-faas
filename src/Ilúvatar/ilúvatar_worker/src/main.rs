@@ -38,7 +38,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
 async fn clean(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
   debug!(tid=?tid, config=?server_config, "loaded configuration");
 
-  let factory = IsolationFactory::new(server_config.container_resources.clone(), server_config.networking.clone(), server_config.limits.clone());
+  let factory = IsolationFactory::new(server_config.clone());
   let lifecycles = factory.get_isolation_services(tid, false).await?;
 
   for (_, lifecycle) in lifecycles.iter() {

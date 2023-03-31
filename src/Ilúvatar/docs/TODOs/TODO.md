@@ -1,4 +1,7 @@
-# TODOs:
+# To-Dos
+
+A list of possible improvements and changes to the base platform.
+In no particular order.
 
 ## Graphite data
 
@@ -13,7 +16,8 @@ The background threads use either that, or the `std::thread::sleep()` if using a
 The simulation can be sped up by "jumping" the current time to the next instance in which an action will be performed.
 
 If we can put a layer between how the Future system polls results, and move the clock ahead to match, this could work.
-But that's either 
+But that's either:
+
 1. A lot of work
 1. Maybe not possible
 
@@ -25,6 +29,7 @@ Both the worker code and the server running inside the container must be updated
 
 Moving to a lower-latency solution would fix both of these problems.
 A few solutions exist, with the first probably being the best one.
+
 1. Unix Sockets
 2. Posix message queues
 3. Linux pipes
@@ -32,7 +37,7 @@ A few solutions exist, with the first probably being the best one.
 
 ## Limit frequency of container checking
 
-Container memory usage _should_ only change during/immediately after it runs an invocaiton.
+Container memory usage _should_ only change during/immediately after it runs an invocation.
 There is no need to check a container if it hasn't been used.
 Only review a container's memory usage after/during an invocation.
 

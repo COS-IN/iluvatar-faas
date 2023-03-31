@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
   });
   let _guard = start_tracing(log_config, graphite_cfg,&"energy_monitor".to_string(), tid)?;
 
-  let _mon = EnergyLogger::boxed(config, tid).await?;
+  let _mon = EnergyLogger::boxed(Some(&config), tid).await?;
   wait_for_exit_signal(tid).await?;
   Ok(())
 }

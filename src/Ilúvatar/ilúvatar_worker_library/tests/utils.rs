@@ -46,7 +46,7 @@ pub async fn full_sim_invoker(config_pth: Option<String>, overrides: Option<Vec<
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let cpu = CpuResourceTracker::new(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
   let gpu_resource = GpuResourceTracker::boxed(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
-  let factory = IsolationFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
+  let factory = IsolationFactory::new(cfg.clone());
   let lifecycles = factory.get_isolation_services(&TEST_TID, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
@@ -82,7 +82,7 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let cpu = CpuResourceTracker::new(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
   let gpu_resource = GpuResourceTracker::boxed(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
-  let factory = IsolationFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
+  let factory = IsolationFactory::new(cfg.clone());
   let lifecycles = factory.get_isolation_services(&TEST_TID, false).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
@@ -118,7 +118,7 @@ pub async fn test_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<
   let cpu = CpuResourceTracker::new(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
   let gpu_resource = GpuResourceTracker::boxed(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
 
-  let factory = IsolationFactory::new(cfg.container_resources.clone(), cfg.networking.clone(), cfg.limits.clone());
+  let factory = IsolationFactory::new(cfg.clone());
   let lifecycles = factory.get_isolation_services(&TEST_TID, true).await.unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
 
   let cm = ContainerManager::boxed(cfg.container_resources.clone(), lifecycles.clone(), gpu_resource.clone(), &TEST_TID).await.unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));

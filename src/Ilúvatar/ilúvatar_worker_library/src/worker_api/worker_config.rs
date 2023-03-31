@@ -23,12 +23,15 @@ pub struct Configuration {
   /// Restrictions on functions on registration
   pub limits: Arc<FunctionLimits>,
   pub logging: Arc<LoggingConfig>,
-  pub networking: Arc<NetworkingConfig>,
+  /// Settings for handling container networking connections
+  /// Optional because not all isolation backends require it
+  pub networking: Option<Arc<NetworkingConfig>>,
   pub container_resources: Arc<ContainerResourceConfig>,
   /// full URL to access the controller/load balancer, required for worker registration
   pub load_balancer_url: String,
   pub graphite: Arc<GraphiteConfig>,
-  pub energy: Arc<EnergyConfig>,
+  /// Optional because energy monitoring is not required
+  pub energy: Option<Arc<EnergyConfig>>,
   pub invocation: Arc<InvocationConfig>,
   pub status: Arc<StatusConfig>,
 }

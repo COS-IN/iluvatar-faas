@@ -25,7 +25,7 @@ pub mod worker_comm;
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
-  let factory = IsolationFactory::new(worker_config.container_resources.clone(), worker_config.networking.clone(), worker_config.limits.clone());
+  let factory = IsolationFactory::new(worker_config.clone());
   let cpu = CpuResourceTracker::new(worker_config.container_resources.clone(), tid)?;
   let gpu_resource = GpuResourceTracker::boxed(worker_config.container_resources.clone(), tid)?;
   
@@ -52,7 +52,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make status service"),
   };
 
-  let energy = match EnergyLogger::boxed(worker_config.energy.clone(), tid).await {
+  let energy = match EnergyLogger::boxed(worker_config.energy.as_ref(), tid).await {
     Ok(e) => e,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make energy logger"),
   };

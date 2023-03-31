@@ -37,17 +37,14 @@ impl IluvatarWorkerImpl {
 impl IluvatarWorker for IluvatarWorkerImpl {
     
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
-    async fn ping(
-      &self,
-      request: Request<PingRequest>,
-  ) -> Result<Response<PingResponse>, Status> {
+    async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
       println!("Got a request: {:?}", request);
       let reply = PingResponse {
           message: format!("Pong").into(),
       };
       info!("in ping");
       Ok(Response::new(reply))
-  }
+    }
 
   #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id, function_name=%request.get_ref().function_name, function_version=%request.get_ref().function_version))]
   async fn invoke(&self,
@@ -57,14 +54,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
       let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
       let reg = match self.reg.get_registration(&fqdn) {
         Some(r) => r,
-        None => {
-          return Ok(Response::new(InvokeResponse::error("Function was not registered")));
-          // return Ok(Response::new(InvokeResponse {
-          //   success: false,
-          //   duration_us: 0,
-          //   json_result: format!("{{ \"Error\": \"Function was not registered\" }}"),
-          // }));
-        },
+        None => return Ok(Response::new(InvokeResponse::error("Function was not registered"))),
       };
       self.cmap.add_iat( &fqdn );
       let resp = self.invoker.sync_invocation(reg, request.json_args, request.transaction_id).await;
@@ -84,11 +74,6 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Err(e) => {
           error!("Invoke failed with error: {}", e);
           Ok(Response::new(InvokeResponse::error(&e.to_string())))
-          // {
-          //   json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
-          //   success: false,
-          //   duration_us: 0
-          // }))
         },
       }
     }

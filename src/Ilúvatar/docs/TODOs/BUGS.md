@@ -4,9 +4,10 @@ Known bugs in system that should be fixed.
 
 ## Bridge is full
 
-A network bridge in linux can only have 1024 veth devices attached to it.
+A network bridge in Linux can only have 1024 `veth` devices attached to it.
 We must either
-1. Remove unused containers from the brigde to make room for new ones (eviction)
+
+1. Remove unused containers from the beidge to make room for new ones (eviction)
 2. Increase the number of containers we can support, by running multiple bridges/
 
 ## Concurrent container creation in Containerd
@@ -22,10 +23,3 @@ The exact call happens inside `ContainerdLifecycle::load_mounts`.
 After an experiment (~ 1 hour running) the CPU usage of the worker is higher than at the start.
 Is this the container manager worker thread?
 What can be done?
-
-## Enforce CPU limits
-
-Functions can request a specific number of CPU cores to have access to when executing.
-Currently we just use processor shares on cgroups.
-These allow a function to use several cores if nothing else is running on them.
-Bad for a number of reasons.

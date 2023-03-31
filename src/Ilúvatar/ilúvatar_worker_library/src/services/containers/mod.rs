@@ -2,8 +2,8 @@ use std::{sync::Arc, collections::HashMap};
 use tonic::async_trait;
 use anyhow::Result;
 use iluvatar_library::{types::{MemSizeMb, Isolation, Compute}, transaction::TransactionId};
-use tracing::info;
-use crate::{worker_api::worker_config::{ContainerResourceConfig, NetworkingConfig, FunctionLimits}};
+use tracing::{info, warn};
+use crate::worker_api::worker_config::WorkerConfig;
 use crate::services::{containers::{structs::{Container}, containerd::ContainerdIsolation, simulator::SimulatorIsolation}};
 use crate::services::network::namespace_manager::NamespaceManager;
 use self::{structs::ToAny, docker::DockerIsolation};
@@ -56,18 +56,12 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
 pub type ContainerIsolationCollection = Arc<std::collections::HashMap<Isolation, Arc<dyn ContainerIsolationService>>>;
 
 pub struct IsolationFactory {
-  containers: Arc<ContainerResourceConfig>,
-  networking: Arc<NetworkingConfig>,
-  limits_config: Arc<FunctionLimits>,
+  worker_config: WorkerConfig
 }
 
 impl IsolationFactory {
-  pub fn new(containers: Arc<ContainerResourceConfig>, networking: Arc<NetworkingConfig>, limits_config: Arc<FunctionLimits>) -> Self {
-    IsolationFactory {
-      containers,
-      networking,
-      limits_config
-    }
+  pub fn new(worker_config: WorkerConfig) -> Self {
+    IsolationFactory { worker_config }
   }
 
   pub async fn get_isolation_services(&self, tid: &TransactionId, ensure_bridge: bool) -> Result<ContainerIsolationCollection> {
@@ -79,14 +73,18 @@ impl IsolationFactory {
     } else {
       if ContainerdIsolation::supported(tid).await {
         info!(tid=%tid, "Creating 'containerd' backend");
-        let netm = NamespaceManager::boxed(self.networking.clone(), tid, ensure_bridge)?;
-        let mut lifecycle = ContainerdIsolation::new(netm, self.containers.clone(), self.limits_config.clone());
-        lifecycle.connect().await?;
-        self.insert_cycle(&mut ret, Arc::new(lifecycle))?;
+        if let Some(networking) = self.worker_config.networking.as_ref() {
+          let netm = NamespaceManager::boxed(networking.clone(), tid, ensure_bridge)?;
+          let mut lifecycle = ContainerdIsolation::new(netm, self.worker_config.container_resources.clone(), self.worker_config.limits.clone());
+          lifecycle.connect().await?;
+          self.insert_cycle(&mut ret, Arc::new(lifecycle))?;  
+        } else {
+          warn!("Containerd is supported but a networking config is not found");
+        }
       }
       if DockerIsolation::supported(tid) {
         info!(tid=%tid, "Creating 'docker' backend");
-        let d = Arc::new(DockerIsolation::new(self.containers.clone(), self.limits_config.clone()));
+        let d = Arc::new(DockerIsolation::new(self.worker_config.container_resources.clone(), self.worker_config.limits.clone()));
         self.insert_cycle(&mut ret, d)?;
       } 
     }
