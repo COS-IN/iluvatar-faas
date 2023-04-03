@@ -33,6 +33,7 @@ pub trait Invoker: Send + Sync {
   fn running_funcs(&self) -> u32;
 }
 
+/// A struct to create the appropriate [Invoker] from configuration at runtime.
 pub struct InvokerFactory {
   cont_manager: Arc<ContainerManager>, 
   function_config: Arc<FunctionLimits>, 
@@ -63,9 +64,9 @@ impl InvokerFactory {
   }
 }
 
-
 #[derive(Debug)]
-#[allow(unused)]
+/// Container for all the data about a completed invocation.
+/// Including its output and execution metadata.
 pub struct InvocationResult {
   /// The output from the invocation
   pub result_json: String,
@@ -76,7 +77,9 @@ pub struct InvocationResult {
   /// The invocation time as recorded by the platform inside the container
   pub exec_time: f64,
   pub worker_result: Option<ParsedResult>,
+  /// The compute the invocation was run on
   pub compute: Compute,
+  /// The state of the container when the invocation was run
   pub container_state: ContainerState,
 }
 impl InvocationResult {
