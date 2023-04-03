@@ -4,7 +4,7 @@ use std::{collections::HashMap, path::Path};
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::{utils::port_utils::Port, transaction::gen_tid, logging::LocalTime};
-use iluvatar_library::types::{Compute, Isolation, IsolationEnum, MemSizeMb, ResourceTimings, FunctionInvocationTimings};
+use iluvatar_library::types::{Compute, Isolation, MemSizeMb, ResourceTimings, FunctionInvocationTimings};
 use serde::{Serialize, Deserialize};
 use tokio::runtime::{Runtime, Builder};
 use crate::utils::*;
@@ -16,9 +16,9 @@ pub struct ToBenchmarkFunction {
   /// The compute(s) to test the function with, in the form CPU|GPU|etc.
   /// If empty, will default to CPU
   pub compute: Option<String>,
-  /// The isolations(s) to test the function with
+  /// The isolations(s) to test the function with, in the form CONTAINERD|DOCKER|etc.
   /// If empty, will default to CONTAINERD
-  pub isolation: Option<IsolationEnum>,
+  pub isolation: Option<String>,
   /// The memory to give the func
   /// If empty, will default to 512
   pub memory: Option<MemSizeMb>,
@@ -217,7 +217,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
       None => Compute::CPU,
     };
     let isolation = match function.isolation.as_ref() {
-      Some(c) => c.into(),
+      Some(c) => Isolation::try_from(c)?,
       None => Isolation::CONTAINERD,
     };
     let memory = match function.memory.as_ref() {

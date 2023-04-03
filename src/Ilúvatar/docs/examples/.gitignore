@@ -1,0 +1,8 @@
+benchmark/*.csv
+benchmark/*.json
+!benchmark/worker_function_benchmarks.json
+
+scaling/*.json
+
+trace/*.json
+trace/output-in.csv

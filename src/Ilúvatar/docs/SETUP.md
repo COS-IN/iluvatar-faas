@@ -179,3 +179,4 @@ Follow the instructions [here](https://www.rust-lang.org/tools/install) to insta
 Build the solution with `make`.
 
 Create a `worker.dev.json` with your [worker config](./WORKER.md#configuration) and `controller.dev.json` with your [controller config](./CONTROLLER.md#configuration), if you are setting up locally.
+Once your setup is ready, go try running a [sample function](./FUNCTIONS.md).

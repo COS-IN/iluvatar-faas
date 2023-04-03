@@ -37,9 +37,6 @@ pub struct ScalingArgs {
   /// Folder to output results to
   out_folder: String,
   #[arg(long)]
-  /// Number of concurrent threads to run benchmark with
-  thread_count: u32,
-  #[arg(long)]
   /// Isolation the image will use
   isolation: IsolationEnum,
   #[arg(long)]
@@ -79,19 +76,19 @@ fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<Thr
     let d = args.duration.into();
 
     threads.push(threaded_rt.spawn(async move {
-      scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation).await
+      scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation, thread_cnt).await
     }));
   }
 
   resolve_handles(&threaded_rt, threads, ErrorHandling::Print)
 }
 
-async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usize, barrier: Arc<Barrier>, image: String, compute: Compute, isolation: Isolation) -> Result<ThreadResult> {
+async fn scaling_thread(host: String, port: Port, duration: u64, thread_id: usize, barrier: Arc<Barrier>, image: String, compute: Compute, isolation: Isolation, thread_cnt: usize) -> Result<ThreadResult> {
   let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
   barrier.wait().await;
 
-  let name = format!("scaling-{}", thread_id);
-  let version = format!("0.0.{}", thread_id);
+  let name = format!("scaling-{}", thread_cnt);
+  let version = format!("{}", thread_id);
   let (reg_result, reg_tid) = match worker_register(name.clone(), &version, image, 512, host.clone(), port, &factory, None, isolation, compute, None).await {
     Ok((s, reg_dur, tid)) => (RegistrationResult {
       duration_us: reg_dur.as_micros(),

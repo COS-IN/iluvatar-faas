@@ -9,6 +9,7 @@
     config_dest: "{{bin_dir}}/{{ inventory_hostname }}.json"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     __hardware_interface: "{{ hardware_interface | default(servers[ansible_host].hardware_interface) }}"
+    SIGINT: 2
   vars_files:
     - group_vars/all.yml
     - group_vars/host_addresses.yml
@@ -26,7 +27,7 @@
       msg: "{{ __worker_address }}"
 
   - name: Kill running worker process on localhost
-    shell: "kill --signal SIGINT {{ item }}"
+    shell: "kill -s INT {{ item }}"
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
     when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"

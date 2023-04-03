@@ -22,6 +22,9 @@ pub struct EnergyConfig {
 
   /// Log energy usage as monitored via `perf`
   /// If 0 then perf is disabled
+  /// Currently perf is not killed on worker shutdown, it must be killed manually and externally.
+  /// It is also hard to guarantee that perf will be removed, as the mode of the main process exiting can vary.
+  /// Executing `kill -9 $(ps -ax | grep perf | awk '"'"'{print $1}'"'"' )` on the host should work.
   #[clap(long, action, default_value_t=0)]
   pub perf_freq_ms: u64,
 

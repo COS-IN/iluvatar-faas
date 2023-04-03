@@ -13,3 +13,6 @@ For starters on how to extend or modify Ilúvatar, see the documentation on [dev
 Check out [here](./ANSIBLE.md) for how to use Ansible to simplify deployment of Ilúvatar to one or more nodes.
 
 ## Flame graphs
+
+An extension of the logging setup can track function execution times and convert them into flame graphs.
+See [here](./FLAME.md) for more details.
