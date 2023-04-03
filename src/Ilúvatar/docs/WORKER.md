@@ -1,15 +1,16 @@
 # Worker
 
-This document provides high-level design 
+This document provides high-level design of the Ilúvatar worker.
 
 ## Configuration
 
 On boot, the worker will pull configuration from two sources, a file and environment variables.
 
 Multiple file paths will be searched, in this order.
-1. worker/src/worker.json (based on the launch location of the root dir on launch)
-1. worker/src/worker.dev.json (based on the launch location of the root dir on launch)
-1. A file path set using the `--config` flag to the exe
+
+1. `./worker/src/worker.json` (based on the launch location of the root directory on launch)
+1. `./worker/src/worker.dev.json` (based on the launch location of the root directory on launch)
+1. A file path set using the `--config` flag to the executable
 Later values will override those in earlier paths if multiple are present.
 
 Environment variables [ansible setup](../ansible/worker.yml).
@@ -31,13 +32,13 @@ ILUVATAR_WORKER__networking__use_pool=false ./ilúvatar_worker --config /my/conf
 ### Default
 
 If nothing is passed on startup besides `--config`, the worker begins running an RPC server and does not terminate.
-It **must** be run as `sudo` in order to communicate with containerd, the system networking stack, and other things.
+It **must** be run as `sudo` in order to communicate with `containerd`, the system networking stack, and other things.
 
 ### Clean
 
 One can pass `clean` after any config to run the offline resource cleanup process.
-The worker does not delete any resources created during it's execution on shutdown.
-`clean` deletes network namespaces, containerd containers, and the network bridge that were created by previous executions of the worker.
+The worker does not delete any resources created during its execution on shutdown.
+`clean` deletes network namespaces, `containerd` containers, and the network bridge that were created by previous executions of the worker.
 
 It is recommended to do this before each new start to avoid a slow sapping of resources by repeated runs.
 
@@ -48,7 +49,7 @@ It can also be compiled from the Makefile via `make spans` (release build) or `m
 
 ## Detailed Documentation
 
-The the worker code is put [into a library](../ilúvatar_worker_library/), [and a binary](../ilúvatar_worker/).
+The worker code is put [into a library](../ilúvatar_worker_library/), [and a binary](../ilúvatar_worker/).
 This keeps the actual code only compiled for the binary to a minimum, maximizing code reuse
 
 The documentation on the Rust code provides details about the purpose and utilization of individual structs, types, enums, etc.
@@ -61,4 +62,3 @@ cargo doc -p iluvatar_worker_library --open
 ```bash
 cargo doc -p ilúvatar_worker --open
 ```
-

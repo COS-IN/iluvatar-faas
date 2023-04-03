@@ -36,7 +36,7 @@ pub async fn full_sim_invoker(config_pth: Option<String>, overrides: Option<Vec<
     directory: None,
     basename: "".to_string(),
     spanning: cfg.logging.spanning.clone(),
-    flame: "".to_string(),
+    flame: None,
     span_energy_monitoring: false,
   });
   let _log = match log {
@@ -72,7 +72,7 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(
     directory: None,
     basename: "".to_string(),
     spanning: cfg.logging.spanning.clone(),
-    flame: "".to_string(),
+    flame: None,
     span_energy_monitoring: false,
   });
   let _log = match log {
@@ -107,7 +107,7 @@ pub async fn test_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<
     directory: None,
     basename: "".to_string(),
     spanning: cfg.logging.spanning.clone(),
-    flame: "".to_string(),
+    flame: None,
     span_energy_monitoring: false,
   });
   let _log = match log {

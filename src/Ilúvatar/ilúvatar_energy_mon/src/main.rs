@@ -15,7 +15,7 @@ async fn main() -> anyhow::Result<()> {
     directory: Some(config.log_folder.clone()),
     basename: "energy_monitor".to_string(),
     spanning: "NONE".to_string(),
-    flame: "".to_string(),
+    flame: None,
     span_energy_monitoring: false,
   });
   let graphite_cfg = Arc::new(GraphiteConfig {

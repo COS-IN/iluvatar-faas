@@ -86,6 +86,7 @@ impl LoadBalancerTrait for LeastLoadedBalancer {
     workers.insert(worker.name.clone(), worker);
   }
 
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=%tid)))]
   async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(InvokeResponse, Duration)> {
     let worker = self.get_worker(tid)?;
     send_invocation!(func, json_args, tid, self.worker_fact, self.health, worker)

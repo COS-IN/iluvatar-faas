@@ -19,19 +19,20 @@ pub struct LoggingConfig {
   /// see [tracing_subscriber::filter::Builder::parse()]
   pub level: String,
   /// Directory to store logs in, formatted as JSON
-  /// If empty then logs are sent to stdout, in a plaintext format
+  /// If [None] then logs are sent to stdout, in a plaintext format
   pub directory: Option<String>,
   /// log filename start string
   pub basename: String,
   /// How to log spans, in all caps
   /// look at for details [mod@tracing_subscriber::fmt::format]
-  /// Multiple options can be passed by listing them as a list using '+' between values
+  /// Multiple options can be passed by listing them as a list using '+' between values.
+  /// The recommended value is `NEW+CLOSE`, which creates logs on span (function) execution and completion, allowing tracking of when a function call starts and stops.
+  /// More expressive span capturing naturally means larger log files.
   pub spanning: String,
-  /// a file to put flame trace data in 
-  /// See (here)<https://docs.rs/tracing-flame/latest/tracing_flame/index.html> for details
-  /// If empty, do not record flame data
-  /// Enabling this loses some logging information
-  pub flame: String,
+  /// A file name to put flame trace data in, file will be placed in [Self::directory] if present, or local directory
+  /// See (here)<https://docs.rs/tracing-flame/latest/tracing_flame/index.html> for details on how this works.
+  /// If [None], do not record flame data
+  pub flame: Option<String>,
   /// Use live span information to track invocation and background energy usage
   /// These will then be reported to graphite
   pub span_energy_monitoring: bool,
@@ -87,27 +88,37 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
   let layers = Registry::default()
     .with(filter_layer)
     .with(energy_layer);
+
+  let layers = match config.flame.as_ref() {
+    None => layers.with(None),
+    Some(flame) => {
+      if flame.len() == 0 {
+        layers.with(None)
+      } else {
+        let flame_path = match config.directory.as_ref() {
+          Some(p) => PathBuf::from(p).join(flame),
+          None => PathBuf::from(flame),
+        };
+        let (mut flame_layer, _flame_guard) = match FlameLayer::with_file(&flame_path) {
+          Ok(l) => l,
+          Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make FlameLayer"),
+        };
+        flame_layer = flame_layer.with_threads_collapsed(true)
+          .with_file_and_line(true);
+        drops.push(Box::new(_flame_guard));
+        layers.with(Some(flame_layer))
+      }
+    }
+  };
+
   let writer_layer = tracing_subscriber::fmt::layer()
     .with_span_events(str_to_span(&config.spanning))
     .with_timer(LocalTime::new(tid)?)
     .with_writer(non_blocking);
-
-  match config.flame.as_str() {
-    "" => {
-      match config.directory {
-        None => layers.with(writer_layer).init(),
-        Some(_) => layers.with(writer_layer.json()).init(),
-      };
-    },
-    _ => {
-      let (flame_layer, _flame_guard) = FlameLayer::with_file(&config.flame).unwrap();
-      layers.with(writer_layer.json())
-        .with(flame_layer)
-        .init();
-      drops.push(Box::new(_flame_guard));
-    }
+  match config.directory {
+    None => layers.with(writer_layer).init(),
+    Some(_) => layers.with(writer_layer.json()).init(),
   };
- 
   Ok(drops)
 }
 

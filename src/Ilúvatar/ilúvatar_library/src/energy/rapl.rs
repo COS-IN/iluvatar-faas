@@ -231,7 +231,7 @@ pub struct RaplMonitor {
 }
 impl RaplMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (handle, tx) = os_thread(config.ipmi_freq_ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(RaplMonitor::monitor_energy))?;
+    let (handle, tx) = os_thread(config.rapl_freq_ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(RaplMonitor::monitor_energy))?;
 
     let i = RaplMsr::new(tid)?;
     let r = Arc::new(RaplMonitor {
@@ -247,6 +247,7 @@ impl RaplMonitor {
   }
 
   /// Reads the different energy sources and writes the current staistics out to the csv file
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
   fn monitor_energy(&self, tid: &TransactionId) {
     let mut rapl = self.rapl.lock();
     let ipmi_uj = rapl.total_uj(tid);

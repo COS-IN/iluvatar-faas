@@ -1,7 +1,7 @@
 # CLI
 
 The CLI can issue single commands to any running worker.
-It is not designed to apply substatial load to the system, that should be done via the [load generator](./LOAD.md).
+It is not designed to apply substantial load to the system, that should be done via the [load generator](./LOAD.md).
 
 ## Commands
 
@@ -40,7 +40,6 @@ Results can only be returned once.
 ilúvatar_worker_cli --address localhost -port 8000 invoke-async-check --name invoke -c <cookie>
 ```
 
-
 ### Register
 
 Register a function with the worker, currently only supports docker images.
@@ -52,7 +51,7 @@ ilúvatar_worker_cli --address localhost -port 8000 register --name hello --imag
 
 ### Prewarm
 
-Tell the worker to prewarm a specific function. 
+Tell the worker to prewarm a specific function.
 This can also be used to register a function if the worker has never seen it before.
 
 ```bash

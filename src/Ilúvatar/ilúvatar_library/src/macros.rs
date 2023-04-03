@@ -1,5 +1,5 @@
 #[macro_export]
-/// A helper macro to get the last item in the [bail_error] macro, which will be the error message.
+/// A helper macro to get the last item in the [crate::bail_error] macro, which will be the error message.
 macro_rules! last {
   ([$single:tt] $($rest:tt)*) => { 
     $single // base case

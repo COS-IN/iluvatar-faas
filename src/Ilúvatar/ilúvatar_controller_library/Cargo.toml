@@ -23,3 +23,6 @@ actix-web = "4"
 
 [dev-dependencies]
 rstest = "0.13.0"
+
+[features]
+full_spans = []

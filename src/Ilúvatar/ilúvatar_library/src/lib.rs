@@ -31,6 +31,12 @@ pub fn nproc(tid: &TransactionId, all: bool) -> anyhow::Result<u32> {
   };
   let nproc = execute_cmd("/usr/bin/nproc", &args, None, tid)?;
   let stdout = String::from_utf8_lossy(&nproc.stdout);
+  if !nproc.status.success() {
+    anyhow::bail!("Calling nproc failed");
+  }
+  if stdout.len() == 0 {
+    anyhow::bail!("`nproc` output was empty");
+  }
   match stdout[0..stdout.len()-1].parse::<u32>() {
     Ok(u) => Ok(u),
     Err(e) => anyhow::bail!("Unable to parse nproc result because of error: '{}'", e),

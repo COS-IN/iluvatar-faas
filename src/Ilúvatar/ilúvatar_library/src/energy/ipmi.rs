@@ -85,6 +85,7 @@ impl IPMIMonitor {
   }
 
   /// Reads the different energy sources and writes the current staistics out to the csv file
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
   fn monitor_energy(&self, tid: &TransactionId) {
     let ipmi_uj = match self.ipmi.read(tid) {
       Ok(uj) => uj,

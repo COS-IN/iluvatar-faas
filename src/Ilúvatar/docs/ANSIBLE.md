@@ -24,9 +24,9 @@ Configuration of both can be overloaded at _runtime_ using environment variables
 The tasks that start the executables and set their environment, allowing injection through Ansible.
 The startup task (`run worker executable`) for the [worker](../ansible/worker.yml) has a number of examples of this.
 
-Variables can be passed to ansible-playbook using the `-e` flag which are then populated in the various playbooks.
-For example, adding a setting to configure enable RAPL energy readings could be done by passing `-e worker_enable_rapl=true` to ansible-playbook.
-Inside the worker playbook, a matching line would have to be added to read this variable and pass it into the worker: `"ILUVATAR_WORKER__energy__enable_rapl" : "{{ worker_enable_rapl | default(false) }}"`.
+Variables can be passed to `ansible-playbook` using the `-e` flag which are then populated in the various playbooks.
+For example, adding a setting to configure enable RAPL energy readings could be done by passing `-e worker_enable_rapl=true` to `ansible-playbook`.
+Inside the worker playbook, a matching line would have to be added to read this variable and pass it into the worker: `"ILUVATAR_WORKER__energy__rapl_freq_ms" : "{{ worker_rapl_log_freq_ms | default(1000) }}"`.
 
 ## Multiple remote Worker/host configuration
 
@@ -63,7 +63,9 @@ The hosts you want to run services on must be in an environments file, and given
 A simple command to run Ilúvatar on the local machine.
 
 ```sh
+# clean the environment to remove any possible leftover parts 
 ansible-playbook -i environments/local/hosts.ini ilúvatar.yml -e mode=clean -e "@./group_vars/host_addresses.yml"
+# Deploy the system
 ansible-playbook -i environments/local/hosts.ini ilúvatar.yml -e mode=deploy -e "@./group_vars/host_addresses.yml"
 ```
 
