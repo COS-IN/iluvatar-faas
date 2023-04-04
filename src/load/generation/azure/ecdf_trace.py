@@ -15,6 +15,7 @@ argparser.add_argument("--out-folder", '-o', help="The folder to store the outpu
 argparser.add_argument("--data-path", '-d', help="The folder where the azure dataset has been downloaded to", required=True)
 argparser.add_argument("--num-funcs", '-n', type=int, help="Number of functions to sample for the trace", required=False)
 argparser.add_argument("--force", '-f', action='store_true', help="Overwrite an existing trace that has the same number of functions")
+argparser.add_argument("--seed", type=int, help="Random seed to fix sampling", required=False)
 argparser.add_argument("--duration", type=int, help="The length in minutes of the trace", default=60)
 args = argparser.parse_args()
 
@@ -32,7 +33,7 @@ if not (os.path.exists(metadata_save_pth) and os.path.exists(trace_save_pth)) or
 
   map_args = []
 
-  rows = dataset.sample(args.num_funcs, random_state=time.time_ns() % pow(2, 31))
+  rows = dataset.sample(args.num_funcs, random_state=args.seed)
   for index, row in rows.iterrows():
     map_args.append( (index[:10], row, args.duration) )
 

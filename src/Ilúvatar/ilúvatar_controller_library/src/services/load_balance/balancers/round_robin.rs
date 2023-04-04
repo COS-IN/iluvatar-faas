@@ -28,7 +28,10 @@ impl RoundRobinLoadBalancer {
     }
   }
 
-  fn get_next(&self, tid: &TransactionId) -> Arc<RegisteredWorker> {
+  fn get_next(&self, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {
+    if self.workers.read().len() == 0 {
+      anyhow::bail!("There are not workers available to serve the request");
+    }
     let mut i = 0;
     loop {
       let mut val = self.next.lock();
@@ -38,11 +41,11 @@ impl RoundRobinLoadBalancer {
       }
       let worker = &self.workers.read()[*val];
       if self.health.is_healthy(worker) {
-        return worker.clone();
+        return Ok(worker.clone());
       } else {
         if i >= self.workers.read().len() {
           warn!(tid=%tid, "Could not find a healthy worker!");
-          return worker.clone();
+          return Ok(worker.clone());
         }
       }
       i = i + 1;
@@ -60,17 +63,17 @@ impl LoadBalancerTrait for RoundRobinLoadBalancer {
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=%tid)))]
   async fn send_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(InvokeResponse, Duration)> {
-    let worker = self.get_next(tid);
+    let worker = self.get_next(tid)?;
     send_invocation!(func, json_args, tid, self.worker_fact, self.health, worker)
   }
 
   async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Duration> {
-    let worker = self.get_next(tid);
+    let worker = self.get_next(tid)?;
     prewarm!(func, tid, self.worker_fact, self.health, worker)
   }
 
   async fn send_async_invocation(&self, func: Arc<RegisteredFunction>, json_args: String, tid: &TransactionId) -> Result<(String, Arc<RegisteredWorker>, Duration)> {
-    let worker = self.get_next(tid);
+    let worker = self.get_next(tid)?;
     send_async_invocation!(func, json_args, tid, self.worker_fact, self.health, worker)
   }
 }

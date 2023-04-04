@@ -15,8 +15,6 @@ pub struct Configuration {
   pub port: Port,
   /// request timeout length in seconds
   pub timeout_sec: u64,
-  /// Number of worker theads to run
-  pub num_workers: u64,
   pub logging: Arc<LoggingConfig>,
   pub load_balancer: Arc<LoadBalancingConfig>,
   pub graphite: Arc<GraphiteConfig>,
@@ -31,8 +29,8 @@ pub struct LoadBalancingConfig {
   /// the load metric to use
   ///   only relevant to those algorithms that use it
   pub load_metric: String,
-  /// Duration in seconds the balancer's worker thread will sleep between runs (if it has one)
-  pub thread_sleep_sec: u64
+  /// Duration in milliseconds the balancer's worker thread will sleep between runs (if it has one)
+  pub thread_sleep_ms: u64
 }
 
 pub type ControllerConfig = Arc<Configuration>;

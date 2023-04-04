@@ -47,10 +47,10 @@ impl RegistrationService {
       anyhow::bail!("Invalid function version");
     }
     if request.memory < self.limits_config.mem_min_mb || request.memory > self.limits_config.mem_max_mb {
-      anyhow::bail!("Illegal memory allocation request");
+      anyhow::bail!("Illegal memory allocation request '{}'", request.memory);
     }
     if request.cpus < 1 || request.cpus > self.limits_config.cpu_max {
-      anyhow::bail!("Illegal cpu allocation request");
+      anyhow::bail!("Illegal cpu allocation request '{}'", request.cpus);
     }
     if request.parallel_invokes != 1 {
       anyhow::bail!("Illegal parallel invokes set, must be 1");

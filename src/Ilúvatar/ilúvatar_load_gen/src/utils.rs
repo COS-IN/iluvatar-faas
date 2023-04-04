@@ -247,11 +247,11 @@ pub async fn controller_register(name: &String, version: &String, image: &String
         Ok(reg_dur)
       } else {
         let text = r.text().await?;
-        anyhow::bail!("Got unexpected HTTP status when registering function with the load balancer '{}'; text: {}", status, text);
+        anyhow::bail!("Got unexpected HTTP status when registering function with the controller '{}'; text: {}", status, text);
       }
     },
     Err(e) =>{
-      anyhow::bail!("HTTP error when trying to register function with the load balancer '{}'", e);
+      anyhow::bail!("HTTP error when trying to register function with the controller '{}'", e);
     },
   }
 }
@@ -275,12 +275,10 @@ pub async fn controller_prewarm(name: &String, version: &String, host: &String, 
         Ok(reg_dur)
       } else {
         let text = r.text().await?;
-        anyhow::bail!("Got unexpected HTTP status when prewarming function with the load balancer '{}'; text: {}", status, text);
+        anyhow::bail!("Got unexpected HTTP status when prewarming function with the controller '{}'; text: {}", status, text);
       }
     },
-    Err(e) =>{
-      anyhow::bail!("HTTP error when trying to prewarming function with the load balancer '{}'", e);
-    },
+    Err(e) =>anyhow::bail!("HTTP error when trying to prewarming function with the controller '{}'", e),
   }
 }
 

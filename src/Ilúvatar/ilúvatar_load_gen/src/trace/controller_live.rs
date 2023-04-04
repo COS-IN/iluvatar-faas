@@ -10,10 +10,13 @@ async fn controller_live_register_functions(funcs: &HashMap<String, Function>, h
   for (fid, func) in funcs.into_iter() {
     let image = func.image_name.as_ref().ok_or_else(|| anyhow::anyhow!("Unable to get image name for function '{}'", fid))?;
     println!("{}, {}", func.func_name, image);
-    let func_timings = match benchmark {
-      Some(t) => match t.data.get(&func.func_name) {
-        Some(d) => Some(&d.resource_data),
-        None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", func.func_name)),
+    let func_timings = match &func.chosen_name {
+      Some(chosen_name) => match benchmark.as_ref() {
+        Some(t) => match t.data.get(chosen_name) {
+          Some(d) => Some(&d.resource_data),
+          None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", chosen_name)),
+        },
+        None => None,
       },
       None => None,
     };
@@ -44,7 +47,7 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
       Ok(c) => Arc::new(c),
       Err(e) => panic!("Unable to build reqwest HTTP client: {:?}", e),
     };
-  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv)?;
+  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv, args.max_prewarms)?;
   let bench_data = load_benchmark_data(&args.function_data)?;
   threaded_rt.block_on(controller_live_register_functions(&metadata, &args.host, args.port, bench_data.as_ref()))?;
   threaded_rt.block_on(prewarm_funcs(&metadata, &args.host, args.port))?;
@@ -58,7 +61,7 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
     let invocation: CsvInvocation = result?;
-    let func = metadata.get(&invocation.func_name).unwrap();
+    let func = metadata.get(&invocation.func_name).ok_or_else(|| anyhow::anyhow!("Invocation had function name '{}' that wasn't in metadata", invocation.func_name))?;
     let h_c = args.host.clone();
     let f_c = func.func_name.clone();
     let func_args = prepare_function_args(func, args.load_type);

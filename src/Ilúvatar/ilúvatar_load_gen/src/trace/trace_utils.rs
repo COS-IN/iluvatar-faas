@@ -6,7 +6,7 @@ use tokio::{runtime::Runtime, task::JoinHandle};
 use crate::{utils::{worker_register, VERSION, worker_prewarm, LoadType, RunType, CompletedControllerInvocation, save_result_json, load_benchmark_data}, benchmark::BenchmarkStore, trace::safe_cmp};
 use super::{Function, TraceArgs};
 
-fn compute_prewarms(func: &Function, default_prewarms: Option<u32>) -> u32 {
+fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms: u32) -> u32 {
   if func.parsed_compute.unwrap() == Compute::GPU {
     return 0;
   }
@@ -17,16 +17,16 @@ fn compute_prewarms(func: &Function, default_prewarms: Option<u32>) -> u32 {
       Some(iat_ms) => {
         let mut prewarms = f64::ceil(func.warm_dur_ms as f64 * 1.0/iat_ms) as u32;
         let cold_prewarms = f64::ceil(func.cold_dur_ms as f64 * 1.0/iat_ms) as u32;
-        println!("{}'s IAT of {} -> {} * {} = {} OR {} = {}", func.image_name.as_ref().unwrap(), iat_ms, func.warm_dur_ms, 1.0/iat_ms, prewarms, func.cold_dur_ms, cold_prewarms);
         prewarms = max(prewarms, cold_prewarms);
-        min(prewarms, p+30)
+        min(min(prewarms, p), max_prewarms)
       },
       None => p,
     }
   }
 }
 
-fn choose_bench_data_for_func<'a>(func: &'a Function, cpu_data: &'a Vec<(String, f64, f64)>, gpu_data: &'a Vec<(String, f64, f64)>) -> Result<&'a Vec<(String, f64, f64)>> {
+type ComputeChoiceList = Vec<(String, f64, f64, String)>;
+fn choose_bench_data_for_func<'a>(func: &'a Function, cpu_data: &'a ComputeChoiceList, gpu_data: &'a ComputeChoiceList) -> Result<&'a ComputeChoiceList> {
   if let Some(func_compute) = func.parsed_compute {
     if func_compute.contains(Compute::GPU) {
       if gpu_data.len() == 0 {
@@ -43,7 +43,7 @@ fn choose_bench_data_for_func<'a>(func: &'a Function, cpu_data: &'a Vec<(String,
 }
 
 fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkStore, 
-                      default_prewarms: Option<u32>, _trace_pth: &String) -> Result<()> {
+                      default_prewarms: Option<u32>, _trace_pth: &String, max_prewarms: u32) -> Result<()> {
   let mut cpu_data = Vec::new();
   for (k, v) in bench.data.iter() {
     if let Some(cpu_timings) = v.resource_data.get(&(&Compute::CPU).try_into()?) {
@@ -51,7 +51,7 @@ fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkSt
       let avg_cold_us = cpu_timings.cold_invoke_duration_us.iter().sum::<u128>() as f64 / cpu_timings.cold_invoke_duration_us.len() as f64;
       let avg_warm_us = tot as f64 / cpu_timings.warm_invoke_duration_us.len() as f64;
                             // Cold uses E2E duration because of the cold start time needed
-      cpu_data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
+      cpu_data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0, v.image_name.clone()) );
     }
   }
   let mut gpu_data = Vec::new();
@@ -61,7 +61,7 @@ fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkSt
       let avg_cold_us = gpu_timings.cold_invoke_duration_us.iter().sum::<u128>() as f64 / gpu_timings.cold_invoke_duration_us.len() as f64;
       let avg_warm_us = tot as f64 / gpu_timings.warm_invoke_duration_us.len() as f64;
                             // Cold uses E2E duration because of the cold start time needed
-      gpu_data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0) );
+      gpu_data.push(( k.clone(), avg_warm_us/1000.0, avg_cold_us/1000.0, v.image_name.clone()) );
     }
   }
   
@@ -73,51 +73,61 @@ fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkSt
       None => panic!("failed to get a minimum func from {:?}", cpu_data),
     };
     let mut chosen_name = chosen.0.clone();
+    let mut chosen_image = chosen.3.clone();
     let mut chosen_warm_time_ms = chosen.1;
     let mut chosen_cold_time_ms = chosen.1;
   
-    for (name, avg_warm, avg_cold) in cpu_data.iter() {
+    for (name, avg_warm, avg_cold, image) in cpu_data.iter() {
       if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
         chosen_name = name.clone();
+        chosen_image = image.clone();
         chosen_warm_time_ms = *avg_warm;
         chosen_cold_time_ms = *avg_cold;
       }
     }
 
-    if func.prewarms.is_none() {
-      let prewarms = compute_prewarms(func, default_prewarms);
-      func.prewarms = Some(prewarms);
-      total_prewarms += prewarms;
-    }
     if func.chosen_name.is_none() {
       println!("{} mapped to function '{}'", &func.func_name, chosen_name);
       func.cold_dur_ms = chosen_cold_time_ms as u64;
       func.warm_dur_ms = chosen_warm_time_ms as u64;
       func.chosen_name = Some(chosen_name);
+      func.image_name = Some(chosen_image);
+    }
+    if func.prewarms.is_none() {
+      let prewarms = compute_prewarms(func, default_prewarms, max_prewarms);
+      func.prewarms = Some(prewarms);
+      total_prewarms += prewarms;
+    }
+    if let Some(func_compute) = func.parsed_compute {
+      if func_compute.contains(Compute::GPU) {
+        func.mem_mb = 1024*3;
+      } else if func_compute.contains(Compute::CPU) {
+        func.mem_mb = 1024;
+      }
     }
   }
   println!("A total of {} prewarmed containers", total_prewarms);
   Ok(())
 }
 
-fn map_from_lookbusy(funcs: &mut HashMap<String, Function>, default_prewarms: Option<u32>) -> Result<()> {
+fn map_from_lookbusy(funcs: &mut HashMap<String, Function>, default_prewarms: Option<u32>, max_prewarms: u32) -> Result<()> {
   for (_fname, func) in funcs.iter_mut() {
     func.image_name = Some("docker.io/alfuerst/lookbusy-iluvatar-action:latest".to_string());
-    func.prewarms = Some(compute_prewarms(func, default_prewarms));
+    func.prewarms = Some(compute_prewarms(func, default_prewarms, max_prewarms));
     func.mem_mb = func.mem_mb+50;
   }
   Ok(())
 }
 
-fn map_from_args(funcs: &mut HashMap<String, Function>, default_prewarms: Option<u32>) -> Result<()> {
+fn map_from_args(funcs: &mut HashMap<String, Function>, default_prewarms: Option<u32>, max_prewarms: u32) -> Result<()> {
   for (_fname, func) in funcs.iter_mut() {
-    func.prewarms = Some(compute_prewarms(func, default_prewarms));
+    func.prewarms = Some(compute_prewarms(func, default_prewarms, max_prewarms));
   }
   Ok(())
 }
 
 pub fn map_functions_to_prep(load_type: LoadType, func_json_data_path: &Option<String>, funcs: &mut HashMap<String, Function>, 
-                            default_prewarms: Option<u32>, trace_pth: &String) -> Result<()> {
+                            default_prewarms: Option<u32>, trace_pth: &String, max_prewarms: u32) -> Result<()> {
   for (_, v) in funcs.iter_mut() {
     v.parsed_compute = match v.compute.as_ref() {
       Some(c) => Some(Compute::try_from(c)?),
@@ -129,12 +139,12 @@ pub fn map_functions_to_prep(load_type: LoadType, func_json_data_path: &Option<S
     };
   }
   match load_type {
-    LoadType::Lookbusy => { return map_from_lookbusy(funcs, default_prewarms); },
+    LoadType::Lookbusy => { return map_from_lookbusy(funcs, default_prewarms, max_prewarms); },
     LoadType::Functions => {
       if let Some(func_json_data) = load_benchmark_data(func_json_data_path)? {
-        return map_from_benchmark(funcs, &func_json_data, default_prewarms, trace_pth);
+        return map_from_benchmark(funcs, &func_json_data, default_prewarms, trace_pth, max_prewarms);
       } else {
-        return map_from_args(funcs, default_prewarms)
+        return map_from_args(funcs, default_prewarms, max_prewarms)
       }
     }
   }
@@ -186,8 +196,9 @@ fn worker_prewarm_functions(prewarm_data: &HashMap<String, Function>, host: &Str
 
 pub fn worker_prepare_functions(runtype: RunType, funcs: &mut HashMap<String, Function>, host: &String, 
                           port: Port, load_type: LoadType, func_data: Option<String>, rt: &Runtime, 
-                          prewarms: Option<u32>, trace_pth: &String, factory: &Arc<WorkerAPIFactory>) -> Result<()> {
-  map_functions_to_prep(load_type, &func_data, funcs, prewarms, trace_pth)?;
+                          prewarms: Option<u32>, trace_pth: &String, factory: &Arc<WorkerAPIFactory>,
+                          max_prewarms: u32) -> Result<()> {
+  map_functions_to_prep(load_type, &func_data, funcs, prewarms, trace_pth, max_prewarms)?;
   prepare_worker(funcs, host, port, runtype, rt, factory, &func_data)
 }
 
@@ -232,7 +243,7 @@ fn worker_wait_reg(funcs: &HashMap<String, Function>, rt: &Runtime, port: Port, 
         Some(chosen_name) => match bench_data.as_ref() {
           Some(t) => match t.data.get(chosen_name) {
             Some(d) => Some(d.resource_data.clone()),
-            None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", func.func_name)),
+            None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", chosen_name)),
           },
           None => None,
         },

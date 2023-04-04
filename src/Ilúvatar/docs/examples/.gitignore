@@ -4,5 +4,17 @@ benchmark/*.json
 
 scaling/*.json
 
-trace/*.json
-trace/output-in.csv
+basic-trace/*.json
+basic-trace/output-in.csv
+
+azure/
+azure-trace/*.csv
+azure-trace/*.json
+
+cluster-trace/*.json
+cluster-trace/*.csv
+cluster-trace/example-ssh*
+
+simulation-trace/*.log
+simulation-trace/*.csv
+simulation-trace/*.json

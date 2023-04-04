@@ -18,7 +18,7 @@ pub struct LoadService {
 
 impl LoadService {
   pub fn boxed(graphite: Arc<GraphiteService>, config: Arc<LoadBalancingConfig>, _tid: &TransactionId, fact: Arc<WorkerAPIFactory>) -> Arc<Self> {
-    let (handle, tx) = tokio_thread(config.thread_sleep_sec, LOAD_MONITOR_TID.clone(), LoadService::monitor_worker_status);
+    let (handle, tx) = tokio_thread(config.thread_sleep_ms, LOAD_MONITOR_TID.clone(), LoadService::monitor_worker_status);
     let ret = Arc::new(LoadService {
       _worker_thread: handle,
       graphite,

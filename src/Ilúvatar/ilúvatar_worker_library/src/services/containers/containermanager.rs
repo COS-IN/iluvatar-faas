@@ -101,7 +101,7 @@ impl ContainerManager {
     }
   }
 
-  #[tracing::instrument(skip(self), fields(tid=%tid))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, rx), fields(tid=%tid)))]
   async fn cull_unhealthy(&self, tid: &TransactionId, mut rx: UnboundedReceiver<Container>) {
     loop {
       let to_remove = match rx.recv().await {

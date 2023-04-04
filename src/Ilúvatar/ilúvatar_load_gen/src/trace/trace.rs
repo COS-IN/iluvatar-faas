@@ -32,6 +32,9 @@ pub struct TraceArgs {
   /// There will be no prewarmed GPU containers
   /// If this is 0, then there will be _no_ prewarms.
   prewarms: Option<u32>,
+  #[arg(long, default_value_t=5)]
+  /// The maximum number of prewarms any function is allowed to have
+  max_prewarms: u32,
   #[arg(long)]
   /// Configuration file for the simuated worker(s)
   worker_config: Option<String>,

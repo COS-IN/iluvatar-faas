@@ -3,8 +3,6 @@
   "address": "127.0.0.1",
   "port": 8078,
   "timeout_sec": 6000,
-  "num_workers": 8,
-  "simulation": false,
   "logging": {
     "level": "info",
     "directory": "/tmp/ilúvatar/logs",
@@ -16,7 +14,7 @@
   "load_balancer": {
     "algorithm": "LeastLoaded",
     "load_metric": "worker.load.loadavg",
-    "thread_sleep_sec": 3
+    "thread_sleep_ms": 1000
   },
   "graphite": {
     "address": "localhost",

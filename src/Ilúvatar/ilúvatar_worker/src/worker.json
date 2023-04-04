@@ -8,7 +8,7 @@
   "limits" : {
     "timeout_sec": 6000,
     "mem_min_mb": 5,
-    "mem_max_mb": 2048,
+    "mem_max_mb": 3096,
     "cpu_max": 10
   },
   "invocation": {

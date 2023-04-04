@@ -35,7 +35,7 @@ impl LeastLoadedBalancer {
   }
 
   pub fn boxed(health: Arc<dyn ControllerHealthService>, load: Arc<LoadService>, worker_fact: Arc<WorkerAPIFactory>, _tid: &TransactionId, config: Arc<LoadBalancingConfig>) -> Arc<Self> {
-    let (handle, tx) = tokio_thread(config.thread_sleep_sec, LEAST_LOADED_TID.clone(), LeastLoadedBalancer::find_least_loaded);
+    let (handle, tx) = tokio_thread(config.thread_sleep_ms, LEAST_LOADED_TID.clone(), LeastLoadedBalancer::find_least_loaded);
 
     let i = Arc::new(LeastLoadedBalancer::new(health, handle, load, worker_fact, config));
     tx.send(i.clone()).unwrap();

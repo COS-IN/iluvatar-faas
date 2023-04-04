@@ -34,10 +34,13 @@ async fn controller_sim_register_workers(num_workers: usize, server_data: &Data<
 
 async fn controller_sim_register_functions(metadata: &HashMap<String, Function>, server_data: &Data<Controller>, benchmark: Option<&BenchmarkStore>) -> Result<()> {
   for (_, func) in metadata.iter() {
-    let func_timings = match benchmark {
-      Some(t) => match t.data.get(&func.func_name) {
-        Some(d) => Some(d.resource_data.clone()),
-        None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", func.func_name)),
+    let func_timings = match &func.chosen_name {
+      Some(chosen_name) => match benchmark.as_ref() {
+        Some(t) => match t.data.get(chosen_name) {
+          Some(d) => Some(d.resource_data.clone()),
+          None => anyhow::bail!(format!("Benchmark was passed but function '{}' was not present", chosen_name)),
+        },
+        None => None,
       },
       None => None,
     };
@@ -128,7 +131,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
 
   threaded_rt.block_on(controller_sim_register_workers(args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize, &server_data, &worker_config_pth, &worker_config))?;
   let mut metadata = super::load_metadata(&args.metadata_csv)?;
-  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv)?;
+  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv, args.max_prewarms)?;
   let bench_data = load_benchmark_data(&args.function_data)?;
   threaded_rt.block_on(controller_sim_register_functions(&metadata, &server_data, bench_data.as_ref()))?;
   threaded_rt.block_on(controller_sim_prewarm_functions(&metadata, &server_data))?;
@@ -139,7 +142,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
     let invocation: CsvInvocation = result?;
-    let func = metadata.get(&invocation.func_name).unwrap();
+    let func = metadata.get(&invocation.func_name).ok_or_else(|| anyhow::anyhow!("Invocation had function name '{}' that wasn't in metadata", invocation.func_name))?;
     loop {
       match start.elapsed() {
         Ok(t) => {

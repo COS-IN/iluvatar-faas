@@ -28,7 +28,8 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
   let mut metadata = super::load_metadata(&args.metadata_csv)?;
   let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
 
-  worker_prepare_functions(RunType::Simulation, &mut metadata, &worker_config_pth, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
+  worker_prepare_functions(RunType::Simulation, &mut metadata, &worker_config_pth, args.port, args.load_type, 
+    args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory, args.max_prewarms)?;
 
   let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
   let mut handles = Vec::new(); // : Vec<JoinHandle<Result<(u128, InvokeResponse)>>>
@@ -38,7 +39,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
   let start = SystemTime::now();
   for result in trace_rdr.deserialize() {
     let invoke: CsvInvocation = result?;
-    let func = metadata.get(&invoke.func_name).unwrap();
+    let func = metadata.get(&invoke.func_name).ok_or_else(|| anyhow::anyhow!("Invocation had function name '{}' that wasn't in metadata", invoke.func_name))?;
 
     let func_args = SimulationInvocation {
       warm_dur_ms: func.warm_dur_ms,
@@ -85,7 +86,8 @@ fn live_worker(args: TraceArgs) -> Result<()> {
 
   let mut metadata = super::load_metadata(&args.metadata_csv)?;
 
-  worker_prepare_functions(RunType::Live, &mut metadata, &args.host, args.port, args.load_type, args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory)?;
+  worker_prepare_functions(RunType::Live, &mut metadata, &args.host, args.port, args.load_type, args.function_data, &threaded_rt, 
+    args.prewarms, &args.input_csv, &factory, args.max_prewarms)?;
 
   let mut trace_rdr = match csv::Reader::from_path(&args.input_csv) {
     Ok(r) => r,
@@ -101,7 +103,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
       Ok(i) => i,
       Err(e) => anyhow::bail!("Error deserializing csv invocation: {}", e),
     };
-    let func = metadata.get(&invoke.func_name).unwrap();
+    let func = metadata.get(&invoke.func_name).ok_or_else(|| anyhow::anyhow!("Invocation had function name '{}' that wasn't in metadata", invoke.func_name))?;
     let h_c = args.host.clone();
     let f_c = func.func_name.clone();
     let func_args = args_to_json(&prepare_function_args(func, args.load_type))?;

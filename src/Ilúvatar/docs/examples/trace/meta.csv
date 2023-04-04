@@ -1,3 +1,0 @@
-func_name,cold_dur_ms,warm_dur_ms,mem_mb,image_name,compute,isolation
-a,5000,500,512,docker.io/alfuerst/float_operation-iluvatar-action:latest,CPU,CONTAINERD
-b,5000,500,512,docker.io/alfuerst/gzip_compression-iluvatar-action:latest,CPU,CONTAINERD
