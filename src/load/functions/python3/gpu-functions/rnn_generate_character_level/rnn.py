@@ -4,8 +4,9 @@ from torch.autograd import Variable
 
 
 class RNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, all_categories, n_categories, all_letters, n_letters):
+    def __init__(self, input_size, hidden_size, output_size, all_categories, n_categories, all_letters, n_letters, device):
         super(RNN, self).__init__()
+        self.device = device
         self.hidden_size = hidden_size
 
         self.all_categories = all_categories
@@ -13,9 +14,9 @@ class RNN(nn.Module):
         self.all_letters = all_letters
         self.n_letters = n_letters
 
-        self.i2h = nn.Linear(n_categories + input_size + hidden_size, hidden_size)
-        self.i2o = nn.Linear(n_categories + input_size + hidden_size, output_size)
-        self.o2o = nn.Linear(hidden_size + output_size, output_size)
+        self.i2h = nn.Linear(n_categories + input_size + hidden_size, hidden_size, device=self.device)
+        self.i2o = nn.Linear(n_categories + input_size + hidden_size, output_size, device=self.device)
+        self.o2o = nn.Linear(hidden_size + output_size, output_size, device=self.device)
         self.dropout = nn.Dropout(0.1)
         self.softmax = nn.LogSoftmax(dim=1)
 
@@ -30,20 +31,18 @@ class RNN(nn.Module):
         return output, hidden
 
     def init_hidden(self):
-        return Variable(torch.zeros(1, self.hidden_size))
+        return Variable(torch.zeros(1, self.hidden_size, device=self.device))
 
-    @staticmethod
-    def gen_input_tensor(all_letters, n_letters, line):
-        tensor = torch.zeros(len(line), 1, n_letters)
+    def gen_input_tensor(self, all_letters, n_letters, line):
+        tensor = torch.zeros(len(line), 1, n_letters, device=self.device)
         for li in range(len(line)):
             letter = line[li]
             tensor[li][0][all_letters.find(letter)] = 1
         return tensor
 
-    @staticmethod
-    def gen_category_tensor(all_categories, n_categories, category):
+    def gen_category_tensor(self, all_categories, n_categories, category):
         li = all_categories.index(category)
-        tensor = torch.zeros(1, n_categories)
+        tensor = torch.zeros(1, n_categories, device=self.device)
         tensor[0][li] = 1
         return tensor
 

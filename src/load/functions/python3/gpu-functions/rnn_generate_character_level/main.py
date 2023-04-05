@@ -15,6 +15,9 @@ cold = True
 model_url="https://raw.githubusercontent.com/ddps-lab/serverless-faas-workbench/master/dataset/model/rnn_model.pth"
 params_url="https://raw.githubusercontent.com/ddps-lab/serverless-faas-workbench/master/dataset/model/rnn_params.pkl"
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(device)
+
 """
 Language
  - Italian, German, Portuguese, Chinese, Greek, Polish, French
@@ -52,7 +55,7 @@ def main(args):
     all_letters = params['all_letters']
     n_letters = params['n_letters']
 
-    rnn_model = rnn.RNN(n_letters, 128, n_letters, all_categories, n_categories, all_letters, n_letters)
+    rnn_model = rnn.RNN(n_letters, 128, n_letters, all_categories, n_categories, all_letters, n_letters, device)
     rnn_model.load_state_dict(torch.load(model_path))
     rnn_model.eval()
 
@@ -62,7 +65,7 @@ def main(args):
   except Exception as e:
     err = str(e)
     try:
-        err = traceback.format_exc()
+        trace = traceback.format_exc()
     except Exception as fug:
-        err = str(fug)
-    return {"body": { "import_error":msg, "runtime_error":err, "cold":was_cold }}
+        trace = str(fug)
+    return {"body": { "import_error":msg, "runtime_error":err, "trace":trace, "cold":was_cold }}
