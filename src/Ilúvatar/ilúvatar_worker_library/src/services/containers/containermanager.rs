@@ -197,7 +197,7 @@ impl ContainerManager {
   /// A return type [EventualItem::Future] means a container will have to be started to run the invocation.
   ///    The process to start the container has not begun, and will not until the future is awaited on. A product of Rust's implementation of async/futures.
   /// A return type [EventualItem::Now] means an existing container has been acquired
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, compute), fields(tid=%tid)))]
   pub fn acquire_container<'a>(&'a self, reg: &Arc<RegisteredFunction>, tid: &'a TransactionId, compute: Compute) -> EventualItem<impl Future<Output=Result<ContainerLock<'a>>>> {
     let cont = self.try_acquire_container(&reg.fqdn, tid, compute);
     let cont = match cont {

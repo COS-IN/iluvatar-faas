@@ -108,6 +108,7 @@ impl ContainerPool {
 
   /// Removes the container if it was found in the pool
   /// Returns [None] if it was not found
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
   pub fn remove_container(&self, container: &Container, tid: &TransactionId) -> Option<Container> {
     match self.pool.get_mut(container.fqdn()) {
       Some(mut pool_list) => {

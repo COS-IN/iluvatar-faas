@@ -18,3 +18,11 @@ cluster-trace/example-ssh*
 simulation-trace/*.log
 simulation-trace/*.csv
 simulation-trace/*.json
+
+detailed-spans/*.log
+detailed-spans/*.csv
+!detailed-spans/in.csv
+!detailed-spans/meta.csv
+detailed-spans/*.json
+detailed-spans/*.png
+!detailed-spans/example-timeline.png
