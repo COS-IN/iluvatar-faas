@@ -11,7 +11,7 @@ use time::{OffsetDateTime, Instant};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
-use super::queueing::{fcfs_gpu::FcfsGpuQueue, EnqueuedInvocation, DeviceQueue, oldest_gpu::BatchGpuQueue};
+use super::queueing::{fcfs_gpu::FcfsGpuQueue, EnqueuedInvocation, DeviceQueue, oldest_gpu::BatchGpuQueue, MinHeapEnqueuedInvocation, MinHeapFloat};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
@@ -21,25 +21,25 @@ lazy_static::lazy_static! {
 /// A batch will have at least one invocation in it
 /// They are stored in FIFO order
 pub struct GpuBatch {
-  data: VecDeque<Arc<EnqueuedInvocation>>,
+  data: VecDeque<MinHeapFloat>,
   est_time: f64,
 }
 impl GpuBatch {
-  pub fn new(first_item: Arc<EnqueuedInvocation>) -> Self {
+  pub fn new(first_item: Arc<EnqueuedInvocation>, est_wall_time: f64) -> Self {
     GpuBatch {
-      data: VecDeque::from([first_item]),
+      data: VecDeque::from([MinHeapEnqueuedInvocation::new_f(first_item.clone(), est_wall_time, est_wall_time).into()]),
       est_time: 0.0,
     }
   }
 
-  pub fn add(&mut self, item: Arc<EnqueuedInvocation>) {
-    self.est_time += item.est_execution_time;
-    self.data.push_back(item);
+  pub fn add(&mut self, item: Arc<EnqueuedInvocation>, est_wall_time: f64) {
+    self.est_time += est_wall_time;
+    self.data.push_back(MinHeapEnqueuedInvocation::new_f(item.clone(), est_wall_time, est_wall_time).into());
   }
 
   /// The registration for the items in the batch
   pub fn item_registration(&self) -> &Arc<RegisteredFunction> {
-    &self.data.front().unwrap().registration
+    &self.data.front().unwrap().item.registration
   }
 
   pub fn est_queue_time(&self) -> f64 { 
@@ -51,7 +51,7 @@ impl GpuBatch {
   }
 
   pub fn peek(&self) -> &Arc<EnqueuedInvocation> {
-    &self.data.front().unwrap()
+    &self.data.front().unwrap().item
   }
 }
 
@@ -59,7 +59,10 @@ impl Iterator for GpuBatch {
   type Item = Arc<EnqueuedInvocation>;
 
   fn next(&mut self) -> Option<Self::Item> {
-    self.data.pop_front()
+    match self.data.pop_front() {
+      Some(s) => Some(s.item),
+      None => None,
+    }
   }
 
   fn size_hint(&self) -> (usize, Option<usize>) {
@@ -127,11 +130,11 @@ impl GpuQueueingInvoker {
   }
 
   /// Create the GPU queue to use
-  fn get_invoker_gpu_queue(invocation_config: &Arc<InvocationConfig>, _cmap: &Arc<CharacteristicsMap>, _cont_manager: &Arc<ContainerManager>, _tid: &TransactionId)  -> Result<Arc<dyn GpuQueuePolicy>> {
+  fn get_invoker_gpu_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, _tid: &TransactionId)  -> Result<Arc<dyn GpuQueuePolicy>> {
     if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::GPU).try_into()?) {
       Ok(match pol.as_str() {
-        "fcfs" => FcfsGpuQueue::new()?,
-        "oldest_batch" => BatchGpuQueue::new()?,
+        "fcfs" => FcfsGpuQueue::new(cont_manager.clone(), cmap.clone())?,
+        "oldest_batch" => BatchGpuQueue::new(cmap.clone())?,
         unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
       })
     } else {

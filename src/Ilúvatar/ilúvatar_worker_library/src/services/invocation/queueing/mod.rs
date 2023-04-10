@@ -1,6 +1,7 @@
 use std::time::Duration;
 use std::{sync::Arc, cmp::Ordering};
 use anyhow::Result;
+use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
@@ -8,6 +9,7 @@ use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error};
+use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::structs::{ParsedResult, ContainerState};
 use crate::services::registration::RegisteredFunction;
 use super::{InvocationResultPtr, InvocationResult};
@@ -61,6 +63,16 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
   /// If not specified, added to the end
   /// If an error is returned, the item was not put enqueued
   fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()>;
+
+  /// Get the estimated wall-clock time of the function using the global [CharacteristicsMap]
+  /// Checks container availability toget cold/warm/prewarm time
+  fn est_wall_time(&self, item: &Arc<EnqueuedInvocation>, cont_manager: &Arc<ContainerManager>, _tid: &TransactionId, cmap: &Arc<CharacteristicsMap>) -> Result<f64> {
+    Ok(match cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::CPU)? {
+      ContainerState::Warm => cmap.get_warm_time(&item.registration.fqdn),
+      ContainerState::Prewarm => cmap.get_prewarm_time(&item.registration.fqdn),
+      _ => cmap.get_cold_time(&item.registration.fqdn),
+    })
+  }
 }
 
 #[tonic::async_trait]
@@ -96,14 +108,12 @@ pub struct EnqueuedInvocation {
   pub started: Mutex<bool>,
   /// The local time at which the item was inserted into the queue
   pub queue_insert_time: OffsetDateTime,
-  /// The estimated time the invocation will take to execute, in seconds
-  pub est_execution_time: f64,
 }
 
 impl EnqueuedInvocation {
-  pub fn new(registration: Arc<RegisteredFunction>, json_args: String, tid: TransactionId, queue_insert_time: OffsetDateTime, est_execution_time: f64) -> Self {
+  pub fn new(registration: Arc<RegisteredFunction>, json_args: String, tid: TransactionId, queue_insert_time: OffsetDateTime) -> Self {
     EnqueuedInvocation {
-      registration, est_execution_time, json_args, tid, queue_insert_time,
+      registration, json_args, tid, queue_insert_time,
       result_ptr: InvocationResult::boxed(),
       signal: Notify::new(),
       started: Mutex::new(false),
@@ -176,18 +186,19 @@ impl EnqueuedInvocation {
 
 pub struct MinHeapEnqueuedInvocation<T: Ord> {
   pub item: Arc<EnqueuedInvocation>,
-  priority: T
+  priority: T,
+  est_wall_time: f64,
 }
 
 impl<T: Ord> MinHeapEnqueuedInvocation<T> {
-  pub fn new( item: Arc<EnqueuedInvocation>, priority: T ) -> Self {
-    MinHeapEnqueuedInvocation { item, priority, }
+  pub fn new( item: Arc<EnqueuedInvocation>, priority: T, est_wall_time: f64 ) -> Self {
+    MinHeapEnqueuedInvocation { item, priority, est_wall_time }
   }
 }
 pub type MinHeapFloat = MinHeapEnqueuedInvocation<OrderedFloat<f64>>;
 impl MinHeapFloat {
-  pub fn new_f( item: Arc<EnqueuedInvocation>, priority: f64 ) -> Self {
-    MinHeapEnqueuedInvocation { item, priority:OrderedFloat(priority), }
+  pub fn new_f( item: Arc<EnqueuedInvocation>, priority: f64, est_wall_time: f64 ) -> Self {
+    MinHeapEnqueuedInvocation { item, priority:OrderedFloat(priority), est_wall_time }
   }
 }
 
@@ -228,7 +239,7 @@ mod heapstructs {
       isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
       supported_compute: iluvatar_library::types::Compute::CPU,
     });
-    MinHeapEnqueuedInvocation::new_f(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now(), 0.0)), priority)
+    MinHeapEnqueuedInvocation::new_f(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now())), priority, 0.0)
   }
 
   #[test]
@@ -259,7 +270,7 @@ mod heapstructs {
       isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
       supported_compute: iluvatar_library::types::Compute::CPU,
     });
-    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now(), 0.0)), priority)
+    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now())), priority, 0.0)
   }
   #[test]
   fn min_i64() {
@@ -289,7 +300,7 @@ mod heapstructs {
       isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
       supported_compute: iluvatar_library::types::Compute::CPU,
     });
-    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), t, 0.0)), t)
+    MinHeapEnqueuedInvocation::new(Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), t)), t, 0.0)
   }
   #[test]
   fn min_datetime() {

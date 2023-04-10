@@ -60,10 +60,10 @@ impl CpuQueueingInvoker {
     if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::CPU).try_into()?) {
       Ok(match pol.as_str() {
         "none" => Queueless::new()?,
-        "fcfs" => FCFSQueue::new()?,
-        "minheap" => MinHeapQueue::new(tid, cmap.clone())?,
-        "minheap_ed" => MinHeapEDQueue::new(tid, cmap.clone())?,
-        "minheap_iat" => MinHeapIATQueue::new(tid, cmap.clone())?,
+        "fcfs" => FCFSQueue::new(cont_manager.clone(), cmap.clone())?,
+        "minheap" => MinHeapQueue::new(tid, cmap.clone(), cont_manager.clone())?,
+        "minheap_ed" => MinHeapEDQueue::new(tid, cmap.clone(), cont_manager.clone())?,
+        "minheap_iat" => MinHeapIATQueue::new(tid, cmap.clone(), cont_manager.clone())?,
         "cold_pri" => ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?,
         "scaling" => AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?,
         unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),

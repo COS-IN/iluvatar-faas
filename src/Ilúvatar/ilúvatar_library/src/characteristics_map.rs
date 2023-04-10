@@ -223,6 +223,15 @@ impl CharacteristicsMap {
         0.0
       }
     }
+    /// Returns the execution time as tracked by [Characteristics::GPUColdTime]
+    /// Returns 0.0 if it was not found, or an error occured
+    pub fn get_gpu_cold_time(&self, fqdn: &String ) -> f64 {
+      if let Some(exectime) = self.lookup(fqdn, &Characteristics::GPUColdTime) {
+        unwrap_val_f64( &exectime )
+      } else {
+        0.0
+      }
+    }
     /// Returns the execution time as tracked by [Characteristics::WarmTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_warm_time(&self, fqdn: &String ) -> f64 {

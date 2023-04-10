@@ -56,14 +56,7 @@ impl QueueingDispatcher {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
   fn enqueue_new_invocation(&self, reg: &Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<Arc<EnqueuedInvocation>> {
     debug!(tid=%tid, "Enqueueing invocation");
-    let mut exec = 0.0;
-    if reg.supported_compute.contains(Compute::CPU) {
-      exec = self.cmap.get_exec_time(&reg.fqdn);
-    }
-    if reg.supported_compute.contains(Compute::GPU) {
-      exec = self.cmap.get_gpu_exec_time(&reg.fqdn);
-    }
-    let enqueue = Arc::new(EnqueuedInvocation::new(reg.clone(), json_args, tid, self.clock.now(), exec));
+    let enqueue = Arc::new(EnqueuedInvocation::new(reg.clone(), json_args, tid, self.clock.now()));
     let mut enqueues = 0;
 
     if reg.supported_compute == Compute::CPU {

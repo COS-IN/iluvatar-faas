@@ -3,21 +3,24 @@ use iluvatar_library::{transaction::TransactionId, characteristics_map::Characte
 use anyhow::Result;
 use parking_lot::Mutex;
 use tracing::debug;
+use crate::services::containers::containermanager::ContainerManager;
+
 use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat, InvokerCpuQueuePolicy};
 use std::collections::BinaryHeap;
 
 pub struct MinHeapQueue {
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
   pub cmap: Arc<CharacteristicsMap>,
-  est_time: Mutex<f64>
+  est_time: Mutex<f64>,
+  cont_manager: Arc<ContainerManager>
 }
 
 impl MinHeapQueue {
-  pub fn new(tid: &TransactionId, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
+  pub fn new(tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cont_manager: Arc<ContainerManager>) -> Result<Arc<Self>> {
     let svc = Arc::new(MinHeapQueue {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       est_time: Mutex::new(0.0),
-      cmap,
+      cmap, cont_manager
     });
     debug!(tid=%tid, "Created MinHeapInvoker");
     Ok(svc)
@@ -35,6 +38,7 @@ impl InvokerCpuQueuePolicy for MinHeapQueue {
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
+    *self.est_time.lock() += v.est_wall_time;
     let v = v.item.clone();
     let top = invoke_queue.peek();
     let func_name; 
@@ -46,7 +50,6 @@ impl InvokerCpuQueuePolicy for MinHeapQueue {
            invoke_queue.len(),
            v.registration.function_name,
            func_name );
-    *self.est_time.lock() += v.est_execution_time;
     v
   }
 
@@ -59,9 +62,10 @@ impl InvokerCpuQueuePolicy for MinHeapQueue {
   
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
-    *self.est_time.lock() += item.est_execution_time;
+    let est_wall_time = self.est_wall_time(item, &self.cont_manager, &item.tid, &self.cmap)?;
+    *self.est_time.lock() += est_wall_time;
     let mut queue = self.invoke_queue.lock();
-    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), self.cmap.get_exec_time(&item.registration.fqdn)));
+    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), self.cmap.get_exec_time(&item.registration.fqdn), est_wall_time));
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.registration.function_name,

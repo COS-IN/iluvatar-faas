@@ -37,6 +37,7 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
+    *self.est_time.lock() -= v.est_wall_time;
     let v = v.item.clone();
     let top = invoke_queue.peek();
     let func_name;
@@ -58,7 +59,6 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
   
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
-    *self.est_time.lock() += item.est_execution_time;
     let mut priority = 0.0;
     if self.cont_manager.outstanding(&item.registration.fqdn) == 0 {
       priority = self.cmap.get_warm_time(&item.registration.fqdn);
@@ -68,8 +68,9 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
       ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.registration.fqdn),
       _ => self.cmap.get_cold_time(&item.registration.fqdn),
     };
+    *self.est_time.lock() += priority;
     let mut queue = self.invoke_queue.lock();
-    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority));
+    queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority, priority));
     debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.registration.fqdn,

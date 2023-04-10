@@ -1,6 +1,8 @@
 use std::{collections::VecDeque, sync::Arc};
 use anyhow::Result;
+use iluvatar_library::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
+use crate::services::containers::{structs::ContainerState, containermanager::ContainerManager};
 use crate::services::{invocation::gpu_q_invoke::{GpuQueuePolicy, GpuBatch}, registration::RegisteredFunction};
 use super::EnqueuedInvocation;
 
@@ -8,14 +10,17 @@ use super::EnqueuedInvocation;
 /// Items are returned in a FCFS manner, with no coalescing into batches unless they line up
 pub struct FcfsGpuQueue {
   invoke_queue: Mutex<VecDeque<GpuBatch>>,
-  est_time: Mutex<f64>
+  est_time: Mutex<f64>,
+  cmap: Arc<CharacteristicsMap>,
+  cont_manager: Arc<ContainerManager>, 
 }
 
 impl FcfsGpuQueue {
-  pub fn new() -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let svc = Arc::new(FcfsGpuQueue {
       invoke_queue: Mutex::new(VecDeque::new()),
       est_time: Mutex::new(0.0),
+      cmap, cont_manager
     });
     Ok(svc)
   }
@@ -43,16 +48,21 @@ impl GpuQueuePolicy for FcfsGpuQueue {
   
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
+    let est_time = match self.cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::GPU)? {
+      ContainerState::Warm => self.cmap.get_warm_time(&item.registration.fqdn),
+      ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.registration.fqdn),
+      _ => self.cmap.get_gpu_exec_time(&item.registration.fqdn),
+    };
+
     let mut queue = self.invoke_queue.lock();
-    let mut est_time = self.est_time.lock();
-    *est_time += item.est_execution_time;
+    *self.est_time.lock() += est_time;
     if let Some(back_item) = queue.back_mut() {
       if back_item.item_registration().fqdn == item.registration.fqdn {
-        back_item.add(item.clone());
+        back_item.add(item.clone(), est_time);
         return Ok(());
       }
     }
-    queue.push_back(GpuBatch::new(item.clone()));
+    queue.push_back(GpuBatch::new(item.clone(), est_time));
     Ok(())
   }
 }

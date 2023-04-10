@@ -1,21 +1,27 @@
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 use anyhow::Result;
+use iluvatar_library::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
 use time::OffsetDateTime;
 use tracing::debug;
+use crate::services::containers::containermanager::ContainerManager;
+
 use super::{EnqueuedInvocation, MinHeapEnqueuedInvocation, InvokerCpuQueuePolicy};
 
 pub struct FCFSQueue {
   invoke_queue: Arc<Mutex<BinaryHeap<MinHeapEnqueuedInvocation<OffsetDateTime>>>>,
-  est_time: Mutex<f64>
+  est_time: Mutex<f64>,
+  cont_manager: Arc<ContainerManager>, 
+  cmap: Arc<CharacteristicsMap>,
 }
 
 impl FCFSQueue {
-  pub fn new() -> Result<Arc<Self>> {
+  pub fn new(cont_manager: Arc<ContainerManager>, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let svc = Arc::new(FCFSQueue {
       invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
       est_time: Mutex::new(0.0),
+      cmap, cont_manager,
     });
     Ok(svc)
   }
@@ -32,6 +38,10 @@ impl InvokerCpuQueuePolicy for FCFSQueue {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
     let v = v.item.clone();
+    *self.est_time.lock() -= match self.est_wall_time(&v, &self.cont_manager, &v.tid, &self.cmap) {
+      Ok(f) => f,
+      Err(_) => 0.0,  
+    };
     let mut func_name = "empty"; 
     if let Some(e) = invoke_queue.peek() {
       func_name = e.item.registration.function_name.as_str();
@@ -47,9 +57,10 @@ impl InvokerCpuQueuePolicy for FCFSQueue {
   
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
-    *self.est_time.lock() += item.est_execution_time;
+    let est_wall_time = self.est_wall_time(item, &self.cont_manager, &item.tid, &self.cmap)?;
+    *self.est_time.lock() += est_wall_time;
     let mut queue = self.invoke_queue.lock();
-    queue.push(MinHeapEnqueuedInvocation::new(item.clone(), item.queue_insert_time));
+    queue.push(MinHeapEnqueuedInvocation::new(item.clone(), item.queue_insert_time, est_wall_time));
     Ok(())
   }
 }
