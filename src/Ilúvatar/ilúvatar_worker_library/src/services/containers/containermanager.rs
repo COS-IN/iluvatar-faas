@@ -19,7 +19,7 @@ use tracing::{info, warn, debug, error};
 lazy_static::lazy_static! {
   pub static ref CTR_MGR_WORKER_TID: TransactionId = "CtrMrgWorker".to_string();
   pub static ref CTR_MGR_HEALTH_WORKER_TID: TransactionId = "CtrMrgHealthWorker".to_string();
-  pub static ref CTR_MGR_REMOVER_TID: TransactionId = "CtrMrgUnhealthyRemobed".to_string();
+  pub static ref CTR_MGR_REMOVER_TID: TransactionId = "CtrMrgUnhealthyRemoved".to_string();
 }
 
 /// A struct to manage and control access to containers and system resources
@@ -169,6 +169,9 @@ impl ContainerManager {
     all_ctrs = all_ctrs.into_iter().filter(|x| x.is_healthy()).collect();
     let mut sum_change = 0;
     for container in all_ctrs {
+      if ! container.is_healthy() {
+        continue; // don't update unhealthy containers, they will be remove soon
+      }
       let old_usage = container.get_curr_mem_usage();
       let cont_lifecycle = match self.cont_isolations.get(&container.container_type()) {
         Some(c) => c,

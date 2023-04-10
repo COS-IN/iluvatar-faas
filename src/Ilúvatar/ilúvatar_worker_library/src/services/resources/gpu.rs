@@ -57,7 +57,8 @@ impl GpuResourceTracker {
       Some(c) => c.clone(),
       None => {
         warn!(tid=%tid, "resource_map did not have a GPU entry, skipping GPU resource setup");
-        return Ok(ret)},
+        return Ok(ret)
+      },
     };
     if gpu_config.count == 0 {
       info!(tid=%tid, "resource_map had 0 GPUs, skipping GPU resource setup");
@@ -69,6 +70,11 @@ impl GpuResourceTracker {
       }
     } else {
       let output = execute_cmd("/usr/bin/nvidia-smi", &vec!["-L"], None, tid)?;
+      if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("nvidia-smi failed with a status of {}; stdout: '{}', stderr '{}' ", output.status, stdout, stderr);
+      }
       let stdout = String::from_utf8_lossy(&output.stdout);
       let data = stdout.split("\n").collect::<Vec<&str>>();
       for row in data {
