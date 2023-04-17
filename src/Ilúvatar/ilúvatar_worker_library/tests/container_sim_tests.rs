@@ -753,7 +753,7 @@ mod enqueueing_tests {
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(1.0), true);
-    cmap.add(&func.fqdn, Characteristics::GPUExecTime, Values::F64(0.5), true);
+    cmap.add(&func.fqdn, Characteristics::GpuExecTime, Values::F64(0.5), true);
     let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
     let invoke = invoke.lock();
     assert_eq!(invoke.compute, Compute::GPU, "Item should have been run on CPU");
@@ -777,7 +777,7 @@ mod enqueueing_tests {
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(0.5), true);
-    cmap.add(&func.fqdn, Characteristics::GPUExecTime, Values::F64(1.0), true);
+    cmap.add(&func.fqdn, Characteristics::GpuExecTime, Values::F64(1.0), true);
     let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
     let invoke = invoke.lock();
     assert_eq!(invoke.compute, Compute::CPU, "Item should have been run on CPU");
@@ -846,7 +846,7 @@ mod enqueueing_tests {
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(1.0), true);
-    cmap.add(&func.fqdn, Characteristics::GPUExecTime, Values::F64(0.5), true);
+    cmap.add(&func.fqdn, Characteristics::GpuExecTime, Values::F64(0.5), true);
     let invoke = invoker.sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).await.unwrap_or_else(|e| panic!("Invocation failed: {}", e));
     let invoke = invoke.lock();
     assert_eq!(invoke.compute, Compute::GPU, "Item should have been run on CPU");
@@ -873,7 +873,7 @@ mod enqueueing_tests {
     };
     let func = reg.register(req, &TEST_TID).await.unwrap_or_else(|e| panic!("Registration failed: {}", e));
     cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(1.0), true);
-    cmap.add(&func.fqdn, Characteristics::GPUExecTime, Values::F64(1.5), true);
+    cmap.add(&func.fqdn, Characteristics::GpuExecTime, Values::F64(1.5), true);
     let _async_invoke1 = invoker.async_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).unwrap_or_else(|e| panic!("Invocation failed: {}", e));
     let _async_invoke2 = invoker.async_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).unwrap_or_else(|e| panic!("Invocation failed: {}", e));
     let _async_invoke3 = invoker.async_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone()).unwrap_or_else(|e| panic!("Invocation failed: {}", e));

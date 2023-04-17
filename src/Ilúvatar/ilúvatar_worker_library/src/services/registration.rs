@@ -149,7 +149,7 @@ impl RegistrationService {
     if compute == Compute::CPU {
       return Ok((Characteristics::ColdTime, Characteristics::WarmTime, Characteristics::ExecTime));
     } else if compute == Compute::GPU {
-      return Ok((Characteristics::GPUColdTime, Characteristics::GPUWarmTime, Characteristics::GPUExecTime));
+      return Ok((Characteristics::GpuColdTime, Characteristics::GpuWarmTime, Characteristics::GpuExecTime));
     } else {
       anyhow::bail!("Unknown compute to get characteristics for registration: {:?}", compute)
     }

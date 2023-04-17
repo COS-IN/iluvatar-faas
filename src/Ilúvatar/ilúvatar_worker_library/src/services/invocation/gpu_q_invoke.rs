@@ -292,11 +292,11 @@ impl GpuQueueingInvoker {
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     match ctr_lock.container.state() {
-      ContainerState::Warm => self.cmap.add(&reg.fqdn, Characteristics::WarmTime, Values::F64(data.duration_sec), true),
-      ContainerState::Prewarm => self.cmap.add(&reg.fqdn, Characteristics::PreWarmTime, Values::F64(data.duration_sec), true),
-      _ => self.cmap.add(&reg.fqdn, Characteristics::ColdTime, Values::F64(cold_time_start.elapsed().as_seconds_f64()), true),
+      ContainerState::Warm => self.cmap.add(&reg.fqdn, Characteristics::GpuWarmTime, Values::F64(data.duration_sec), true),
+      ContainerState::Prewarm => self.cmap.add(&reg.fqdn, Characteristics::GpuPreWarmTime, Values::F64(data.duration_sec), true),
+      _ => self.cmap.add(&reg.fqdn, Characteristics::GpuColdTime, Values::F64(cold_time_start.elapsed().as_seconds_f64()), true),
     };
-    self.cmap.add(&reg.fqdn, Characteristics::ExecTime, Values::F64(data.duration_sec), true);
+    self.cmap.add(&reg.fqdn, Characteristics::GpuExecTime, Values::F64(data.duration_sec), true);
     let (compute, state) = (ctr_lock.container.compute_type(), ctr_lock.container.state());
     drop(ctr_lock);
     self.signal.notify_waiters();

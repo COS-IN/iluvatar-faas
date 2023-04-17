@@ -97,7 +97,7 @@ mod oldest_batch {
     let rf = reg(name);
     
     let invoke = Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), OffsetDateTime::now_utc()));
-    m.add(&invoke.registration.fqdn, Characteristics::GPUColdTime, Values::F64(1.5), true);
+    m.add(&invoke.registration.fqdn, Characteristics::GpuColdTime, Values::F64(1.5), true);
 
     let b = BatchGpuQueue::new(Arc::new(m)).unwrap();
     b.add_item_to_queue(&invoke).unwrap();
@@ -111,8 +111,8 @@ mod oldest_batch {
     let name = "t1";
     let rf = reg(name);
     let invoke = Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), OffsetDateTime::now_utc()));
-    m.add(&invoke.registration.fqdn, Characteristics::GPUColdTime, Values::F64(1.5), true);
-    m.add(&invoke.registration.fqdn, Characteristics::GPUExecTime, Values::F64(1.0), true);
+    m.add(&invoke.registration.fqdn, Characteristics::GpuColdTime, Values::F64(1.5), true);
+    m.add(&invoke.registration.fqdn, Characteristics::GpuExecTime, Values::F64(1.0), true);
 
     let b = BatchGpuQueue::new(Arc::new(m)).unwrap();
     b.add_item_to_queue(&invoke).unwrap();
@@ -127,14 +127,14 @@ mod oldest_batch {
     let name = "t1";
     let rf = reg(name);
     let invoke = Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), OffsetDateTime::now_utc()));
-    m.add(&invoke.registration.fqdn, Characteristics::GPUColdTime, Values::F64(1.5), true);
-    m.add(&invoke.registration.fqdn, Characteristics::GPUExecTime, Values::F64(1.0), true);
+    m.add(&invoke.registration.fqdn, Characteristics::GpuColdTime, Values::F64(1.5), true);
+    m.add(&invoke.registration.fqdn, Characteristics::GpuExecTime, Values::F64(1.0), true);
 
     let name = "t2";
     let rf2 = reg(name);
     let invoke2 = Arc::new(EnqueuedInvocation::new(rf2,name.to_string(),name.to_string(), OffsetDateTime::now_utc()));
-    m.add(&invoke2.registration.fqdn, Characteristics::GPUColdTime, Values::F64(0.9), true);
-    m.add(&invoke2.registration.fqdn, Characteristics::GPUExecTime, Values::F64(0.3), true);
+    m.add(&invoke2.registration.fqdn, Characteristics::GpuColdTime, Values::F64(0.9), true);
+    m.add(&invoke2.registration.fqdn, Characteristics::GpuExecTime, Values::F64(0.3), true);
 
     let b = BatchGpuQueue::new(Arc::new(m)).unwrap();
     b.add_item_to_queue(&invoke).unwrap();

@@ -87,31 +87,31 @@ impl AgExponential {
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Characteristics {
     /// Running avg of _all_ times on CPU for invocations
-    /// Recorded by QueueingInvoker::invoke_on_container
+    /// Recorded by CpuQueueingInvoker::invoke_on_container
     ExecTime,
     /// Time on CPU for a warm invocation
-    /// Recorded by QueueingInvoker::invoke_on_container
+    /// Recorded by CpuQueueingInvoker::invoke_on_container
     WarmTime,
     /// Time on CPU for a pre-warmed invocation
     /// The container was previously started, but no invocation was run on it
-    /// Recorded by QueueingInvoker::invoke_on_container
+    /// Recorded by CpuQueueingInvoker::invoke_on_container
     PreWarmTime,
     /// E2E time for a CPU cold start
-    /// Recorded by QueueingInvoker::invoke_on_container
+    /// Recorded by CpuQueueingInvoker::invoke_on_container
     ColdTime,
     /// Running avg of _all_ times on GPU for invocations
-    /// Recorded by QueueingInvoker::invoke_on_container
-    GPUExecTime,
+    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    GpuExecTime,
     /// Time on GPU for a warm invocation
-    /// Recorded by QueueingInvoker::invoke_on_container
-    GPUWarmTime,
+    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    GpuWarmTime,
     /// Time on GPU for a pre-warmed invocation
     /// The container was previously started, but no invocation was run on it
-    /// Recorded by QueueingInvoker::invoke_on_container
-    GPUPreWarmTime,
+    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    GpuPreWarmTime,
     /// E2E time for a GPU cold start
-    /// Recorded by QueueingInvoker::invoke_on_container
-    GPUColdTime,
+    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    GpuColdTime,
     /// The last time an invocation happened 
     /// Recorded internally by the [CharacteristicsMap::add_iat] function
     LastInvTime,
@@ -217,7 +217,7 @@ impl CharacteristicsMap {
     /// Returns the execution time as tracked by [Characteristics::GPUExecTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_gpu_exec_time(&self, fqdn: &String ) -> f64 {
-      if let Some(exectime) = self.lookup(fqdn, &Characteristics::GPUExecTime) {
+      if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuExecTime) {
         unwrap_val_f64( &exectime )
       } else {
         0.0
@@ -226,7 +226,7 @@ impl CharacteristicsMap {
     /// Returns the execution time as tracked by [Characteristics::GPUColdTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_gpu_cold_time(&self, fqdn: &String ) -> f64 {
-      if let Some(exectime) = self.lookup(fqdn, &Characteristics::GPUColdTime) {
+      if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuColdTime) {
         unwrap_val_f64( &exectime )
       } else {
         0.0
