@@ -11,7 +11,7 @@ use time::{OffsetDateTime, Instant};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
-use super::queueing::{fcfs_gpu::FcfsGpuQueue, EnqueuedInvocation, DeviceQueue, oldest_gpu::BatchGpuQueue, MinHeapEnqueuedInvocation, MinHeapFloat};
+use super::{queueing::{fcfs_gpu::FcfsGpuQueue, EnqueuedInvocation, DeviceQueue, oldest_gpu::BatchGpuQueue, MinHeapEnqueuedInvocation, MinHeapFloat}, completion_time_tracker::CompletionTimeTracker};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
@@ -28,7 +28,7 @@ impl GpuBatch {
   pub fn new(first_item: Arc<EnqueuedInvocation>, est_wall_time: f64) -> Self {
     GpuBatch {
       data: VecDeque::from([MinHeapEnqueuedInvocation::new_f(first_item.clone(), est_wall_time, est_wall_time).into()]),
-      est_time: 0.0,
+      est_time: est_wall_time,
     }
   }
 
@@ -106,6 +106,9 @@ pub struct GpuQueueingInvoker {
   gpu: Arc<GpuResourceTracker>,
   signal: Notify,
   queue: Arc<dyn GpuQueuePolicy>,
+  /// Track completion time here because the limited number of GPUs and inability to overcommit 
+  /// means we need to know roughly when one will become available to better predict completion time for incoming invocations
+  completion_tracker: CompletionTimeTracker,
 }
 
 #[allow(dyn_drop)]
@@ -123,6 +126,7 @@ impl GpuQueueingInvoker {
       clock: LocalTime::new(tid)?,
       running: AtomicU32::new(0),
       last_memory_warning: Mutex::new(Instant::now()),
+      completion_tracker: CompletionTimeTracker::new(),
     });
     gpu_tx.send(svc.clone())?;
     debug!(tid=%tid, "Created GpuQueueingInvoker");
@@ -206,18 +210,21 @@ impl GpuQueueingInvoker {
   /// On failure, [Invoker::handle_invocation_error] is called
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, batch, permit), fields(fqdn=batch.peek().registration.fqdn)))]
   async fn invocation_worker_thread(&self, batch: GpuBatch, permit: Box<dyn Drop + Send>) {
+    let now = OffsetDateTime::now_utc();
+    let est_finish_time = now + time::Duration::seconds_f64(batch.est_queue_time());
+    self.completion_tracker.add_item(est_finish_time);
     for item in batch {
       if !item.lock() {
         continue;
       }
       match self.invoke(&item.registration, &item.json_args, &item.tid, item.queue_insert_time).await {
-        Ok( (result, duration, compute, container_state) ) => {
-          item.mark_successful(result, duration, compute, container_state);
-        },
+        Ok( (result, duration, compute, container_state) ) => item.mark_successful(result, duration, compute, container_state),
         Err(cause) => self.handle_invocation_error(item, cause),
       };
     }
     drop(permit);
+    self.completion_tracker.remove_item(est_finish_time);
+    self.signal.notify_waiters();
   }
 
   /// Handle an error with the given enqueued invocation
@@ -299,8 +306,17 @@ impl GpuQueueingInvoker {
     self.cmap.add(&reg.fqdn, Characteristics::GpuExecTime, Values::F64(data.duration_sec), true);
     let (compute, state) = (ctr_lock.container.compute_type(), ctr_lock.container.state());
     drop(ctr_lock);
-    self.signal.notify_waiters();
     Ok((data, duration, compute, state))
+  }
+
+  fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64,ContainerState) {
+    let exists = self.cont_manager.container_exists(&item.fqdn, iluvatar_library::types::Compute::GPU);
+    let t = match exists {
+      ContainerState::Warm => self.cmap.get_gpu_warm_time(&item.fqdn),
+      ContainerState::Prewarm => self.cmap.get_gpu_prewarm_time(&item.fqdn),
+      _ => self.cmap.get_gpu_cold_time(&item.fqdn),
+    };
+    (t,exists)
   }
 }
 
@@ -310,8 +326,12 @@ impl DeviceQueue for GpuQueueingInvoker {
     self.queue.queue_len()
   }
 
-  fn est_completion_time(&self, reg: &Arc<RegisteredFunction>) -> f64 {
-    self.queue.est_queue_time() + self.cmap.get_gpu_exec_time(&reg.fqdn)
+  fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    let qt = self.queue.est_queue_time();
+    let tracked = self.completion_tracker.next_avail().as_seconds_f64();
+    let (runtime, state) = self.get_est_completion_time_from_containers_gpu(reg);
+    debug!(tid=%tid, qt=qt, state=?state, tracked=tracked, runtime=runtime, "GPU estimated completion time of item");
+    qt + tracked + runtime
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
@@ -323,5 +343,48 @@ impl DeviceQueue for GpuQueueingInvoker {
 
   fn running(&self) -> u32 {
     self.running.load(std::sync::atomic::Ordering::Relaxed)
+  }
+}
+
+#[cfg(test)]
+mod gpu_batch_tests {
+  use iluvatar_library::logging::LocalTime;
+  use super::*;
+
+  fn item(clock: &LocalTime) -> Arc<EnqueuedInvocation> {
+    let name = "test";
+    let rf = Arc::new(RegisteredFunction {
+      function_name: name.to_string(),
+      function_version: name.to_string(),
+      fqdn: name.to_string(),
+      image_name: name.to_string(),
+      memory: 1,
+      cpus: 1,
+      snapshot_base: "".to_string(),
+      parallel_invokes: 1,
+      isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
+      supported_compute: iluvatar_library::types::Compute::CPU,
+    });
+    Arc::new(EnqueuedInvocation::new(rf,name.to_string(),name.to_string(), clock.now()))
+  }
+
+  #[test]
+  fn one_item_correct() {
+    let clock = LocalTime::new(&"clock".to_string()).unwrap();
+    let b = GpuBatch::new(item(&clock), 1.0);
+    assert_eq!(b.len(), 1);
+    assert_eq!(b.est_queue_time(), 1.0);
+  }
+
+  #[test]
+  fn added_items_correct() {
+    let clock = LocalTime::new(&"clock".to_string()).unwrap();
+    let mut b = GpuBatch::new(item(&clock), 1.0);
+
+    for _ in 0..3 {
+      b.add(item(&clock), 1.5);
+    }
+    assert_eq!(b.len(), 4);
+    assert_eq!(b.est_queue_time(), 5.5);
   }
 }

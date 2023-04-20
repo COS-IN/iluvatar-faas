@@ -214,7 +214,7 @@ impl CharacteristicsMap {
         0.0
       }
     }
-    /// Returns the execution time as tracked by [Characteristics::GPUExecTime]
+    /// Returns the execution time as tracked by [Characteristics::GpuExecTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_gpu_exec_time(&self, fqdn: &String ) -> f64 {
       if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuExecTime) {
@@ -223,10 +223,28 @@ impl CharacteristicsMap {
         0.0
       }
     }
-    /// Returns the execution time as tracked by [Characteristics::GPUColdTime]
+    /// Returns the execution time as tracked by [Characteristics::GpuColdTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_gpu_cold_time(&self, fqdn: &String ) -> f64 {
       if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuColdTime) {
+        unwrap_val_f64( &exectime )
+      } else {
+        0.0
+      }
+    }
+    /// Returns the execution time as tracked by [Characteristics::GpuWarmTime]
+    /// Returns 0.0 if it was not found, or an error occured
+    pub fn get_gpu_warm_time(&self, fqdn: &String ) -> f64 {
+      if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuWarmTime) {
+        unwrap_val_f64( &exectime )
+      } else {
+        0.0
+      }
+    }
+        /// Returns the execution time as tracked by [Characteristics::GpuPreWarmTime]
+    /// Returns 0.0 if it was not found, or an error occured
+    pub fn get_gpu_prewarm_time(&self, fqdn: &String ) -> f64 {
+      if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuPreWarmTime) {
         unwrap_val_f64( &exectime )
       } else {
         0.0

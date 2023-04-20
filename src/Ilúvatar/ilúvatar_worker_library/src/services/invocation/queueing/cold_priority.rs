@@ -63,7 +63,7 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
     if self.cont_manager.outstanding(&item.registration.fqdn) == 0 {
       priority = self.cmap.get_warm_time(&item.registration.fqdn);
     }
-    priority = match self.cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::CPU)? {
+    priority = match self.cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::CPU) {
       ContainerState::Warm => priority,
       ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.registration.fqdn),
       _ => self.cmap.get_cold_time(&item.registration.fqdn),

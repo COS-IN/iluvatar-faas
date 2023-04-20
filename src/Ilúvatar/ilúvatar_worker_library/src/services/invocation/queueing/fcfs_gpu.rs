@@ -48,20 +48,22 @@ impl GpuQueuePolicy for FcfsGpuQueue {
   
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
-    let est_time = match self.cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::GPU)? {
-      ContainerState::Warm => self.cmap.get_warm_time(&item.registration.fqdn),
-      ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.registration.fqdn),
-      _ => self.cmap.get_gpu_exec_time(&item.registration.fqdn),
+    let est_time = match self.cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::GPU) {
+      ContainerState::Warm => self.cmap.get_gpu_warm_time(&item.registration.fqdn),
+      ContainerState::Prewarm => self.cmap.get_gpu_warm_time(&item.registration.fqdn),
+      _ => self.cmap.get_gpu_cold_time(&item.registration.fqdn),
     };
 
     let mut queue = self.invoke_queue.lock();
-    *self.est_time.lock() += est_time;
     if let Some(back_item) = queue.back_mut() {
       if back_item.item_registration().fqdn == item.registration.fqdn {
+        let est_time = self.cmap.get_gpu_warm_time(&item.registration.fqdn);
         back_item.add(item.clone(), est_time);
+        *self.est_time.lock() += est_time;
         return Ok(());
       }
     }
+    *self.est_time.lock() += est_time;
     queue.push_back(GpuBatch::new(item.clone(), est_time));
     Ok(())
   }

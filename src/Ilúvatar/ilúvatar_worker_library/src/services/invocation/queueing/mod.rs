@@ -66,8 +66,8 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
 
   /// Get the estimated wall-clock time of the function using the global [CharacteristicsMap]
   /// Checks container availability toget cold/warm/prewarm time
-  fn est_wall_time(&self, item: &Arc<EnqueuedInvocation>, cont_manager: &Arc<ContainerManager>, _tid: &TransactionId, cmap: &Arc<CharacteristicsMap>) -> Result<f64> {
-    Ok(match cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::CPU)? {
+  fn est_wall_time(&self, item: &Arc<EnqueuedInvocation>, cont_manager: &Arc<ContainerManager>, cmap: &Arc<CharacteristicsMap>) -> Result<f64> {
+    Ok(match cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::CPU) {
       ContainerState::Warm => cmap.get_warm_time(&item.registration.fqdn),
       ContainerState::Prewarm => cmap.get_prewarm_time(&item.registration.fqdn),
       _ => cmap.get_cold_time(&item.registration.fqdn),
@@ -84,7 +84,7 @@ pub trait DeviceQueue: Send + Sync {
 
   /// The estimated time from now the item would be completed if run on the device
   /// In seconds
-  fn est_completion_time(&self, reg: &Arc<RegisteredFunction>) -> f64;
+  fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64;
 
   /// Insert an item into the queue
   /// If an error is returned, the item was not put enqueued
@@ -134,8 +134,9 @@ impl EnqueuedInvocation {
     self.signal.notify_one();
   }
 
-  /// Return true if this item has not been locked by another resource yet.
-  /// Meaning it can be run here
+  /// Lock item if it has not already been, meaning it can be run here.
+  /// If so this will return `true` if this item has not been locked by another resource yet.
+  /// `false` means another has taken it
   pub fn lock(&self) -> bool {
     let mut started = self.started.lock();
     match *started {

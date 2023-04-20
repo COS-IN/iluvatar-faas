@@ -56,7 +56,7 @@ impl QueueingDispatcher {
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
   fn enqueue_new_invocation(&self, reg: &Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<Arc<EnqueuedInvocation>> {
     debug!(tid=%tid, "Enqueueing invocation");
-    let enqueue = Arc::new(EnqueuedInvocation::new(reg.clone(), json_args, tid, self.clock.now()));
+    let enqueue = Arc::new(EnqueuedInvocation::new(reg.clone(), json_args, tid.clone(), self.clock.now()));
     let mut enqueues = 0;
 
     if reg.supported_compute == Compute::CPU {
@@ -105,10 +105,10 @@ impl QueueingDispatcher {
       EnqueueingPolicy::EstCompTime => {
         let mut opts = vec![];
         if reg.supported_compute.contains(Compute::CPU) {
-          opts.push((self.cpu_queue.est_completion_time(&reg), &self.cpu_queue));
+          opts.push((self.cpu_queue.est_completion_time(&reg, &tid), &self.cpu_queue));
         }
         if reg.supported_compute.contains(Compute::GPU) {
-          opts.push((self.gpu_queue.est_completion_time(&reg), &self.gpu_queue));
+          opts.push((self.gpu_queue.est_completion_time(&reg, &tid), &self.gpu_queue));
         }
         let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
         if let Some((_, q)) = best {

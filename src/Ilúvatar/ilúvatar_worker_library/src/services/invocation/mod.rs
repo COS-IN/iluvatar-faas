@@ -13,6 +13,7 @@ pub mod async_tracker;
 mod queueing_dispatcher;
 mod gpu_q_invoke;
 mod cpu_q_invoke;
+mod completion_time_tracker;
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement

@@ -62,7 +62,7 @@ impl InvokerCpuQueuePolicy for MinHeapQueue {
   
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
-    let est_wall_time = self.est_wall_time(item, &self.cont_manager, &item.tid, &self.cmap)?;
+    let est_wall_time = self.est_wall_time(item, &self.cont_manager, &self.cmap)?;
     *self.est_time.lock() += est_wall_time;
     let mut queue = self.invoke_queue.lock();
     queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), self.cmap.get_exec_time(&item.registration.fqdn), est_wall_time));

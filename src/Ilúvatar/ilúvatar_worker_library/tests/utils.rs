@@ -58,26 +58,27 @@ pub async fn full_sim_invoker(config_pth: Option<String>, overrides: Option<Vec<
 
 /// Creates/sets up the structs needed to test an invoker setup
 /// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
-/// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
-/// [config_pth] is an optional path to config to load
-pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(String,String)>>, log: Option<bool>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>, Arc<CharacteristicsMap>) {
+/// Passing `log_level` = Some('info')  will enable logging to stdout at the specified level. Only pass this on one test as it will be set globally and can only be done once
+/// `config_pth` is an optional path to config to load
+pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(String,String)>>, log_level: Option<&str>) -> (Option<impl Drop>, WorkerConfig, Arc<ContainerManager>, Arc<dyn Invoker>, Arc<RegistrationService>, Arc<CharacteristicsMap>) {
   iluvatar_library::utils::file::ensure_temp_dir().unwrap();
   iluvatar_library::utils::set_simulation();
-  let log = log.unwrap_or(false);
   let worker_name = "TEST".to_string();
   let test_cfg_pth = config_pth.unwrap_or_else(|| "/N/u/a/alfuerst/repos/efaas/src/Ilúvatar/ilúvatar_worker_library/tests/resources/worker.dev.json".to_string());
   let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides).unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
-  let fake_logging = Arc::new(LoggingConfig {
-    level: cfg.logging.level.clone(),
-    directory: None,
-    basename: "".to_string(),
-    spanning: cfg.logging.spanning.clone(),
-    flame: None,
-    span_energy_monitoring: false,
-  });
-  let _log = match log {
-    true => Some(start_tracing(fake_logging, cfg.graphite.clone(), &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e))),
-    false => None,
+  let _log = match log_level {
+    Some(log_level) => {
+      let fake_logging = Arc::new(LoggingConfig {
+        level: log_level.to_string(),
+        directory: None,
+        basename: "".to_string(),
+        spanning: cfg.logging.spanning.clone(),
+        flame: None,
+        span_energy_monitoring: false,
+      });
+      Some(start_tracing(fake_logging, cfg.graphite.clone(), &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)))
+    },
+    None => None,
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
   let cpu = CpuResourceTracker::new(cfg.container_resources.clone(), &TEST_TID).unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));

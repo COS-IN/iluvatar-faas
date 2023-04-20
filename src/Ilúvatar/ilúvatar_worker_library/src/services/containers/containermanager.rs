@@ -139,15 +139,36 @@ impl ContainerManager {
   }
   /// Returns the best possible idle container's [ContainerState] at this time
   /// Not a guarantee it will be available
-  pub fn container_available(&self, fqdn: &String, compute: Compute) -> Result<ContainerState> {
+  pub fn container_available(&self, fqdn: &String, compute: Compute) -> ContainerState {
     if compute == Compute::CPU {
-      return Ok(self.cpu_containers.idle_containers.has_container(fqdn));
+      let x = self.cpu_containers.idle_containers.has_container(fqdn);
+      return x;
     }
     if compute == Compute::GPU {
-      return Ok(self.gpu_containers.idle_containers.has_container(fqdn));
+      let x = self.gpu_containers.idle_containers.has_container(fqdn);
+      return x;
     }
-    anyhow::bail!("Unknown compute to get available containers: {:?}", compute)
+    ContainerState::Cold
   }
+  /// Returns the best possible idle container's [ContainerState] at this time
+  /// Can be either running or idle, if [ContainerState::Cold], then possibly no container found
+  pub fn container_exists(&self, fqdn: &String, compute: Compute) -> ContainerState {
+    let mut ret = ContainerState::Cold;
+    if compute == Compute::CPU {
+      let idle = self.cpu_containers.idle_containers.has_container(fqdn);
+      let run = self.cpu_containers.running_containers.has_container(fqdn);
+      ret = std::cmp::max(idle, run);
+    } else if compute == Compute::GPU {
+      let idle = self.gpu_containers.idle_containers.has_container(fqdn);
+      let run = self.gpu_containers.running_containers.has_container(fqdn);
+      ret = std::cmp::max(idle, run);
+    }
+    if ret == ContainerState::Unhealthy {
+      return ContainerState::Cold;
+    }
+    return ret;
+  }
+
   /// The number of containers for the given FQDN that are not idle
   /// I.E. they are executing an invocation
   /// 0 if the fqdn is unknown

@@ -32,14 +32,14 @@ message InvokeResponse {
 enum ContainerState {
   // An error occured elsewhere
   ERROR = 0;
-  // The container was started on-demand for an invocation and nothing has run on it yet
-  COLD = 1;
-  // The container was pre-warmed by a request and as not run anything yet
-  PREWARM = 2;
-  // The container has completed at least one invocation
-  WARM = 3;
   // The container is unhealthy and should not be used
-  Unhealthy = 4;
+  Unhealthy = 1;
+  // The container was started on-demand for an invocation and nothing has run on it yet
+  COLD = 2;
+  // The container was pre-warmed by a request and as not run anything yet
+  PREWARM = 3;
+  // The container has completed at least one invocation
+  WARM = 4;
 }
 
 message InvokeAsyncRequest {

@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use dashmap::DashMap;
 use iluvatar_library::{transaction::TransactionId, types::Compute};
-use tracing::{debug};
+use tracing::debug;
 use anyhow::Result;
 use super::structs::{Container, ContainerState};
 
@@ -82,8 +82,9 @@ impl ContainerPool {
     match self.pool.get(fqdn) {
       Some(c) => {
         for cont in &*c {
-          if cont.state() < ret {
-            ret = cont.state();
+          let state = cont.state();
+          if state > ret {
+            ret = state;
           }
         }
         ret

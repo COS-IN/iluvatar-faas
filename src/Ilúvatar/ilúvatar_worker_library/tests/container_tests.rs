@@ -134,7 +134,7 @@ mod registration {
       resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
-    assert_error!(err, "Illegal cpu allocation request", "registration succeeded when it should have failed!");
+    assert_error!(err, "Illegal cpu allocation request '0'", "registration succeeded when it should have failed!");
   }
   
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -154,7 +154,7 @@ mod registration {
       resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
-    assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
+    assert_error!(err, "Illegal memory allocation request '0'", "registration succeeded when it should have failed!");
   }
   
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -174,7 +174,7 @@ mod registration {
       resource_timings_json: "".to_string(),
     };
     let err = reg.register(input, &TEST_TID).await;
-    assert_error!(err, "Illegal memory allocation request", "registration succeeded when it should have failed!");
+    assert_error!(err, "Illegal memory allocation request '1000000'", "registration succeeded when it should have failed!");
   }
 
   #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

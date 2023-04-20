@@ -281,6 +281,16 @@ impl CpuQueueingInvoker {
     self.signal.notify_waiters();
     Ok((data, duration, ctr_lock.container.compute_type(), ctr_lock.container.state()))
   }
+
+  fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64,ContainerState) {
+    let avail = self.cont_manager.container_available(&item.fqdn, iluvatar_library::types::Compute::CPU);
+    let t = match avail {
+      ContainerState::Warm => self.cmap.get_warm_time(&item.fqdn),
+      ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.fqdn),
+      _ => self.cmap.get_cold_time(&item.fqdn),
+    };
+    (t,avail)
+  }
 }
 
 #[tonic::async_trait]
@@ -289,8 +299,11 @@ impl DeviceQueue for CpuQueueingInvoker {
     self.queue.queue_len()
   }
 
-  fn est_completion_time(&self, reg: &Arc<RegisteredFunction>) -> f64 {
-    self.queue.est_queue_time() + self.cmap.get_exec_time(&reg.fqdn)
+  fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    let qt = self.queue.est_queue_time();
+    let (runtime, state) = self.get_est_completion_time_from_containers_gpu(reg);
+    debug!(tid=%tid, qt=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
+    qt + runtime
   }
 
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]

@@ -37,11 +37,8 @@ impl InvokerCpuQueuePolicy for FCFSQueue {
   fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
     let mut invoke_queue = self.invoke_queue.lock();
     let v = invoke_queue.pop().unwrap();
+    *self.est_time.lock() -= v.est_wall_time;
     let v = v.item.clone();
-    *self.est_time.lock() -= match self.est_wall_time(&v, &self.cont_manager, &v.tid, &self.cmap) {
-      Ok(f) => f,
-      Err(_) => 0.0,  
-    };
     let mut func_name = "empty"; 
     if let Some(e) = invoke_queue.peek() {
       func_name = e.item.registration.function_name.as_str();
@@ -57,7 +54,7 @@ impl InvokerCpuQueuePolicy for FCFSQueue {
   
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
-    let est_wall_time = self.est_wall_time(item, &self.cont_manager, &item.tid, &self.cmap)?;
+    let est_wall_time = self.est_wall_time(item, &self.cont_manager, &self.cmap)?;
     *self.est_time.lock() += est_wall_time;
     let mut queue = self.invoke_queue.lock();
     queue.push(MinHeapEnqueuedInvocation::new(item.clone(), item.queue_insert_time, est_wall_time));
