@@ -28,6 +28,18 @@ strip=false
 
 [profile.release]
 opt-level=3
+codegen-units=1
+lto=true
+debug=0
+debug-assertions=false
+overflow-checks=false
+incremental=false
+strip=true
+panic="abort"
+
+[profile.tiny]
+inherits="release"
+opt-level='z'
 lto=true
 debug=0
 debug-assertions=false

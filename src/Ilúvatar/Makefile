@@ -15,6 +15,13 @@ check:
 release:
 	@echo "Building release: $(VERSION)"
 	@cargo build --release -j $(NPROCS)
+tiny:
+# https://github.com/johnthagen/min-sized-rust
+	@echo "Building tiny version: $(VERSION)"
+	@rustup toolchain install nightly
+	@rustup component add rust-src --toolchain nightly
+	@cargo +nightly build -Z build-std=std,panic_abort --target x86_64-unknown-linux-gnu -Z build-std-features=panic_immediate_abort --profile tiny
+	@upx --best --lzma ./target/x86_64-unknown-linux-gnu/tiny/ilúvatar_*
 debug:
 	@echo "Building debug"
 	@cargo build -j $(NPROCS)
