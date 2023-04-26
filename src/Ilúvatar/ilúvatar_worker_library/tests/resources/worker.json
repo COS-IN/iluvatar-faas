@@ -15,9 +15,7 @@
     "queue_policies": {
       "cpu": "fcfs",
       "gpu": "fcfs"
-    },
-    "concurrent_invokes": 1,
-    "bypass_duration_ms": 100
+    }
   },
   "logging": {
     "level": "debug",

@@ -13,12 +13,11 @@
   },
   "invocation": {
     "retries": 0,
-    "queue_sleep_ms": 10,
+    "queue_sleep_ms": 200,
     "queue_policies": {
       "cpu": "fcfs",
       "gpu": "fcfs"
-    },
-    "concurrent_invokes": 4
+    }
   },
   "logging": {
     "level": "info",
@@ -51,8 +50,8 @@
     "cni_plugin_bin": "/opt/cni/bin",
     "cni_name": "il_worker_br",
     "use_pool": true,
-    "pool_size": 20,
-    "pool_freq_ms": 1,
+    "pool_size": 2,
+    "pool_freq_ms": 100,
     "hardware_interface": "enp4s0"
   },
   "load_balancer_url": "http://localhost:8078",
@@ -64,10 +63,10 @@
     "enabled": true
   },
   "energy": {
-    "perf_freq_ms": 1000,
-    "rapl_freq_ms": 1000,
+    "perf_freq_ms": 0,
+    "rapl_freq_ms": 0,
     "ipmi_freq_ms": 0,
-    "process_freq_ms": 1000,
+    "process_freq_ms": 0,
     "ipmi_pass_file": "",
     "ipmi_ip_addr": "",
     "log_folder": "/tmp/ilúvatar/logs/"
