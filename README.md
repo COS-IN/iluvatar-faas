@@ -64,7 +64,7 @@ Ilúvatar supports a large variety of customization in configuration and setup, 
 
 ## Citation
 
-If you use, extend, compare against, etc., Ilúvatar, please reference our HPDC 2023 paper in your work.
+If you use, extend, compare against, etc., Ilúvatar, please reference [our HPDC 2023 paper](https://afuerst.github.io/assets/Il%C3%BAvatar.pdf) in your work.
 
 `Alexander Fuerst, Abdul Rehman, and Prateek Sharma. 2023. Ilúvatar: A
 Fast Control Plane for Serverless Computing. In Proceedings of the 32nd
