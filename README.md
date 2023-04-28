@@ -8,6 +8,12 @@ It provides a system that is easy and consistent to use, highly modifiable, and 
 ## Try it Out
 
 ```sh
+# Dependencies
+sudo apt-get install -y curl runc bridge-utils iptables net-tools sysstat containerd jq
+# Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install non-apt dependencies and build Ilúvatar
 cd src/Ilúvatar
 ./simple_setup.sh
 sudo ./target/debug/ilúvatar_worker -c ilúvatar_worker/src/worker.dev.json &
