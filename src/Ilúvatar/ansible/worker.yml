@@ -114,6 +114,7 @@
       "ILUVATAR_WORKER__container_resources__resource_map__gpu__count" : "{{ worker_gpus | default(0) }}"
       "ILUVATAR_WORKER__container_resources__resource_map__cpu__count" : "{{ worker_cores | default(4) }}"
       "ILUVATAR_WORKER__container_resources__memory_buffer_mb" : "{{ worker_memory_buffer | default(0) }}"
+      "ILUVATAR_WORKER__container_resources__snapshotter" : "{{ worker_snapshotter | default('zfs') }}"
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
       "ILUVATAR_WORKER__networking__use_pool" : "{{ worker_use_pool | default(true) }}"

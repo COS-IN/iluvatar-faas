@@ -14,7 +14,7 @@ then
   sudo rm -rf /usr/local/go/
   sudo tar -C /usr/local -xzf ${tar}
   rm ${tar}
-  export PATH=$PATH:/usr/local/go/bin
+  export PATH="$PATH:/usr/local/go/bin"
 fi
 
 go install github.com/containernetworking/cni/cnitool@latest
@@ -37,9 +37,13 @@ cp ./ilúvatar_worker/src/worker.json $local_json
 jq ".networking.hardware_interface = \"$name\"" $local_json > tmp.json && mv tmp.json $local_json
 jq ".container_resources.snapshotter = \"overlayfs\"" $local_json > tmp.json && mv tmp.json $local_json
 
-cat <<EOT >> ansible/group_vars/local_address.yml
+cat <<EOT >> ansible/group_vars/local_addresses.yml
 servers:
   localhost:
+    internal_ip: 127.0.0.1
+    ipmi_ip: 127.0.0.1
+    hardware_interface: "$name"
+  127.0.0.1:
     internal_ip: 127.0.0.1
     ipmi_ip: 127.0.0.1
     hardware_interface: "$name"
