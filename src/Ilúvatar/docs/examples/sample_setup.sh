@@ -37,4 +37,12 @@ cp ./ilúvatar_worker/src/worker.json $local_json
 jq ".networking.hardware_interface = \"$name\"" $local_json > tmp.json && mv tmp.json $local_json
 jq ".container_resources.snapshotter = \"overlayfs\"" $local_json > tmp.json && mv tmp.json $local_json
 
+cat <<EOT >> ansible/group_vars/local_address.yml
+servers:
+  localhost:
+    internal_ip: 127.0.0.1
+    ipmi_ip: 127.0.0.1
+    hardware_interface: "$name"
+EOT
+
 make

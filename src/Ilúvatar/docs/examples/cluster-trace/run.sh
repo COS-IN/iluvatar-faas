@@ -11,7 +11,7 @@ PORT=8080
 results_dir="."
 worker_log_dir="/tmp/ilúvatar/logs/ansible"
 environment='sshd'
-hosts="-e @../../../ansible/group_vars/host_addresses.yml"
+hosts="-e @../../../ansible/group_vars/local_addresses.yml"
 host_file="../../../ansible/environments/$environment/hosts.ini"
 log_file="$results_dir/orchestration.log"
 
