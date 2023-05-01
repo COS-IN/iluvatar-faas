@@ -13,7 +13,7 @@
   },
   "invocation": {
     "retries": 0,
-    "queue_sleep_ms": 200,
+    "queue_sleep_ms": 500,
     "queue_policies": {
       "cpu": "fcfs",
       "gpu": "fcfs"
@@ -32,7 +32,7 @@
     "eviction": "LRU",
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 0,
-    "pool_freq_ms": 5,
+    "pool_freq_ms": 500,
     "snapshotter": "zfs",
     "concurrent_creation": 5,
     "resource_map": {
@@ -50,8 +50,8 @@
     "cni_plugin_bin": "/opt/cni/bin",
     "cni_name": "il_worker_br",
     "use_pool": true,
-    "pool_size": 2,
-    "pool_freq_ms": 100,
+    "pool_size": 20,
+    "pool_freq_ms": 500,
     "hardware_interface": "enp4s0"
   },
   "load_balancer_url": "http://localhost:8078",

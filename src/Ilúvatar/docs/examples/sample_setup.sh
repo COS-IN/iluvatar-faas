@@ -1,7 +1,7 @@
 #!/bin/sh
 
-# sudo apt-get update -y
-# sudo apt-get install -y curl runc bridge-utils iptables net-tools sysstat containerd jq
+# This script prepares dependencies and configuration to run the sample on the landing page.
+# It is expected to be run in the src/Ilúvatar directory of the repository
 
 if ! [ -x "$(command -v go)" ];
 then
@@ -32,7 +32,7 @@ echo "net.ipv4.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
 
 name=$(ip route get 8.8.8.8 | awk '{ print $5; exit }')
 
-local_json="./ilúvatar_worker/src/worker.test.json"
+local_json="./ilúvatar_worker/src/worker.dev.json"
 cp ./ilúvatar_worker/src/worker.json $local_json
 jq ".networking.hardware_interface = \"$name\"" $local_json > tmp.json && mv tmp.json $local_json
 jq ".container_resources.snapshotter = \"overlayfs\"" $local_json > tmp.json && mv tmp.json $local_json
