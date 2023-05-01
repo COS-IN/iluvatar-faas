@@ -17,7 +17,8 @@ cd $ILU_HOME
 make release
 cd $ret
 
-echo "Running benchmark"
+echo "Running basic-trace"
+source ../examples-venv/bin/activate
 
 cleanup(){
   echo "cleanup"
@@ -40,5 +41,6 @@ ansible-playbook -i $host_file $ILU_HOME/ansible/worker.yml -e worker_log_dir=$w
   $ILU_HOME/target/release/ilúvatar_load_gen trace --out-folder $results_dir --port 8070 --host $host --target 'worker' --setup 'live' \
     --load-type functions --input-csv ./in.csv --metadata-csv ./meta.csv --prewarms 1 &>> $log_file
 
-sleep 30
+sleep 5
 cleanup
+deactivate

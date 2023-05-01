@@ -19,6 +19,7 @@ make spans
 cd $ret
 
 echo "Running detailed spans"
+source ../examples-venv/bin/activate
 
 cleanup(){
   echo "cleanup"
@@ -45,3 +46,4 @@ sleep 30
 cleanup
 
 python3 ../../../../load/plotting/stacked_timelime.py --log worker_worker1.log --csv output-in.csv --output .
+deactivate

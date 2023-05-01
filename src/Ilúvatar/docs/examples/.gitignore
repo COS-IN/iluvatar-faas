@@ -1,3 +1,5 @@
+examples-venv/
+
 benchmark/*.csv
 benchmark/*.json
 !benchmark/worker_function_benchmarks.json

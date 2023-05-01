@@ -168,10 +168,13 @@ nvidia-smi --format=csv,noheader --query-gpu=uuid,persistence_mode
 
 ## Build Setup
 
+These steps are required on a system that is going to *build and orchestrate* a worker or cluster.
+
 Install the build dependencies.
 
 ```bash
 sudo apt-get install -y cmake gcc g++ libssl-dev pkg-config libprotobuf-dev
+python3 -m pip install ansible
 ```
 
 Follow the instructions [here](https://www.rust-lang.org/tools/install) to install Rust.

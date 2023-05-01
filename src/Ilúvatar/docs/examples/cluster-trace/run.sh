@@ -42,6 +42,9 @@ user_interrupt() {
 }
 trap user_interrupt 2
 
+echo "Running cluster-trace"
+source ../examples-venv/bin/activate
+
 # clean worker, start worker, start load_gen
 sshpass -p $passphrase ansible-playbook --private-key=$ssh_key --ask-pass -i $host_file $ILU_HOME/ansible/ilúvatar.yml -e worker_log_dir=$worker_log_dir \
    -e controller_log_dir=$worker_log_dir $hosts -e mode=clean > $log_file && \
@@ -59,3 +62,4 @@ cleanup
 # remove temp key
 grep -v "$pub_key" ~/.ssh/authorized_keys > tmp_authorized_keys
 mv tmp_authorized_keys ~/.ssh/authorized_keys
+deactivate

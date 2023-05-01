@@ -23,7 +23,8 @@ cd $ILU_HOME
 make release
 cd $ret
 
-echo "Running benchmark"
+echo "Running azure-trace"
+source ../examples-venv/bin/activate
 
 cleanup(){
   echo "cleanup"
@@ -48,3 +49,4 @@ ansible-playbook -i $host_file $ILU_HOME/ansible/worker.yml -e worker_log_dir=$w
 
 sleep 30
 cleanup
+deactivate

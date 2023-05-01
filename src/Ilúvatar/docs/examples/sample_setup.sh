@@ -1,11 +1,11 @@
 #!/bin/sh
 
-# This script prepares dependencies and configuration to run the sample on the landing page.
-# It is expected to be run in the src/Ilúvatar directory of the repository
+# This script prepares dependencies and configuration to run the samples on the landing page and in this directory.
+# It is expecting to be run in the same directory as it is located.
 
 if ! [ -x "$(command -v go)" ];
 then
-  echo "go not be found, installing"
+  echo "go not found, installing"
   ARCH=amd64
   GO_VERSION=1.18.3
   tar="go${GO_VERSION}.linux-${ARCH}.tar.gz"
@@ -30,14 +30,18 @@ curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI
 sudo /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
 echo "net.ipv4.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
 
+python3 -m venv --clear examples-venv
+examples-venv/bin/python3 -m pip install --upgrade pip --no-warn-script-location
+examples-venv/bin/python3 -m pip install ansible numpy pandas matplotlib --no-warn-script-location
+
 name=$(ip route get 8.8.8.8 | awk '{ print $5; exit }')
 
-local_json="./ilúvatar_worker/src/worker.dev.json"
-cp ./ilúvatar_worker/src/worker.json $local_json
+local_json="../../ilúvatar_worker/src/worker.dev.json"
+cp ../../ilúvatar_worker/src/worker.json $local_json
 jq ".networking.hardware_interface = \"$name\"" $local_json > tmp.json && mv tmp.json $local_json
 jq ".container_resources.snapshotter = \"overlayfs\"" $local_json > tmp.json && mv tmp.json $local_json
 
-cat <<EOT >> ansible/group_vars/local_addresses.yml
+cat <<EOT > ../../ansible/group_vars/local_addresses.yml
 servers:
   localhost:
     internal_ip: 127.0.0.1
@@ -49,4 +53,8 @@ servers:
     hardware_interface: "$name"
 EOT
 
+ILU_HOME="../.."
+ret=$(pwd)
+cd $ILU_HOME
 make
+cd $ret

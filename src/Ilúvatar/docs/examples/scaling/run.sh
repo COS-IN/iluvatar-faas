@@ -18,6 +18,7 @@ make release
 cd $ret
 
 echo "Running scaling"
+source ../examples-venv/bin/activate
 
 cleanup(){
   echo "cleanup"
@@ -41,3 +42,4 @@ ansible-playbook -i $host_file $ILU_HOME/ansible/worker.yml -e worker_log_dir=$w
 
 sleep 30
 cleanup
+deactivate
