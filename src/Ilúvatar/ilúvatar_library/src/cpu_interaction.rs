@@ -71,7 +71,7 @@ impl CPUService {
     for cpu in 0..self.nprocs {
       let shared_path = base.join(format!("cpu{}", cpu));
       let kernel_path = shared_path.join("cpufreq/scaling_cur_freq");
-      let parsed = self.read_freq(kernel_path, tid, true);
+      let parsed = self.read_freq(kernel_path, tid, false);
       ret.push(parsed);
     }
 
