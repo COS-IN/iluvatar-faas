@@ -9,7 +9,7 @@ It provides a system that is easy and consistent to use, highly modifiable, and 
 
 ```sh
 # Dependencies
-sudo apt-get install -y curl runc bridge-utils iptables net-tools sysstat containerd jq pkg-config cmake gcc g++ libssl-dev pkg-config libprotobuf-dev
+sudo apt-get install -y curl runc bridge-utils iptables net-tools python3-venv sysstat containerd jq pkg-config cmake gcc g++ libssl-dev pkg-config libprotobuf-dev
 # Rust, more at https://www.rust-lang.org/tools/install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
