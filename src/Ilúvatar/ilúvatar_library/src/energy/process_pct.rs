@@ -1,7 +1,7 @@
 use std::{path::Path, sync::Arc, thread::JoinHandle, fs::File, io::Write};
 use tracing::error;
 use crate::{utils::execute_cmd, transaction::{TransactionId, ENERGY_LOGGER_PS_TID}, logging::LocalTime, bail_error, threading::os_thread};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use super::EnergyConfig;
 use parking_lot::RwLock;
 
@@ -14,7 +14,8 @@ pub struct ProcessMonitor {
 }
 impl ProcessMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (handle, tx) = os_thread(config.ipmi_freq_ms, ENERGY_LOGGER_PS_TID.clone(), Arc::new(ProcessMonitor::monitor_process))?;
+    let ms = config.process_freq_ms.ok_or_else(|| anyhow!("'process_freq_ms' cannot be 0"))?;
+    let (handle, tx) = os_thread(ms, ENERGY_LOGGER_PS_TID.clone(), Arc::new(ProcessMonitor::monitor_process))?;
 
     let r = Arc::new(ProcessMonitor {
       pid: std::process::id().to_string(),

@@ -48,8 +48,6 @@ impl StatusService {
         load_avg_1minute: 0.0,
         num_system_cores: 0,
         num_running_funcs: 0,
-        hardware_cpu_freqs: vec![],
-        kernel_cpu_freqs: vec![],
         num_containers: 0,
         gpu_utilization: vec![],
       })),
@@ -102,8 +100,6 @@ impl StatusService {
     let total_mem = self.container_manager.total_memory();
     let num_containers = self.container_manager.num_containers();
     let running = self.invoker.running_funcs();
-    let hw_freqs = self.cpu.hardware_cpu_freqs(tid);
-    let kernel_freqs = self.cpu.kernel_cpu_freqs(tid);
 
     let new_status = Arc::new(WorkerStatus {
       num_containers, gpu_utilization, used_mem, total_mem,
@@ -116,8 +112,6 @@ impl StatusService {
       load_avg_1minute: minute_load_avg,
       num_system_cores: nprocs,
       num_running_funcs: running,
-      hardware_cpu_freqs: hw_freqs,
-      kernel_cpu_freqs: kernel_freqs,
     });
     info!(tid=%tid, status=%new_status,"current load status");
 

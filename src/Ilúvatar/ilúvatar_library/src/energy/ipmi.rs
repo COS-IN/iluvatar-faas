@@ -66,7 +66,8 @@ pub struct IPMIMonitor {
 }
 impl IPMIMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (handle, tx) = os_thread(config.ipmi_freq_ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(IPMIMonitor::monitor_energy))?;
+    let ms = config.ipmi_freq_ms.ok_or_else(|| anyhow!("'ipmi_freq_ms' cannot be 0"))?;
+    let (handle, tx) = os_thread(ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(IPMIMonitor::monitor_energy))?;
 
     let i = IPMI::new(
       config.ipmi_pass_file.as_ref().ok_or_else(|| anyhow!("'ipmi_pass_file' was not present with ipmi enabled"))?.clone(), 

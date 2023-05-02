@@ -11,7 +11,7 @@ async fn main() -> anyhow::Result<()> {
   let config = Arc::new(EnergyConfig::parse());
 
   let log_config = Arc::new(LoggingConfig {
-    level: "info".to_string(),
+    level: "debug".to_string(),
     directory: Some(config.log_folder.clone()),
     basename: "energy_monitor".to_string(),
     spanning: "NONE".to_string(),

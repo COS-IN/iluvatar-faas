@@ -1,5 +1,5 @@
 use std::{sync::Arc, path::Path};
-use crate::{transaction::TransactionId, energy::{perf::start_perf_stat, EnergyConfig}};
+use crate::{transaction::TransactionId, energy::{perf::start_perf_stat, EnergyConfig}, cpu_interaction::CpuFreqMonitor};
 use tracing::{error, debug};
 use anyhow::Result;
 use super::{ipmi::IPMIMonitor, rapl::RaplMonitor, process_pct::ProcessMonitor};
@@ -13,11 +13,12 @@ pub struct EnergyLogger {
   ipmi: Option<Arc<IPMIMonitor>>,
   proc: Option<Arc<ProcessMonitor>>,
   _perf_child: Option<std::process::Child>,
+  cpu: Option<Arc<CpuFreqMonitor>>,
 }
 
 impl EnergyLogger {
   pub async fn boxed(config: Option<&Arc<EnergyConfig>>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (perf_child, ipmi, rapl, proc) = match config {
+    let (perf_child, ipmi, rapl, proc, cpu) = match config {
       Some(config) => {
         let perf_child = match config.perf_enabled() {
           true => {
@@ -30,7 +31,11 @@ impl EnergyLogger {
                 anyhow::bail!("Failed to start perf because the log file could not be formatted properly");
               },
             };
-            Some(start_perf_stat(&f, tid, config.perf_freq_ms).await?)  
+            if let Some(ms) = config.perf_freq_ms {
+              Some(start_perf_stat(&f, tid, ms).await?)  
+            } else {
+              None
+            }
           },
           false => None
         };
@@ -58,13 +63,21 @@ impl EnergyLogger {
           },
           false => None,
         };
-        (perf_child, ipmi, rapl, proc)
+        
+        let cpu_mon = match config.cpu_freqs_enabled() {
+          true => {
+            debug!(tid=%tid, "Starting cpu frequency monitoring");
+            Some(CpuFreqMonitor::boxed(config.kernel_cpu_frequencies_freq_ms, config.hardware_cpu_frequencies_freq_ms, tid)?)
+          },
+          false => None,
+        };
+        (perf_child, ipmi, rapl, proc, cpu_mon)
       },
-      None => (None,None,None,None),
+      None => (None,None,None,None,None),
     };
 
     Ok(Arc::new(EnergyLogger {
-      rapl, ipmi, proc, _perf_child: perf_child,
+      rapl, ipmi, proc, _perf_child: perf_child, cpu
     }))
   }
 }

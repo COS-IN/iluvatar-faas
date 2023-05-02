@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::SystemTime;
 use std::fs::{read_to_string, File};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use parking_lot::{Mutex, RwLock};
 use tracing::{warn, trace, debug, error};
 use crate::threading::os_thread;
@@ -231,7 +231,8 @@ pub struct RaplMonitor {
 }
 impl RaplMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-    let (handle, tx) = os_thread(config.rapl_freq_ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(RaplMonitor::monitor_energy))?;
+    let ms = config.rapl_freq_ms.ok_or_else(|| anyhow!("'rapl_freq_ms' cannot be 0"))?;
+    let (handle, tx) = os_thread(ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(RaplMonitor::monitor_energy))?;
 
     let i = RaplMsr::new(tid)?;
     let r = Arc::new(RaplMonitor {
