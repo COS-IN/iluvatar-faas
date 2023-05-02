@@ -50,7 +50,7 @@ sshpass -p $passphrase ansible-playbook --private-key=$ssh_key --ask-pass -i $ho
    -e controller_log_dir=$worker_log_dir $hosts -e mode=clean > $log_file && \
 sshpass -p $passphrase ansible-playbook --private-key=$ssh_key --ask-pass -i $host_file $ILU_HOME/ansible/ilúvatar.yml $hosts \
   -e mode=deploy $debug -e worker_memory_mb=$MEMORY -e worker_cores=$CORES -e controller_log_dir=$worker_log_dir \
-  -e worker_status_ms=500 -e worker_memory_buffer=1024 -e worker_queue_policy="fcfs" -e worker_rapl_log_freq_ms=500 \
+  -e worker_status_ms=500 -e worker_memory_buffer=1024 -e worker_queue_policy="fcfs" -e worker_snapshotter='overlayfs' \
   -e graphite_enabled=false -e worker_log_dir=$worker_log_dir -e controller_port=$PORT >> $log_file && \
 sleep 5 && \ 
 $ILU_HOME/target/release/ilúvatar_load_gen trace --out-folder $results_dir --port $PORT --host $host --target 'controller' --setup 'live' \

@@ -35,9 +35,9 @@ trap user_interrupt 2
 
 # clean worker, start worker, start load_gen
 ansible-playbook -i $host_file $ILU_HOME/ansible/worker.yml -e worker_log_dir=$worker_log_dir $hosts -e mode=clean > $log_file && \
-  ansible-playbook -i $host_file $ILU_HOME/ansible/worker.yml $hosts -e mode=deploy $debug -e worker_memory_mb=$MEMORY \
-    -e worker_cores=$CORES -e worker_status_ms=500 -e worker_memory_buffer=1024 -e worker_queue_policy="fcfs" -e worker_rapl_log_freq_ms=500 \
-    -e graphite_enabled=false -e worker_log_dir=$worker_log_dir >> $log_file && \
+  ansible-playbook -i $host_file $ILU_HOME/ansible/worker.yml $hosts -e mode=deploy -e worker_memory_mb=$MEMORY \
+    -e worker_cores=$CORES -e worker_status_ms=500 -e worker_memory_buffer=1024 -e worker_queue_policy="fcfs" \
+    -e graphite_enabled=false -e worker_log_dir=$worker_log_dir -e worker_snapshotter='overlayfs' >> $log_file && \
   $ILU_HOME/target/release/ilúvatar_load_gen benchmark --out-folder $results_dir --port 8070 --host $host --cold-iters 1 --warm-iters 2 --target worker --function-file $ILU_HOME/target/release/resources/cpu-benchmark.csv >> $log_file
 
 sleep 30
