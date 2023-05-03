@@ -1,11 +1,4 @@
 [workspace]
-
-# [package]
-# name = "Ilúvatar"
-# version = "0.1.0"
-# edition = "2021"
-# authors = ["Alex Fuerst alfuerst@iu.edu"]
-
 members = [
   "ilúvatar_worker",
   "ilúvatar_worker_cli",
@@ -16,6 +9,17 @@ members = [
   "ilúvatar_worker_library",
   "ilúvatar_energy_mon"
 ]
+
+[workspace.package]
+version = "0.2.0"
+authors = ["Alex Fuerst <alfuerst@iu.edu>"]
+edition = "2021"
+keywords = ["FaaS", "Function as a Service", "Serverless Computing"]
+license = "GPL-3"
+readme = "../../README.md"
+repository = "https://github.com/COS-IN/iluvatar-faas"
+categories = ["science", "simulation"]
+description = "A fast, modular, extensible FaaS control plane designed for enabling serverless research."
 
 [profile.dev]
 opt-level=0

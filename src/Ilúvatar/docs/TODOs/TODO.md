@@ -41,13 +41,6 @@ Container memory usage _should_ only change during/immediately after it runs an 
 There is no need to check a container if it hasn't been used.
 Only review a container's memory usage after/during an invocation.
 
-## Multiple concurrent backends
-
-A worker's host may have variable capabilities and hardware.
-We should be able to run functions on multiple containerization backend setups if they can be run.
-I.e. docker+GPU, containerd, etc.
-The function registration should container the information on which backend it runs on.
-
 ## Retry on prewarm
 
 If a prewarm request comes in, sometimes container startup can fail due to a transient issue inside containerd.

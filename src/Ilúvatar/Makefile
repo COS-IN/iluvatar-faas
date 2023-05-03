@@ -1,5 +1,3 @@
-VERSION=0.1.0
-NAME=ilúvatar
 NPROCS:=$(shell grep -c ^processor /proc/cpuinfo)
 
 default: debug
@@ -10,14 +8,14 @@ clean:
 	@echo "Cleaning using cargo"
 	@cargo clean
 check:
-	@echo "Checking $(NAME)"
+	@echo "Checking"
 	@cargo check
 release:
-	@echo "Building release: $(VERSION)"
+	@echo "Building release"
 	@cargo build --release -j $(NPROCS)
 tiny:
 # https://github.com/johnthagen/min-sized-rust
-	@echo "Building tiny version: $(VERSION)"
+	@echo "Building tiny version"
 	@rustup toolchain install nightly
 	@rustup component add rust-src --toolchain nightly
 	@cargo +nightly build -Z build-std=std,panic_abort --target x86_64-unknown-linux-gnu -Z build-std-features=panic_immediate_abort --profile tiny
