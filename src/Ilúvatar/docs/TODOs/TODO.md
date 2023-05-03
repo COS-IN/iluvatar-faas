@@ -21,6 +21,8 @@ But that's either:
 1. A lot of work
 1. Maybe not possible
 
+Probably going to need completion of [this (very old) tokio issue](https://github.com/tokio-rs/tokio/issues/1845).
+
 ## Switch/Enable networking via unix sockets
 
 Using HTTP connections to send/receive invocations has some networking overhead and scaling issues at high throughput.
