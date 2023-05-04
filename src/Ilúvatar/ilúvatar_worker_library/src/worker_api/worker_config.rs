@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use iluvatar_library::{types::{MemSizeMb, ComputeEnum}, utils::port_utils::Port, logging::LoggingConfig};
+use iluvatar_library::{types::{MemSizeMb, ComputeEnum}, utils::port_utils::Port, logging::LoggingConfig, influx::InfluxConfig};
 use iluvatar_library::{graphite::GraphiteConfig, energy::EnergyConfig};
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
@@ -34,6 +34,7 @@ pub struct Configuration {
   pub energy: Option<Arc<EnergyConfig>>,
   pub invocation: Arc<InvocationConfig>,
   pub status: Arc<StatusConfig>,
+  pub influx: Option<Arc<InfluxConfig>>,
 }
 
 #[derive(Debug, Deserialize)]
