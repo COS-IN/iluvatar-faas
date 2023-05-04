@@ -20,6 +20,7 @@ pub mod cpu_interaction;
 pub mod continuation;
 pub mod threading;
 pub mod characteristics_map;
+pub mod influx;
 
 /// The number of logical processors on the system
 /// * `all` - returns all the processors on the system when true

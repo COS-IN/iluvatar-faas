@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use iluvatar_library::influx::InfluxService;
 use iluvatar_library::types::{Isolation, Compute, ResourceTimings};
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map::AgExponential};
@@ -23,6 +24,11 @@ pub mod sim_worker;
 pub mod worker_comm;
 
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
+  let _influx = match &worker_config.influx {
+    Some(i) => InfluxService::new(i.clone(), tid).await?,
+    None => None
+  };
+
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
   let factory = IsolationFactory::new(worker_config.clone());
