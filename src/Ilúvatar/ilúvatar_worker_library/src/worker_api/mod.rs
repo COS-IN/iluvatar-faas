@@ -1,9 +1,10 @@
 use std::sync::Arc;
-use iluvatar_library::influx::InfluxService;
+use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::types::{Isolation, Compute, ResourceTimings};
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map::AgExponential};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
+use crate::services::influx_updater::InfluxUpdater;
 use crate::services::invocation::InvokerFactory;
 use crate::services::registration::RegistrationService;
 use crate::services::resources::{gpu::GpuResourceTracker, cpu::CpuResourceTracker};
@@ -24,11 +25,6 @@ pub mod sim_worker;
 pub mod worker_comm;
 
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
-  let _influx = match &worker_config.influx {
-    Some(i) => InfluxService::new(i.clone(), tid).await?,
-    None => None
-  };
-
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
   let factory = IsolationFactory::new(worker_config.clone());
@@ -58,12 +54,23 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make status service"),
   };
 
+  let influx_updater = match &worker_config.influx {
+    Some(i_config) => match InfluxClient::new(i_config.clone(), tid).await {
+      Ok(i) => match InfluxUpdater::boxed(i, i_config.clone(), status.clone(), worker_config.name.clone(), tid) {
+        Ok(u) => u,
+        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make influx updater"),
+      },
+      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make influx client"),
+    },
+    None => None
+  };
+
   let energy = match EnergyLogger::boxed(worker_config.energy.as_ref(), tid).await {
     Ok(e) => e,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make energy logger"),
   };
   
-  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy, cmap, reg))
+  Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy, cmap, reg, influx_updater))
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -2,6 +2,7 @@ use std::sync::Arc;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
 use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map::CharacteristicsMap, utils::calculate_fqdn};
+use crate::services::influx_updater::InfluxUpdater;
 use crate::services::invocation::Invoker;
 use crate::services::{registration::RegistrationService, worker_health::WorkerHealthService};
 use crate::services::status::status_service::StatusService;
@@ -22,13 +23,15 @@ pub struct IluvatarWorkerImpl {
   energy: Arc<EnergyLogger>,
   cmap: Arc<CharacteristicsMap>,
   reg: Arc<RegistrationService>,
+  updater: Option<Arc<InfluxUpdater>>,
 }
 
 impl IluvatarWorkerImpl {
   pub fn new(config: WorkerConfig, container_manager: Arc<ContainerManager>, invoker: Arc<dyn Invoker>, status: Arc<StatusService>, 
-            health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>, cmap: Arc<CharacteristicsMap>, reg: Arc<RegistrationService>) -> IluvatarWorkerImpl {
+            health: Arc<WorkerHealthService>, energy: Arc<EnergyLogger>, cmap: Arc<CharacteristicsMap>, reg: Arc<RegistrationService>,
+          updater: Option<Arc<InfluxUpdater>>) -> IluvatarWorkerImpl {
     IluvatarWorkerImpl {
-      container_manager, config, invoker, status, health, energy, cmap, reg, 
+      container_manager, config, invoker, status, health, energy, cmap, reg, updater,
     }
   }
 }

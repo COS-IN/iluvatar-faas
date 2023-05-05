@@ -3,7 +3,7 @@ use influxdb2::{Client, RequestError};
 use influxdb2::models::{bucket::PostBucketRequest, retention_rule::{RetentionRule, Type}};
 use influxdb2::api::organization::ListOrganizationRequest;
 use anyhow::Result;
-use tracing::{info,debug};
+use tracing::info;
 use crate::transaction::TransactionId;
 
 #[derive(Debug, serde::Deserialize)]
@@ -11,30 +11,36 @@ pub struct InfluxConfig {
   pub host: String,
   pub org: String,
   pub token: String,
+  /// If using influx is enabled
+  pub enabled: bool,
+  /// Frequency to send/receive updates to/from InfluxDB
+  pub update_freq_ms: u64
 }
 
-pub struct InfluxService {
+pub struct InfluxClient {
   _config: Arc<InfluxConfig>,
   client: Client,
-  internal_id: String,
+  internal_org_id: String,
 }
 
-const FUNCTIONS_BUCKET: &str = "functions";
-const WORKERS_BUCKET: &str = "workers";
+pub const FUNCTIONS_BUCKET: &str = "functions";
+pub const WORKERS_BUCKET: &str = "workers";
 const THREE_HOURS_IN_SEC: i32 = 60 * 60 * 3;
 
-impl InfluxService {
+impl InfluxClient {
   pub async fn new(config: Arc<InfluxConfig>, tid: &TransactionId) -> Result<Option<Self>> {
-    if config.host == "" && config.org == "" && config.token == "" {
-      debug!(tid=%tid, "Disabling influx, all configs are nones");
+    if !config.enabled {
+      info!(tid=%tid, "Influx disabled, skipping client creation");
       return Ok(None);
     }
+    if config.host == "" || config.org == "" || config.token == "" {
+      anyhow::bail!("Influx host, org, or token are empty");
+    }
     let client = Client::new(&config.host, &config.org, &config.token);
-    let org_id = Self::get_internal_organization_id(&config, &client, tid).await?;
+    let internal_org_id = Self::get_internal_organization_id(&config, &client, tid).await?;
     Ok(Some(Self {
-      client,
+      client, internal_org_id,
       _config: config,
-      internal_id: org_id,
     }.ensure_buckets(tid).await?))
   }
 
@@ -88,7 +94,7 @@ impl InfluxService {
 
   async fn ensure_buckets(self, tid: &TransactionId) -> Result<Self> {
     match self.client.create_bucket(Some(PostBucketRequest {
-      org_id: self.internal_id.clone(),
+      org_id: self.internal_org_id.clone(),
       name: FUNCTIONS_BUCKET.to_string(),
       description: None,
       rp: None,
@@ -99,7 +105,7 @@ impl InfluxService {
     };
 
     match self.client.create_bucket(Some(PostBucketRequest {
-      org_id: self.internal_id.clone(),
+      org_id: self.internal_org_id.clone(),
       name: WORKERS_BUCKET.to_string(),
       description: None,
       rp: None,
@@ -109,5 +115,14 @@ impl InfluxService {
       Err(e) => self.handle_ensure_bucket_error(WORKERS_BUCKET, e, tid)?,
     };
     Ok(self)
+  }
+
+  /// Write the given data to the bucket.
+  /// data must be in valid (InfluxDB line protocol)<https://docs.influxdata.com/influxdb/v1.8/write_protocols/line_protocol_reference/>
+  pub async fn write_data(&self, bucket: &str, line_data: String) -> Result<()> {
+    match self.client.write_line_protocol(&self.internal_org_id, bucket, line_data).await {
+      Ok(_) => Ok(()),
+      Err(e) => anyhow::bail!("{:?}", e),
+    }
   }
 }
