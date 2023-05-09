@@ -1,9 +1,0 @@
-{
-  "workers": [
-    {
-      "name": "local",
-      "address": "127.0.0.1",
-      "port": 8079
-    }
-  ]
-}

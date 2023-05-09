@@ -1,7 +1,7 @@
 use std::{sync::Arc, collections::HashMap};
-use iluvatar_library::{graphite::graphite_svc::GraphiteService, threading::tokio_thread};
-use iluvatar_library::{transaction::TransactionId, transaction::LOAD_MONITOR_TID};
-use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
+use iluvatar_library::{influx::{InfluxClient, WORKERS_BUCKET}, threading::tokio_thread};
+use iluvatar_library::transaction::{TransactionId, LOAD_MONITOR_TID};
+use iluvatar_worker_library::{worker_api::worker_comm::WorkerAPIFactory, services::influx_updater::InfluxLoadData};
 use tokio::task::JoinHandle;
 use tracing::{info, error, warn};
 use parking_lot::RwLock;
@@ -10,21 +10,19 @@ use crate::controller::controller_config::LoadBalancingConfig;
 #[allow(unused)]
 pub struct LoadService {
   _worker_thread: JoinHandle<()>,
-  graphite: Arc<GraphiteService>,
+  influx: Arc<InfluxClient>,
   workers: RwLock<HashMap<String, f64>>,
   config: Arc<LoadBalancingConfig>,
   fact: Arc<WorkerAPIFactory>,
 }
 
 impl LoadService {
-  pub fn boxed(graphite: Arc<GraphiteService>, config: Arc<LoadBalancingConfig>, _tid: &TransactionId, fact: Arc<WorkerAPIFactory>) -> Arc<Self> {
+  pub fn boxed(influx: Arc<InfluxClient>, config: Arc<LoadBalancingConfig>, _tid: &TransactionId, fact: Arc<WorkerAPIFactory>) -> Arc<Self> {
     let (handle, tx) = tokio_thread(config.thread_sleep_ms, LOAD_MONITOR_TID.clone(), LoadService::monitor_worker_status);
     let ret = Arc::new(LoadService {
       _worker_thread: handle,
-      graphite,
       workers: RwLock::new(HashMap::new()),
-      config,
-      fact,
+      config, fact, influx,
     });
     tx.send(ret.clone()).unwrap();
 
@@ -52,11 +50,11 @@ impl LoadService {
         },
       };
       match self.config.load_metric.as_str() {
-        "worker.load.loadavg" => update.insert(name, (status.queue_len as f64 + status.num_running_funcs as f64) / status.num_system_cores as f64),
-        "worker.load.running" => update.insert(name, status.num_running_funcs as f64),
-        "worker.load.cpu_pct" => update.insert(name, status.num_running_funcs as f64 / status.num_system_cores as f64),
-        "worker.load.mem_pct" => update.insert(name, status.used_mem as f64 / status.total_mem as f64),
-        "worker.load.queue" => update.insert(name, status.queue_len as f64),
+        "loadavg" => update.insert(name, (status.queue_len as f64 + status.num_running_funcs as f64) / status.num_system_cores as f64),
+        "running" => update.insert(name, status.num_running_funcs as f64),
+        "cpu_pct" => update.insert(name, status.num_running_funcs as f64 / status.num_system_cores as f64),
+        "mem_pct" => update.insert(name, status.used_mem as f64 / status.total_mem as f64),
+        "queue" => update.insert(name, status.queue_len as f64),
         _ => { error!(tid=%tid, metric=%self.config.load_metric, "Unknown load metric"); return; }
       };
     }
@@ -78,7 +76,23 @@ impl LoadService {
   }
 
   async fn get_live_update(&self, tid: &TransactionId) -> HashMap<String, f64> {
-    self.graphite.get_latest_metric(&self.config.load_metric.as_str(), "machine", tid).await
+    let query = format!("from(bucket: \"{}\")
+|> range(start: -5m)
+|> filter(fn: (r) => r._measurement == \"{}\")
+|> last()", WORKERS_BUCKET, self.config.load_metric.as_str());
+    let mut ret = HashMap::new();
+
+    match self.influx.query_data::<InfluxLoadData>(query).await {
+      Ok(r) => for item in r {
+        println!("{:?}", &item);
+        ret.insert(item.name, item.value);
+      },
+      Err(e) => error!(tid=%tid, error=%e, "Failed to query worker status to InfluxDB")
+    };
+    if ret.len() < 1 {
+      warn!(tid=%tid, "Did not get any data in the last 5 minutes using the load metric '{}'", self.config.load_metric.as_str());
+    }
+    return ret;
   }
 
   pub fn get_worker(&self, name: &String) -> Option<f64> {

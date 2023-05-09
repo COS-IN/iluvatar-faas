@@ -5,7 +5,7 @@ use crate::services::load_balance::{get_balancer, LoadBalancer};
 use crate::services::load_reporting::LoadService;
 use crate::services::registration::RegistrationService;
 use iluvatar_library::api_register::RegisterWorker;
-use iluvatar_library::graphite::graphite_svc::GraphiteService;
+use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::{transaction::TransactionId, bail_error};
 use iluvatar_library::utils::{calculate_fqdn, config::args_to_json};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
@@ -27,25 +27,25 @@ pub struct Controller {
 unsafe impl Send for Controller{}
 
 impl Controller {
-  pub fn new(config: ControllerConfig, tid: &TransactionId) -> Self {
+  pub async fn new(config: ControllerConfig, tid: &TransactionId) -> Result<Self> {
     let worker_fact = WorkerAPIFactory::boxed();
     let health_svc: Arc<dyn ControllerHealthService>= match iluvatar_library::utils::is_simulation() {
       true => SimHealthService::boxed(),
       false => HealthService::boxed(worker_fact.clone()),
     };
-    let graphite_svc = GraphiteService::boxed(config.graphite.clone());
-    let load_svc = LoadService::boxed(graphite_svc, config.load_balancer.clone(), tid, worker_fact.clone());
+
+    let influx = match InfluxClient::new(config.influx.clone(), tid).await? {
+      Some(i) => i,
+      None => anyhow::bail!("Failed to get an influx client"),
+    };
+    let load_svc = LoadService::boxed(influx, config.load_balancer.clone(), tid, worker_fact.clone());
     let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()).unwrap();
     let reg_svc = RegistrationService::boxed(lb.clone(), worker_fact.clone());
     let async_svc = AsyncService::boxed(worker_fact.clone());
-    Controller {
-      config,
-      lb,
-      async_svc,
-      health_svc,
-      load_svc,
+    Ok(Controller {
+      config, lb, async_svc, health_svc, load_svc,
       registration_svc: reg_svc,
-    }
+    })
   }
 
   pub async fn register_function(&self, function: RegisterFunction, tid: &TransactionId) -> Result<()> {
