@@ -22,3 +22,18 @@ worker:
   bin_name: "ilúvatar_worker"
   config_name: "worker.json"
   port: "{{ worker_port | default(8070) }}"
+
+
+__influx_api_port: 8086
+influx:
+  docker_image: influxdb:2.0.9
+  container_name: "iluvatar_influx"
+  api_port: "{{ __influx_api_port }}"
+  address: "http://{{ hostvars[ groups['influx']|first ].ansible_host }}:{{ __influx_api_port }}"
+  enabled: "{{ influx_enabled | default(true) }}"
+  username: iluvatar
+  password: iluvatar_password
+  organization: iluvatar
+  bucket: foobar
+  retention: 3h
+  update_freq_ms: "{{ influx_update_freq_ms | default(1000) }}"
