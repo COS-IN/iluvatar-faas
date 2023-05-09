@@ -40,7 +40,7 @@ pub async fn full_sim_invoker(config_pth: Option<String>, overrides: Option<Vec<
     span_energy_monitoring: false,
   });
   let _log = match log {
-    true => Some(start_tracing(fake_logging, cfg.graphite.clone(), &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e))),
+    true => Some(start_tracing(fake_logging, &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e))),
     false => None,
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
@@ -76,7 +76,7 @@ pub async fn sim_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<(
         flame: None,
         span_energy_monitoring: false,
       });
-      Some(start_tracing(fake_logging, cfg.graphite.clone(), &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)))
+      Some(start_tracing(fake_logging, &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)))
     },
     None => None,
   };
@@ -112,7 +112,7 @@ pub async fn test_invoker_svc(config_pth: Option<String>, overrides: Option<Vec<
     span_energy_monitoring: false,
   });
   let _log = match log {
-    true => Some(start_tracing(fake_logging, cfg.graphite.clone(), &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e))),
+    true => Some(start_tracing(fake_logging, &worker_name, &TEST_TID).unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e))),
     false => None,
   };
   let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));

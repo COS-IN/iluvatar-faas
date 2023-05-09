@@ -37,10 +37,11 @@
     "hardware_interface": "enp4s0"
   },
   "load_balancer_url": "http://localhost:8078",
-  "graphite": {
-    "address": "localhost",
-    "api_port": "80",
-    "ingestion_port": 2003,
-    "ingestion_udp": false
+  "influx": {
+    "host": "http://localhost:8086",
+    "org":"ilu",
+    "token": "",
+    "enabled": false,
+    "update_freq_ms": 1000
   }
 }

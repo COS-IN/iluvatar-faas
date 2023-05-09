@@ -49,7 +49,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     Ok(h) => h,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make worker health service"),
   };
-  let status = match StatusService::boxed(container_man.clone(), worker_config.graphite.clone(), worker_config.name.clone(), tid, worker_config.status.clone(), invoker.clone(), gpu_resource.clone()) {
+  let status = match StatusService::boxed(container_man.clone(), worker_config.name.clone(), tid, worker_config.status.clone(), invoker.clone(), gpu_resource.clone()) {
     Ok(s) => s,
     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make status service"),
   };

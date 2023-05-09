@@ -8,7 +8,6 @@ use tracing_flame::FlameLayer;
 use tracing_subscriber::{prelude::*, Registry};
 use crate::bail_error;
 use crate::energy::energy_layer::EnergyLayer;
-use crate::graphite::GraphiteConfig;
 use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
 
@@ -34,7 +33,7 @@ pub struct LoggingConfig {
   /// If [None], do not record flame data
   pub flame: Option<String>,
   /// Use live span information to track invocation and background energy usage
-  /// These will then be reported to graphite
+  /// These will then be reported to influx
   pub span_energy_monitoring: bool,
 }
 
@@ -55,7 +54,7 @@ fn str_to_span(spanning: &String) -> FmtSpan {
   fmt
 }
 
-pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfig>, worker_name: &String, tid: &TransactionId) -> Result<impl Drop> {
+pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &String, tid: &TransactionId) -> Result<impl Drop> {
   #[allow(dyn_drop)]
   let mut drops:Vec<Box<dyn Drop>> = Vec::new();
   let (non_blocking, _guard) = match config.directory.as_ref() {
@@ -80,7 +79,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, graphite_cfg: Arc<GraphiteConfi
   drops.push(Box::new(_guard));
 
   let energy_layer = match config.span_energy_monitoring {
-    true => Some(EnergyLayer::new(graphite_cfg, worker_name)),
+    true => Some(EnergyLayer::new(worker_name)),
     false => None,
   };
   let filter_layer = EnvFilter::builder()

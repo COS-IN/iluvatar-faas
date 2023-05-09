@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
   let args = Args::parse();
 
   let config = Configuration::boxed(&args.config).unwrap();
-  let _guard = start_tracing(config.logging.clone(), config.graphite.clone(), &config.name, tid).unwrap();
+  let _guard = start_tracing(config.logging.clone(), &config.name, tid).unwrap();
 
   let server = Controller::new(config.clone(), tid).await?;
   let server_data = Data::new(server);

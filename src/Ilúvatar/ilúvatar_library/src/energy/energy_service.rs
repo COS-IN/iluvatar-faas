@@ -1,5 +1,5 @@
 use std::{time::SystemTime, sync::{Arc, mpsc::{Receiver, channel}}, collections::HashMap, thread::JoinHandle};
-use crate::{graphite::{graphite_svc::GraphiteService, GraphiteConfig}, transaction::TransactionId, energy::rapl::RAPL};
+use crate::{transaction::TransactionId, energy::rapl::RAPL};
 
 use super::energy_layer::DataExtractorVisitor;
 use dashmap::DashMap;
@@ -14,20 +14,19 @@ const CONTAINER_MGR_TARGET: &str = "iluvatar_worker_library::services::container
 pub type InvocationData = HashMap<String, (String, u128)>;
 
 /// Struct to assign energy usage on a per-function and control-plane level
-/// These numbers are then reported to graphite
+/// These numbers are then reported to influx
 pub struct EnergyMonitorService {
   invocation_spans: DashMap<u64, DataExtractorVisitor>,
   invocation_durations: Arc<RwLock<Option<InvocationData>>>,
   worker_spans: DashMap<u64, DataExtractorVisitor>,
   timing_data: DashMap<String, u128>,
   overhead_ns: Arc<RwLock<u128>>,
-  graphite: Arc<GraphiteService>,
   _worker_thread: JoinHandle<()>,
-  tags: String
+  _tags: String
 }
 
 impl EnergyMonitorService {
-  pub fn boxed(graphite_cfg: Arc<GraphiteConfig>, worker_name: &String) -> Arc<Self> {
+  pub fn boxed(worker_name: &String) -> Arc<Self> {
     let (tx, rx) = channel();
     let handle = EnergyMonitorService::launch_worker_thread(rx);
 
@@ -37,9 +36,8 @@ impl EnergyMonitorService {
       worker_spans: DashMap::new(),
       timing_data: DashMap::new(),
       overhead_ns: Arc::new(RwLock::new(0)),
-      graphite: GraphiteService::boxed(graphite_cfg),
       _worker_thread: handle,
-      tags: format!("machine={};type=worker", worker_name),
+      _tags: format!("machine={};type=worker", worker_name),
     });
     tx.send(ret.clone()).unwrap();
     ret
@@ -116,16 +114,17 @@ impl EnergyMonitorService {
       }
     }
 
-    let overhead_pct = overhead as f64 / tot_time_ns as f64;
+    // let overhead_pct = overhead as f64 / tot_time_ns as f64;
+    // TODO: push to influx
     // println!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time_ns, overhead_pct);
-    for (k,v) in function_data.iter() {
-      let share = *v as f64 / tot_time_ns as f64;
-      let energy = share * uj as f64;
-      let metric = format!("function.used_uj.{k}");
-      self.graphite.publish_metric(metric.as_str(), energy, tid, &self.tags.as_str());
-    }
-    self.graphite.publish_metric("worker.energy.used_uj", uj, tid, &self.tags.as_str());
-    self.graphite.publish_metric("worker.energy.overhead_pct", overhead_pct, tid, &self.tags.as_str());
+    // for (k,v) in function_data.iter() {
+    //   let share = *v as f64 / tot_time_ns as f64;
+    //   let energy = share * uj as f64;
+    //   let metric = format!("function.used_uj.{k}");
+    //   self.graphite.publish_metric(metric.as_str(), energy, tid, &self.tags.as_str());
+    // }
+    // self.graphite.publish_metric("worker.energy.used_uj", uj, tid, &self.tags.as_str());
+    // self.graphite.publish_metric("worker.energy.overhead_pct", overhead_pct, tid, &self.tags.as_str());
     return true;
   }
 

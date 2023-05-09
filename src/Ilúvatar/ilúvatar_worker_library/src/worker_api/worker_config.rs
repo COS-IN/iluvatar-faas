@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use iluvatar_library::{types::{MemSizeMb, ComputeEnum}, utils::port_utils::Port, logging::LoggingConfig, influx::InfluxConfig};
-use iluvatar_library::{graphite::GraphiteConfig, energy::EnergyConfig};
+use iluvatar_library::{types::{MemSizeMb, ComputeEnum}, utils::port_utils::Port, logging::LoggingConfig, influx::InfluxConfig, energy::EnergyConfig};
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 use crate::services::invocation::queueing::EnqueueingPolicy;
@@ -29,7 +28,6 @@ pub struct Configuration {
   pub container_resources: Arc<ContainerResourceConfig>,
   /// full URL to access the controller/load balancer, required for worker registration
   pub load_balancer_url: String,
-  pub graphite: Arc<GraphiteConfig>,
   /// Optional because energy monitoring is not required
   pub energy: Option<Arc<EnergyConfig>>,
   pub invocation: Arc<InvocationConfig>,

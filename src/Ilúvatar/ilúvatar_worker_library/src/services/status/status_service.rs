@@ -8,7 +8,6 @@ use tracing::{info, debug, error};
 use parking_lot::Mutex;
 use crate::services::{containers::containermanager::ContainerManager, invocation::Invoker, resources::gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::StatusConfig;
-use iluvatar_library::graphite::{GraphiteConfig, graphite_svc::GraphiteService};
 use iluvatar_library::transaction::{TransactionId, STATUS_WORKER_TID};
 use super::WorkerStatus;
 use anyhow::Result;
@@ -18,7 +17,6 @@ pub struct StatusService {
   container_manager: Arc<ContainerManager>, 
   current_status: Mutex<Arc<WorkerStatus>>,
   worker_thread: JoinHandle<()>,
-  graphite: GraphiteService,
   tags: String,
   metrics: Vec<&'static str>,
   cpu: Arc<CPUService>,
@@ -29,7 +27,7 @@ pub struct StatusService {
 }
 
 impl StatusService {
-  pub fn boxed(cm: Arc<ContainerManager>, graphite_cfg: Arc<GraphiteConfig>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>, invoker: Arc<dyn Invoker>, gpu: Arc<GpuResourceTracker>) -> Result<Arc<Self>> {
+  pub fn boxed(cm: Arc<ContainerManager>, worker_name: String, tid: &TransactionId, config: Arc<StatusConfig>, invoker: Arc<dyn Invoker>, gpu: Arc<GpuResourceTracker>) -> Result<Arc<Self>> {
     let (handle, sender) = 
           threading::os_thread::<Self>(config.report_freq_ms, STATUS_WORKER_TID.clone(), Arc::new(StatusService::update_status))?;
     let cpu_svc = CPUService::boxed(tid)?;
@@ -52,7 +50,6 @@ impl StatusService {
         gpu_utilization: vec![],
       })),
       worker_thread: handle,
-      graphite: GraphiteService::new(graphite_cfg),
       tags: format!("machine={};type=worker", worker_name),
       metrics: vec!["worker.load.loadavg", "worker.load.cpu", 
                     "worker.load.queue", "worker.load.mem_pct", 
@@ -113,12 +110,7 @@ impl StatusService {
       num_system_cores: nprocs,
       num_running_funcs: running,
     });
-    info!(tid=%tid, status=%new_status,"current load status");
-
-    let values = vec![(minute_load_avg / nprocs as f64), (new_status.cpu_us+new_status.cpu_sy) as f64,
-                                    (new_status.cpu_queue_len + new_status.gpu_queue_len) as f64, (used_mem as f64 / total_mem as f64), 
-                                    used_mem as f64];
-    self.graphite.publish_metrics(&self.metrics, values, tid, self.tags.as_str());
+    info!(tid=%tid, status=%new_status, "current load status");
 
     *self.current_status.lock() = new_status;
   }

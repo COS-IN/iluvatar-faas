@@ -23,7 +23,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
   let threaded_rt = Builder::new_multi_thread()
                         .enable_all()
                         .build().unwrap();
-  let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), server_config.graphite.clone(), &server_config.name, tid)?;
+  let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
 
   let mut metadata = super::load_metadata(&args.metadata_csv)?;
   let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();

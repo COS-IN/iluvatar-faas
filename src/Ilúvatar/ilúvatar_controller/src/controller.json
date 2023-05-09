@@ -16,13 +16,6 @@
     "load_metric": "worker.load.loadavg",
     "thread_sleep_ms": 1000
   },
-  "graphite": {
-    "address": "localhost",
-    "api_port": "80",
-    "ingestion_port": 2003,
-    "ingestion_udp": false,
-    "enabled": true
-  },
   "influx": {
     "host": "http://localhost:8086",
     "org":"ilu",
