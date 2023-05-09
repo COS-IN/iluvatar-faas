@@ -38,6 +38,9 @@ time = "0.3"
 ordered-float = "3.4.0"
 tzdb = "0.4"
 csv = "1.1"
+influxdb2 = "0.4"
+num-traits = "0.2"
+influxdb2-structmap = "0.2"
 
 [build-dependencies]
 tonic-build = "0.7.2"

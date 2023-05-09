@@ -2,7 +2,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use config::{Config, ConfigError, File};
 use iluvatar_library::graphite::GraphiteConfig;
-use iluvatar_library::{utils::port_utils::Port, logging::LoggingConfig};
+use iluvatar_library::{utils::port_utils::Port, logging::LoggingConfig, influx::InfluxConfig};
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
@@ -18,6 +18,7 @@ pub struct Configuration {
   pub logging: Arc<LoggingConfig>,
   pub load_balancer: Arc<LoadBalancingConfig>,
   pub graphite: Arc<GraphiteConfig>,
+  pub influx: Arc<InfluxConfig>,
 }
 
 #[derive(Debug, Deserialize)]

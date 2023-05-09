@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
   let config = Configuration::boxed(&args.config).unwrap();
   let _guard = start_tracing(config.logging.clone(), config.graphite.clone(), &config.name, tid).unwrap();
 
-  let server = Controller::new(config.clone(), tid);
+  let server = Controller::new(config.clone(), tid).await?;
   let server_data = Data::new(server);
 
   info!(tid=%tid, "Controller started!");

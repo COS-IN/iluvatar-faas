@@ -1,5 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
-use influxdb2::{Client, RequestError};
+use influxdb2::{Client, FromMap, RequestError};
 use influxdb2::models::{bucket::PostBucketRequest, retention_rule::{RetentionRule, Type}};
 use influxdb2::api::organization::ListOrganizationRequest;
 use anyhow::Result;
@@ -28,7 +28,7 @@ pub const WORKERS_BUCKET: &str = "workers";
 const THREE_HOURS_IN_SEC: i32 = 60 * 60 * 3;
 
 impl InfluxClient {
-  pub async fn new(config: Arc<InfluxConfig>, tid: &TransactionId) -> Result<Option<Self>> {
+  pub async fn new(config: Arc<InfluxConfig>, tid: &TransactionId) -> Result<Option<Arc<Self>>> {
     if !config.enabled {
       info!(tid=%tid, "Influx disabled, skipping client creation");
       return Ok(None);
@@ -38,10 +38,10 @@ impl InfluxClient {
     }
     let client = Client::new(&config.host, &config.org, &config.token);
     let internal_org_id = Self::get_internal_organization_id(&config, &client, tid).await?;
-    Ok(Some(Self {
+    Ok(Some(Arc::new(Self {
       client, internal_org_id,
       _config: config,
-    }.ensure_buckets(tid).await?))
+    }.ensure_buckets(tid).await?)))
   }
 
   async fn get_internal_organization_id(config: &Arc<InfluxConfig>, client: &Client, tid: &TransactionId) -> Result<String> {
@@ -123,6 +123,15 @@ impl InfluxClient {
     match self.client.write_line_protocol(&self.internal_org_id, bucket, line_data).await {
       Ok(_) => Ok(()),
       Err(e) => anyhow::bail!("{:?}", e),
+    }
+  }
+
+  /// Run a query against Influx and return the parsed results
+  pub async fn query_data<T: FromMap>(&self, query: String) -> Result<Vec<T>> {
+    let query = influxdb2::models::Query::new(query);
+    match self.client.query::<T>(Some(query)).await {
+      Ok(r) => Ok(r),
+      Err(e) => anyhow::bail!("Encountered an error querying InfluxDB: '{:?}'", e),
     }
   }
 }

@@ -2,13 +2,21 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::task::JoinHandle;
 use iluvatar_library::influx::{InfluxClient, InfluxConfig, WORKERS_BUCKET};
+use influxdb2::FromDataPoint;
 use iluvatar_library::{transaction::TransactionId, threading::tokio_thread};
 use tracing::{error, info};
 use super::status::StatusService;
 
+#[derive(Debug, FromDataPoint, Default)]
+pub struct InfluxLoadData {
+  pub value: f64,
+  pub name: String,
+  pub node_type: String,
+}
+
 /// A struct to regularly send data to InfluxDb, if being used
 pub struct InfluxUpdater {
-  influx: InfluxClient,
+  influx: Arc<InfluxClient>,
   status_svc: Arc<StatusService>,
   _status_handle: JoinHandle<()>,
   tags: String,
@@ -19,14 +27,14 @@ lazy_static::lazy_static! {
   pub static ref INFLUX_STATUS_TID: TransactionId = "StatusSenderInflux".to_string();
 }
 impl InfluxUpdater {
-  pub fn boxed(influx: Option<InfluxClient>, config: Arc<InfluxConfig>, status_svc: Arc<StatusService>, worker_name: String, tid: &TransactionId) -> Result<Option<Arc<Self>>> {
+  pub fn boxed(influx: Option<Arc<InfluxClient>>, config: Arc<InfluxConfig>, status_svc: Arc<StatusService>, worker_name: String, tid: &TransactionId) -> Result<Option<Arc<Self>>> {
     if let Some(influx) = influx {
       info!(tid=%tid, "Building InfluxUpdater");
       let (stat, stat_tx) = tokio_thread(config.update_freq_ms, INFLUX_STATUS_TID.clone(), Self::send_status);
       
       let r = Arc::new(Self {
         _status_handle: stat,
-        tags: format!("name={},type=worker", worker_name),
+        tags: format!("name={},node_type=worker", worker_name),
         metrics: vec!["loadavg,", "cpu_util,", 
                       "queue_len,", "mem_pct,", 
                       "used_mem,"],
