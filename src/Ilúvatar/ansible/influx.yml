@@ -1,0 +1,90 @@
+- hosts: influx
+  vars:
+    host_group: "{{ groups['influx'] }}"
+    host_group_size: "{{ host_group | length }}"
+  vars_files:
+    - group_vars/all.yml
+
+  tasks:
+  - name: limit count
+    ansible.builtin.assert:
+      that: host_group_size == "1"
+      fail_msg: "Can only support one influx node"
+      success_msg: "Good on number of influx nodes, got {{ host_group_size }}"
+
+  - name: "pull the influx image"
+    shell: "docker pull {{ influx.docker_image }}"
+    register: result
+    until: (result.rc == 0)
+    retries: 2
+    when: mode == "deploy"
+
+  - name: Remove container
+    docker_container:
+      name: "{{ influx.container_name }}"
+      state: absent
+    when: mode == "clean" or mode == "deploy"
+
+  - name: start influx container
+    docker_container:
+      name: "{{ influx.container_name }}"
+      image:
+        "{{ influx.docker_image }}"
+      state: started
+      restart_policy: "always"
+      ports:
+        - "{{ influx.api_port }}:8086"
+    when: mode == "deploy"
+
+  - name: wait until Influx is up and running
+    uri:
+      url:
+        "http://{{ ansible_host }}:{{influx.api_port}}"
+      validate_certs: "no"
+    register: result
+    until: result.status == 200
+    retries: 10
+    delay: 2
+    when: mode == "deploy"
+
+  - name: Setup database
+    ansible.builtin.command: 
+      argv:
+        - docker 
+        - exec 
+        - "{{ influx.container_name }}"
+        - influx
+        - setup
+        - --username
+        - "{{ influx.username }}"
+        - --password 
+        - "{{ influx.password }}" 
+        - --org 
+        - "{{ influx.organization }}"
+        - --bucket
+        - "{{ influx.bucket }}" 
+        - --retention 
+        - "{{ influx.retention }}"
+        - --force
+    become: yes
+    when: mode == "deploy"
+
+  - name: Get user token
+    ansible.builtin.command: 
+      argv:
+        - docker 
+        - exec 
+        - "{{ influx.container_name }}"
+        - influx
+        - auth
+        - list
+    when: mode == "deploy"
+    register: auth_output
+
+  - name: Parse user token
+    set_fact:
+      influx_token: "{{ auth_output.stdout_lines[1].split()[3] }}"
+
+  - name: output
+    debug:
+      msg: "{{ influx_token }}"
