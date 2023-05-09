@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use iluvatar_library::{transaction::{TransactionId, ENERGY_MONITOR_TID}, energy::{EnergyConfig, energy_logging::EnergyLogger}, logging::{LoggingConfig, start_tracing}, graphite::GraphiteConfig, utils::wait_for_exit_signal};
+use iluvatar_library::{transaction::{TransactionId, ENERGY_MONITOR_TID}, energy::{EnergyConfig, energy_logging::EnergyLogger}, logging::{LoggingConfig, start_tracing}, utils::wait_for_exit_signal};
 use clap::Parser;
 
 pub mod read;
@@ -18,14 +18,7 @@ async fn main() -> anyhow::Result<()> {
     flame: None,
     span_energy_monitoring: false,
   });
-  let graphite_cfg = Arc::new(GraphiteConfig {
-    address: "".to_string(),
-    api_port: 0,
-    ingestion_port: 0,
-    ingestion_udp: false,
-    enabled: false,
-  });
-  let _guard = start_tracing(log_config, graphite_cfg,&"energy_monitor".to_string(), tid)?;
+  let _guard = start_tracing(log_config, &"energy_monitor".to_string(), tid)?;
 
   let _mon = EnergyLogger::boxed(Some(&config), tid).await?;
   wait_for_exit_signal(tid).await?;

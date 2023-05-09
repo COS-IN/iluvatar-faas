@@ -11,6 +11,13 @@
     "mem_max_mb": 3096,
     "cpu_max": 10
   },
+  "influx": {
+    "host": "http://localhost:8086",
+    "org":"ilu",
+    "token": "",
+    "enabled": false,
+    "update_freq_ms": 1000
+  },
   "invocation": {
     "retries": 0,
     "queue_sleep_ms": 500,
@@ -55,13 +62,6 @@
     "hardware_interface": "enp4s0"
   },
   "load_balancer_url": "http://localhost:8078",
-  "graphite": {
-    "address": "localhost",
-    "api_port": "80",
-    "ingestion_port": 2003,
-    "ingestion_udp": false,
-    "enabled": true
-  },
   "energy": {
     "perf_freq_ms": 0,
     "rapl_freq_ms": 0,

@@ -56,7 +56,6 @@ For writing new playbooks, such variables can simply be extraced like this: `ser
 ## Running commands
 
 You **MUST** run the clean command first if the services have been set up before on the target machine(s).
-Leftover resources and the dangling worker/Graphite service exchange causes issues resource exhaustion and load stats reporting stops working.
 
 The hosts you want to run services on must be in an environments file, and given to Ansible via `-i`.
 

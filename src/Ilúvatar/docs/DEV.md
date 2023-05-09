@@ -83,7 +83,7 @@ The `tracing` crate enables JSON and structured logging, all log messages **must
 This looks like:
 
 ```rust
-debug!(tid=%tid, query=%url, "querying graphite render");
+debug!(tid=%tid, query=%url, "querying influx");
 ```
 
 ### Automated Testing

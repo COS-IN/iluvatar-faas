@@ -3,11 +3,6 @@
 A list of possible improvements and changes to the base platform.
 In no particular order.
 
-## Graphite data
-
-After an experiment, it would be great to have the data stored in graphite be extracted and stored alongside results.
-We can match up timestamps and metrics to plot things together.
-
 ## Time-skipping simulation
 
 Can we enable time-skipping when running in a simulation context?

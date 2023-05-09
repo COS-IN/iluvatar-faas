@@ -20,7 +20,7 @@ Advanced load generation to both controller and workers can be found [here](docs
 
 ## Time series Database
 
-We make use of a third-party time series database, `Graphite`, to pool metrics reported by the workers and controller.
+We make use of a third-party time series database, `Influx`, to pool metrics reported by the workers and controller.
 This enables online policymaking using information from workers, without the excessive overhead of communication between all nodes.
 
 ## Energy Monitor

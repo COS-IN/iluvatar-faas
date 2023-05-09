@@ -124,7 +124,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
   let tid: &TransactionId = &SIMULATION_START_TID;
   let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None).unwrap();
   let controller_config = iluvatar_controller_library::controller::controller_config::Configuration::boxed(&controller_config_pth).unwrap();
-  let _guard = iluvatar_library::logging::start_tracing(controller_config.logging.clone(), controller_config.graphite.clone(), &controller_config.name, tid)?;
+  let _guard = iluvatar_library::logging::start_tracing(controller_config.logging.clone(), &controller_config.name, tid)?;
 
   let server = threaded_rt.block_on(async { Controller::new(controller_config.clone(), tid).await })?;
   let server_data = actix_web::web::Data::new(server);

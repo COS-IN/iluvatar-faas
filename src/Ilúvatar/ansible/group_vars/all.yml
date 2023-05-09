@@ -2,15 +2,6 @@ ilúvatar_home: "{{ lookup('env', 'ILU_HOME') | default(playbook_dir ~ '/..', tr
 mode: deploy
 target: release
 
-graphite:
-  docker_image: graphiteapp/graphite-statsd:latest
-  container_name: "iluvatar_graphite"
-  api_port: 8000
-  ingestion_port: 2003
-  ingestion_udp: false
-  address: localhost
-  enabled: "{{ graphite_enabled | default(true) }}"
-
 controller:
   bin_name: "ilúvatar_controller"
   config_name: "controller.json"

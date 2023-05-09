@@ -127,17 +127,12 @@
       "ILUVATAR_WORKER__energy__ipmi_pass_file" : "{{ worker_ipmi_pass_file | default('') }}"
       "ILUVATAR_WORKER__energy__ipmi_ip_addr" : "{{ worker_ipmi_ip_addr | default(servers[ansible_host].ipmi_ip) }}"
       "ILUVATAR_WORKER__energy__log_folder": "{{ worker_log_dir | default('/tmp/ilúvatar/logs') }}"
-      # Graphite config
+      # Influx config
       "ILUVATAR_WORKER__influx__host" : "{{ influx.address }}"
       "ILUVATAR_WORKER__influx__org" : "{{ influx.organization }}"
       "ILUVATAR_WORKER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token }}"
       "ILUVATAR_WORKER__influx__enabled" : "{{ influx.enabled }}"
       "ILUVATAR_WORKER__influx__update_freq_ms" : "{{ influx.update_freq_ms }}"
-
-      "ILUVATAR_WORKER__graphite__address" : "{{ graphite.address }}"
-      "ILUVATAR_WORKER__graphite__ingestion_port" : "{{ graphite.ingestion_port }}"
-      "ILUVATAR_WORKER__graphite__ingestion_udp" : "{{ graphite.ingestion_udp }}"
-      "ILUVATAR_WORKER__graphite__enabled" : "{{ graphite.enabled }}"
       # Invocation config
       "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
       "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(100) }}"
