@@ -34,12 +34,18 @@ impl Controller {
       false => HealthService::boxed(worker_fact.clone()),
     };
 
-    let influx = match InfluxClient::new(config.influx.clone(), tid).await? {
-      Some(i) => i,
-      None => anyhow::bail!("Failed to get an influx client"),
+    let influx = match InfluxClient::new(config.influx.clone(), tid).await {
+      Ok(i) => i,
+      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to create InfluxClient"),
     };
-    let load_svc = LoadService::boxed(influx, config.load_balancer.clone(), tid, worker_fact.clone());
-    let lb: LoadBalancer = get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()).unwrap();
+    let load_svc = match LoadService::boxed(influx, config.load_balancer.clone(), tid, worker_fact.clone()) {
+      Ok(l) => l,
+      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to create LoadService"),
+    };
+    let lb: LoadBalancer = match get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()) {
+      Ok(lb) => lb,
+      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to create load balancer"),
+    };
     let reg_svc = RegistrationService::boxed(lb.clone(), worker_fact.clone());
     let async_svc = AsyncService::boxed(worker_fact.clone());
     Ok(Controller {

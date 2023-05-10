@@ -63,13 +63,19 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &String, tid: &Tra
       let fname = format!("{}.log", config.basename.clone());
       let buff = PathBuf::new();
       ensure_dir(&buff.join(&log_dir))?;
-      let dir = std::fs::canonicalize(log_dir.clone())?;
+      let dir = match std::fs::canonicalize(log_dir.clone()) {
+        Ok(d) => d,
+        Err(e) => anyhow::bail!("Failed to remove canonicalize log file '{}'", e),
+      };
       ensure_dir(&dir)?;
 
       let full_path = std::path::Path::new(&dir).join(&fname);
-      println!("Logging to {}", full_path.to_str().unwrap());
+      println!("Logging to {}", full_path.to_string_lossy());
       if full_path.exists() {
-        std::fs::remove_file(full_path).unwrap();
+        match std::fs::remove_file(full_path) {
+          Ok(_) => (),
+          Err(e) => anyhow::bail!("Failed to remove old log file because '{}'", e),
+        };
       }
 
       let appender = tracing_appender::rolling::never(dir, fname);
@@ -127,7 +133,6 @@ pub fn timezone(tid: &TransactionId) -> Result<String> {
     Err(e) => bail_error!(tid=%tid, error=%e, "/etc/timezone doesn ot exist!!"),
   };
   tz_str.truncate(tz_str.trim_end().len());
-  // let tz_str = iana_time_zone::get_timezone()?;
   match tzdb::tz_by_name(&tz_str) {
     Some(_) => return Ok(tz_str),
     None => (),

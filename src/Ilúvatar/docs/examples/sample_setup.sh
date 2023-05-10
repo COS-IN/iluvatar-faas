@@ -37,6 +37,11 @@ local_json="../../ilúvatar_worker/src/worker.dev.json"
 cp ../../ilúvatar_worker/src/worker.json $local_json
 jq ".networking.hardware_interface = \"$name\"" $local_json > tmp.json && mv tmp.json $local_json
 jq ".container_resources.snapshotter = \"overlayfs\"" $local_json > tmp.json && mv tmp.json $local_json
+jq ".influx.enabled = false" $local_json > tmp.json && mv tmp.json $local_json
+
+local_json="../../ilúvatar_controller/src/controller.dev.json"
+cp ../../ilúvatar_controller/src/controller.json $local_json
+jq ".influx.enabled = false" $local_json > tmp.json && mv tmp.json $local_json
 
 cat <<EOT > ../../ansible/group_vars/local_addresses.yml
 servers:

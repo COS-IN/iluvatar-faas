@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use iluvatar_library::{types::{MemSizeMb, ComputeEnum}, utils::port_utils::Port, logging::LoggingConfig, influx::InfluxConfig, energy::EnergyConfig};
 use serde::Deserialize;
-use config::{Config, ConfigError, File};
+use config::{Config, File};
 use crate::services::invocation::queueing::EnqueueingPolicy;
 
 #[derive(Debug, Deserialize)]
@@ -140,7 +140,7 @@ pub struct StatusConfig {
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
-  pub fn new(config_fpath: &Option<&String>, overrides: Option<Vec<(String,String)>>) -> Result<Self, ConfigError> {
+  pub fn new(config_fpath: &Option<&String>, overrides: Option<Vec<(String,String)>>) -> anyhow::Result<Self> {
     let mut sources = vec!["worker/src/worker.json", "worker/src/worker.dev.json"];
     if let Some(config_fpath) = config_fpath {
       sources.push(config_fpath.as_str());
@@ -157,13 +157,22 @@ impl Configuration {
           .separator("__"));
     if let Some(overrides) = overrides {
       for (k, v) in overrides {
-        s = s.set_override(k, v)?;
+        s = match s.set_override(&k, v.clone()) {
+          Ok(s) => s,
+          Err(e) => anyhow::bail!("Failed to set override '{}' to '{}' because {}", k, v, e)
+        };
       }
     }
-    s.build()?.try_deserialize()
+    match s.build() {
+      Ok(s) => match s.try_deserialize() {
+        Ok(cfg) => Ok(cfg),
+        Err(e) => anyhow::bail!("Failed to deserialize configuration because '{}'", e),
+      },
+      Err(e) => anyhow::bail!("Failed to build configuration because '{}'", e),
+    }
   }
 
-  pub fn boxed(config_fpath: &Option<&String>, overrides: Option<Vec<(String,String)>>) -> Result<WorkerConfig, ConfigError> {
+  pub fn boxed(config_fpath: &Option<&String>, overrides: Option<Vec<(String,String)>>) -> anyhow::Result<WorkerConfig> {
     Ok(Arc::new(Configuration::new(config_fpath, overrides)?))
   }
 }
