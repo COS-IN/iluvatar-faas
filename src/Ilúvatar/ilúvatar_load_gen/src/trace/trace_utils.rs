@@ -98,13 +98,6 @@ fn map_from_benchmark(funcs: &mut HashMap<String, Function>, bench: &BenchmarkSt
       func.prewarms = Some(prewarms);
       total_prewarms += prewarms;
     }
-    if let Some(func_compute) = func.parsed_compute {
-      if func_compute.contains(Compute::GPU) {
-        func.mem_mb = 1024*3;
-      } else if func_compute.contains(Compute::CPU) {
-        func.mem_mb = 1024;
-      }
-    }
   }
   println!("A total of {} prewarmed containers", total_prewarms);
   Ok(())

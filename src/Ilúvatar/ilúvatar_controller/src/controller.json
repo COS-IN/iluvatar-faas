@@ -13,7 +13,7 @@
   },
   "load_balancer": {
     "algorithm": "LeastLoaded",
-    "load_metric": "worker.load.loadavg",
+    "load_metric": "loadavg",
     "thread_sleep_ms": 1000
   },
   "influx": {

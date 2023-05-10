@@ -67,7 +67,7 @@
       "ILUVATAR_CONTROLLER__logging__directory" : "{{ controller_log_dir | default('/tmp/ilúvatar/logs') }}"
       "ILUVATAR_CONTROLLER__logging__level" : "{{ controller_log_level | default('info') }}"
       "ILUVATAR_CONTROLLER__load_balancer__algorithm" : "{{ controller.algorithm }}"
-      "ILUVATAR_CONTROLLER__load_balancer__load_metric" : "{{ controller.algorithm }}"
+      "ILUVATAR_CONTROLLER__load_balancer__load_metric" : "{{ controller.load_metric }}"
       "ILUVATAR_CONTROLLER__influx__host" : "{{ influx.address }}"
       "ILUVATAR_CONTROLLER__influx__org" : "{{ influx.organization }}"
       "ILUVATAR_CONTROLLER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token }}"
