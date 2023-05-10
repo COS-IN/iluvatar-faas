@@ -82,9 +82,6 @@
     register: auth_output
 
   - name: Parse user token
+    when: mode == "deploy"
     set_fact:
       influx_token: "{{ auth_output.stdout_lines[1].split()[3] }}"
-
-  - name: output
-    debug:
-      msg: "{{ influx_token }}"

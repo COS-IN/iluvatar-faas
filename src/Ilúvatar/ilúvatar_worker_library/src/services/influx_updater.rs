@@ -55,8 +55,8 @@ impl InfluxUpdater {
       let val = match measure {
         &"loadavg," => status.load_avg_1minute,
         &"cpu_util," => 100.0 - status.cpu_id,
-        &"queue_len," => status.cpu_queue_len as f64,
-        &"mem_pct," => status.used_mem  as f64 / status.total_mem as f64,
+        &"queue_len," => (status.cpu_queue_len + status.gpu_queue_len) as f64,
+        &"mem_pct," => (status.used_mem  as f64 / status.total_mem as f64) * 100.0,
         &"used_mem," => status.used_mem as f64,
         _ => continue,
       };

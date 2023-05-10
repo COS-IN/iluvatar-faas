@@ -7,7 +7,8 @@ controller:
   config_name: "controller.json"
   host: "{{ hostvars[ groups['controller']|first ].ansible_host }}"
   port: "{{ controller_port | default(8089) }}"
-  algorithm: "{{ controller_algorithm | default('RoundRobin') }}"
+  algorithm: "{{ controller_algorithm | default('LeastLoaded') }}"
+  load_metric: "{{ controller_load_metric | default('loadavg') }}"
 
 worker:
   bin_name: "ilúvatar_worker"
