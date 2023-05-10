@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use serde::Deserialize;
-use config::{Config, ConfigError, File};
+use config::{Config, File};
 use iluvatar_library::{utils::port_utils::Port, logging::LoggingConfig, influx::InfluxConfig};
 
 #[derive(Debug, Deserialize)]
@@ -35,7 +35,7 @@ pub struct LoadBalancingConfig {
 pub type ControllerConfig = Arc<Configuration>;
 
 impl Configuration {
-  pub fn new(config_fpath: &String) -> Result<Self, ConfigError> {
+  pub fn new(config_fpath: &String) -> anyhow::Result<Self> {
     let sources = vec!["load_balancer/src/load_balancer.json", config_fpath.as_str(), "load_balancer/src/load_balancer.dev.json"];
     let s = Config::builder()
       .add_source(
@@ -46,12 +46,17 @@ impl Configuration {
         .collect::<Vec<_>>())
       .add_source(config::Environment::with_prefix("ILUVATAR_CONTROLLER")
         .try_parsing(true)
-        .separator("__"))
-      .build()?;
-    Ok(s.try_deserialize()?)
+        .separator("__"));
+    match s.build() {
+      Ok(s) => match s.try_deserialize() {
+        Ok(cfg) => Ok(cfg),
+        Err(e) => anyhow::bail!("Failed to deserialize configuration because '{}'", e),
+      },
+      Err(e) => anyhow::bail!("Failed to build configuration because '{}'", e),
+    }
   }
 
-  pub fn boxed(config_fpath: &String) -> Result<ControllerConfig, ConfigError> {
+  pub fn boxed(config_fpath: &String) -> anyhow::Result<ControllerConfig> {
     Ok(Arc::new(Configuration::new(config_fpath)?))
   }
 }

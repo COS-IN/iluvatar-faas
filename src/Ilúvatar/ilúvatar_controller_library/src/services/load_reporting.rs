@@ -10,23 +10,25 @@ use crate::controller::controller_config::LoadBalancingConfig;
 #[allow(unused)]
 pub struct LoadService {
   _worker_thread: JoinHandle<()>,
-  influx: Arc<InfluxClient>,
+  influx: Option<Arc<InfluxClient>>,
   workers: RwLock<HashMap<String, f64>>,
   config: Arc<LoadBalancingConfig>,
   fact: Arc<WorkerAPIFactory>,
 }
 
 impl LoadService {
-  pub fn boxed(influx: Arc<InfluxClient>, config: Arc<LoadBalancingConfig>, _tid: &TransactionId, fact: Arc<WorkerAPIFactory>) -> Arc<Self> {
+  pub fn boxed(influx: Option<Arc<InfluxClient>>, config: Arc<LoadBalancingConfig>, _tid: &TransactionId, fact: Arc<WorkerAPIFactory>) -> anyhow::Result<Arc<Self>> {
     let (handle, tx) = tokio_thread(config.thread_sleep_ms, LOAD_MONITOR_TID.clone(), LoadService::monitor_worker_status);
+    if !iluvatar_library::utils::is_simulation() && influx.is_none() {
+      anyhow::bail!("Cannot run a live system with no Influx set up!");
+    }
     let ret = Arc::new(LoadService {
       _worker_thread: handle,
       workers: RwLock::new(HashMap::new()),
       config, fact, influx,
     });
-    tx.send(ret.clone()).unwrap();
-
-    ret
+    tx.send(ret.clone())?;
+    Ok(ret)
   }
 
   async fn monitor_worker_status(service: Arc<Self>, tid: TransactionId) {
@@ -81,16 +83,20 @@ impl LoadService {
 |> filter(fn: (r) => r._measurement == \"{}\")
 |> last()", WORKERS_BUCKET, self.config.load_metric.as_str());
     let mut ret = HashMap::new();
-
-    match self.influx.query_data::<InfluxLoadData>(query).await {
-      Ok(r) => for item in r {
-        println!("{:?}", &item);
-        ret.insert(item.name, item.value);
+    match &self.influx {
+      Some(influx) => match influx.query_data::<InfluxLoadData>(query).await {
+        Ok(r) => {
+          for item in r {
+            println!("{:?}", &item);
+            ret.insert(item.name, item.value);
+          }
+          if ret.len() < 1 {
+            warn!(tid=%tid, "Did not get any data in the last 5 minutes using the load metric '{}'", self.config.load_metric.as_str());
+          }      
+        },
+        Err(e) => error!(tid=%tid, error=%e, "Failed to query worker status to InfluxDB")
       },
-      Err(e) => error!(tid=%tid, error=%e, "Failed to query worker status to InfluxDB")
-    };
-    if ret.len() < 1 {
-      warn!(tid=%tid, "Did not get any data in the last 5 minutes using the load metric '{}'", self.config.load_metric.as_str());
+      None => error!(tid=%tid, "Influx client was not created during live run")
     }
     return ret;
   }

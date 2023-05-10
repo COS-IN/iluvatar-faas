@@ -51,7 +51,7 @@ pub fn try_remove_pth(pth: &String, tid: &TransactionId) {
 pub fn ensure_dir(dir: &PathBuf) -> Result<()> {
   match std::fs::create_dir_all(dir) {
     Ok(_) => Ok(()),
-    Err(e) => anyhow::bail!("Failed to create temp dir: {}", e),
+    Err(e) => anyhow::bail!("Failed to create dir '{:?}' because '{}'", dir, e),
   }
 }
 
