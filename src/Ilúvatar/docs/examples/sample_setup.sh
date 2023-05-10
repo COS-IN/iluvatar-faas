@@ -27,9 +27,6 @@ CNI_VERSION=v1.1.1
 
 curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz | sudo tar -xz -C /opt/cni/bin
 
-sudo /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
-echo "net.ipv4.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
-
 python3 -m venv --clear examples-venv
 examples-venv/bin/python3 -m pip install --upgrade pip --no-warn-script-location
 examples-venv/bin/python3 -m pip install ansible numpy pandas matplotlib --no-warn-script-location

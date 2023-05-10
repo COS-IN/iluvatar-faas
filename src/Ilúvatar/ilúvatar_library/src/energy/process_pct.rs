@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc, thread::JoinHandle, fs::File, io::Write};
 use tracing::error;
-use crate::{utils::execute_cmd, transaction::{TransactionId, ENERGY_LOGGER_PS_TID}, logging::LocalTime, bail_error, threading::os_thread};
+use crate::{utils::execute_cmd_checked, transaction::{TransactionId, ENERGY_LOGGER_PS_TID}, logging::LocalTime, bail_error, threading::os_thread};
 use anyhow::{Result, anyhow};
 use super::EnergyConfig;
 use parking_lot::RwLock;
@@ -31,7 +31,7 @@ impl ProcessMonitor {
 
   /// Reads the different energy sources and writes the current staistics out to the csv file
   fn monitor_process(&self, tid: &TransactionId) {
-    let (cpu_pct, cpu_time) = match execute_cmd("/usr/bin/ps", &vec!["-p", self.pid.as_str(), "-o", "%C %x"], None, tid) {
+    let (cpu_pct, cpu_time) = match execute_cmd_checked("/usr/bin/ps", &vec!["-p", self.pid.as_str(), "-o", "%C %x"], None, tid) {
       Ok(out) => {
         let stdout = String::from_utf8_lossy(&out.stdout);
         let data = stdout.split("\n").collect::<Vec<&str>>();

@@ -5,12 +5,10 @@ use std::collections::HashMap;
 use std::thread::JoinHandle;
 use anyhow::Result;
 use iluvatar_library::transaction::{TransactionId, NAMESPACE_POOL_WORKER_TID};
-use iluvatar_library::{utils, bail_error, utils::execute_cmd};
+use iluvatar_library::{utils, bail_error, utils::{execute_cmd, execute_cmd_checked}};
 use iluvatar_library::threading::os_thread;
 use parking_lot::Mutex;
-use std::env;
-use std::fs::File;
-use std::io::Write;
+use std::{io::Write, fs::File, env};
 use tracing::{info, debug, error, warn};
 use guid_create::GUID;
 
@@ -180,20 +178,25 @@ impl NamespaceManager {
     };
 
     // https://unix.stackexchange.com/questions/248504/bridged-interfaces-do-not-have-internet-access
-    match execute_cmd("/usr/sbin/iptables", 
+    match execute_cmd_checked("/usr/sbin/iptables", 
       &vec!["-t", "nat", "-A", "POSTROUTING", "-o" , &config.hardware_interface, "-j", "MASQUERADE"], None, tid) {
         Ok(_) => debug!(tid=%tid, "Setting nat on hardware interface succeded"),
         Err(e) => bail_error!(tid=%tid, error=%e, "Setting nat on hardware interface failed"),
       };
-    match execute_cmd("/usr/sbin/iptables", 
+    match execute_cmd_checked("/usr/sbin/iptables", 
     &vec!["-A", "FORWARD", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"], None, tid) {
       Ok(_) => debug!(tid=%tid, "Setting conntrack succeded"),
       Err(e) => bail_error!(tid=%tid, error=%e, "Setting conntrack failed"),
     };
-    match execute_cmd("/usr/sbin/iptables", 
+    match execute_cmd_checked("/usr/sbin/iptables", 
       &vec!["-A", "FORWARD", "-i", &config.bridge, "-o", &config.hardware_interface, "-j", "ACCEPT"], None, tid) {
       Ok(_) => debug!(tid=%tid, "Forwarding bridge to interface succeded"),
       Err(e) => bail_error!(tid=%tid, error=%e, "Forwarding bridge to interface failed"),
+    };
+    match execute_cmd_checked("/sbin/sysctl", 
+    &vec!["-w", "net.ipv4.conf.all.forwarding=1"], None, tid) {
+      Ok(_) => debug!(tid=%tid, "Setting upv4 forwarding succeeded"),
+      Err(e) => bail_error!(tid=%tid, error=%e, "Setting upv4 forwarding failed"),
     };
     Ok(())
   }
@@ -251,7 +254,7 @@ impl NamespaceManager {
   }
   
   fn create_namespace_internal(name: &String, tid: &TransactionId) -> Result<()> {
-    let out = match execute_cmd("/bin/ip", &vec!["netns", "add", name], None, tid) {
+    let out = match execute_cmd_checked("/bin/ip", &vec!["netns", "add", name], None, tid) {
               Ok(out) => out,
               Err(e) => bail_error!(tid=%tid, error=%e, "Failed to launch 'ip netns add' command")
             };

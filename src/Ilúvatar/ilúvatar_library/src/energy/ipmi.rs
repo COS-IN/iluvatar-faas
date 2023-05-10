@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc, thread::JoinHandle, fs::File, io::Write};
 use tracing::{trace, error};
-use crate::{utils::execute_cmd, transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID}, logging::LocalTime, bail_error};
+use crate::{utils::execute_cmd_checked, transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID}, logging::LocalTime, bail_error};
 use anyhow::{Result, bail, anyhow};
 use super::EnergyConfig;
 use parking_lot::RwLock;
@@ -31,13 +31,8 @@ impl IPMI {
   /// Get the instantaneous wattage usage of the system from ipmi
   pub fn read(&self, tid: &TransactionId) -> anyhow::Result<u128> {
     trace!(tid=%tid, "Reading from ipmi");
-    let output = execute_cmd("/usr/bin/ipmitool", &vec!["-f", self.ipmi_pass_file.as_str(), "-I", "lanplus",
+    let output = execute_cmd_checked("/usr/bin/ipmitool", &vec!["-f", self.ipmi_pass_file.as_str(), "-I", "lanplus",
                                                        "-H", self.ipmi_ip_addr.as_str(), "-U", "ADMIN", "dcmi", "power", "reading"], None, tid)?;
-    match output.status.code() {
-      Some(0) => (),
-      Some(code) => bail!("Got an illegal exit code from command '{}', output: {:?}", code, output),
-      None => bail!("Got no exit code from command, output: {:?}", output),
-    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let mut split = stdout.split("\n");
     match split.nth(1) {

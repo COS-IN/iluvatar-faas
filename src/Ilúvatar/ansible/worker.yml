@@ -130,7 +130,7 @@
       # Influx config
       "ILUVATAR_WORKER__influx__host" : "{{ influx.address }}"
       "ILUVATAR_WORKER__influx__org" : "{{ influx.organization }}"
-      "ILUVATAR_WORKER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token }}"
+      "ILUVATAR_WORKER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token | default('') }}"
       "ILUVATAR_WORKER__influx__enabled" : "{{ influx.enabled }}"
       "ILUVATAR_WORKER__influx__update_freq_ms" : "{{ influx.update_freq_ms }}"
       # Invocation config

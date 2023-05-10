@@ -88,14 +88,6 @@ sudo mkdir -p /usr/local/lib/systemd/system/
 sudo mv containerd.service /usr/local/lib/systemd/system/containerd.service
 ```
 
-**Container forwarding.**
-Enables forwarding of IP traffic from containers.
-
-```bash
-sudo /sbin/sysctl -w net.ipv4.conf.all.forwarding=1
-echo "net.ipv4.conf.all.forwarding=1" | sudo tee -a /etc/sysctl.conf
-```
-
 **ZFS and file system.**
 Containerd supports a [variety of different snapshotters](https://github.com/containerd/containerd/tree/main/docs/snapshotters).
 After initially using the default `overlayfs`, we chose to focus on using the `ZFS` snapshotter.
