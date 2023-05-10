@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use iluvatar_library::{utils::execute_cmd, transaction::TransactionId, types::ComputeEnum, bail_error};
+use iluvatar_library::{utils::{execute_cmd, execute_cmd_checked}, transaction::TransactionId, types::ComputeEnum, bail_error};
 use parking_lot::RwLock;
 use anyhow::Result;
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
@@ -117,7 +117,7 @@ impl GpuResourceTracker {
       return Ok(ret);
     }
     let args = vec!["--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit", "--format=csv,noheader,nounits"];
-    let nvidia = execute_cmd("/usr/bin/nvidia-smi", &args, None, tid)?;
+    let nvidia = execute_cmd_checked("/usr/bin/nvidia-smi", &args, None, tid)?;
     let mut rdr = csv::ReaderBuilder::new().has_headers(false).delimiter(b',').trim(csv::Trim::All).from_reader(nvidia.stdout.as_slice());
     for record in rdr.deserialize() {
       match record {

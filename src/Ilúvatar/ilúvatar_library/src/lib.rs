@@ -5,7 +5,7 @@
 use std::{fs::File, io::Read};
 use tracing::error;
 use transaction::TransactionId;
-use utils::execute_cmd;
+use utils::execute_cmd_checked;
 
 pub mod utils;
 pub mod transaction;
@@ -29,11 +29,8 @@ pub fn nproc(tid: &TransactionId, all: bool) -> anyhow::Result<u32> {
     true => vec!["--all"],
     false => vec![],
   };
-  let nproc = execute_cmd("/usr/bin/nproc", &args, None, tid)?;
+  let nproc = execute_cmd_checked("/usr/bin/nproc", &args, None, tid)?;
   let stdout = String::from_utf8_lossy(&nproc.stdout);
-  if !nproc.status.success() {
-    anyhow::bail!("Calling nproc failed");
-  }
   if stdout.len() == 0 {
     anyhow::bail!("`nproc` output was empty");
   }
