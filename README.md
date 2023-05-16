@@ -16,7 +16,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Install non-apt dependencies and build Ilúvatar, assumes python3 exists
 cd src/Ilúvatar/docs/examples
 ./sample_setup.sh
-sudo ../../target/debug/ilúvatar_worker -c ilúvatar_worker/src/worker.dev.json &
+sudo ../../target/debug/ilúvatar_worker -c ../../ilúvatar_worker/src/worker.dev.json &
 worker_pid=$(echo $!)
 ```
 
