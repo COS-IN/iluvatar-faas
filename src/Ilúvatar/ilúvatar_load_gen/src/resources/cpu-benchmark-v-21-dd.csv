@@ -1,0 +1,3 @@
+name,image_name,compute,isolation,memory
+chameleon,docker.io/aarehman/chameleon-iluvatar-action:latest,CPU,CONTAINERD,512
+dd,docker.io/aarehman/dd-iluvatar-action:latest,CPU,CONTAINERD,512

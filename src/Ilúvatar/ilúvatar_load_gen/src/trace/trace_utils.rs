@@ -120,6 +120,13 @@ fn map_from_benchmark(
             func.prewarms = Some(prewarms);
             total_prewarms += prewarms;
         }
+        if let Some(func_compute) = func.parsed_compute {
+            if func_compute.contains(Compute::GPU) {
+                func.mem_mb = 1024*2 + 512;
+            } else if func_compute.contains(Compute::CPU) {
+                func.mem_mb = 512;
+            }
+        }
     }
     println!("A total of {} prewarmed containers", total_prewarms);
     Ok(())
@@ -400,7 +407,6 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             anyhow::bail!("Failed to write json of result because {}", e);
         }
     };
-
     for r in results {
         let to_write = format!(
             "{},{},{},{},{},{},{}\n",

@@ -218,7 +218,11 @@ impl Invoker for QueueingDispatcher {
         let result_ptr = queued.result_ptr.lock();
         match result_ptr.completed {
             true => {
-                info!(tid=%tid, "Invocation complete");
+                let wr = &result_ptr.worker_result.as_ref();
+                if !wr.is_none(){
+                    let wr = wr.unwrap();
+                    info!(tid=%tid, fqdn=%reg.fqdn, t_start=%wr.start, t_end=%wr.end, "Invocation complete");
+                }
                 Ok(queued.result_ptr.clone())
             }
             false => {

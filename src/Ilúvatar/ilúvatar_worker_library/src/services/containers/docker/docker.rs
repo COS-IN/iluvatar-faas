@@ -205,6 +205,14 @@ impl ContainerIsolationService for DockerIsolation {
             gpu = format!("device={}", device.gpu_uuid);
             args.push("--gpus");
             args.push(gpu.as_str());
+
+            if let Some(gpu_config) = self.config.gpu_resource.clone() {
+                if gpu_config.is_tegra.unwrap_or(false) {
+                    args.push("--runtime");
+                    args.push("nvidia");
+                }
+            }
+
             args.push("-e");
             mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
             args.push(mps_thread.as_str());
