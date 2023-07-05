@@ -1,0 +1,12 @@
+name,image_name,compute,isolation,memory
+cnn_image_classification,docker.io/aarehman/cnn_image_classification-iluvatar-action:aarch64,CPU,CONTAINERD,512
+chameleon,docker.io/aarehman/chameleon-iluvatar-action:aarch64,CPU,CONTAINERD,512
+image_processing,docker.io/aarehman/image_processing-iluvatar-action:aarch64,CPU,CONTAINERD,512
+lin_pack,docker.io/aarehman/lin_pack-iluvatar-action:aarch64,CPU,CONTAINERD,512
+json_dumps_loads,docker.io/aarehman/json_dumps_loads-iluvatar-action:aarch64,CPU,CONTAINERD,512
+float_operation,docker.io/aarehman/float_operation-iluvatar-action:aarch64,CPU,CONTAINERD,512
+hello,docker.io/aarehman/hello-iluvatar-action:aarch64,CPU,CONTAINERD,512
+model_training,docker.io/aarehman/model_training-iluvatar-action:aarch64,CPU,CONTAINERD,512
+gzip_compression,docker.io/aarehman/gzip_compression-iluvatar-action:aarch64,CPU,CONTAINERD,512
+pyaes,docker.io/aarehman/pyaes-iluvatar-action:aarch64,CPU,CONTAINERD,512
+dd,docker.io/aarehman/dd-iluvatar-action:aarch64,CPU,CONTAINERD,512

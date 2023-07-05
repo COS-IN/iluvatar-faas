@@ -207,6 +207,12 @@ pub struct FunctionInvocationTimings {
     /// cold invocation latency time recorded on worker
     pub cold_invoke_duration_us: Vec<u128>,
 }
+impl Default for FunctionInvocationTimings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FunctionInvocationTimings {
     pub fn new() -> Self {
         FunctionInvocationTimings {

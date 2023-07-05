@@ -59,6 +59,12 @@ pub struct DataExtractorVisitor {
     pub fqdn: Option<String>,
 }
 
+impl Default for DataExtractorVisitor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DataExtractorVisitor {
     pub fn new() -> Self {
         DataExtractorVisitor {

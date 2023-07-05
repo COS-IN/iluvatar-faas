@@ -10,6 +10,12 @@ pub struct AsyncHelper {
     pub async_functions: Arc<DashMap<String, InvocationResultPtr>>,
 }
 unsafe impl Send for AsyncHelper {}
+impl Default for AsyncHelper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AsyncHelper {
     pub fn new() -> Self {
         AsyncHelper {

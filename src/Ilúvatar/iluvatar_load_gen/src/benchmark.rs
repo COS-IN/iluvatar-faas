@@ -2,7 +2,7 @@ use crate::trace::prepare_function_args;
 use crate::utils::*;
 use anyhow::Result;
 use clap::Parser;
-use iluvatar_library::types::{Compute, FunctionInvocationTimings, Isolation, MemSizeMb, ResourceTimings};
+use iluvatar_library::types::{Compute, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,12 @@ pub struct BenchmarkStore {
     /// map of function name to data
     pub data: HashMap<String, FunctionStore>,
 }
+impl Default for BenchmarkStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BenchmarkStore {
     pub fn new() -> Self {
         BenchmarkStore { data: HashMap::new() }
@@ -171,10 +177,7 @@ pub async fn benchmark_controller(
                             let compute = Compute::CPU; // TODO: update when controller returns more details
                             let resource_entry = match func_data.resource_data.get_mut(&compute.try_into()?) {
                                 Some(r) => r,
-                                None => func_data
-                                    .resource_data
-                                    .entry(compute.try_into()?)
-                                    .or_insert_with(FunctionInvocationTimings::new),
+                                None => func_data.resource_data.entry(compute.try_into()?).or_default(),
                             };
                             if invoke_result.function_output.body.cold {
                                 resource_entry
@@ -363,10 +366,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
         if invoke.worker_response.success {
             let resource_entry = match d.resource_data.get_mut(&compute.try_into()?) {
                 Some(r) => r,
-                None => d
-                    .resource_data
-                    .entry(compute.try_into()?)
-                    .or_insert_with(FunctionInvocationTimings::new),
+                None => d.resource_data.entry(compute.try_into()?).or_default(),
             };
             if invoke.function_output.body.cold {
                 resource_entry
