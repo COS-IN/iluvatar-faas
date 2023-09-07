@@ -80,6 +80,16 @@ impl EnergyLogger {
       rapl, ipmi, proc, _perf_child: perf_child, cpu
     }))
   }
+
+  pub fn get_latest_reading(&self) -> (i128, f64) {
+    if let Some(ipmi) = &self.ipmi {
+      return ipmi.get_latest_reading();
+    }
+    if let Some(rapl) = &self.rapl {
+      return rapl.get_latest_reading();
+    }
+    (0,0.0)
+  }
 }
 
 impl Drop for EnergyLogger {

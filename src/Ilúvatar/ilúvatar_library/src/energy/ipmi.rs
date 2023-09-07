@@ -58,6 +58,7 @@ pub struct IPMIMonitor {
   _worker_thread: JoinHandle<()>,
   log_file: RwLock<File>,
   timer: LocalTime,
+  latest_reading: RwLock<(i128, f64)>
 }
 impl IPMIMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
@@ -73,6 +74,7 @@ impl IPMIMonitor {
       _config: config.clone(),
       timer: LocalTime::new(tid)?,
       log_file: IPMIMonitor::open_log_file(&config, tid)?,
+      latest_reading: RwLock::new((0,0.0)),
     });
 
     r.write_text("timestamp,ipmi\n".to_string(), tid);
@@ -80,7 +82,11 @@ impl IPMIMonitor {
     Ok(r)
   }
 
-  /// Reads the different energy sources and writes the current staistics out to the csv file
+  pub fn get_latest_reading(&self) -> (i128, f64) {
+    return *self.latest_reading.read()
+  }
+
+  /// Reads the different energy sources and writes the current statistics out to the csv file
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
   fn monitor_energy(&self, tid: &TransactionId) {
     let ipmi_uj = match self.ipmi.read(tid) {
@@ -90,10 +96,12 @@ impl IPMIMonitor {
         return;
       },
     };
-    let t = match self.timer.now_str() {
+    let now = self.timer.now();
+    *self.latest_reading.write() = (now.unix_timestamp_nanos(), ipmi_uj as f64 / 1_000_000.0);
+    let t = match self.timer.format_time(now) {
       Ok(t) => t,
       Err(e) => {
-        error!(error=%e, tid=%tid, "Failed to get time");
+        error!(error=%e, tid=%tid, "Failed to format time");
         return;
       },
     };

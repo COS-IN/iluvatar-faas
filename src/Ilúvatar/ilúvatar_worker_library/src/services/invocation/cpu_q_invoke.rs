@@ -9,6 +9,7 @@ use time::{OffsetDateTime, Instant};
 use tokio::sync::{Notify, mpsc::UnboundedSender};
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
+use crate::services::invocation::energy_limiter::EnergyLimiter;
 use super::queueing::{InvokerCpuQueuePolicy, EnqueuedInvocation, DeviceQueue};
 use super::queueing::{avail_scale::AvailableScalingQueue, queueless::Queueless, fcfs::FCFSQueue, minheap::MinHeapQueue, minheap_ed::MinHeapEDQueue, minheap_iat::MinHeapIATQueue, cold_priority::ColdPriorityQueue};
 
@@ -28,7 +29,8 @@ pub struct CpuQueueingInvoker {
   signal: Notify,
   queue: Arc<dyn InvokerCpuQueuePolicy>,
   _bypass_thread: tokio::task::JoinHandle<()>,
-  bypass_rx: UnboundedSender<Arc<EnqueuedInvocation>>
+  bypass_rx: UnboundedSender<Arc<EnqueuedInvocation>>,
+  energy: Arc<EnergyLimiter>,
 }
 
 #[allow(dyn_drop)]
@@ -36,13 +38,13 @@ pub struct CpuQueueingInvoker {
 /// Queueing method is configurable
 impl CpuQueueingInvoker {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, 
-      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>) -> Result<Arc<Self>> {
+      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>, energy: Arc<EnergyLimiter>) -> Result<Arc<Self>> {
     let (cpu_handle, cpu_tx) = tokio_runtime(invocation_config.queue_sleep_ms, INVOKER_CPU_QUEUE_WORKER_TID.clone(), Self::monitor_queue, Some(Self::cpu_wait_on_queue), Some(function_config.cpu_max as usize))?;
     let (bypass_thread, bypass_tx, bypass_rx) = Self::bypass_thread();
 
     let svc = Arc::new(CpuQueueingInvoker {
       queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid)?,
-      cont_manager, invocation_config, cpu, cmap, bypass_rx,
+      cont_manager, invocation_config, cpu, cmap, bypass_rx, energy,
       _bypass_thread: bypass_thread,
       signal: Notify::new(),
       _cpu_thread: cpu_handle,
@@ -151,6 +153,9 @@ impl CpuQueueingInvoker {
   /// Returns an owned permit if there are sufficient resources to run a function
   /// A return value of [None] means the resources failed to be acquired
   fn acquire_resources_to_run(&self, item: &Arc<EnqueuedInvocation>) -> Option<Box<dyn Drop+Send>> {
+    if ! self.energy.ok_run_fn(&self.cmap, &item.registration.fqdn) {
+      return None
+    }
     let mut ret = vec![];
     match self.cpu.try_acquire_cores(&item.registration, &item.tid) {
       Ok(c) => ret.push(c),

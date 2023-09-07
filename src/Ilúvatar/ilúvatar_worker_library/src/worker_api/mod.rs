@@ -5,13 +5,12 @@ use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map::AgExponential};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use crate::services::influx_updater::InfluxUpdater;
-use crate::services::invocation::InvokerFactory;
+use crate::services::invocation::{InvokerFactory, energy_limiter::EnergyLimiter};
 use crate::services::registration::RegistrationService;
 use crate::services::resources::{gpu::GpuResourceTracker, cpu::CpuResourceTracker};
 use crate::services::worker_health::WorkerHealthService;
-use crate::services::containers::IsolationFactory;
 use crate::services::status::status_service::StatusService;
-use crate::services::containers::containermanager::ContainerManager;
+use crate::services::containers::{containermanager::ContainerManager, IsolationFactory};
 use crate::worker_api::ilúvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
 use crate::rpc::{StatusResponse, InvokeResponse, CleanResponse};
@@ -43,7 +42,15 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
   let reg = RegistrationService::new(container_man.clone(), isos.clone(), worker_config.limits.clone(), cmap.clone(), worker_config.container_resources.clone());
 
-  let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(), worker_config.invocation.clone(), cmap.clone(), cpu, gpu_resource.clone());
+  let energy = match EnergyLogger::boxed(worker_config.energy.as_ref(), tid).await {
+    Ok(e) => e,
+    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make energy logger"),
+  };
+
+  let energy_limit = EnergyLimiter::boxed(&worker_config.invocation, energy.clone());
+  let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(),
+                                          worker_config.invocation.clone(), cmap.clone(), cpu,
+                                         gpu_resource.clone(), energy_limit.clone());
   let invoker = invoker_fact.get_invoker_service(tid)?;
   let health = match WorkerHealthService::boxed(invoker.clone(), reg.clone(), tid).await {
     Ok(h) => h,
@@ -65,11 +72,6 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     None => None
   };
 
-  let energy = match EnergyLogger::boxed(worker_config.energy.as_ref(), tid).await {
-    Ok(e) => e,
-    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make energy logger"),
-  };
-  
   Ok(IluvatarWorkerImpl::new(worker_config.clone(), container_man, invoker, status, health, energy, cmap, reg, influx_updater))
 }
 
