@@ -42,6 +42,7 @@ impl NamespaceManager {
 
   pub fn boxed(config: Arc<NetworkingConfig>, tid: &TransactionId, ensure_bridge: bool) -> Result<Arc<Self>> {
     debug!(tid=%tid, "creating namespace manager");
+    Self::ensure_net_config_file(tid, &config)?;
     if ensure_bridge {
       Self::ensure_bridge(tid, &config)?;
     }
@@ -122,24 +123,30 @@ impl NamespaceManager {
     }
   }
 
-  fn try_ensure_bridge(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
-    if !Self::hardware_exists(tid, config)? {
-      anyhow::bail!("Hardware interface '{}' does not exist or cannot be found!", config.hardware_interface);
-    }
-    Self::make_resolv_conf(tid)?;
+  fn ensure_net_config_file(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
     let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "conf");
 
-    let mut file = match File::create(temp_file) {
+    let mut file = match File::options().read(true).write(true).create_new(true).open(temp_file) {
       Ok(f) => f,
-      Err(e) => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
+      Err(e) => match e.kind() {
+        std::io::ErrorKind::AlreadyExists => return Ok(()),
+        _ => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
+      },
     };
     let bridge_json = include_str!("../../resources/cni/il_worker_br.json").to_string()
                                 .replace("$BRIDGE", &config.bridge);
 
     match writeln!(&mut file, "{}", bridge_json) {
-      Ok(_) => (),
+      Ok(_) => Ok(()),
       Err(e) => bail_error!(tid=%tid, error=%e, "Failed to write 'il_worker_br' conf file"),
-    };
+    }
+  }
+
+  fn try_ensure_bridge(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
+    if !Self::hardware_exists(tid, config)? {
+      anyhow::bail!("Hardware interface '{}' does not exist or cannot be found!", config.hardware_interface);
+    }
+    Self::make_resolv_conf(tid)?;
 
     let env = Self::cmd_environment(config);
     let name = BRIDGE_NET_ID.to_string();

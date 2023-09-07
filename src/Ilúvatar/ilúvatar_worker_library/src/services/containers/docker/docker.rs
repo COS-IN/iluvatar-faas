@@ -129,11 +129,9 @@ impl ContainerIsolationService for DockerIsolation {
     
     let mut args = vec!["run", "--detach", "--name", &cid, "-e", &gunicorn_args, "-e", &il_port, "--cpus", cpu_arg.as_str(), "--memory", &memory_arg, "-e", "__IL_HOST=0.0.0.0", "--label", "owner=iluvatar_worker", "--cpus", "1", "-p", &port_args];
     if let Some(dev) = gpu.as_ref() {
-      args.push("--gpus");
-      args.push(dev);
+      args.extend(["--gpus", dev, "--ipc=host"]);
     }
-    args.push(image_name);
-    args.push("-w 1");
+    args.extend([image_name, "-w 1"]);
 
     let permit = match &self.creation_sem {
       Some(sem) => match sem.acquire().await {

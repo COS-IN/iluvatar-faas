@@ -3,10 +3,12 @@ use std::time::{SystemTime, Duration};
 use std::{collections::HashMap, path::Path};
 use anyhow::Result;
 use clap::Parser;
+use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{utils::port_utils::Port, transaction::gen_tid, logging::LocalTime};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb, ResourceTimings, FunctionInvocationTimings};
 use serde::{Serialize, Deserialize};
 use tokio::runtime::{Runtime, Builder};
+use crate::trace::{prepare_function_args, Function};
 use crate::utils::*;
 
 #[derive(Debug, serde::Deserialize, Clone)]
@@ -22,6 +24,9 @@ pub struct ToBenchmarkFunction {
   /// The memory to give the func
   /// If empty, will default to 512
   pub memory: Option<MemSizeMb>,
+  /// Arguments to pass to invocation of function
+  /// If empty, none
+  pub args: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -254,7 +259,13 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
             let timeout = Duration::from_secs(duration_sec as u64);
             let start = SystemTime::now();
             while start.elapsed()? < timeout {
-              match threaded_rt.block_on(worker_invoke(&name, &version, &args.host, args.port, &gen_tid(), None, clock.clone(), &factory, None)) {
+              let mut func_args: Option<String> = None;
+              if let Some(args) = &function.args {
+                let mut f: Function = Default::default();
+                f.args = Some(args.clone());
+                func_args = Some(args_to_json(&prepare_function_args(&f, LoadType::Functions))?);
+              }
+              match threaded_rt.block_on(worker_invoke(&name, &version, &args.host, args.port, &gen_tid(), func_args, clock.clone(), &factory, None)) {
                 Ok(r) => invokes.push(r),
                 Err(e) => {
                   println!("Invocation error: {}", e);

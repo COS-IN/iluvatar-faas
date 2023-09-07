@@ -76,6 +76,8 @@ pub struct ComputeResourceConfig {
   /// The maximum normalized load average before reducing concurrency. 
   /// Used with [Self::max_oversubscribe] and cannot be 0
   pub max_load: Option<f64>,
+  /// 
+  pub gpu_use_mps: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -31,7 +31,7 @@ build() {
   if ! [ -f "$pth/Dockerfile" ]; then
     cp $docker_base $pth/Dockerfile
     cd $pth
-    docker build -t $img_name . &> $log || {
+    docker build --build-arg REPO=$REPO -t $img_name . &> $log || {
       echo "Failed to build $func_name, check $log";
       exit 1;
     }
@@ -40,11 +40,11 @@ build() {
   else
     cp $docker_base $pth
     cd $pth
-    docker build -f $docker_base -t "$REPO/iluvatar-action-base:$VERSION" . &> $log || {
+    docker build --build-arg REPO=$REPO -f $docker_base -t "$REPO/iluvatar-action-base:$VERSION" . &> $log || {
       echo "Failed to build action base, check $log";
       exit 1;
     }
-    docker build -f "Dockerfile" -t $img_name . &>> $log || {
+    docker build --build-arg REPO=$REPO -f "Dockerfile" -t $img_name . &>> $log || {
       echo "Failed to build $func_name, check $log";
       exit 1;
     }

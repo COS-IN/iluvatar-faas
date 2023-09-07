@@ -38,6 +38,7 @@ def invoke():
     # Usually comes from malformed json arguments
     return jsonify({"platform_error":str(e), "was_cold":was_cold}), 500
 
+  # return jsonify({"e":"test"}), 500
   start = datetime.now()
   try:
     ret = main(json_input)
