@@ -139,6 +139,7 @@
       "ILUVATAR_WORKER__invocation__cpu__queue_policy" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
       "ILUVATAR_WORKER__invocation__gpu__queue_policy" : "{{ worker_gpu_queue_policy | default('fcfs') }}"
       "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
+      "ILUVATAR_WORKER__invocation__power_cap" : "{{ worker_power_cap | default(0.0) }}"
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
 

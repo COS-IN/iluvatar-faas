@@ -7,6 +7,7 @@ use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::{transaction::TransactionId, logging::LocalTime, types::Compute};
 use tracing::{debug, info};
 use anyhow::Result;
+use crate::services::invocation::energy_limiter::EnergyLimiter;
 use super::queueing::{DeviceQueue, EnqueuedInvocation};
 use super::{async_tracker::AsyncHelper, Invoker, InvocationResultPtr, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker};
 
@@ -29,21 +30,23 @@ pub struct QueueingDispatcher {
 /// This struct creates separate queues for supported hardware devices, and sends invocations into those queues based on configuration
 impl QueueingDispatcher {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>, invocation_config: Arc<InvocationConfig>, 
-      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>, gpu: Arc<GpuResourceTracker>) -> Result<Arc<Self>> {
+      tid: &TransactionId, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>, gpu: Arc<GpuResourceTracker>,
+             energy: Arc<EnergyLimiter>) -> Result<Arc<Self>> {
     let svc = Arc::new(QueueingDispatcher {
-      cpu_queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid, &function_config, &cpu)?,
+      cpu_queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid, &function_config, &cpu, & energy)?,
       gpu_queue: Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid, &function_config, &cpu, &gpu)?,
       async_functions: AsyncHelper::new(),
       clock: LocalTime::new(tid)?,
-      invocation_config, cmap,
+      invocation_config, cmap
     });
     debug!(tid=%tid, "Created QueueingInvoker");
     Ok(svc)
   }
 
   fn get_invoker_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, 
-      tid: &TransactionId, function_config: &Arc<FunctionLimits>, cpu: &Arc<CpuResourceTracker>)  -> Result<Arc<dyn DeviceQueue>> {
-    Ok(CpuQueueingInvoker::new(cont_manager.clone(), function_config.clone(), invocation_config.clone(), tid, cmap.clone(), cpu.clone())?)
+      tid: &TransactionId, function_config: &Arc<FunctionLimits>, cpu: &Arc<CpuResourceTracker>, energy: &Arc<EnergyLimiter>)  -> Result<Arc<dyn DeviceQueue>> {
+    Ok(CpuQueueingInvoker::new(cont_manager.clone(), function_config.clone(),
+                               invocation_config.clone(), tid, cmap.clone(), cpu.clone(), energy.clone())?)
   }
 
   fn get_invoker_gpu_queue(invocation_config: &Arc<InvocationConfig>, cmap: &Arc<CharacteristicsMap>, cont_manager: &Arc<ContainerManager>, 

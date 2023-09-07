@@ -228,6 +228,7 @@ pub struct RaplMonitor {
   _worker_thread: JoinHandle<()>,
   log_file: RwLock<File>,
   timer: LocalTime,
+  latest_reading: RwLock<(i128, f64)>
 }
 impl RaplMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
@@ -241,26 +242,33 @@ impl RaplMonitor {
       _config: config.clone(),
       timer: LocalTime::new(tid)?,
       log_file: RaplMonitor::open_log_file(&config, tid)?,
+      latest_reading: RwLock::new((0,0.0)),
     });
     r.write_text("timestamp,rapl_uj\n".to_string(), tid);
     tx.send(r.clone())?;
     Ok(r)
   }
 
+  pub fn get_latest_reading(&self) -> (i128, f64) {
+    return *self.latest_reading.read()
+  }
+
   /// Reads the different energy sources and writes the current staistics out to the csv file
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
   fn monitor_energy(&self, tid: &TransactionId) {
     let mut rapl = self.rapl.lock();
-    let ipmi_uj = rapl.total_uj(tid);
-    let t = match self.timer.now_str() {
+    let rapl_uj = rapl.total_uj(tid);
+    let now = self.timer.now();
+    *self.latest_reading.write() = (now.unix_timestamp_nanos(), rapl_uj as f64 / 1_000_000.0);
+    let t = match self.timer.format_time(now) {
       Ok(t) => t,
       Err(e) => {
-        error!(error=%e, tid=%tid, "Failed to get time");
+        error!(error=%e, tid=%tid, "Failed to format time");
         return;
       },
     };
 
-    let to_write = format!("{},{}\n", t, ipmi_uj);
+    let to_write = format!("{},{}\n", t, rapl_uj);
     self.write_text(to_write, tid);
   }
 

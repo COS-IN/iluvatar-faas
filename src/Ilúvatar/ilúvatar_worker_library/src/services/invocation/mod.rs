@@ -7,6 +7,7 @@ use std::{sync::Arc, time::Duration};
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use crate::services::{containers::structs::{ParsedResult, ContainerState}, registration::RegisteredFunction};
+use crate::services::invocation::energy_limiter::EnergyLimiter;
 
 pub mod queueing;
 pub mod async_tracker;
@@ -14,6 +15,7 @@ mod queueing_dispatcher;
 mod gpu_q_invoke;
 mod cpu_q_invoke;
 mod completion_time_tracker;
+pub mod energy_limiter;
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
@@ -42,12 +44,13 @@ pub struct InvokerFactory {
   cmap: Arc<CharacteristicsMap>,
   cpu: Arc<CpuResourceTracker>,
   gpu_resources: Arc<GpuResourceTracker>,
+  energy: Arc<EnergyLimiter>,
 }
 
 impl InvokerFactory {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>,
     invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>,
-    gpu_resources: Arc<GpuResourceTracker>) -> Self {
+    gpu_resources: Arc<GpuResourceTracker>, energy: Arc<EnergyLimiter>) -> Self {
 
     InvokerFactory {
       cont_manager,
@@ -56,11 +59,15 @@ impl InvokerFactory {
       cmap,
       cpu,
       gpu_resources,
+      energy,
     }
   }
 
   pub fn get_invoker_service(&self, tid: &TransactionId) -> Result<Arc<dyn Invoker>> {
-    let invoker = QueueingDispatcher::new(self.cont_manager.clone(), self.function_config.clone(), self.invocation_config.clone(), tid, self.cmap.clone(), self.cpu.clone(), self.gpu_resources.clone())?;
+    let invoker = QueueingDispatcher::new(self.cont_manager.clone(),
+               self.function_config.clone(), self.invocation_config.clone(),
+                            tid, self.cmap.clone(), self.cpu.clone(), self.gpu_resources.clone(),
+                            self.energy.clone())?;
     Ok(invoker)
   }
 }
