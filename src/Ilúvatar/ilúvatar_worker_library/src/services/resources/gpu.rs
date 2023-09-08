@@ -3,7 +3,7 @@ use iluvatar_library::{utils::{execute_cmd, execute_cmd_checked}, transaction::T
 use parking_lot::RwLock;
 use anyhow::Result;
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
-use tracing::{warn, debug, info};
+use tracing::{warn, debug, info, trace};
 use crate::worker_api::worker_config::ContainerResourceConfig;
 
 #[derive(Debug,serde::Deserialize, serde::Serialize)]
@@ -113,7 +113,7 @@ impl GpuResourceTracker {
   pub fn gpu_utilization(&self, tid: &TransactionId) -> Result<Vec<GpuStatus>> {
     let mut ret: Vec<GpuStatus> = vec![];
     if !std::path:: Path::new("/usr/bin/nvidia-smi").exists() {
-      debug!(tid=%tid, "nvidia-smi not found, not checking GPU utilization");
+      trace!(tid=%tid, "nvidia-smi not found, not checking GPU utilization");
       return Ok(ret);
     }
     let args = vec!["--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit", "--format=csv,noheader,nounits"];

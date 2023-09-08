@@ -153,9 +153,12 @@ impl CpuQueueingInvoker {
   /// Returns an owned permit if there are sufficient resources to run a function
   /// A return value of [None] means the resources failed to be acquired
   fn acquire_resources_to_run(&self, item: &Arc<EnqueuedInvocation>) -> Option<Box<dyn Drop+Send>> {
+    debug!(tid=%item.tid, "checking resources");
     if ! self.energy.ok_run_fn(&self.cmap, &item.registration.fqdn) {
+      debug!(tid=%item.tid, "Blocking invocation due to power overload");
       return None
     }
+    debug!(tid=%item.tid, "energy cap OK");
     let mut ret = vec![];
     match self.cpu.try_acquire_cores(&item.registration, &item.tid) {
       Ok(c) => ret.push(c),
