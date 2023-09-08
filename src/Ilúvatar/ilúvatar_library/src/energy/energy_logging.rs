@@ -14,6 +14,7 @@ pub struct EnergyLogger {
   proc: Option<Arc<ProcessMonitor>>,
   _perf_child: Option<std::process::Child>,
   cpu: Option<Arc<CpuFreqMonitor>>,
+  config: Option<Arc<EnergyConfig>>
 }
 
 impl EnergyLogger {
@@ -77,8 +78,25 @@ impl EnergyLogger {
     };
 
     Ok(Arc::new(EnergyLogger {
-      rapl, ipmi, proc, _perf_child: perf_child, cpu
+      rapl, ipmi, proc, _perf_child: perf_child, cpu,
+      config: config.cloned(),
     }))
+  }
+
+  pub fn get_reading_time_ms(&self) -> u64 {
+    if let Some(c) = &self.config {
+      if let Some(ms) = c.ipmi_freq_ms {
+        return ms;
+      }
+      if let Some(ms) = c.rapl_freq_ms {
+        return ms;
+      }
+    }
+    0
+  }
+
+  pub fn readings_enabled(&self) -> bool {
+    return self.ipmi.is_some() || self.rapl.is_some()
   }
 
   pub fn get_latest_reading(&self) -> (i128, f64) {

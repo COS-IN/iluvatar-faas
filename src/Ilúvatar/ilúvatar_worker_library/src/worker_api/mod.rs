@@ -29,45 +29,36 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
   let factory = IsolationFactory::new(worker_config.clone());
   let cpu = CpuResourceTracker::new(worker_config.container_resources.clone(), tid)?;
   let gpu_resource = GpuResourceTracker::boxed(worker_config.container_resources.clone(), tid)?;
-  
-  let isos = match factory.get_isolation_services(tid, true).await  {
-    Ok(l) => l,
-    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"),
-  };
+  let isos = factory.get_isolation_services(tid, true).await.
+        or_else(|e|  bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"))?;
 
-  let container_man = match ContainerManager::boxed(worker_config.container_resources.clone(), isos.clone(), gpu_resource.clone(), tid).await {
-    Ok(s) => s,
-    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make container manger"),
-  };
+  let container_man = ContainerManager::boxed(worker_config.container_resources.clone(),
+                       isos.clone(), gpu_resource.clone(), tid).await
+      .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make container manger"))?;
 
   let reg = RegistrationService::new(container_man.clone(), isos.clone(), worker_config.limits.clone(), cmap.clone(), worker_config.container_resources.clone());
 
-  let energy = match EnergyLogger::boxed(worker_config.energy.as_ref(), tid).await {
-    Ok(e) => e,
-    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make energy logger"),
-  };
+  let energy = EnergyLogger::boxed(worker_config.energy.as_ref(), tid).await
+      .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make energy logger"))?;
+  let energy_limit = EnergyLimiter::boxed(&worker_config.invocation, energy.clone())
+      .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker energy limiter"))?;
 
-  let energy_limit = EnergyLimiter::boxed(&worker_config.invocation, energy.clone());
   let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(),
                                           worker_config.invocation.clone(), cmap.clone(), cpu,
                                          gpu_resource.clone(), energy_limit.clone());
   let invoker = invoker_fact.get_invoker_service(tid)?;
-  let health = match WorkerHealthService::boxed(invoker.clone(), reg.clone(), tid).await {
-    Ok(h) => h,
-    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make worker health service"),
-  };
-  let status = match StatusService::boxed(container_man.clone(), worker_config.name.clone(), tid, worker_config.status.clone(), invoker.clone(), gpu_resource.clone()) {
-    Ok(s) => s,
-    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make status service"),
-  };
+  let health = WorkerHealthService::boxed(invoker.clone(), reg.clone(), tid).await
+      .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker health service"))?;
+  let status = StatusService::boxed(container_man.clone(), worker_config.name.clone(),
+      tid, worker_config.status.clone(), invoker.clone(), gpu_resource.clone())
+      .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make status service"))?;
 
   let influx_updater = match &worker_config.influx {
-    Some(i_config) => match InfluxClient::new(i_config.clone(), tid).await {
-      Ok(i) => match InfluxUpdater::boxed(i, i_config.clone(), status.clone(), worker_config.name.clone(), tid) {
-        Ok(u) => u,
-        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make influx updater"),
-      },
-      Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make influx client"),
+    Some(i_config) => {
+      let client = InfluxClient::new(i_config.clone(), tid).await
+          .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make influx client"))?;
+      InfluxUpdater::boxed(client, i_config.clone(), status.clone(), worker_config.name.clone(), tid)
+          .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make influx updater"))?
     },
     None => None
   };
