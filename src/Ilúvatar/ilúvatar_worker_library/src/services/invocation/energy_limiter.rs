@@ -4,7 +4,7 @@ use iluvatar_library::energy::energy_logging::EnergyLogger;
 use crate::worker_api::config::InvocationConfig;
 use anyhow::Result;
 
-const POWCAP_MIN: f64 = 1.0;
+const POWCAP_MIN: f64 = 0.0;
 pub struct EnergyLimiter {
     powcap: f64,
     energy: Arc<EnergyLogger>,
@@ -29,7 +29,7 @@ impl EnergyLimiter {
     fn get_energy(&self, cmap: &Arc<CharacteristicsMap>, fqdn: &String, power: f64) -> f64 {
         let exec_time = cmap.get_exec_time(fqdn);
         let j = exec_time * power;
-        tracing::debug!("get energy {} {} {}", exec_time, power, j);
+        tracing::debug!("get energy exec_time({}) * power){}) = j({})", exec_time, power, j);
         return j;
     }
 
@@ -45,7 +45,7 @@ impl EnergyLimiter {
         let j_predicted = p * self.reading_freq_sec;
         let j_cap = self.powcap * self.reading_freq_sec;
 
-        tracing::debug!(fname=%fname, "power cap check p:{}; j_predicted({}) + j({})  <= j_cap({})", p, j_predicted, j, j_cap);
+        tracing::debug!(fname=%fname, "power cap check j_predicted(p({}) * freq({})) + j({})  <= j_cap({})", p, self.reading_freq_sec, j, j_cap);
         return j_predicted + j <= j_cap;
     }
 

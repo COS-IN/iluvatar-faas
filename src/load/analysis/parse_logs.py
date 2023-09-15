@@ -127,19 +127,21 @@ def prepare_energy_log(df: pd.DataFrame) -> pd.DataFrame:
             continue
         data["cpu_pct"] = int(json_log["cpu_sy"]) + int(json_log["cpu_us"]) + int(json_log["cpu_wa"])
 
-        data["hw_cpu_hz_mean"] = np.mean(json_log["hardware_cpu_freqs"])
-        data["hw_cpu_hz_max"] = np.min(json_log["hardware_cpu_freqs"])
-        data["hw_cpu_hz_min"] = np.max(json_log["hardware_cpu_freqs"])
-        data["hw_cpu_hz_std"] = np.std(json_log["hardware_cpu_freqs"])
-        for cpu in range(len(json_log["hardware_cpu_freqs"])):
-          data["hw_cpu{}_hz".format(cpu)] = json_log["hardware_cpu_freqs"][cpu]
+        if "hardware_cpu_freqs" in json_log:
+          data["hw_cpu_hz_mean"] = np.mean(json_log["hardware_cpu_freqs"])
+          data["hw_cpu_hz_max"] = np.min(json_log["hardware_cpu_freqs"])
+          data["hw_cpu_hz_min"] = np.max(json_log["hardware_cpu_freqs"])
+          data["hw_cpu_hz_std"] = np.std(json_log["hardware_cpu_freqs"])
+          for cpu in range(len(json_log["hardware_cpu_freqs"])):
+            data["hw_cpu{}_hz".format(cpu)] = json_log["hardware_cpu_freqs"][cpu]
 
-        data["kern_cpu_hz_mean"] = np.mean(json_log["kernel_cpu_freqs"])
-        data["kern_cpu_hz_max"] = np.min(json_log["kernel_cpu_freqs"])
-        data["kern_cpu_hz_min"] = np.max(json_log["kernel_cpu_freqs"])
-        data["kern_cpu_hz_std"] = np.std(json_log["kernel_cpu_freqs"])
-        for cpu in range(len(json_log["kernel_cpu_freqs"])):
-          data["kern_cpu{}_hz".format(cpu)] = json_log["kernel_cpu_freqs"][cpu]
+        if "kernel_cpu_freqs" in json_log:
+          data["kern_cpu_hz_mean"] = np.mean(json_log["kernel_cpu_freqs"])
+          data["kern_cpu_hz_max"] = np.min(json_log["kernel_cpu_freqs"])
+          data["kern_cpu_hz_min"] = np.max(json_log["kernel_cpu_freqs"])
+          data["kern_cpu_hz_std"] = np.std(json_log["kernel_cpu_freqs"])
+          for cpu in range(len(json_log["kernel_cpu_freqs"])):
+            data["kern_cpu{}_hz".format(cpu)] = json_log["kernel_cpu_freqs"][cpu]
         cpu_data.append(data)
 
   cpu_df = pd.DataFrame.from_records(cpu_data)
