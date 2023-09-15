@@ -15,6 +15,27 @@
     - group_vars/host_addresses.yml
 
   tasks:
+  - name: Create bin directory
+    file:
+      path: "{{bin_dir}}"
+      state: directory
+      recurse: yes
+    become: yes
+      
+  - name: copy worker executable
+    ansible.builtin.copy:
+      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.bin_name}}"
+      dest: "{{exe_dest}}"
+      mode: "preserve"
+    become: yes
+
+  - name: copy worker config
+    ansible.builtin.copy:
+      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.config_name}}"
+      dest: "{{config_dest}}"
+      mode: "preserve"
+    become: yes
+
   - name: Get running worker process
     shell: "ps -ef | grep -v grep | grep -w {{ worker.bin_name }} | awk '{print $2}'"
     register: running_worker
@@ -37,27 +58,6 @@
     shell: "kill {{ item }}"
     when: (ansible_host != "127.0.0.1" and ansible_host != "localhost") and mode == "clean"
     with_items: "{{ running_worker.stdout_lines }}"
-    become: yes
-
-  - name: Create bin directory
-    file:
-      path: "{{bin_dir}}"
-      state: directory
-      recurse: yes
-    become: yes
-      
-  - name: copy worker executable
-    ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.bin_name}}"
-      dest: "{{exe_dest}}"
-      mode: "preserve"
-    become: yes
-
-  - name: copy worker config
-    ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.config_name}}"
-      dest: "{{config_dest}}"
-      mode: "preserve"
     become: yes
 
   - name: clean localhost
