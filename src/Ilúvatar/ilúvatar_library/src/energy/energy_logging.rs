@@ -86,10 +86,14 @@ impl EnergyLogger {
   pub fn get_reading_time_ms(&self) -> u64 {
     if let Some(c) = &self.config {
       if let Some(ms) = c.ipmi_freq_ms {
-        return ms;
+        if ms > 0 {
+          return ms;
+        }
       }
       if let Some(ms) = c.rapl_freq_ms {
-        return ms;
+        if ms > 0 {
+          return ms;
+        }
       }
     }
     0
@@ -99,6 +103,7 @@ impl EnergyLogger {
     return self.ipmi.is_some() || self.rapl.is_some()
   }
 
+  /// Return the latest energy reading in (timestamp_ns, Joules)
   pub fn get_latest_reading(&self) -> (i128, f64) {
     if let Some(ipmi) = &self.ipmi {
       return ipmi.get_latest_reading();

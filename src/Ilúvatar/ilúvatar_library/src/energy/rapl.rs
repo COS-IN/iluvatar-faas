@@ -203,20 +203,20 @@ impl RaplMsr {
     if use_intel {
       let result = RaplMsr::read_msr(cpu, fd, MSR_RAPL_POWER_UNIT, tid);
       if result == 0 {
-        anyhow::bail!("An error occured reading RAPL msr on setup");
+        anyhow::bail!("An error occurred reading RAPL msr on setup");
       }
-      let power_unit = ((result&0xf) as f64).powf(0.5);
-      let cpu_energy_unit = (((result>>8)&0x1f) as f64).powf(0.5);
-      let time_unit = (((result>>16)&0xf) as f64).powf(0.5);
+      let power_unit = 0.5_f64.powf((result&0xf) as f64);
+      let cpu_energy_unit = 0.5_f64.powf(((result>>8)&0x1f) as f64);
+      let time_unit = 0.5_f64.powf(((result>>16)&0xf) as f64);
       return Ok( (power_unit, cpu_energy_unit, time_unit) )
     } else {
       let result = RaplMsr::read_msr(cpu, fd, AMD_MSR_PWR_UNIT, tid);
       if result == 0 {
-        anyhow::bail!("An error occured reading RAPL msr on setup");
+        anyhow::bail!("An error occurred reading RAPL msr on setup");
       }
-      let power_unit = ( ((result&AMD_TIME_UNIT_MASK) >> 16) as f64).powf(0.5);
-      let cpu_energy_unit = ( ((result&AMD_ENERGY_UNIT_MASK) >> 8) as f64).powf(0.5);
-      let time_unit = ((result&AMD_POWER_UNIT_MASK) as f64).powf(0.5);
+      let power_unit = 0.5_f64.powf(((result&AMD_TIME_UNIT_MASK) >> 16) as f64);
+      let cpu_energy_unit = 0.5_f64.powf(((result&AMD_ENERGY_UNIT_MASK) >> 8) as f64);
+      let time_unit = 0.5_f64.powf((result&AMD_POWER_UNIT_MASK) as f64);
       return Ok( (power_unit, cpu_energy_unit, time_unit) )
     }
   }
@@ -228,38 +228,46 @@ pub struct RaplMonitor {
   _worker_thread: JoinHandle<()>,
   log_file: RwLock<File>,
   timer: LocalTime,
-  latest_reading: RwLock<(i128, f64)>
+  latest_reading: RwLock<(i128, i128, i128)>
 }
 impl RaplMonitor {
   pub fn boxed(config: Arc<EnergyConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
     let ms = config.rapl_freq_ms.ok_or_else(|| anyhow!("'rapl_freq_ms' cannot be 0"))?;
     let (handle, tx) = os_thread(ms, WORKER_ENERGY_LOGGER_TID.clone(), Arc::new(RaplMonitor::monitor_energy))?;
 
-    let i = RaplMsr::new(tid)?;
+    let mut i = RaplMsr::new(tid)?;
     let r = Arc::new(RaplMonitor {
+      latest_reading: RwLock::new((0, 0, i.total_uj(tid) as i128)),
       rapl: Mutex::new(i),
       _worker_thread: handle,
       _config: config.clone(),
       timer: LocalTime::new(tid)?,
       log_file: RaplMonitor::open_log_file(&config, tid)?,
-      latest_reading: RwLock::new((0,0.0)),
     });
     r.write_text("timestamp,rapl_uj\n".to_string(), tid);
     tx.send(r.clone())?;
     Ok(r)
   }
 
+  /// Return the latest energy reading in (timestamp_ns, Joules)
   pub fn get_latest_reading(&self) -> (i128, f64) {
-    return *self.latest_reading.read()
+    let r = *self.latest_reading.read();
+    return (r.0, r.1 as f64 / 1_000_000.0);
   }
 
   /// Reads the different energy sources and writes the current staistics out to the csv file
   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
   fn monitor_energy(&self, tid: &TransactionId) {
-    let mut rapl = self.rapl.lock();
-    let rapl_uj = rapl.total_uj(tid);
     let now = self.timer.now();
-    *self.latest_reading.write() = (now.unix_timestamp_nanos(), rapl_uj as f64 / 1_000_000.0);
+    let rapl_uj = self.rapl.lock().total_uj(tid) as i128;
+    let mut reading = self.latest_reading.write();
+    let rapl_diff = std::cmp::max(0, rapl_uj - (*reading).2);
+
+    // if rapl_diff > 0 {
+      *reading = (now.unix_timestamp_nanos(), rapl_diff, rapl_uj);
+    // }
+    drop(reading);
+
     let t = match self.timer.format_time(now) {
       Ok(t) => t,
       Err(e) => {

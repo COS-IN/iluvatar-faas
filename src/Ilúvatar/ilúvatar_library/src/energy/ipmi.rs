@@ -82,6 +82,7 @@ impl IPMIMonitor {
     Ok(r)
   }
 
+  /// Return the latest energy reading in (timestamp_ns, Joules)
   pub fn get_latest_reading(&self) -> (i128, f64) {
     return *self.latest_reading.read()
   }
