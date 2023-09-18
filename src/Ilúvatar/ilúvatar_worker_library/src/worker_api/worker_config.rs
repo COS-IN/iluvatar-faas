@@ -31,6 +31,8 @@ pub struct Configuration {
   /// Optional because energy monitoring is not required
   pub energy: Option<Arc<EnergyConfig>>,
   pub invocation: Arc<InvocationConfig>,
+  /// Energy cap disabled if not pesent
+  pub energy_cap: Option<Arc<crate::services::invocation::energy_limiter::EnergyCapConfig>>,
   pub status: Arc<StatusConfig>,
   pub influx: Option<Arc<InfluxConfig>>,
 }
@@ -107,9 +109,6 @@ pub struct InvocationConfig {
   /// If present and not zero, invocations with an execution duration less than this
   ///   will bypass concurrency restrictions and be run immediately
   pub bypass_duration_ms: Option<u64>,
-  /// Maximum power usage before pausing invocations to wait for power drop
-  /// Disabled if not present or < 1.0
-  pub power_cap: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -7,8 +7,8 @@ MEMORY=4096
 results_dir="."
 worker_log_dir="/tmp/ilúvatar/logs/ansible"
 environment='local'
-hosts="-e @../../../ansible/group_vars/local_addresses.yml"
-host_file="../../../ansible/environments/$environment/hosts.ini"
+hosts="-e @$ILU_HOME/ansible/group_vars/local_addresses.yml"
+host_file="$ILU_HOME/ansible/environments/$environment/hosts.ini"
 host="127.0.0.1"
 log_file="$results_dir/orchestration.log"
 

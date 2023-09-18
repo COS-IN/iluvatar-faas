@@ -98,7 +98,7 @@ impl IPMIMonitor {
       },
     };
     let now = self.timer.now();
-    *self.latest_reading.write() = (now.unix_timestamp_nanos(), ipmi_uj as f64 / 1_000_000.0);
+    *self.latest_reading.write() = (now.unix_timestamp_nanos(), ipmi_uj as f64);
     let t = match self.timer.format_time(now) {
       Ok(t) => t,
       Err(e) => {

@@ -9,6 +9,7 @@ members = [
   "ilúvatar_worker_library",
   "ilúvatar_energy_mon"
 ]
+resolver = "2"
 
 [workspace.package]
 version = "0.2.0"

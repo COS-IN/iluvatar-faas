@@ -127,6 +127,10 @@
       "ILUVATAR_WORKER__energy__ipmi_pass_file" : "{{ worker_ipmi_pass_file | default('') }}"
       "ILUVATAR_WORKER__energy__ipmi_ip_addr" : "{{ worker_ipmi_ip_addr | default(servers[ansible_host].ipmi_ip) }}"
       "ILUVATAR_WORKER__energy__log_folder": "{{ worker_log_dir | default('/tmp/ilúvatar/logs') }}"
+      # Energy cap config
+      "ILUVATAR_WORKER__energy_cap__power_cap" : "{{ worker_power_cap | default(0.0) }}"
+      "ILUVATAR_WORKER__energy_cap__power_cap_version" : "{{ worker_power_cap_version | default('V0') }}"
+
       # Influx config
       "ILUVATAR_WORKER__influx__host" : "{{ influx.address }}"
       "ILUVATAR_WORKER__influx__org" : "{{ influx.organization }}"
@@ -139,7 +143,6 @@
       "ILUVATAR_WORKER__invocation__cpu__queue_policy" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
       "ILUVATAR_WORKER__invocation__gpu__queue_policy" : "{{ worker_gpu_queue_policy | default('fcfs') }}"
       "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
-      "ILUVATAR_WORKER__invocation__power_cap" : "{{ worker_power_cap | default(0.0) }}"
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
 
