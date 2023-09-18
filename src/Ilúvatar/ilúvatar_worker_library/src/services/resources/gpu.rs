@@ -3,7 +3,7 @@ use iluvatar_library::{utils::{execute_cmd, execute_cmd_checked}, transaction::T
 use parking_lot::RwLock;
 use anyhow::Result;
 use tokio::sync::{Semaphore, OwnedSemaphorePermit};
-use tracing::{warn, debug, info, trace};
+use tracing::{warn, info, trace};
 use crate::worker_api::worker_config::ContainerResourceConfig;
 
 #[derive(Debug,serde::Deserialize, serde::Serialize)]

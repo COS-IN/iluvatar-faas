@@ -40,7 +40,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
   let energy = EnergyLogger::boxed(worker_config.energy.as_ref(), tid).await
       .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make energy logger"))?;
-  let energy_limit = EnergyLimiter::boxed(&worker_config.invocation, energy.clone())
+  let energy_limit = EnergyLimiter::boxed(&worker_config.energy_cap, energy.clone())
       .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker energy limiter"))?;
 
   let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(),

@@ -1,24 +1,47 @@
 use std::sync::Arc;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::energy::energy_logging::EnergyLogger;
-use crate::worker_api::config::InvocationConfig;
 use anyhow::Result;
+
+#[derive(Debug, serde::Deserialize, Clone)]
+pub enum PowerCapVersion {
+  V0,
+  V1
+}
+
+#[derive(Debug, serde::Deserialize)]
+/// Internal knobs for how the [crate::services::invocation::EnergyLimiter] works
+pub struct EnergyCapConfig {
+  /// Maximum power usage before pausing invocations to wait for power drop
+  /// Disabled if not present or < 1.0
+  pub power_cap: f64,
+  /// The version to use, defaults to [PowerCapVersion::V0]
+  pub power_cap_version: PowerCapVersion,
+}
 
 const POWCAP_MIN: f64 = 0.0;
 pub struct EnergyLimiter {
     powcap: f64,
+    version: PowerCapVersion,
     energy: Arc<EnergyLogger>,
     reading_freq_sec: f64,
 }
 impl EnergyLimiter {
-    pub fn boxed(config: &Arc<InvocationConfig>, energy: Arc<EnergyLogger>) -> Result<Arc<Self>> {
-        let powcap = config.power_cap.map_or(0.0, |v| v);
+    pub fn boxed(config: &Option<Arc<EnergyCapConfig>>, energy: Arc<EnergyLogger>) -> Result<Arc<Self>> {
+        let mut powcap = 0.0;
+        if let Some(c) = config{
+          powcap = c.power_cap;
+        }
+        let mut version = PowerCapVersion::V0;
+        if let Some(c) = config{
+          version = c.power_cap_version.clone();
+        }
         if !energy.readings_enabled() && powcap > POWCAP_MIN {
-            anyhow::bail!("'power_cap set but not energy reading source available");
+          anyhow::bail!("'power_cap set but not energy reading source available");
         }
         let reading_freq_sec = energy.get_reading_time_ms() as f64 / 1000.0;
         Ok(Arc::new(Self {
-            powcap, energy, reading_freq_sec
+          energy, reading_freq_sec, powcap, version
         }))
     }
 
@@ -26,27 +49,39 @@ impl EnergyLimiter {
         return self.powcap > POWCAP_MIN;
     }
 
-    fn get_energy(&self, cmap: &Arc<CharacteristicsMap>, fqdn: &String, power: f64) -> f64 {
+    fn get_energy(&self, cmap: &Arc<CharacteristicsMap>, fqdn: &String, _power: f64) -> f64 {
         let exec_time = cmap.get_exec_time(fqdn);
-        let j = exec_time * power;
-        tracing::debug!("get energy exec_time({}) * power){}) = j({})", exec_time, power, j);
+        let power_2 = 2.0;
+        let j = exec_time * power_2;
+        // tracing::debug!("get energy exec_time({}) * power({}) = j({})", exec_time, power_2, j);
         return j;
     }
 
     pub fn ok_run_fn(&self, cmap: &Arc<CharacteristicsMap>, fname: &String) -> bool {
-        if ! self.powcap_enabled() {
-            tracing::debug!(fname=%fname, "power cap disabled");
-            return true;
-        }
-        tracing::debug!(fname=%fname, "power cap enabled");
-
-        let (_t, p) = self.energy.get_latest_reading();
-        let j = self.get_energy(cmap, fname, p);
-        let j_predicted = p * self.reading_freq_sec;
-        let j_cap = self.powcap * self.reading_freq_sec;
-
-        tracing::debug!(fname=%fname, "power cap check j_predicted(p({}) * freq({})) + j({})  <= j_cap({})", p, self.reading_freq_sec, j, j_cap);
-        return j_predicted + j <= j_cap;
+      if ! self.powcap_enabled() {
+        // tracing::debug!(fname=%fname, "power cap disabled");
+        return true;
+      }
+      // tracing::debug!(fname=%fname, "power cap enabled");
+      match self.version {
+        PowerCapVersion::V0 => {
+          let (_t, p) = self.energy.get_latest_reading();
+          let j_predicted = p * self.reading_freq_sec;
+          let j_cap = self.powcap * self.reading_freq_sec;
+  
+          tracing::debug!(fname=%fname, "power cap check j_cap({}) < j_cap({})", j_predicted, j_cap);
+          return j_predicted < j_cap;
+        },
+        PowerCapVersion::V1 => {
+          let (_t, p) = self.energy.get_latest_reading();
+          let j = self.get_energy(cmap, fname, p);
+          let j_predicted = p * self.reading_freq_sec;
+          let j_cap = self.powcap * self.reading_freq_sec;
+  
+          tracing::debug!(fname=%fname, "power cap check j_predicted(p({}) * freq({})) + j({})  <= j_cap({})", p, self.reading_freq_sec, j, j_cap);
+          return j_predicted + j <= j_cap;                
+        },
+      }
     }
 
     pub fn add_pending(&self, _j:f64) {
