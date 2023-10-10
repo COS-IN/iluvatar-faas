@@ -8,6 +8,7 @@ use super::structs::{Container, ContainerState};
 pub type Subpool = Vec<Container>;
 static LEN_ORDERING: Ordering = Ordering::Relaxed;
 
+/// ContainerPools of running and idle containers. 
 pub struct ResourcePool {
   /// Containers that are currently not running an invocation
   pub idle_containers: ContainerPool,
@@ -23,12 +24,13 @@ impl ResourcePool {
   }
 }
 
+/// List of containers for each function (fqdn). 
 pub struct ContainerPool {
-  pool: DashMap<String, Subpool>,
+  pool: DashMap<String, Subpool>, /// fqdn->Vec<Container> 
   len: AtomicU32,
   pool_name: String
 }
-impl ContainerPool {
+impl ContainerPool { 
   pub fn new(name: &str) -> Self {
     ContainerPool{
       pool: DashMap::new(),
@@ -126,6 +128,8 @@ impl ContainerPool {
       None => None
     }
   }
+
+  
   fn find_container_pos(&self, container: &Container, pool_list: &Vec<Container>) -> (usize,usize) {
     let pool_len = pool_list.len();
     let mut pos = usize::MAX;

@@ -22,7 +22,7 @@ lazy_static::lazy_static! {
   pub static ref CTR_MGR_REMOVER_TID: TransactionId = "CtrMrgUnhealthyRemoved".to_string();
 }
 
-/// A struct to manage and control access to containers and system resources
+/// Manage and control access to containers and system resources. CPU and GPU resource pools. Primary container state-tracking. 
 pub struct ContainerManager {
   /// Containers that only use CPU compute resources
   cpu_containers: ResourcePool,
@@ -30,7 +30,9 @@ pub struct ContainerManager {
   gpu_containers: ResourcePool,
   resources: Arc<ContainerResourceConfig>,
   used_mem_mb: Arc<RwLock<MemSizeMb>>,
+  /// Different containerization options available on the server. 
   cont_isolations: ContainerIsolationCollection,
+  /// Priority-list for keep-alive eviction.   
   prioritized_list: RwLock<Subpool>,
   _worker_thread: std::thread::JoinHandle<()>,
   _health_thread: tokio::task::JoinHandle<()>,
@@ -38,6 +40,7 @@ pub struct ContainerManager {
   /// A channel to send unhealthy containers to to be removed async to the sender
   /// Containers must not be in a pool when sent here
   unhealthy_removal_rx: UnboundedSender<Container>,
+  /// Containers actively running a function.   
   outstanding_containers: DashMap<String, AtomicU32>,
 }
 

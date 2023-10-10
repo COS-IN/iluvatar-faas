@@ -19,6 +19,7 @@ pub mod simulator;
 pub mod docker;
 mod container_pool;
 
+/// Run, manage, and interact-with containers. 
 #[async_trait]
 pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
   /// Return a container that has been started with the given settings
@@ -53,6 +54,8 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
   /// Real backends should only submit one Isolation type, returning a vector here allows the simulation to "act" as multiple backends
   fn backend(&self) -> Vec<Isolation>;
 }
+
+/// Different containerization 
 pub type ContainerIsolationCollection = Arc<std::collections::HashMap<Isolation, Arc<dyn ContainerIsolationService>>>;
 
 pub struct IsolationFactory {

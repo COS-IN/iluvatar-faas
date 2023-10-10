@@ -309,6 +309,7 @@ impl GpuQueueingInvoker {
     Ok((data, duration, compute, state))
   }
 
+  /// XXX This is much more complex with GPU multiplexing. We can only provide statistical bounds.   
   fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64,ContainerState) {
     let exists = self.cont_manager.container_exists(&item.fqdn, iluvatar_library::types::Compute::GPU);
     let t = match exists {
