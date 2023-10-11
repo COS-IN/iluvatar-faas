@@ -5,7 +5,9 @@ use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{energy::energy_logging::EnergyLogger, characteristics_map::AgExponential};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use crate::services::influx_updater::InfluxUpdater;
-use crate::services::invocation::{InvokerFactory, energy_limiter::EnergyLimiter};
+#[cfg(feature="power_cap")]
+use crate::services::invocation::energy_limiter::EnergyLimiter;
+use crate::services::invocation::InvokerFactory;
 use crate::services::registration::RegistrationService;
 use crate::services::resources::{gpu::GpuResourceTracker, cpu::CpuResourceTracker};
 use crate::services::worker_health::WorkerHealthService;
@@ -40,12 +42,15 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
   let energy = EnergyLogger::boxed(worker_config.energy.as_ref(), tid).await
       .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make energy logger"))?;
+
+  #[cfg(feature="power_cap")]
   let energy_limit = EnergyLimiter::boxed(&worker_config.energy_cap, energy.clone())
       .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker energy limiter"))?;
 
   let invoker_fact = InvokerFactory::new(container_man.clone(), worker_config.limits.clone(),
                                           worker_config.invocation.clone(), cmap.clone(), cpu,
-                                         gpu_resource.clone(), energy_limit.clone());
+                                         gpu_resource.clone(),
+                                         #[cfg(feature="power_cap")] energy_limit.clone());
   let invoker = invoker_fact.get_invoker_service(tid)?;
   let health = WorkerHealthService::boxed(invoker.clone(), reg.clone(), tid).await
       .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker health service"))?;

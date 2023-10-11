@@ -5,7 +5,9 @@ use anyhow::Result;
 
 #[derive(Debug, serde::Deserialize, Clone)]
 pub enum PowerCapVersion {
+  /// Check if power usage is under limit to allow invocation
   V0,
+  /// Predict energy usage of invocation in addition to checking current power usage
   V1
 }
 

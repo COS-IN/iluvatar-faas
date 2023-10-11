@@ -31,18 +31,19 @@ pub struct Configuration {
   /// Optional because energy monitoring is not required
   pub energy: Option<Arc<EnergyConfig>>,
   pub invocation: Arc<InvocationConfig>,
-  /// Energy cap disabled if not pesent
+  /// Energy cap disabled if not present
+  #[cfg(feature="power_cap")]
   pub energy_cap: Option<Arc<crate::services::invocation::energy_limiter::EnergyCapConfig>>,
   pub status: Arc<StatusConfig>,
   pub influx: Option<Arc<InfluxConfig>>,
 }
 
 #[derive(Debug, Deserialize)]
-/// total resources the worker is allowed to allocate to conainers
+/// total resources the worker is allowed to allocate to containers
 pub struct ContainerResourceConfig {
   /// total memory pool in MB
   pub memory_mb: MemSizeMb,
-  /// eviciton algorithm to use
+  /// eviction algorithm to use
   pub eviction: String,
   /// timeout on container startup before error
   pub startup_timeout_ms: u64,
@@ -56,7 +57,7 @@ pub struct ContainerResourceConfig {
   pub snapshotter: String,
   /// The max number of containers allowed to be created concurrently
   ///   Calls to containerd can become extremely delayed if too many happen at once, ~10 
-  ///   If 0 then the concurreny is unlimited
+  ///   If 0 then the concurrency is unlimited
   pub concurrent_creation: u32,
 
   /// Settings for the different compute resources the worker can use

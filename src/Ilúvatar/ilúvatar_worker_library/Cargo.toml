@@ -56,3 +56,4 @@ rand = "0.8"
 
 [features]
 full_spans = []
+power_cap = []
