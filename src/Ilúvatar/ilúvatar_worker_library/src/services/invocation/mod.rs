@@ -7,6 +7,7 @@ use std::{sync::Arc, time::Duration};
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use crate::services::{containers::structs::{ParsedResult, ContainerState}, registration::RegisteredFunction};
+#[cfg(feature="power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 
 pub mod queueing;
@@ -15,6 +16,7 @@ mod queueing_dispatcher;
 mod gpu_q_invoke;
 mod cpu_q_invoke;
 mod completion_time_tracker;
+#[cfg(feature="power_cap")]
 pub mod energy_limiter;
 
 #[tonic::async_trait]
@@ -44,13 +46,14 @@ pub struct InvokerFactory {
   cmap: Arc<CharacteristicsMap>,
   cpu: Arc<CpuResourceTracker>,
   gpu_resources: Arc<GpuResourceTracker>,
-  energy: Arc<EnergyLimiter>,
+  #[cfg(feature="power_cap")] energy: Arc<EnergyLimiter>,
 }
 
 impl InvokerFactory {
   pub fn new(cont_manager: Arc<ContainerManager>, function_config: Arc<FunctionLimits>,
     invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, cpu: Arc<CpuResourceTracker>,
-    gpu_resources: Arc<GpuResourceTracker>, energy: Arc<EnergyLimiter>) -> Self {
+    gpu_resources: Arc<GpuResourceTracker>,
+    #[cfg(feature="power_cap")] energy: Arc<EnergyLimiter>) -> Self {
 
     InvokerFactory {
       cont_manager,
@@ -59,7 +62,7 @@ impl InvokerFactory {
       cmap,
       cpu,
       gpu_resources,
-      energy,
+      #[cfg(feature="power_cap")] energy,
     }
   }
 
@@ -67,7 +70,7 @@ impl InvokerFactory {
     let invoker = QueueingDispatcher::new(self.cont_manager.clone(),
                self.function_config.clone(), self.invocation_config.clone(),
                             tid, self.cmap.clone(), self.cpu.clone(), self.gpu_resources.clone(),
-                            self.energy.clone())?;
+                            #[cfg(feature="power_cap")] self.energy.clone())?;
     Ok(invoker)
   }
 }
