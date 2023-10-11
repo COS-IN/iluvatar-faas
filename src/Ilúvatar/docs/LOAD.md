@@ -96,6 +96,18 @@ This value is only relevant if running a simulated controller
 1. `--prewarm`, `-p`: The number of containers to pre-warm for each function.
 Defaults to 0.
 
+### Generating Traces
+
+The two CSV files for metadata and invocations must match the various fields detailed by their Rust struct equivalents, [Function](../ilúvatar_load_gen/src/trace/trace.rs) and [CsvInvocation](../ilúvatar_load_gen/src/trace/trace.rs) respectively.
+
+Generating traces is currently done externally using Python scripts.
+This is done as preparing and parsing the Azure workload data is resource intensive.
+
+An example of creating a pre-planned invocation shape is in [this script](../../load/generation/four_funcs.py).
+A complex scenario of preparing the Azure data and using it to generate a trace can be found in [the examples](../Ilúvatar/docs/examples/azure-trace/generate-trace.sh).
+
+### Trace examples
+
 An example load call to a live system:
 
 ```bash

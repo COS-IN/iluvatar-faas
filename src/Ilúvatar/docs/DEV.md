@@ -17,7 +17,7 @@ The source code is split into a variety of Rust crates, which all start with `il
 * `ilúvatar_worker_library` - All domain and logic code for the worker goes in here, to be reusable by the `ilúvatar_controller_library`, `ilúvatar_worker` and `ilúvatar_load_gen`.
 * `ilúvatar_load_gen` - A load generator that is capable of targeting either a worker or controller in a live or simulated manner.
 * `ilúvatar_worker_cli` - A simple CLI to enable testing of the worker.
-* `ilúvatar_energy_mon` - A standalone energy monitor that can.
+* `ilúvatar_energy_mon` - A standalone energy monitor that duplicates the energy tracking abilities of the worker.
 
 The worker library is imported by the controller one to allow for sharing types and avoiding coding obscure constants and assumptions throughout the codebase
 
