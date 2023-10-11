@@ -7,14 +7,19 @@ use crate::services::{invocation::gpu_q_invoke::{GpuQueuePolicy, GpuBatch}, regi
 use super::EnqueuedInvocation;
 
 /// Combines invocations into batches, and returned the batch with the oldest item in front
-pub struct BatchGpuQueue {
+pub struct DynBatchGpuQueue {
   invoke_batches: DashMap<String, GpuBatch>,
   est_time: Mutex<f64>,
   num_queued: AtomicUsize,
-  cmap: Arc<CharacteristicsMap>, 
+  cmap: Arc<CharacteristicsMap>,
+  /// For preventing starvation 
+  max_batch_size: i32,
+  /// Number of invocations we want to batch together at the head of the list. The tail are uncompressed. 
+    compress_window: i32,
+    incoming_queue: VecDequeue<Invocation>,
 }
 
-impl BatchGpuQueue {
+impl DynBatchGpuQueue {
   pub fn new(cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
     let svc = Arc::new(BatchGpuQueue {
       invoke_batches: DashMap::new(),
@@ -37,6 +42,14 @@ impl GpuQueuePolicy for BatchGpuQueue {
     None
   }
 
+    /// Compress the front of the queue to batch invocations of the same function together. This could be async. Or done at key points:
+    /// 1. When a batch is popped/executed.
+    /// 2. When a new item is inserted, and we are under compress_window limit.
+    /// Function insertion times will be important for stable sorting? 
+    fn queue_compress(&self) -> () {
+
+    }
+
   /// XXX: Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained. 
   fn pop_queue(&self) -> GpuBatch {
     let batch_key = self.invoke_batches.iter().min_by_key(|x| x.value().peek().queue_insert_time).unwrap().key().clone();
@@ -48,7 +61,8 @@ impl GpuQueuePolicy for BatchGpuQueue {
     batch
   }
     
-    fn queue_len(&self) -> usize { self.num_queued.load(std::sync::atomic::Ordering::Relaxed)
+    fn queue_len(&self) -> usize {
+	self.num_queued.load(std::sync::atomic::Ordering::Relaxed)
     }
     
   fn est_queue_time(&self) -> f64 { 
