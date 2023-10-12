@@ -26,6 +26,7 @@ pub mod avail_scale;
 // GPU focused queues
 pub mod fcfs_gpu;
 pub mod oldest_gpu;
+pub mod dynamic_batching;
 
 #[derive(Debug, serde::Deserialize)]
 /// The policy by which polymorphic functions will be enqueued in the CPU/GPU/etc. queues

@@ -11,7 +11,7 @@ use time::{OffsetDateTime, Instant};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 use anyhow::Result;
-use super::{queueing::{fcfs_gpu::FcfsGpuQueue, EnqueuedInvocation, DeviceQueue, oldest_gpu::BatchGpuQueue, MinHeapEnqueuedInvocation, MinHeapFloat}, completion_time_tracker::CompletionTimeTracker};
+use super::{queueing::{dynamic_batching::DynBatchGpuQueue, fcfs_gpu::FcfsGpuQueue, EnqueuedInvocation, DeviceQueue, oldest_gpu::BatchGpuQueue, MinHeapEnqueuedInvocation, MinHeapFloat}, completion_time_tracker::CompletionTimeTracker};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
@@ -92,6 +92,10 @@ pub trait GpuQueuePolicy: Send + Sync {
   /// Insert an item into the queue
   /// If an error is returned, the item was not put enqueued
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()>;
+
+  /// Compress the queue into batches. 
+  fn queue_compress(&self) -> () {}
+
 }
 
 pub struct GpuQueueingInvoker {

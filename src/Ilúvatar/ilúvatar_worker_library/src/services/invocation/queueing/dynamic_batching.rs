@@ -1,3 +1,4 @@
+use std::{collections::VecDeque};
 use std::sync::{Arc, atomic::AtomicUsize};
 use anyhow::Result;
 use dashmap::DashMap;
@@ -8,69 +9,35 @@ use super::EnqueuedInvocation;
 
 /// Combines invocations into batches, and returned the batch with the oldest item in front
 pub struct DynBatchGpuQueue {
+  /// Grouped invocations of same function ready for dispatch. 
   invoke_batches: DashMap<String, GpuBatch>,
   est_time: Mutex<f64>,
   num_queued: AtomicUsize,
   cmap: Arc<CharacteristicsMap>,
-  /// For preventing starvation 
+  /// For preventing starvation: dont want super large batches which dominate execution.
   max_batch_size: i32,
-  /// Number of invocations we want to batch together at the head of the list. The tail are uncompressed. 
-    compress_window: i32,
-    incoming_queue: VecDequeue<Invocation>,
+  /// Number of invocations we want to batch together at the head of the dispatch queue. The tail is uncompressed and regular FCFS queue. 
+  compress_window: i32,
+  /// Initially, just add invocations in an FCFS queue which is later compressed into batches. 
+  incoming_queue: Mutex<VecDeque<GpuBatch>>, // from FcfsGpuQueue 
 }
 
 impl DynBatchGpuQueue {
   pub fn new(cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
-    let svc = Arc::new(BatchGpuQueue {
+    let svc = Arc::new(DynBatchGpuQueue {
       invoke_batches: DashMap::new(),
       est_time: Mutex::new(0.0),
       num_queued: AtomicUsize::new(0),
+      max_batch_size: 4,
+      compress_window:4,
+      incoming_queue:Mutex::new(VecDeque::new()),
       cmap,
     });
     Ok(svc)
   }
-}
 
-#[tonic::async_trait]
-impl GpuQueuePolicy for BatchGpuQueue {
-
-  /// XXX: This will be dependent on the current GPU state (which functions are running etc)   
-  fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
-    if let Some(next) = self.invoke_batches.iter().min_by_key(|x| x.value().peek().queue_insert_time) {
-      return Some(next.value().item_registration().clone());
-    }
-    None
-  }
-
-    /// Compress the front of the queue to batch invocations of the same function together. This could be async. Or done at key points:
-    /// 1. When a batch is popped/executed.
-    /// 2. When a new item is inserted, and we are under compress_window limit.
-    /// Function insertion times will be important for stable sorting? 
-    fn queue_compress(&self) -> () {
-
-    }
-
-  /// XXX: Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained. 
-  fn pop_queue(&self) -> GpuBatch {
-    let batch_key = self.invoke_batches.iter().min_by_key(|x| x.value().peek().queue_insert_time).unwrap().key().clone();
-    let (_fqdn, batch) = self.invoke_batches.remove(&batch_key).unwrap();
-
-    self.num_queued.fetch_sub(batch.len(), std::sync::atomic::Ordering::Relaxed);
-
-    *self.est_time.lock() -= batch.est_queue_time();
-    batch
-  }
-    
-    fn queue_len(&self) -> usize {
-	self.num_queued.load(std::sync::atomic::Ordering::Relaxed)
-    }
-    
-  fn est_queue_time(&self) -> f64 { 
-    *self.est_time.lock() 
-  }
-  
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
-  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
+   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+  fn add_item_to_batches(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
     self.num_queued.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let est_time;
     match self.invoke_batches.entry(item.registration.fqdn.clone()) {
@@ -87,6 +54,62 @@ impl GpuQueuePolicy for BatchGpuQueue {
     *self.est_time.lock() += est_time;
     Ok(())
   }
+    
+}
+
+#[tonic::async_trait]
+impl GpuQueuePolicy for DynBatchGpuQueue {
+
+  /// Borrowed from FCFS.   
+  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+  fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
+    // let est_time = match self.cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::GPU) {
+    //   ContainerState::Warm => self.cmap.get_gpu_warm_time(&item.registration.fqdn),
+    //   ContainerState::Prewarm => self.cmap.get_gpu_warm_time(&item.registration.fqdn),
+    //   _ => self.cmap.get_gpu_cold_time(&item.registration.fqdn),
+    // };
+
+    let mut queue = self.incoming_queue.lock();
+    let est_time = 0.0 ; // Fill later? Or from cmap? Its a distribution anyways 
+    queue.push_back(GpuBatch::new(item.clone(), est_time));
+    Ok(())
+  }
+
+  /// XXX: This will be dependent on the current GPU state (which functions are running etc)   
+  fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
+    if let Some(next) = self.invoke_batches.iter().min_by_key(|x| x.value().peek().queue_insert_time) {
+      return Some(next.value().item_registration().clone());
+    }
+    None
+  }
+
+    /// Compress the front of the queue to batch invocations of the same function together. This could be async. Or done at key points:
+    /// 1. When a batch is popped/executed.
+    /// 2. When a new item is inserted, and we are under compress_window limit.
+    /// Function insertion times will be important for stable sorting?
+    fn queue_compress(&self) -> () {
+        // New items at head of invocation queue. Read the first compress_window batches (of 1) and try to aggregate into batches. 
+    
+    }
+
+  /// XXX: Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained. 
+  fn pop_queue(&self) -> GpuBatch {
+    let batch_key = self.invoke_batches.iter().min_by_key(|x| x.value().peek().queue_insert_time).unwrap().key().clone();
+    let (_fqdn, batch) = self.invoke_batches.remove(&batch_key).unwrap();
+
+    self.num_queued.fetch_sub(batch.len(), std::sync::atomic::Ordering::Relaxed);
+    *self.est_time.lock() -= batch.est_queue_time();
+    batch
+  }
+    
+    fn queue_len(&self) -> usize {
+	self.num_queued.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    
+  fn est_queue_time(&self) -> f64 { 
+    *self.est_time.lock() 
+  }
+  
 }
 
 
