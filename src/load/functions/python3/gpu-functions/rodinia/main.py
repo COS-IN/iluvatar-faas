@@ -43,7 +43,7 @@ def main(args):
         subprocess.call(args=args)
             
         end = time()
-        return {"body": { "latency":end-start, "msg":msg, "cold":was_cold, "start":start, "end":end }}
+        return {"body": { "latency":end-start, "msg":msg, "cold":was_cold, "start":start, "end":end, "bin":bin }}
     except Exception as e:
         err = str(e)
         try:
@@ -51,3 +51,4 @@ def main(args):
         except Exception as fug:
             err = str(fug)
         return {"body": { "cust_error":msg, "thing":err, "cold":was_cold }}
+    

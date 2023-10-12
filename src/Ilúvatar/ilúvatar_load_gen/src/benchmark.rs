@@ -246,7 +246,13 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
         match args.runtime {
           0 => {
             for _ in 0..args.warm_iters+1 {
-              match threaded_rt.block_on(worker_invoke(&name, &version, &args.host, args.port, &gen_tid(), None, clock.clone(), &factory, None)) {
+              let mut func_args: Option<String> = None;
+              if let Some(args) = &function.args {
+                let mut f: Function = Default::default();
+                f.args = Some(args.clone());
+                func_args = Some(args_to_json(&prepare_function_args(&f, LoadType::Functions))?);
+              }
+              match threaded_rt.block_on(worker_invoke(&name, &version, &args.host, args.port, &gen_tid(), func_args, clock.clone(), &factory, None)) {
                 Ok(r) => invokes.push(r),
                 Err(e) => {
                   println!("Invocation error: {}", e);
