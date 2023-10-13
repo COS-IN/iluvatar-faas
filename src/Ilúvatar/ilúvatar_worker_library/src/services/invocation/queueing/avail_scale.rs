@@ -45,7 +45,7 @@ impl InvokerCpuQueuePolicy for AvailableScalingQueue {
         let r = self.invoke_queue.lock();
         let r = r.peek()?;
         let r = r.item.clone();
-        return Some(r);
+        Some(r)
     }
     fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
         let mut invoke_queue = self.invoke_queue.lock();

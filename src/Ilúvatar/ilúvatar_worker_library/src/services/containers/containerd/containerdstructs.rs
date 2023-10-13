@@ -60,7 +60,7 @@ impl ContainerdContainer {
         port: Port,
         address: String,
         _parallel_invokes: NonZeroU32,
-        fqdn: &String,
+        fqdn: &str,
         function: &Arc<RegisteredFunction>,
         ns: Arc<Namespace>,
         invoke_timeout: u64,
@@ -89,7 +89,7 @@ impl ContainerdContainer {
             base_uri,
             client,
             compute,
-            fqdn: fqdn.clone(),
+            fqdn: fqdn.to_owned(),
             function: function.clone(),
             last_used: RwLock::new(SystemTime::now()),
             namespace: ns,
@@ -107,7 +107,7 @@ impl ContainerdContainer {
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args), fields(tid=%tid, fqdn=%self.fqdn)))]
-    async fn call_container(&self, json_args: &String, tid: &TransactionId) -> Result<(Response, Duration)> {
+    async fn call_container(&self, json_args: &str, tid: &TransactionId) -> Result<(Response, Duration)> {
         let builder = self
             .client
             .post(&self.invoke_uri)
@@ -143,7 +143,7 @@ impl ContainerdContainer {
 #[tonic::async_trait]
 impl ContainerT for ContainerdContainer {
     #[tracing::instrument(skip(self, json_args), fields(tid=%tid, fqdn=%self.fqdn), name="ContainerdContainer::invoke")]
-    async fn invoke(&self, json_args: &String, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
+    async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
         self.update_metadata_on_invoke(tid);
         let (response, duration) = self.call_container(json_args, tid).await?;
         let status = response.status();

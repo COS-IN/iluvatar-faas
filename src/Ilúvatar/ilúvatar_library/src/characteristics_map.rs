@@ -138,7 +138,7 @@ impl CharacteristicsMap {
         }
     }
 
-    pub fn add(&self, fqdn: &String, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
+    pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
         let e0 = self.map.get_mut(fqdn);
 
         match e0 {
@@ -175,14 +175,14 @@ impl CharacteristicsMap {
                 // dashmap for given fname does not exist create and populate
                 let d = DashMap::new();
                 d.insert(chr, value);
-                self.map.insert(fqdn.clone(), d);
+                self.map.insert(fqdn.to_owned(), d);
             }
         }
 
         self
     }
 
-    pub fn add_iat(&self, fqdn: &String) {
+    pub fn add_iat(&self, fqdn: &str) {
         let time_now = SystemTime::now();
         let time_now = time_now.duration_since(UNIX_EPOCH).expect("Time went backwards");
 
@@ -204,7 +204,7 @@ impl CharacteristicsMap {
         );
     }
 
-    pub fn lookup(&self, fqdn: &String, chr: &Characteristics) -> Option<Values> {
+    pub fn lookup(&self, fqdn: &str, chr: &Characteristics) -> Option<Values> {
         let e0 = self.map.get(fqdn)?;
         let e0 = e0.value();
         let v = e0.get(chr)?;
@@ -214,7 +214,7 @@ impl CharacteristicsMap {
     }
     /// Returns the execution time as tracked by [Characteristics::ExecTime]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_exec_time(&self, fqdn: &String) -> f64 {
+    pub fn get_exec_time(&self, fqdn: &str) -> f64 {
         if let Some(exectime) = self.lookup(fqdn, &Characteristics::ExecTime) {
             unwrap_val_f64(&exectime)
         } else {
@@ -223,7 +223,7 @@ impl CharacteristicsMap {
     }
     /// Returns the execution time as tracked by [Characteristics::GpuExecTime]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_gpu_exec_time(&self, fqdn: &String) -> f64 {
+    pub fn get_gpu_exec_time(&self, fqdn: &str) -> f64 {
         if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuExecTime) {
             unwrap_val_f64(&exectime)
         } else {
@@ -232,7 +232,7 @@ impl CharacteristicsMap {
     }
     /// Returns the execution time as tracked by [Characteristics::GpuColdTime]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_gpu_cold_time(&self, fqdn: &String) -> f64 {
+    pub fn get_gpu_cold_time(&self, fqdn: &str) -> f64 {
         if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuColdTime) {
             unwrap_val_f64(&exectime)
         } else {
@@ -241,7 +241,7 @@ impl CharacteristicsMap {
     }
     /// Returns the execution time as tracked by [Characteristics::GpuWarmTime]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_gpu_warm_time(&self, fqdn: &String) -> f64 {
+    pub fn get_gpu_warm_time(&self, fqdn: &str) -> f64 {
         if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuWarmTime) {
             unwrap_val_f64(&exectime)
         } else {
@@ -250,7 +250,7 @@ impl CharacteristicsMap {
     }
     /// Returns the execution time as tracked by [Characteristics::GpuPreWarmTime]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_gpu_prewarm_time(&self, fqdn: &String) -> f64 {
+    pub fn get_gpu_prewarm_time(&self, fqdn: &str) -> f64 {
         if let Some(exectime) = self.lookup(fqdn, &Characteristics::GpuPreWarmTime) {
             unwrap_val_f64(&exectime)
         } else {
@@ -259,7 +259,7 @@ impl CharacteristicsMap {
     }
     /// Returns the execution time as tracked by [Characteristics::WarmTime]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_warm_time(&self, fqdn: &String) -> f64 {
+    pub fn get_warm_time(&self, fqdn: &str) -> f64 {
         if let Some(exectime) = self.lookup(fqdn, &Characteristics::WarmTime) {
             unwrap_val_f64(&exectime)
         } else {
@@ -268,7 +268,7 @@ impl CharacteristicsMap {
     }
     /// Returns the execution time as tracked by [Characteristics::PreWarmTime]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_prewarm_time(&self, fqdn: &String) -> f64 {
+    pub fn get_prewarm_time(&self, fqdn: &str) -> f64 {
         if let Some(exectime) = self.lookup(fqdn, &Characteristics::PreWarmTime) {
             unwrap_val_f64(&exectime)
         } else {
@@ -277,7 +277,7 @@ impl CharacteristicsMap {
     }
     /// Returns the execution time as tracked by [Characteristics::ExecTime]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_cold_time(&self, fqdn: &String) -> f64 {
+    pub fn get_cold_time(&self, fqdn: &str) -> f64 {
         if let Some(exectime) = self.lookup(fqdn, &Characteristics::ColdTime) {
             unwrap_val_f64(&exectime)
         } else {
@@ -286,7 +286,7 @@ impl CharacteristicsMap {
     }
     /// Returns the IAT as tracked by [Characteristics::IAT]
     /// Returns 0.0 if it was not found, or an error occured
-    pub fn get_iat(&self, fqdn: &String) -> f64 {
+    pub fn get_iat(&self, fqdn: &str) -> f64 {
         if let Some(iat) = self.lookup(fqdn, &Characteristics::IAT) {
             unwrap_val_f64(&iat)
         } else {
@@ -331,7 +331,7 @@ mod charmap {
 
         println!("      : Adding one element");
         m.add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::ExecTime,
             Values::Duration(Duration::new(2, 30)),
             true,
@@ -340,25 +340,25 @@ mod charmap {
         println!(
             "      :   {:?}",
             unwrap_val_dur(
-                &m.lookup(&"video_processing.0.0.1".to_string(), &Characteristics::ExecTime)
+                &m.lookup("video_processing.0.0.1", &Characteristics::ExecTime)
                     .unwrap()
             )
         );
         println!("      : Adding three more");
         m.add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::ExecTime,
             Values::Duration(Duration::new(5, 50)),
             true,
         );
         m.add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::ExecTime,
             Values::Duration(Duration::new(5, 50)),
             true,
         );
         m.add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::ExecTime,
             Values::Duration(Duration::new(5, 50)),
             true,
@@ -367,7 +367,7 @@ mod charmap {
         m.dump();
         assert_eq!(
             unwrap_val_dur(
-                &m.lookup(&"video_processing.0.0.1".to_string(), &Characteristics::ExecTime)
+                &m.lookup("video_processing.0.0.1", &Characteristics::ExecTime)
                     .unwrap()
             ),
             Duration::from_secs_f64(4.808000049)
@@ -380,57 +380,57 @@ mod charmap {
 
         let push_video = || {
             m.add(
-                &"video_processing.0.0.1".to_string(),
+                "video_processing.0.0.1",
                 Characteristics::ExecTime,
                 Values::F64(0.3),
                 true,
             );
             m.add(
-                &"video_processing.0.0.1".to_string(),
+                "video_processing.0.0.1",
                 Characteristics::ColdTime,
                 Values::F64(0.9),
                 true,
             );
             m.add(
-                &"video_processing.0.0.1".to_string(),
+                "video_processing.0.0.1",
                 Characteristics::WarmTime,
                 Values::F64(0.6),
                 true,
             );
 
             m.add(
-                &"video_processing.0.1.1".to_string(),
+                "video_processing.0.1.1",
                 Characteristics::ExecTime,
                 Values::F64(0.4),
                 true,
             );
             m.add(
-                &"video_processing.0.1.1".to_string(),
+                "video_processing.0.1.1",
                 Characteristics::ColdTime,
                 Values::F64(1.9),
                 true,
             );
             m.add(
-                &"video_processing.0.1.1".to_string(),
+                "video_processing.0.1.1",
                 Characteristics::WarmTime,
                 Values::F64(1.6),
                 true,
             );
 
             m.add(
-                &"json_dump.0.1.1".to_string(),
+                "json_dump.0.1.1",
                 Characteristics::ExecTime,
                 Values::F64(0.4),
                 true,
             );
             m.add(
-                &"json_dump.0.1.1".to_string(),
+                "json_dump.0.1.1",
                 Characteristics::ColdTime,
                 Values::F64(1.9),
                 true,
             );
             m.add(
-                &"json_dump.0.1.1".to_string(),
+                "json_dump.0.1.1",
                 Characteristics::WarmTime,
                 Values::Duration(Duration::from_secs_f64(1.6)),
                 true,
@@ -444,7 +444,7 @@ mod charmap {
         println!(
             "      : lookup ExecTime of json - {}",
             unwrap_val_f64(
-                &m.lookup(&"json_dump.0.1.1".to_string(), &Characteristics::ExecTime)
+                &m.lookup("json_dump.0.1.1", &Characteristics::ExecTime)
                     .unwrap()
             )
         );
@@ -452,14 +452,14 @@ mod charmap {
         m.dump();
         assert_eq!(
             unwrap_val_f64(
-                &m.lookup(&"json_dump.0.1.1".to_string(), &Characteristics::ExecTime)
+                &m.lookup("json_dump.0.1.1", &Characteristics::ExecTime)
                     .unwrap()
             ),
             0.4
         );
         assert_eq!(
             unwrap_val_dur(
-                &m.lookup(&"json_dump.0.1.1".to_string(), &Characteristics::WarmTime)
+                &m.lookup("json_dump.0.1.1", &Characteristics::WarmTime)
                     .unwrap()
             ),
             Duration::from_secs_f64(1.6)
@@ -471,38 +471,38 @@ mod charmap {
         let m = CharacteristicsMap::new(AgExponential::new(0.6));
 
         m.add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::ExecTime,
             Values::F64(0.3),
             true,
         );
         m.add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::ColdTime,
             Values::F64(0.9),
             true,
         );
         m.add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::WarmTime,
             Values::F64(0.6),
             true,
         );
 
         m.add(
-            &"video_processing.0.1.1".to_string(),
+            "video_processing.0.1.1",
             Characteristics::ExecTime,
             Values::F64(0.4),
             true,
         );
         m.add(
-            &"video_processing.0.1.1".to_string(),
+            "video_processing.0.1.1",
             Characteristics::ColdTime,
             Values::F64(1.9),
             true,
         );
         m.add(
-            &"video_processing.0.1.1".to_string(),
+            "video_processing.0.1.1",
             Characteristics::WarmTime,
             Values::F64(1.6),
             true,
@@ -510,19 +510,19 @@ mod charmap {
 
         // Test 3 exponential average to accumulate
         m.add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::ExecTime,
             Values::F64(0.5),
             true,
         )
         .add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::ExecTime,
             Values::F64(0.5),
             true,
         )
         .add(
-            &"video_processing.0.0.1".to_string(),
+            "video_processing.0.0.1",
             Characteristics::ExecTime,
             Values::F64(0.5),
             true,
@@ -533,7 +533,7 @@ mod charmap {
         m.dump();
         assert_eq!(
             unwrap_val_f64(
-                &m.lookup(&"video_processing.0.0.1".to_string(), &Characteristics::ExecTime)
+                &m.lookup("video_processing.0.0.1", &Characteristics::ExecTime)
                     .unwrap()
             ),
             0.48719999999999997
@@ -548,7 +548,7 @@ mod charmap {
         let m = CharacteristicsMap::new(AgExponential::new(0.6));
         let fjd_011 = "json_dump.0.1.1".to_string();
 
-        let verify_iat_lookup = |fname: &String, val_expc: f64| {
+        let verify_iat_lookup = |fname: &str, val_expc: f64| {
             let val = m.lookup(fname, &Characteristics::IAT).unwrap_or(Values::F64(0.0));
             assert!(approx_eq!(f64, unwrap_val_f64(&val), val_expc, epsilon = 0.005));
             // assert_eq!( unwrap_val_f64( &val ), val_expc );

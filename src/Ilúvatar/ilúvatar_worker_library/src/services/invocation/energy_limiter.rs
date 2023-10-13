@@ -54,7 +54,7 @@ impl EnergyLimiter {
         return self.powcap > POWCAP_MIN;
     }
 
-    fn get_energy(&self, cmap: &Arc<CharacteristicsMap>, fqdn: &String, _power: f64) -> f64 {
+    fn get_energy(&self, cmap: &Arc<CharacteristicsMap>, fqdn: &str, _power: f64) -> f64 {
         let exec_time = cmap.get_exec_time(fqdn);
         let power_2 = 2.0;
         let j = exec_time * power_2;
@@ -62,7 +62,7 @@ impl EnergyLimiter {
         return j;
     }
 
-    pub fn ok_run_fn(&self, cmap: &Arc<CharacteristicsMap>, fname: &String) -> bool {
+    pub fn ok_run_fn(&self, cmap: &Arc<CharacteristicsMap>, fname: &str) -> bool {
         if !self.powcap_enabled() {
             // tracing::debug!(fname=%fname, "power cap disabled");
             return true;

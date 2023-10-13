@@ -1,4 +1,4 @@
-use crate::controller::structs::internal::{RegisteredFunction, RegisteredWorker};
+use crate::server::structs::internal::{RegisteredFunction, RegisteredWorker};
 use crate::services::controller_health::ControllerHealthService;
 use crate::services::load_balance::LoadBalancerTrait;
 use crate::{prewarm, send_async_invocation, send_invocation};

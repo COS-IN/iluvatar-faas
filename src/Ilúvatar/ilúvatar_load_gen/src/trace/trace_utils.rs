@@ -77,7 +77,7 @@ fn map_from_benchmark(
     funcs: &mut HashMap<String, Function>,
     bench: &BenchmarkStore,
     default_prewarms: Option<u32>,
-    _trace_pth: &String,
+    _trace_pth: &str,
     max_prewarms: u32,
 ) -> Result<()> {
     let mut cpu_data = Vec::new();
@@ -181,7 +181,7 @@ pub fn map_functions_to_prep(
     func_json_data_path: &Option<String>,
     funcs: &mut HashMap<String, Function>,
     default_prewarms: Option<u32>,
-    trace_pth: &String,
+    trace_pth: &str,
     max_prewarms: u32,
 ) -> Result<()> {
     for (_, v) in funcs.iter_mut() {
@@ -213,7 +213,7 @@ pub fn map_functions_to_prep(
 
 fn worker_prewarm_functions(
     prewarm_data: &HashMap<String, Function>,
-    host: &String,
+    host: &str,
     port: Port,
     rt: &Runtime,
     factory: &Arc<WorkerAPIFactory>,
@@ -234,7 +234,7 @@ fn worker_prewarm_functions(
             )
         })? {
             let tid = format!("{}-{}-prewarm", i, &func_name);
-            let h_c = host.clone();
+            let h_c = host.to_owned();
             let f_c = func_name.clone();
             let fct_cln = factory.clone();
             prewarm_calls.push(async move {
@@ -285,13 +285,13 @@ fn worker_prewarm_functions(
 pub fn worker_prepare_functions(
     runtype: RunType,
     funcs: &mut HashMap<String, Function>,
-    host: &String,
+    host: &str,
     port: Port,
     load_type: LoadType,
     func_data: Option<String>,
     rt: &Runtime,
     prewarms: Option<u32>,
-    trace_pth: &String,
+    trace_pth: &str,
     factory: &Arc<WorkerAPIFactory>,
     max_prewarms: u32,
 ) -> Result<()> {
@@ -301,7 +301,7 @@ pub fn worker_prepare_functions(
 
 fn prepare_worker(
     funcs: &mut HashMap<String, Function>,
-    host: &String,
+    host: &str,
     port: Port,
     runtype: RunType,
     rt: &Runtime,
@@ -332,7 +332,7 @@ fn worker_wait_reg(
     funcs: &HashMap<String, Function>,
     rt: &Runtime,
     port: Port,
-    host: &String,
+    host: &str,
     factory: &Arc<WorkerAPIFactory>,
     method: CommunicationMethod,
     func_data: &Option<String>,
@@ -351,7 +351,7 @@ fn worker_wait_reg(
                 }
             };
             let f_c = func.func_name.clone();
-            let h_c = host.clone();
+            let h_c = host.to_owned();
             let fct_cln = factory.clone();
             let image = match &func.image_name {
                 Some(i) => i.clone(),

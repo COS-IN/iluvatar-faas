@@ -1,4 +1,4 @@
-use crate::controller::{controller_errors::MissingAsyncCookieError, structs::internal::RegisteredWorker};
+use crate::server::{controller_errors::MissingAsyncCookieError, structs::internal::RegisteredWorker};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::bail_error;

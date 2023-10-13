@@ -9,9 +9,9 @@ use actix_web::{
     web::{Data, Json},
 };
 use anyhow::Result;
-use iluvatar_controller_library::controller::structs::json::Invoke;
-use iluvatar_controller_library::controller::web_server::{invoke, register_worker};
-use iluvatar_controller_library::controller::{
+use iluvatar_controller_library::server::structs::json::Invoke;
+use iluvatar_controller_library::server::web_server::{invoke, register_worker};
+use iluvatar_controller_library::server::{
     controller::Controller,
     controller_structs::json::{ControllerInvokeResult, Prewarm, RegisterFunction},
     web_server::{prewarm, register_function},
@@ -34,14 +34,14 @@ use tokio::{runtime::Builder, task::JoinHandle};
 async fn controller_sim_register_workers(
     num_workers: usize,
     server_data: &Data<Controller>,
-    worker_config_pth: &String,
+    worker_config_pth: &str,
     worker_config: &Arc<WorkerConfig>,
 ) -> Result<()> {
     for i in 0..num_workers {
         let r = RegisterWorker {
             name: format!("worker_{}", i),
             communication_method: CommunicationMethod::SIMULATION,
-            host: worker_config_pth.clone(),
+            host: worker_config_pth.to_owned(),
             port: 0,
             memory: worker_config.container_resources.memory_mb,
             cpus: worker_config
@@ -221,7 +221,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
     let tid: &TransactionId = &SIMULATION_START_TID;
     let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None).unwrap();
     let controller_config =
-        iluvatar_controller_library::controller::controller_config::Configuration::boxed(&controller_config_pth)
+        iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)
             .unwrap();
     let _guard =
         iluvatar_library::logging::start_tracing(controller_config.logging.clone(), &controller_config.name, tid)?;

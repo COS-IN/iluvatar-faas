@@ -149,10 +149,10 @@ pub struct StatusConfig {
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
-    pub fn new(config_fpath: &Option<&String>, overrides: Option<Vec<(String, String)>>) -> anyhow::Result<Self> {
+    pub fn new(config_fpath: &Option<&str>, overrides: Option<Vec<(String, String)>>) -> anyhow::Result<Self> {
         let mut sources = vec!["worker/src/worker.json", "worker/src/worker.dev.json"];
         if let Some(config_fpath) = config_fpath {
-            sources.push(config_fpath.as_str());
+            sources.push(config_fpath);
         }
         let mut s = Config::builder()
             .add_source(
@@ -187,7 +187,7 @@ impl Configuration {
     }
 
     pub fn boxed(
-        config_fpath: &Option<&String>,
+        config_fpath: &Option<&str>,
         overrides: Option<Vec<(String, String)>>,
     ) -> anyhow::Result<WorkerConfig> {
         Ok(Arc::new(Configuration::new(config_fpath, overrides)?))

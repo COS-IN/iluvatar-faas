@@ -184,10 +184,10 @@ impl QueueingDispatcher {
             EnqueueingPolicy::EstCompTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
-                    opts.push((self.cpu_queue.est_completion_time(&reg, &tid), &self.cpu_queue));
+                    opts.push((self.cpu_queue.est_completion_time(reg, &tid), &self.cpu_queue));
                 }
                 if reg.supported_compute.contains(Compute::GPU) {
-                    opts.push((self.gpu_queue.est_completion_time(&reg, &tid), &self.gpu_queue));
+                    opts.push((self.gpu_queue.est_completion_time(reg, &tid), &self.gpu_queue));
                 }
                 let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
                 if let Some((_, q)) = best {
@@ -230,7 +230,7 @@ impl Invoker for QueueingDispatcher {
         let invoke = self.enqueue_new_invocation(&reg, json_args, tid)?;
         self.async_functions.insert_async_invoke(invoke)
     }
-    fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse> {
+    fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse> {
         self.async_functions.invoke_async_check(cookie, tid)
     }
 

@@ -44,9 +44,9 @@ impl CompletionTimeTracker {
             if dur.is_negative() {
                 return Duration::seconds(0);
             }
-            return dur;
+            dur
         } else {
-            return Duration::seconds(0);
+            Duration::seconds(0)
         }
     }
 }

@@ -1,5 +1,5 @@
-use crate::controller::structs::internal::{RegisteredFunction, RegisteredWorker};
-use crate::controller::structs::json::RegisterFunction;
+use crate::server::structs::internal::{RegisteredFunction, RegisteredWorker};
+use crate::server::structs::json::RegisterFunction;
 use crate::services::load_balance::LoadBalancer;
 use anyhow::Result;
 use dashmap::DashMap;
@@ -29,7 +29,7 @@ impl RegistrationService {
     }
 
     /// Return the function if it's been registered
-    pub fn get_function(&self, fqdn: &String) -> Option<Arc<RegisteredFunction>> {
+    pub fn get_function(&self, fqdn: &str) -> Option<Arc<RegisteredFunction>> {
         self.functions.get(fqdn).map(|c| c.clone())
     }
 
@@ -83,12 +83,12 @@ impl RegistrationService {
     }
 
     /// check if worker has been registered already
-    fn worker_registered(&self, name: &String) -> bool {
+    fn worker_registered(&self, name: &str) -> bool {
         self.workers.contains_key(name)
     }
 
     /// check if function has been registered already
-    fn function_registered(&self, fqdn: &String) -> bool {
+    fn function_registered(&self, fqdn: &str) -> bool {
         self.functions.contains_key(fqdn)
     }
 

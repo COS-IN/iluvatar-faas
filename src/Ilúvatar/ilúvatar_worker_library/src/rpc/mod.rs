@@ -21,14 +21,14 @@ pub struct RPCWorkerAPI {
 impl RPCWorkerAPI {
     /// Open a new connection to a Worker API
     /// Returns a [RPCError] with details if the connection fails
-    pub async fn new(address: &String, port: Port, tid: &TransactionId) -> Result<RPCWorkerAPI, RPCError> {
+    pub async fn new(address: &str, port: Port, tid: &TransactionId) -> Result<RPCWorkerAPI, RPCError> {
         Self::repeat_try_connection(address, port, 5, tid).await
     }
 
     /// Try opening a new connection, with several retries
     /// This can be flaky, so if there is an error, the connection is retried several times
     async fn repeat_try_connection(
-        address: &String,
+        address: &str,
         port: Port,
         mut retries: u32,
         tid: &TransactionId,
@@ -49,7 +49,7 @@ impl RPCWorkerAPI {
         }
     }
 
-    async fn try_new_connection(address: &String, port: Port) -> Result<RPCWorkerAPI, RPCError> {
+    async fn try_new_connection(address: &str, port: Port) -> Result<RPCWorkerAPI, RPCError> {
         let addr = format!("http://{}:{}", address, port);
         match IluvatarWorkerClient::connect(addr).await {
             Ok(c) => Ok(RPCWorkerAPI { client: c }),
@@ -162,7 +162,7 @@ impl WorkerAPI for RPCWorkerAPI {
         }
     }
 
-    async fn invoke_async_check(&mut self, cookie: &String, tid: TransactionId) -> Result<InvokeResponse> {
+    async fn invoke_async_check(&mut self, cookie: &str, tid: TransactionId) -> Result<InvokeResponse> {
         let request = Request::new(InvokeAsyncLookupRequest {
             lookup_cookie: cookie.to_owned(),
             transaction_id: tid,

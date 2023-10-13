@@ -23,21 +23,21 @@ pub struct RegisterWorker {
 
 /// Send worker details to the load balancer to register
 pub async fn register_worker(
-    name: &String,
+    name: &str,
     communication_method: CommunicationMethod,
-    host: &String,
+    host: &str,
     port: Port,
     memory: i64,
     cpus: u32,
-    loab_balancer_url: &String,
+    loab_balancer_url: &str,
     tid: &TransactionId,
     compute: Compute,
     isolation: Isolation,
     gpus: u32,
 ) -> Result<()> {
     let req = RegisterWorker {
-        name: name.clone(),
-        host: host.clone(),
+        name: name.to_owned(),
+        host: host.to_owned(),
         communication_method,
         port,
         memory,

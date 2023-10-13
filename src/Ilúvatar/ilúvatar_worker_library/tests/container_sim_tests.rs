@@ -511,24 +511,28 @@ mod gpu {
         let r1 = resolve_invoke(invoke1)
             .await
             .unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
-        let r1_lck = r1.lock();
-        let r1_res = r1_lck
+        let _ = r1.lock()
             .worker_result
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Invoke 1 '{:?}' did not have a result", *r1_lck))
-            .unwrap();
+            .ok_or_else(|| anyhow::anyhow!("Invoke 1 '{:?}' did not have a result", *r1.lock())).unwrap();
 
         let r2 = resolve_invoke(invoke2)
             .await
             .unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
 
-        assert_eq!(r1_lck.compute, Compute::GPU, "First invoke should run on GPU");
+        assert_eq!(r1.lock().compute, Compute::GPU, "First invoke should run on GPU");
         assert_eq!(
-            r1_lck.container_state,
+          r1.lock().container_state,
             ContainerState::Prewarm,
             "Invoke 1 should be prewarm"
         );
-        assert!(r1_lck.duration.as_micros() > 0, "Invoke should have duration time");
+        assert!(r1.lock().duration.as_micros() > 0, "Invoke should have duration time");
+
+        let r1_lck = r1.lock();
+        let r1_res = r1_lck
+            .worker_result
+            .as_ref()
+            .unwrap();
 
         let r1_end = formatter
             .parse_python_container_time(&r1_res.end)
@@ -620,28 +624,27 @@ mod gpu {
         let r1 = resolve_invoke(invoke1)
             .await
             .unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
-        let r1_lck = r1.lock();
-        let r1_res = r1_lck
+        r1.lock()
             .worker_result
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Invoke 1 '{:?}' did not have a result", *r1_lck))
+            .ok_or_else(|| anyhow::anyhow!("Invoke 1 '{:?}' did not have a result", *r1.lock()))
             .unwrap();
 
         let r2 = resolve_invoke(invoke2)
             .await
             .unwrap_or_else(|e| panic!("Invoke failed: {:?}", e));
 
-        assert_eq!(r1_lck.compute, Compute::GPU, "First invoke should run on GPU");
+        assert_eq!(r1.lock().compute, Compute::GPU, "First invoke should run on GPU");
         assert_eq!(
-            r1_lck.container_state,
+          r1.lock().container_state,
             ContainerState::Prewarm,
             "Invoke 2 should be prewarm"
         );
-        assert!(r1_lck.duration.as_micros() > 0, "Invoke should have duration time");
+        assert!(r1.lock().duration.as_micros() > 0, "Invoke should have duration time");
 
         let r1_end = formatter
-            .parse_python_container_time(&r1_res.end)
-            .unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r1_res.end, e));
+            .parse_python_container_time(&r1.lock().worker_result.as_ref().unwrap().end)
+            .unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r1.lock().worker_result.as_ref().unwrap().end, e));
         let r2_lck = r2.lock();
         let r2_res = r2_lck
             .worker_result
@@ -1295,20 +1298,19 @@ mod enqueueing_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_faster_gpu_path_chosen() {
-        let mut env = vec![];
-        env.push((
-            "container_resources.resource_map.gpu.count".to_string(),
-            "1".to_string(),
-        ));
-        env.push((
-            "container_resources.resource_map.cpu.count".to_string(),
-            "1".to_string(),
-        ));
-        env.push((
-            "container_resources.resource_map.cpu.max_oversubscribe".to_string(),
-            "1".to_string(),
-        ));
-        env.push(("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()));
+        let env = vec![(
+          "container_resources.resource_map.gpu.count".to_string(),
+          "1".to_string(),
+        ),
+        (
+          "container_resources.resource_map.cpu.count".to_string(),
+          "1".to_string(),
+        ),
+        (
+          "container_resources.resource_map.cpu.max_oversubscribe".to_string(),
+          "1".to_string(),
+        ),
+        ("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string())];
         let (_log, _cfg, _cm, invoker, reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
@@ -1377,20 +1379,19 @@ mod enqueueing_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prewarm_faster_gpu_path_chosen() {
-        let mut env = vec![];
-        env.push((
-            "container_resources.resource_map.gpu.count".to_string(),
-            "1".to_string(),
-        ));
-        env.push((
-            "container_resources.resource_map.cpu.count".to_string(),
-            "1".to_string(),
-        ));
-        env.push((
-            "container_resources.resource_map.cpu.max_oversubscribe".to_string(),
-            "1".to_string(),
-        ));
-        env.push(("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()));
+        let env = vec![(
+          "container_resources.resource_map.gpu.count".to_string(),
+          "1".to_string(),
+        ),
+        (
+          "container_resources.resource_map.cpu.count".to_string(),
+          "1".to_string(),
+        ),
+        (
+          "container_resources.resource_map.cpu.max_oversubscribe".to_string(),
+          "1".to_string(),
+        ),
+        ("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string())];
         let (_log, _cfg, cm, invoker, reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),

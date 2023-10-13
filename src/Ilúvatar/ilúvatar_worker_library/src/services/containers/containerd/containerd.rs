@@ -120,8 +120,8 @@ impl ContainerdIsolation {
         port: Port,
         mem_limit_mb: MemSizeMb,
         cpus: u32,
-        net_ns_name: &String,
-        container_id: &String,
+        net_ns_name: &str,
+        container_id: &str,
     ) -> prost_types::Any {
         // one second of time, in microseconds
         let one_sec_in_us: u64 = 1000 * 1000;
@@ -171,14 +171,14 @@ impl ContainerdIsolation {
     async fn load_mounts(
         &self,
         cid: &str,
-        snapshot_base: &String,
+        snapshot_base: &str,
         tid: &TransactionId,
     ) -> Result<Vec<containerd_client::types::Mount>> {
         let view_snapshot_req = PrepareSnapshotRequest {
             // https://github.com/containerd/containerd/tree/main/docs/snapshotters
             snapshotter: self.config.snapshotter.clone(),
             key: cid.to_owned(),
-            parent: snapshot_base.clone(),
+            parent: snapshot_base.to_owned(),
             labels: HashMap::new(),
         };
         let mut cli = SnapshotsClient::new(self.channel());
@@ -195,7 +195,7 @@ impl ContainerdIsolation {
     async fn delete_task(
         &self,
         client: &mut TasksClient<Channel>,
-        container_id: &String,
+        container_id: &str,
         ctd_namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
@@ -220,12 +220,12 @@ impl ContainerdIsolation {
     async fn try_delete_task(
         &self,
         client: &mut TasksClient<Channel>,
-        container_id: &String,
+        container_id: &str,
         ctd_namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
         let req = DeleteTaskRequest {
-            container_id: container_id.clone(),
+            container_id: container_id.to_owned(),
         };
         let req = with_namespace!(req, ctd_namespace);
 
@@ -256,12 +256,12 @@ impl ContainerdIsolation {
     async fn kill_task(
         &self,
         client: &mut TasksClient<Channel>,
-        container_id: &String,
+        container_id: &str,
         ctd_namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
         let req = KillRequest {
-            container_id: container_id.clone(),
+            container_id: container_id.to_owned(),
             // exec_id: container.task.pid.to_string(),
             exec_id: "".to_string(),
             signal: 9, // SIGKILL
@@ -288,12 +288,12 @@ impl ContainerdIsolation {
     async fn delete_containerd_container(
         &self,
         client: &mut ContainersClient<Channel>,
-        container_id: &String,
+        container_id: &str,
         ctd_namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
         let req = DeleteContainerRequest {
-            id: container_id.clone(),
+            id: container_id.to_owned(),
         };
         let req = with_namespace!(req, ctd_namespace);
 
@@ -305,7 +305,7 @@ impl ContainerdIsolation {
         Ok(())
     }
 
-    fn delete_container_resources(&self, container_id: &String, tid: &TransactionId) {
+    fn delete_container_resources(&self, container_id: &str, tid: &TransactionId) {
         try_remove_pth(&self.stdin_pth(container_id), tid);
         try_remove_pth(&self.stdout_pth(container_id), tid);
         try_remove_pth(&self.stderr_pth(container_id), tid);
@@ -314,7 +314,7 @@ impl ContainerdIsolation {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn remove_container_internal(
         &self,
-        container_id: &String,
+        container_id: &str,
         ctd_namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
@@ -333,7 +333,7 @@ impl ContainerdIsolation {
     }
 
     /// Read through an image's digest to find it's snapshot base
-    async fn search_image_digest(&self, image: &String, namespace: &str, tid: &TransactionId) -> Result<String> {
+    async fn search_image_digest(&self, image: &str, namespace: &str, tid: &TransactionId) -> Result<String> {
         // Step 1. get image digest
         let get_image_req = GetImageRequest { name: image.into() };
         let mut cli = ImagesClient::new(self.channel());
@@ -417,7 +417,7 @@ impl ContainerdIsolation {
     }
 
     /// Ensures that the specified image is available on the machine
-    async fn ensure_image(&self, image_name: &String, _tid: &TransactionId) -> Result<()> {
+    async fn ensure_image(&self, image_name: &str, _tid: &TransactionId) -> Result<()> {
         if self.downloaded_images.contains_key(image_name) {
             return Ok(());
         }
@@ -427,7 +427,7 @@ impl ContainerdIsolation {
                 "pull",
                 "--snapshotter",
                 self.config.snapshotter.as_str(),
-                image_name.as_str(),
+                image_name,
             ])
             .output();
         match output {
@@ -435,7 +435,7 @@ impl ContainerdIsolation {
             Ok(output) => {
                 if let Some(status) = output.status.code() {
                     if status == 0 {
-                        self.downloaded_images.insert(image_name.clone(), true);
+                        self.downloaded_images.insert(image_name.to_owned(), true);
                         Ok(())
                     } else {
                         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -466,8 +466,8 @@ impl ContainerdIsolation {
     /// Does not start any process in it
     async fn create_container(
         &self,
-        fqdn: &String,
-        image_name: &String,
+        fqdn: &str,
+        image_name: &str,
         namespace: &str,
         parallel_invokes: u32,
         mem_limit_mb: MemSizeMb,
@@ -599,13 +599,13 @@ impl ContainerdIsolation {
         }
     }
 
-    fn stdout_pth(&self, container_id: &String) -> String {
+    fn stdout_pth(&self, container_id: &str) -> String {
         temp_file_pth(container_id, "stdout")
     }
-    fn stderr_pth(&self, container_id: &String) -> String {
+    fn stderr_pth(&self, container_id: &str) -> String {
         temp_file_pth(container_id, "stderr")
     }
-    fn stdin_pth(&self, container_id: &String) -> String {
+    fn stdin_pth(&self, container_id: &str) -> String {
         temp_file_pth(container_id, "stdin")
     }
 }
@@ -622,8 +622,8 @@ impl ContainerIsolationService for ContainerdIsolation {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
     async fn run_container(
         &self,
-        fqdn: &String,
-        image_name: &String,
+        fqdn: &str,
+        image_name: &str,
         parallel_invokes: u32,
         namespace: &str,
         mem_limit_mb: MemSizeMb,
@@ -686,7 +686,7 @@ impl ContainerIsolationService for ContainerdIsolation {
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
-        _fqdn: &String,
+        _fqdn: &str,
         tid: &TransactionId,
     ) -> Result<()> {
         self.ensure_image(&rf.image_name, tid).await?;
@@ -801,7 +801,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                     if start.elapsed()?.as_millis() as u64 >= timeout_ms {
                         let stdout = self.read_stdout(&container, tid);
                         let stderr = self.read_stderr(&container, tid);
-                        if stderr.len() > 0 {
+                        if stderr.is_empty() {
                             warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for container start, but stderr was written to?");
                             return Ok(());
                         }

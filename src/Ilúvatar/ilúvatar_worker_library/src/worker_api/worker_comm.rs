@@ -25,29 +25,23 @@ impl WorkerAPIFactory {
 }
 
 impl WorkerAPIFactory {
-    fn try_get_rpcapi(&self, worker: &String) -> Option<RPCWorkerAPI> {
-        match self.rpc_apis.get(worker) {
-            Some(r) => Some(r.clone()),
-            None => None,
-        }
+    fn try_get_rpcapi(&self, worker: &str) -> Option<RPCWorkerAPI> {
+        self.rpc_apis.get(worker).map(|r| r.to_owned())
     }
 
-    fn try_get_simapi(&self, worker: &String) -> Option<Arc<IluvatarWorkerImpl>> {
-        match self.sim_apis.get(worker) {
-            Some(r) => Some(r.clone()),
-            None => None,
-        }
+    fn try_get_simapi(&self, worker: &str) -> Option<Arc<IluvatarWorkerImpl>> {
+        self.sim_apis.get(worker).map(|r| r.to_owned())
     }
 
     /// the list of all workers the factory has cached
     pub fn get_cached_workers(&self) -> Vec<(String, Box<dyn WorkerAPI + Send>)> {
         let mut ret: Vec<(String, Box<dyn WorkerAPI + Send>)> = vec![];
-        if self.rpc_apis.len() > 0 {
+        if self.rpc_apis.is_empty() {
             self.rpc_apis
                 .iter()
                 .for_each(|x| ret.push((x.key().clone(), Box::new(x.value().clone()))));
         }
-        if self.sim_apis.len() > 0 {
+        if self.sim_apis.is_empty() {
             self.sim_apis
                 .iter()
                 .for_each(|x| ret.push((x.key().clone(), Box::new(SimWorkerAPI::new(x.value().clone())))));
@@ -58,8 +52,8 @@ impl WorkerAPIFactory {
     /// Get the worker API that matches it's implemented communication method
     pub async fn get_worker_api(
         &self,
-        worker: &String,
-        host: &String,
+        worker: &str,
+        host: &str,
         port: Port,
         communication_method: CommunicationMethod,
         tid: &TransactionId,
@@ -68,20 +62,20 @@ impl WorkerAPIFactory {
             CommunicationMethod::RPC => match self.try_get_rpcapi(worker) {
                 Some(r) => Ok(Box::new(r)),
                 None => {
-                    let api = match RPCWorkerAPI::new(&host, port, &tid).await {
+                    let api = match RPCWorkerAPI::new(host, port, tid).await {
                         Ok(api) => api,
                         Err(e) => {
                             bail_error!(tid=%tid, worker=%worker, error=%e, "Unable to create API for worker")
                         }
                     };
-                    self.rpc_apis.insert(worker.clone(), api.clone());
+                    self.rpc_apis.insert(worker.to_owned(), api.clone());
                     Ok(Box::new(api))
                 }
             },
             CommunicationMethod::SIMULATION => {
                 let api = match self.try_get_simapi(worker) {
                     Some(api) => api,
-                    None => match self.sim_apis.entry(worker.clone()) {
+                    None => match self.sim_apis.entry(worker.to_owned()) {
                         dashmap::mapref::entry::Entry::Occupied(entry) => entry.get().clone(),
                         dashmap::mapref::entry::Entry::Vacant(vacant) => {
                             let worker_config =

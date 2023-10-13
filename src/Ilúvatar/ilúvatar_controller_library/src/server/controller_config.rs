@@ -35,10 +35,10 @@ pub struct LoadBalancingConfig {
 pub type ControllerConfig = Arc<Configuration>;
 
 impl Configuration {
-    pub fn new(config_fpath: &String) -> anyhow::Result<Self> {
+    pub fn new(config_fpath: &str) -> anyhow::Result<Self> {
         let sources = vec![
             "load_balancer/src/load_balancer.json",
-            config_fpath.as_str(),
+            config_fpath,
             "load_balancer/src/load_balancer.dev.json",
         ];
         let s = Config::builder()
@@ -63,7 +63,7 @@ impl Configuration {
         }
     }
 
-    pub fn boxed(config_fpath: &String) -> anyhow::Result<ControllerConfig> {
+    pub fn boxed(config_fpath: &str) -> anyhow::Result<ControllerConfig> {
         Ok(Arc::new(Configuration::new(config_fpath)?))
     }
 }

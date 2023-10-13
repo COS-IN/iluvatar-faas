@@ -1,7 +1,7 @@
-use crate::controller::controller::Controller;
-use crate::controller::controller_errors::MissingAsyncCookieError;
-use crate::controller::controller_structs::json::{AsyncInvokeResult, ControllerInvokeResult};
-use crate::controller::structs::json::{Invoke, InvokeAsyncLookup, Prewarm, RegisterFunction};
+use crate::server::controller::Controller;
+use crate::server::controller_errors::MissingAsyncCookieError;
+use crate::server::controller_structs::json::{AsyncInvokeResult, ControllerInvokeResult};
+use crate::server::structs::json::{Invoke, InvokeAsyncLookup, Prewarm, RegisterFunction};
 use actix_web::web::{Data, Json};
 use actix_web::{get, post, HttpRequest, HttpResponse};
 use iluvatar_library::api_register::RegisterWorker;

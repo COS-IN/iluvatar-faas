@@ -1,6 +1,6 @@
 use actix_web::{web::Data, App, HttpServer};
 use clap::{command, Parser};
-use iluvatar_controller_library::controller::{config::Configuration, controller::Controller, web_server::*};
+use iluvatar_controller_library::server::{config::Configuration, controller::Controller, web_server::*};
 use iluvatar_library::logging::start_tracing;
 use iluvatar_library::transaction::{TransactionId, LOAD_BALANCER_TID};
 use iluvatar_library::utils::wait_for_exit_signal;

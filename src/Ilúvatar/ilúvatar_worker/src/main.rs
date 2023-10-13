@@ -73,14 +73,14 @@ fn main() -> Result<()> {
         Some(c) => match c {
             utils::Commands::Clean => {
                 let overrides = vec![("networking.use_pool".to_string(), "false".to_string())];
-                let server_config = Configuration::boxed(&cli.config.as_ref(), Some(overrides)).unwrap();
+                let server_config = Configuration::boxed(&cli.config.as_deref(), Some(overrides)).unwrap();
                 let _guard = start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
                 let worker_rt = build_runtime(server_config.clone(), tid)?;
                 worker_rt.block_on(clean(server_config, tid))?;
             }
         },
         None => {
-            let server_config = Configuration::boxed(&cli.config.as_ref(), None).unwrap();
+            let server_config = Configuration::boxed(&cli.config.as_deref(), None).unwrap();
             let _guard = start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
             let worker_rt = build_runtime(server_config.clone(), tid)?;
             worker_rt.block_on(run(server_config, tid))?;

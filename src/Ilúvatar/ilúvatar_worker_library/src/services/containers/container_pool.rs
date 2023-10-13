@@ -59,7 +59,7 @@ impl ContainerPool {
     }
 
     /// Returns a random container for the fqdn, or [None] if none is available
-    pub fn get_random_container(&self, fqdn: &String, tid: &TransactionId) -> Option<Container> {
+    pub fn get_random_container(&self, fqdn: &str, tid: &TransactionId) -> Option<Container> {
         match self.pool.get_mut(fqdn) {
             Some(mut pool_list) => match (*pool_list).pop() {
                 Some(c) => {
@@ -75,7 +75,7 @@ impl ContainerPool {
 
     /// Returns the best possible state of available containers
     /// If none are available, returns [ContainerState::Cold]
-    pub fn has_container(&self, fqdn: &String) -> ContainerState {
+    pub fn has_container(&self, fqdn: &str) -> ContainerState {
         let mut ret = ContainerState::Cold;
         match self.pool.get(fqdn) {
             Some(c) => {
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn reg() {
         let cp = ContainerPool::new("test");
-        let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
+        let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn no_reg_fails() {
         let cp = ContainerPool::new("test");
-        let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
+        let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn get() {
         let tid = "test".to_string();
-        let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
+        let fqdn = calculate_fqdn("name", "vesr");
         let cp = ContainerPool::new("test");
         let reg = Arc::new(RegisteredFunction {
             function_name: "name".to_string(),
@@ -242,7 +242,7 @@ mod tests {
     fn remove_returns_correct() {
         let tid = "test".to_string();
         let cp = ContainerPool::new("test");
-        let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
+        let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
@@ -273,7 +273,7 @@ mod tests {
     fn remove_means_gone() {
         let tid = "test".to_string();
         let cp = ContainerPool::new("test");
-        let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
+        let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn len() {
         let cp = ContainerPool::new("test");
-        let fqdn = calculate_fqdn(&"name".to_string(), &"vesr".to_string());
+        let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
@@ -321,7 +321,7 @@ mod tests {
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
         });
-        let fqdn2 = calculate_fqdn(&"name2".to_string(), &"vesr".to_string());
+        let fqdn2 = calculate_fqdn("name2", "vesr");
         let reg2 = Arc::new(RegisteredFunction {
             function_name: "name2".to_string(),
             function_version: "vesr".to_string(),

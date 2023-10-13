@@ -138,7 +138,7 @@ pub trait WorkerAPI {
         args: String,
         tid: TransactionId,
     ) -> Result<String>;
-    async fn invoke_async_check(&mut self, cookie: &String, tid: TransactionId) -> Result<InvokeResponse>;
+    async fn invoke_async_check(&mut self, cookie: &str, tid: TransactionId) -> Result<InvokeResponse>;
     async fn prewarm(
         &mut self,
         function_name: String,
