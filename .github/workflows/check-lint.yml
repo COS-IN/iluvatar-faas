@@ -3,6 +3,11 @@ on:
 
 name: Check and Lint
 
+defaults:
+  run:
+    shell: bash
+    working-directory: ./src/Ilúvatar
+
 jobs:
   check:
     name: Check
