@@ -3,10 +3,10 @@
 pub fn args_to_json(args: &Vec<String>) -> anyhow::Result<String> {
     let mut ret = String::from("{");
     for arg in args {
-        if !arg.contains("=") {
+        if !arg.contains('=') {
             anyhow::bail!("Function argument '{}' does not contain an =", arg);
         }
-        let split: Vec<&str> = arg.split("=").collect();
+        let split: Vec<&str> = arg.split('=').collect();
         if split.len() != 2 {
             anyhow::bail!(
                 "Got unexpected number of items ({}) in argument '{}'; Should only have 2",
@@ -14,7 +14,7 @@ pub fn args_to_json(args: &Vec<String>) -> anyhow::Result<String> {
                 arg
             );
         }
-        let fmt = format!("\"{}\":\"{}\"", split[0].to_string(), split[1].to_string());
+        let fmt = format!("\"{}\":\"{}\"", split[0], split[1]);
         if ret.len() > 1 {
             ret.push(',');
         }

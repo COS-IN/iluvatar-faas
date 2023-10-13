@@ -70,7 +70,7 @@ impl InvokerCpuQueuePolicy for AvailableScalingQueue {
         };
         *self.est_time.lock() += priority;
         let mut queue = self.invoke_queue.lock();
-        queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority, priority).into());
+        queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority, priority));
         debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),
                         item.registration.fqdn,

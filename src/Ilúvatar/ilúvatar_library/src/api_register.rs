@@ -38,7 +38,7 @@ pub async fn register_worker(
     let req = RegisterWorker {
         name: name.clone(),
         host: host.clone(),
-        communication_method: communication_method.clone(),
+        communication_method,
         port,
         memory,
         cpus,

@@ -100,7 +100,7 @@ impl Into<Compute> for u32 {
 impl TryFrom<&String> for Compute {
     fn try_from(value: &String) -> Result<Compute, Self::Error> {
         let mut vec = vec![];
-        for slice in value.split("|") {
+        for slice in value.split('|') {
             vec.push(match ComputeEnum::from_str(slice, true) {
                 Ok(c) => c,
                 Err(e) => anyhow::bail!(e),
@@ -143,7 +143,7 @@ impl Into<Isolation> for u32 {
 impl TryFrom<&String> for Isolation {
     fn try_from(value: &String) -> Result<Isolation, Self::Error> {
         let mut vec = vec![];
-        for slice in value.split("|") {
+        for slice in value.split('|') {
             vec.push(match IsolationEnum::from_str(slice, true) {
                 Ok(i) => i,
                 Err(e) => anyhow::bail!(e),

@@ -304,7 +304,7 @@ pub async fn cust_register(
         function_name: name.to_string(),
         function_version: "0.1.1".to_string(),
         cpus: 1,
-        memory: memory,
+        memory,
         parallel_invokes: 1,
         image_name: image.to_string(),
         transaction_id: "testTID".to_string(),
@@ -384,7 +384,7 @@ pub async fn get_start_end_time_from_invoke(
             assert!(parsed_start < parsed_end, "Start and end times cannot be inversed!");
             assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
             assert_ne!(result.result_json, "", "result_json should not be empty!");
-            return (parsed_start, parsed_end);
+            (parsed_start, parsed_end)
         }
         Err(e) => panic!("Invocation failed: {}", e),
     }
@@ -414,7 +414,7 @@ pub async fn test_invoke(
 }
 
 pub async fn prewarm(cm: &Arc<ContainerManager>, reg: &Arc<RegisteredFunction>, transaction_id: &TransactionId) {
-    timeout(Duration::from_secs(20), cm.prewarm(&reg, transaction_id, Compute::CPU))
+    timeout(Duration::from_secs(20), cm.prewarm(reg, transaction_id, Compute::CPU))
         .await
         .unwrap_or_else(|e| panic!("prewarm timout hit: {:?}", e))
         .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));

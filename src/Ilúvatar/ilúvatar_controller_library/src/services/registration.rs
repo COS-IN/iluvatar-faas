@@ -30,10 +30,7 @@ impl RegistrationService {
 
     /// Return the function if it's been registered
     pub fn get_function(&self, fqdn: &String) -> Option<Arc<RegisteredFunction>> {
-        match self.functions.get(fqdn) {
-            Some(c) => Some(c.clone()),
-            None => None,
-        }
+        self.functions.get(fqdn).map(|c| c.clone())
     }
 
     /// Register a new worker

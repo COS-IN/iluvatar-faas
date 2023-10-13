@@ -69,7 +69,7 @@ impl RegistrationService {
         if request.parallel_invokes != 1 {
             anyhow::bail!("Illegal parallel invokes set, must be 1");
         }
-        if request.function_name.contains("/") || request.function_name.contains("\\") {
+        if request.function_name.contains('/') || request.function_name.contains('\\') {
             anyhow::bail!("Illegal characters in function name: cannot container any \\,/");
         }
         let mut isolation: Isolation = request.isolate.into();

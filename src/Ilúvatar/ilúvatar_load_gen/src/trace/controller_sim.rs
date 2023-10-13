@@ -54,7 +54,7 @@ async fn controller_sim_register_workers(
             compute: Compute::CPU,
             isolation: Isolation::CONTAINERD,
         };
-        let response = register_worker(server_data.clone(), Json { 0: r }).await;
+        let response = register_worker(server_data.clone(), Json(r)).await;
         if !response.status().is_success() {
             let text = response.body();
             anyhow::bail!(
@@ -95,7 +95,7 @@ async fn controller_sim_register_functions(
             parallel_invokes: 1,
             timings: func_timings,
         };
-        let response = register_function(server_data.clone(), Json { 0: r }).await;
+        let response = register_function(server_data.clone(), Json(r)).await;
         if !response.status().is_success() {
             let text = response.body();
             anyhow::bail!("Registration failed with '{:?}' '{:?}", response.headers(), text)
@@ -119,7 +119,7 @@ async fn controller_sim_prewarm_functions(
                 function_name: func.func_name.to_string(),
                 function_version: VERSION.clone(),
             };
-            let response = prewarm(server_data.clone(), Json { 0: r }).await;
+            let response = prewarm(server_data.clone(), Json(r)).await;
             if !response.status().is_success() {
                 let text = response.body();
                 anyhow::bail!("Prewarm failed with '{:?}' '{:?}", response.headers(), text)
@@ -146,7 +146,7 @@ async fn controller_sim_invoke(
     };
 
     let invoke_start = clock.now_str()?;
-    let (response, invok_lat) = invoke(server_data, Json { 0: i }).timed().await;
+    let (response, invok_lat) = invoke(server_data, Json(i)).timed().await;
     if !response.status().is_success() {
         let text = response.body();
         return Ok(CompletedControllerInvocation::error(

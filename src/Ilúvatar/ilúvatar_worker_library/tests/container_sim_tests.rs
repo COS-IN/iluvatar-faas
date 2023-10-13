@@ -44,21 +44,17 @@ fn gpu_reg() -> RegisterRequest {
 }
 
 fn build_gpu_env() -> Vec<(String, String)> {
-    let mut r = vec![];
-    r.push((
-        "container_resources.resource_map.gpu.count".to_string(),
-        "1".to_string(),
-    ));
-    r
+  vec![(
+    "container_resources.resource_map.gpu.count".to_string(),
+    "1".to_string(),
+  )]
 }
 
 fn two_gpu_env() -> Vec<(String, String)> {
-    let mut r = vec![];
-    r.push((
-        "container_resources.resource_map.gpu.count".to_string(),
-        "2".to_string(),
-    ));
-    r
+  vec![(
+    "container_resources.resource_map.gpu.count".to_string(),
+    "2".to_string(),
+  )]
 }
 
 mod compute_iso_matching {
@@ -181,11 +177,10 @@ mod compute_iso_matching {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn no_gpu_fails_register() {
-        let mut env = vec![];
-        env.push((
-            "container_resources.resource_map.gpu.count".to_string(),
-            "0".to_string(),
-        ));
+        let env = vec![(
+          "container_resources.resource_map.gpu.count".to_string(),
+          "0".to_string(),
+        )];
         let (_log, _cfg, _cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),

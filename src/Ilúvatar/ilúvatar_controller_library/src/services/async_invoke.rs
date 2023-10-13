@@ -47,7 +47,7 @@ impl AsyncService {
             let result = api.invoke_async_check(&cookie, tid.clone()).await?;
             if result.success {
                 self.async_invokes.remove(&cookie);
-                return Ok(Some(result.json_result));
+                Ok(Some(result.json_result))
             } else {
                 let json: HashMap<String, String> = match serde_json::from_str(&result.json_result) {
                     Ok(r) => r,

@@ -11,7 +11,7 @@ fn get_output_path() -> PathBuf {
         .join("..")
         .join("target")
         .join(build_type);
-    return PathBuf::from(path);
+    path
 }
 
 fn copy_file(infile: &Path) -> Result<(), Box<dyn Error>> {

@@ -124,7 +124,7 @@ impl ContainerdIsolation {
         container_id: &String,
     ) -> prost_types::Any {
         // one second of time, in microseconds
-        let one_sec_in_us: u64 = 1 * 1000 * 1000;
+        let one_sec_in_us: u64 = 1000 * 1000;
         // https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
         let spec = include_str!("../../../resources/container_spec.json");
         let spec = spec
@@ -835,7 +835,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 return container.get_curr_mem_usage();
             }
         };
-        let split: Vec<&str> = contents.split(" ").collect();
+        let split: Vec<&str> = contents.split(' ').collect();
         // https://linux.die.net/man/5/proc
         // virtual memory resident set size
         let vmrss = split[1];

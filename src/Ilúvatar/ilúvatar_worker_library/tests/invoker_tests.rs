@@ -193,24 +193,22 @@ mod invoke_async {
                                 assert_ne!(result.json_result, "");
                                 assert!(result.duration_us > 0, "Duration should not be <= 0!");
                                 break;
-                            } else {
-                                if result.json_result == "{ \"Error\": \"Invocation not found\" }"
-                                    || result.json_result == "{ \"Error\": \"No result was captured\" }"
-                                {
-                                    panic!("Async invocation check after check: {:?}", result);
-                                } else if result.json_result == "{ \"Status\": \"Invocation not completed\" }" {
-                                    // keep waiting on invocation
-                                    tokio::time::sleep(Duration::from_millis(100)).await;
-                                    if start.elapsed() > Duration::from_secs(10) {
-                                        panic!(
-                                            "Waited too long for invocation result; cookie: {}; response: {:?}",
-                                            cookie, result
-                                        );
-                                    }
-                                    continue;
-                                } else {
-                                    panic!("unkonwn response from async invocation check: {:?}", result);
+                            } else if result.json_result == "{ \"Error\": \"Invocation not found\" }"
+                                || result.json_result == "{ \"Error\": \"No result was captured\" }"
+                            {
+                                panic!("Async invocation check after check: {:?}", result);
+                            } else if result.json_result == "{ \"Status\": \"Invocation not completed\" }" {
+                                // keep waiting on invocation
+                                tokio::time::sleep(Duration::from_millis(100)).await;
+                                if start.elapsed() > Duration::from_secs(10) {
+                                    panic!(
+                                        "Waited too long for invocation result; cookie: {}; response: {:?}",
+                                        cookie, result
+                                    );
                                 }
+                                continue;
+                            } else {
+                                panic!("unkonwn response from async invocation check: {:?}", result);
                             }
                         }
                         Err(e) => panic!("Async invocation check failed: {}", e),
@@ -259,25 +257,23 @@ mod invoke_async {
                                 assert_ne!(result.json_result, "");
                                 assert!(result.duration_us > 0, "Duration should not be <= 0!");
                                 break;
-                            } else {
-                                if result.json_result == "{ \"Error\": \"Invocation not found\" }"
-                                    || result.json_result == "{ \"Error\": \"No result was captured\" }"
-                                {
-                                    panic!("Async invocation check after check: {:?}", result);
-                                } else if result.json_result == "{ \"Status\": \"Invocation not completed\" }" {
-                                    // keep waiting on invocation
-                                    tokio::time::sleep(Duration::from_millis(100)).await;
-                                    count += 1;
-                                    if count > 200 {
-                                        panic!(
-                                            "Waited too long for invocation result; cookie: {}; response: {:?}",
-                                            cookie, result
-                                        );
-                                    }
-                                    continue;
-                                } else {
-                                    panic!("unkonwn response from async invocation check: {:?}", result);
+                            } else if result.json_result == "{ \"Error\": \"Invocation not found\" }"
+                                || result.json_result == "{ \"Error\": \"No result was captured\" }"
+                            {
+                                panic!("Async invocation check after check: {:?}", result);
+                            } else if result.json_result == "{ \"Status\": \"Invocation not completed\" }" {
+                                // keep waiting on invocation
+                                tokio::time::sleep(Duration::from_millis(100)).await;
+                                count += 1;
+                                if count > 200 {
+                                    panic!(
+                                        "Waited too long for invocation result; cookie: {}; response: {:?}",
+                                        cookie, result
+                                    );
                                 }
+                                continue;
+                            } else {
+                                panic!("unkonwn response from async invocation check: {:?}", result);
                             }
                         }
                         Err(e) => panic!("Async invocation check failed: {}", e),
@@ -303,7 +299,7 @@ mod fcfs_tests {
 
         let func_reg = register(
             &_reg,
-            &"docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest".to_string(),
+            "docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest",
             &function_name,
             &transaction_id,
         )

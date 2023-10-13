@@ -35,20 +35,18 @@ impl RoundRobinLoadBalancer {
         let mut i = 0;
         loop {
             let mut val = self.next.lock();
-            *val = *val + 1 as usize;
+            *val += 1_usize;
             if *val >= self.workers.read().len() {
-                *val = 0 as usize;
+                *val = 0_usize;
             }
             let worker = &self.workers.read()[*val];
             if self.health.is_healthy(worker) {
                 return Ok(worker.clone());
-            } else {
-                if i >= self.workers.read().len() {
-                    warn!(tid=%tid, "Could not find a healthy worker!");
-                    return Ok(worker.clone());
-                }
+            } else if i >= self.workers.read().len() {
+                warn!(tid=%tid, "Could not find a healthy worker!");
+                return Ok(worker.clone());
             }
-            i = i + 1;
+            i += 1;
         }
     }
 }

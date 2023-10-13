@@ -53,7 +53,7 @@ fn choose_bench_data_for_func<'a>(
 ) -> Result<&'a ComputeChoiceList> {
     if let Some(func_compute) = func.parsed_compute {
         if func_compute.contains(Compute::GPU) {
-            if gpu_data.len() == 0 {
+            if gpu_data.is_empty() {
                 anyhow::bail!(
                     "Function '{}' wants GPU compute but there are no items in the benchmark that support it",
                     func.func_name
@@ -70,7 +70,7 @@ fn choose_bench_data_for_func<'a>(
             );
         }
     }
-    return Ok(cpu_data);
+    Ok(cpu_data)
 }
 
 fn map_from_benchmark(
@@ -159,7 +159,7 @@ fn map_from_lookbusy(
     for (_fname, func) in funcs.iter_mut() {
         func.image_name = Some("docker.io/alfuerst/lookbusy-iluvatar-action:latest".to_string());
         func.prewarms = Some(compute_prewarms(func, default_prewarms, max_prewarms));
-        func.mem_mb = func.mem_mb + 50;
+        func.mem_mb += 50;
     }
     Ok(())
 }
@@ -199,13 +199,13 @@ pub fn map_functions_to_prep(
     }
     match load_type {
         LoadType::Lookbusy => {
-            return map_from_lookbusy(funcs, default_prewarms, max_prewarms);
+            map_from_lookbusy(funcs, default_prewarms, max_prewarms)
         }
         LoadType::Functions => {
             if let Some(func_json_data) = load_benchmark_data(func_json_data_path)? {
-                return map_from_benchmark(funcs, &func_json_data, default_prewarms, trace_pth, max_prewarms);
+                map_from_benchmark(funcs, &func_json_data, default_prewarms, trace_pth, max_prewarms)
             } else {
-                return map_from_args(funcs, default_prewarms, max_prewarms);
+                map_from_args(funcs, default_prewarms, max_prewarms)
             }
         }
     }
@@ -266,7 +266,7 @@ fn worker_prewarm_functions(
             });
         }
     }
-    while prewarm_calls.len() > 0 {
+    while !prewarm_calls.is_empty() {
         let mut handles = vec![];
         for _ in 0..4 {
             match prewarm_calls.pop() {
@@ -310,12 +310,12 @@ fn prepare_worker(
 ) -> Result<()> {
     match runtype {
         RunType::Live => {
-            worker_wait_reg(&funcs, rt, port, host, factory, CommunicationMethod::RPC, func_data)?;
-            worker_prewarm_functions(&funcs, host, port, rt, factory, CommunicationMethod::RPC)
+            worker_wait_reg(funcs, rt, port, host, factory, CommunicationMethod::RPC, func_data)?;
+            worker_prewarm_functions(funcs, host, port, rt, factory, CommunicationMethod::RPC)
         }
         RunType::Simulation => {
             worker_wait_reg(
-                &funcs,
+                funcs,
                 rt,
                 port,
                 host,
@@ -323,7 +323,7 @@ fn prepare_worker(
                 CommunicationMethod::SIMULATION,
                 func_data,
             )?;
-            worker_prewarm_functions(&funcs, host, port, rt, factory, CommunicationMethod::SIMULATION)
+            worker_prewarm_functions(funcs, host, port, rt, factory, CommunicationMethod::SIMULATION)
         }
     }
 }
@@ -337,9 +337,9 @@ fn worker_wait_reg(
     method: CommunicationMethod,
     func_data: &Option<String>,
 ) -> Result<()> {
-    let mut func_iter = funcs.into_iter();
+    let mut func_iter = funcs.iter();
     let mut cont = true;
-    let bench_data = load_benchmark_data(&func_data)?;
+    let bench_data = load_benchmark_data(func_data)?;
     loop {
         let mut handles: Vec<JoinHandle<Result<(String, Duration, TransactionId)>>> = Vec::new();
         for _ in 0..40 {
@@ -419,9 +419,7 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             anyhow::bail!("Failed to create output file because {}", e);
         }
     };
-    let to_write = format!(
-        "success,function_name,was_cold,worker_duration_us,invocation_duration_us,code_duration_asec,e2e_duration_us\n"
-    );
+    let to_write = "success,function_name,was_cold,worker_duration_us,invocation_duration_us,code_duration_asec,e2e_duration_us\n".to_string();
     match f.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {

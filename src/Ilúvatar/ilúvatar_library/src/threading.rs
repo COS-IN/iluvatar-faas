@@ -27,7 +27,7 @@ fn sleep_time<T>(call_ms: u64, start_t: SystemTime, tid: &TransactionId) -> u64 
 pub fn os_thread<T: Send + Sync + 'static>(
     call_ms: u64,
     tid: TransactionId,
-    function: Arc<dyn Fn(&T, &TransactionId) -> () + Send + Sync + 'static>,
+    function: Arc<dyn Fn(&T, &TransactionId) + Send + Sync + 'static>,
 ) -> anyhow::Result<(OsHandle<()>, Sender<Arc<T>>)> {
     let (tx, rx) = channel::<Arc<T>>();
 
@@ -90,7 +90,7 @@ where
 /// * `call_ms` - The frequency with which the function will be executed every given milliseconds
 /// * `waiter_function` - An optional that can be passed that makes the thread wait on the future it returns with a timeout of `call_ms` instead
 /// * `function` is called after either case is met
-pub fn tokio_runtime<'a, S: Send + Sync + 'static, T, T2>(
+pub fn tokio_runtime<S: Send + Sync + 'static, T, T2>(
     call_ms: u64,
     tid: TransactionId,
     function: fn(Arc<S>, TransactionId) -> T,
@@ -121,7 +121,7 @@ where
             Ok(rt) => rt,
             Err(e) => {
                 error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Tokio thread runtime failed to start");
-                return ();
+                return ;
             }
         };
         debug!(tid=%tid, typename=%std::any::type_name::<T>(), "tokio runtime worker thread started");

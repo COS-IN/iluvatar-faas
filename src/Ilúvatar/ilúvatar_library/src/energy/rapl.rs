@@ -63,7 +63,7 @@ impl RAPL {
     }
 
     fn read_uj(pth: &str) -> Result<u128> {
-        Ok(read_to_string(pth)?.strip_suffix("\n").unwrap().parse::<u128>()?)
+        Ok(read_to_string(pth)?.strip_suffix('\n').unwrap().parse::<u128>()?)
     }
 }
 
@@ -214,7 +214,7 @@ impl RaplMsr {
             let power_unit = 0.5_f64.powf((result & 0xf) as f64);
             let cpu_energy_unit = 0.5_f64.powf(((result >> 8) & 0x1f) as f64);
             let time_unit = 0.5_f64.powf(((result >> 16) & 0xf) as f64);
-            return Ok((power_unit, cpu_energy_unit, time_unit));
+            Ok((power_unit, cpu_energy_unit, time_unit))
         } else {
             let result = RaplMsr::read_msr(cpu, fd, AMD_MSR_PWR_UNIT, tid);
             if result == 0 {
@@ -223,7 +223,7 @@ impl RaplMsr {
             let power_unit = 0.5_f64.powf(((result & AMD_TIME_UNIT_MASK) >> 16) as f64);
             let cpu_energy_unit = 0.5_f64.powf(((result & AMD_ENERGY_UNIT_MASK) >> 8) as f64);
             let time_unit = 0.5_f64.powf((result & AMD_POWER_UNIT_MASK) as f64);
-            return Ok((power_unit, cpu_energy_unit, time_unit));
+            Ok((power_unit, cpu_energy_unit, time_unit))
         }
     }
 }
@@ -264,7 +264,7 @@ impl RaplMonitor {
     /// Return the latest energy reading in (timestamp_ns, Joules)
     pub fn get_latest_reading(&self) -> (i128, f64) {
         let r = *self.latest_reading.read();
-        return (r.0, r.1 as f64 / 1_000_000.0);
+        (r.0, r.1 as f64 / 1_000_000.0)
     }
 
     /// Reads the different energy sources and writes the current staistics out to the csv file
@@ -273,7 +273,7 @@ impl RaplMonitor {
         let now = self.timer.now();
         let rapl_uj = self.rapl.lock().total_uj(tid) as i128;
         let mut reading = self.latest_reading.write();
-        let rapl_diff = std::cmp::max(0, rapl_uj - (*reading).2);
+        let rapl_diff = std::cmp::max(0, rapl_uj - reading.2);
 
         // if rapl_diff > 0 {
         *reading = (now.unix_timestamp_nanos(), rapl_diff, rapl_uj);

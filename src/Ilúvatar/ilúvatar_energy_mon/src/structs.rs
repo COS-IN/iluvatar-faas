@@ -33,9 +33,9 @@ impl<'de> Deserialize<'de> for Span {
         let level = json.get("level").expect("level").to_string();
         let target = json.get("target").expect("target").to_string();
         let target = target
-            .strip_prefix("\"")
+            .strip_prefix('\"')
             .unwrap()
-            .strip_suffix("\"")
+            .strip_suffix('\"')
             .unwrap()
             .to_string();
         let fields = serde_json::from_value(json.get("fields").expect("fields").clone()).unwrap();
@@ -70,10 +70,7 @@ impl SubSpan {
     pub fn fqdn(&self) -> Option<String> {
         match &self.fqdn {
             Some(f) => Some(f.clone()),
-            None => match &self.function_name {
-                Some(f_n) => Some(calculate_fqdn(f_n, self.function_version.as_ref().unwrap())),
-                None => None,
-            },
+            None => self.function_name.as_ref().map(|f_n| calculate_fqdn(f_n, self.function_version.as_ref().unwrap())),
         }
     }
 }

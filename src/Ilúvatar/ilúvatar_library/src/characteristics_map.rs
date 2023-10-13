@@ -15,7 +15,7 @@ pub enum Values {
 
 pub fn unwrap_val_dur(value: &Values) -> Duration {
     match value {
-        Values::Duration(v) => v.clone(),
+        Values::Duration(v) => *v,
         _ => {
             error!(error = "incorrect unwrap", "unwrap_val_dur not of type Duration");
             Duration::new(0, 0)
@@ -25,7 +25,7 @@ pub fn unwrap_val_dur(value: &Values) -> Duration {
 
 pub fn unwrap_val_f64(value: &Values) -> f64 {
     match value {
-        Values::F64(v) => v.clone(),
+        Values::F64(v) => *v,
         _ => {
             error!(error = "incorrect unwrap", "unwrap_val_f64 not of type f64");
             0.0
@@ -41,7 +41,7 @@ pub fn compare_f64(lhs: &f64, rhs: &f64) -> Ordering {
 
 pub fn unwrap_val_u64(value: &Values) -> u64 {
     match value {
-        Values::U64(v) => v.clone(),
+        Values::U64(v) => *v,
         _ => {
             error!(error = "incorrect unwrap", "unwrap_val_u64 not of type u64");
             0
@@ -129,13 +129,13 @@ pub struct CharacteristicsMap {
 
 impl CharacteristicsMap {
     pub fn new(ag: AgExponential) -> Self {
-        let map = CharacteristicsMap {
-            map: DashMap::new(),
-            ag,
-        };
+        
         // TODO: Implement file restore functionality here
 
-        map
+        CharacteristicsMap {
+            map: DashMap::new(),
+            ag,
+        }
     }
 
     pub fn add(&self, fqdn: &String, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
@@ -199,7 +199,7 @@ impl CharacteristicsMap {
         self.add(
             fqdn,
             Characteristics::LastInvTime,
-            Values::Duration(time_now.clone()),
+            Values::Duration(time_now),
             false,
         );
     }
@@ -298,7 +298,7 @@ impl CharacteristicsMap {
         match value {
             Values::F64(v) => Values::F64(*v),
             Values::U64(v) => Values::U64(*v),
-            Values::Duration(v) => Values::Duration(v.clone()),
+            Values::Duration(v) => Values::Duration(*v),
             Values::Str(v) => Values::Str(v.clone()),
         }
     }

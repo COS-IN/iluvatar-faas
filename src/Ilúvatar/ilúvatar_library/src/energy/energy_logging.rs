@@ -114,7 +114,7 @@ impl EnergyLogger {
     }
 
     pub fn readings_enabled(&self) -> bool {
-        return self.ipmi.is_some() || self.rapl.is_some();
+        self.ipmi.is_some() || self.rapl.is_some()
     }
 
     /// Return the latest energy reading in (timestamp_ns, Joules)

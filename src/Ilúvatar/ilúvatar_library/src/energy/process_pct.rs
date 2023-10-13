@@ -47,14 +47,14 @@ impl ProcessMonitor {
             match execute_cmd_checked("/usr/bin/ps", &vec!["-p", self.pid.as_str(), "-o", "%C %x"], None, tid) {
                 Ok(out) => {
                     let stdout = String::from_utf8_lossy(&out.stdout);
-                    let data = stdout.split("\n").collect::<Vec<&str>>();
+                    let data = stdout.split('\n').collect::<Vec<&str>>();
                     if data.len() == 1 {
                         return;
                     }
                     let data = data[1];
                     let items = data
                         .split_ascii_whitespace()
-                        .filter(|str| str.len() > 0)
+                        .filter(|str| !str.is_empty())
                         .collect::<Vec<&str>>();
                     let cpu_pct = match items[0].parse::<f64>() {
                         Ok(f) => f,

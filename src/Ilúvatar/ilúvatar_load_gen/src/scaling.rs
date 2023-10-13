@@ -182,7 +182,7 @@ async fn scaling_thread(
                 data.push(worker_invocation);
             }
             Err(_) => {
-                errors = errors + 1;
+                errors += 1;
                 continue;
             }
         };

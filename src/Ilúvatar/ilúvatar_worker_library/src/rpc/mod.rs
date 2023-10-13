@@ -41,7 +41,7 @@ impl RPCWorkerAPI {
                 Err(e) => {
                     warn!(error=%e, tid=%tid, "Error opening RPC connection to Worker API");
                     retries -= 1;
-                    if retries <= 0 {
+                    if retries == 0 {
                         return Err(e);
                     }
                 }
@@ -219,7 +219,7 @@ impl WorkerAPI for RPCWorkerAPI {
             cpus,
             image_name,
             parallel_invokes: match parallels {
-                i if i <= 0 => 1,
+                i if i == 0 => 1,
                 _ => parallels,
             },
             transaction_id: tid,

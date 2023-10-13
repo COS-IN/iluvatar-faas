@@ -44,12 +44,12 @@ impl InvokerCpuQueuePolicy for MinHeapQueue {
         let mut invoke_queue = self.invoke_queue.lock();
         let v = invoke_queue.pop().unwrap();
         *self.est_time.lock() += v.est_wall_time;
-        let v = v.item.clone();
+        let v = v.item;
         let top = invoke_queue.peek();
-        let func_name;
+        let func_name: &str;
         match top {
-            Some(e) => func_name = e.item.registration.function_name.clone(),
-            None => func_name = "empty".to_string(),
+            Some(e) => func_name = e.item.registration.function_name.as_str(),
+            None => func_name = "empty",
         }
         debug!(tid=%v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
            invoke_queue.len(),

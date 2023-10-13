@@ -114,7 +114,7 @@ impl LoadService {
                         println!("{:?}", &item);
                         ret.insert(item.name, item.value);
                     }
-                    if ret.len() < 1 {
+                    if ret.is_empty() {
                         warn!(tid=%tid, "Did not get any data in the last 5 minutes using the load metric '{}'", self.config.load_metric.as_str());
                     }
                 }
@@ -122,13 +122,10 @@ impl LoadService {
             },
             None => error!(tid=%tid, "Influx client was not created during live run"),
         }
-        return ret;
+        ret
     }
 
     pub fn get_worker(&self, name: &String) -> Option<f64> {
-        match self.workers.read().get(name) {
-            Some(f) => Some(*f),
-            None => None,
-        }
+        self.workers.read().get(name).copied()
     }
 }

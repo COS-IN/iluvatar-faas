@@ -42,7 +42,7 @@ impl GpuBatch {
     pub fn new(first_item: Arc<EnqueuedInvocation>, est_wall_time: f64) -> Self {
         GpuBatch {
             data: VecDeque::from([
-                MinHeapEnqueuedInvocation::new_f(first_item.clone(), est_wall_time, est_wall_time).into(),
+                MinHeapEnqueuedInvocation::new_f(first_item, est_wall_time, est_wall_time),
             ]),
             est_time: est_wall_time,
         }
@@ -51,7 +51,7 @@ impl GpuBatch {
     pub fn add(&mut self, item: Arc<EnqueuedInvocation>, est_wall_time: f64) {
         self.est_time += est_wall_time;
         self.data
-            .push_back(MinHeapEnqueuedInvocation::new_f(item.clone(), est_wall_time, est_wall_time).into());
+            .push_back(MinHeapEnqueuedInvocation::new_f(item, est_wall_time, est_wall_time));
     }
 
     /// The registration for the items in the batch
@@ -192,17 +192,12 @@ impl GpuQueueingInvoker {
     /// Check the invocation queue, running things when there are sufficient resources
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
-        loop {
-            if let Some(peek_reg) = self.queue.next_batch() {
-                if let Some(permit) = self.acquire_resources_to_run(&peek_reg, &tid) {
-                    let batch = self.queue.pop_queue();
-                    self.spawn_tokio_worker(self.clone(), batch, permit, &tid);
-                } else {
-                    debug!(tid=%tid, fqdn=%peek_reg.fqdn, "Insufficient resources to run item");
-                    break;
-                }
+        while let Some(peek_reg) = self.queue.next_batch() {
+            if let Some(permit) = self.acquire_resources_to_run(&peek_reg, &tid) {
+                let batch = self.queue.pop_queue();
+                self.spawn_tokio_worker(self.clone(), batch, permit, &tid);
             } else {
-                // nothing can be run, or nothing to run
+                debug!(tid=%tid, fqdn=%peek_reg.fqdn, "Insufficient resources to run item");
                 break;
             }
         }
