@@ -129,7 +129,7 @@ pub fn safe_cmp(a: &f64, b: &f64) -> std::cmp::Ordering {
     } else if b.is_nan() {
         std::cmp::Ordering::Less
     } else {
-        a.partial_cmp(&b).unwrap()
+        a.partial_cmp(b).unwrap()
     }
 }
 

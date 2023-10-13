@@ -52,7 +52,7 @@ impl InvokerCpuQueuePolicy for MinHeapEDQueue {
         let mut invoke_queue = self.invoke_queue.lock();
         let v = invoke_queue.pop().unwrap();
         *self.est_time.lock() += v.est_wall_time;
-        let v = v.item.clone();
+        let v = v.item;
         let mut func_name = "empty";
         if let Some(e) = invoke_queue.peek() {
             func_name = e.item.registration.function_name.as_str();

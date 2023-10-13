@@ -196,7 +196,7 @@ impl CPUUtilInstant {
         if line.ends_with('\n') {
             line.pop();
         }
-        let strs: Vec<&str> = line.split(" ").filter(|str| str.len() > 0).collect();
+        let strs: Vec<&str> = line.split(' ').filter(|str| !str.is_empty()).collect();
         Ok(Self {
             read_time: time::Instant::now(),
             cpu_user: Self::safe_get_val(&strs, 1, tid)?,

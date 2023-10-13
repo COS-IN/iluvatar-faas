@@ -102,7 +102,7 @@ impl ContainerManager {
         )?;
         let (health_handle, health_tx, del_ctr_tx) = Self::deletion_thread();
         let cm = Arc::new(ContainerManager::new(
-            resources.clone(),
+            resources,
             cont_isolations,
             handle,
             health_handle,
@@ -221,7 +221,7 @@ impl ContainerManager {
         all_ctrs.extend(self.cpu_containers.running_containers.iter());
         all_ctrs.extend(self.gpu_containers.running_containers.iter());
         all_ctrs.extend(self.gpu_containers.idle_containers.iter());
-        all_ctrs = all_ctrs.into_iter().filter(|x| x.is_healthy()).collect();
+        all_ctrs.retain(|x| x.is_healthy());
         let mut sum_change = 0;
         for container in all_ctrs {
             if !container.is_healthy() {
@@ -319,7 +319,7 @@ impl ContainerManager {
         info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
         container.set_state(ContainerState::Cold);
         self.try_lock_container(container, tid)
-            .ok_or(anyhow::anyhow!("Encountered an error making conatiner lock"))
+            .ok_or_else(|| anyhow::anyhow!("Encountered an error making conatiner lock"))
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
@@ -587,15 +587,10 @@ impl ContainerManager {
     async fn reclaim_gpu(&self, tid: &TransactionId) -> Result<()> {
         // TODO: Eviction ordering, have list sorted
         let mut killable = self.gpu_containers.idle_containers.iter();
-        loop {
-            match killable.pop() {
-                Some(chosen) => {
-                    if let Some(_) = self.gpu_containers.idle_containers.remove_container(&chosen, tid) {
-                        self.remove_container(chosen, tid).await?;
-                        break;
-                    }
-                }
-                None => break,
+        while let Some(chosen) = killable.pop() {
+            if let Some(_) = self.gpu_containers.idle_containers.remove_container(&chosen, tid) {
+                self.remove_container(chosen, tid).await?;
+                break;
             }
         }
         Ok(())

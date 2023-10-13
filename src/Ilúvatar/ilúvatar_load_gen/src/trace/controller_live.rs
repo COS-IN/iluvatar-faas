@@ -23,7 +23,7 @@ async fn controller_live_register_functions(
     port: Port,
     benchmark: Option<&BenchmarkStore>,
 ) -> Result<()> {
-    for (fid, func) in funcs.into_iter() {
+    for (fid, func) in funcs.iter() {
         let image = func
             .image_name
             .as_ref()
@@ -45,7 +45,7 @@ async fn controller_live_register_functions(
         let _reg_dur = controller_register(
             &func.func_name,
             &VERSION,
-            &image,
+            image,
             func.mem_mb + 50,
             host,
             port,
@@ -57,7 +57,7 @@ async fn controller_live_register_functions(
 }
 
 async fn prewarm_funcs(funcs: &HashMap<String, Function>, host: &String, port: Port) -> Result<()> {
-    for (fid, func) in funcs.into_iter() {
+    for (fid, func) in funcs.iter() {
         for _ in 0..func.prewarms.ok_or_else(|| {
             anyhow::anyhow!(
                 "Function '{}' did not have a prewarm value, supply one or pass a benchmark file",

@@ -55,10 +55,10 @@ impl IPMI {
             tid,
         )?;
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut split = stdout.split("\n");
+        let mut split = stdout.split('\n');
         match split.nth(1) {
             Some(instant_line) => {
-                let strs: Vec<&str> = instant_line.split(" ").filter(|str| str.len() > 0).collect();
+                let strs: Vec<&str> = instant_line.split(' ').filter(|str| !str.is_empty()).collect();
                 if strs.len() == 5 {
                     let watts = strs[3];
                     Ok(watts.parse::<u128>()?)

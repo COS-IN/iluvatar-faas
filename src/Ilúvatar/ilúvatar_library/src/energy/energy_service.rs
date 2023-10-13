@@ -103,7 +103,7 @@ impl EnergyMonitorService {
     #[tracing::instrument(skip(self), fields(tid=%tid))]
     fn monitor_energy(&self, tid: &TransactionId, _time: u128, uj: u128) -> bool {
         let (invocation_durations, overhead) = self.get_data();
-        if invocation_durations.len() == 0 {
+        if invocation_durations.is_empty() {
             return false;
         }
         let mut function_data = HashMap::new();
@@ -133,7 +133,7 @@ impl EnergyMonitorService {
         // }
         // self.graphite.publish_metric("worker.energy.used_uj", uj, tid, &self.tags.as_str());
         // self.graphite.publish_metric("worker.energy.overhead_pct", overhead_pct, tid, &self.tags.as_str());
-        return true;
+        true
     }
 
     /// get the cumulative amount of uj used by the worker, and reset the counter
@@ -237,7 +237,7 @@ impl EnergyMonitorService {
                             .write()
                             .as_mut()
                             .unwrap()
-                            .insert(s.transaction_id.unwrap().clone(), (f, time_ns));
+                            .insert(s.transaction_id.unwrap(), (f, time_ns));
                     }
                     None => panic!("Completed invocation span didn't have a valid FQDN: {:?}", s),
                 }

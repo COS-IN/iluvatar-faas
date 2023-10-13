@@ -248,8 +248,8 @@ pub async fn controller_invoke(
                 Err(e) => {
                     return Ok(CompletedControllerInvocation::error(
                         format!("Get text error: {};", e),
-                        &name,
-                        &version,
+                        name,
+                        version,
                         None,
                         invoke_start,
                     ))
@@ -267,16 +267,16 @@ pub async fn controller_invoke(
                     },
                     Err(e) => CompletedControllerInvocation::error(
                         format!("FunctionExecOutput Deserialization error: {}; {}", e, &txt),
-                        &name,
-                        &version,
+                        name,
+                        version,
                         Some(&r.tid),
                         invoke_start,
                     ),
                 },
                 Err(e) => CompletedControllerInvocation::error(
                     format!("ControllerInvokeResult Deserialization error: {}; {}", e, &txt),
-                    &name,
-                    &version,
+                    name,
+                    version,
                     None,
                     invoke_start,
                 ),
@@ -284,8 +284,8 @@ pub async fn controller_invoke(
         }
         Err(e) => CompletedControllerInvocation::error(
             format!("Invocation error: {}", e),
-            &name,
-            &version,
+            name,
+            version,
             None,
             invoke_start,
         ),
@@ -309,10 +309,7 @@ pub async fn controller_register(
         memory,
         cpus: 1,
         parallel_invokes: 1,
-        timings: match timings {
-            Some(r) => Some(r.clone()),
-            None => None,
-        },
+        timings: timings.cloned(),
     };
     let client = reqwest::Client::new();
     let (reg_out, reg_dur) = client
@@ -440,7 +437,7 @@ pub async fn worker_prewarm(
         Some(m) => m,
         None => CommunicationMethod::RPC,
     };
-    let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
+    let mut api = factory.get_worker_api(host, host, port, method, tid).await?;
     let (res, dur) = api
         .prewarm(name.clone(), version.clone(), tid.to_string(), compute)
         .timed()
@@ -471,7 +468,7 @@ pub async fn worker_invoke(
         None => CommunicationMethod::RPC,
     };
     let invoke_start = clock.now_str()?;
-    let mut api = match factory.get_worker_api(&host, &host, port, method, &tid).await {
+    let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
@@ -489,21 +486,21 @@ pub async fn worker_invoke(
                 function_name: name.clone(),
                 function_version: version.clone(),
                 tid: tid.clone(),
-                invoke_start: invoke_start,
+                invoke_start,
             },
             Err(e) => CompletedWorkerInvocation::error(
                 format!("Deserialization error: {}; {}", e, r.json_result),
-                &name,
-                &version,
-                &tid,
+                name,
+                version,
+                tid,
                 invoke_start,
             ),
         },
         Err(e) => CompletedWorkerInvocation::error(
             format!("Invocation error: {:?}", e),
-            &name,
-            &version,
-            &tid,
+            name,
+            version,
+            tid,
             invoke_start,
         ),
     };
@@ -521,7 +518,7 @@ pub async fn worker_clean(
         Some(m) => m,
         None => CommunicationMethod::RPC,
     };
-    let mut api = match factory.get_worker_api(&host, &host, port, method, &tid).await {
+    let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
@@ -574,7 +571,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
             anyhow::bail!("Failed to create csv output '{:?}' file because {}", &path, e);
         }
     };
-    let to_write = format!("success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n");
+    let to_write = "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n".to_string();
     match f.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {

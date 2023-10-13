@@ -88,7 +88,7 @@ impl GpuResourceTracker {
                 );
             }
             let stdout = String::from_utf8_lossy(&output.stdout);
-            let data = stdout.split("\n").collect::<Vec<&str>>();
+            let data = stdout.split('\n').collect::<Vec<&str>>();
             for row in data {
                 let pos = row.find("UUID: ");
                 if let Some(pos) = pos {

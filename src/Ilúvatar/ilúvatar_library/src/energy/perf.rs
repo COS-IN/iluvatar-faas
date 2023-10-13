@@ -18,7 +18,7 @@ where
     S: AsRef<str> + ?Sized + std::fmt::Display,
 {
     let st = stat_duration_ms.to_string();
-    let mut args = vec!["stat", "-I", &st.as_str(), "-x", ",", "--output", outfile.as_ref()];
+    let mut args = vec!["stat", "-I", st.as_str(), "-x", ",", "--output", outfile.as_ref()];
     try_add_arg(tid, "Added Instructions", "-M", "Instructions", &mut args).await?;
     try_add_arg(tid, "Added power/energy-ram/", "-e", "power/energy-ram/", &mut args).await?;
     try_add_arg(tid, "Added power/energy-pkg/", "-e", "power/energy-pkg/", &mut args).await?;

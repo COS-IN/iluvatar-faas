@@ -36,7 +36,7 @@ where
     }
 
     fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
-        match ctx.span(&id) {
+        match ctx.span(id) {
             Some(s) => {
                 let name = s.name();
                 let target = s.metadata().target();
@@ -72,10 +72,7 @@ impl DataExtractorVisitor {
     pub fn fqdn(&self) -> Option<String> {
         match &self.fqdn {
             Some(f) => Some(f.clone()),
-            None => match &self.function_name {
-                Some(f_n) => Some(calculate_fqdn(f_n, self.function_version.as_ref().unwrap())),
-                None => None,
-            },
+            None => self.function_name.as_ref().map(|f_n| calculate_fqdn(f_n, self.function_version.as_ref().unwrap())),
         }
     }
 }

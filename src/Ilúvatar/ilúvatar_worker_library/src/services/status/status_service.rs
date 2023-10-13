@@ -106,7 +106,7 @@ impl StatusService {
         };
 
         let mut cpu_instant_lck = self.cpu_instant.lock();
-        let computed_util = self.cpu.compute_cpu_util(&cpu_now, &(*cpu_instant_lck));
+        let computed_util = self.cpu.compute_cpu_util(&cpu_now, &cpu_instant_lck);
         *cpu_instant_lck = cpu_now;
 
         let queue_lengths = self.invoker.queue_len();

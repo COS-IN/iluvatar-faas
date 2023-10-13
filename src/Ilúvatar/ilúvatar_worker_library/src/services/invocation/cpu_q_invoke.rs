@@ -121,21 +121,16 @@ impl CpuQueueingInvoker {
     /// Check the invocation queue, running things when there are sufficient resources
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%_tid)))]
     async fn monitor_queue(self: Arc<Self>, _tid: TransactionId) {
-        loop {
-            if let Some(peek_item) = self.queue.peek_queue() {
-                if let Some(permit) = self.acquire_resources_to_run(&peek_item) {
-                    let item = self.queue.pop_queue();
-                    if !item.lock() {
-                        continue;
-                    }
-                    // TODO: continuity of spans here
-                    self.spawn_tokio_worker(self.clone(), item, permit);
-                } else {
-                    debug!(tid=%peek_item.tid, "Insufficient resources to run item");
-                    break;
+        while let Some(peek_item) = self.queue.peek_queue() {
+            if let Some(permit) = self.acquire_resources_to_run(&peek_item) {
+                let item = self.queue.pop_queue();
+                if !item.lock() {
+                    continue;
                 }
+                // TODO: continuity of spans here
+                self.spawn_tokio_worker(self.clone(), item, permit);
             } else {
-                // nothing can be run, or nothing to run
+                debug!(tid=%peek_item.tid, "Insufficient resources to run item");
                 break;
             }
         }
@@ -168,23 +163,19 @@ impl CpuQueueingInvoker {
                     return;
                 }
             };
-            loop {
-                if let Some(item) = del_rx.recv().await {
-                    let s_c = service.clone();
-                    tokio::task::spawn(async move {
-                        match s_c.bypassing_invoke(&item).await {
-                            Ok(true) => (), // bypass happened successfully
-                            Ok(false) => {
-                                if let Err(cause) = s_c.enqueue_item(&item) {
-                                    s_c.handle_invocation_error(item, cause);
-                                };
-                            }
-                            Err(cause) => s_c.handle_invocation_error(item, cause),
-                        };
-                    });
-                } else {
-                    break;
-                }
+            while let Some(item) = del_rx.recv().await {
+                let s_c = service.clone();
+                tokio::task::spawn(async move {
+                    match s_c.bypassing_invoke(&item).await {
+                        Ok(true) => (), // bypass happened successfully
+                        Ok(false) => {
+                            if let Err(cause) = s_c.enqueue_item(&item) {
+                                s_c.handle_invocation_error(item, cause);
+                            };
+                        }
+                        Err(cause) => s_c.handle_invocation_error(item, cause),
+                    };
+                });
             }
         });
 

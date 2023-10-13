@@ -143,7 +143,7 @@ impl WorkerAPI for SimWorkerAPI {
             cpus,
             image_name,
             parallel_invokes: match parallels {
-                i if i <= 0 => 1,
+                i if i == 0 => 1,
                 _ => parallels,
             },
             transaction_id: tid,

@@ -170,7 +170,7 @@ pub async fn benchmark_controller(
                                 None => func_data
                                     .resource_data
                                     .entry((&compute).try_into()?)
-                                    .or_insert(FunctionInvocationTimings::new()),
+                                    .or_insert_with(|| FunctionInvocationTimings::new()),
                             };
                             if invoke_result.function_output.body.cold {
                                 resource_entry
@@ -207,7 +207,7 @@ pub async fn benchmark_controller(
         full_data.data.insert(function.name.clone(), func_data);
     }
 
-    let p = Path::new(&out_folder).join(format!("controller_function_benchmarks.json"));
+    let p = Path::new(&out_folder).join("controller_function_benchmarks.json");
     save_result_json(p, &full_data)?;
     Ok(())
 }
@@ -340,7 +340,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
     }
 
     for invoke in invokes.iter() {
-        let parts = invoke.function_name.split(".").collect::<Vec<&str>>();
+        let parts = invoke.function_name.split('.').collect::<Vec<&str>>();
         let d = full_data
             .data
             .get_mut(parts[0])
@@ -354,7 +354,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
                 None => d
                     .resource_data
                     .entry((&compute).try_into()?)
-                    .or_insert(FunctionInvocationTimings::new()),
+                    .or_insert_with(|| FunctionInvocationTimings::new()),
             };
             if invoke.function_output.body.cold {
                 resource_entry
@@ -379,10 +379,10 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
             println!("invoke failure {:?}", invoke.worker_response.json_result);
         }
     }
-    let p = Path::new(&args.out_folder).join(format!("worker_function_benchmarks.json"));
+    let p = Path::new(&args.out_folder).join("worker_function_benchmarks.json");
     save_result_json(p, &full_data)?;
-    let p = Path::new(&args.out_folder).join(format!("benchmark-full.json"));
+    let p = Path::new(&args.out_folder).join("benchmark-full.json");
     save_result_json(p, &invokes)?;
-    let p = Path::new(&args.out_folder).join("benchmark-output.csv".to_string());
+    let p = Path::new(&args.out_folder).join("benchmark-output.csv");
     save_worker_result_csv(p, &invokes)
 }

@@ -23,7 +23,7 @@ pub fn analyze_logs(_matches: &ArgMatches, _submatches: &ArgMatches) -> Result<(
     let mut curr_rapl = rapl.record()?;
 
     let (function_data, overhead) = monitor.read_log()?;
-    if function_data.len() > 0 {
+    if !function_data.is_empty() {
         let tot_time = (function_data.values().sum::<u128>() + overhead) as f64;
         println!(
             "Overhead: {}; Total time: {}; Overhead share: {}",

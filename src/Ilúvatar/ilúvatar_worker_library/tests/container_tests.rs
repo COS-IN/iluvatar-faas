@@ -9,7 +9,7 @@ use iluvatar_worker_library::rpc::LanguageRuntime;
 use iluvatar_worker_library::rpc::RegisterRequest;
 use iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer;
 use iluvatar_worker_library::services::containers::structs::{cast, ContainerState};
-use reqwest;
+
 
 fn basic_reg_req() -> RegisterRequest {
     RegisterRequest {

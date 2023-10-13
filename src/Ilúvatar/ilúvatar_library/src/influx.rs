@@ -36,7 +36,7 @@ impl InfluxClient {
             info!(tid=%tid, "Influx disabled, skipping client creation");
             return Ok(None);
         }
-        if config.host == "" || config.org == "" || config.token == "" {
+        if config.host.is_empty() || config.org.is_empty() || config.token.is_empty() {
             anyhow::bail!("Influx host, org, or token are empty");
         }
         let client = Client::new(&config.host, &config.org, &config.token);

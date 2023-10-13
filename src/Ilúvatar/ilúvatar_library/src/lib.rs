@@ -58,7 +58,7 @@ pub fn load_avg(tid: &TransactionId) -> f64 {
             return -1.0;
         }
     };
-    let lines: Vec<&str> = buff.split(" ").filter(|str| str.len() > 0).collect();
+    let lines: Vec<&str> = buff.split(' ').filter(|str| !str.is_empty()).collect();
     let min = lines[0];
     match min.parse::<f64>() {
         Ok(r) => r,

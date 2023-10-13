@@ -1,3 +1,3 @@
 pub fn cgroup_namespace(name: &str) -> String {
-    format!("{}", name)
+    name.to_string()
 }

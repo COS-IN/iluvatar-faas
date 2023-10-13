@@ -287,7 +287,7 @@ impl ContainerIsolationService for DockerIsolation {
             bail_error!(tid=%tid, output=?output, "Failed to run 'docker ps' with no exit code");
         }
         let cow = String::from_utf8_lossy(&output.stdout);
-        let stdout: Vec<&str> = cow.split("\n").filter(|str| str.len() > 0).collect();
+        let stdout: Vec<&str> = cow.split('\n').filter(|str| str.len() > 0).collect();
         for docker_id in stdout {
             let output = execute_cmd("/usr/bin/docker", &vec!["rm", "--force", docker_id], None, tid)?;
             if let Some(status) = output.status.code() {

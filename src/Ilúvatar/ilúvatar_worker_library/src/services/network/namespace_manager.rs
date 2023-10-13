@@ -111,7 +111,7 @@ impl NamespaceManager {
 
     /// The path to the resolv.conf file created by the namespace manager, for DNS resolution
     pub fn resolv_conf_path() -> String {
-        utils::file::temp_file_pth(&"resolv".to_string(), "conf")
+        utils::file::temp_file_pth("resolv", "conf")
     }
 
     /// Create a resolv.conf file to be available globally
@@ -136,7 +136,7 @@ impl NamespaceManager {
             );
         }
         Self::make_resolv_conf(tid)?;
-        let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "conf");
+        let temp_file = utils::file::temp_file_pth("il_worker_br", "conf");
 
         let mut file = match File::create(temp_file) {
             Ok(f) => f,
@@ -338,8 +338,8 @@ impl NamespaceManager {
     /// We don't need it and can discard it here
     fn cleanup_addresses(&self, ns: &mut ContdNamespace) {
         for ip in &mut ns.ips[..] {
-            if ip.address.contains("/") {
-                let v: Vec<&str> = ip.address.split("/").collect();
+            if ip.address.contains('/') {
+                let v: Vec<&str> = ip.address.split('/').collect();
                 ip.address = v[0].to_string();
             }
         }
@@ -451,11 +451,11 @@ impl NamespaceManager {
         info!(tid=%tid, "Deleting all owned namespaces");
         let out = execute_cmd("/bin/ip", &vec!["netns"], None, tid)?;
         let stdout = String::from_utf8_lossy(&out.stdout);
-        let lines = stdout.split("\n");
+        let lines = stdout.split('\n');
         let mut handles = vec![];
         for line in lines {
             if self.is_owned_namespace(line) {
-                let split: Vec<&str> = line.split(" ").collect();
+                let split: Vec<&str> = line.split(' ').collect();
                 let name = split[0].to_string();
                 let tid_c = tid.clone();
                 let svc_c = svc.clone();

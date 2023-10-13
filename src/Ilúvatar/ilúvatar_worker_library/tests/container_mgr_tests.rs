@@ -40,12 +40,10 @@ fn gpu_reg() -> RegisterRequest {
 }
 
 fn build_gpu_env() -> Vec<(String, String)> {
-    let mut r = vec![];
-    r.push((
-        "container_resources.resource_map.gpu.count".to_string(),
-        "1".to_string(),
-    ));
-    r
+    vec![(
+      "container_resources.resource_map.gpu.count".to_string(),
+      "1".to_string(),
+    )]
 }
 
 #[cfg(test)]
