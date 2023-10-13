@@ -85,7 +85,7 @@ impl WorkerAPI for SimWorkerAPI {
         }
     }
 
-    async fn invoke_async_check(&mut self, cookie: &String, tid: TransactionId) -> Result<InvokeResponse> {
+    async fn invoke_async_check(&mut self, cookie: &str, tid: TransactionId) -> Result<InvokeResponse> {
         let request = tonic::Request::new(InvokeAsyncLookupRequest {
             lookup_cookie: cookie.to_owned(),
             transaction_id: tid,

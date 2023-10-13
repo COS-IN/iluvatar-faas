@@ -34,7 +34,7 @@ pub struct EnergyMonitorService {
 }
 
 impl EnergyMonitorService {
-    pub fn boxed(worker_name: &String) -> Arc<Self> {
+    pub fn boxed(worker_name: &str) -> Arc<Self> {
         let (tx, rx) = channel();
         let handle = EnergyMonitorService::launch_worker_thread(rx);
 

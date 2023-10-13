@@ -1,4 +1,4 @@
-use crate::controller::controller_config::LoadBalancingConfig;
+use crate::server::controller_config::LoadBalancingConfig;
 use iluvatar_library::transaction::{TransactionId, LOAD_MONITOR_TID};
 use iluvatar_library::{
     influx::{InfluxClient, WORKERS_BUCKET},
@@ -125,7 +125,7 @@ impl LoadService {
         ret
     }
 
-    pub fn get_worker(&self, name: &String) -> Option<f64> {
+    pub fn get_worker(&self, name: &str) -> Option<f64> {
         self.workers.read().get(name).copied()
     }
 }

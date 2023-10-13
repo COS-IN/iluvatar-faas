@@ -211,7 +211,7 @@ impl GpuQueueingInvoker {
         tid: &TransactionId,
     ) -> Option<Box<dyn Drop + Send>> {
         let mut ret = vec![];
-        match self.cpu.try_acquire_cores(&reg, &tid) {
+        match self.cpu.try_acquire_cores(reg, tid) {
             Ok(c) => ret.push(c),
             Err(e) => {
                 match e {
@@ -337,7 +337,7 @@ impl GpuQueueingInvoker {
     async fn invoke<'a>(
         &'a self,
         reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a String,
+        json_args: &'a str,
         tid: &'a TransactionId,
         queue_insert_time: OffsetDateTime,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
@@ -363,7 +363,7 @@ impl GpuQueueingInvoker {
     async fn invoke_on_container<'a>(
         &'a self,
         reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a String,
+        json_args: &'a str,
         tid: &'a TransactionId,
         queue_insert_time: OffsetDateTime,
         ctr_lock: ContainerLock<'a>,

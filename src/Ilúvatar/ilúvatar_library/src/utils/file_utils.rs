@@ -21,7 +21,7 @@ pub fn temp_file(with_tail: &str, with_extension: &str) -> std::io::Result<Strin
 }
 
 /// A simple implementation of `% touch path` (ignores existing files)
-pub fn touch(path: &String) -> std::io::Result<()> {
+pub fn touch(path: &str) -> std::io::Result<()> {
     match std::fs::OpenOptions::new().create(true).write(true).open(path) {
         Ok(_) => Ok(()),
         Err(e) => Err(e),
@@ -30,7 +30,7 @@ pub fn touch(path: &String) -> std::io::Result<()> {
 
 /// Tries to remove the specified directory
 /// Swallows any failure
-pub fn try_remove_pth(pth: &String, tid: &TransactionId) {
+pub fn try_remove_pth(pth: &str, tid: &TransactionId) {
     let path = std::path::Path::new(&pth);
     if path.is_file() {
         match std::fs::remove_file(pth) {

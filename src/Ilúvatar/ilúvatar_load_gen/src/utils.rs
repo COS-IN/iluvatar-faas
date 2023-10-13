@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use iluvatar_controller_library::controller::controller_structs::json::{
+use iluvatar_controller_library::server::controller_structs::json::{
     ControllerInvokeResult, Invoke, Prewarm, RegisterFunction,
 };
 use iluvatar_library::{
@@ -95,7 +95,7 @@ pub struct CompletedWorkerInvocation {
     pub invoke_start: String,
 }
 impl CompletedWorkerInvocation {
-    pub fn error(msg: String, name: &String, version: &String, tid: &TransactionId, invoke_start: String) -> Self {
+    pub fn error(msg: String, name: &str, version: &str, tid: &TransactionId, invoke_start: String) -> Self {
         CompletedWorkerInvocation {
             worker_response: InvokeResponse::error(&msg),
             function_output: FunctionExecOutput {
@@ -107,8 +107,8 @@ impl CompletedWorkerInvocation {
                 },
             },
             client_latency_us: 0,
-            function_name: name.clone(),
-            function_version: version.clone(),
+            function_name: name.to_owned(),
+            function_version: version.to_owned(),
             tid: tid.clone(),
             invoke_start,
         }
@@ -146,8 +146,8 @@ pub struct CompletedControllerInvocation {
 impl CompletedControllerInvocation {
     pub fn error(
         msg: String,
-        name: &String,
-        version: &String,
+        name: &str,
+        version: &str,
         tid: Option<&TransactionId>,
         invoke_start: String,
     ) -> Self {
@@ -177,8 +177,8 @@ impl CompletedControllerInvocation {
                 },
             },
             client_latency_us: 0,
-            function_name: name.clone(),
-            function_version: version.clone(),
+            function_name: name.to_owned(),
+            function_version: version.to_owned(),
             invoke_start,
         }
     }
@@ -220,17 +220,17 @@ pub fn load_benchmark_data(path: &Option<String>) -> Result<Option<BenchmarkStor
 /// Return the [ControllerInvokeResult] result after parsing
 /// also return the latency in milliseconds of the request
 pub async fn controller_invoke(
-    name: &String,
-    version: &String,
-    host: &String,
+    name: &str,
+    version: &str,
+    host: &str,
     port: Port,
     args: Option<Vec<String>>,
     clock: Arc<LocalTime>,
     client: Arc<Client>,
 ) -> Result<CompletedControllerInvocation> {
     let req = Invoke {
-        function_name: name.clone(),
-        function_version: version.clone(),
+        function_name: name.to_owned(),
+        function_version: version.to_owned(),
         args,
     };
     let invoke_start = clock.now_str()?;
@@ -261,8 +261,8 @@ pub async fn controller_invoke(
                         controller_response: r,
                         function_output: feo,
                         client_latency_us: invok_lat.as_micros(),
-                        function_name: name.clone(),
-                        function_version: version.clone(),
+                        function_name: name.to_owned(),
+                        function_version: version.to_owned(),
                         invoke_start,
                     },
                     Err(e) => CompletedControllerInvocation::error(
@@ -294,18 +294,18 @@ pub async fn controller_invoke(
 }
 
 pub async fn controller_register(
-    name: &String,
-    version: &String,
-    image: &String,
+    name: &str,
+    version: &str,
+    image: &str,
     memory: MemSizeMb,
-    host: &String,
+    host: &str,
     port: Port,
     timings: Option<&ResourceTimings>,
 ) -> Result<Duration> {
     let req = RegisterFunction {
-        function_name: name.clone(),
-        function_version: version.clone(),
-        image_name: image.clone(),
+        function_name: name.to_owned(),
+        function_version: version.to_owned(),
+        image_name: image.to_owned(),
         memory,
         cpus: 1,
         parallel_invokes: 1,
@@ -342,10 +342,10 @@ pub async fn controller_register(
     }
 }
 
-pub async fn controller_prewarm(name: &String, version: &String, host: &String, port: Port) -> Result<Duration> {
+pub async fn controller_prewarm(name: &str, version: &str, host: &str, port: Port) -> Result<Duration> {
     let req = Prewarm {
-        function_name: name.clone(),
-        function_version: version.clone(),
+        function_name: name.to_owned(),
+        function_version: version.to_owned(),
     };
     let client = reqwest::Client::new();
     let (reg_out, reg_dur) = client
@@ -378,7 +378,7 @@ pub async fn controller_prewarm(name: &String, version: &String, host: &String, 
 
 pub async fn worker_register(
     name: String,
-    version: &String,
+    version: &str,
     image: String,
     memory: MemSizeMb,
     host: String,
@@ -398,7 +398,7 @@ pub async fn worker_register(
     let (reg_out, reg_dur) = api
         .register(
             name,
-            version.clone(),
+            version.to_owned(),
             image,
             memory,
             1,
@@ -424,9 +424,9 @@ pub async fn worker_register(
 }
 
 pub async fn worker_prewarm(
-    name: &String,
-    version: &String,
-    host: &String,
+    name: &str,
+    version: &str,
+    host: &str,
     port: Port,
     tid: &TransactionId,
     factory: &Arc<WorkerAPIFactory>,
@@ -439,7 +439,7 @@ pub async fn worker_prewarm(
     };
     let mut api = factory.get_worker_api(host, host, port, method, tid).await?;
     let (res, dur) = api
-        .prewarm(name.clone(), version.clone(), tid.to_string(), compute)
+        .prewarm(name.to_owned(), version.to_owned(), tid.to_string(), compute)
         .timed()
         .await;
     match res {
@@ -449,9 +449,9 @@ pub async fn worker_prewarm(
 }
 
 pub async fn worker_invoke(
-    name: &String,
-    version: &String,
-    host: &String,
+    name: &str,
+    version: &str,
+    host: &str,
     port: Port,
     tid: &TransactionId,
     args: Option<String>,
@@ -474,7 +474,7 @@ pub async fn worker_invoke(
     };
 
     let (invok_out, invok_lat) = api
-        .invoke(name.clone(), version.clone(), args, tid.clone())
+        .invoke(name.to_owned(), version.to_owned(), args, tid.to_owned())
         .timed()
         .await;
     let c = match invok_out {
@@ -483,9 +483,9 @@ pub async fn worker_invoke(
                 worker_response: r,
                 function_output: b,
                 client_latency_us: invok_lat.as_micros(),
-                function_name: name.clone(),
-                function_version: version.clone(),
-                tid: tid.clone(),
+                function_name: name.to_owned(),
+                function_version: version.to_owned(),
+                tid: tid.to_owned(),
                 invoke_start,
             },
             Err(e) => CompletedWorkerInvocation::error(
@@ -508,7 +508,7 @@ pub async fn worker_invoke(
 }
 
 pub async fn worker_clean(
-    host: &String,
+    host: &str,
     port: Port,
     tid: &TransactionId,
     factory: &Arc<WorkerAPIFactory>,

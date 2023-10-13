@@ -54,7 +54,7 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
     /// A peek at the first item in the queue.
     /// Returns an [EnqueuedInvocation] if there is anything in the queue, [None] otherwise.
     fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>>;
-
+    
     /// Destructively return the first item in the queue.
     /// This function will only be called if something is known to be un the queue, so using `unwrap` to remove an [Option] is safe
     fn pop_queue(&self) -> Arc<EnqueuedInvocation>;
@@ -193,11 +193,11 @@ impl EnqueuedInvocation {
             result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", error);
             result_ptr.completed = true;
             self.signal();
-            return false;
+            false
         } else {
             result_ptr.attempts += 1;
             self.unlock();
-            return true;
+            true
         }
     }
 }

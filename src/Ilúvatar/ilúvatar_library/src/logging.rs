@@ -37,7 +37,7 @@ pub struct LoggingConfig {
     pub span_energy_monitoring: bool,
 }
 
-fn str_to_span(spanning: &String) -> FmtSpan {
+fn str_to_span(spanning: &str) -> FmtSpan {
     let mut fmt = FmtSpan::NONE;
     for choice in spanning.split('+') {
         fmt |= match choice {
@@ -54,7 +54,7 @@ fn str_to_span(spanning: &String) -> FmtSpan {
     fmt
 }
 
-pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &String, tid: &TransactionId) -> Result<impl Drop> {
+pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &TransactionId) -> Result<impl Drop> {
     #[allow(dyn_drop)]
     let mut drops: Vec<Box<dyn Drop>> = Vec::new();
     let (non_blocking, _guard) = match config.directory.as_ref() {

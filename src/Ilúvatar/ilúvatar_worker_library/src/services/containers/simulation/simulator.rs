@@ -36,8 +36,8 @@ impl ContainerIsolationService for SimulatorIsolation {
     /// returns a new, unique ID representing it
     async fn run_container(
         &self,
-        fqdn: &String,
-        image_name: &String,
+        fqdn: &str,
+        image_name: &str,
         _parallel_invokes: u32,
         namespace: &str,
         mem_limit_mb: MemSizeMb,
@@ -69,7 +69,7 @@ impl ContainerIsolationService for SimulatorIsolation {
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
-        _fqdn: &String,
+        _fqdn: &str,
         _tid: &TransactionId,
     ) -> Result<()> {
         Ok(())

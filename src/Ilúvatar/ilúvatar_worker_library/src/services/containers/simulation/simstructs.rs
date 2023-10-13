@@ -35,7 +35,7 @@ pub struct SimulatorContainer {
 impl SimulatorContainer {
     pub fn new(
         cid: String,
-        fqdn: &String,
+        fqdn: &str,
         reg: &Arc<RegisteredFunction>,
         state: ContainerState,
         iso: Isolation,
@@ -44,7 +44,7 @@ impl SimulatorContainer {
     ) -> Self {
         SimulatorContainer {
             container_id: cid,
-            fqdn: fqdn.clone(),
+            fqdn: fqdn.to_owned(),
             function: reg.clone(),
             last_used: RwLock::new(SystemTime::now()),
             invocations: Mutex::new(0),
@@ -111,7 +111,7 @@ pub struct Body {
 #[tonic::async_trait]
 impl ContainerT for SimulatorContainer {
     #[tracing::instrument(skip(self, json_args), fields(tid=%tid, fqdn=%self.fqdn), name="SimulatorContainer::invoke")]
-    async fn invoke(&self, json_args: &String, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
+    async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
         // just sleep for a while based on data from json args
         let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
             Ok(d) => d,

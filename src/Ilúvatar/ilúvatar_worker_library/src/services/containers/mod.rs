@@ -28,8 +28,8 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
     /// NOTE: you will have to ask the lifetime again to wait on the container to be started up
     async fn run_container(
         &self,
-        fqdn: &String,
-        image_name: &String,
+        fqdn: &str,
+        image_name: &str,
         parallel_invokes: u32,
         namespace: &str,
         mem_limit_mb: MemSizeMb,
@@ -44,11 +44,10 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
     /// removes a specific container, and all the related resources
     async fn remove_container(&self, container_id: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;
 
-    // async fn search_image_digest(&self, image: &String, namespace: &str, tid: &TransactionId) -> Result<String>;
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
-        fqdn: &String,
+        fqdn: &str,
         tid: &TransactionId,
     ) -> Result<()>;
 
@@ -125,7 +124,7 @@ impl IsolationFactory {
                 self.insert_cycle(&mut ret, d)?;
             }
         }
-        if ret.len() < 1 {
+        if ret.is_empty() {
             anyhow::bail!("No lifecycles were able to be made");
         }
 

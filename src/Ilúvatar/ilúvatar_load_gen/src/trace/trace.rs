@@ -68,7 +68,7 @@ pub fn run_trace(args: TraceArgs) -> Result<()> {
     }
 }
 
-fn load_metadata(path: &String) -> Result<HashMap<String, Function>> {
+fn load_metadata(path: &str) -> Result<HashMap<String, Function>> {
     let mut rdr = match csv::Reader::from_path(path) {
         Ok(r) => r,
         Err(e) => anyhow::bail!("Unable to open metadata csv file '{}' because of error '{}'", path, e),

@@ -173,7 +173,7 @@ impl ContainerManager {
     }
     /// Returns the best possible idle container's [ContainerState] at this time
     /// Not a guarantee it will be available
-    pub fn container_available(&self, fqdn: &String, compute: Compute) -> ContainerState {
+    pub fn container_available(&self, fqdn: &str, compute: Compute) -> ContainerState {
         if compute == Compute::CPU {
             let x = self.cpu_containers.idle_containers.has_container(fqdn);
             return x;
@@ -186,7 +186,7 @@ impl ContainerManager {
     }
     /// Returns the best possible idle container's [ContainerState] at this time
     /// Can be either running or idle, if [ContainerState::Cold], then possibly no container found
-    pub fn container_exists(&self, fqdn: &String, compute: Compute) -> ContainerState {
+    pub fn container_exists(&self, fqdn: &str, compute: Compute) -> ContainerState {
         let mut ret = ContainerState::Cold;
         if compute == Compute::CPU {
             let idle = self.cpu_containers.idle_containers.has_container(fqdn);
@@ -206,7 +206,7 @@ impl ContainerManager {
     /// The number of containers for the given FQDN that are not idle
     /// I.E. they are executing an invocation
     /// 0 if the fqdn is unknown
-    pub fn outstanding(&self, fqdn: &String) -> u32 {
+    pub fn outstanding(&self, fqdn: &str) -> u32 {
         match self.outstanding_containers.get(fqdn) {
             Some(cnt) => (*cnt).load(std::sync::atomic::Ordering::Relaxed),
             None => 0,
@@ -274,7 +274,7 @@ impl ContainerManager {
     /// Returns an warmed container if one is available
     fn try_acquire_container<'a>(
         &'a self,
-        fqdn: &String,
+        fqdn: &str,
         tid: &'a TransactionId,
         compute: Compute,
     ) -> Option<ContainerLock<'a>> {
@@ -287,7 +287,7 @@ impl ContainerManager {
     fn acquire_container_from_pool<'a>(
         &'a self,
         pool: &'a ResourcePool,
-        fqdn: &String,
+        fqdn: &str,
         tid: &'a TransactionId,
     ) -> Option<ContainerLock<'a>> {
         loop {

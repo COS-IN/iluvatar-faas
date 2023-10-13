@@ -1,5 +1,5 @@
-use crate::controller::controller_config::ControllerConfig;
-use crate::controller::structs::json::{Invoke, Prewarm, RegisterFunction};
+use crate::server::controller_config::ControllerConfig;
+use crate::server::structs::json::{Invoke, Prewarm, RegisterFunction};
 use crate::services::async_invoke::AsyncService;
 use crate::services::controller_health::{ControllerHealthService, HealthService, SimHealthService};
 use crate::services::load_balance::{get_balancer, LoadBalancer};

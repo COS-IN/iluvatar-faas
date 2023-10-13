@@ -19,7 +19,7 @@ use tokio::{runtime::Builder, task::JoinHandle};
 
 async fn controller_live_register_functions(
     funcs: &HashMap<String, Function>,
-    host: &String,
+    host: &str,
     port: Port,
     benchmark: Option<&BenchmarkStore>,
 ) -> Result<()> {
@@ -56,7 +56,7 @@ async fn controller_live_register_functions(
     Ok(())
 }
 
-async fn prewarm_funcs(funcs: &HashMap<String, Function>, host: &String, port: Port) -> Result<()> {
+async fn prewarm_funcs(funcs: &HashMap<String, Function>, host: &str, port: Port) -> Result<()> {
     for (fid, func) in funcs.iter() {
         for _ in 0..func.prewarms.ok_or_else(|| {
             anyhow::anyhow!(

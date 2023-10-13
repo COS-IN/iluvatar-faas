@@ -170,7 +170,7 @@ pub async fn benchmark_controller(
                                 None => func_data
                                     .resource_data
                                     .entry((&compute).try_into()?)
-                                    .or_insert_with(|| FunctionInvocationTimings::new()),
+                                    .or_insert_with(FunctionInvocationTimings::new),
                             };
                             if invoke_result.function_output.body.cold {
                                 resource_entry
@@ -354,7 +354,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
                 None => d
                     .resource_data
                     .entry((&compute).try_into()?)
-                    .or_insert_with(|| FunctionInvocationTimings::new()),
+                    .or_insert_with(FunctionInvocationTimings::new),
             };
             if invoke.function_output.body.cold {
                 resource_entry

@@ -368,7 +368,7 @@ mod prewarm {
         }
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
         let cast_container = cast::<ContainerdContainer>(&c.container, &TEST_TID).unwrap();
-        assert_eq!(cast_container.task.running, true);
+        assert!(cast_container.task.running);
         assert_eq!(c.container.function().function_name, "test");
         assert_eq!(c.container.function().function_version, "test");
         assert_eq!(c.container.container_type(), Isolation::CONTAINERD);
@@ -774,7 +774,7 @@ mod container_state {
             ContainerState::Unhealthy,
             "Container's state should have been Unhealthy"
         );
-        assert_eq!(c1.container.is_healthy(), false, "Container should be unhealthy");
+        assert!(!c1.container.is_healthy(), "Container should be unhealthy");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -796,6 +796,6 @@ mod container_state {
             ContainerState::Unhealthy,
             "Container's state should have been Unhealthy"
         );
-        assert_eq!(c1.container.is_healthy(), false, "Container should be unhealthy");
+        assert!(!c1.container.is_healthy(), "Container should be unhealthy");
     }
 }

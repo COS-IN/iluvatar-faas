@@ -128,8 +128,8 @@ impl ContainerIsolationService for DockerIsolation {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, _namespace, mem_limit_mb, cpus), fields(tid=%tid)))]
     async fn run_container(
         &self,
-        fqdn: &String,
-        image_name: &String,
+        fqdn: &str,
+        image_name: &str,
         parallel_invokes: u32,
         _namespace: &str,
         mem_limit_mb: MemSizeMb,
@@ -246,7 +246,7 @@ impl ContainerIsolationService for DockerIsolation {
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
-        _fqdn: &String,
+        _fqdn: &str,
         tid: &TransactionId,
     ) -> Result<()> {
         if self.pulled_images.contains(&rf.image_name) {
@@ -287,7 +287,7 @@ impl ContainerIsolationService for DockerIsolation {
             bail_error!(tid=%tid, output=?output, "Failed to run 'docker ps' with no exit code");
         }
         let cow = String::from_utf8_lossy(&output.stdout);
-        let stdout: Vec<&str> = cow.split('\n').filter(|str| str.len() > 0).collect();
+        let stdout: Vec<&str> = cow.split('\n').filter(|str| str.is_empty()).collect();
         for docker_id in stdout {
             let output = execute_cmd("/usr/bin/docker", &vec!["rm", "--force", docker_id], None, tid)?;
             if let Some(status) = output.status.code() {
@@ -309,7 +309,7 @@ impl ContainerIsolationService for DockerIsolation {
             match self.get_logs(container, tid) {
                 Ok((_out, err)) => {
                     // stderr was written to, gunicorn server is either up or crashed
-                    if err.len() > 0 {
+                    if err.is_empty() {
                         break;
                     }
                 }
@@ -320,7 +320,7 @@ impl ContainerIsolationService for DockerIsolation {
             if start.elapsed()?.as_millis() as u64 >= timeout_ms {
                 let stdout = self.read_stdout(&container, tid);
                 let stderr = self.read_stderr(&container, tid);
-                if stderr.len() > 0 {
+                if stderr.is_empty() {
                     warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for docker container start, but stderr was written to?");
                     return Ok(());
                 }

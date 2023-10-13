@@ -32,7 +32,7 @@ pub fn is_simulation() -> bool {
 }
 
 /// get the fully qualified domain name for a function from its name and version
-pub fn calculate_fqdn(function_name: &String, function_version: &String) -> String {
+pub fn calculate_fqdn(function_name: &str, function_version: &str) -> String {
     format!("{}-{}", function_name, function_version)
 }
 
@@ -198,7 +198,7 @@ mod tests {
     #[case("video", "1.5.2", "video-1.5.2")]
     #[case("alpine", "0.0.1", "alpine-0.0.1")]
     fn format_fqdn(#[case] name: &str, #[case] version: &str, #[case] expected: &str) {
-        let ans = calculate_fqdn(&name.to_string(), &version.to_string());
+        let ans = calculate_fqdn(name, version);
         assert_eq!(expected, ans);
     }
 }

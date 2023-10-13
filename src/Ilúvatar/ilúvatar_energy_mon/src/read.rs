@@ -59,7 +59,7 @@ pub struct LogMonitor {
     pub functions: HashSet<String>,
 }
 impl LogMonitor {
-    pub fn new(file_pth: &String) -> Result<Self> {
+    pub fn new(file_pth: &str) -> Result<Self> {
         let mut f = File::open(file_pth)?;
         f.seek(SeekFrom::Start(0))?;
         Ok(LogMonitor {
@@ -135,7 +135,7 @@ impl LogMonitor {
         Ok((timing_data, overhead_ns))
     }
 
-    fn remove_invoke_transaction(&mut self, id: &String, span: &Span) {
+    fn remove_invoke_transaction(&mut self, id: &str, span: &Span) {
         let found_stamp = self.invocation_spans.remove(id);
         match found_stamp {
             Some(s) => {
@@ -150,7 +150,7 @@ impl LogMonitor {
             None => println!("Tried to remove {} that wasn't found", id),
         }
     }
-    fn remove_worker_transaction(&mut self, id: &String, span: &Span, timing_data: &mut HashMap<String, u128>) -> u128 {
+    fn remove_worker_transaction(&mut self, id: &str, span: &Span, timing_data: &mut HashMap<String, u128>) -> u128 {
         let found_stamp = self.worker_spans.remove(id);
         match found_stamp {
             Some(s) => {

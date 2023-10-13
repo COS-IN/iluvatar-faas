@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
         flame: None,
         span_energy_monitoring: false,
     });
-    let _guard = start_tracing(log_config, &"energy_monitor".to_string(), tid)?;
+    let _guard = start_tracing(log_config, "energy_monitor", tid)?;
 
     let _mon = EnergyLogger::boxed(Some(&config), tid).await?;
     wait_for_exit_signal(tid).await?;

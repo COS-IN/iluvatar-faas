@@ -74,27 +74,27 @@ impl IntoIterator for Compute {
             .into_iter()
     }
 }
-impl Into<Compute> for Vec<ComputeEnum> {
-    fn into(self) -> Compute {
-        let mut r = Compute::empty();
-        for i in self.iter() {
-            r |= i.into()
-        }
-        r
-    }
+impl From<Vec<ComputeEnum>> for Compute {
+    fn from(i: Vec<ComputeEnum>) -> Self {
+      let mut r = Compute::empty();
+      for x in i.iter() {
+          r |= x.into()
+      }
+      r
+  }
 }
-impl Into<Compute> for &ComputeEnum {
-    fn into(self) -> Compute {
-        match self {
+impl From<&ComputeEnum> for Compute {
+    fn from(i: &ComputeEnum) -> Self {
+        match i {
             ComputeEnum::cpu => Compute::CPU,
             ComputeEnum::gpu => Compute::GPU,
             ComputeEnum::fpga => Compute::FPGA,
         }
     }
 }
-impl Into<Compute> for u32 {
-    fn into(self) -> Compute {
-        Compute::from_bits_truncate(self)
+impl From<u32> for Compute {
+    fn from(i: u32) -> Self {
+      Compute::from_bits_truncate(i)
     }
 }
 impl TryFrom<&String> for Compute {
@@ -118,26 +118,26 @@ pub enum IsolationEnum {
     DOCKER,
     // INVALID deliberately not included
 }
-impl Into<Isolation> for Vec<IsolationEnum> {
-    fn into(self) -> Isolation {
+impl From<Vec<IsolationEnum>> for Isolation {
+    fn from(i: Vec<IsolationEnum>) -> Self {
         let mut r = Isolation::empty();
-        for i in self.iter() {
-            r |= i.into();
+        for x in i.iter() {
+            r |= x.into();
         }
         r
     }
 }
-impl Into<Isolation> for &IsolationEnum {
-    fn into(self) -> Isolation {
-        match self {
+impl From<&IsolationEnum> for Isolation{
+    fn from(i: &IsolationEnum) -> Self {
+        match i {
             IsolationEnum::CONTAINERD => Isolation::CONTAINERD,
             IsolationEnum::DOCKER => Isolation::DOCKER,
         }
     }
 }
-impl Into<Isolation> for u32 {
-    fn into(self) -> Isolation {
-        Isolation::from_bits_truncate(self)
+impl From<u32> for Isolation {
+    fn from(i: u32) -> Self {
+      Isolation::from_bits_truncate(i)
     }
 }
 impl TryFrom<&String> for Isolation {

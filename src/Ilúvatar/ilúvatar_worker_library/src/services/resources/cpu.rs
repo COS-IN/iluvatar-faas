@@ -91,7 +91,7 @@ impl CpuResourceTracker {
                 Err(e) => Err(e),
             };
         }
-        return Ok(None);
+        Ok(None)
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(svc), fields(tid=%tid)))]

@@ -317,7 +317,7 @@ impl CpuQueueingInvoker {
     async fn invoke<'a>(
         &'a self,
         reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a String,
+        json_args: &'a str,
         tid: &'a TransactionId,
         queue_insert_time: OffsetDateTime,
         permit: Option<Box<dyn Drop + Send>>,
@@ -353,7 +353,7 @@ impl CpuQueueingInvoker {
     async fn invoke_on_container<'a>(
         &'a self,
         reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a String,
+        json_args: &'a str,
         tid: &'a TransactionId,
         queue_insert_time: OffsetDateTime,
         permit: Option<Box<dyn Drop + Send>>,

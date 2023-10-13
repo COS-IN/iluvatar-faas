@@ -35,11 +35,11 @@ const BRIDGE_NET_ID: &str = "mk_bridge_throwaway";
 
 impl NamespaceManager {
     fn new(config: Arc<NetworkingConfig>, worker_thread: Option<JoinHandle<()>>) -> Self {
-        return NamespaceManager {
+        NamespaceManager {
             config,
             pool: Arc::new(Mutex::new(Vec::new())),
             _worker_thread: worker_thread,
-        };
+        }
     }
 
     pub fn boxed(config: Arc<NetworkingConfig>, tid: &TransactionId, ensure_bridge: bool) -> Result<Arc<Self>> {
@@ -97,12 +97,12 @@ impl NamespaceManager {
         info!(tid=%tid, "Ensuring network bridge");
         // multiple workers on one machine can compete over this
         // catch an error if we aren't the race winner and try again, will do nothing if bridge exists
-        match Self::try_ensure_bridge(tid, &config) {
+        match Self::try_ensure_bridge(tid, config) {
             Ok(_) => Ok(()),
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Error on first attempt making bridge, retring");
                 std::thread::sleep(std::time::Duration::from_millis(config.pool_freq_ms));
-                Self::try_ensure_bridge(tid, &config)
+                Self::try_ensure_bridge(tid, config)
             }
         }?;
         *bridge_check = true;
@@ -170,7 +170,7 @@ impl NamespaceManager {
 
         let output = execute_cmd(
             &config.cnitool,
-            &vec!["add", &config.cni_name.as_str(), &nspth.as_str()],
+            &vec!["add", config.cni_name.as_str(), nspth.as_str()],
             Some(&env),
             tid,
         );
@@ -242,9 +242,9 @@ impl NamespaceManager {
                 "-A",
                 "FORWARD",
                 "-i",
-                &config.bridge,
+                config.bridge.as_str(),
                 "-o",
-                &config.hardware_interface,
+                config.hardware_interface.as_str(),
                 "-j",
                 "ACCEPT",
             ],
@@ -281,11 +281,11 @@ impl NamespaceManager {
         }
     }
 
-    fn bridge_exists(nspth: &String, tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<bool> {
+    fn bridge_exists(nspth: &str, tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<bool> {
         let env = Self::cmd_environment(config);
         let output = execute_cmd(
             &config.cnitool,
-            &vec!["check", &config.cni_name.as_str(), &nspth.as_str()],
+            &vec!["check", config.cni_name.as_str(), nspth],
             Some(&env),
             tid,
         );
@@ -306,16 +306,16 @@ impl NamespaceManager {
     }
 
     /// Format the network namespace name to the full path
-    pub fn net_namespace(name: &String) -> String {
+    pub fn net_namespace(name: &str) -> String {
         format!("/run/netns/{}", name)
     }
 
-    fn namespace_exists(name: &String) -> bool {
+    fn namespace_exists(name: &str) -> bool {
         let nspth = Self::net_namespace(name);
         std::path::Path::new(&nspth).exists()
     }
 
-    fn create_namespace_internal(name: &String, tid: &TransactionId) -> Result<()> {
+    fn create_namespace_internal(name: &str, tid: &TransactionId) -> Result<()> {
         let out = match execute_cmd_checked("/bin/ip", &vec!["netns", "add", name], None, tid) {
             Ok(out) => out,
             Err(e) => bail_error!(tid=%tid, error=%e, "Failed to launch 'ip netns add' command"),
@@ -324,7 +324,7 @@ impl NamespaceManager {
         debug!(tid=%tid, namespace=%name, output=?out, "internal create namespace via ip");
         if let Some(status) = out.status.code() {
             if status == 0 {
-                return Ok(());
+                Ok(())
             } else {
                 bail_error!(tid=%tid, status=?status, stdout=?out, "Failed to create internal namespace")
             }
@@ -346,18 +346,18 @@ impl NamespaceManager {
     }
 
     pub fn pool_size(&self) -> usize {
-        return self.pool.lock().len();
+        self.pool.lock().len()
     }
 
-    fn create_namespace(&self, name: &String, tid: &TransactionId) -> Result<Namespace> {
+    fn create_namespace(&self, name: &str, tid: &TransactionId) -> Result<Namespace> {
         info!(tid=%tid, namespace=%name, "Creating new namespace");
         let env = Self::cmd_environment(&self.config);
         let nspth = Self::net_namespace(name);
-        Self::create_namespace_internal(&name, tid)?;
+        Self::create_namespace_internal(name, tid)?;
 
         let out = execute_cmd(
             &self.config.cnitool,
-            &vec!["add", &self.config.cni_name.as_str(), &nspth.as_str()],
+            &vec!["add", self.config.cni_name.as_str(), nspth.as_str()],
             Some(&env),
             tid,
         )?;
@@ -380,11 +380,11 @@ impl NamespaceManager {
 
     pub fn get_namespace(&self, tid: &TransactionId) -> Result<Arc<Namespace>> {
         let mut locked = self.pool.lock();
-        if self.config.use_pool && locked.len() > 0 {
+        if self.config.use_pool && locked.is_empty() {
             match locked.pop() {
                 Some(ns) => {
                     debug!(tid=%tid, namespace=%ns.name, "Assigning namespace");
-                    return Ok(ns);
+                    Ok(ns)
                 }
                 None => {
                     bail_error!(tid=%tid, length=%locked.len(), "Namespace pool of should have had a thing in it")
@@ -393,7 +393,7 @@ impl NamespaceManager {
         } else {
             debug!(tid=%tid, "Creating new namespace, pool is empty");
             let ns = Arc::new(self.create_namespace(&self.generate_net_namespace_name(), tid)?);
-            return Ok(ns);
+            Ok(ns)
         }
     }
 
@@ -410,18 +410,18 @@ impl NamespaceManager {
         if self.config.use_pool {
             let mut locked = self.pool.lock();
             locked.push(ns);
-            return Ok(());
+            Ok(())
         } else {
-            return self.delete_namespace(&ns.name, tid);
+            self.delete_namespace(ns.name.as_str(), tid)
         }
     }
 
-    fn delete_namespace(&self, name: &String, tid: &TransactionId) -> Result<()> {
+    fn delete_namespace(&self, name: &str, tid: &TransactionId) -> Result<()> {
         let env = Self::cmd_environment(&self.config);
         let nspth = Self::net_namespace(name);
         let out = execute_cmd(
             &self.config.cnitool,
-            &vec!["del", &self.config.cni_name.as_str(), &nspth.as_str()],
+            &vec!["del", self.config.cni_name.as_str(), nspth.as_str()],
             Some(&env),
             tid,
         )?;
@@ -490,20 +490,20 @@ impl NamespaceManager {
             );
         }
 
-        let bridge_nspth = Self::net_namespace(&BRIDGE_NET_ID.to_string());
+        let bridge_nspth = Self::net_namespace(BRIDGE_NET_ID);
         let env = Self::cmd_environment(&self.config);
-        if Self::namespace_exists(&BRIDGE_NET_ID.to_string()) {
+        if Self::namespace_exists(BRIDGE_NET_ID) {
             let _output = execute_cmd(
                 &self.config.cnitool,
-                &vec!["del", &self.config.cni_name.as_str(), &bridge_nspth.as_str()],
+                &vec!["del", self.config.cni_name.as_str(), bridge_nspth.as_str()],
                 Some(&env),
                 tid,
             )?;
-            self.delete_namespace(&BRIDGE_NET_ID.to_string(), tid)?;
+            self.delete_namespace(BRIDGE_NET_ID, tid)?;
         }
         let _out = execute_cmd(
             "/bin/ip",
-            &vec!["link", "delete", &self.config.bridge, "type", "bridge"],
+            &vec!["link", "delete", self.config.bridge.as_str(), "type", "bridge"],
             Some(&env),
             tid,
         )?;

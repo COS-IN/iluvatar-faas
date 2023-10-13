@@ -11,7 +11,7 @@ pub struct EnergyLayer {
     monitor: Arc<EnergyMonitorService>,
 }
 impl EnergyLayer {
-    pub fn new(worker_name: &String) -> Self {
+    pub fn new(worker_name: &str) -> Self {
         EnergyLayer {
             monitor: EnergyMonitorService::boxed(worker_name),
         }

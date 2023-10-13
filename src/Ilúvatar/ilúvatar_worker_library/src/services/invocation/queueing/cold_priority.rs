@@ -36,7 +36,7 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
         let r = self.invoke_queue.lock();
         let r = r.peek()?;
         let r = r.item.clone();
-        return Some(r);
+        Some(r)
     }
     fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
         let mut invoke_queue = self.invoke_queue.lock();
@@ -44,11 +44,10 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
         *self.est_time.lock() -= v.est_wall_time;
         let v = v.item;
         let top = invoke_queue.peek();
-        let func_name;
-        match top {
-            Some(e) => func_name = e.item.registration.function_name.as_str(),
-            None => func_name = "empty",
-        }
+        let func_name = match top {
+            Some(e) => e.item.registration.function_name.as_str(),
+            None =>  "empty",
+        };
         debug!(tid=%v.tid,  component="minheap", "Popped item from queue - len: {} popped: {} top: {} ",
            invoke_queue.len(), v.registration.function_name, func_name );
         v

@@ -27,17 +27,14 @@ impl AsyncHelper {
     /// returns the async invoke entry if it exists
     /// None otherwise
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, cookie), fields(tid=%_tid)))]
-    fn get_async_entry(&self, cookie: &String, _tid: &TransactionId) -> Option<InvocationResultPtr> {
+    fn get_async_entry(&self, cookie: &str, _tid: &TransactionId) -> Option<InvocationResultPtr> {
         let i = self.async_functions.get(cookie);
-        match i {
-            Some(i) => Some(i.clone()),
-            None => None,
-        }
+        i.map(|i| i.clone())
     }
 
     /// removes the async invoke entry from the tracked invocations
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, cookie), fields(tid=%_tid)))]
-    fn remove_async_entry(&self, cookie: &String, _tid: &TransactionId) {
+    fn remove_async_entry(&self, cookie: &str, _tid: &TransactionId) {
         self.async_functions.remove(cookie);
     }
 
@@ -47,7 +44,7 @@ impl AsyncHelper {
     /// returns a JSON blob of "{ "Status": "Invocation not completed" }" if the invocation has not completed yet
     /// NOTE: If these keys for non-completion are changed, then the controller will need modification to match
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, cookie), fields(tid=%tid)))]
-    pub fn invoke_async_check(&self, cookie: &String, tid: &TransactionId) -> Result<InvokeResponse> {
+    pub fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<InvokeResponse> {
         let entry = match self.get_async_entry(cookie, tid) {
             Some(entry) => entry,
             None => return Ok(InvokeResponse::error("Invocation not found")),
