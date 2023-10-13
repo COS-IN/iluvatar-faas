@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::Duration, cmp::{min, max}, sync::Arc, path::Path, fs::File, io::Write};
 use anyhow::Result;
-use iluvatar_library::{utils::{port::Port}, transaction::TransactionId, logging::LocalTime, types::{CommunicationMethod, Compute, Isolation}};
+use iluvatar_library::{utils::port::Port, transaction::TransactionId, logging::LocalTime, types::{CommunicationMethod, Compute, Isolation}};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tokio::{runtime::Runtime, task::JoinHandle};
 use crate::{utils::{worker_register, VERSION, worker_prewarm, LoadType, RunType, CompletedControllerInvocation, save_result_json, load_benchmark_data}, benchmark::BenchmarkStore, trace::safe_cmp};
@@ -119,7 +119,7 @@ fn map_from_args(funcs: &mut HashMap<String, Function>, default_prewarms: Option
   Ok(())
 }
 
-pub fn map_functions_to_prep(load_type: LoadType, func_json_data_path: &Option<String>, funcs: &mut HashMap<String, Function>, 
+pub fn map_functions_to_prep(runtype: RunType, load_type: LoadType, func_json_data_path: &Option<String>, funcs: &mut HashMap<String, Function>, 
                             default_prewarms: Option<u32>, trace_pth: &String, max_prewarms: u32) -> Result<()> {
   for (_, v) in funcs.iter_mut() {
     v.parsed_compute = match v.compute.as_ref() {
@@ -130,6 +130,9 @@ pub fn map_functions_to_prep(load_type: LoadType, func_json_data_path: &Option<S
       Some(c) => Some(Isolation::try_from(c)?),
       None => Some(Isolation::CONTAINERD),
     };
+    if runtype == RunType::Simulation && v.image_name.is_none() {
+      v.image_name = Some("SimImage".to_owned());
+    }
   }
   match load_type {
     LoadType::Lookbusy => { return map_from_lookbusy(funcs, default_prewarms, max_prewarms); },
@@ -191,7 +194,7 @@ pub fn worker_prepare_functions(runtype: RunType, funcs: &mut HashMap<String, Fu
                           port: Port, load_type: LoadType, func_data: Option<String>, rt: &Runtime, 
                           prewarms: Option<u32>, trace_pth: &String, factory: &Arc<WorkerAPIFactory>,
                           max_prewarms: u32) -> Result<()> {
-  map_functions_to_prep(load_type, &func_data, funcs, prewarms, trace_pth, max_prewarms)?;
+  map_functions_to_prep(runtype, load_type, &func_data, funcs, prewarms, trace_pth, max_prewarms)?;
   prepare_worker(funcs, host, port, runtype, rt, factory, &func_data)
 }
 

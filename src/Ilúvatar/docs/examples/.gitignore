@@ -28,3 +28,5 @@ detailed-spans/*.csv
 detailed-spans/*.json
 detailed-spans/*.png
 !detailed-spans/example-timeline.png
+
+paper-repro/results

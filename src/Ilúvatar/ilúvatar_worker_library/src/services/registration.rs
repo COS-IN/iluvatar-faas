@@ -74,8 +74,11 @@ impl RegistrationService {
         None => None,
       };
       if let Some(compute_config) = compute_config {
-        if compute_config.count == 0 {
-          anyhow::bail!("Could not register function for compute {:?} because the worker has no devices of that type!", specific_compute);
+          // TODO: Abstract away compute types to use resource trackers (e.g. CpuResourceTracker, GpuResourceTracker) to do this check
+          if compute_config.count == 0 {
+          if specific_compute != Compute::CPU {
+            anyhow::bail!("Could not register function for compute {:?} because the worker has no devices of that type!", specific_compute);
+          }
         }
       } else {
         anyhow::bail!("Could not register function for compute {:?} because the worker was not configured for it!", specific_compute);
