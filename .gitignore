@@ -3,3 +3,4 @@ src/Ilúvatar/target
 __pycache__/*.lock
 **.lock
 **__pycache__**
+.idea/
