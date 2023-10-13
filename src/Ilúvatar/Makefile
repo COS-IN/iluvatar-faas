@@ -34,3 +34,5 @@ flame:
 test:
 	@echo "Running unit tests"
 	@cargo test $(cargo_args)
+format:
+	@cargo fmt -- --edition 2021
