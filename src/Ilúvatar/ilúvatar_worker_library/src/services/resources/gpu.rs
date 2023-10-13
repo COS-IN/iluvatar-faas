@@ -34,6 +34,7 @@ pub struct GPU {
   pub gpu_uuid: GpuUuid,
 }
 
+//XX: One container per GPU will change with MPS etc. 
 /// Struct that manages GPU control between containers
 /// A GPU can only be assigned to one container at a time, and must be reutrned via [GpuResourceTracker::return_gpu] after container deletion
 /// For an invocation to use the GPU, it must have isolation over that resource by acquiring it via [GpuResourceTracker::try_acquire_resource]

@@ -19,7 +19,7 @@ pub struct DynBatchGpuQueue {
   /// Number of invocations we want to batch together at the head of the dispatch queue. The tail is uncompressed and regular FCFS queue. 
   compress_window: i32,
   /// Initially, just add invocations in an FCFS queue which is later compressed into batches. 
-  incoming_queue: Mutex<VecDeque<GpuBatch>>, // from FcfsGpuQueue 
+  incoming_queue: Mutex<VecDeque<Arc<EnqueuedInvocation>>>, // from FcfsGpuQueue 
 }
 
 impl DynBatchGpuQueue {
@@ -36,7 +36,8 @@ impl DynBatchGpuQueue {
     Ok(svc)
   }
 
-   #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+    /// Will need to convert from registered function in the incoming queue to an enqueued invocation after compression. 
   fn add_item_to_batches(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
     self.num_queued.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let est_time;
@@ -60,18 +61,11 @@ impl DynBatchGpuQueue {
 #[tonic::async_trait]
 impl GpuQueuePolicy for DynBatchGpuQueue {
 
-  /// Borrowed from FCFS.   
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+    
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
   fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
-    // let est_time = match self.cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::GPU) {
-    //   ContainerState::Warm => self.cmap.get_gpu_warm_time(&item.registration.fqdn),
-    //   ContainerState::Prewarm => self.cmap.get_gpu_warm_time(&item.registration.fqdn),
-    //   _ => self.cmap.get_gpu_cold_time(&item.registration.fqdn),
-    // };
-
     let mut queue = self.incoming_queue.lock();
-    let est_time = 0.0 ; // Fill later? Or from cmap? Its a distribution anyways 
-    queue.push_back(GpuBatch::new(item.clone(), est_time));
+    queue.push_back(item.clone()); //cloning an Arc, hmm 
     Ok(())
   }
 
@@ -88,11 +82,19 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
     /// 2. When a new item is inserted, and we are under compress_window limit.
     /// Function insertion times will be important for stable sorting?
     fn queue_compress(&self) -> () {
-        // New items at head of invocation queue. Read the first compress_window batches (of 1) and try to aggregate into batches. 
-    
+        // New items at head of invocation queue. Read the first compress_window batches (of 1) and create the batched list.
+        let mut queue = self.incoming_queue.lock();
+        for _ in [..self.compress_window] {
+            if let Some(hitem) = queue.pop_front() {
+                self.add_item_to_batches(&hitem);
+            }
+        }
     }
 
-  /// XXX: Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained. 
+    /// XXX: The GPU may already be running functions and we may want to run a single invocation for more fine-grained scheduling. 
+    /// Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained.
+    /// Need approx snapshot of GPU state and capacity. What functions may be resident, memory, etc. 
+     
   fn pop_queue(&self) -> GpuBatch {
     let batch_key = self.invoke_batches.iter().min_by_key(|x| x.value().peek().queue_insert_time).unwrap().key().clone();
     let (_fqdn, batch) = self.invoke_batches.remove(&batch_key).unwrap();
@@ -112,6 +114,7 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
   
 }
 
+//////////////////////////////////////////
 
 #[cfg(test)]
 mod oldest_batch {

@@ -39,7 +39,9 @@ pub enum EnqueueingPolicy {
   /// Assumes all functions can run on CPU, assumption may break in the future
   AlwaysCPU,
   /// Enqueue based on shortest estimated completion time
-  EstCompTime,
+    EstCompTime,
+    /// Multi-armed bandit for polymorphic functions. 
+    Bandit1,
 }
 
 #[tonic::async_trait]
@@ -96,7 +98,7 @@ pub trait DeviceQueue: Send + Sync {
 }
 
 #[derive(Debug)]
-/// A struct to hold a function while it is in the invocation queue
+/// Function while it is in the invocation queue. Refs to registration, result, arguments, invocation/execution stats. 
 pub struct EnqueuedInvocation {
   pub registration: Arc<RegisteredFunction>,
   /// Pointer where results will be stored on invocation completion

@@ -123,6 +123,7 @@ pub enum Characteristics {
     MemoryUsage,
 }
 
+/// Historical execution characteristics of functions. Cold/warm times, energy, etc. 
 #[derive(Debug)]
 pub struct CharacteristicsMap {
     map: DashMap<String,DashMap<Characteristics,Values>>,

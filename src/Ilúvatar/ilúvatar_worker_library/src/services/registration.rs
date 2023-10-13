@@ -7,6 +7,8 @@ use crate::worker_api::worker_config::FunctionLimits;
 use super::containers::{containermanager::ContainerManager, ContainerIsolationCollection};
 use anyhow::Result;
 
+
+/// A registered function is ready to be run if invoked later. Resource configuration is set here (CPU, mem, isolation, compute-device.
 #[derive(Debug)]
 pub struct RegisteredFunction {
   pub function_name: String,

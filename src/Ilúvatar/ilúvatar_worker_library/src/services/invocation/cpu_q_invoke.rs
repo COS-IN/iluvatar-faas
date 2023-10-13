@@ -21,6 +21,7 @@ pub struct CpuQueueingInvoker {
   invocation_config: Arc<InvocationConfig>,
   cmap: Arc<CharacteristicsMap>,
   clock: LocalTime,
+  /// Number of currently running functions. Could be in CpuResourceTracker? 
   running: AtomicU32,
   last_memory_warning: Mutex<Instant>,
   cpu: Arc<CpuResourceTracker>,
