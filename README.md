@@ -3,7 +3,7 @@
 Ilúvatar is an open Serverless platform built with the goal of jumpstarting and streamlining FaaS research.
 It provides a system that is easy and consistent to use, highly modifiable, and directly reports experimental results.
 
-<img src="./imgs/logo1.jpeg" alt="Ilúvatar orchestrating functions" width="300"/>
+<!-- <img src="./imgs/logo1.jpeg" alt="Ilúvatar orchestrating functions" width="300"/> -->
 
 ## Try it Out
 
@@ -40,7 +40,7 @@ sudo kill --signal SIGINT $worker_pid
 
 You can run more advanced scenarios [here](./src/Il%C3%BAvatar/docs/examples/README.md).
 
-## Why use Ilúvatar?
+## Why use Ilúvatar for research?
 
 Ilúvatar provides the features and guarantees we find to be necessary to conduct high-quality, reproducible, and open research.
 
@@ -51,7 +51,7 @@ Ilúvatar provides the features and guarantees we find to be necessary to conduc
 5. An extendible FaaS platform built for an open-source research community.
 
 Details about the implementation can be found in the paper below.
-How to use the various features and jump-starting your research can be found [in the Ilúvatar documentation](./src/Il%C3%BAvatar/README.md).
+How to use the various features and jump-starting your research can be found [in the Ilúvatar documentation](./src/Ilúvatar/README.md).
 
 A popular open-source platform used in research is OpenWhisk, but we have found it has high overheads under notable load, caused by a variety of factors.
 The scalability of OpenWhisk vs our Ilúvatar can be seen here.
@@ -59,12 +59,15 @@ The scalability of OpenWhisk vs our Ilúvatar can be seen here.
 ![Ilúvatar performance orchestrating functions](./imgs/overhead-scaling.jpeg)
 
 We can ensure a constant 1-3 ms overhead on invocations at significant load, whereas OpenWhisk sees high and variable overheads, on the same hardware.
-It also does not have the reasearch-first features implemented in Ilúvatar.
+It also does not have the research-first features implemented in Ilúvatar.
+
+See Ilúvatar in action for research [right here](./src/Ilúvatar/docs/RESEARCH.md)
 
 ## More documentation
 
-Detailed documentation can be found [here](./src/Ilúvatar/README.md).
 Ilúvatar supports a large variety of customization in configuration and setup, and methods of load generation and experimentation.
+It is easy to create custom functions that run new Python programs, [information is in this document](./src/Ilúvatar/docs/FUNCTIONS.md#preparing-code-to-be-functions).
+Detailed documentation can be found [closer to the code](./src/Ilúvatar/README.md).
 
 ## Why 'Ilúvatar'?
 

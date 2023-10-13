@@ -67,14 +67,19 @@ impl WorkerAPIFactory {
         let api = match self.try_get_simapi(worker) {
           Some(api) => api,
           None => {
-            let worker_config = match crate::worker_api::worker_config::Configuration::boxed(&Some(host), None) {
-              Ok(w) => w,
-              Err(e) => anyhow::bail!("Failed to load config because '{:?}'", e),
-            };
-            let api = create_worker(worker_config, tid).await?;
-            let api = Arc::new(api);
-            self.sim_apis.insert(worker.clone(), api.clone());
-            api
+            match self.sim_apis.entry(worker.clone()) {
+              dashmap::mapref::entry::Entry::Occupied(entry) => entry.get().clone(),
+              dashmap::mapref::entry::Entry::Vacant(vacant) => {
+                let worker_config = match crate::worker_api::worker_config::Configuration::boxed(&Some(host), None) {
+                  Ok(w) => w,
+                  Err(e) => anyhow::bail!("Failed to load config because '{:?}'", e),
+                };
+                let api = create_worker(worker_config, tid).await?;
+                let api = Arc::new(api);
+                vacant.insert(api.clone());
+                api                    
+              }
+            }
           },
         };
         Ok(Box::new(SimWorkerAPI::new(api)))

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::{SystemTime, Duration}, sync::Arc};
 use anyhow::Result;
-use iluvatar_library::{utils::{timing::TimedExt}, transaction::{TransactionId, SIMULATION_START_TID, gen_tid}, logging::LocalTime, api_register::RegisterWorker, types::{CommunicationMethod, Compute, Isolation, ComputeEnum}};
+use iluvatar_library::{utils::timing::TimedExt, transaction::{TransactionId, SIMULATION_START_TID, gen_tid}, logging::LocalTime, api_register::RegisterWorker, types::{CommunicationMethod, Compute, Isolation, ComputeEnum}};
 use iluvatar_controller_library::controller::{controller_structs::json::{ControllerInvokeResult, RegisterFunction, Prewarm}, web_server::{register_function, prewarm}, controller::Controller};
 use actix_web::{web::{Json, Data}, body::MessageBody};
 use iluvatar_controller_library::controller::web_server::{invoke, register_worker};
@@ -8,7 +8,7 @@ use iluvatar_controller_library::controller::structs::json::Invoke;
 use tokio::{runtime::Builder, task::JoinHandle};
 use crate::{trace::{CsvInvocation, trace_utils::map_functions_to_prep}, utils::{VERSION, FunctionExecOutput, CompletedControllerInvocation, resolve_handles, load_benchmark_data}, benchmark::BenchmarkStore};
 use super::{Function, TraceArgs, trace_utils::save_controller_results};
-use iluvatar_worker_library::worker_api::{worker_config::Configuration as WorkerConfig};
+use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 
 async fn controller_sim_register_workers(num_workers: usize, server_data: &Data<Controller>, worker_config_pth: &String, worker_config: &Arc<WorkerConfig>) -> Result<()> {
   for i in 0..num_workers {
@@ -131,7 +131,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
 
   threaded_rt.block_on(controller_sim_register_workers(args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize, &server_data, &worker_config_pth, &worker_config))?;
   let mut metadata = super::load_metadata(&args.metadata_csv)?;
-  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv, args.max_prewarms)?;
+  map_functions_to_prep(crate::utils::RunType::Simulation, args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv, args.max_prewarms)?;
   let bench_data = load_benchmark_data(&args.function_data)?;
   threaded_rt.block_on(controller_sim_register_functions(&metadata, &server_data, bench_data.as_ref()))?;
   threaded_rt.block_on(controller_sim_prewarm_functions(&metadata, &server_data))?;

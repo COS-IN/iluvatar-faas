@@ -47,7 +47,7 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
       Ok(c) => Arc::new(c),
       Err(e) => panic!("Unable to build reqwest HTTP client: {:?}", e),
     };
-  map_functions_to_prep(args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv, args.max_prewarms)?;
+  map_functions_to_prep(crate::utils::RunType::Live, args.load_type, &args.function_data, &mut metadata, args.prewarms, &args.input_csv, args.max_prewarms)?;
   let bench_data = load_benchmark_data(&args.function_data)?;
   threaded_rt.block_on(controller_live_register_functions(&metadata, &args.host, args.port, bench_data.as_ref()))?;
   threaded_rt.block_on(prewarm_funcs(&metadata, &args.host, args.port))?;

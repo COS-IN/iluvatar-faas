@@ -4,7 +4,7 @@ use anyhow::Result;
 use iluvatar_library::{types::{MemSizeMb, Isolation, Compute}, transaction::TransactionId};
 use tracing::{info, warn};
 use crate::worker_api::worker_config::WorkerConfig;
-use crate::services::{containers::{structs::{Container}, containerd::ContainerdIsolation, simulator::SimulatorIsolation}};
+use crate::services::containers::{structs::Container, containerd::ContainerdIsolation, simulator::SimulatorIsolation};
 use crate::services::network::namespace_manager::NamespaceManager;
 use self::{structs::ToAny, docker::DockerIsolation};
 use super::{registration::RegisteredFunction, resources::gpu::GPU};

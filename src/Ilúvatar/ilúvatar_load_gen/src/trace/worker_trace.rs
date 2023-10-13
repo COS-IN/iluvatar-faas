@@ -1,7 +1,8 @@
 use std::{sync::Arc, path::Path};
 use anyhow::Result;
 use iluvatar_library::{utils::config::args_to_json, transaction::{TransactionId, gen_tid}, logging::LocalTime, types::CommunicationMethod};
-use iluvatar_worker_library::{services::containers::simulator::simstructs::SimulationInvocation};
+use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_config::Configuration};
+use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use tokio::{runtime::Builder, task::JoinHandle};
 use std::time::SystemTime;
 use crate::{utils::{VERSION, worker_invoke, CompletedWorkerInvocation, resolve_handles, save_worker_result_csv, save_result_json, RunType}, trace::trace_utils::worker_prepare_functions};
@@ -18,7 +19,7 @@ pub fn trace_worker(args: TraceArgs) -> Result<()> {
 fn simulated_worker(args: TraceArgs) -> Result<()> {
   iluvatar_library::utils::set_simulation();
   let worker_config_pth = args.worker_config.as_ref().ok_or_else(|| anyhow::anyhow!("Must have 'worker_config' for sim"))?.clone();
-  let server_config = iluvatar_worker_library::worker_api::worker_config::Configuration::boxed(&Some(&worker_config_pth), None).unwrap();
+  let server_config = Configuration::boxed(&Some(&worker_config_pth), None).unwrap();
   let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
   let threaded_rt = Builder::new_multi_thread()
                         .enable_all()
@@ -26,7 +27,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
   let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
 
   let mut metadata = super::load_metadata(&args.metadata_csv)?;
-  let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
+  let factory = WorkerAPIFactory::boxed();
 
   worker_prepare_functions(RunType::Simulation, &mut metadata, &worker_config_pth, args.port, args.load_type, 
     args.function_data, &threaded_rt, args.prewarms, &args.input_csv, &factory, args.max_prewarms)?;
@@ -62,7 +63,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
     let fct_cln = factory.clone();
     let h_c = worker_config_pth.clone();
     handles.push(threaded_rt.spawn(async move {
-      worker_invoke(&f_c, &VERSION, &h_c, args.port, &gen_tid(), Some(serde_json::to_string(&func_args)?), clk_clone, &fct_cln, Some(CommunicationMethod::RPC)).await
+      worker_invoke(&f_c, &VERSION, &h_c, args.port, &gen_tid(), Some(serde_json::to_string(&func_args)?), clk_clone, &fct_cln, Some(CommunicationMethod::SIMULATION)).await
     }));
   }
 
@@ -78,7 +79,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
 
 fn live_worker(args: TraceArgs) -> Result<()> {
   let tid: &TransactionId = &iluvatar_library::transaction::LIVE_WORKER_LOAD_TID;
-  let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
+  let factory = WorkerAPIFactory::boxed();
 
   let threaded_rt = Builder::new_multi_thread()
                         .enable_all()
