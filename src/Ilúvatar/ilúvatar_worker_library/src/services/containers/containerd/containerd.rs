@@ -781,7 +781,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             Ok(i) => i,
             Err(e) => bail_error!(error=%e, tid=%tid, "Init inotify watch failed"),
         };
-        let dscriptor = match inotify.add_watch(&stderr, WatchMask::MODIFY) {
+        let dscriptor = match inotify.watches().add(&stderr, WatchMask::MODIFY) {
             Ok(d) => d,
             Err(e) => bail_error!(error=%e, tid=%tid, "Adding inotify watch to file failed"),
         };
@@ -791,7 +791,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             match inotify.read_events(&mut buffer) {
                 Ok(_events) => {
                     // stderr was written to, gunicorn server is either up or crashed
-                    match inotify.rm_watch(dscriptor) {
+                    match inotify.watches().remove(dscriptor) {
                         Ok(e) => e,
                         Err(e) => bail_error!(error=%e, tid=%tid, "Deleting inotify watch failed"),
                     };

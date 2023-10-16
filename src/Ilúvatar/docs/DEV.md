@@ -50,9 +50,14 @@ Compute exclusivity is currently being manager for CPU and GPU using custom stru
 Some standards to follow to keep the codebase fairly consistent.
 Coding style should follow Rust standards.
 Things like improper casing will result in warnings from the compiler should be fixed unless there is a reason to override the warning.
+There are CI merge checks on the code to enforce various code standards: no warnings, formatting, and [clippy](https://github.com/rust-lang/rust-clippy) standards.
+All of these can be checked locally with the same `make` commands CI uses.
+Run `make check`, `make format-check`, and `make clippy` to reproduce the code analysis.
+If CI gives an error that doesn't appear on your local machine, update cargo to the latest version.
+
 
 New configuration that is expected to be frequently changed by users should be added to the [relevant Ansible file](../ansible/).
-More details on how ansible works can be found in its [specific documentation](./ANSIBLE.md).
+More details on how Ansible works can be found in its [specific documentation](./ANSIBLE.md).
 
 ### Documentation
 

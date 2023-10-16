@@ -29,7 +29,7 @@ pub fn nproc(tid: &TransactionId, all: bool) -> anyhow::Result<u32> {
         true => vec!["--all"],
         false => vec![],
     };
-    let nproc = execute_cmd_checked("/usr/bin/nproc", &args, None, tid)?;
+    let nproc = execute_cmd_checked("/usr/bin/nproc", args, None, tid)?;
     let stdout = String::from_utf8_lossy(&nproc.stdout);
     if stdout.len() == 0 {
         anyhow::bail!("`nproc` output was empty");

@@ -9,7 +9,7 @@ clean:
 	@cargo clean
 check:
 	@echo "Checking"
-	@cargo check $(cargo_args)
+	@RUSTFLAGS=-Dwarnings cargo check --tests --locked --workspace --examples --benches $(cargo_args)
 release:
 	@echo "Building release"
 	@cargo build --release -j $(NPROCS) $(cargo_args)
@@ -40,4 +40,3 @@ format-check:
 	@cargo fmt --all -- --check
 clippy:
 	@cargo clippy -- -Dclippy::suspicious -Dclippy::correctness -Dclippy::perf -Aclippy::single_match -Aclippy::new_without_default -Aclippy::too_many_arguments -Aclippy::type-complexity -Dclippy::from_over_into -Aclippy::redundant-field-names -Dwarnings
-	
