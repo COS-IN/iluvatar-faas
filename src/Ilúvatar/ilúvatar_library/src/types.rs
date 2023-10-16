@@ -76,12 +76,12 @@ impl IntoIterator for Compute {
 }
 impl From<Vec<ComputeEnum>> for Compute {
     fn from(i: Vec<ComputeEnum>) -> Self {
-      let mut r = Compute::empty();
-      for x in i.iter() {
-          r |= x.into()
-      }
-      r
-  }
+        let mut r = Compute::empty();
+        for x in i.iter() {
+            r |= x.into()
+        }
+        r
+    }
 }
 impl From<&ComputeEnum> for Compute {
     fn from(i: &ComputeEnum) -> Self {
@@ -94,7 +94,7 @@ impl From<&ComputeEnum> for Compute {
 }
 impl From<u32> for Compute {
     fn from(i: u32) -> Self {
-      Compute::from_bits_truncate(i)
+        Compute::from_bits_truncate(i)
     }
 }
 impl TryFrom<&String> for Compute {
@@ -127,7 +127,7 @@ impl From<Vec<IsolationEnum>> for Isolation {
         r
     }
 }
-impl From<&IsolationEnum> for Isolation{
+impl From<&IsolationEnum> for Isolation {
     fn from(i: &IsolationEnum) -> Self {
         match i {
             IsolationEnum::CONTAINERD => Isolation::CONTAINERD,
@@ -137,7 +137,7 @@ impl From<&IsolationEnum> for Isolation{
 }
 impl From<u32> for Isolation {
     fn from(i: u32) -> Self {
-      Isolation::from_bits_truncate(i)
+        Isolation::from_bits_truncate(i)
     }
 }
 impl TryFrom<&String> for Isolation {

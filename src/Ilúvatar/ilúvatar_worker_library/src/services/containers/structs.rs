@@ -144,7 +144,7 @@ impl<'a> Drop for ContainerLock<'a> {
     fn drop(&mut self) {
         debug!(tid=%self.transaction_id, container_id=%self.container.container_id(), "Dropping container lock");
         self.container_mrg
-            .return_container(&self.container, &self.transaction_id);
+            .return_container(&self.container, self.transaction_id);
     }
 }
 

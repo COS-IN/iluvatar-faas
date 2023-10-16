@@ -118,12 +118,10 @@ impl CpuResourceTracker {
                     };
                 }
             }
-        } else {
-            if current < svc.max_concur {
-                if let Some(sem) = &svc.concurrency_semaphore {
-                    sem.add_permits(1);
-                    *svc.current_concur.lock() += 1;
-                }
+        } else if current < svc.max_concur {
+            if let Some(sem) = &svc.concurrency_semaphore {
+                sem.add_permits(1);
+                *svc.current_concur.lock() += 1;
             }
         }
         info!(tid=%tid, concurrency=*svc.current_concur.lock(), load=norm_load, "Current concurrency");

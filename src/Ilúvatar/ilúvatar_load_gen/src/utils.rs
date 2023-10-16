@@ -144,13 +144,7 @@ pub struct CompletedControllerInvocation {
     pub invoke_start: String,
 }
 impl CompletedControllerInvocation {
-    pub fn error(
-        msg: String,
-        name: &str,
-        version: &str,
-        tid: Option<&TransactionId>,
-        invoke_start: String,
-    ) -> Self {
+    pub fn error(msg: String, name: &str, version: &str, tid: Option<&TransactionId>, invoke_start: String) -> Self {
         let r_tid = match tid {
             Some(t) => t.clone(),
             None => "ERROR_TID".to_string(),
@@ -282,13 +276,9 @@ pub async fn controller_invoke(
                 ),
             }
         }
-        Err(e) => CompletedControllerInvocation::error(
-            format!("Invocation error: {}", e),
-            name,
-            version,
-            None,
-            invoke_start,
-        ),
+        Err(e) => {
+            CompletedControllerInvocation::error(format!("Invocation error: {}", e), name, version, None, invoke_start)
+        }
     };
     Ok(r)
 }
@@ -496,13 +486,9 @@ pub async fn worker_invoke(
                 invoke_start,
             ),
         },
-        Err(e) => CompletedWorkerInvocation::error(
-            format!("Invocation error: {:?}", e),
-            name,
-            version,
-            tid,
-            invoke_start,
-        ),
+        Err(e) => {
+            CompletedWorkerInvocation::error(format!("Invocation error: {:?}", e), name, version, tid, invoke_start)
+        }
     };
     Ok(c)
 }
@@ -571,7 +557,8 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
             anyhow::bail!("Failed to create csv output '{:?}' file because {}", &path, e);
         }
     };
-    let to_write = "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n".to_string();
+    let to_write =
+        "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n".to_string();
     match f.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {

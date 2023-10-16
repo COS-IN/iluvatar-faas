@@ -46,7 +46,7 @@ impl WorkerAPI for SimWorkerAPI {
         tid: TransactionId,
     ) -> Result<InvokeResponse> {
         let request = tonic::Request::new(InvokeRequest {
-            function_name: function_name,
+            function_name,
             function_version: version,
             json_args: args,
             transaction_id: tid,
@@ -104,7 +104,7 @@ impl WorkerAPI for SimWorkerAPI {
         compute: Compute,
     ) -> Result<String> {
         let request = tonic::Request::new(PrewarmRequest {
-            function_name: function_name,
+            function_name,
             function_version: version,
             transaction_id: tid.clone(),
             compute: compute.bits(),

@@ -129,7 +129,6 @@ pub struct CharacteristicsMap {
 
 impl CharacteristicsMap {
     pub fn new(ag: AgExponential) -> Self {
-        
         // TODO: Implement file restore functionality here
 
         CharacteristicsMap {
@@ -196,12 +195,7 @@ impl CharacteristicsMap {
             self.add(fqdn, Characteristics::IAT, Values::F64(iat), true);
         }
 
-        self.add(
-            fqdn,
-            Characteristics::LastInvTime,
-            Values::Duration(time_now),
-            false,
-        );
+        self.add(fqdn, Characteristics::LastInvTime, Values::Duration(time_now), false);
     }
 
     pub fn lookup(&self, fqdn: &str, chr: &Characteristics) -> Option<Values> {
@@ -339,10 +333,7 @@ mod charmap {
         println!("      : looking up the new element");
         println!(
             "      :   {:?}",
-            unwrap_val_dur(
-                &m.lookup("video_processing.0.0.1", &Characteristics::ExecTime)
-                    .unwrap()
-            )
+            unwrap_val_dur(&m.lookup("video_processing.0.0.1", &Characteristics::ExecTime).unwrap())
         );
         println!("      : Adding three more");
         m.add(
@@ -366,10 +357,7 @@ mod charmap {
         println!("      : dumping whole map");
         m.dump();
         assert_eq!(
-            unwrap_val_dur(
-                &m.lookup("video_processing.0.0.1", &Characteristics::ExecTime)
-                    .unwrap()
-            ),
+            unwrap_val_dur(&m.lookup("video_processing.0.0.1", &Characteristics::ExecTime).unwrap()),
             Duration::from_secs_f64(4.808000049)
         );
     }
@@ -417,18 +405,8 @@ mod charmap {
                 true,
             );
 
-            m.add(
-                "json_dump.0.1.1",
-                Characteristics::ExecTime,
-                Values::F64(0.4),
-                true,
-            );
-            m.add(
-                "json_dump.0.1.1",
-                Characteristics::ColdTime,
-                Values::F64(1.9),
-                true,
-            );
+            m.add("json_dump.0.1.1", Characteristics::ExecTime, Values::F64(0.4), true);
+            m.add("json_dump.0.1.1", Characteristics::ColdTime, Values::F64(1.9), true);
             m.add(
                 "json_dump.0.1.1",
                 Characteristics::WarmTime,
@@ -443,25 +421,16 @@ mod charmap {
         println!("Test 1: Singular additions");
         println!(
             "      : lookup ExecTime of json - {}",
-            unwrap_val_f64(
-                &m.lookup("json_dump.0.1.1", &Characteristics::ExecTime)
-                    .unwrap()
-            )
+            unwrap_val_f64(&m.lookup("json_dump.0.1.1", &Characteristics::ExecTime).unwrap())
         );
         println!("      : dumping whole map");
         m.dump();
         assert_eq!(
-            unwrap_val_f64(
-                &m.lookup("json_dump.0.1.1", &Characteristics::ExecTime)
-                    .unwrap()
-            ),
+            unwrap_val_f64(&m.lookup("json_dump.0.1.1", &Characteristics::ExecTime).unwrap()),
             0.4
         );
         assert_eq!(
-            unwrap_val_dur(
-                &m.lookup("json_dump.0.1.1", &Characteristics::WarmTime)
-                    .unwrap()
-            ),
+            unwrap_val_dur(&m.lookup("json_dump.0.1.1", &Characteristics::WarmTime).unwrap()),
             Duration::from_secs_f64(1.6)
         );
     }
@@ -532,10 +501,7 @@ mod charmap {
         println!("      : dumping whole map");
         m.dump();
         assert_eq!(
-            unwrap_val_f64(
-                &m.lookup("video_processing.0.0.1", &Characteristics::ExecTime)
-                    .unwrap()
-            ),
+            unwrap_val_f64(&m.lookup("video_processing.0.0.1", &Characteristics::ExecTime).unwrap()),
             0.48719999999999997
         );
     }

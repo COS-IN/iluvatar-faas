@@ -89,7 +89,7 @@ impl ContainerIsolationService for SimulatorIsolation {
     }
 
     fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
-        let cast_container = match crate::services::containers::structs::cast::<SimulatorContainer>(&container, tid) {
+        let cast_container = match crate::services::containers::structs::cast::<SimulatorContainer>(container, tid) {
             Ok(c) => c,
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Error casting container to SimulatorContainer");

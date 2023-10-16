@@ -10,7 +10,6 @@ use iluvatar_worker_library::rpc::RegisterRequest;
 use iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer;
 use iluvatar_worker_library::services::containers::structs::{cast, ContainerState};
 
-
 fn basic_reg_req() -> RegisterRequest {
     RegisterRequest {
         function_name: "test".to_string(),
