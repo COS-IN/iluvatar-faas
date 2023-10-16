@@ -1,5 +1,5 @@
-pub mod round_robin;
 pub mod least_loaded;
+pub mod round_robin;
 
 #[macro_export]
 macro_rules! send_invocation {

@@ -3,6 +3,7 @@
 
 REPO="alfuerst"
 VERSION="latest"
+PUSH=true
 
 for i in "$@"
 do
@@ -12,6 +13,9 @@ case $i in
     ;;
     --version=*)
     VERSION="${i#*=}"
+    ;;
+    --skip-push)
+    PUSH=false
     ;;
     *)
     # unknown option
@@ -51,10 +55,12 @@ build() {
     rm $docker_base
     rm server.py
   fi
-  docker push $img_name &>> $log || {
-    echo "Failed to push $func_name, check $log";
-    exit 1;
-  }
+  if [ "$PUSH" = true ]; then
+    docker push $img_name &>> $log || {
+      echo "Failed to push $func_name, check $log";
+      exit 1;
+    }
+  fi
 }
 
 for dir in ./functions/*/

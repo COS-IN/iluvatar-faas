@@ -3,6 +3,7 @@
 
 REPO="alfuerst"
 VERSION="latest"
+PUSH=true
 
 for i in "$@"
 do
@@ -12,6 +13,9 @@ case $i in
     ;;
     --version=*)
     VERSION="${i#*=}"
+    ;;
+    --skip-push)
+    PUSH=false
     ;;
     *)
     # unknown option
@@ -59,10 +63,12 @@ build() {
     rm server.py
   fi
 
-  docker push "$REPO/$func_name-iluvatar-gpu:$VERSION" &>> $log || {
-    echo "Failed to push $func_name, check $log";
-    exit 1;
-  }
+  if [ "$PUSH" = true ]; then
+    docker push "$REPO/$func_name-iluvatar-gpu:$VERSION" &>> $log || {
+      echo "Failed to push $func_name, check $log";
+      exit 1;
+    }
+  fi
   cd $back
 }
 
