@@ -380,17 +380,18 @@ impl NamespaceManager {
 
     pub fn get_namespace(&self, tid: &TransactionId) -> Result<Arc<Namespace>> {
         let mut locked = self.pool.lock();
-        if self.config.use_pool && locked.is_empty() {
+        if self.config.use_pool && !locked.is_empty() {
             match locked.pop() {
                 Some(ns) => {
                     debug!(tid=%tid, namespace=%ns.name, "Assigning namespace");
                     Ok(ns)
                 }
                 None => {
-                    bail_error!(tid=%tid, length=%locked.len(), "Namespace pool of should have had a thing in it")
+                    bail_error!(tid=%tid, length=%locked.len(), "Namespace pool should have had a thing in it")
                 }
             }
         } else {
+            drop(locked);
             debug!(tid=%tid, "Creating new namespace, pool is empty");
             let ns = Arc::new(self.create_namespace(&self.generate_net_namespace_name(), tid)?);
             Ok(ns)

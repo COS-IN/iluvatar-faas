@@ -59,9 +59,7 @@ pub async fn full_sim_invoker(
     iluvatar_library::utils::set_simulation();
     let log = log.unwrap_or(false);
     let worker_name = "TEST".to_string();
-    let test_cfg_pth = config_pth.unwrap_or_else(|| {
-        "/N/u/a/alfuerst/repos/efaas/src/Ilúvatar/ilúvatar_worker_library/tests/resources/worker.dev.json".to_string()
-    });
+    let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
     let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides)
         .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
     let fake_logging = Arc::new(LoggingConfig {
@@ -138,9 +136,7 @@ pub async fn sim_invoker_svc(
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
     iluvatar_library::utils::set_simulation();
     let worker_name = "TEST".to_string();
-    let test_cfg_pth = config_pth.unwrap_or_else(|| {
-        "/N/u/a/alfuerst/repos/efaas/src/Ilúvatar/ilúvatar_worker_library/tests/resources/worker.dev.json".to_string()
-    });
+    let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
     let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides)
         .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
     let _log = match log_level {

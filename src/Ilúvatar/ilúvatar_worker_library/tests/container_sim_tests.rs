@@ -149,7 +149,8 @@ mod compute_iso_matching {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cant_request_not_registered_compute_gpu() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let env = build_gpu_env();
+        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
         let func = reg
             .register(cpu_reg(), &TEST_TID)
             .await
@@ -163,7 +164,8 @@ mod compute_iso_matching {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cant_request_not_registered_compute_cpu() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let env = build_gpu_env();
+        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -234,7 +236,8 @@ mod gpu {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_container_must_use_docker() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let env = build_gpu_env();
+        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
         let request = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),

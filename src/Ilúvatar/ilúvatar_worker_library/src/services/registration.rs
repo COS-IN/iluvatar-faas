@@ -135,7 +135,7 @@ impl RegistrationService {
         debug!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "Adding new registration to registered_functions map");
         self.reg_map.write().insert(fqdn.clone(), ret.clone());
 
-        if request.resource_timings_json.is_empty() {
+        if !request.resource_timings_json.is_empty() {
             match serde_json::from_str::<ResourceTimings>(&request.resource_timings_json) {
                 Ok(r) => {
                     for dev_compute in compute {
