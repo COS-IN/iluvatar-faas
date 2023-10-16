@@ -12,9 +12,9 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "1.0.0"
 authors = ["Alex Fuerst <alfuerst@iu.edu>"]
-edition = "2021"
+edition = "2023"
 keywords = ["FaaS", "Function as a Service", "Serverless Computing"]
 license = "GPL-3"
 readme = "../../README.md"
