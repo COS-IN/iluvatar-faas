@@ -635,7 +635,7 @@ impl ContainerManager {
                 return;
             }
         };
-        ordered.sort_by(|c1, c2| comparator(c1, c2));
+        ordered.sort_by(comparator);
         let mut lock = self.prioritized_list.write();
         *lock = ordered;
     }

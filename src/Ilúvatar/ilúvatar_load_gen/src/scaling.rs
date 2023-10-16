@@ -141,7 +141,7 @@ async fn scaling_thread(
     barrier.wait().await;
 
     let mut errors = "Prewarm errors:".to_string();
-    let mut it = (1..4).into_iter().peekable();
+    let mut it = (1..4).peekable();
     while let Some(i) = it.next() {
         let wait = rand::thread_rng().gen_range(0..5000);
         tokio::time::sleep(Duration::from_millis(wait)).await;

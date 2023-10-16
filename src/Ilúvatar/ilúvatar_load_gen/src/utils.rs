@@ -53,7 +53,7 @@ impl Ord for ThreadResult {
 }
 impl PartialOrd for ThreadResult {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.thread_id.partial_cmp(&other.thread_id)
+        Some(self.cmp(other))
     }
 }
 impl Eq for ThreadResult {}
@@ -121,7 +121,7 @@ impl Ord for CompletedWorkerInvocation {
 }
 impl PartialOrd for CompletedWorkerInvocation {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.invoke_start.partial_cmp(&other.invoke_start)
+        Some(self.cmp(other))
     }
 }
 impl Eq for CompletedWorkerInvocation {}
@@ -184,7 +184,7 @@ impl Ord for CompletedControllerInvocation {
 }
 impl PartialOrd for CompletedControllerInvocation {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.invoke_start.partial_cmp(&other.invoke_start)
+        Some(self.cmp(other))
     }
 }
 impl Eq for CompletedControllerInvocation {}

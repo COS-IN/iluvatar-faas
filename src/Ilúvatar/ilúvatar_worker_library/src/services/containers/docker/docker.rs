@@ -30,7 +30,7 @@ pub struct DockerIsolation {
 impl DockerIsolation {
     pub fn supported(tid: &TransactionId) -> bool {
         let args = vec!["ps"];
-        match execute_cmd("/usr/bin/docker", &args, None, tid) {
+        match execute_cmd("/usr/bin/docker", args, None, tid) {
             Ok(out) => out.status.success(),
             Err(_) => false,
         }
@@ -52,7 +52,7 @@ impl DockerIsolation {
     /// Get the stdout and stderr of a container
     fn get_logs(&self, container: &Container, tid: &TransactionId) -> Result<(String, String)> {
         let args = vec!["logs", container.container_id().as_str()];
-        let output = execute_cmd("/usr/bin/docker", &args, None, tid)?;
+        let output = execute_cmd("/usr/bin/docker", args, None, tid)?;
         if let Some(status) = output.status.code() {
             if status != 0 {
                 bail_error!(tid=%tid, status=status, output=?output, "Failed to get docker logs with exit code");
@@ -194,7 +194,7 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
-        let output = execute_cmd("/usr/bin/docker", &args, None, tid)?;
+        let output = execute_cmd("/usr/bin/docker", args, None, tid)?;
         if let Some(status) = output.status.code() {
             if status != 0 {
                 bail_error!(tid=%tid, status=status, output=?output, "Failed to create docker container with exit code");
@@ -226,7 +226,7 @@ impl ContainerIsolationService for DockerIsolation {
     async fn remove_container(&self, container: Container, _ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
         let output = execute_cmd(
             "/usr/bin/docker",
-            &vec!["rm", "--force", container.container_id().as_str()],
+            vec!["rm", "--force", container.container_id().as_str()],
             None,
             tid,
         )?;
@@ -250,7 +250,7 @@ impl ContainerIsolationService for DockerIsolation {
             return Ok(());
         }
 
-        let output = execute_cmd("/usr/bin/docker", &vec!["pull", rf.image_name.as_str()], None, tid)?;
+        let output = execute_cmd("/usr/bin/docker", vec!["pull", rf.image_name.as_str()], None, tid)?;
         if let Some(status) = output.status.code() {
             if status != 0 {
                 bail_error!(tid=%tid, status=status, output=?output, "Failed to pull docker image with exit code");
@@ -272,7 +272,7 @@ impl ContainerIsolationService for DockerIsolation {
     ) -> Result<()> {
         let output = execute_cmd(
             "/usr/bin/docker",
-            &vec!["ps", "--filter", "label=owner=iluvatar_worker", "-q"],
+            vec!["ps", "--filter", "label=owner=iluvatar_worker", "-q"],
             None,
             tid,
         )?;
@@ -286,7 +286,7 @@ impl ContainerIsolationService for DockerIsolation {
         let cow = String::from_utf8_lossy(&output.stdout);
         let stdout: Vec<&str> = cow.split('\n').filter(|str| str.is_empty()).collect();
         for docker_id in stdout {
-            let output = execute_cmd("/usr/bin/docker", &vec!["rm", "--force", docker_id], None, tid)?;
+            let output = execute_cmd("/usr/bin/docker", vec!["rm", "--force", docker_id], None, tid)?;
             if let Some(status) = output.status.code() {
                 if status != 0 {
                     bail_error!(tid=%tid, docker_id=%docker_id, status=status, output=?output, "Failed to remove docker container with exit code");
@@ -340,7 +340,7 @@ impl ContainerIsolationService for DockerIsolation {
         };
         let output = match execute_cmd(
             "/usr/bin/docker",
-            &vec![
+            vec![
                 "stats",
                 "--no-stream",
                 "--format",

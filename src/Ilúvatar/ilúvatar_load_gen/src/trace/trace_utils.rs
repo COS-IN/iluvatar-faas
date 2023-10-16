@@ -237,7 +237,7 @@ fn worker_prewarm_functions(
             let fct_cln = factory.clone();
             prewarm_calls.push(async move {
                 let mut errors = "Prewarm errors:".to_string();
-                let mut it = (1..4).into_iter().peekable();
+                let mut it = (1..4).peekable();
                 while let Some(i) = it.next() {
                     match worker_prewarm(
                         &f_c,
