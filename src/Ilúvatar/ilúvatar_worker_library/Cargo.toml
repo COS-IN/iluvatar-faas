@@ -22,7 +22,7 @@ serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0.81"
 parking_lot = "0.12.1"
 config = "0.13"
-inotify = "0.10.0"
+inotify = "0.10.2"
 containerd-client = "0.2.0"
 prost-types = "0.9.0"
 oci-spec = "0.5.1"

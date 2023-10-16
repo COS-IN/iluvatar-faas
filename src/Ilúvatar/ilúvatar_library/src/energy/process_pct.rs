@@ -44,7 +44,7 @@ impl ProcessMonitor {
     /// Reads the different energy sources and writes the current staistics out to the csv file
     fn monitor_process(&self, tid: &TransactionId) {
         let (cpu_pct, cpu_time) =
-            match execute_cmd_checked("/usr/bin/ps", &vec!["-p", self.pid.as_str(), "-o", "%C %x"], None, tid) {
+            match execute_cmd_checked("/usr/bin/ps", vec!["-p", self.pid.as_str(), "-o", "%C %x"], None, tid) {
                 Ok(out) => {
                     let stdout = String::from_utf8_lossy(&out.stdout);
                     let data = stdout.split('\n').collect::<Vec<&str>>();

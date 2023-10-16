@@ -38,7 +38,7 @@ impl IPMI {
         trace!(tid=%tid, "Reading from ipmi");
         let output = execute_cmd_checked(
             "/usr/bin/ipmitool",
-            &vec![
+            vec![
                 "-f",
                 self.ipmi_pass_file.as_str(),
                 "-I",
