@@ -9,7 +9,7 @@ clean:
 	@cargo clean
 check:
 	@echo "Checking"
-	@RUSTFLAGS=-Dwarnings cargo check --tests --locked --workspace --examples --benches $(cargo_args)
+	@RUSTFLAGS=-Dwarnings cargo check --tests --workspace --examples --benches $(cargo_args)
 release:
 	@echo "Building release"
 	@cargo build --release -j $(NPROCS) $(cargo_args)

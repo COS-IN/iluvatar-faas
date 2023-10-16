@@ -170,7 +170,7 @@ impl NamespaceManager {
 
         let output = execute_cmd(
             &config.cnitool,
-            &vec!["add", config.cni_name.as_str(), nspth.as_str()],
+            vec!["add", config.cni_name.as_str(), nspth.as_str()],
             Some(&env),
             tid,
         );
@@ -202,7 +202,7 @@ impl NamespaceManager {
         // https://unix.stackexchange.com/questions/248504/bridged-interfaces-do-not-have-internet-access
         match execute_cmd_checked(
             "/usr/sbin/iptables",
-            &vec![
+            [
                 "-t",
                 "nat",
                 "-A",
@@ -220,7 +220,7 @@ impl NamespaceManager {
         };
         match execute_cmd_checked(
             "/usr/sbin/iptables",
-            &vec![
+            vec![
                 "-A",
                 "FORWARD",
                 "-m",
@@ -238,7 +238,7 @@ impl NamespaceManager {
         };
         match execute_cmd_checked(
             "/usr/sbin/iptables",
-            &vec![
+            vec![
                 "-A",
                 "FORWARD",
                 "-i",
@@ -254,7 +254,7 @@ impl NamespaceManager {
             Ok(_) => debug!(tid=%tid, "Forwarding bridge to interface succeded"),
             Err(e) => bail_error!(tid=%tid, error=%e, "Forwarding bridge to interface failed"),
         };
-        match execute_cmd_checked("/sbin/sysctl", &vec!["-w", "net.ipv4.conf.all.forwarding=1"], None, tid) {
+        match execute_cmd_checked("/sbin/sysctl", vec!["-w", "net.ipv4.conf.all.forwarding=1"], None, tid) {
             Ok(_) => debug!(tid=%tid, "Setting upv4 forwarding succeeded"),
             Err(e) => bail_error!(tid=%tid, error=%e, "Setting upv4 forwarding failed"),
         };
@@ -264,7 +264,7 @@ impl NamespaceManager {
     /// Return `true` if the hardware network interface exists
     fn hardware_exists(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<bool> {
         let env = Self::cmd_environment(config);
-        let output = execute_cmd("/usr/sbin/ifconfig", &vec![&config.hardware_interface], Some(&env), tid);
+        let output = execute_cmd("/usr/sbin/ifconfig", vec![&config.hardware_interface], Some(&env), tid);
         match output {
             Ok(output) => {
                 if let Some(status) = output.status.code() {
@@ -285,7 +285,7 @@ impl NamespaceManager {
         let env = Self::cmd_environment(config);
         let output = execute_cmd(
             &config.cnitool,
-            &vec!["check", config.cni_name.as_str(), nspth],
+            vec!["check", config.cni_name.as_str(), nspth],
             Some(&env),
             tid,
         );
@@ -316,7 +316,7 @@ impl NamespaceManager {
     }
 
     fn create_namespace_internal(name: &str, tid: &TransactionId) -> Result<()> {
-        let out = match execute_cmd_checked("/bin/ip", &vec!["netns", "add", name], None, tid) {
+        let out = match execute_cmd_checked("/bin/ip", vec!["netns", "add", name], None, tid) {
             Ok(out) => out,
             Err(e) => bail_error!(tid=%tid, error=%e, "Failed to launch 'ip netns add' command"),
         };
@@ -357,7 +357,7 @@ impl NamespaceManager {
 
         let out = execute_cmd(
             &self.config.cnitool,
-            &vec!["add", self.config.cni_name.as_str(), nspth.as_str()],
+            vec!["add", self.config.cni_name.as_str(), nspth.as_str()],
             Some(&env),
             tid,
         )?;
@@ -421,7 +421,7 @@ impl NamespaceManager {
         let nspth = Self::net_namespace(name);
         let out = execute_cmd(
             &self.config.cnitool,
-            &vec!["del", self.config.cni_name.as_str(), nspth.as_str()],
+            vec!["del", self.config.cni_name.as_str(), nspth.as_str()],
             Some(&env),
             tid,
         )?;
@@ -435,7 +435,7 @@ impl NamespaceManager {
             bail_error!(tid=%tid, stdout=?out, "cnitool failed to del with no exit code")
         }
 
-        let out = execute_cmd("/bin/ip", &vec!["netns", "delete", name], None, tid)?;
+        let out = execute_cmd("/bin/ip", vec!["netns", "delete", name], None, tid)?;
         debug!(tid=%tid, namespace=%name, output=?out, "internal delete namespace via ip");
         if let Some(status) = out.status.code() {
             if status != 0 {
@@ -449,7 +449,7 @@ impl NamespaceManager {
 
     pub async fn clean(&self, svc: Arc<Self>, tid: &TransactionId) -> Result<()> {
         info!(tid=%tid, "Deleting all owned namespaces");
-        let out = execute_cmd("/bin/ip", &vec!["netns"], None, tid)?;
+        let out = execute_cmd("/bin/ip", vec!["netns"], None, tid)?;
         let stdout = String::from_utf8_lossy(&out.stdout);
         let lines = stdout.split('\n');
         let mut handles = vec![];
@@ -495,7 +495,7 @@ impl NamespaceManager {
         if Self::namespace_exists(BRIDGE_NET_ID) {
             let _output = execute_cmd(
                 &self.config.cnitool,
-                &vec!["del", self.config.cni_name.as_str(), bridge_nspth.as_str()],
+                vec!["del", self.config.cni_name.as_str(), bridge_nspth.as_str()],
                 Some(&env),
                 tid,
             )?;
@@ -503,7 +503,7 @@ impl NamespaceManager {
         }
         let _out = execute_cmd(
             "/bin/ip",
-            &vec!["link", "delete", self.config.bridge.as_str(), "type", "bridge"],
+            vec!["link", "delete", self.config.bridge.as_str(), "type", "bridge"],
             Some(&env),
             tid,
         )?;

@@ -107,7 +107,7 @@ impl CpuResourceTracker {
             let change = f64::ceil(change as f64 / 2.0) as u32;
             if change > 0 {
                 if let Some(sem) = &svc.concurrency_semaphore {
-                    match sem.acquire_many(change as u32).await {
+                    match sem.acquire_many(change).await {
                         Ok(s) => {
                             s.forget();
                             *svc.current_concur.lock() = u32::max(svc.min_concur, current - change);

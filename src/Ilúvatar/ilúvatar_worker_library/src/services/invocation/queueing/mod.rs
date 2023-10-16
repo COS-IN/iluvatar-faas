@@ -236,7 +236,7 @@ impl<T: Ord> Ord for MinHeapEnqueuedInvocation<T> {
 }
 impl<T: Ord> PartialOrd for MinHeapEnqueuedInvocation<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.priority.cmp(&other.priority).reverse())
+        Some(self.cmp(other))
     }
 }
 impl<T: Ord> PartialEq for MinHeapEnqueuedInvocation<T> {

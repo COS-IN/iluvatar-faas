@@ -36,7 +36,7 @@ pub type ControllerConfig = Arc<Configuration>;
 
 impl Configuration {
     pub fn new(config_fpath: &str) -> anyhow::Result<Self> {
-        let sources = vec![
+        let sources = [
             "load_balancer/src/load_balancer.json",
             config_fpath,
             "load_balancer/src/load_balancer.dev.json",

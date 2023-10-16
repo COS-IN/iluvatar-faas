@@ -101,7 +101,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
                     Some(p) => PathBuf::from(p).join(flame),
                     None => PathBuf::from(flame),
                 };
-                let (mut flame_layer, _flame_guard) = match FlameLayer::with_file(&flame_path) {
+                let (mut flame_layer, _flame_guard) = match FlameLayer::with_file(flame_path) {
                     Ok(l) => l,
                     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make FlameLayer"),
                 };
