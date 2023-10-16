@@ -1,8 +1,8 @@
 use crate::server::structs::internal::{RegisteredFunction, RegisteredWorker};
 use crate::services::load_balance::LoadBalancerTrait;
 use crate::{
-    server::controller_config::LoadBalancingConfig,
     prewarm, send_async_invocation, send_invocation,
+    server::controller_config::LoadBalancingConfig,
     services::{controller_health::ControllerHealthService, load_reporting::LoadService},
 };
 use anyhow::Result;

@@ -59,9 +59,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
         println!("Got a request: {:?}", request);
-        let reply = PingResponse {
-            message: "Pong".into(),
-        };
+        let reply = PingResponse { message: "Pong".into() };
         info!("in ping");
         Ok(Response::new(reply))
     }

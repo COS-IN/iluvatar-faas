@@ -82,7 +82,7 @@ impl DockerIsolation {
         let mut end_of_num: usize = 0;
         let mut end_of_scale: usize = 0;
         for (i, c) in input.chars().enumerate() {
-            if c.is_digit(10) || c == '.' {
+            if c.is_ascii_digit() || c == '.' {
                 end_of_num = i + c.len_utf8();
             }
             if c == ' ' {
@@ -149,10 +149,7 @@ impl ContainerIsolationService for DockerIsolation {
         let cpu_arg = cpus.to_string();
         let port_args = format!("{}:{}", port, port);
         let il_port = format!("__IL_PORT={}", port);
-        let gpu = match device_resource.as_ref() {
-            Some(g) => Some(format!("device={}", g.gpu_uuid)),
-            None => None,
-        };
+        let gpu = device_resource.as_ref().map(|g| format!("device={}", g.gpu_uuid));
         let memory_arg = format!("{}MB", mem_limit_mb);
 
         let mut args = vec![
@@ -214,8 +211,8 @@ impl ContainerIsolationService for DockerIsolation {
                 port,
                 "0.0.0.0".to_string(),
                 std::num::NonZeroU32::new_unchecked(parallel_invokes),
-                &fqdn,
-                &reg,
+                fqdn,
+                reg,
                 self.limits_config.timeout_sec,
                 ContainerState::Cold,
                 compute,
@@ -318,8 +315,8 @@ impl ContainerIsolationService for DockerIsolation {
                 }
             };
             if start.elapsed()?.as_millis() as u64 >= timeout_ms {
-                let stdout = self.read_stdout(&container, tid);
-                let stderr = self.read_stderr(&container, tid);
+                let stdout = self.read_stdout(container, tid);
+                let stderr = self.read_stderr(container, tid);
                 if stderr.is_empty() {
                     warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for docker container start, but stderr was written to?");
                     return Ok(());
@@ -334,7 +331,7 @@ impl ContainerIsolationService for DockerIsolation {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
     fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
         debug!(tid=%tid, container_id=%container.container_id(), "Updating memory usage for container");
-        let cast_container = match crate::services::containers::structs::cast::<DockerContainer>(&container, tid) {
+        let cast_container = match crate::services::containers::structs::cast::<DockerContainer>(container, tid) {
             Ok(c) => c,
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Error casting container to DockerContainer");
@@ -370,17 +367,17 @@ impl ContainerIsolationService for DockerIsolation {
             match Self::parse_mem(stdout) {
                 Ok(m) => {
                     container.set_curr_mem_usage(m);
-                    return m;
+                    m
                 }
                 Err(e) => {
                     error!(tid=%tid, error=%e, "Failed to parse memory value");
                     container.mark_unhealthy();
-                    return container.get_curr_mem_usage();
+                    container.get_curr_mem_usage()
                 }
-            };
+            }
         } else {
             error!(tid=%tid, output=?output, "Failed to run 'docker stats' with no exit code");
-            return container.get_curr_mem_usage();
+            container.get_curr_mem_usage()
         }
     }
 

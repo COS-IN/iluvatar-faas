@@ -64,7 +64,7 @@ impl DockerContainer {
         };
         let r = DockerContainer {
             mem_usage: RwLock::new(function.memory),
-            container_id: container_id,
+            container_id,
             fqdn: fqdn.to_owned(),
             function: function.clone(),
             last_used: RwLock::new(SystemTime::now()),

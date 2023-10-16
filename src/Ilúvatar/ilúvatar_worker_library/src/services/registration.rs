@@ -83,16 +83,18 @@ impl RegistrationService {
         }
 
         for specific_compute in compute {
-            let compute_config = self.resources.resource_map.get(&(&specific_compute).try_into()?).cloned();
+            let compute_config = self
+                .resources
+                .resource_map
+                .get(&(&specific_compute).try_into()?)
+                .cloned();
             if let Some(compute_config) = compute_config {
                 // TODO: Abstract away compute types to use resource trackers (e.g. CpuResourceTracker, GpuResourceTracker) to do this check
-                if compute_config.count == 0 {
-                    if specific_compute != Compute::CPU {
-                        anyhow::bail!(
-                            "Could not register function for compute {:?} because the worker has no devices of that type!",
-                            specific_compute
-                        );
-                    }
+                if compute_config.count == 0 && specific_compute != Compute::CPU {
+                    anyhow::bail!(
+                        "Could not register function for compute {:?} because the worker has no devices of that type!",
+                        specific_compute
+                    );
                 }
             } else {
                 anyhow::bail!(
@@ -184,6 +186,6 @@ impl RegistrationService {
     }
 
     pub fn get_registration(&self, fqdn: &str) -> Option<Arc<RegisteredFunction>> {
-      self.reg_map.read().get(fqdn).cloned()
+        self.reg_map.read().get(fqdn).cloned()
     }
 }

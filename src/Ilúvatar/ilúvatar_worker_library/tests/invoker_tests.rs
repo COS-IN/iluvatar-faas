@@ -15,10 +15,10 @@ use utils::{
 
 fn build_overrides(invoker_q: &str) -> Vec<(String, String)> {
     vec![
-      ("invocation.queue_policy".to_string(), invoker_q.to_string()),
-      ("invocation.concurrency_update_check_ms".to_string(), "1000".to_string()),
-      ("invocation.max_load".to_string(), "10".to_string()),
-      ("invocation.max_concurrency".to_string(), "10".to_string())
+        ("invocation.queue_policy".to_string(), invoker_q.to_string()),
+        ("invocation.concurrency_update_check_ms".to_string(), "1000".to_string()),
+        ("invocation.max_load".to_string(), "10".to_string()),
+        ("invocation.max_concurrency".to_string(), "10".to_string()),
     ]
 }
 
@@ -433,11 +433,11 @@ mod minheap_tests {
 
 fn build_bypass_overrides(invoker_q: &str) -> Vec<(String, String)> {
     vec![
-      ("invocation.queue_policy".to_string(), invoker_q.to_string()),
-      ("invocation.bypass_duration_ms".to_string(), "20".to_string()),
-      ("invocation.concurrency_update_check_ms".to_string(), "1000".to_string()),
-      ("invocation.max_load".to_string(), "10".to_string()),
-      ("invocation.max_concurrency".to_string(), "10".to_string())
+        ("invocation.queue_policy".to_string(), invoker_q.to_string()),
+        ("invocation.bypass_duration_ms".to_string(), "20".to_string()),
+        ("invocation.concurrency_update_check_ms".to_string(), "1000".to_string()),
+        ("invocation.max_load".to_string(), "10".to_string()),
+        ("invocation.max_concurrency".to_string(), "10".to_string()),
     ]
 }
 

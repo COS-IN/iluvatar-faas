@@ -41,9 +41,11 @@ pub struct GpuBatch {
 impl GpuBatch {
     pub fn new(first_item: Arc<EnqueuedInvocation>, est_wall_time: f64) -> Self {
         GpuBatch {
-            data: VecDeque::from([
-                MinHeapEnqueuedInvocation::new_f(first_item, est_wall_time, est_wall_time),
-            ]),
+            data: VecDeque::from([MinHeapEnqueuedInvocation::new_f(
+                first_item,
+                est_wall_time,
+                est_wall_time,
+            )]),
             est_time: est_wall_time,
         }
     }

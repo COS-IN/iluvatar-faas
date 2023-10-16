@@ -198,9 +198,7 @@ pub fn map_functions_to_prep(
         }
     }
     match load_type {
-        LoadType::Lookbusy => {
-            map_from_lookbusy(funcs, default_prewarms, max_prewarms)
-        }
+        LoadType::Lookbusy => map_from_lookbusy(funcs, default_prewarms, max_prewarms),
         LoadType::Functions => {
             if let Some(func_json_data) = load_benchmark_data(func_json_data_path)? {
                 map_from_benchmark(funcs, &func_json_data, default_prewarms, trace_pth, max_prewarms)
@@ -419,7 +417,9 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             anyhow::bail!("Failed to create output file because {}", e);
         }
     };
-    let to_write = "success,function_name,was_cold,worker_duration_us,invocation_duration_us,code_duration_asec,e2e_duration_us\n".to_string();
+    let to_write =
+        "success,function_name,was_cold,worker_duration_us,invocation_duration_us,code_duration_asec,e2e_duration_us\n"
+            .to_string();
     match f.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {

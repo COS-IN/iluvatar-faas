@@ -46,7 +46,7 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
         let top = invoke_queue.peek();
         let func_name = match top {
             Some(e) => e.item.registration.function_name.as_str(),
-            None =>  "empty",
+            None => "empty",
         };
         debug!(tid=%v.tid,  component="minheap", "Popped item from queue - len: {} popped: {} top: {} ",
            invoke_queue.len(), v.registration.function_name, func_name );

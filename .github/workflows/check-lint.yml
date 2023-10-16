@@ -35,7 +35,7 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
-    name: Rustfmt
+    name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -45,4 +45,4 @@ jobs:
           toolchain: stable
           override: true
       - run: rustup component add clippy
-      - run: cargo clippy
+      - run: make clippy

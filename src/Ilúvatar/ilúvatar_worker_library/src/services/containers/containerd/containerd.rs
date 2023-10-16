@@ -96,7 +96,7 @@ impl ContainerdIsolation {
 
     /// connect to the containerd socket
     pub async fn connect(&mut self) -> Result<()> {
-        if let Some(_) = &self.channel {
+        if self.channel.is_some() {
             Ok(())
         } else {
             let channel = containerd_client::connect(CONTAINERD_SOCK).await?;
@@ -579,8 +579,8 @@ impl ContainerdIsolation {
                         port,
                         address.clone(),
                         std::num::NonZeroU32::new_unchecked(parallel_invokes),
-                        &fqdn,
-                        &reg,
+                        fqdn,
+                        reg,
                         ns,
                         self.limits_config.timeout_sec,
                         ContainerState::Cold,
@@ -773,7 +773,7 @@ impl ContainerIsolationService for ContainerdIsolation {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, timeout_ms), fields(tid=%tid)))]
     async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
         debug!(tid=%tid, container_id=%container.container_id(), "Waiting for startup of container");
-        let stderr = self.stderr_pth(&container.container_id());
+        let stderr = self.stderr_pth(container.container_id());
 
         let start = SystemTime::now();
 
@@ -799,8 +799,8 @@ impl ContainerIsolationService for ContainerdIsolation {
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     if start.elapsed()?.as_millis() as u64 >= timeout_ms {
-                        let stdout = self.read_stdout(&container, tid);
-                        let stderr = self.read_stderr(&container, tid);
+                        let stdout = self.read_stdout(container, tid);
+                        let stderr = self.read_stderr(container, tid);
                         if stderr.is_empty() {
                             warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for container start, but stderr was written to?");
                             return Ok(());
@@ -819,7 +819,7 @@ impl ContainerIsolationService for ContainerdIsolation {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
     fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
-        let cast_container = match crate::services::containers::structs::cast::<ContainerdContainer>(&container, tid) {
+        let cast_container = match crate::services::containers::structs::cast::<ContainerdContainer>(container, tid) {
             Ok(c) => c,
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Error casting container to ContainerdContainer");
@@ -852,7 +852,7 @@ impl ContainerIsolationService for ContainerdIsolation {
     }
 
     fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
-        let path = self.stdout_pth(&container.container_id());
+        let path = self.stdout_pth(container.container_id());
         match std::fs::read_to_string(path) {
             Ok(s) => str::replace(&s, "\n", "\\n"),
             Err(e) => {
@@ -862,7 +862,7 @@ impl ContainerIsolationService for ContainerdIsolation {
         }
     }
     fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
-        let path = self.stderr_pth(&container.container_id());
+        let path = self.stderr_pth(container.container_id());
         match std::fs::read_to_string(path) {
             Ok(s) => str::replace(&s, "\n", "\\n"),
             Err(e) => {

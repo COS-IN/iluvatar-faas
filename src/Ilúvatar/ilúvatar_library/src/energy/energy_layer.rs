@@ -72,7 +72,10 @@ impl DataExtractorVisitor {
     pub fn fqdn(&self) -> Option<String> {
         match &self.fqdn {
             Some(f) => Some(f.clone()),
-            None => self.function_name.as_ref().map(|f_n| calculate_fqdn(f_n, self.function_version.as_ref().unwrap())),
+            None => self
+                .function_name
+                .as_ref()
+                .map(|f_n| calculate_fqdn(f_n, self.function_version.as_ref().unwrap())),
         }
     }
 }

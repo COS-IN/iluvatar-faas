@@ -144,10 +144,10 @@ impl ContainerManager {
                     continue;
                 }
             };
-            let stdout = cont_lifecycle.read_stdout(&to_remove, &tid);
-            let stderr = cont_lifecycle.read_stderr(&to_remove, &tid);
+            let stdout = cont_lifecycle.read_stdout(&to_remove, tid);
+            let stderr = cont_lifecycle.read_stderr(&to_remove, tid);
             warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
-            match self.remove_container(to_remove, &tid).await {
+            match self.remove_container(to_remove, tid).await {
                 Ok(_) => (),
                 Err(cause) => {
                     error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container")
@@ -200,7 +200,7 @@ impl ContainerManager {
         if ret == ContainerState::Unhealthy {
             return ContainerState::Cold;
         }
-        return ret;
+        ret
     }
 
     /// The number of containers for the given FQDN that are not idle
@@ -267,7 +267,7 @@ impl ContainerManager {
             Some(l) => EventualItem::Now(Ok(l)),
             None => EventualItem::Future(self.cold_start(reg.clone(), tid, compute)), // no available container, cold start
         };
-        return cont;
+        cont
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
@@ -279,7 +279,7 @@ impl ContainerManager {
         compute: Compute,
     ) -> Option<ContainerLock<'a>> {
         if let Ok(pool) = self.get_resource_pool(compute) {
-            return self.acquire_container_from_pool(&pool, fqdn, tid);
+            return self.acquire_container_from_pool(pool, fqdn, tid);
         }
         None
     }
@@ -295,10 +295,8 @@ impl ContainerManager {
                 Some(c) => {
                     if c.is_healthy() {
                         return self.try_lock_container(c, tid);
-                    } else {
-                        if let Err(e) = self.unhealthy_removal_rx.send(c) {
-                            error!(tid=%tid, error=%e, "Failed to send unhealthy container for removal");
-                        }
+                    } else if let Err(e) = self.unhealthy_removal_rx.send(c) {
+                        error!(tid=%tid, error=%e, "Failed to send unhealthy container for removal");
                     }
                 }
                 None => return None,
@@ -509,18 +507,18 @@ impl ContainerManager {
         tid: &TransactionId,
         compute: Compute,
     ) -> Result<Container> {
-        match self.try_launch_container(&reg, tid, compute).await {
+        match self.try_launch_container(reg, tid, compute).await {
             Ok(c) => Ok(c),
             Err(cause) => {
                 if let Some(mem) = cause.downcast_ref::<InsufficientMemoryError>() {
                     debug!(tid=%tid, amount=mem.needed, "Trying to reclaim memory to cold-start a container");
                     self.reclaim_memory(mem.needed, tid).await?;
-                    return self.try_launch_container(&reg, tid, compute).await;
-                } else if let Some(_) = cause.downcast_ref::<InsufficientGPUError>() {
+                    self.try_launch_container(reg, tid, compute).await
+                } else if cause.downcast_ref::<InsufficientGPUError>().is_some() {
                     self.reclaim_gpu(tid).await?;
-                    return self.try_launch_container(&reg, tid, compute).await;
+                    self.try_launch_container(reg, tid, compute).await
                 } else {
-                    return Err(cause);
+                    Err(cause)
                 }
             }
         }
@@ -533,10 +531,10 @@ impl ContainerManager {
     /// Other errors caused by starting/registered the function apply
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
     pub async fn prewarm(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<()> {
-        let container = self.launch_container_internal(&reg, tid, compute).await?;
+        let container = self.launch_container_internal(reg, tid, compute).await?;
         container.set_state(ContainerState::Prewarm);
         let pool = self.get_resource_pool(compute)?;
-        self.add_container_to_pool(&pool.idle_containers, container, &tid)?;
+        self.add_container_to_pool(&pool.idle_containers, container, tid)?;
         info!(tid=%tid, fqdn=%reg.fqdn, "function was successfully prewarmed");
         Ok(())
     }
@@ -588,7 +586,12 @@ impl ContainerManager {
         // TODO: Eviction ordering, have list sorted
         let mut killable = self.gpu_containers.idle_containers.iter();
         while let Some(chosen) = killable.pop() {
-            if let Some(_) = self.gpu_containers.idle_containers.remove_container(&chosen, tid) {
+            if self
+                .gpu_containers
+                .idle_containers
+                .remove_container(&chosen, tid)
+                .is_some()
+            {
                 self.remove_container(chosen, tid).await?;
                 break;
             }
