@@ -75,7 +75,8 @@ foo@cosin:~$ ./build.sh --repo=cosin --version=latest
 
 Once the script is completed, the images will be ready to use by Ilúvatar.
 
-**Custom dependencies.**
+### Custom dependencies
+
 If your code requires custom dependencies that can't be installed with `pip`, it can add a custom `dockerfile` that installs them.
-It should be located in the same directory as the code, be named `Dockerfile`, and start with `FROM alfuerst/iluvatar-action-base`.
+It should be located in the same directory as the code, be named `Dockerfile`, and start with `FROM ${REPO}/iluvatar-action-base`.
 See `video_processing` doing this [here](../../load/functions/python3/functions/video_processing/Dockerfile) to install ffmpeg.

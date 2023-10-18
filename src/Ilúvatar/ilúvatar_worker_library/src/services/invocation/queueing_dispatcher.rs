@@ -3,11 +3,11 @@ use super::{
     async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
     InvocationResultPtr, Invoker,
 };
+#[cfg(feature = "power_cap")]
+use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
-use crate::services::{
-    containers::containermanager::ContainerManager, invocation::queueing::EnqueueingPolicy,
-};
+use crate::services::{containers::containermanager::ContainerManager, invocation::queueing::EnqueueingPolicy};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
@@ -45,6 +45,7 @@ impl QueueingDispatcher {
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
         gpu: Arc<GpuResourceTracker>,
+        #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
         let svc = Arc::new(QueueingDispatcher {
             cpu_queue: Self::get_invoker_queue(
@@ -54,6 +55,8 @@ impl QueueingDispatcher {
                 tid,
                 &function_config,
                 &cpu,
+                #[cfg(feature = "power_cap")]
+                &energy,
             )?,
             gpu_queue: Self::get_invoker_gpu_queue(
                 &invocation_config,
@@ -80,6 +83,7 @@ impl QueueingDispatcher {
         tid: &TransactionId,
         function_config: &Arc<FunctionLimits>,
         cpu: &Arc<CpuResourceTracker>,
+        #[cfg(feature = "power_cap")] energy: &Arc<EnergyLimiter>,
     ) -> Result<Arc<dyn DeviceQueue>> {
         Ok(CpuQueueingInvoker::new(
             cont_manager.clone(),
@@ -88,6 +92,8 @@ impl QueueingDispatcher {
             tid,
             cmap.clone(),
             cpu.clone(),
+            #[cfg(feature = "power_cap")]
+            energy.clone(),
         )?)
     }
 
@@ -160,7 +166,10 @@ impl QueueingDispatcher {
                     self.cpu_queue.enqueue_item(&enqueue)?;
                     enqueues += 1;
                 } else {
-                    anyhow::bail!("Cannot enqueue invocation using {:?} strategy because it does not support CPU", EnqueueingPolicy::AlwaysCPU);
+                    anyhow::bail!(
+                        "Cannot enqueue invocation using {:?} strategy because it does not support CPU",
+                        EnqueueingPolicy::AlwaysCPU
+                    );
                 }
             }
             EnqueueingPolicy::ShortestExecTime => {
@@ -180,16 +189,10 @@ impl QueueingDispatcher {
             EnqueueingPolicy::EstCompTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
-                    opts.push((
-                        self.cpu_queue.est_completion_time(&reg, &tid),
-                        &self.cpu_queue,
-                    ));
+                    opts.push((self.cpu_queue.est_completion_time(reg, &tid), &self.cpu_queue));
                 }
                 if reg.supported_compute.contains(Compute::GPU) {
-                    opts.push((
-                        self.gpu_queue.est_completion_time(&reg, &tid),
-                        &self.gpu_queue,
-                    ));
+                    opts.push((self.gpu_queue.est_completion_time(reg, &tid), &self.gpu_queue));
                 }
                 let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
                 if let Some((_, q)) = best {
@@ -244,20 +247,11 @@ impl Invoker for QueueingDispatcher {
             }
         }
     }
-    fn async_invocation(
-        &self,
-        reg: Arc<RegisteredFunction>,
-        json_args: String,
-        tid: TransactionId,
-    ) -> Result<String> {
+    fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String> {
         let invoke = self.enqueue_new_invocation(&reg, json_args, tid)?;
         self.async_functions.insert_async_invoke(invoke)
     }
-    fn invoke_async_check(
-        &self,
-        cookie: &String,
-        tid: &TransactionId,
-    ) -> Result<crate::rpc::InvokeResponse> {
+    fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse> {
         self.async_functions.invoke_async_check(cookie, tid)
     }
 

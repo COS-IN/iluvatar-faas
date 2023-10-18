@@ -1,10 +1,10 @@
 // Edited code, based on this
 // https://stackoverflow.com/questions/53291554/whats-a-clean-way-to-get-how-long-a-future-takes-to-resolve
 use pin_project::pin_project;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
-use std::future::Future;
 
 /// A wrapper around a Future which adds timing data.
 #[pin_project]
@@ -19,7 +19,7 @@ where
 
 impl<Fut> Future for Timed<Fut>
 where
-  Fut: Future,
+    Fut: Future,
 {
     type Output = (Fut::Output, Duration);
 
@@ -33,7 +33,7 @@ where
             // If the inner future is done, measure the elapsed time and finish this wrapper future.
             Poll::Ready(v) => {
                 let elapsed = this.start.elapsed();
-                Poll::Ready( (v,elapsed) )
+                Poll::Ready((v, elapsed))
             }
         }
     }
@@ -46,7 +46,7 @@ pub trait TimedExt: Sized + Future {
             start: Instant::now(),
         }
     }
-} 
+}
 
 // All futures can use the `.timed` method defined above
 impl<F: Future> TimedExt for F {}

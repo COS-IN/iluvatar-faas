@@ -24,7 +24,8 @@
     "queue_policies": {
       "cpu": "fcfs",
       "gpu": "fcfs"
-    }
+    },
+    "power_cap": 0.0
   },
   "logging": {
     "level": "info",
