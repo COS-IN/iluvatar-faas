@@ -1,6 +1,8 @@
 {
   "name": "local",
   "address": "127.0.0.1",
+  "tokio_event_interval": 20,
+  "tokio_queue_interval": 20,
   "port": 8079,
   "timeout_sec": 6000,
   "limits" : {
@@ -40,13 +42,11 @@
     "pool_freq_ms": 5000,
     "snapshotter": "zfs",
     "concurrent_creation": 5,
-    "resource_map": {
-      "cpu": {
-        "count": 16
-      },
-      "gpu": {
-        "count": 0
-      }
+    "cpu_resource": {
+      "count": 4
+    },
+    "gpu_resource": {
+        "count": 0 
     }
   },
   "networking": {

@@ -141,7 +141,7 @@ impl GpuQueueingInvoker {
         tid: &TransactionId,
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
-        gpu: Arc<GpuResourceTracker>,
+        gpu: Option<Arc<GpuResourceTracker>>,
     ) -> Result<Arc<Self>> {
         let (gpu_handle, gpu_tx) = tokio_runtime(
             invocation_config.queue_sleep_ms,
@@ -154,7 +154,7 @@ impl GpuQueueingInvoker {
             queue: Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid)?,
             cont_manager,
             invocation_config,
-            gpu,
+            gpu: gpu.ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?,
             cmap,
             cpu,
             signal: Notify::new(),

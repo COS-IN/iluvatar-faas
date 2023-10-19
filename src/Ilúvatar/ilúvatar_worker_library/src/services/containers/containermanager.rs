@@ -34,7 +34,7 @@ pub struct ContainerManager {
     prioritized_list: RwLock<Subpool>,
     _worker_thread: std::thread::JoinHandle<()>,
     _health_thread: tokio::task::JoinHandle<()>,
-    gpu_resources: Arc<GpuResourceTracker>,
+    gpu_resources: Option<Arc<GpuResourceTracker>>,
     /// A channel to send unhealthy containers to to be removed async to the sender
     /// Containers must not be in a pool when sent here
     unhealthy_removal_rx: UnboundedSender<Container>,
@@ -42,29 +42,6 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-    fn new(
-        resources: Arc<ContainerResourceConfig>,
-        cont_isolations: ContainerIsolationCollection,
-        worker_thread: std::thread::JoinHandle<()>,
-        health_thread: tokio::task::JoinHandle<()>,
-        gpu_resources: Arc<GpuResourceTracker>,
-        removal_rx: UnboundedSender<Container>,
-    ) -> Self {
-        ContainerManager {
-            resources,
-            cont_isolations,
-            gpu_resources,
-            used_mem_mb: Arc::new(RwLock::new(0)),
-            cpu_containers: ResourcePool::new(Compute::CPU),
-            gpu_containers: ResourcePool::new(Compute::GPU),
-            prioritized_list: RwLock::new(Vec::new()),
-            _worker_thread: worker_thread,
-            _health_thread: health_thread,
-            unhealthy_removal_rx: removal_rx,
-            outstanding_containers: DashMap::new(),
-        }
-    }
-
     fn deletion_thread() -> (
         tokio::task::JoinHandle<()>,
         std::sync::mpsc::Sender<Arc<Self>>,
@@ -90,10 +67,10 @@ impl ContainerManager {
     pub async fn boxed(
         resources: Arc<ContainerResourceConfig>,
         cont_isolations: ContainerIsolationCollection,
-        gpu_resources: Arc<GpuResourceTracker>,
+        gpu_resources: Option<Arc<GpuResourceTracker>>,
         _tid: &TransactionId,
     ) -> Result<Arc<Self>> {
-        let (handle, tx) = tokio_runtime(
+        let (worker_handle, tx) = tokio_runtime(
             resources.pool_freq_ms,
             CTR_MGR_WORKER_TID.clone(),
             ContainerManager::monitor_pool,
@@ -101,14 +78,19 @@ impl ContainerManager {
             None,
         )?;
         let (health_handle, health_tx, del_ctr_tx) = Self::deletion_thread();
-        let cm = Arc::new(ContainerManager::new(
+        let cm = Arc::new(ContainerManager {
             resources,
             cont_isolations,
-            handle,
-            health_handle,
             gpu_resources,
-            del_ctr_tx,
-        ));
+            used_mem_mb: Arc::new(RwLock::new(0)),
+            cpu_containers: ResourcePool::new(Compute::CPU),
+            gpu_containers: ResourcePool::new(Compute::GPU),
+            prioritized_list: RwLock::new(Vec::new()),
+            _worker_thread: worker_handle,
+            _health_thread: health_handle,
+            unhealthy_removal_rx: del_ctr_tx,
+            outstanding_containers: DashMap::new(),
+        });
         tx.send(cm.clone())?;
         health_tx.send(cm.clone())?;
         Ok(cm)
@@ -402,7 +384,12 @@ impl ContainerManager {
         };
 
         let counter = if compute == Compute::GPU {
-            match self.gpu_resources.acquire_gpu() {
+            match self
+                .gpu_resources
+                .as_ref()
+                .ok_or_else(|| anyhow::format_err!("Trying to assign GPU resources when none exist"))?
+                .acquire_gpu()
+            {
                 Some(g) => {
                     info!(tid=%tid, uuid=%g.gpu_uuid, "Assigning GPU to container");
                     Some(g)
@@ -563,10 +550,12 @@ impl ContainerManager {
         };
         *self.used_mem_mb.write() -= container.get_curr_mem_usage();
         if let Some(dev) = container.device_resource() {
-            self.gpu_resources.return_gpu(dev.clone());
+            match &self.gpu_resources {
+                Some(gpu_r) => gpu_r.return_gpu(dev.clone()),
+                None => error!(tid=%tid, iso=?container.container_type(), "Returning GPU but no resoures exist!"),
+            }
         }
-        cont_lifecycle.remove_container(container, "default", tid).await?;
-        Ok(())
+        cont_lifecycle.remove_container(container, "default", tid).await
     }
 
     fn get_resource_pool(&self, compute: Compute) -> Result<&ResourcePool> {

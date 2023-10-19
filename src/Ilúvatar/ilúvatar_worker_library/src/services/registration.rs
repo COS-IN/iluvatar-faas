@@ -53,6 +53,13 @@ impl RegistrationService {
         })
     }
 
+    fn compute_resource_fail(specific_compute: Compute) -> Result<()> {
+        anyhow::bail!(
+            "Could not register function for compute {:?} because the worker has no devices of that type!",
+            specific_compute
+        );
+    }
+
     pub async fn register(&self, request: RegisterRequest, tid: &TransactionId) -> Result<Arc<RegisteredFunction>> {
         if request.function_name.is_empty() {
             anyhow::bail!("Invalid function name");
@@ -83,24 +90,12 @@ impl RegistrationService {
         }
 
         for specific_compute in compute {
-            let compute_config = self
-                .resources
-                .resource_map
-                .get(&(&specific_compute).try_into()?)
-                .cloned();
-            if let Some(compute_config) = compute_config {
-                // TODO: Abstract away compute types to use resource trackers (e.g. CpuResourceTracker, GpuResourceTracker) to do this check
-                if compute_config.count == 0 && specific_compute != Compute::CPU {
-                    anyhow::bail!(
-                        "Could not register function for compute {:?} because the worker has no devices of that type!",
-                        specific_compute
-                    );
-                }
-            } else {
-                anyhow::bail!(
-                    "Could not register function for compute {:?} because the worker was not configured for it!",
-                    specific_compute
-                );
+            if (specific_compute == Compute::CPU && self.resources.cpu_resource.count == 0)
+                || (specific_compute == Compute::GPU
+                    && self.resources.gpu_resource.as_ref().map_or(0, |c| c.count) == 0)
+                || (specific_compute != Compute::CPU && specific_compute != Compute::GPU)
+            {
+                Self::compute_resource_fail(specific_compute)?;
             }
         }
 

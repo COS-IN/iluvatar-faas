@@ -12,7 +12,7 @@ use clap::Parser;
 use iluvatar_library::{
     logging::LocalTime,
     transaction::gen_tid,
-    types::{Compute, ComputeEnum, Isolation, IsolationEnum},
+    types::{Compute, ComputeEnum, Isolation, IsolationEnum, MemSizeMb},
     utils::{file_utils::ensure_dir, port_utils::Port},
 };
 use rand::prelude::*;
@@ -53,6 +53,9 @@ pub struct ScalingArgs {
     #[arg(long)]
     /// Compute the image will use
     compute: ComputeEnum,
+    #[arg(long)]
+    /// Memory need for the function
+    memory_mb: MemSizeMb,
 }
 
 pub fn scaling(args: ScalingArgs) -> Result<()> {
@@ -86,9 +89,10 @@ fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<Thr
         let isolation = (&args.isolation).into();
         let p = args.port;
         let d = args.duration.into();
+        let mem = args.memory_mb;
 
         threads.push(threaded_rt.spawn(async move {
-            scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation, thread_cnt).await
+            scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation, thread_cnt, mem).await
         }));
     }
 
@@ -105,6 +109,7 @@ async fn scaling_thread(
     compute: Compute,
     isolation: Isolation,
     thread_cnt: usize,
+    memory_mb: MemSizeMb,
 ) -> Result<ThreadResult> {
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
     barrier.wait().await;
@@ -115,7 +120,7 @@ async fn scaling_thread(
         name.clone(),
         &version,
         image,
-        512,
+        memory_mb,
         host.clone(),
         port,
         &factory,

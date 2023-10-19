@@ -130,7 +130,7 @@ impl NamespaceManager {
     }
 
     fn ensure_net_config_file(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
-        let temp_file = utils::file::temp_file_pth(&"il_worker_br".to_string(), "conf");
+        let temp_file = utils::file::temp_file_pth("il_worker_br", "conf");
 
         let mut file = match File::options().read(true).write(true).create_new(true).open(temp_file) {
             Ok(f) => f,

@@ -43,13 +43,11 @@
     "pool_freq_ms": 500,
     "snapshotter": "zfs",
     "concurrent_creation": 5,
-    "resource_map": {
-      "cpu": {
+    "cpu_resource": {
         "count": 4
-      },
-      "gpu": {
+    },
+    "gpu_resource": {
         "count": 0 
-      }
     }
   },
   "networking": {

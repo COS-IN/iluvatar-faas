@@ -40,7 +40,7 @@ impl QueueingDispatcher {
         tid: &TransactionId,
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
-        gpu: Arc<GpuResourceTracker>,
+        gpu: Option<Arc<GpuResourceTracker>>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
         let svc = Arc::new(QueueingDispatcher {
@@ -100,7 +100,7 @@ impl QueueingDispatcher {
         tid: &TransactionId,
         function_config: &Arc<FunctionLimits>,
         cpu: &Arc<CpuResourceTracker>,
-        gpu: &Arc<GpuResourceTracker>,
+        gpu: &Option<Arc<GpuResourceTracker>>,
     ) -> Result<Arc<dyn DeviceQueue>> {
         Ok(GpuQueueingInvoker::new(
             cont_manager.clone(),

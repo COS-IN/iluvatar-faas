@@ -13,15 +13,22 @@ use utils::{
     background_test_invoke, cust_register, get_start_end_time_from_invoke, prewarm, register, test_invoker_svc,
 };
 
-fn build_overrides(invoker_q: &str) -> Vec<(String, String)> {
+/// Only 1 CPU to force serial execution
+fn build_serial_overrides(invoker_q: &str) -> Vec<(String, String)> {
     vec![
-        ("invocation.queue_policy".to_string(), invoker_q.to_string()),
-        ("invocation.concurrency_update_check_ms".to_string(), "1000".to_string()),
-        ("invocation.max_load".to_string(), "10".to_string()),
-        ("invocation.max_concurrency".to_string(), "10".to_string()),
+        ("invocation.queue_policies.cpu".to_string(), invoker_q.to_string()),
+        (
+            "container_resources.cpu_resource.concurrency_update_check_ms".to_string(),
+            "0".to_string(),
+        ),
+        ("container_resources.cpu_resource.max_load".to_string(), "1".to_string()),
+        (
+            "container_resources.cpu_resource.max_oversubscribe".to_string(),
+            "1".to_string(),
+        ),
+        ("container_resources.cpu_resource.count".to_string(), "1".to_string()),
     ]
 }
-
 fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
     RegisterRequest {
         function_name: name.to_string(),
@@ -52,7 +59,7 @@ mod invoke {
     #[case("scaling")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn invocation_works(#[case] invoker_q: &str) {
-        let env = build_overrides(invoker_q);
+        let env = build_serial_overrides(invoker_q);
         let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
@@ -106,7 +113,7 @@ mod invoke {
     #[case("scaling")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_start_works(#[case] invoker_q: &str) {
-        let env = build_overrides(invoker_q);
+        let env = build_serial_overrides(invoker_q);
         let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
@@ -162,7 +169,7 @@ mod invoke_async {
     #[case("scaling")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn invocation_works(#[case] invoker_q: &str) {
-        let env = build_overrides(invoker_q);
+        let env = build_serial_overrides(invoker_q);
         let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
@@ -229,7 +236,7 @@ mod invoke_async {
     #[case("scaling")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_start_works(#[case] invoker_q: &str) {
-        let env = build_overrides(invoker_q);
+        let env = build_serial_overrides(invoker_q);
         let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
@@ -291,7 +298,7 @@ mod fcfs_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn no_reordering() {
-        let env = build_overrides("fcfs");
+        let env = build_serial_overrides("fcfs");
         let (_log, _cfg, _cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
         let json_args = "{\"name\":\"TESTING\"}".to_string();
         let transaction_id = "testTID".to_string();
@@ -336,7 +343,7 @@ mod minheap_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn fast_put_first() {
-        let env = build_overrides("minheap");
+        let env = build_serial_overrides("minheap");
         let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
         let json_args = "{\"name\":\"TESTING\"}".to_string();
         let transaction_id = "testTID".to_string();
@@ -380,7 +387,7 @@ mod minheap_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn fast_not_moved() {
-        let env = build_overrides("minheap");
+        let env = build_serial_overrides("minheap");
         let (_log, _cfg, cm, invok_svc, _reg) = test_invoker_svc(None, Some(env), None).await;
         let json_args = "{\"name\":\"TESTING\"}".to_string();
         let transaction_id = "testTID".to_string();
@@ -400,21 +407,14 @@ mod minheap_tests {
             .unwrap_or_else(|e| panic!("ContainerTimeFormatter failed because {}", e));
 
         // warm exec time cache
-        get_start_end_time_from_invoke(
-            background_test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id),
-            &formatter,
-        )
-        .await;
-        // get_start_end_time_from_invoke(background_test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id), &formatter).await;
-        // get_start_end_time_from_invoke(background_test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id), &formatter).await;
-        get_start_end_time_from_invoke(
-            background_test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id),
-            &formatter,
-        )
-        .await;
+        test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id).await;
+        test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id).await;
+        test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id).await;
+        test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id).await;
+        tokio::time::sleep(Duration::from_micros(100)).await;
 
         let first_slow_invoke = background_test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
-        tokio::time::sleep(Duration::from_micros(10)).await;
+        tokio::time::sleep(Duration::from_micros(20)).await;
         let fast_invoke = background_test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id);
         let second_slow_invoke = background_test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
         let (t1, _) = get_start_end_time_from_invoke(first_slow_invoke, &formatter).await;
@@ -433,11 +433,20 @@ mod minheap_tests {
 
 fn build_bypass_overrides(invoker_q: &str) -> Vec<(String, String)> {
     vec![
-        ("invocation.queue_policy".to_string(), invoker_q.to_string()),
+        ("invocation.queue_policies.cpu".to_string(), invoker_q.to_string()),
         ("invocation.bypass_duration_ms".to_string(), "20".to_string()),
-        ("invocation.concurrency_update_check_ms".to_string(), "1000".to_string()),
-        ("invocation.max_load".to_string(), "10".to_string()),
-        ("invocation.max_concurrency".to_string(), "10".to_string()),
+        (
+            "container_resources.cpu_resource.concurrency_update_check_ms".to_string(),
+            "1000".to_string(),
+        ),
+        (
+            "container_resources.cpu_resource.max_load".to_string(),
+            "10".to_string(),
+        ),
+        (
+            "container_resources.cpu_resource.max_oversubscribe".to_string(),
+            "10".to_string(),
+        ),
     ]
 }
 

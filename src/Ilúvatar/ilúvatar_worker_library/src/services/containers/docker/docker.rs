@@ -13,6 +13,7 @@ use iluvatar_library::{
     types::{Compute, Isolation, MemSizeMb},
     utils::{execute_cmd, port::free_local_port},
 };
+use std::collections::HashMap;
 use std::{sync::Arc, time::SystemTime};
 use tracing::{debug, error, info, trace, warn};
 
@@ -36,17 +37,48 @@ impl DockerIsolation {
         }
     }
 
-    pub fn new(config: Arc<ContainerResourceConfig>, limits_config: Arc<FunctionLimits>) -> Self {
+    pub fn new(
+        config: Arc<ContainerResourceConfig>,
+        limits_config: Arc<FunctionLimits>,
+        _tid: &TransactionId,
+    ) -> Result<Self> {
         let sem = match config.concurrent_creation {
             0 => None,
             i => Some(tokio::sync::Semaphore::new(i as usize)),
         };
-        DockerIsolation {
+        Ok(DockerIsolation {
             config,
             limits_config,
             creation_sem: sem,
             pulled_images: DashSet::new(),
+        })
+    }
+
+    pub fn docker_run<'a>(
+        &self,
+        mut run_args: Vec<&'a str>,
+        image_name: &'a str,
+        container_id: &str,
+        proc_args: Option<&'a str>,
+        tid: &TransactionId,
+        env: Option<&HashMap<String, String>>,
+    ) -> Result<()> {
+        run_args.insert(0, "run");
+        run_args.extend(["--label", "owner=iluvatar_worker", "--detach", image_name]);
+        if let Some(a) = proc_args {
+            run_args.push(a);
         }
+        let output = execute_cmd("/usr/bin/docker", run_args, env, tid)?;
+        if let Some(status) = output.status.code() {
+            if status != 0 {
+                bail_error!(tid=%tid, status=status, output=?output, "Failed to create docker container with exit code");
+            }
+        } else {
+            bail_error!(tid=%tid, output=?output, "Failed to create docker container with no exit code");
+        }
+        debug!(tid=%tid, name=%image_name, containerid=%container_id, output=?output, "Docker container started successfully");
+        info!(tid=%tid, name=%image_name, containerid=%container_id, "Docker container started successfully");
+        Ok(())
     }
 
     /// Get the stdout and stderr of a container
@@ -153,8 +185,6 @@ impl ContainerIsolationService for DockerIsolation {
         let memory_arg = format!("{}MB", mem_limit_mb);
 
         let mut args = vec![
-            "run",
-            "--detach",
             "--name",
             &cid,
             "-e",
@@ -167,19 +197,16 @@ impl ContainerIsolationService for DockerIsolation {
             &memory_arg,
             "-e",
             "__IL_HOST=0.0.0.0",
-            "--label",
-            "owner=iluvatar_worker",
-            "--cpus",
-            "1",
             "-p",
             &port_args,
         ];
         if let Some(dev) = gpu.as_ref() {
             args.push("--gpus");
             args.push(dev);
+            if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
+                args.push("--ipc=host");
+            }
         }
-        args.push(image_name);
-        args.push("-w 1");
 
         let permit = match &self.creation_sem {
             Some(sem) => match sem.acquire().await {
@@ -194,17 +221,8 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
-        let output = execute_cmd("/usr/bin/docker", args, None, tid)?;
-        if let Some(status) = output.status.code() {
-            if status != 0 {
-                bail_error!(tid=%tid, status=status, output=?output, "Failed to create docker container with exit code");
-            }
-        } else {
-            bail_error!(tid=%tid, output=?output, "Failed to create docker container with no exit code");
-        }
+        self.docker_run(args, image_name, cid.as_str(), Some("-w 1"), tid, None)?;
         drop(permit);
-        debug!(tid=%tid, name=%image_name, containerid=%cid, output=?output, "Docker container started successfully");
-        info!(tid=%tid, name=%image_name, containerid=%cid, "Docker container started successfully");
         unsafe {
             let c = DockerContainer::new(
                 cid,
@@ -306,7 +324,7 @@ impl ContainerIsolationService for DockerIsolation {
             match self.get_logs(container, tid) {
                 Ok((_out, err)) => {
                     // stderr was written to, gunicorn server is either up or crashed
-                    if err.is_empty() {
+                    if !err.is_empty() {
                         break;
                     }
                 }
@@ -317,7 +335,7 @@ impl ContainerIsolationService for DockerIsolation {
             if start.elapsed()?.as_millis() as u64 >= timeout_ms {
                 let stdout = self.read_stdout(container, tid);
                 let stderr = self.read_stderr(container, tid);
-                if stderr.is_empty() {
+                if !stderr.is_empty() {
                     warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for docker container start, but stderr was written to?");
                     return Ok(());
                 }
