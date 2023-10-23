@@ -98,10 +98,11 @@ pub struct GPUResourceConfig {
     /// The amount of physical memory each GPU has.
     /// Used for simulations/
     pub memory_mb: Option<MemSizeMb>,
-    /// Set up a standalone MPS daemon to control GPU access/
+    /// Set up a standalone MPS daemon to control GPU access.
     pub use_standalone_mps: Option<bool>,
     /// How much physical memory each function is 'allocated' on the GPU.
-    /// Only relevant if using GPU a resource sharing policy/
+    /// Allows (hardware / this) number of items on GPU to have access to the GPU at once.
+    /// If missing, entire GPU is allocated to function.
     pub per_func_memory_mb: Option<MemSizeMb>,
     /// Use [CUDA_MPS_ACTIVE_THREAD_PERCENTAGE](https://docs.nvidia.com/deploy/mps/index.html#topic_5_2_5) in proportion to GPU memory allocation.
     pub mps_limit_active_threads: Option<bool>,

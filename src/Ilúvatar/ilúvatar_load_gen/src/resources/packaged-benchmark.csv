@@ -21,3 +21,4 @@ rodinia-myocyte,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CO
 rodinia-gaussian,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=gaussian
 rodinia-lavamd,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=lavaMD
 rodinia-lud_cuda,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=lud_cuda
+ffmpeg,docker.io/alfuerst/ffmpeg-isoneural-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,

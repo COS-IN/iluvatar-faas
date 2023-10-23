@@ -2,9 +2,6 @@ msg = "good"
 import traceback
 import os
 
-print(os.environ)
-# print("CUDA_VISIBLE_DEVICES:", os.environ["CUDA_VISIBLE_DEVICES"])
-
 try:
   import os
   import pickle
@@ -22,18 +19,17 @@ model_url="https://media.githubusercontent.com/media/onnx/models/main/text/machi
 model_object_key = "roberta-sequence-classification-9.onnx"
 model_path = tmp + model_object_key
 
+def has_gpu() -> bool:
+  return os.path.isfile("/usr/bin/nvidia-smi")  
+
 # Check if models are available
 # Download model if model is not already present
 if not os.path.isfile(model_path):
   urllib.request.urlretrieve (model_url, model_path)
 
-# print( rt.get_device()  )
-# print(rt.get_available_providers())
-GPU_PRESENT="GPU_PRESENT"
 providers=['CPUExecutionProvider']
-if GPU_PRESENT in os.environ and os.environ[GPU_PRESENT] == "y":
+if has_gpu():
   providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
-print(providers)
 session = rt.InferenceSession(model_path, providers=providers)
    
 input_id = session.get_inputs()[0].name

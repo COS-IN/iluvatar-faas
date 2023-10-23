@@ -26,42 +26,40 @@ done
 build() {
   pth=$1
   func_name=$2
+  # echo "$pth -> $func_name" 
   docker_base="Dockerfile.gpu"
-  cp server.py $pth
   back=$PWD
+  cd $pth
+  cp "$back/server.py" .
+  cp "$back/$docker_base" .
   img_name=$REPO/$func_name-iluvatar-gpu:$VERSION
 
-  if ! [ -f "$pth/Dockerfile" ]; then
-    cp $docker_base $pth/Dockerfile
-    cd $pth
+  if ! [ -f "Dockerfile" ]; then
     log="$PWD/build.log"
-    docker build --build-arg REPO=$REPO -t $img_name . &> $log || {
+    docker build --build-arg REPO=$REPO -f $docker_base -t $img_name . &> $log || {
       echo "Failed to build $func_name, check $log";
-      rm Dockerfile
+      rm $docker_base
       rm server.py
       exit 1;
     }
-    rm Dockerfile
-    rm server.py
   else
-    cp $docker_base $pth
-    cd $pth
     log="$PWD/build.log"
-    docker build --build-arg REPO=$REPO -f $docker_base -t "$REPO/iluvatar-action-gpu-base:$VERSION" . &> $log || {
+    docker build --build-arg REPO=$REPO --file $docker_base -t "$REPO/iluvatar-action-gpu-base:$VERSION" . &> $log || {
       echo "Failed to build action base, check $log";
-      rm Dockerfile.gpu
+      rm $docker_base
       rm server.py
       exit 1;
     }
-    docker build --build-arg REPO=$REPO -f "Dockerfile" -t $img_name . &>> $log || {
+    echo "$pth -> $func_name $img_name $PWD `ls *.py`" 
+    docker build --build-arg REPO=$REPO --file "Dockerfile" -t $img_name . &>> $log || {
       echo "Failed to build $func_name, check $log";
-      rm Dockerfile.gpu
+      rm $docker_base
       rm server.py
       exit 1;
     }
-    rm $docker_base
-    rm server.py
   fi
+  rm $docker_base
+  rm server.py
 
   if [ "$PUSH" = true ]; then
     docker push "$REPO/$func_name-iluvatar-gpu:$VERSION" &>> $log || {
@@ -69,7 +67,6 @@ build() {
       exit 1;
     }
   fi
-  cd $back
 }
 
 for dir in ./gpu-functions/*/

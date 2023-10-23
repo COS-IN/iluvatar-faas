@@ -17,6 +17,6 @@ RUN git checkout 9ac922cc3b0dc8fcfd18506d68f917b726884a2b && \
 
 FROM ${REPO}/iluvatar-action-gpu-base
 
-COPY --from=build_img /rodinia/cuda/srad/srad_v1/srad /rodinia/cuda/pathfinder/pathfinder /rodinia/cuda/nw/needle /rodinia/cuda/myocyte/myocyte.out /rodinia/cuda/backprop/backprop /rodinia/cuda/gaussian/gaussian /rodinia/cuda/lavaMD/lavaMD /rodinia/cuda/lud/cuda/lud_cuda /usr/bin
+COPY --from=build_img /rodinia/cuda/srad/srad_v1/srad /rodinia/cuda/pathfinder/pathfinder /rodinia/cuda/nw/needle /rodinia/cuda/myocyte/myocyte.out /rodinia/cuda/backprop/backprop /rodinia/cuda/gaussian/gaussian /rodinia/cuda/lavaMD/lavaMD /rodinia/cuda/lud/cuda/lud_cuda /usr/bin/
 
 # COPY --from=build_img /rodinia_3.1/data ./data

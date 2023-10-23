@@ -74,6 +74,8 @@ impl GPU {
     ) -> (u32, MemSizeMb) {
         let per_func_memory_mb = if config.use_standalone_mps.unwrap_or(false) {
             config.per_func_memory_mb.unwrap_or(hardware_memory_mb)
+        } else if config.per_func_memory_mb.is_some() {
+            config.per_func_memory_mb.unwrap()
         } else {
             hardware_memory_mb
         };
@@ -134,7 +136,7 @@ impl GpuResourceTracker {
             "--entrypoint",
             "/usr/bin/nvidia-cuda-mps-control",
         ];
-        let env = std::collections::HashMap::from([]);
+        let env = std::collections::HashMap::from([("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE".to_string(), "15".to_string())]);
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
 
         docker.docker_run(args, img_name, "iluvatar_mps_control", Some("-f"), tid, Some(&env))
