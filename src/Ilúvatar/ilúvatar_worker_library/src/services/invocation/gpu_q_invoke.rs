@@ -483,7 +483,7 @@ impl GpuQueueingInvoker {
     };
     (t,exists)
   }
-}
+
 
 #[tonic::async_trait]
 impl DeviceQueue for GpuQueueingInvoker {
