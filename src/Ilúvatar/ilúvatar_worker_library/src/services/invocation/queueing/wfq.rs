@@ -25,8 +25,8 @@ pub struct EntityQ {
 }
 
 enum wfq_type {
-    priority, 
-    locality /// each function in its own class, mainly for GPUs. 
+    locality, /// each function in its own class, mainly for GPUs. 
+    priority /// High/low priority CPU functions. Not suitable. 
 }
 
 /// TODO: How to handle task parallelism? Esp for CPUs, granting exclusive access to one EntityQ wont work. CPU schedulers tackle this with one runQ per CPU. Except BFS, which is one global runQ and virtual deadlines and some __ CPU assignment?
@@ -34,13 +34,14 @@ enum wfq_type {
 /// 
 
 pub struct WFQueue {
-    wfq_set: DashMap<String, EntityQ>, 
+    wfq_set: DashMap<String, EntityQ>, /// Keyed by qid. 
     num_classes: i32,
     qlb_fn: wfq_type, /// Supposed to assign functions to queues
 
     /// WFQ State 
     VService: f64, /// System-wide logical clock for resources consumed
-    next_class: i32,
+    /// With k-parallelism, does this have to be a k-vector? 
+    active_class: Arc<EntityQ>, /// qid. Vector for multi-head ? 
     tquantum: f32,
     epoch:i64, /// Each active entity class scheduled is one epoch. 
     
@@ -81,7 +82,7 @@ impl WFQueue {
     }
 
     /// Current class if there are credits remaining. Else find next class (by some sorting metric) and return it 
-    fn get_next_class(WFQueue:&WFQueue) -> &EntityQ {
+    fn get_next_class(WFQueue:&WFQueue) -> Arc<EntityQ> {
 
     }
 
