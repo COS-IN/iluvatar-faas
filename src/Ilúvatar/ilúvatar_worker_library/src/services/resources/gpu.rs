@@ -136,7 +136,8 @@ impl GpuResourceTracker {
             "--entrypoint",
             "/usr/bin/nvidia-cuda-mps-control",
         ];
-        let env = std::collections::HashMap::from([("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE".to_string(), "15".to_string())]);
+        let env =
+            std::collections::HashMap::from([("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE".to_string(), "15".to_string())]);
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
 
         docker.docker_run(args, img_name, "iluvatar_mps_control", Some("-f"), tid, Some(&env))

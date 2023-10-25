@@ -206,6 +206,15 @@ impl ContainerIsolationService for DockerIsolation {
             if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
                 args.push("--ipc=host");
             }
+            if self
+                .config
+                .gpu_resource
+                .as_ref()
+                .map_or(false, |c| c.driver_hook_enabled())
+            {
+                args.push("-e");
+                args.push("LD_PRELOAD=/app/libnvshare.so");
+            }
         }
 
         let permit = match &self.creation_sem {

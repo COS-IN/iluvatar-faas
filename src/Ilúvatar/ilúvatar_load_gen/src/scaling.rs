@@ -3,17 +3,20 @@ use std::{
     time::{Duration, SystemTime},
 };
 // use clap::{ArgMatches, App, SubCommand, Arg};
-use crate::{utils::{
-    resolve_handles, save_result_json, worker_invoke, worker_prewarm, worker_register, ErrorHandling,
-    RegistrationResult, Target, ThreadResult,
-}, trace::prepare_function_args};
+use crate::{
+    trace::prepare_function_args,
+    utils::{
+        resolve_handles, save_result_json, worker_invoke, worker_prewarm, worker_register, ErrorHandling,
+        RegistrationResult, Target, ThreadResult,
+    },
+};
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::{
     logging::LocalTime,
     transaction::gen_tid,
     types::{Compute, ComputeEnum, Isolation, IsolationEnum, MemSizeMb},
-    utils::{file_utils::ensure_dir, port_utils::Port, config::args_to_json},
+    utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port},
 };
 use rand::prelude::*;
 use std::path::Path;
@@ -178,9 +181,9 @@ async fn scaling_thread(
         let tid = format!("{}-{}", thread_id, gen_tid());
         let args = match &func_args {
             Some(arg) => {
-              dummy.args = Some(arg.clone());
-              args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
-            },
+                dummy.args = Some(arg.clone());
+                args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
+            }
             None => "{\"name\":\"TESTING\"}".to_string(),
         };
         match worker_invoke(

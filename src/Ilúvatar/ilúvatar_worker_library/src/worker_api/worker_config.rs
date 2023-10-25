@@ -106,11 +106,17 @@ pub struct GPUResourceConfig {
     pub per_func_memory_mb: Option<MemSizeMb>,
     /// Use [CUDA_MPS_ACTIVE_THREAD_PERCENTAGE](https://docs.nvidia.com/deploy/mps/index.html#topic_5_2_5) in proportion to GPU memory allocation.
     pub mps_limit_active_threads: Option<bool>,
+    /// Enable driver hook library to force unified memory in function
+    pub use_driver_hook: Option<bool>,
 }
 impl GPUResourceConfig {
     /// Returns true if MPS (of any sort) is enabled
     pub fn mps_enabled(&self) -> bool {
         self.use_standalone_mps.unwrap_or(false)
+    }
+    /// Returns true if MPS (of any sort) is enabled
+    pub fn driver_hook_enabled(&self) -> bool {
+        self.use_driver_hook.unwrap_or(false)
     }
 }
 
