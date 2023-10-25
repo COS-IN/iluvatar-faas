@@ -1,5 +1,4 @@
 import numpy as np
-import cupy as cp
 
 # https://github.com/dionhaefner/pyhpc-benchmarks/blob/master/benchmarks/isoneutral_mixing/isoneutral_cupy.py
 
@@ -17,10 +16,10 @@ def get_drhodT(salt, temp, p):
     return -(betaTs * thetas + betaT * (1 - gammas * grav * zz * rho0)) * rho0
 
 
-def get_drhodS(salt, temp, p):
+def get_drhodS(salt, temp, p, module):
     betaS = 0.78e-3
     rho0 = 1024.0
-    return betaS * rho0 * cp.ones_like(temp)
+    return betaS * rho0 * module.ones_like(temp)
 
 
 def isoneutral_diffusion_pre(
@@ -47,6 +46,7 @@ def isoneutral_diffusion_pre(
     Ai_nz,
     Ai_bx,
     Ai_by,
+    module
 ):
     """
     Isopycnal diffusion for tracer
@@ -59,18 +59,18 @@ def isoneutral_diffusion_pre(
     K_iso_steep = 50.0
     tau = 0
 
-    dTdx = cp.zeros_like(K_11)
-    dSdx = cp.zeros_like(K_11)
-    dTdy = cp.zeros_like(K_11)
-    dSdy = cp.zeros_like(K_11)
-    dTdz = cp.zeros_like(K_11)
-    dSdz = cp.zeros_like(K_11)
+    dTdx = module.zeros_like(K_11)
+    dSdx = module.zeros_like(K_11)
+    dTdy = module.zeros_like(K_11)
+    dSdy = module.zeros_like(K_11)
+    dTdz = module.zeros_like(K_11)
+    dSdz = module.zeros_like(K_11)
 
     """
     drho_dt and drho_ds at centers of T cells
     """
-    drdT = maskT * get_drhodT(salt[:, :, :, tau], temp[:, :, :, tau], cp.abs(zt))
-    drdS = maskT * get_drhodS(salt[:, :, :, tau], temp[:, :, :, tau], cp.abs(zt))
+    drdT = maskT * get_drhodT(salt[:, :, :, tau], temp[:, :, :, tau], module.abs(zt))
+    drdS = maskT * get_drhodS(salt[:, :, :, tau], temp[:, :, :, tau], module.abs(zt), module)
 
     """
     gradients at top face of T cells
@@ -114,16 +114,16 @@ def isoneutral_diffusion_pre(
         / dyu[np.newaxis, :-1, np.newaxis]
     )
 
-    def dm_taper(sx):
+    def dm_taper(sx, module):
         """
         tapering function for isopycnal slopes
         """
-        return 0.5 * (1.0 + cp.tanh((-cp.abs(sx) + iso_slopec) / iso_dslope))
+        return 0.5 * (1.0 + module.tanh((-module.abs(sx) + iso_slopec) / iso_dslope))
 
     """
     Compute Ai_ez and K11 on center of east face of T cell.
     """
-    diffloc = cp.zeros_like(K_11)
+    diffloc = module.zeros_like(K_11)
     diffloc[1:-2, 2:-2, 1:] = 0.25 * (
         K_iso[1:-2, 2:-2, 1:]
         + K_iso[1:-2, 2:-2, :-1]
@@ -132,7 +132,7 @@ def isoneutral_diffusion_pre(
     )
     diffloc[1:-2, 2:-2, 0] = 0.5 * (K_iso[1:-2, 2:-2, 0] + K_iso[2:-1, 2:-2, 0])
 
-    sumz = cp.zeros_like(K_11)[1:-2, 2:-2]
+    sumz = module.zeros_like(K_11)[1:-2, 2:-2]
     for kr in range(2):
         ki = 0 if kr == 1 else 1
         for ip in range(2):
@@ -146,12 +146,12 @@ def isoneutral_diffusion_pre(
                 + drdS[1 + ip : -2 + ip, 2:-2, ki:]
                 * dSdz[1 + ip : -2 + ip, 2:-2, : -1 + kr or None]
             )
-            sxe = -drodxe / (cp.minimum(0.0, drodze) - epsln)
-            taper = dm_taper(sxe)
+            sxe = -drodxe / (module.minimum(0.0, drodze) - epsln)
+            taper = dm_taper(sxe, module)
             sumz[:, :, ki:] += (
                 dzw[np.newaxis, np.newaxis, : -1 + kr or None]
                 * maskU[1:-2, 2:-2, ki:]
-                * cp.maximum(K_iso_steep, diffloc[1:-2, 2:-2, ki:] * taper)
+                * module.maximum(K_iso_steep, diffloc[1:-2, 2:-2, ki:] * taper)
             )
             Ai_ez[1:-2, 2:-2, ki:, ip, kr] = taper * sxe * maskU[1:-2, 2:-2, ki:]
     K_11[1:-2, 2:-2, :] = sumz / (4.0 * dzt[np.newaxis, np.newaxis, :])
@@ -168,7 +168,7 @@ def isoneutral_diffusion_pre(
     )
     diffloc[2:-2, 1:-2, 0] = 0.5 * (K_iso[2:-2, 1:-2, 0] + K_iso[2:-2, 2:-1, 0])
 
-    sumz = cp.zeros_like(K_11)[2:-2, 1:-2]
+    sumz = module.zeros_like(K_11)[2:-2, 1:-2]
     for kr in range(2):
         ki = 0 if kr == 1 else 1
         for jp in range(2):
@@ -182,12 +182,12 @@ def isoneutral_diffusion_pre(
                 + drdS[2:-2, 1 + jp : -2 + jp, ki:]
                 * dSdz[2:-2, 1 + jp : -2 + jp, : -1 + kr or None]
             )
-            syn = -drodyn / (cp.minimum(0.0, drodzn) - epsln)
-            taper = dm_taper(syn)
+            syn = -drodyn / (module.minimum(0.0, drodzn) - epsln)
+            taper = dm_taper(syn, module)
             sumz[:, :, ki:] += (
                 dzw[np.newaxis, np.newaxis, : -1 + kr or None]
                 * maskV[2:-2, 1:-2, ki:]
-                * cp.maximum(K_iso_steep, diffloc[2:-2, 1:-2, ki:] * taper)
+                * module.maximum(K_iso_steep, diffloc[2:-2, 1:-2, ki:] * taper)
             )
             Ai_nz[2:-2, 1:-2, ki:, jp, kr] = taper * syn * maskV[2:-2, 1:-2, ki:]
     K_22[2:-2, 1:-2, :] = sumz / (4.0 * dzt[np.newaxis, np.newaxis, :])
@@ -195,8 +195,8 @@ def isoneutral_diffusion_pre(
     """
     compute Ai_bx, Ai_by and K33 on top face of T cell.
     """
-    sumx = cp.zeros_like(K_11)[2:-2, 2:-2, :-1]
-    sumy = cp.zeros_like(K_11)[2:-2, 2:-2, :-1]
+    sumx = module.zeros_like(K_11)[2:-2, 2:-2, :-1]
+    sumy = module.zeros_like(K_11)[2:-2, 2:-2, :-1]
 
     for kr in range(2):
         drodzb = (
@@ -212,8 +212,8 @@ def isoneutral_diffusion_pre(
                 + drdS[2:-2, 2:-2, kr : -1 + kr or None]
                 * dSdx[1 + ip : -3 + ip, 2:-2, kr : -1 + kr or None]
             )
-            sxb = -drodxb / (cp.minimum(0.0, drodzb) - epsln)
-            taper = dm_taper(sxb)
+            sxb = -drodxb / (module.minimum(0.0, drodzb) - epsln)
+            taper = dm_taper(sxb, module)
             sumx += (
                 dxu[1 + ip : -3 + ip, np.newaxis, np.newaxis]
                 * K_iso[2:-2, 2:-2, :-1]
@@ -232,8 +232,8 @@ def isoneutral_diffusion_pre(
                 + drdS[2:-2, 2:-2, kr : -1 + kr or None]
                 * dSdy[2:-2, 1 + jp : -3 + jp, kr : -1 + kr or None]
             )
-            syb = -drodyb / (cp.minimum(0.0, drodzb) - epsln)
-            taper = dm_taper(syb)
+            syb = -drodyb / (module.minimum(0.0, drodzb) - epsln)
+            taper = dm_taper(syb, module)
             sumy += (
                 facty[np.newaxis, :, np.newaxis]
                 * K_iso[2:-2, 2:-2, :-1]
@@ -249,13 +249,12 @@ def isoneutral_diffusion_pre(
     K_33[2:-2, 2:-2, -1] = 0.0
 
 
-def prepare_inputs(*inputs, device):
-    out = [cp.asarray(k) for k in inputs]
+def run_gpu(*inputs):
+    import cupy as cp
+    isoneutral_diffusion_pre(*inputs, cp)
     cp.cuda.stream.get_current_stream().synchronize()
-    return out
+    return inputs[-7:]
 
-
-def run(*inputs, device="cpu"):
-    isoneutral_diffusion_pre(*inputs)
-    cp.cuda.stream.get_current_stream().synchronize()
+def run_cpu(*inputs):
+    isoneutral_diffusion_pre(*inputs, np)
     return inputs[-7:]

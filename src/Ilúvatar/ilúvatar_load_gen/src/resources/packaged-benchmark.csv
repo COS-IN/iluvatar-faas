@@ -18,7 +18,7 @@ rodinia-pathfinder,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER
 rodinia-srad,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=srad
 rodinia-needle,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=needle
 rodinia-myocyte,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=myocyte.out
-rodinia-gaussian,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=gaussian
+rodinia-gaussian,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,GPU,DOCKER,2048,bin=gaussian
 rodinia-lavamd,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=lavaMD
-rodinia-lud_cuda,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=lud_cuda
+rodinia-lud_cuda,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,bin=lud
 ffmpeg,docker.io/alfuerst/ffmpeg-isoneural-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,2048,

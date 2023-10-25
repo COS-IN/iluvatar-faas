@@ -135,7 +135,7 @@ pub fn safe_cmp(a: &f64, b: &f64) -> std::cmp::Ordering {
     }
 }
 
-fn prepare_function_args(func: &Function, load_type: LoadType) -> Vec<String> {
+pub fn prepare_function_args(func: &Function, load_type: LoadType) -> Vec<String> {
     if let Some(args) = &func.args {
         return args.split(';').map(|x| x.to_string()).collect::<Vec<String>>();
     }

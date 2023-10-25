@@ -26,40 +26,35 @@ done
 build() {
   pth=$1
   func_name=$2
-  # echo "$pth -> $func_name" 
   docker_base="Dockerfile.gpu"
-  back=$PWD
-  cd $pth
-  cp "$back/server.py" .
-  cp "$back/$docker_base" .
+  cp server.py $pth
+  cp $docker_base $pth
   img_name=$REPO/$func_name-iluvatar-gpu:$VERSION
 
-  if ! [ -f "Dockerfile" ]; then
-    log="$PWD/build.log"
-    docker build --build-arg REPO=$REPO -f $docker_base -t $img_name . &> $log || {
+  log="$(pwd)/$pth/build.log"
+  if ! [ -f "$pth/Dockerfile" ]; then
+    docker build --build-arg REPO=$REPO -f $docker_base -t $img_name $pth &> $log || {
       echo "Failed to build $func_name, check $log";
-      rm $docker_base
-      rm server.py
+      rm "$pth/$docker_base"
+      rm "$pth/server.py"
       exit 1;
     }
   else
-    log="$PWD/build.log"
-    docker build --build-arg REPO=$REPO --file $docker_base -t "$REPO/iluvatar-action-gpu-base:$VERSION" . &> $log || {
+    docker build --build-arg REPO=$REPO --file $docker_base -t "$REPO/iluvatar-action-gpu-base:$VERSION" $pth &> $log || {
       echo "Failed to build action base, check $log";
-      rm $docker_base
-      rm server.py
+      rm "$pth/$docker_base"
+      rm "$pth/server.py"
       exit 1;
     }
-    echo "$pth -> $func_name $img_name $PWD `ls *.py`" 
-    docker build --build-arg REPO=$REPO --file "Dockerfile" -t $img_name . &>> $log || {
+    docker build --build-arg REPO=$REPO --file "$pth/Dockerfile" -t $img_name $pth &>> $log || {
       echo "Failed to build $func_name, check $log";
-      rm $docker_base
-      rm server.py
+      rm "$pth/$docker_base"
+      rm "$pth/server.py"
       exit 1;
     }
   fi
-  rm $docker_base
-  rm server.py
+  rm "$pth/$docker_base"
+  rm "$pth/server.py"
 
   if [ "$PUSH" = true ]; then
     docker push "$REPO/$func_name-iluvatar-gpu:$VERSION" &>> $log || {
@@ -74,7 +69,9 @@ do
     dir=${dir%*/}      # remove the trailing "/"
     # echo ${dir##*/}    # print everything after the final "/"
     func_name=${dir##*/}
+  # if [[ "$func_name" == "rodinia" ]]; then
     build $dir $func_name &
+  # fi
 done
 
 wait $(jobs -p)

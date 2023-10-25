@@ -117,6 +117,7 @@
       "ILUVATAR_WORKER__container_resources__gpu_resource__count" : "{{ worker_gpus | default(0) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__use_standalone_mps" : "{{ standalone_mps | default(false) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__per_func_memory_mb" : "{{ per_func_memory_mb | default(2048) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__mps_limit_active_threads" : "{{ mps_limit_threads | default(false) }}"
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
       "ILUVATAR_WORKER__networking__use_pool" : "{{ worker_use_pool | default(true) }}"

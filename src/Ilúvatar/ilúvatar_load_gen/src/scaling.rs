@@ -3,17 +3,17 @@ use std::{
     time::{Duration, SystemTime},
 };
 // use clap::{ArgMatches, App, SubCommand, Arg};
-use crate::utils::{
+use crate::{utils::{
     resolve_handles, save_result_json, worker_invoke, worker_prewarm, worker_register, ErrorHandling,
     RegistrationResult, Target, ThreadResult,
-};
+}, trace::prepare_function_args};
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::{
     logging::LocalTime,
     transaction::gen_tid,
     types::{Compute, ComputeEnum, Isolation, IsolationEnum, MemSizeMb},
-    utils::{file_utils::ensure_dir, port_utils::Port},
+    utils::{file_utils::ensure_dir, port_utils::Port, config::args_to_json},
 };
 use rand::prelude::*;
 use std::path::Path;
@@ -56,6 +56,9 @@ pub struct ScalingArgs {
     #[arg(long)]
     /// Memory need for the function
     memory_mb: MemSizeMb,
+    #[arg(long)]
+    /// Arguments to pass to function, in [x=y;...] format
+    function_args: Option<String>,
 }
 
 pub fn scaling(args: ScalingArgs) -> Result<()> {
@@ -90,9 +93,10 @@ fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<Thr
         let p = args.port;
         let d = args.duration.into();
         let mem = args.memory_mb;
+        let a = args.function_args.clone();
 
         threads.push(threaded_rt.spawn(async move {
-            scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation, thread_cnt, mem).await
+            scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation, thread_cnt, mem, a).await
         }));
     }
 
@@ -110,6 +114,7 @@ async fn scaling_thread(
     isolation: Isolation,
     thread_cnt: usize,
     memory_mb: MemSizeMb,
+    func_args: Option<String>,
 ) -> Result<ThreadResult> {
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
     barrier.wait().await;
@@ -168,15 +173,23 @@ async fn scaling_thread(
     let mut data = Vec::new();
     let mut errors = 0;
     let clock = Arc::new(LocalTime::new(&gen_tid())?);
+    let mut dummy = crate::trace::Function::default();
     loop {
         let tid = format!("{}-{}", thread_id, gen_tid());
+        let args = match &func_args {
+            Some(arg) => {
+              dummy.args = Some(arg.clone());
+              args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
+            },
+            None => "{\"name\":\"TESTING\"}".to_string(),
+        };
         match worker_invoke(
             &name,
             &version,
             &host,
             port,
             &tid,
-            Some("{\"name\":\"TESTING\"}".to_string()),
+            Some(args),
             clock.clone(),
             &factory,
             None,

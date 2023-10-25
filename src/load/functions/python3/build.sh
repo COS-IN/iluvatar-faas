@@ -28,39 +28,41 @@ build() {
   func_name=$2
   docker_base="Dockerfile.base"
   cp server.py $pth
-  back=$PWD
+  cp $docker_base $pth
 
   img_name=$REPO/$func_name-iluvatar-action:$VERSION
-  log="$PWD/$pth/build.log"
+  log="$(pwd)/$pth/build.log"
   if ! [ -f "$pth/Dockerfile" ]; then
-    cp $docker_base $pth/Dockerfile
-    cd $pth
-    docker build --build-arg REPO=$REPO -t $img_name . &> $log || {
+    docker build --build-arg REPO=$REPO -f $docker_base -t $img_name $pth &> $log || {
       echo "Failed to build $func_name, check $log";
+      rm "$pth/$docker_base"
+      rm "$pth/server.py"
       exit 1;
     }
-    rm Dockerfile
-    rm server.py
   else
-    cp $docker_base $pth
-    cd $pth
-    docker build --build-arg REPO=$REPO -f $docker_base -t "$REPO/iluvatar-action-base:$VERSION" . &> $log || {
+    docker build --build-arg REPO=$REPO -f $docker_base -t "$REPO/iluvatar-action-base:$VERSION" $pth &> $log || {
       echo "Failed to build action base, check $log";
+      rm "$pth/$docker_base"
+      rm "$pth/server.py"
       exit 1;
     }
-    docker build --build-arg REPO=$REPO -f "Dockerfile" -t $img_name . &>> $log || {
+    docker build --build-arg REPO=$REPO -f "$pth/Dockerfile" -t $img_name $pth &>> $log || {
       echo "Failed to build $func_name, check $log";
+      rm "$pth/$docker_base"
+      rm "$pth/server.py"
       exit 1;
     }
-    rm $docker_base
-    rm server.py
   fi
   if [ "$PUSH" = true ]; then
     docker push $img_name &>> $log || {
       echo "Failed to push $func_name, check $log";
+      rm "$pth/$docker_base"
+      rm "$pth/server.py"
       exit 1;
     }
   fi
+  rm "$pth/$docker_base"
+  rm "$pth/server.py"
 }
 
 for dir in ./functions/*/
@@ -68,8 +70,7 @@ do
   dir=${dir%*/}      # remove the trailing "/"
   # echo ${dir##*/}    # print everything after the final "/"
   func_name=${dir##*/}
-
-  # if [[ "$func_name" == "cnn_image_classification" ]]; then
+  # if [[ "$func_name" == "rodinia" ]]; then
   build $dir $func_name &
   # fi
 done
