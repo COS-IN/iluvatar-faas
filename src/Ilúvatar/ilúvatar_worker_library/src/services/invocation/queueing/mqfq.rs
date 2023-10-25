@@ -9,11 +9,19 @@ use tracing::debug;
 
 use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation};
 
+
+enum MQState {
+    Active,
+    Throttled,
+    Inactive
+}
+
 /// A single queue of entities (invocations) of the same priority/locality class 
 pub struct EntityQ {
     qid: String, /// Q name for indexing/debugging etc 
     queue: Vec<EnqueuedInvocation>, /// Simple FIFO for now 
     weight: f64,
+    state: MQState,
     Sv: f64, /// Virtual start time. S = max(V, F) on insert 
     Fv: f64, /// Virtual finish time. F = S + Budget/W
     FReal: f64, /// Actual service time may be different. Updated after function completion somehow? 
@@ -21,7 +29,6 @@ pub struct EntityQ {
     /// Lazily update it on completion etc? Can be negative if function takes longer than estimated . Dont schedule another entity if we still have positive budget, even if other entities have items enqueued. This allows anticipatory scheduling (non work-conserving) for locality/priority preservation.
     remaining_budget:f64, /// Remaining service time
     last_epoch:i64, /// Useful to keep track of most/least recently scheduled class?  
-	
 }
 
 
