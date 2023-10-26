@@ -11,15 +11,22 @@ use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation
 
 
 enum MQState {
-    Active,
-    Throttled,
-    Inactive
+    Active,  /// Non-empty queues are active 
+    Throttled, /// Non-empty but not considered for scheduling 
+    Inactive 
 }
 
+struct MQRequest {
+    invok: Arc<EnqueuedInvocation> ,
+    Sv: f64,
+    Fv: f64,
+}
+
+
 /// A single queue of entities (invocations) of the same priority/locality class 
-pub struct EntityQ {
+pub struct FlowQ {
     qid: String, /// Q name for indexing/debugging etc 
-    queue: Vec<EnqueuedInvocation>, /// Simple FIFO for now 
+    queue: Vec<MQRequest>, /// Simple FIFO for now 
     weight: f64,
     state: MQState,
     Sv: f64, /// Virtual start time. S = max(V, F) on insert 
@@ -27,6 +34,8 @@ pub struct EntityQ {
     FReal: f64, /// Actual service time may be different. Updated after function completion somehow? 
     budget: f64, /// Is the time/service allocation 
     /// Lazily update it on completion etc? Can be negative if function takes longer than estimated . Dont schedule another entity if we still have positive budget, even if other entities have items enqueued. This allows anticipatory scheduling (non work-conserving) for locality/priority preservation.
+    grace_period: f64, /// ms to wait for next arrival if empty
+    service_avg: f64, /// avg service time in ms 
     remaining_budget:f64, /// Remaining service time
     last_epoch:i64, /// Useful to keep track of most/least recently scheduled class?  
 }
@@ -37,14 +46,15 @@ pub struct EntityQ {
 /// 
 
 pub struct MQFQ {
-    mqfq_set: DashMap<String, EntityQ>, /// Keyed by qid. 
-    num_classes: i32,
-    qlb_fn: wfq_type, /// Supposed to assign functions to queues
+    mqfq_set: DashMap<String, FlowQ>, /// Keyed by qid. 
+    num_flows: i32,
+    max_concurrency: i32, /// At most this many number of queues to dispatch from 
+    qlb_fn: String, /// How to assign functions to queues
 
     /// WFQ State 
     VService: f64, /// System-wide logical clock for resources consumed
     /// With k-parallelism, does this have to be a k-vector? 
-    active_class: Arc<EntityQ>, /// qid. Vector for multi-head ? 
+    active_flows: Vec<Arc<FlowQ>>, /// qid. Vector for multi-head ? 
     tquantum: f32,
     epoch:i64, /// Each active entity class scheduled is one epoch. 
     
@@ -53,7 +63,24 @@ pub struct MQFQ {
     cmap: Arc<CharacteristicsMap>,
 }
 
-impl WFQueue {
+enum MQEvent {
+    GraceExpired,
+    RequestDispatched,
+    NewRequest,
+    RequestCancelled
+}
+
+struct TimerEvent {
+    deadline: OffsetDateTime, /// When the timer should fire
+    flow: Arc<FlowQ>,
+    ev_type: MQEvent 
+}
+
+struct TimerWheel {
+    twheel: Vec<TimerEvent>, /// Probably keep it sorted by deadline? 
+}
+
+impl MQFQ {
     pub fn new(cont_manager: Arc<ContainerManager>,
 	       cmap: Arc<CharacteristicsMap>,
 	       num_classes:i32,
@@ -131,14 +158,20 @@ impl InvokerGpuQueuePolicy for WFQueue {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
-        let est_wall_time = self.est_wall_time(item, &self.cont_manager, &self.cmap)?;
-        *self.est_time.lock() += est_wall_time;
-        let mut queue = self.invoke_queue.lock();
-        queue.push(MinHeapEnqueuedInvocation::new(
-            item.clone(),
-            item.queue_insert_time,
-            est_wall_time,
-        ));
+
+	let flow = self.get_flow_for_invok(item);
+
+	// Make the MQFQRequest structure here? 
+	item.Sv = max(self.VT, flow.Fv) ;
+	item.Fv = item.Sv + flow.service_avg;
+
+	flow.queue.push(item);
+
+	if len(flow.queue) == 1 {
+	    self.VT = item.Sv ;
+	}	
         Ok(())
     }
 }
+
+
