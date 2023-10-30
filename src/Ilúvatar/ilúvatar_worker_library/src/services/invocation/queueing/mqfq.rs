@@ -142,11 +142,12 @@ pub struct MQFQ {
 
     /// WFQ State 
     VT: f64, /// System-wide logical clock for resources consumed
+    overrun: f64, /// how much a single flow can lead VT by 
     /// With k-parallelism, does this have to be a k-vector? 
     active_flows: Vec<Arc<FlowQ>>, /// qid. Vector for multi-head ? 
     tquantum: f32,
     epoch:i64, /// Each active entity class scheduled is one epoch. 
-
+    
     
     est_time: Mutex<f64>,
     cont_manager: Arc<ContainerManager>,
@@ -190,11 +191,10 @@ impl MQFQ {
 	let tok = self.get_token() ;
 	if Some(tok){
 	    let active_mqs = self.mqfq_set.filter_by(MQState::Active) ;
-	    let chosen_q = active_mqs.filter_by(in_flight < max_in_flight).min();
+	    let chosen_q = active_mqs.filter_by(q.Sv < self.VT + self.overrun).min();
+	    // Check if this exists, else None 
 	    let item = chosen_q.pop_flowQ();
-	    
-	    self.VT = cmp::max(self.VT, item.Sv); 
-	    
+	    self.VT = item.Sv; // Minimum of all start times, which this is.
 	}
 	else { // No tokens: return none. 
 	    None;
