@@ -217,19 +217,21 @@ impl MQFQ {
 	
     }
 
-    /// Current class if there are credits remaining. Else find next class (by some sorting metric) and return it 
-    fn get_next_class(WFQueue:&WFQueue) -> Arc<EntityQ> {
-
-    }
-
-    /// Function just finished running. Completion call-back. 
+    /// Function just finished running. Completion call-back. Add tokens? 
     fn charge_fn(efn: EnqueuedInvocation) -> () {
 
     }
 
     
-    fn get_flow_for_invok(item: EnqueuedInvocation) -> Arc<FlowQ> {
-
+    fn get_flow_for_invok(&self, item: Arc<EnqueuedInvocation>) -> Arc<FlowQ> {
+	let fname = item.registration.fqdn;
+	if let newq = Some(self.mqfq_set(fname)) {
+	}
+	else {
+	    let newq = Arc::new(FlowQ::new({fname, 0, 1.0}));
+	    newq.push_flowQ(item); //? Always do that here? 
+	}
+	newq 
     }
     
 }
@@ -272,15 +274,6 @@ impl InvokerGpuQueuePolicy for WFQueue {
 
 	let flow = self.get_flow_for_invok(item);
 
-	// Make the MQFQRequest structure here? 
-	item.Sv = max(self.VT, flow.Fv) ;
-	item.Fv = item.Sv + flow.service_avg;
-
-	flow.queue.push(item);
-
-	if len(flow.queue) == 1 {
-	    self.VT = item.Sv ;
-	}	
         Ok(())
     }
 }
