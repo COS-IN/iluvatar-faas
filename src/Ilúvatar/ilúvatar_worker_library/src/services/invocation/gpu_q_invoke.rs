@@ -26,8 +26,7 @@ use std::{
 use time::{Instant, OffsetDateTime};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
-use anyhow::Result;
-use super::{queueing::{dynamic_batching::DynBatchGpuQueue, fcfs_gpu::FcfsGpuQueue, EnqueuedInvocation, DeviceQueue, oldest_gpu::BatchGpuQueue, MinHeapEnqueuedInvocation, MinHeapFloat}, completion_time_tracker::CompletionTimeTracker};
+
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
@@ -201,6 +200,7 @@ impl GpuQueueingInvoker {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some(peek_reg) = self.queue.next_batch() {
+	    /// XXX: Incorporate token bucket? 
             if let Some(permit) = self.acquire_resources_to_run(&peek_reg, &tid) {
                 let batch = self.queue.pop_queue();
                 self.spawn_tokio_worker(self.clone(), batch, permit, &tid);
