@@ -27,6 +27,7 @@ pub mod queueless;
 pub mod fcfs_gpu;
 pub mod oldest_gpu;
 pub mod dynamic_batching;
+pub mod mqfq;
 
 #[derive(Debug, serde::Deserialize)]
 /// The policy by which polymorphic functions will be enqueued in the CPU/GPU/etc. queues
