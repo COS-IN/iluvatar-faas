@@ -321,16 +321,16 @@ impl GpuQueuePolicy for MQFQ {
 
     /// Main request dispatch.
     // TODO: Can return None, refactor the GpuQpolicy trait and gpu_q_invok
-    fn pop_queue(&self) -> Option<GpuBatch> {
+    fn pop_queue(&self) -> GpuBatch {
 	//Arc<EnqueuedInvocation>> {
         let to_run = self.dispatch();
         match to_run {
             Some(t) => {
 		let i = &t.invok;
 		let g = GpuBatch::new(*i, 1.0);
-		Some(g)
+		g
 	   },
-            None => {None }
+            None => {panic!("Nothing in queue to run")}
 	    // Asked to run something, but are throttled. Return None?
         }
     }

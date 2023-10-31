@@ -1,6 +1,7 @@
 use super::{
     completion_time_tracker::CompletionTimeTracker,
     queueing::{
+	mqfq::MQFQ,
         fcfs_gpu::FcfsGpuQueue, oldest_gpu::BatchGpuQueue, DeviceQueue, EnqueuedInvocation, MinHeapEnqueuedInvocation,
         MinHeapFloat,
     },
@@ -184,6 +185,7 @@ impl GpuQueueingInvoker {
         if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::GPU).try_into()?) {
             Ok(match pol.as_str() {
                 "fcfs" => FcfsGpuQueue::new(cont_manager.clone(), cmap.clone())?,
+		"mqfq" => MQFQ::new(cont_manager.clone(), cmap.clone())?,
                 "oldest_batch" => BatchGpuQueue::new(cmap.clone())?,
                 unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
             })
@@ -200,7 +202,7 @@ impl GpuQueueingInvoker {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some(peek_reg) = self.queue.next_batch() {
-	    /// XXX: Incorporate token bucket? 
+	    // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked. 
             if let Some(permit) = self.acquire_resources_to_run(&peek_reg, &tid) {
                 let batch = self.queue.pop_queue();
                 self.spawn_tokio_worker(self.clone(), batch, permit, &tid);
