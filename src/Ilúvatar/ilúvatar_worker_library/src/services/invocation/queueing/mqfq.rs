@@ -15,6 +15,7 @@ use crate::services::{
     invocation::gpu_q_invoke::{GpuBatch, GpuQueuePolicy},
     registration::RegisteredFunction,
 };
+use dashmap::mapref::multiple::RefMulti;
 
 use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation};
 
@@ -42,20 +43,19 @@ enum MQEvent {
 
 struct TimerEvent {
     deadline: OffsetDateTime,
-    /// When the timer should fire
+    // When the timer should fire
     flow: Arc<FlowQ>,
     ev_type: MQEvent,
 }
 
 struct TimerWheel {
     twheel: Vec<TimerEvent>,
-    /// Probably keep it sorted by deadline?
 }
 
 
 struct MQRequest {
     invok: Arc<EnqueuedInvocation>,
-    /// Do we maintain a backward pointer to FlowQ? qid atleast? 
+    // Do we maintain a backward pointer to FlowQ? qid atleast? 
     Sv: f64,
     Fv: f64,
 }
@@ -76,30 +76,26 @@ impl MQRequest {
 /// A single queue of entities (invocations) of the same priority/locality class 
 pub struct FlowQ {
     qid: String,
-    /// Q name for indexing/debugging etc
-    queue: std::collections::VecDeque<Arc<MQRequest>>,
-    /// Simple FIFO for now
+    // Q name for indexing/debugging etc
+    queue: VecDeque<Arc<MQRequest>>,
+    // Simple FIFO for now
     weight: f64,
-    /// (0,1]
+    // (0,1]
     state: MQState,
     Sv: f64,
-    /// Virtual start time. S = max(VT, flow.F) on insert
+    // Virtual start time. S = max(VT, flow.F) on insert
     Fv: f64,
-    /// Virtual finish time. F = S + service_avg/Wt
+    // Virtual finish time. F = S + service_avg/Wt
     in_flight: i32,
-    /// Number concurrently executing, to enforce cap?
-    FReal: f64,
-    /// Actual service time may be different. Updated after function completion somehow?
-    budget: f64,
-    /// Is the time/service allocation
-    /// Lazily update it on completion etc? Can be negative if function takes longer than estimated . Dont schedule another entity if we still have positive budget, even if other entities have items enqueued. This allows anticipatory scheduling (non work-conserving) for locality/priority preservation.
+    // Number concurrently executing, to enforce cap?
+    // Actual service time may be different. Updated after function completion somehow?
     grace_period: f64,
-    /// ms to wait for next arrival if empty
+    // ms to wait for next arrival if empty
     last_serviced: OffsetDateTime,
     service_avg: f64,
-    /// avg service time in ms
+    // avg service time in ms
     allowed_overrun: f64,
-    /// Max service this flow can be ahead of others
+    // Max service this flow can be ahead of others
 }
 
 impl FlowQ {
@@ -115,8 +111,6 @@ impl FlowQ {
             Sv,
             Fv: 0.0,
             in_flight: 0,
-            FReal: 0.0,
-            budget: 0.0,
             grace_period: 100.0,
             last_serviced: OffsetDateTime::now_utc(),
             service_avg: 0.1,
@@ -128,40 +122,61 @@ impl FlowQ {
     /// Return True if should update the global time 
     pub fn push_flowQ(&mut self, item: Arc<EnqueuedInvocation>,
                       VT: f64) -> bool {
-        let S = cmp::max(VT, self.Fv); // cognizant of weights
+        let S = f64::max(VT, self.Fv); // cognizant of weights
         let F = S + (self.service_avg / self.weight);
         let r = MQRequest::new(item, S, F);
 
         self.queue.push_back(r);
 
         self.state = MQState::Active;
-        self.Sv = cmp::max(self.Sv, S);  // if this was 0?
-        self.Fv = cmp::max(r.Fv, self.Fv); // always needed
+        self.Sv = f64::max(self.Sv, S);  // if this was 0?
+        self.Fv = f64::max(r.Fv, self.Fv); // always needed
 
         self.queue.len() == 1
         //self.Sv = r.Sv; // only if the first element!
     }
 
     /// Remove oldest item. No other svc state update. 
-    pub fn pop_flowQ(&mut self) -> Option<Arc<MQRequest>> {
+    pub fn pop_flowQ(&mut self, VT:f64) -> Option<Arc<MQRequest>> {
         let r = self.queue.pop_front();
 
         if self.queue.len() == 0 {
-            /// Turn inactive
+            // Turn inactive
             self.state = MQState::Inactive;
             self.Fv = 0.0; // This clears the history if empty queue. Do we want that?
             self.Sv = 0.0;
         }
-        /// MQFQ should remove from the active list if not ready
-        Some(r);
+	self.update_dispatched(VT); 
+        // MQFQ should remove from the active list if not ready
+        r 
+    }
+
+    /// Check if the start time is ahead of global time by allowed overrun 
+    pub fn update_dispatched(&mut self, VT:f64) -> () {
+	self.last_serviced = OffsetDateTime::now_utc();
+	self.in_flight = self.in_flight + 1 ;
+	let next_item = self.queue.front();
+	match next_item {
+	    Some(next_item) =>  {self.Sv = next_item.Sv;}
+	    None => { } 
+	}
+	
+	let gap  = self.Sv - VT; // VT is old Sv, but is Sv updated?
+	if gap > self.allowed_overrun {
+	    self.state = MQState::Throttled; 
+	}
+    }
+
+    /// The VT may have advanced, so reset throttle. Call on dispatch 
+    pub fn reset_throttle(&mut self, VT:f64) -> () {
+	let gap  = self.Sv - VT; // VT is old Sv, but is Sv updated?
+	if gap <= self.allowed_overrun {
+	    self.state = MQState::Active; 
+	}
     }
 }
 
-
-/// TODO: How to handle task parallelism? Esp for CPUs, granting exclusive access to one EntityQ wont work. CPU schedulers tackle this with one runQ per CPU. Except BFS, which is one global runQ and virtual deadlines and some __ CPU assignment?
-/// Makes no sense for CPUs, just use single runQ sorted by priority+arrival+completion for priorities. 
-///
-
+/// TODO: Semaphore impl? 
 struct TokenBucket {
     capacity: i32,
     current: i32,
@@ -188,7 +203,7 @@ impl TokenBucket {
 
 pub struct MQFQ {
     /// TODO: Concurent MQFQ. mqfq_set can be behind mutex. token bucket is separate semaphore.
-    /// This leaves VT. Can be left unprotected since its only modified on add/remove protected by the main mqfq mutex?
+    /// This leaves VT Can be left unprotected since its only modified on add/remove protected by the main mqfq mutex?
     /// We can have a separate one for VT, but not going to help?
     mqfq_set: DashMap<String, Arc<FlowQ>>,
     /// Keyed by function name  (qid)
@@ -226,15 +241,27 @@ impl MQFQ {
     }
 
 
+    /// Earliest eligible flow 
     fn next_flow(&self) -> &Arc<FlowQ> {
-        fn filter_avail_flow(k: &String, flow: &Arc<FlowQ>) -> bool {
-            flow.state == MQState::Active //and flow stretch
-            /// TODO: all tokens may be consumed by the same min flow. Add other checks (in flight etc) to turn Throttled
+	
+        fn filter_avail_flow(x:&RefMulti<'_,String, Arc<FlowQ>>) -> bool {
+	    let flow = *x.value() ; 
+	    let out = match flow.state {
+		MQState::Active => true ,
+		_ => false
+	    };
+	    out 
         }
 
         // Active, not throttled, and lowest Sv
         let avail_flows = self.mqfq_set.iter().filter(filter_avail_flow);
-        let chosen_q = avail_flows.min_by(|x, y| x.Sv.cmp(&y.Sv)).unwrap();
+	
+	    // filter(|(&k, &v)| {match v.state {
+	    // 	MQState::Active => true ,
+	    // 	_ => false
+	    // }});
+
+        let chosen_q = avail_flows.min_by(|x, y| x.Sv.partial_cmp(&y.Sv).unwrap()).unwrap();
         let cq = chosen_q.deref();
         cq
     }
@@ -244,11 +271,19 @@ impl MQFQ {
         /// Filter by active queues, and select with lowest start time.
         // How to avoid hoarding of the tokens? Want round-robin.
         if !self.tokens.get_tok() {
-            None
+            return None ;
         }
         let mut chosen_q = self.next_flow();
-        let item = chosen_q.pop_flowQ();
-        item
+        let item = chosen_q.pop_flowQ(self.VT);
+	match item {
+	    Some(i) => {
+		self.VT = f64::max(self.VT, i.Sv) ; // dont want it to go backwards
+		chosen_q.update_dispatched(self.VT);
+		Some(i) 
+	    }
+	    None => {None}
+	}
+	// Update MQFQ State 
     }
 
 
@@ -280,15 +315,19 @@ impl GpuQueuePolicy for MQFQ {
 
 
     /// Main request dispatch.
-    /// V = V + expected service? 
-    fn pop_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
+    // TODO: Can return None, refactor the GpuQpolicy trait and gpu_q_invok
+    fn pop_queue(&self) -> Option<GpuBatch> {
+	//Arc<EnqueuedInvocation>> {
         let to_run = self.dispatch();
-        let res = match to_run {
-            Some(t) => Ok(&t.invok),
-            None => None
-            // Asked to run something, but are throttled. Return None?
-        };
-        Ok(res);
+        match to_run {
+            Some(t) => {
+		let i = &t.invok;
+		let g = GpuBatch::new(*i, 1.0);
+		Some(g)
+	   },
+            None => {None }
+	    // Asked to run something, but are throttled. Return None?
+        }
     }
 
     fn queue_len(&self) -> usize {
@@ -301,7 +340,7 @@ impl GpuQueuePolicy for MQFQ {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid = % item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         // Add mutex lock guard for all these trait methods . Coarse-grained, but MQFQ state machine a bit too complex
-        self.add_item_to_flow(item);
+        self.add_invok_to_flow(item.clone());
         Ok(())
     }
 
