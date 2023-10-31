@@ -125,12 +125,13 @@ impl FlowQ {
         let S = f64::max(VT, self.Fv); // cognizant of weights
         let F = S + (self.service_avg / self.weight);
         let r = MQRequest::new(item, S, F);
-
-        self.queue.push_back(r);
+	let rFv = r.Fv ;
+	
+        self.queue.push_back(r.clone());
 
         self.state = MQState::Active;
         self.Sv = f64::max(self.Sv, S);  // if this was 0?
-        self.Fv = f64::max(r.Fv, self.Fv); // always needed
+        self.Fv = f64::max(rFv, self.Fv); // always needed
 
         self.queue.len() == 1
         //self.Sv = r.Sv; // only if the first element!
@@ -254,8 +255,8 @@ impl MQFQ {
         }
 
 	// reset throttle for all flows 
-	for x in self.mqfq_set.iter() {
-	    x.value().reset_throttle(self.VT); 
+	for x in self.mqfq_set.iter_mut() {
+	    x.value().clone().reset_throttle(self.VT); 
 	}
 	
         // Active, not throttled, and lowest Sv
@@ -267,7 +268,8 @@ impl MQFQ {
 	    // }});
 
         let chosen_q = avail_flows.min_by(|x, y| x.Sv.partial_cmp(&y.Sv).unwrap()).unwrap();
-        let cq = chosen_q.deref();
+        let cq =  //= chosen_q.deref();
+	chosen_q.value();
         cq
     }
 
@@ -295,21 +297,19 @@ impl MQFQ {
     /// Function just finished running. Completion call-back. Add tokens? 
     fn charge_fn(efn: EnqueuedInvocation) -> () {}
 
-    fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) -> &Arc<FlowQ> {
+    fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) -> () {
         let fname = item.registration.fqdn.clone();
-        let mut qret ;
+        let qret:Arc<FlowQ>;
         // Lookup flow if exists
         if self.mqfq_set.contains_key(fname.as_str()) {
-            let mut fq = self.mqfq_set.get_mut(fname.as_str()).unwrap();
-            qret = fq.value();
+            let fq = self.mqfq_set.get_mut(fname.as_str()).unwrap();
+            qret = *fq.value();
         } // else, create the FlowQ, add to set, and add item to flow and
         else {
-            let mut newq = FlowQ::new(fname.clone(), 0.0, 1.0);
-            self.mqfq_set.insert(fname.clone(), newq);
-            qret = &newq
+            qret = FlowQ::new(fname.clone(), 0.0, 1.0);
+            self.mqfq_set.insert(fname.clone(), qret);
         }
         qret.push_flowQ(item, self.VT); //? Always do that here?
-        qret
     }
 }
 

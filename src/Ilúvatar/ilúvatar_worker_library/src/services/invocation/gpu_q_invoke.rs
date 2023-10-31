@@ -426,66 +426,9 @@ impl GpuQueueingInvoker {
         };
         (t, exists)
     }
-  }
+ // } //?
 
-  /// acquires a container and invokes the function inside it
-  /// returns the json result and duration as a tuple
-  /// The optional [permit] is dropped to return held resources
-  /// Returns
-  /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
-  /// [Duration]: The E2E latency between the worker and the container
-  /// [Compute]: Compute the invocation was run on
-  /// [ContainerState]: State the container was in for the invocation
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time), fields(tid=%tid)))]
-  async fn invoke<'a>(&'a self, reg: &'a Arc<RegisteredFunction>, json_args: &'a String, tid: &'a TransactionId, 
-    queue_insert_time: OffsetDateTime) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-    debug!(tid=%tid, "Internal invocation starting");
-    // take run time now because we may have to wait to get a container
-    let remove_time = self.clock.now_str()?;
-
-    let start = Instant::now();
-    let ctr_lock = match self.cont_manager.acquire_container(reg, tid, Compute::GPU) {
-      EventualItem::Future(f) => f.await?,
-      EventualItem::Now(n) => n?,
-    };
-    self.invoke_on_container(reg, json_args, tid, queue_insert_time, ctr_lock, remove_time, start).await
-  }
-
-  /// Returns
-  /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
-  /// [Duration]: The E2E latency between the worker and the container
-  /// [Compute]: Compute the invocation was run on
-  /// [ContainerState]: State the container was in for the invocation
-  #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, ctr_lock, remove_time,cold_time_start) fields(tid=%tid)))]
-  async fn invoke_on_container<'a>(&'a self, reg: &'a Arc<RegisteredFunction>, json_args: &'a String, tid: &'a TransactionId, queue_insert_time: OffsetDateTime, 
-    ctr_lock: ContainerLock<'a>, remove_time: String, cold_time_start: Instant) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-    
-    info!(tid=%tid, insert_time=%self.clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
-    self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let (data, duration) = ctr_lock.invoke(json_args).await?;
-    self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    match ctr_lock.container.state() {
-      ContainerState::Warm => self.cmap.add(&reg.fqdn, Characteristics::GpuWarmTime, Values::F64(data.duration_sec), true),
-      ContainerState::Prewarm => self.cmap.add(&reg.fqdn, Characteristics::GpuPreWarmTime, Values::F64(data.duration_sec), true),
-      _ => self.cmap.add(&reg.fqdn, Characteristics::GpuColdTime, Values::F64(cold_time_start.elapsed().as_seconds_f64()), true),
-    };
-    self.cmap.add(&reg.fqdn, Characteristics::GpuExecTime, Values::F64(data.duration_sec), true);
-    let (compute, state) = (ctr_lock.container.compute_type(), ctr_lock.container.state());
-    drop(ctr_lock);
-    Ok((data, duration, compute, state))
-  }
-
-  /// XXX This is much more complex with GPU multiplexing. We can only provide statistical bounds.   
-  fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64,ContainerState) {
-    let exists = self.cont_manager.container_exists(&item.fqdn, iluvatar_library::types::Compute::GPU);
-    let t = match exists {
-      ContainerState::Warm => self.cmap.get_gpu_warm_time(&item.fqdn),
-      ContainerState::Prewarm => self.cmap.get_gpu_prewarm_time(&item.fqdn),
-      _ => self.cmap.get_gpu_cold_time(&item.fqdn),
-    };
-    (t,exists)
-  }
-
+}
 
 #[tonic::async_trait]
 impl DeviceQueue for GpuQueueingInvoker {
