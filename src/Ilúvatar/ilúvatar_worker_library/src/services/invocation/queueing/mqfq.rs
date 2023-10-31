@@ -147,7 +147,7 @@ impl FlowQ {
             self.Fv = 0.0; // This clears the history if empty queue. Do we want that?
             self.Sv = 0.0;
         }
-	self.update_dispatched(VT); 
+        self.update_dispatched(VT);
         // MQFQ should remove from the active list if not ready
         r 
     }
@@ -209,7 +209,7 @@ pub struct MQFQ {
     mqfq_set: DashMap<String, Arc<Mutex<FlowQ>>>,
     /// Keyed by function name  (qid)
 
-    VT: f64,
+    VT: Mutex<f64>,
     /// System-wide logical clock for resources consumed
     tokens: Arc<TokenBucket>,
     /// At most this many number of queues to dispatch from
@@ -233,7 +233,7 @@ impl MQFQ {
         let svc = Arc::new(MQFQ {
             mqfq_set: DashMap::new(),
             est_time: Mutex::new(0.0),
-            VT: 0.0,
+            VT: Mutex::new(0.0),
             tokens: TokenBucket::new(3),
             cmap,
             cont_manager,
@@ -244,37 +244,39 @@ impl MQFQ {
     /// Get or create FlowQ 
     fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) -> () {
         let fname = item.registration.fqdn.clone();
+        let vt = self.VT.lock().unwrap().clone();
 	//        let qret:Arc<FlowQ>;
         // Lookup flow if exists
         if self.mqfq_set.contains_key(fname.as_str()) {
             let fq = self.mqfq_set.get_mut(fname.as_str()).unwrap();
-            let qret = fq.value();
-	    qret.push_flowQ(item, self.VT); //? Always do that here?
+            let qret = fq.value().lock().unwrap();
+            qret.push_flowQ(item, vt); //? Always do that here?
         } // else, create the FlowQ, add to set, and add item to flow and
         else {
-            let qret = Mutex::new(FlowQ::new(fname.clone(), 0.0, 1.0)).lock();
+            let qret = Mutex::new(FlowQ::new(fname.clone(), 0.0, 1.0)).lock().unwrap();
             self.mqfq_set.insert(fname.clone(), qret);
-	    qret.push_flowQ(item, self.VT); //? Always do that here?
+            qret.push_flowQ(item, vt); //? Always do that here?
         }
     }
     
     
     /// Earliest eligible flow 
-    fn next_flow(&self) -> &Arc<FlowQ> {
-	
-        fn filter_avail_flow(x:&RefMulti<'_,String, Arc<FlowQ>>) -> bool {
-	    let flow = *x.value() ; 
-	    let out = match flow.state {
-		MQState::Active => true ,
-		_ => false
-	    };
-	    out 
+    fn next_flow(&self) -> &Arc<Mutex<FlowQ>> {
+        let vt = self.VT.lock().unwrap().clone();
+
+        fn filter_avail_flow(x:&RefMulti<'_,String, Arc<Mutex<FlowQ>>>) -> bool {
+            let flow = *x.value().lock().unwrap() ;
+            let out = match flow.state {
+                MQState::Active => true ,
+                _ => false
+            };
+            out
         }
 
 	// reset throttle for all flows 
-	for x in self.mqfq_set.iter_mut() {
-	    x.value().clone().reset_throttle(self.VT); 
-	}
+        for x in self.mqfq_set.iter_mut() {
+            x.value().lock().unwrap().reset_throttle(vt);
+        }
 	
         // Active, not throttled, and lowest Sv
         let avail_flows = self.mqfq_set.iter().filter(filter_avail_flow);
@@ -284,9 +286,8 @@ impl MQFQ {
 	    // 	_ => false
 	    // }});
 
-        let chosen_q = avail_flows.min_by(|x, y| x.Sv.partial_cmp(&y.Sv).unwrap()).unwrap();
-        let cq =  //= chosen_q.deref();
-	chosen_q.value();
+        let chosen_q = avail_flows.min_by(|x, y| x.value().lock().unwrap().Sv.partial_cmp(y.value().lock().unwrap().Sv).unwrap()).unwrap();
+        let cq = chosen_q.value();
         cq
     }
 
@@ -294,20 +295,24 @@ impl MQFQ {
     fn dispatch(&mut self) -> Option<Arc<MQRequest>> {
         /// Filter by active queues, and select with lowest start time.
         // How to avoid hoarding of the tokens? Want round-robin.
+        let vt = self.VT.lock().unwrap().clone();
+
         if !self.tokens.get_tok() {
             return None ;
         }
-        let mut chosen_q = self.next_flow();
-        let item = chosen_q.pop_flowQ(self.VT);
-	match item {
-	    Some(i) => {
-		self.VT = f64::max(self.VT, i.Sv) ; // dont want it to go backwards
-		chosen_q.update_dispatched(self.VT);
-		Some(i) 
-	    }
-	    None => {None}
-	}
-	// Update MQFQ State 
+        let chosen_q = self.next_flow().lock().unwrap();
+
+        let item = chosen_q.pop_flowQ(vt);
+        match item {
+            Some(i) => {
+                let updated_vt = f64::max(vt, i.Sv) ; // dont want it to go backwards
+                self.VT.lock().unwrap() = updated_vt.clone();
+                chosen_q.update_dispatched(updated_vt);
+                Some(i)
+            }
+            None => {None}
+        }
+        // Update MQFQ State
     }
 
 
@@ -324,7 +329,7 @@ impl GpuQueuePolicy for MQFQ {
 
     /// Main request dispatch.
     // TODO: Can return None, refactor the GpuQpolicy trait and gpu_q_invok
-    fn pop_queue(&self) -> GpuBatch {
+    fn pop_queue(&mut self) -> GpuBatch {
 	//Arc<EnqueuedInvocation>> {
         let to_run = self.dispatch();
         match to_run {
