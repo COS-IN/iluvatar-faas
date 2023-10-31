@@ -241,7 +241,24 @@ impl MQFQ {
         Ok(svc)
     }
 
-
+    /// Get or create FlowQ 
+    fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) -> () {
+        let fname = item.registration.fqdn.clone();
+        let qret:Arc<FlowQ>;
+        // Lookup flow if exists
+        if self.mqfq_set.contains_key(fname.as_str()) {
+            let fq = self.mqfq_set.get_mut(fname.as_str()).unwrap();
+            let qret = fq.value();
+	    qret.push_flowQ(item, self.VT); //? Always do that here?
+        } // else, create the FlowQ, add to set, and add item to flow and
+        else {
+            qret = FlowQ::new(fname.clone(), 0.0, 1.0);
+            self.mqfq_set.insert(fname.clone(), qret.clone());
+	    qret.push_flowQ(item, self.VT); //? Always do that here?
+        }
+    }
+    
+    
     /// Earliest eligible flow 
     fn next_flow(&self) -> &Arc<FlowQ> {
 	
@@ -274,7 +291,7 @@ impl MQFQ {
     }
 
     /// Main 
-    fn dispatch(&self) -> Option<Arc<MQRequest>> {
+    fn dispatch(&mut self) -> Option<Arc<MQRequest>> {
         /// Filter by active queues, and select with lowest start time.
         // How to avoid hoarding of the tokens? Want round-robin.
         if !self.tokens.get_tok() {
@@ -297,20 +314,6 @@ impl MQFQ {
     /// Function just finished running. Completion call-back. Add tokens? 
     fn charge_fn(efn: EnqueuedInvocation) -> () {}
 
-    fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) -> () {
-        let fname = item.registration.fqdn.clone();
-        let qret:Arc<FlowQ>;
-        // Lookup flow if exists
-        if self.mqfq_set.contains_key(fname.as_str()) {
-            let fq = self.mqfq_set.get_mut(fname.as_str()).unwrap();
-            qret = *fq.value();
-        } // else, create the FlowQ, add to set, and add item to flow and
-        else {
-            qret = FlowQ::new(fname.clone(), 0.0, 1.0);
-            self.mqfq_set.insert(fname.clone(), qret);
-        }
-        qret.push_flowQ(item, self.VT); //? Always do that here?
-    }
 }
 
 #[tonic::async_trait]
@@ -327,7 +330,7 @@ impl GpuQueuePolicy for MQFQ {
         match to_run {
             Some(t) => {
 		let i = &t.invok;
-		let g = GpuBatch::new(*i, 1.0);
+		let g = GpuBatch::new(i.clone(), 1.0);
 		g
 	   },
             None => {panic!("Nothing in queue to run")}
