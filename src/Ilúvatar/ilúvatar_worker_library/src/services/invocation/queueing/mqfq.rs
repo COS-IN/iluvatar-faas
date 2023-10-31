@@ -253,6 +253,11 @@ impl MQFQ {
 	    out 
         }
 
+	// reset throttle for all flows 
+	for x in self.mqfq_set.iter() {
+	    x.value().reset_throttle(self.VT); 
+	}
+	
         // Active, not throttled, and lowest Sv
         let avail_flows = self.mqfq_set.iter().filter(filter_avail_flow);
 	
