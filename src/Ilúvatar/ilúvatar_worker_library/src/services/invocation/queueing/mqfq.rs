@@ -206,7 +206,7 @@ pub struct MQFQ {
     /// TODO: Concurent MQFQ. mqfq_set can be behind mutex. token bucket is separate semaphore.
     /// This leaves VT Can be left unprotected since its only modified on add/remove protected by the main mqfq mutex?
     /// We can have a separate one for VT, but not going to help?
-    mqfq_set: DashMap<String, Arc<FlowQ>>,
+    mqfq_set: DashMap<String, Arc<Mutex<FlowQ>>>,
     /// Keyed by function name  (qid)
 
     VT: f64,
@@ -244,7 +244,7 @@ impl MQFQ {
     /// Get or create FlowQ 
     fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) -> () {
         let fname = item.registration.fqdn.clone();
-        let qret:Arc<FlowQ>;
+	//        let qret:Arc<FlowQ>;
         // Lookup flow if exists
         if self.mqfq_set.contains_key(fname.as_str()) {
             let fq = self.mqfq_set.get_mut(fname.as_str()).unwrap();
@@ -252,8 +252,8 @@ impl MQFQ {
 	    qret.push_flowQ(item, self.VT); //? Always do that here?
         } // else, create the FlowQ, add to set, and add item to flow and
         else {
-            qret = FlowQ::new(fname.clone(), 0.0, 1.0);
-            self.mqfq_set.insert(fname.clone(), qret.clone());
+            let qret = Mutex::new(FlowQ::new(fname.clone(), 0.0, 1.0)).lock();
+            self.mqfq_set.insert(fname.clone(), qret);
 	    qret.push_flowQ(item, self.VT); //? Always do that here?
         }
     }
