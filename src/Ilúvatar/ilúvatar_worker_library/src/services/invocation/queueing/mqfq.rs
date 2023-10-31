@@ -187,6 +187,9 @@ impl TokenBucket {
 }
 
 pub struct MQFQ {
+    /// TODO: Concurent MQFQ. mqfq_set can be behind mutex. token bucket is separate semaphore.
+    /// This leaves VT. Can be left unprotected since its only modified on add/remove protected by the main mqfq mutex?
+    /// We can have a separate one for VT, but not going to help?
     mqfq_set: DashMap<String, Arc<FlowQ>>,
     /// Keyed by function name  (qid)
 
