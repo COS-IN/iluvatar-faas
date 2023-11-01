@@ -133,7 +133,7 @@ pub struct GpuQueueingInvoker {
     queue: Arc<dyn GpuQueuePolicy>,
     /// Track completion time here because the limited number of GPUs and inability to overcommit
     /// means we need to know roughly when one will become available to better predict completion time for incoming invocations
-    completion_tracker: CompletionTimeTracker,
+    completion_tracker: Arc<CompletionTimeTracker>,
 }
 
 #[allow(dyn_drop)]
@@ -156,8 +156,12 @@ impl GpuQueueingInvoker {
             Some(Self::gpu_wait_on_queue),
             Some(function_config.cpu_max as usize),
         )?;
+
+        let ct = Arc::new(CompletionTimeTracker::new());
+        let q =  Self::get_invoker_gpu_queue(&invocation_config, &cmap,
+                                             &cont_manager, tid, &ct);
+
         let svc = Arc::new(GpuQueueingInvoker {
-            queue: Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid)?,
             cont_manager,
             invocation_config,
             gpu,
@@ -168,7 +172,8 @@ impl GpuQueueingInvoker {
             clock: LocalTime::new(tid)?,
             running: AtomicU32::new(0),
             last_memory_warning: Mutex::new(Instant::now()),
-            completion_tracker: CompletionTimeTracker::new(),
+            completion_tracker: ct,
+            queue:q.unwrap(),
         });
         gpu_tx.send(svc.clone())?;
         debug!(tid=%tid, "Created GpuQueueingInvoker");
@@ -181,11 +186,13 @@ impl GpuQueueingInvoker {
         cmap: &Arc<CharacteristicsMap>,
         cont_manager: &Arc<ContainerManager>,
         _tid: &TransactionId,
+        completion_tracker: &Arc<CompletionTimeTracker>
     ) -> Result<Arc<dyn GpuQueuePolicy>> {
         if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::GPU).try_into()?) {
             Ok(match pol.as_str() {
                 "fcfs" => FcfsGpuQueue::new(cont_manager.clone(), cmap.clone())?,
-		"mqfq" => MQFQ::new(cont_manager.clone(), cmap.clone())?,
+                "mqfq" => MQFQ::new(cont_manager.clone(), cmap.clone(),
+                                    completion_tracker.clone())?,
                 "oldest_batch" => BatchGpuQueue::new(cmap.clone())?,
                 unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
             })

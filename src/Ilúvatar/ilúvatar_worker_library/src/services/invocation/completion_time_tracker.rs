@@ -1,22 +1,32 @@
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use time::{Duration, OffsetDateTime};
+
 
 /// A struct for tracking when the next invocation is expected to complete
 /// Useful for estimating waiting time and invocation completion time
 /// This struct is thread-safe
 pub struct CompletionTimeTracker {
     items: RwLock<Vec<OffsetDateTime>>,
+    inflight: Mutex<i32>, // Could be a semaphore but whatever
 }
 
 impl CompletionTimeTracker {
     pub fn new() -> Self {
         CompletionTimeTracker {
             items: RwLock::new(vec![]),
+            inflight:Mutex::new(0)
         }
+    }
+
+    pub fn get_inflight(&self) -> i32 {
+        let inf = self.inflight.lock();
+        inf.clone()
     }
 
     /// Add a new time to the struct
     pub fn add_item(&self, completion_time: OffsetDateTime) {
+        let cnt = self.inflight.lock();
+        *cnt = *cnt + 1;
         let mut items = self.items.write();
         let pos = items.binary_search(&completion_time);
         match pos {
@@ -27,6 +37,8 @@ impl CompletionTimeTracker {
 
     /// Remove the item with the time from the tracker
     pub fn remove_item(&self, completion_time: OffsetDateTime) {
+        let cnt = self.inflight.lock();
+        *cnt = *cnt - 1;
         let mut items = self.items.write();
         let pos = items.binary_search(&completion_time);
         match pos {
