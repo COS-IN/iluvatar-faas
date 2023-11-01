@@ -103,8 +103,9 @@ impl FlowQ {
     pub fn new(qid: String,
                Sv: f64,
                weight: f64,
-    ) -> Arc<Self> {
-        let svc = Arc::new(FlowQ {
+    ) -> Self {
+        let svc = //Arc::new(
+	    FlowQ {
             qid: qid,
             queue: VecDeque::new(),
             weight: weight,
@@ -116,7 +117,8 @@ impl FlowQ {
             last_serviced: OffsetDateTime::now_utc(),
             service_avg: 10.0,
             allowed_overrun: 10.0,
-        });
+            };
+    //);
         svc
     }
 
@@ -265,18 +267,22 @@ impl MQFQ {
             qret.push_flowQ(item, vt); //? Always do that here?
         } // else, create the FlowQ, add to set, and add item to flow and
         else {
-            let qret = Mutex::new(FlowQ::new(fname.clone(), 0.0, 1.0)).lock().unwrap();
-            self.mqfq_set.insert(fname.clone(), qret);
-            qret.push_flowQ(item, vt); //? Always do that here?
+            let qguard = Arc::new(Mutex::new(FlowQ::new(fname.clone(), 0.0, 1.0)));
+	    let qret = *qguard.lock(); 
+	    qret.push_flowQ(item, vt); //? Always do that here?
+	    // let qret = qguard.lock();
+	    drop(qguard); 
+            self.mqfq_set.insert(fname.clone(), qguard);
         }
     }
 
 
     /// Earliest eligible flow 
-    fn next_flow(&self) -> &Arc<Mutex<FlowQ>> {
+    fn next_flow(&self) -> Arc<Mutex<Arc<FlowQ>>> {
         let vrg = self.VT.read();
         let vt = vrg.clone();
         drop(vrg);
+	// TODO: Should be <Mutex<Arc<FlowQ>> ? 
         fn filter_avail_flow(x: &RefMulti<'_, String, Arc<Mutex<FlowQ>>>) -> bool {
             let flow = *x.value().lock();
             let out = match flow.state {
@@ -299,7 +305,7 @@ impl MQFQ {
         // 	_ => false
         // }});
 
-        let chosen_q = avail_flows.min_by(|x, y| x.value().lock().Sv.partial_cmp(y.value().lock().unwrap().Sv).unwrap()).unwrap();
+        let chosen_q = avail_flows.min_by(|x, y| x.value().lock().Sv.partial_cmp(& y.deref().lock().Sv).unwrap()).unwrap();
         let cq = chosen_q.value();
         cq
     }
