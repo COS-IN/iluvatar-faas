@@ -27,7 +27,7 @@ use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation
 ///   2. Grace period for anticipatory batching.
 /// Each function is its own flow. 
 
-enum MQState {
+pub enum MQState {
     Active,
     /// Non-empty queues are active
     Throttled,
@@ -54,7 +54,7 @@ struct TimerWheel {
 }
 
 
-struct MQRequest {
+pub struct MQRequest {
     invok: Arc<EnqueuedInvocation>,
     // Do we maintain a backward pointer to FlowQ? qid atleast? 
     Sv: f64,
@@ -263,28 +263,28 @@ impl MQFQ {
         // Lookup flow if exists
         if self.mqfq_set.contains_key(fname.as_str()) {
             let fq = self.mqfq_set.get_mut(fname.as_str()).unwrap();
-            let qret = fq.value().lock();
+            let mut qret = fq.value().lock();
             qret.push_flowQ(item, vt); //? Always do that here?
         } // else, create the FlowQ, add to set, and add item to flow and
         else {
             let qguard = Arc::new(Mutex::new(FlowQ::new(fname.clone(), 0.0, 1.0)));
-	    let qret = *qguard.lock(); 
+	    let mut qret = qguard.lock(); 
 	    qret.push_flowQ(item, vt); //? Always do that here?
 	    // let qret = qguard.lock();
-	    drop(qguard); 
-            self.mqfq_set.insert(fname.clone(), qguard);
+	    
+            self.mqfq_set.insert(fname.clone(), qguard.clone());
         }
     }
 
 
     /// Earliest eligible flow 
-    fn next_flow(&self) -> Arc<Mutex<Arc<FlowQ>>> {
+    fn next_flow(&self) -> Option<Arc<Mutex<FlowQ>>> {
         let vrg = self.VT.read();
         let vt = vrg.clone();
         drop(vrg);
 	// TODO: Should be <Mutex<Arc<FlowQ>> ? 
         fn filter_avail_flow(x: &RefMulti<'_, String, Arc<Mutex<FlowQ>>>) -> bool {
-            let flow = *x.value().lock();
+            let flow = x.value().lock();
             let out = match flow.state {
                 MQState::Active => true,
                 _ => false
@@ -307,7 +307,7 @@ impl MQFQ {
 
         let chosen_q = avail_flows.min_by(|x, y| x.value().lock().Sv.partial_cmp(& y.deref().lock().Sv).unwrap()).unwrap();
         let cq = chosen_q.value();
-        cq
+        Some(cq.clone())
     }
 
     // Invoked functions automatically increase the count, conversely for finished functions
@@ -326,21 +326,31 @@ impl MQFQ {
         if !self.enough_tokens() {
             return None;
         }
-        let chosen_q = self.next_flow().lock();
+	
+        let nq = self.next_flow();
+	//if nq.is_none() {
+	//    return None 
+	//}
 
-        let item = chosen_q.pop_flowQ(vt);
-        match item {
-            Some(i) => {
-                let updated_vt = f64::max(vt, i.Sv); // dont want it to go backwards
-                let mut vwg= self.VT.write();
-                *vwg = updated_vt.clone();
-                drop(vwg);
-                chosen_q.update_dispatched(updated_vt);
-                Some(i)
-            }
-            None => { None }
-        }
-        // Update MQFQ State
+	match nq {
+	    None => {None}
+	    Some(cq) => {
+		let mut chosen_q = cq.lock();
+		let item = chosen_q.pop_flowQ(vt);
+		match item {
+		    Some(i) => {
+			let updated_vt = f64::max(vt, i.Sv); // dont want it to go backwards
+			let mut vwg= self.VT.write();
+			*vwg = updated_vt.clone();
+			drop(vwg);
+			chosen_q.update_dispatched(updated_vt);
+			Some(i)
+		    }
+		    None => { None }
+		}
+	    }
+	}
+	// Update MQFQ State
     }
 
 
@@ -357,13 +367,41 @@ impl GpuQueuePolicy for MQFQ {
     /// Main request dispatch.
     // TODO: Can return None, refactor the GpuQpolicy trait and gpu_q_invok
     fn pop_queue(&self) -> GpuBatch {
-        //Arc<EnqueuedInvocation>> {
-        let to_run = self.dispatch();
+        let vrg = self.VT.read();
+        let vt = vrg.clone();
+        drop(vrg);
+
+	// TODO: critical to fix. 
+        // if !self.enough_tokens() {
+        //     return None;
+        // }
+	
+        let nq = self.next_flow();
+
+	let to_run = match nq {
+	    None => {None}
+	    Some(cq) => {
+		let mut chosen_q = cq.lock();
+		let item = chosen_q.pop_flowQ(vt);
+		match item {
+		    Some(i) => {
+			let updated_vt = f64::max(vt, i.Sv); // dont want it to go backwards
+			let mut vwg= self.VT.write();
+			*vwg = updated_vt.clone();
+			drop(vwg);
+			chosen_q.update_dispatched(updated_vt);
+			Some(i)
+		    }
+		    None => { None }
+		}
+	    }
+	};
+	
         match to_run {
             Some(t) => {
                 let i = &t.invok;
                 let g = GpuBatch::new(i.clone(), 1.0);
-                g
+                g 
             }
             None => { panic!("Nothing in queue to run") }
             // Asked to run something, but are throttled. Return None?

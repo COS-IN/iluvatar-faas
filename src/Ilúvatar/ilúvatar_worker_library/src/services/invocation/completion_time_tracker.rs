@@ -25,7 +25,7 @@ impl CompletionTimeTracker {
 
     /// Add a new time to the struct
     pub fn add_item(&self, completion_time: OffsetDateTime) {
-        let cnt = self.inflight.lock();
+        let mut cnt = self.inflight.lock();
         *cnt = *cnt + 1;
         let mut items = self.items.write();
         let pos = items.binary_search(&completion_time);
@@ -37,7 +37,7 @@ impl CompletionTimeTracker {
 
     /// Remove the item with the time from the tracker
     pub fn remove_item(&self, completion_time: OffsetDateTime) {
-        let cnt = self.inflight.lock();
+        let mut cnt = self.inflight.lock();
         *cnt = *cnt - 1;
         let mut items = self.items.write();
         let pos = items.binary_search(&completion_time);
