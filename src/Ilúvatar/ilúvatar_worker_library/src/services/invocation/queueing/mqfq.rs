@@ -1,22 +1,22 @@
 use crate::services::containers::containermanager::ContainerManager;
-use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
-use parking_lot::{Mutex, RwLock};
-use std::collections::{BinaryHeap, VecDeque};
-use std::sync::Arc;
-use std::cmp;
-use std::cmp::Ordering;
-use std::ops::Deref;
-use dashmap::DashMap;
-use time::OffsetDateTime;
-use tracing::debug;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use crate::services::invocation::completion_time_tracker::CompletionTimeTracker;
 use crate::services::{
     invocation::gpu_q_invoke::{GpuBatch, GpuQueuePolicy},
     registration::RegisteredFunction,
 };
+use anyhow::Result;
 use dashmap::mapref::multiple::RefMulti;
-use crate::services::invocation::completion_time_tracker::CompletionTimeTracker;
+use dashmap::DashMap;
+use iluvatar_library::characteristics_map::CharacteristicsMap;
+use parking_lot::{Mutex, RwLock};
+use std::cmp;
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, VecDeque};
+use std::ops::Deref;
+use std::sync::Arc;
+use time::OffsetDateTime;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tracing::debug;
 
 use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation};
 
@@ -25,7 +25,7 @@ use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation
 /// Key modifications:
 ///   1. Concurrency with D tokens.
 ///   2. Grace period for anticipatory batching.
-/// Each function is its own flow. 
+/// Each function is its own flow.
 
 pub enum MQState {
     Active,
@@ -53,18 +53,15 @@ struct TimerWheel {
     twheel: Vec<TimerEvent>,
 }
 
-
 pub struct MQRequest {
     invok: Arc<EnqueuedInvocation>,
-    // Do we maintain a backward pointer to FlowQ? qid atleast? 
+    // Do we maintain a backward pointer to FlowQ? qid atleast?
     Sv: f64,
     Fv: f64,
 }
 
 impl MQRequest {
-    pub fn new(invok: Arc<EnqueuedInvocation>,
-               S: f64,
-               F: f64) -> Arc<Self> {
+    pub fn new(invok: Arc<EnqueuedInvocation>, S: f64, F: f64) -> Arc<Self> {
         let svc = Arc::new(MQRequest {
             invok: invok,
             Sv: S,
@@ -74,7 +71,7 @@ impl MQRequest {
     }
 }
 
-/// A single queue of entities (invocations) of the same priority/locality class 
+/// A single queue of entities (invocations) of the same priority/locality class
 pub struct FlowQ {
     qid: String,
     // Q name for indexing/debugging etc
@@ -100,10 +97,7 @@ pub struct FlowQ {
 }
 
 impl FlowQ {
-    pub fn new(qid: String,
-               Sv: f64,
-               weight: f64,
-    ) -> Self {
+    pub fn new(qid: String, Sv: f64, weight: f64) -> Self {
         let svc = //Arc::new(
 	    FlowQ {
             qid: qid,
@@ -118,13 +112,12 @@ impl FlowQ {
             service_avg: 10.0,
             allowed_overrun: 10.0,
             };
-    //);
+        //);
         svc
     }
 
-    /// Return True if should update the global time 
-    pub fn push_flowQ(&mut self, item: Arc<EnqueuedInvocation>,
-                      VT: f64) -> bool {
+    /// Return True if should update the global time
+    pub fn push_flowQ(&mut self, item: Arc<EnqueuedInvocation>, VT: f64) -> bool {
         let S = f64::max(VT, self.Fv); // cognizant of weights
         let F = S + (self.service_avg / self.weight);
         let r = MQRequest::new(item, S, F);
@@ -133,14 +126,14 @@ impl FlowQ {
         self.queue.push_back(r.clone());
 
         self.state = MQState::Active;
-        self.Sv = f64::max(self.Sv, S);  // if this was 0?
+        self.Sv = f64::max(self.Sv, S); // if this was 0?
         self.Fv = f64::max(rFv, self.Fv); // always needed
 
         self.queue.len() == 1
         //self.Sv = r.Sv; // only if the first element!
     }
 
-    /// Remove oldest item. No other svc state update. 
+    /// Remove oldest item. No other svc state update.
     pub fn pop_flowQ(&mut self, VT: f64) -> Option<Arc<MQRequest>> {
         let r = self.queue.pop_front();
 
@@ -155,13 +148,15 @@ impl FlowQ {
         r
     }
 
-    /// Check if the start time is ahead of global time by allowed overrun 
+    /// Check if the start time is ahead of global time by allowed overrun
     pub fn update_dispatched(&mut self, VT: f64) -> () {
         self.last_serviced = OffsetDateTime::now_utc();
         self.in_flight = self.in_flight + 1;
         let next_item = self.queue.front();
         match next_item {
-            Some(next_item) => { self.Sv = next_item.Sv; }
+            Some(next_item) => {
+                self.Sv = next_item.Sv;
+            }
             None => {}
         }
         // start timer for grace period?
@@ -171,10 +166,10 @@ impl FlowQ {
         }
     }
 
-    /// The VT may have advanced, so reset throttle. Call on dispatch 
+    /// The VT may have advanced, so reset throttle. Call on dispatch
     pub fn set_idle_throttled(&mut self, VT: f64) -> () {
         let gap = self.Sv - VT; // VT is old Sv, but is Sv updated?
-        // check grace period
+                                // check grace period
         if self.queue.len() == 0 {
             let grace_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
             if grace_remaining > self.grace_period {
@@ -187,7 +182,7 @@ impl FlowQ {
     }
 }
 
-/// TODO: Semaphore impl? 
+/// TODO: Semaphore impl?
 struct TokenBucket {
     capacity: i32,
     current: i32,
@@ -217,9 +212,9 @@ pub struct MQFQ {
     mqfq_set: DashMap<String, Arc<Mutex<FlowQ>>>,
     /// System-wide logical clock for resources consumed
     VT: RwLock<f64>,
-    /// TODO: Configurable param 
+    /// TODO: Configurable param
     max_inflight: i32,
-    /// TODO: Ignored for now 
+    /// TODO: Ignored for now
     est_time: Mutex<f64>,
 
     ///Remaining passed by gpu_q_invoke
@@ -233,9 +228,10 @@ pub struct MQFQ {
 /// TODO: config with D, T, wts, etc.
 
 impl MQFQ {
-    pub fn new(cont_manager: Arc<ContainerManager>,
-               cmap: Arc<CharacteristicsMap>,
-               ctrack: Arc<CompletionTimeTracker>,
+    pub fn new(
+        cont_manager: Arc<ContainerManager>,
+        cmap: Arc<CharacteristicsMap>,
+        ctrack: Arc<CompletionTimeTracker>,
     ) -> Result<Arc<Self>> {
         let svc = Arc::new(MQFQ {
             mqfq_set: DashMap::new(),
@@ -249,7 +245,7 @@ impl MQFQ {
         Ok(svc)
     }
 
-    /// Get or create FlowQ 
+    /// Get or create FlowQ
     fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) -> () {
         let fname = item.registration.fqdn.clone();
         let vt = self.VT.read().clone();
@@ -259,29 +255,29 @@ impl MQFQ {
             let fq = self.mqfq_set.get_mut(fname.as_str()).unwrap();
             let mut qret = fq.value().lock();
             qret.push_flowQ(item, vt); //? Always do that here?
-        } // else, create the FlowQ, add to set, and add item to flow and
+        }
+        // else, create the FlowQ, add to set, and add item to flow and
         else {
             let qguard = Arc::new(Mutex::new(FlowQ::new(fname.clone(), 0.0, 1.0)));
-	    let mut qret = qguard.lock(); 
-	    qret.push_flowQ(item, vt); //? Always do that here?
-	    // let qret = qguard.lock();
-	    
+            let mut qret = qguard.lock();
+            qret.push_flowQ(item, vt); //? Always do that here?
+                                       // let qret = qguard.lock();
+
             self.mqfq_set.insert(fname.clone(), qguard.clone());
         }
     }
 
-
-    /// Earliest eligible flow 
+    /// Earliest eligible flow
     fn next_flow(&self) -> Option<Arc<Mutex<FlowQ>>> {
         let vrg = self.VT.read();
         let vt = vrg.clone();
         drop(vrg);
-	// TODO: Should be <Mutex<Arc<FlowQ>> ? 
+        // TODO: Should be <Mutex<Arc<FlowQ>> ?
         fn filter_avail_flow(x: &RefMulti<'_, String, Arc<Mutex<FlowQ>>>) -> bool {
             let flow = x.value().lock();
             let out = match flow.state {
                 MQState::Active => true,
-                _ => false
+                _ => false,
             };
             out
         }
@@ -299,7 +295,9 @@ impl MQFQ {
         // 	_ => false
         // }});
 
-        let chosen_q = avail_flows.min_by(|x, y| x.value().lock().Sv.partial_cmp(& y.deref().lock().Sv).unwrap()).unwrap();
+        let chosen_q = avail_flows
+            .min_by(|x, y| x.value().lock().Sv.partial_cmp(&y.deref().lock().Sv).unwrap())
+            .unwrap();
         let cq = chosen_q.value();
         Some(cq.clone())
     }
@@ -309,7 +307,7 @@ impl MQFQ {
         self.ctrack.get_inflight() < self.max_inflight
     }
 
-    /// Main 
+    /// Main
     fn dispatch(&mut self) -> Option<Arc<MQRequest>> {
         /// Filter by active queues, and select with lowest start time.
         // How to avoid hoarding of the tokens? Want round-robin.
@@ -320,35 +318,34 @@ impl MQFQ {
         if !self.enough_tokens() {
             return None;
         }
-	
-        let nq = self.next_flow();
-	//if nq.is_none() {
-	//    return None 
-	//}
 
-	match nq {
-	    None => {None}
-	    Some(cq) => {
-		let mut chosen_q = cq.lock();
-		let item = chosen_q.pop_flowQ(vt);
-		match item {
-		    Some(i) => {
-			let updated_vt = f64::max(vt, i.Sv); // dont want it to go backwards
-			let mut vwg= self.VT.write();
-			*vwg = updated_vt.clone();
-			drop(vwg);
-			chosen_q.update_dispatched(updated_vt);
-			Some(i)
-		    }
-		    None => { None }
-		}
-	    }
-	}
-	// Update MQFQ State
+        let nq = self.next_flow();
+        //if nq.is_none() {
+        //    return None
+        //}
+
+        match nq {
+            None => None,
+            Some(cq) => {
+                let mut chosen_q = cq.lock();
+                let item = chosen_q.pop_flowQ(vt);
+                match item {
+                    Some(i) => {
+                        let updated_vt = f64::max(vt, i.Sv); // dont want it to go backwards
+                        let mut vwg = self.VT.write();
+                        *vwg = updated_vt.clone();
+                        drop(vwg);
+                        chosen_q.update_dispatched(updated_vt);
+                        Some(i)
+                    }
+                    None => None,
+                }
+            }
+        }
+        // Update MQFQ State
     }
 
-
-    /// Function just finished running. Completion call-back. Add tokens? 
+    /// Function just finished running. Completion call-back. Add tokens?
     fn charge_fn(efn: EnqueuedInvocation) -> () {}
 }
 
@@ -357,7 +354,6 @@ impl GpuQueuePolicy for MQFQ {
     /// This is limited to the five functions add, peek, pop, len, time
     /// Of which, we len/time are easy. Add should inject function into the right queue based on some property. pop/peek both select the right ``current'' queue and the function within this queue.
 
-
     /// Main request dispatch.
     // TODO: Can return None, refactor the GpuQpolicy trait and gpu_q_invok
     fn pop_queue(&self) -> Option<GpuBatch> {
@@ -365,40 +361,42 @@ impl GpuQueuePolicy for MQFQ {
         let vt = vrg.clone();
         drop(vrg);
 
-	// TODO: critical to fix. 
+        // TODO: critical to fix.
         if !self.enough_tokens() {
             return None;
         }
-	
+
         let nq = self.next_flow();
 
-	let to_run = match nq {
-	    None => {None}
-	    Some(cq) => {
-		let mut chosen_q = cq.lock();
-		let item = chosen_q.pop_flowQ(vt);
-		match item {
-		    Some(i) => {
-			let updated_vt = f64::max(vt, i.Sv); // dont want it to go backwards
-			let mut vwg= self.VT.write();
-			*vwg = updated_vt.clone();
-			drop(vwg);
-			chosen_q.update_dispatched(updated_vt);
-			Some(i)
-		    }
-		    None => { None }
-		}
-	    }
-	};
-	
+        let to_run = match nq {
+            None => None,
+            Some(cq) => {
+                let mut chosen_q = cq.lock();
+                let item = chosen_q.pop_flowQ(vt);
+                match item {
+                    Some(i) => {
+                        let updated_vt = f64::max(vt, i.Sv); // dont want it to go backwards
+                        let mut vwg = self.VT.write();
+                        *vwg = updated_vt.clone();
+                        drop(vwg);
+                        chosen_q.update_dispatched(updated_vt);
+                        Some(i)
+                    }
+                    None => None,
+                }
+            }
+        };
+
         match to_run {
             Some(t) => {
                 let i = &t.invok;
                 let g = GpuBatch::new(i.clone(), 1.0);
                 Some(g)
             }
-            None => { panic!("Nothing in queue to run") }
-            // Asked to run something, but are throttled. Return None?
+            None => {
+                debug!("Nothing in queue to run");
+                None
+            } // Asked to run something, but are throttled. Return None?
         }
     }
 
@@ -425,5 +423,3 @@ impl GpuQueuePolicy for MQFQ {
         todo!()
     }
 }
-
-
