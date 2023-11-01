@@ -39,11 +39,11 @@ impl GpuQueuePolicy for FcfsGpuQueue {
         }
         None
     }
-    fn pop_queue(&self) -> GpuBatch {
+    fn pop_queue(&self) -> Option<GpuBatch> {
         let mut invoke_queue = self.invoke_queue.lock();
         let batch = invoke_queue.pop_front().unwrap();
         *self.est_time.lock() -= batch.est_queue_time();
-        batch
+        Some(batch)
     }
     fn queue_len(&self) -> usize {
         self.invoke_queue.lock().len()

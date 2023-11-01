@@ -213,25 +213,19 @@ impl TokenBucket {
 }
 
 pub struct MQFQ {
-    /// TODO: Concurent MQFQ. mqfq_set can be behind mutex. token bucket is separate semaphore.
-    /// This leaves VT Can be left unprotected since its only modified on add/remove protected by the main mqfq mutex?
-    /// We can have a separate one for VT, but not going to help?
-    mqfq_set: DashMap<String, Arc<Mutex<FlowQ>>>,
     /// Keyed by function name  (qid)
-
-    VT: RwLock<f64>,
+    mqfq_set: DashMap<String, Arc<Mutex<FlowQ>>>,
     /// System-wide logical clock for resources consumed
+    VT: RwLock<f64>,
+    /// TODO: Configurable param 
     max_inflight: i32,
-    /// At most this many number of queues to dispatch from
-    /// With k-parallelism, does this have to be a k-vector?
-
+    /// TODO: Ignored for now 
     est_time: Mutex<f64>,
-    /// Convenience for the trait methods?
 
     ///Remaining passed by gpu_q_invoke
     cont_manager: Arc<ContainerManager>,
     cmap: Arc<CharacteristicsMap>,
-    /// Use this as a token bucket?
+    /// Use this as a token bucket
     ctrack: Arc<CompletionTimeTracker>,
 }
 
@@ -366,15 +360,15 @@ impl GpuQueuePolicy for MQFQ {
 
     /// Main request dispatch.
     // TODO: Can return None, refactor the GpuQpolicy trait and gpu_q_invok
-    fn pop_queue(&self) -> GpuBatch {
+    fn pop_queue(&self) -> Option<GpuBatch> {
         let vrg = self.VT.read();
         let vt = vrg.clone();
         drop(vrg);
 
 	// TODO: critical to fix. 
-        // if !self.enough_tokens() {
-        //     return None;
-        // }
+        if !self.enough_tokens() {
+            return None;
+        }
 	
         let nq = self.next_flow();
 
@@ -401,7 +395,7 @@ impl GpuQueuePolicy for MQFQ {
             Some(t) => {
                 let i = &t.invok;
                 let g = GpuBatch::new(i.clone(), 1.0);
-                g 
+                Some(g)
             }
             None => { panic!("Nothing in queue to run") }
             // Asked to run something, but are throttled. Return None?

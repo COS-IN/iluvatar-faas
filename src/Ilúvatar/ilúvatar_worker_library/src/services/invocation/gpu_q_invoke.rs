@@ -108,7 +108,7 @@ pub trait GpuQueuePolicy: Send + Sync {
 
     /// Destructively return the first batch in the queue.
     /// This function will only be called if something is known to be un the queue, so using `unwrap` to remove an [Option] is safe
-    fn pop_queue(&self) -> GpuBatch;
+    fn pop_queue(&self) -> Option<GpuBatch>;
 
   /// Insert an item into the queue
   /// If an error is returned, the item was not put enqueued
@@ -211,8 +211,13 @@ impl GpuQueueingInvoker {
         while let Some(peek_reg) = self.queue.next_batch() {
 	    // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked. 
             if let Some(permit) = self.acquire_resources_to_run(&peek_reg, &tid) {
-                let batch = self.queue.pop_queue();
-                self.spawn_tokio_worker(self.clone(), batch, permit, &tid);
+                let b = self.queue.pop_queue();
+		match b {
+		    None => {break;}
+		    Some(batch) => {
+			self.spawn_tokio_worker(self.clone(), batch, permit, &tid);
+		    }
+		}
             } else {
                 debug!(tid=%tid, fqdn=%peek_reg.fqdn, "Insufficient resources to run item");
                 break;

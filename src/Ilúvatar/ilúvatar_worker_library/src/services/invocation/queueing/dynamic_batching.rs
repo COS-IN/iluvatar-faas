@@ -98,7 +98,7 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
     /// Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained.
     /// Need approx snapshot of GPU state and capacity. What functions may be resident, memory, etc.
 
-    fn pop_queue(&self) -> GpuBatch {
+    fn pop_queue(&self) -> Option<GpuBatch> {
         let batch_key = self
             .invoke_batches
             .iter()
@@ -111,7 +111,7 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
         self.num_queued
             .fetch_sub(batch.len(), std::sync::atomic::Ordering::Relaxed);
         *self.est_time.lock() -= batch.est_queue_time();
-        batch
+        Some(batch)
     }
 
     fn queue_len(&self) -> usize {
