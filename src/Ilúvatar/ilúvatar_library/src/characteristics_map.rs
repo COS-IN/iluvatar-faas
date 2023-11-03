@@ -293,6 +293,19 @@ impl CharacteristicsMap {
         }
     }
 
+    /// Tuple of cpu,gpu weights for polymorphic functions 
+    pub fn get_dispatch_wts(&self, fqdn: &str) -> (f64, f64) {
+	let mut wcpu = 0.0;
+	let mut wgpu = 0.0;
+	if let Some(x) = self.lookup(fqdn, &Characteristics::wt_CPU){
+	    wcpu = unwrap_val_f64(&x);   
+	}
+	if let Some(y) = self.lookup(fqdn, &Characteristics::wt_GPU){
+	    wgpu = unwrap_val_f64(&y);   
+	}
+	(wcpu, wgpu)
+    }
+    
     pub fn clone_value(&self, value: &Values) -> Values {
         match value {
             Values::F64(v) => Values::F64(*v),
