@@ -97,6 +97,7 @@ impl QueueingDispatcher {
         )?)
     }
 
+    
     fn get_invoker_gpu_queue(
         invocation_config: &Arc<InvocationConfig>,
         cmap: &Arc<CharacteristicsMap>,
@@ -201,20 +202,9 @@ impl QueueingDispatcher {
                 }
             }
             EnqueueingPolicy::Bandit1 => {
-                let mut opts = vec![];
-                if reg.supported_compute.contains(Compute::CPU) {
-                    opts.push((self.cmap.get_exec_time(&reg.fqdn), &self.cpu_queue));
-                }
-                if reg.supported_compute.contains(Compute::GPU) {
-                    opts.push((self.cmap.get_gpu_exec_time(&reg.fqdn), &self.gpu_queue));
-                }
-                // Choose either option with some probability.
-                // Need some dispatch state for this for sure.
-                let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
-                if let Some((_, q)) = best {
-                    q.enqueue_item(&enqueue)?;
-                    enqueues += 1;
-                }
+		let mut chosen_q = self.bandit1_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
+		chosen_q.enqueue_item(&enqueue)?;
+		enqueues += 1 ;
             }
         }
 
@@ -222,6 +212,30 @@ impl QueueingDispatcher {
             anyhow::bail!("Unable to enqueue function invocation, not matching compute");
         }
         Ok(enqueue)
+    }
+
+
+    fn bandit1_dispatch(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
+
+	if reg.cpu_only() {
+	    return &self.cpu_queue;
+	}
+	if reg.gpu_only() {
+	    return &self.gpu_queue;
+	}
+	let mut chosen_q = &self.cpu_queue;
+
+	
+	return chosen_q ;
+        // Choose either option with some probability.
+        // Need some dispatch state for this for sure.
+    //     let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
+    //     if let Some((_, q)) = best {
+    //         q.enqueue_item(&enqueue)?;
+    //         enqueues += 1;
+    //     }
+    // 	num_enq+1 
+    // }
     }
 }
 

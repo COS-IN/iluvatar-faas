@@ -25,8 +25,28 @@ pub struct RegisteredFunction {
     pub snapshot_base: String,
     pub parallel_invokes: u32,
     pub isolation_type: Isolation,
-    pub supported_compute: Compute,
+    pub supported_compute: Compute, // TODO: Rename Compute to ComputeDevice 
 }
+
+
+impl RegisteredFunction {
+    pub fn cpu_only(&self) -> bool {
+	self.supported_compute.contains(Compute::CPU) &&
+	    !self.supported_compute.contains(Compute::GPU)
+    }
+
+    pub fn gpu_only(&self) -> bool {
+	self.supported_compute.contains(Compute::GPU) &&
+	    !self.supported_compute.contains(Compute::CPU)
+    }
+
+    pub fn polymorphic(&self) -> bool {
+	self.supported_compute.contains(Compute::GPU) &&
+	    self.supported_compute.contains(Compute::CPU)
+    }
+
+}
+
 
 pub struct RegistrationService {
     reg_map: RwLock<HashMap<String, Arc<RegisteredFunction>>>,
@@ -168,7 +188,7 @@ impl RegistrationService {
         Ok(ret)
     }
 
-    /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute
+    /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute device 
     fn get_characteristics(compute: Compute) -> Result<(Characteristics, Characteristics, Characteristics)> {
         if compute == Compute::CPU {
             Ok((
