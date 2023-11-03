@@ -119,6 +119,10 @@ pub enum Characteristics {
     /// The running avg memory usage
     /// TODO: record this somewhere
     MemoryUsage,
+    /// Current weight for CPU dispatch for polymorphic functions
+    wt_CPU,
+    /// GPU weight for polymorphic functions 
+    wt_GPU, 
 }
 
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc. 
