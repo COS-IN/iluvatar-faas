@@ -14,6 +14,7 @@ use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::{logging::LocalTime, transaction::TransactionId, types::Compute};
 use std::sync::Arc;
 use tracing::{debug, info};
+use std::collections::HashMap; 
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -27,6 +28,8 @@ pub struct QueueingDispatcher {
     clock: LocalTime,
     cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Arc<dyn DeviceQueue>,
+    /// CPU/GPU qname and the wts 
+    dispatch_wts: HashMap<String, f64>,
     // XXX: Will need to keep some dispatcher state to learn from history and for MWUA/Randomization/Bandits. Per-function history? Global? Depends also on the CPU and GPU States. Early vs. Late binding. Depends on CPU/GPU performance ratio. Late binding good when performance is similar, since we have lot more CPUs. Simple policy can assign based on CPU/GPU ratio. Weights can then be updated with MWUA?
     // For each function, maintain a vector of device latencies, weights, preferences?
     // How busy the device is can be estimated based on real CPU/GPU state plus queue sizes and recent dispatches?
@@ -66,11 +69,13 @@ impl QueueingDispatcher {
                 &function_config,
                 &cpu,
                 &gpu,
-            )?,
+            )?,	    
             async_functions: AsyncHelper::new(),
             clock: LocalTime::new(tid)?,
             invocation_config,
             cmap,
+	    dispatch_wts: HashMap::from([("cpu".to_string(),1.0), ("gpu".to_string(),1.0)]),
+				   
         });
         debug!(tid=%tid, "Created QueueingInvoker");
         Ok(svc)
