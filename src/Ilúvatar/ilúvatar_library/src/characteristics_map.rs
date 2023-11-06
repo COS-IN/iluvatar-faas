@@ -142,6 +142,7 @@ impl CharacteristicsMap {
         }
     }
 
+    //TODO: Maintain the most recent value separately for computing dispatch rewards/weights.
     pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
         let e0 = self.map.get_mut(fqdn);
 
@@ -295,16 +296,24 @@ impl CharacteristicsMap {
 
     /// Tuple of cpu,gpu weights for polymorphic functions 
     pub fn get_dispatch_wts(&self, fqdn: &str) -> (f64, f64) {
-	let mut wcpu = 0.0;
-	let mut wgpu = 0.0;
-	if let Some(x) = self.lookup(fqdn, &Characteristics::wt_CPU){
-	    wcpu = unwrap_val_f64(&x);   
-	}
-	if let Some(y) = self.lookup(fqdn, &Characteristics::wt_GPU){
-	    wgpu = unwrap_val_f64(&y);   
-	}
-	(wcpu, wgpu)
+        let mut wcpu = 0.0;
+        let mut wgpu = 0.0;
+        if let Some(x) = self.lookup(fqdn, &Characteristics::wt_CPU){
+            wcpu = unwrap_val_f64(&x);
+        }
+        if let Some(y) = self.lookup(fqdn, &Characteristics::wt_GPU){
+            wgpu = unwrap_val_f64(&y);
+        }
+        (wcpu, wgpu)
     }
+
+    /// Since all completion call-backs point to here, update the dispatch weights as per MWUA?
+    pub fn update_dispatch_wts(&self) -> () {
+
+
+    }
+
+
     
     pub fn clone_value(&self, value: &Values) -> Values {
         match value {

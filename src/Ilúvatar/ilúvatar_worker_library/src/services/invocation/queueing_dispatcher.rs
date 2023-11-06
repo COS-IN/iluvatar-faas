@@ -69,7 +69,7 @@ impl QueueingDispatcher {
                 &function_config,
                 &cpu,
                 &gpu,
-            )?,	    
+            )?,
             async_functions: AsyncHelper::new(),
             clock: LocalTime::new(tid)?,
             invocation_config,
@@ -222,17 +222,18 @@ impl QueueingDispatcher {
 
     fn bandit1_dispatch(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
 
-	if reg.cpu_only() {
-	    return &self.cpu_queue;
-	}
-	if reg.gpu_only() {
-	    return &self.gpu_queue;
-	}
-	let mut chosen_q = &self.cpu_queue;
+        if reg.cpu_only() {
+            return &self.cpu_queue;
+        }
+        if reg.gpu_only() {
+            return &self.gpu_queue;
+        }
+        // TODO: probabilistic based on weights.
+        // TODO: Updating the weights based on past performance will be key!
+        let mut chosen_q = &self.cpu_queue;
 
-	
-	return chosen_q ;
-        // Choose either option with some probability.
+        return chosen_q ;
+            // Choose either option with some probability.
         // Need some dispatch state for this for sure.
     //     let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
     //     if let Some((_, q)) = best {
