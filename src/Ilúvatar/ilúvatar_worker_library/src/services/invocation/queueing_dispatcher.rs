@@ -21,6 +21,16 @@ lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
 }
 
+
+pub struct PolyDispatchState {
+    /// cpu/gpu -> wt , based on device load. 
+    device_wts: HashMap<String, f64>,
+    /// fn -> cpu_wt , based on locality and speedup considerations. 
+    per_fn_cpu_wt: HashMap<String, f64>,
+    per_fn_gpu_wt: HashMap<String, f64>,
+    // status service or direct cpu/gpu.rs ? 
+}
+
 pub struct QueueingDispatcher {
     async_functions: AsyncHelper,
     invocation_config: Arc<InvocationConfig>,
@@ -28,12 +38,7 @@ pub struct QueueingDispatcher {
     clock: LocalTime,
     cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Arc<dyn DeviceQueue>,
-    /// CPU/GPU qname and the wts 
-    dispatch_wts: HashMap<String, f64>,
-    // XXX: Will need to keep some dispatcher state to learn from history and for MWUA/Randomization/Bandits. Per-function history? Global? Depends also on the CPU and GPU States. Early vs. Late binding. Depends on CPU/GPU performance ratio. Late binding good when performance is similar, since we have lot more CPUs. Simple policy can assign based on CPU/GPU ratio. Weights can then be updated with MWUA?
-    // For each function, maintain a vector of device latencies, weights, preferences?
-    // How busy the device is can be estimated based on real CPU/GPU state plus queue sizes and recent dispatches?
-    
+    dispatch_state: Arc<PolyDispatchState>,
 }
 
 #[allow(dyn_drop)]
@@ -150,7 +155,6 @@ impl QueueingDispatcher {
             return Ok(enqueue);
         }
 
-        /// XXX: Multi-armed bandit goes here   
         let policy = self
             .invocation_config
             .enqueueing_policy
@@ -228,20 +232,12 @@ impl QueueingDispatcher {
         if reg.gpu_only() {
             return &self.gpu_queue;
         }
-        // TODO: probabilistic based on weights.
-        // TODO: Updating the weights based on past performance will be key!
-        let mut chosen_q = &self.cpu_queue;
+        let mut chosen_q ;
+	let mut device_feats ; // For CPU: qlen and est wait time. GPU: ? nvidia-smi? 
+	let mut device_wts ; // how busy is this device generally? 
+	let mut fn_wts; // Locality and GPU speedup considerations 
 
         return chosen_q ;
-            // Choose either option with some probability.
-        // Need some dispatch state for this for sure.
-    //     let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
-    //     if let Some((_, q)) = best {
-    //         q.enqueue_item(&enqueue)?;
-    //         enqueues += 1;
-    //     }
-    // 	num_enq+1 
-    // }
     }
 }
 
