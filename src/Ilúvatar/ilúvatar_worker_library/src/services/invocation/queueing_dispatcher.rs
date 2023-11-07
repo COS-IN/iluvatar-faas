@@ -14,7 +14,8 @@ use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::{logging::LocalTime, transaction::TransactionId, types::Compute};
 use std::sync::Arc;
 use tracing::{debug, info};
-use std::collections::HashMap; 
+use std::collections::HashMap;
+use time::OffsetDateTime;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -28,7 +29,28 @@ pub struct PolyDispatchState {
     /// fn -> cpu_wt , based on locality and speedup considerations. 
     per_fn_cpu_wt: HashMap<String, f64>,
     per_fn_gpu_wt: HashMap<String, f64>,
-    // status service or direct cpu/gpu.rs ? 
+    // status service or direct cpu/gpu.rs ?
+    fn_locality: HashMap<String, String>, // fn -> device
+    fn_prev_t: HashMap<String, OffsetDateTime>,
+}
+
+impl PolyDispatchState {
+    fn update_prev_t(&mut self, fid:String, t:OffsetDateTime) -> () {
+        todo!();
+    }
+    fn update_locality(&mut self, fid:String, device:String) -> () {
+        todo!();
+    }
+
+    // Based on the load/utilization etc?
+    fn update_dev_wts(&mut self, device:String, wt:f64) -> () {
+        todo!();
+    }
+
+    // Normalize the weights etc into probabilities?
+    fn get_fn_wts(&self, fid:String) -> (f64, f64) {
+        (0.5, 0.5)
+    }
 }
 
 pub struct QueueingDispatcher {
@@ -236,7 +258,7 @@ impl QueueingDispatcher {
 	let mut device_feats ; // For CPU: qlen and est wait time. GPU: ? nvidia-smi? 
 	let mut device_wts ; // how busy is this device generally? 
 	let mut fn_wts; // Locality and GPU speedup considerations 
-
+        let fn_at = self.cmap.;
         return chosen_q ;
     }
 }
