@@ -48,11 +48,20 @@ impl PolyDispatchState {
     }
 
     // Normalize the weights etc into probabilities?
-    fn latency_rewards(&self, fid:String) -> (f64, f64) {
-        
-    }
-
-    fn get_e2e_lats(&self, fid:String) -> () {
+    fn latency_rewards(&self, fid:String, device:Compute) -> (f64) {
+	match device {
+	    Compute::CPU => {
+		let dev_lat = self.cmap.get_e2e_cpu(fid, False); //most recent 
+		// Need to compare this to average latency of the /other/ device
+		let other_lat = self.cmap.get_e2e_gpu(fid, True); // aggregate
+	    }
+	    _ => {
+		let dev_lat = self.cmap.get_e2e_gpu(fid);
+		let other_lat = self.cmap.get_e2e_cpu(fid, True); // aggregate		
+	    }
+	}
+	let diff = other_lat - dev_lat ;
+	
 	self.cmap.get_e2e 
     }
 }

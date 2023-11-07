@@ -78,7 +78,8 @@ pub struct FlowQ {
     in_flight: i32,
     // Number concurrently executing, to enforce cap?
     // Actual service time may be different. Updated after function completion somehow?
-    grace_period: f64,
+    /// Is the TTL Keep-alive duration
+    TTL_s: f64,
     // s to wait for next arrival if empty
     last_serviced: OffsetDateTime,
     service_avg: f64,
@@ -98,7 +99,7 @@ impl FlowQ {
             Sv,
             Fv: 0.0,
             in_flight: 0,
-            grace_period: 20.0,
+            TTL_s: 20.0,
             last_serviced: OffsetDateTime::now_utc(),
             service_avg: 10.0,
             allowed_overrun: 10.0,
@@ -162,8 +163,8 @@ impl FlowQ {
         let gap = self.Sv - VT; // VT is old Sv, but is Sv updated?
                                 // check grace period
         if self.queue.len() == 0 {
-            let grace_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
-            if grace_remaining > self.grace_period {
+            let TTL_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
+            if TTL_remaining > self.TTL_s {
                 self.state = MQState::Inactive;
             }
         }
