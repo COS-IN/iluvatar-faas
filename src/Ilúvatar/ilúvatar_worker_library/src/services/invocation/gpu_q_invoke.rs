@@ -422,6 +422,8 @@ impl GpuQueueingInvoker {
             Values::F64(data.duration_sec),
             true,
         );
+	// TODO: cmap.queue_insert_time - current time for E2E GPU time
+	// Also same for cpu_q_invoke 
         let (compute, state) = (ctr_lock.container.compute_type(), ctr_lock.container.state());
         drop(ctr_lock);
         Ok((data, duration, compute, state))

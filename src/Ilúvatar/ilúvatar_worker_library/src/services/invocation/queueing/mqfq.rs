@@ -42,16 +42,7 @@ enum MQEvent {
     RequestCancelled,
 }
 
-struct TimerEvent {
-    deadline: OffsetDateTime,
-    // When the timer should fire
-    flow: Arc<FlowQ>,
-    ev_type: MQEvent,
-}
-
-struct TimerWheel {
-    twheel: Vec<TimerEvent>,
-}
+// TODO: Average completion time using little's law, and other estimates. 
 
 pub struct MQRequest {
     invok: Arc<EnqueuedInvocation>,

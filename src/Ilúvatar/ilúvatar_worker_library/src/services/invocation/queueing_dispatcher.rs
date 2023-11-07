@@ -24,13 +24,13 @@ lazy_static::lazy_static! {
 
 
 pub struct PolyDispatchState {
-    /// cpu/gpu -> wt , based on device load. 
-    device_wts: HashMap<String, f64>,
-    /// fn -> cpu_wt , based on locality and speedup considerations. 
-    per_fn_cpu_wt: HashMap<String, f64>,
-    per_fn_gpu_wt: HashMap<String, f64>,
-    // status service or direct cpu/gpu.rs ?
-    fn_locality: HashMap<String, String>, // fn -> device
+    cmap: Arc<CharacteristicsMap>,
+    /// cpu/gpu -> wt , based on device load.
+    device_wts: HashMap<Compute, f64>,
+    /// fn -> cpu_wt, gpu_wt , based on locality and speedup considerations. 
+    per_fn_wts: HashMap<String, (f64, f64)>,
+    /// Most recent fn->device placement for each fn 
+    prev_dispatch: HashMap<String, Compute>,
     fn_prev_t: HashMap<String, OffsetDateTime>,
 }
 
@@ -48,8 +48,12 @@ impl PolyDispatchState {
     }
 
     // Normalize the weights etc into probabilities?
-    fn get_fn_wts(&self, fid:String) -> (f64, f64) {
-        (0.5, 0.5)
+    fn latency_rewards(&self, fid:String) -> (f64, f64) {
+        
+    }
+
+    fn get_e2e_lats(&self, fid:String) -> () {
+	self.cmap.get_e2e 
     }
 }
 
@@ -255,10 +259,17 @@ impl QueueingDispatcher {
             return &self.gpu_queue;
         }
         let mut chosen_q ;
-	let mut device_feats ; // For CPU: qlen and est wait time. GPU: ? nvidia-smi? 
-	let mut device_wts ; // how busy is this device generally? 
-	let mut fn_wts; // Locality and GPU speedup considerations 
-        let fn_at = self.cmap.;
+	let fid = reg.function_name.clone(); 
+
+	self.dispatch_state.update_device_loads();
+	self.dispatch_state.update_fn_chars(); // implicit? 
+
+	self.cmap.get_e2e_cpu(fid);
+	self.cmap.get_e2e_gpu(fid);
+	
+	
+	self.dispatch_state.
+
         return chosen_q ;
     }
 }
