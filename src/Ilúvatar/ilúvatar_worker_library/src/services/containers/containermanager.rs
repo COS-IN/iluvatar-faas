@@ -204,7 +204,6 @@ impl ContainerManager {
         all_ctrs.extend(self.gpu_containers.running_containers.iter());
         all_ctrs.extend(self.gpu_containers.idle_containers.iter());
         all_ctrs.retain(|x| x.is_healthy());
-        let mut sum_change = 0;
         for container in all_ctrs {
             if !container.is_healthy() {
                 continue; // don't update unhealthy containers, they will be remove soon
@@ -220,9 +219,8 @@ impl ContainerManager {
             let new_usage = cont_lifecycle.update_memory_usage_mb(&container, tid);
             let diff = new_usage - old_usage;
             debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
-            sum_change += diff;
+            *self.used_mem_mb.write() += diff;
         }
-        *self.used_mem_mb.write() += sum_change;
 
         let new_total_mem = *self.used_mem_mb.read();
         debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Total container memory usage");

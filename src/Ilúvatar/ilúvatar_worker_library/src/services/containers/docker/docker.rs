@@ -82,8 +82,8 @@ impl DockerIsolation {
     }
 
     /// Get the stdout and stderr of a container
-    fn get_logs(&self, container: &Container, tid: &TransactionId) -> Result<(String, String)> {
-        let args = vec!["logs", container.container_id().as_str()];
+    pub fn get_logs(&self, container_id: &str, tid: &TransactionId) -> Result<(String, String)> {
+        let args = vec!["logs", container_id];
         let output = execute_cmd("/usr/bin/docker", args, None, tid)?;
         if let Some(status) = output.status.code() {
             if status != 0 {
@@ -99,12 +99,12 @@ impl DockerIsolation {
     }
 
     fn get_stderr(&self, container: &Container, tid: &TransactionId) -> Result<String> {
-        let (_out, err) = self.get_logs(container, tid)?;
+        let (_out, err) = self.get_logs(container.container_id(), tid)?;
         Ok(err)
     }
 
     fn get_stdout(&self, container: &Container, tid: &TransactionId) -> Result<String> {
-        let (out, _err) = self.get_logs(container, tid)?;
+        let (out, _err) = self.get_logs(container.container_id(), tid)?;
         Ok(out)
     }
 
@@ -193,8 +193,8 @@ impl ContainerIsolationService for DockerIsolation {
             &il_port,
             "--cpus",
             cpu_arg.as_str(),
-            "--memory",
-            &memory_arg,
+            // "--memory",
+            // &memory_arg,
             "-e",
             "__IL_HOST=0.0.0.0",
             "-p",
@@ -214,6 +214,8 @@ impl ContainerIsolationService for DockerIsolation {
             {
                 args.push("-e");
                 args.push("LD_PRELOAD=/app/libnvshare.so");
+                args.push("-v");
+                args.push("/tmp/nvidia-mps:/tmp/nvidia-mps");
             }
         }
 
@@ -330,10 +332,10 @@ impl ContainerIsolationService for DockerIsolation {
     async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
         let start = SystemTime::now();
         loop {
-            match self.get_logs(container, tid) {
+            match self.get_logs(container.container_id(), tid) {
                 Ok((_out, err)) => {
                     // stderr was written to, gunicorn server is either up or crashed
-                    if !err.is_empty() {
+                    if err.contains("Listening at") {
                         break;
                     }
                 }

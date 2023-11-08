@@ -67,6 +67,19 @@ typedef enum CUmemAttach_flags_enum {
 	CU_MEM_ATTACH_GLOBAL = 0x1
 } CUmemAttach_flags;
 
+#define CU_DEVICE_CPU ((CUdevice)-1)
+
+typedef enum CUmem_advise_flags_enum {
+	CU_MEM_ADVISE_SET_READ_MOSTLY = 0x1,
+  CU_MEM_ADVISE_UNSET_READ_MOSTLY = 0x2,
+  CU_MEM_ADVISE_SET_PREFERRED_LOCATION = 0x3,
+  CU_MEM_ADVISE_UNSET_PREFERRED_LOCATION = 0x4,
+  CU_MEM_ADVISE_SET_ACCESSED_BY = 0x5,
+  CU_MEM_ADVISE_UNSET_ACCESSED_BY = 0x6
+} CUmem_advise_flags;
+
+#define CU_STREAM_PER_THREAD ((CUstream)0x2) 
+
 typedef enum nvmlReturn_t_enum {
 	NVML_SUCCESS = 0,
 	NVML_ERROR_UNKNOWN = 999
@@ -90,11 +103,19 @@ typedef struct nvmlUtilization_st {
 	unsigned int memory;
 } nvmlUtilization_t;
 
+typedef enum CUstream_flags_enum {
+  CU_STREAM_DEFAULT = 0x0,
+  CU_STREAM_NON_BLOCKING = 0x1
+} CUstream_flags;
+
 /* typedefs for CUDA functions, to make hooking code cleaner */
-typedef CUresult (*cuGetProcAddress_func)(const char *symbol, void **pfn,
-	int cudaVersion, cuuint64_t flags);
-typedef CUresult (*cuMemAllocManaged_func)(CUdeviceptr *dptr, size_t bytesize,
-	unsigned int flags);
+typedef CUresult (*cuGetProcAddress_func)(const char *symbol, void **pfn, int cudaVersion, cuuint64_t flags);
+typedef CUresult (*cuMemAllocManaged_func)(CUdeviceptr *dptr, size_t bytesize, unsigned int flags);
+typedef CUresult (*cuMemAdvise_func)(CUdeviceptr devPtr, size_t count, CUmem_advise_flags advice, CUdevice device);
+typedef CUresult (*cuMemPrefetchAsync_func)(CUdeviceptr devPtr, size_t count, CUdevice dstDevice, CUstream hStream);
+typedef CUresult (*cuStreamCreate_func)(CUstream* phStream, unsigned int Flags); 
+typedef CUresult (*cuDeviceGet_func)(CUdevice *device, int ordinal);
+typedef CUresult (*cuMemAlloc_func)(CUdeviceptr *dptr, size_t bytesize);
 typedef CUresult (*cuMemFree_func)(CUdeviceptr dptr);
 typedef CUresult (*cuMemGetInfo_func)(size_t *free, size_t *total);
 typedef CUresult (*cuGetErrorString_func)(CUresult error, const char **pStr);

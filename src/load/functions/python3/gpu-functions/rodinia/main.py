@@ -14,12 +14,23 @@ cold = True
 def has_gpu() -> bool:
   return os.path.isfile("/usr/bin/nvidia-smi")  
 
-def get_args(args):
+def get_bin_path(args):
   bin = args.get("bin", "myocyte.out")
+  middle = "cuda" if has_gpu() else "openmp"
+  bin_path = os.path.join(bins, middle, bin)
+  if bin == "lud":
+    if middle == "cuda":
+      bin_path = os.path.join(bins, middle, "lud_cuda")
+    else:
+      bin_path = os.path.join(bins, middle, "lud_omp")
+
+  return bin, bin_path
+
+def get_args(args):
+  bin, bin_path = get_bin_path(args)
 
   if has_gpu():
     ret = None
-    bin_path = os.path.join(bins, "cuda", bin)
     if "args" in args:
       error, bin_args = False, args["args"].split(' ')
       bin_args.insert(0, bin_path)
@@ -40,33 +51,30 @@ def get_args(args):
     elif bin == "lavaMD":
       ret = [bin_path, "-boxes1d", "30"]
     elif bin == "lud":
-      bin_path = os.path.join(bins, "cuda", "lud_cuda")
       ret = [bin_path, "-s", "8192"]
     else:
       return True, {"body": { "error": f"Unknown GPU binary '{bin}'" }}
 
   else:
-    bin_path = os.path.join(bins, "openmp", bin)
     if "args" in args:
       error, bin_args = False, args["args"].split(' ')
       bin_args.insert(0, bin_path)
-
+    # smaller args for CPU versions, because they take extraordinarily long to complete with 1 core (100x time)
       return False, bin_args
     if bin == "pathfinder":
-      ret = [bin_path, "100000", "100"]
+      ret = [bin_path, "50000", "50"]
     elif bin == "srad":
-      ret = [bin_path, "100", "0.5", "20480", "20480", "1"]
+      ret = [bin_path, "20", "0.5", "1024", "1024", "1"]
     elif bin == "needle":
-      ret = [bin_path, "1024", "10", "2"]
+      ret = [bin_path, "512", "5", "2"]
     elif bin == "myocyte.out":
-      ret = [bin_path, "100", "3000", "1", "1"]
+      ret = [bin_path, "800", "1000", "1", "1"]
     elif bin == "backprop":
-      ret = [bin_path, "12097152"]
+      ret = [bin_path, "6097152"]
     elif bin == "lavaMD":
       ret = [bin_path, "-boxes1d", "10"]
     elif bin == "lud":
-      bin_path = os.path.join(bins, "openmp", "lud_omp")
-      ret = [bin_path, "-s", "1024"]
+      ret = [bin_path, "-s", "256"]
     else:
       return True, {"body": { "error": f"Unknown CPU binary '{bin}'" }}
     

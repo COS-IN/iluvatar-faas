@@ -64,7 +64,7 @@ impl NamespaceManager {
         })
     }
 
-    #[tracing::instrument(skip(self), fields(tid=%tid))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     fn monitor_pool(&self, tid: &TransactionId) {
         while self.pool_size() < self.config.pool_size {
             let ns = match self.create_namespace(&self.generate_net_namespace_name(), tid) {

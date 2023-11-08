@@ -22,7 +22,7 @@
 
 #include "common.h"
 
-int __debug = 1;
+int __debug = 0;
 
 
 /*

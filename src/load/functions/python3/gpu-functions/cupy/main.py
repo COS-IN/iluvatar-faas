@@ -5,62 +5,69 @@ try:
   import os
   from time import time
   import numpy as np
+  import ctypes
 except Exception as e:
   msg = traceback.format_exc()
 
 tmp = "/tmp/"
 cold = True
+last_size = -1
+A = None
+B = None
+X = None
 
 def has_gpu() -> bool:
   return os.path.isfile("/usr/bin/nvidia-smi")  
 
+sync = True
 def math_cupy(size, iters):
   import cupy
   import cupyx.scipy.fft as cufft
-  mempool = cupy.get_default_memory_pool()
-  mempool.set_limit(size=2 * (1024**3))  # 2 GiB
-
-  dev = cupy.cuda.Device()
-  Capability = dev.compute_capability
-  Memory = dev.mem_info
-
+  global A, B, X, last_size, sync
   squared_diff_generic = cupy.ElementwiseKernel(
     'T x, T y',
     'T z',
     'z = (x - y) * (x - y)',
     'squared_diff_generic')
-  
+  if size != last_size:
+    print(f"allocating memory {last_size} vs {size}")
+    last_size = size
   A = cupy.random.rand(size, size, dtype=cupy.float32)
   B = cupy.random.rand(size, size, dtype=cupy.float32)
-
   for i in range(iters):
     X = cufft.fft(squared_diff_generic(A,B))
+  return str(cupy.mean(cupy.mean(X)))
 
 def math_numpy(size, iters):
-  A = np.random.rand(size, size)
-  B = np.random.rand(size, size)
+  global A, B, X, last_size
+  if size != last_size:
+    print(f"allocating memory {last_size} vs {size}")
+    last_size = size
+    A = np.random.rand(size, size)
+    B = np.random.rand(size, size)
 
   for i in range(iters):
     z = (A - B) * (A - B)
     X = np.fft.fft(z)
+  return str(np.mean(np.mean(X)))
 
 def main(args):
-  global cold
+  global cold, sync
   was_cold = cold
   cold = False
   try:
     start = time()
     
-    size = int(args.get('size', 500))
-    iters = int(args.get('iters', 1000))
+    size = int(args.get('size', 6000))
+    iters = int(args.get('iters', 150))
 
     if has_gpu():
-      math_cupy(size, iters)
+      mean = math_cupy(size, iters)
     else:
-      math_numpy(size, iters)
+      mean = math_numpy(size, iters)
 
     end = time()
-    return {"body": { "latency":end-start, "cold":was_cold, "start":start, "end":end }}
+    return {"body": { "latency":end-start, "cold":was_cold, "start":start, "end":end, "sync":sync, "mean":mean }}
   except Exception as e:
     err = str(e)
     try:

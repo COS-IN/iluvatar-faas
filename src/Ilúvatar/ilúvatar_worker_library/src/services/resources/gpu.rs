@@ -7,7 +7,7 @@ use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb,
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct GpuStatus {
@@ -46,8 +46,8 @@ impl GPU {
         hardware_memory_mb: MemSizeMb,
         config: &Arc<GPUResourceConfig>,
         tid: &TransactionId,
-    ) -> Vec<Arc<Self>> {
-        let (spots, mem_size) = Self::compute_spots(hardware_memory_mb, &gpu_uuid, config, tid);
+    ) -> Result<Vec<Arc<Self>>> {
+        let (spots, mem_size) = Self::compute_spots(hardware_memory_mb, &gpu_uuid, config, tid)?;
         let thread_pct = match config.mps_limit_active_threads {
             Some(true) => 1.0 / spots as f64,
             _ => 1.0,
@@ -62,7 +62,7 @@ impl GPU {
                 thread_pct,
             }))
         }
-        ret
+        Ok(ret)
     }
 
     /// Return the number of spots on the GPU and the amount of memory in each spot
@@ -71,7 +71,18 @@ impl GPU {
         gpu_uuid: &GpuUuid,
         config: &Arc<GPUResourceConfig>,
         tid: &TransactionId,
-    ) -> (u32, MemSizeMb) {
+    ) -> Result<(u32, MemSizeMb)> {
+        if config.driver_hook_enabled() {
+            return match config.funcs_per_device {
+                Some(fs) => Ok((fs, hardware_memory_mb)),
+                None => {
+                    return Err(anyhow::format_err!(
+                        "Driver hook was enbaled but `funcs_per_device` was mpt set"
+                    ))
+                }
+            };
+        }
+
         let per_func_memory_mb = if config.use_standalone_mps.unwrap_or(false) {
             config.per_func_memory_mb.unwrap_or(hardware_memory_mb)
         } else if config.per_func_memory_mb.is_some() {
@@ -79,18 +90,30 @@ impl GPU {
         } else {
             hardware_memory_mb
         };
+        if per_func_memory_mb == 0 {
+            anyhow::bail!(
+                "GPU function assigned memory was set to zero, either hardware {} or per_func {:?}",
+                hardware_memory_mb,
+                config.per_func_memory_mb
+            );
+        }
         let spots = hardware_memory_mb / per_func_memory_mb;
         info!(tid=%tid, gpu_uuid=%gpu_uuid, spots=spots, hardware_memory_mb=hardware_memory_mb, per_func_memory_mb=per_func_memory_mb, "GPU available spots");
-        (spots as u32, hardware_memory_mb)
+        Ok((spots as u32, hardware_memory_mb))
     }
 }
 
+const MPS_CONTAINER_NAME: &str = "iluvatar-mps-daemon";
+lazy_static::lazy_static! {
+  static ref GPU_RESC_TID: TransactionId = "GPU_RESC_TRACK".to_string();
+}
 /// Struct that manages GPU control between containers
 /// A GPU can only be assigned to one container at a time, and must be reutrned via [GpuResourceTracker::return_gpu] after container deletion
 /// For an invocation to use the GPU, it must have isolation over that resource by acquiring it via [GpuResourceTracker::try_acquire_resource]
 pub struct GpuResourceTracker {
     gpus: RwLock<Vec<Arc<GPU>>>,
     concurrency_semaphore: Arc<Semaphore>,
+    docker: Arc<dyn ContainerIsolationService>,
 }
 impl GpuResourceTracker {
     pub fn boxed(
@@ -112,6 +135,7 @@ impl GpuResourceTracker {
             return Ok(Some(Arc::new(GpuResourceTracker {
                 concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid),
                 gpus: RwLock::new(gpus),
+                docker: docker.clone(),
             })));
         }
         Ok(None)
@@ -130,14 +154,18 @@ impl GpuResourceTracker {
         Self::set_gpu_exclusive(tid)?;
         debug!(tid=%tid, "Launching MPS container");
         let args = vec![
+            "--name",
+            MPS_CONTAINER_NAME,
             "--gpus",
             "all",
             "--ipc=host",
             "--entrypoint",
             "/usr/bin/nvidia-cuda-mps-control",
+            "-v",
+            "/tmp/nvidia-mps:/tmp/nvidia-mps",
         ];
-        let env =
-            std::collections::HashMap::from([("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE".to_string(), "15".to_string())]);
+        // let env =
+        //     std::collections::HashMap::from([("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE".to_string(), "15".to_string())]);
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
 
         docker.docker_run(args, img_name, "iluvatar_mps_control", Some("-f"), tid, Some(&env))
@@ -190,7 +218,7 @@ impl GpuResourceTracker {
             .ok_or_else(|| anyhow::format_err!("`memory_mb` config must be provided"))?;
         for i in 0..gpu_config.count {
             let gpu_uuid = format!("GPU-{}", i);
-            ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid));
+            ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
             found += 1;
         }
         Ok((found, ret))
@@ -222,7 +250,7 @@ impl GpuResourceTracker {
                         .get(0)
                         .ok_or_else(|| anyhow::format_err!("Reading GPU uuid failed from '{:?}'", r))?
                         .to_string();
-                    ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid));
+                    ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
                 }
                 Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read record from nvidia-smi"),
             }
@@ -297,5 +325,16 @@ impl GpuResourceTracker {
             }
         }
         Ok(ret)
+    }
+}
+impl Drop for GpuResourceTracker {
+    fn drop(&mut self) {
+        if let Some(docker) = self.docker.as_any().downcast_ref::<DockerIsolation>() {
+            let tid: &TransactionId = &GPU_RESC_TID;
+            match docker.get_logs(MPS_CONTAINER_NAME, tid) {
+                Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
+                Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
+            }
+        }
     }
 }

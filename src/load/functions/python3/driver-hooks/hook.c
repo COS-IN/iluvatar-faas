@@ -59,6 +59,11 @@ cuMemcpyDtoD_func real_cuMemcpyDtoD = NULL;
 cuMemcpyDtoDAsync_func real_cuMemcpyDtoDAsync = NULL;
 cuGetProcAddress_func real_cuGetProcAddress = NULL;
 cuMemAllocManaged_func real_cuMemAllocManaged = NULL;
+cuMemAdvise_func real_cuMemAdvise = NULL;
+cuMemPrefetchAsync_func real_cuMemPrefetchAsync = NULL;
+cuDeviceGet_func real_cuDeviceGet = NULL;
+cuMemAlloc_func real_cuMemAlloc = NULL;
+cuStreamCreate_func real_cuStreamCreate = NULL;
 cuMemFree_func real_cuMemFree = NULL;
 cuMemGetInfo_func real_cuMemGetInfo = NULL;
 cuGetErrorString_func real_cuGetErrorString = NULL;
@@ -80,6 +85,9 @@ pthread_mutex_t kcount_mutex;
 
 int enable_single_oversub = 0;
 int nvml_ok = 1;
+CUdevice assignedDevice;
+CUstream asyncPrefetchStream;
+
 
 /* Representation of a CUDA memory allocation */
 struct cuda_mem_allocation {
@@ -154,6 +162,32 @@ static void bootstrap_cuda(void)
 	error = dlerror();
 	if (error != NULL)
 		log_fatal("%s", error);
+  real_cuMemAdvise = (cuMemAdvise_func)
+		real_dlsym_225(cuda_handle,CUDA_SYMBOL_STRING(cuMemAdvise));
+	error = dlerror();
+	if (error != NULL)
+		log_fatal("%s", error);
+  real_cuMemPrefetchAsync = (cuMemPrefetchAsync_func)
+		real_dlsym_225(cuda_handle,CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
+	error = dlerror();
+	if (error != NULL)
+		log_fatal("%s", error);
+  real_cuDeviceGet = (cuDeviceGet_func)
+		real_dlsym_225(cuda_handle,CUDA_SYMBOL_STRING(cuDeviceGet));
+	error = dlerror();
+	if (error != NULL)
+		log_fatal("%s", error);
+	real_cuMemAlloc = (cuMemAlloc_func)
+		real_dlsym_225(cuda_handle,CUDA_SYMBOL_STRING(cuMemAlloc));
+	error = dlerror();
+	if (error != NULL)
+		log_fatal("%s", error);
+	real_cuStreamCreate = (cuStreamCreate_func)
+		real_dlsym_225(cuda_handle,CUDA_SYMBOL_STRING(cuStreamCreate));
+	error = dlerror();
+	if (error != NULL)
+		log_fatal("%s", error);
+
 	real_cuMemFree = (cuMemFree_func)
 		real_dlsym_225(cuda_handle,CUDA_SYMBOL_STRING(cuMemFree));
 	error = dlerror();
@@ -251,6 +285,10 @@ static void bootstrap_cuda(void)
 		log_fatal("%s", error);
 }
 
+double total_cuda_allocations()
+{
+  return toMiB(sum_allocated);
+}
 
 /* Append a new CUDA memory allocation at the end of the list. */
 static void insert_cuda_allocation(CUdeviceptr dptr, size_t bytesize)
@@ -304,6 +342,19 @@ static void initialize_libnvshare(void)
 	}
 
 	bootstrap_cuda();
+
+  if (real_cuDeviceGet == NULL) {
+    log_fatal("real_cuDeviceGet was not set after bootstrap");
+    return;
+  }
+  if (real_cuMemAdvise == NULL) {
+    log_fatal("real_cuMemAdvise was not set after bootstrap");
+    return;
+  }
+  // log_debug("Total allocated memory on GPU is %.2f MiB",
+  //       toMiB(sum_allocated));
+  cuda_driver_check_error(real_cuDeviceGet(&assignedDevice, 0), CUDA_SYMBOL_STRING(cuDeviceGet));
+  cuda_driver_check_error(real_cuStreamCreate(&asyncPrefetchStream, CU_STREAM_NON_BLOCKING), CUDA_SYMBOL_STRING(cuStreamCreate));
 }
 
 
@@ -419,7 +470,7 @@ static void *real_dlsym_234(void *handle, const char *symbol)
 void dump_symbol(void *handle, const char *symbol){
     UNUSED(handle);
 	if (strncmp(symbol, "cu", 2) == 0) {
-        log_warn("[dlsym]%s", symbol);
+        log_debug("[dlsym]%s", symbol);
     }
 }
 
@@ -439,7 +490,7 @@ void dump_symbol(void *handle, const char *symbol){
  */
 void *dlsym_225(void *handle, const char *symbol)
 {
-    log_warn("%s:%d called", __FUNCTION__, __LINE__);
+    log_debug("%s:%d called", __FUNCTION__, __LINE__);
     dump_symbol( handle, symbol );
 
 	if (strncmp(symbol, "cu", 2) != 0) {
@@ -479,7 +530,7 @@ void *dlsym_225(void *handle, const char *symbol)
 
 void *dlsym_234(void *handle, const char *symbol)
 {
-    log_warn("%s:%d called", __FUNCTION__, __LINE__);
+    log_debug("%s:%d called", __FUNCTION__, __LINE__);
 	if (strncmp(symbol, "cu", 2) != 0) {
 		return (real_dlsym_234(handle, symbol));
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
@@ -517,7 +568,7 @@ void *dlsym_234(void *handle, const char *symbol)
 
 void *dlsym_231(void *handle, const char *symbol)
 {
-    log_warn("%s:%d called", __FUNCTION__, __LINE__);
+    log_debug("%s:%d called", __FUNCTION__, __LINE__);
 	if (strncmp(symbol, "cu", 2) != 0) {
 		return (real_dlsym_231(handle, symbol));
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
@@ -614,13 +665,86 @@ CUresult cuGetProcAddress(const char *symbol, void **pfn, int cudaVersion,
 	return result;
 }
 
+int prefetchStreamToHost() {
+  CUresult result = CUDA_SUCCESS;
+	struct cuda_mem_allocation *tmp, *a;
+  if (real_cuMemAdvise == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+
+	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
+      result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
+      cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+      result = real_cuMemPrefetchAsync(a->ptr, a->size, CU_DEVICE_CPU, asyncPrefetchStream);
+      cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
+	}
+  return 0;
+}
+int prefetchStreamToDevice() {
+  CUresult result = CUDA_SUCCESS;
+	struct cuda_mem_allocation *tmp, *a;
+	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
+    result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+    cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+    result = real_cuMemPrefetchAsync(a->ptr, a->size, assignedDevice, asyncPrefetchStream);
+    cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
+	}
+  return 0;
+}
+
+int prefetchToHost() {
+  CUresult result = CUDA_SUCCESS;
+	struct cuda_mem_allocation *tmp, *a;
+  if (real_cuMemAdvise == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+
+	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
+      result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
+      cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+      result = real_cuMemPrefetchAsync(a->ptr, a->size, CU_DEVICE_CPU, CU_STREAM_PER_THREAD);
+      cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
+	}
+  return 0;
+}
+int prefetchToDevice() {
+  CUresult result = CUDA_SUCCESS;
+	struct cuda_mem_allocation *tmp, *a;
+
+	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
+    result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+    cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+    result = real_cuMemPrefetchAsync(a->ptr, a->size, assignedDevice, CU_STREAM_PER_THREAD);
+    cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
+	}
+  return 0;
+}
+
+int madviseToHost() {
+  CUresult result = CUDA_SUCCESS;
+	struct cuda_mem_allocation *tmp, *a;
+  if (real_cuMemAdvise == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+
+	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
+      result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
+      cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+	}
+  return 0;
+}
+int madviseToDevice() {
+  CUresult result = CUDA_SUCCESS;
+	struct cuda_mem_allocation *tmp, *a;
+  if (real_cuDeviceGet == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+  if (real_cuMemAdvise == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+
+	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
+      result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+      cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+	}
+  return 0;
+}
 
 CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize)
 {
 	static int got_max_mem_size = 0;
-        size_t junk;
+  size_t junk;
 	CUresult result = CUDA_SUCCESS;
-
 
 	/* Return immediately if not initialized */
 	if (real_cuMemAllocManaged == NULL) return CUDA_ERROR_NOT_INITIALIZED;
@@ -644,8 +768,13 @@ CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize)
 	log_debug("cuMemAlloc requested %zu bytes", bytesize);
 	result = real_cuMemAllocManaged(dptr, bytesize, CU_MEM_ATTACH_GLOBAL);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAllocManaged));
-	log_debug("cuMemAllocManaged allocated %zu bytes at 0x%llx",
-		bytesize, *dptr);
+	log_debug("cuMemAllocManaged allocated %zu bytes at 0x%llx", bytesize, *dptr);
+	result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+  result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_ACCESSED_BY, assignedDevice);
+	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+	log_debug("cuMemAdvise set advice");
+  
 	if (result == CUDA_SUCCESS) {
 		insert_cuda_allocation(*dptr, bytesize);
 	}
@@ -657,7 +786,6 @@ CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize)
 CUresult cuMemFree(CUdeviceptr dptr)
 {
 	CUresult result = CUDA_SUCCESS;
-
 
 	if (real_cuMemFree == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 	result = real_cuMemFree(dptr);
