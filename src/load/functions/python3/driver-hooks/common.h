@@ -13,6 +13,18 @@ extern ssize_t write_whole(int fd, const void *buf, size_t count);
 extern ssize_t read_whole(int fd, void *buf, size_t count);
 extern size_t strlcpy(char *dst, const char *src, size_t siz);
 
+#define CUDA_CHECK_ERR(err, func_name)             \
+do {                                                \
+	if (err != CUDA_SUCCESS) {                        \
+		const char *err_string;                         \
+		const char *err_name;                         \
+		real_cuGetErrorString(err, &err_string);            \
+		real_cuGetErrorName(err, &err_name);                \
+		log_warn("%s returned %s: %s",                        \
+	                 func_name, err_name, err_string);     \
+    return err;             \
+	}                        \
+} while (0)
 
 #define log_fatal_errno(fmt, ...)                             \
 do {                                                          \

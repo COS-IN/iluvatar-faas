@@ -36,42 +36,36 @@ def index():
 def to_dev():
   if nvshare is None:
     return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  print("madviseToDevice", nvshare.madviseToDevice())
-  return jsonify({"Status":"OK"})
+  return jsonify({"Status":nvshare.madviseToDevice()})
 
 @app.route('/off_dev', methods=["PUT"])
 def off_dev():
   if nvshare is None:
     return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  print("madviseToHost", nvshare.madviseToHost())
-  return jsonify({"Status":"OK"})
+  return jsonify({"Status":nvshare.madviseToHost()})
 
 @app.route('/prefetch_host', methods=["PUT"])
 def prefetch_host():
   if nvshare is None:
     return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  print("prefetchToHost", nvshare.prefetchToHost())
-  return jsonify({"Status":"OK"})
+  return jsonify({"Status":nvshare.prefetchToHost()})
 
 @app.route('/prefetch_dev', methods=["PUT"])
 def prefetch_dev():
   if nvshare is None:
     return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  print("prefetchToDevice", nvshare.prefetchToDevice())
-  return jsonify({"Status":"OK"})
+  return jsonify({"Status":nvshare.prefetchToDevice()})
 
 @app.route('/prefetch_stream_host', methods=["PUT"])
 def prefetch_stream_host():
   if nvshare is None:
     return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  print("prefetchStreamToHost", nvshare.prefetchStreamToHost())
-  return jsonify({"Status":"OK"})
+  return jsonify({"Status":nvshare.prefetchStreamToHost()})
 @app.route('/prefetch_stream_dev', methods=["PUT"])
 def prefetch_stream_dev():
   if nvshare is None:
     return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  print("prefetchStreamToDevice", nvshare.prefetchStreamToDevice())
-  return jsonify({"Status":"OK"})
+  return jsonify({"Status":nvshare.prefetchStreamToDevice()})
 
 @app.route('/gpu_mem', methods=["GET"])
 def gpu_mem():
