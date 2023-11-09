@@ -38,7 +38,7 @@
 #include "cuda_defs.h"
 #include "utlist.h"
 
-#define ENV_NVSHARE_ENABLE_SINGLE_OVERSUB  "NVSHARE_ENABLE_SINGLE_OVERSUB"
+#define ENV_GPUSHARE_ENABLE_SINGLE_OVERSUB  "GPUSHARE_ENABLE_SINGLE_OVERSUB"
 
 #define MEMINFO_RESERVE_MIB 1536           /* MiB */
 #define KERN_SYNC_DURATION_BIG 10          /* seconds */
@@ -76,7 +76,7 @@ nvmlDeviceGetUtilizationRates_func real_nvmlDeviceGetUtilizationRates = NULL;
 nvmlInit_func real_nvmlInit = NULL;
 nvmlDeviceGetHandleByIndex_func real_nvmlDeviceGetHandleByIndex = NULL;
 
-size_t nvshare_size_mem_allocatable = 0;
+size_t gpushare_size_mem_allocatable = 0;
 size_t sum_allocated = 0;
 
 int kern_since_sync = 0;
@@ -327,14 +327,14 @@ static void remove_cuda_allocation(CUdeviceptr rm_ptr)
 
 
 /* Toggle debug mode and single process oversubscription based on envvars */
-static void initialize_libnvshare(void)
+static void initialize_libgpushare(void)
 {
 	char *value;
-	value = getenv(ENV_NVSHARE_DEBUG);
+	value = getenv(ENV_GPUSHARE_DEBUG);
 	if (value != NULL)
 		__debug = 1;	
     __debug = 1;	
-	value = getenv(ENV_NVSHARE_ENABLE_SINGLE_OVERSUB);
+	value = getenv(ENV_GPUSHARE_ENABLE_SINGLE_OVERSUB);
 	if (value != NULL) {
 		enable_single_oversub = 1;
 		log_warn("Enabling GPU memory oversubscription for this"
@@ -366,7 +366,7 @@ void cuda_driver_check_error(CUresult err, const char *func_name)
 
 
 /* 
- * Since we're interposing dlsym() in libnvshare, we use dlvsym() to obtain the
+ * Since we're interposing dlsym() in libgpushare, we use dlvsym() to obtain the
  * address of the real dlsym function.
  *
  * Depending on glibc version, we look for the appropriate symbol.
@@ -755,12 +755,12 @@ CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize)
 	if (real_cuMemAllocManaged == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
 	if (got_max_mem_size == 0) {
-		result = cuMemGetInfo(&nvshare_size_mem_allocatable, &junk);
+		result = cuMemGetInfo(&gpushare_size_mem_allocatable, &junk);
 		cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemGetInfo));
 		got_max_mem_size = 1;
 	}
 
-	if ((sum_allocated + bytesize) > nvshare_size_mem_allocatable) {
+	if ((sum_allocated + bytesize) > gpushare_size_mem_allocatable) {
 		if (enable_single_oversub == 0) {
 			return CUDA_ERROR_OUT_OF_MEMORY;
 		} else {
@@ -845,21 +845,21 @@ CUresult cuMemGetInfo(size_t *free, size_t *total)
 	reserve_mib = (MEMINFO_RESERVE_MIB) MiB;
 	*free = *total - (size_t) reserve_mib;
 
-	log_debug("nvshare's cuMemGetInfo returning free=%.2f MiB,"
+	log_debug("gpushare's cuMemGetInfo returning free=%.2f MiB,"
 		  " total=%.2f MiB", toMiB(*free), toMiB(*total));
 	return result;
 }
 
 /*
  * A call to cuInit is an indicator that the present application is a CUDA
- * application and that we should bootstrap nvshare.
+ * application and that we should bootstrap gpushare.
  */
 CUresult cuInit(unsigned int flags)
 {
 	CUresult result = CUDA_SUCCESS;
-	static pthread_once_t init_libnvshare_done = PTHREAD_ONCE_INIT;
+	static pthread_once_t init_libgpushare_done = PTHREAD_ONCE_INIT;
 
-	true_or_exit(pthread_once(&init_libnvshare_done, initialize_libnvshare) == 0);
+	true_or_exit(pthread_once(&init_libgpushare_done, initialize_libgpushare) == 0);
 
 	result = real_cuInit(flags);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuInit));

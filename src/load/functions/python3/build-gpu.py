@@ -28,7 +28,7 @@ def push(func_name, log_file):
   docker_cmd(["push", image_name(func_name)], log_file)
 
 def build(path, function_name, dockerfile_base, basename):
-  shutil.copy(os.path.join(hooks_dir, "libnvshare.so"), path)
+  shutil.copy(os.path.join(hooks_dir, "libgpushare.so"), path)
   shutil.copy("server.py", path)
   shutil.copy(dockerfile_base, path)
   log_file = open(os.path.join(path, "build.log"), 'w')
@@ -48,7 +48,7 @@ def build(path, function_name, dockerfile_base, basename):
     if not args.skip_push:
       push(function_name, log_file)
   finally:
-    os.remove(os.path.join(path, "libnvshare.so"))
+    os.remove(os.path.join(path, "libgpushare.so"))
     os.remove(os.path.join(path, "server.py"))
     os.remove(os.path.join(path, dockerfile_base))
 

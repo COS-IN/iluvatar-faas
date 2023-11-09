@@ -181,7 +181,6 @@ impl ContainerIsolationService for DockerIsolation {
         let cpu_arg = cpus.to_string();
         let port_args = format!("{}:{}", port, port);
         let il_port = format!("__IL_PORT={}", port);
-        let gpu = device_resource.as_ref().map(|g| format!("device={}", g.gpu_uuid));
         let memory_arg = format!("{}MB", mem_limit_mb);
 
         let mut args = vec![
@@ -193,16 +192,22 @@ impl ContainerIsolationService for DockerIsolation {
             &il_port,
             "--cpus",
             cpu_arg.as_str(),
-            // "--memory",
-            // &memory_arg,
+            "--memory",
+            &memory_arg,
             "-e",
             "__IL_HOST=0.0.0.0",
             "-p",
             &port_args,
         ];
-        if let Some(dev) = gpu.as_ref() {
+        let gpu;
+        let mps_thread;
+        if let Some(device) = device_resource.as_ref() {
+            gpu = format!("device={}", device.gpu_uuid);
             args.push("--gpus");
-            args.push(dev);
+            args.push(gpu.as_str());
+            args.push("-e");
+            mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
+            args.push(mps_thread.as_str());
             if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
                 args.push("--ipc=host");
             }
@@ -213,7 +218,7 @@ impl ContainerIsolationService for DockerIsolation {
                 .map_or(false, |c| c.driver_hook_enabled())
             {
                 args.push("-e");
-                args.push("LD_PRELOAD=/app/libnvshare.so");
+                args.push("LD_PRELOAD=/app/libgpushare.so");
                 args.push("-v");
                 args.push("/tmp/nvidia-mps:/tmp/nvidia-mps");
             }

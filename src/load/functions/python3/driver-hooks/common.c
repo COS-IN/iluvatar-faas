@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  *
- * Common utilities used by nvshare.
+ * Common utilities used by gpushare.
  */
 
 #include <errno.h>

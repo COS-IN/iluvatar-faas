@@ -38,7 +38,8 @@ pub struct GPU {
     pub gpu_private_id: u32,
     pub hardware_memory_mb: MemSizeMb,
     pub allocated_mb: MemSizeMb,
-    pub thread_pct: f64,
+    /// From 1-100
+    pub thread_pct: u32,
 }
 impl GPU {
     pub fn split_resources(
@@ -49,8 +50,8 @@ impl GPU {
     ) -> Result<Vec<Arc<Self>>> {
         let (spots, mem_size) = Self::compute_spots(hardware_memory_mb, &gpu_uuid, config, tid)?;
         let thread_pct = match config.mps_limit_active_threads {
-            Some(true) => 1.0 / spots as f64,
-            _ => 1.0,
+            Some(true) => (100.0 / spots as f64) as u32,
+            _ => 100,
         };
         let mut ret = vec![];
         for i in 0..spots {
@@ -75,11 +76,7 @@ impl GPU {
         if config.driver_hook_enabled() {
             return match config.funcs_per_device {
                 Some(fs) => Ok((fs, hardware_memory_mb)),
-                None => {
-                    return Err(anyhow::format_err!(
-                        "Driver hook was enbaled but `funcs_per_device` was mpt set"
-                    ))
-                }
+                None => Ok((16, hardware_memory_mb)),
             };
         }
 
@@ -164,11 +161,8 @@ impl GpuResourceTracker {
             "-v",
             "/tmp/nvidia-mps:/tmp/nvidia-mps",
         ];
-        // let env =
-        //     std::collections::HashMap::from([("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE".to_string(), "15".to_string())]);
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
-
-        docker.docker_run(args, img_name, "iluvatar_mps_control", Some("-f"), tid, Some(&env))
+        docker.docker_run(args, img_name, "iluvatar_mps_control", Some("-f"), tid, None)
     }
 
     fn set_shared_exclusive(tid: &TransactionId) -> Result<()> {

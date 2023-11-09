@@ -28,31 +28,31 @@ do {                                                \
 
 #define log_fatal_errno(fmt, ...)                             \
 do {                                                          \
-	fprintf(stderr, "[NVSHARE][FATAL]: " fmt "\n", ##__VA_ARGS__); \
+	fprintf(stderr, "[GPUSHARE][FATAL]: " fmt "\n", ##__VA_ARGS__); \
 	fprintf(stderr, "errno = %s\n", strerror(errno));     \
 	exit(1);                                              \
 } while (0)
 
 #define log_fatal(fmt, ...)                                   \
 do {                                                          \
-	fprintf(stderr, "[NVSHARE][FATAL]: " fmt "\n", ##__VA_ARGS__); \
+	fprintf(stderr, "[GPUSHARE][FATAL]: " fmt "\n", ##__VA_ARGS__); \
 	exit(1);                                              \
 } while (0)
 
 #define log_info(fmt, ...)                      \
 do {                                              \
-	fprintf(stderr, "[NVSHARE][INFO]: " fmt "\n", ##__VA_ARGS__); \
+	fprintf(stderr, "[GPUSHARE][INFO]: " fmt "\n", ##__VA_ARGS__); \
 } while (0)
 
 #define log_warn(fmt, ...)                                   \
 do {                                                         \
-	fprintf(stderr, "[NVSHARE][WARN]: " fmt "\n", ##__VA_ARGS__); \
+	fprintf(stderr, "[GPUSHARE][WARN]: " fmt "\n", ##__VA_ARGS__); \
 } while (0)
 
 /* Source: https://stackoverflow.com/a/1644898 */
 #define log_debug(fmt, ...)                                                \
 do {                                                                       \
-	if (__debug) fprintf(stderr, "[NVSHARE][DEBUG]: " fmt "\n", ##__VA_ARGS__); \
+	if (__debug) fprintf(stderr, "[GPUSHARE][DEBUG]: " fmt "\n", ##__VA_ARGS__); \
 } while (0)
 
 
@@ -97,9 +97,9 @@ do {                                                                       \
 
 #define HEX_STR_LEN(x) (2 * sizeof(x) + 1)
 #define EPOLL_MAX_EVENTS 32
-#define NVSHARE_UNREGISTERED_ID 0xF00DF00DF00DF00D
+#define GPUSHARE_UNREGISTERED_ID 0xF00DF00DF00DF00D
 
-#define ENV_NVSHARE_DEBUG         "NVSHARE_DEBUG"
+#define ENV_GPUSHARE_DEBUG         "GPUSHARE_DEBUG"
 
 #define UNUSED(x) (void)(x)
 

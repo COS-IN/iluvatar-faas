@@ -4,13 +4,17 @@ import os, traceback, json
 from datetime import datetime
 from http import HTTPStatus
 
+DRIVER="libgpushare.so"
 def driver_enabled() -> bool:
-  return os.path.isfile("/usr/bin/nvidia-smi") and "LD_PRELOAD" in os.environ
+  has_gpu = os.path.isfile("/usr/bin/nvidia-smi")
+  if "LD_PRELOAD" in os.environ and DRIVER in os.environ["LD_PRELOAD"]:
+    return has_gpu
+  return False
 
-nvshare = None
+gpushare = None
 if driver_enabled():
   import ctypes
-  nvshare = ctypes.CDLL("libnvshare.so", mode=os.RTLD_GLOBAL)
+  gpushare = ctypes.CDLL(DRIVER, mode=os.RTLD_GLOBAL)
 
 FORMAT="%Y-%m-%d %H:%M:%S:%f+%z"
 cold=True
@@ -34,50 +38,50 @@ def index():
 
 @app.route('/to_dev', methods=["PUT"])
 def to_dev():
-  if nvshare is None:
-    return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  return jsonify({"Status":nvshare.madviseToDevice()})
+  if gpushare is None:
+    return jsonify({"platform_error":"gpushare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
+  return jsonify({"Status":gpushare.madviseToDevice()})
 
 @app.route('/off_dev', methods=["PUT"])
 def off_dev():
-  if nvshare is None:
-    return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  return jsonify({"Status":nvshare.madviseToHost()})
+  if gpushare is None:
+    return jsonify({"platform_error":"gpushare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
+  return jsonify({"Status":gpushare.madviseToHost()})
 
 @app.route('/prefetch_host', methods=["PUT"])
 def prefetch_host():
-  if nvshare is None:
-    return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  return jsonify({"Status":nvshare.prefetchToHost()})
+  if gpushare is None:
+    return jsonify({"platform_error":"gpushare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
+  return jsonify({"Status":gpushare.prefetchToHost()})
 
 @app.route('/prefetch_dev', methods=["PUT"])
 def prefetch_dev():
-  if nvshare is None:
-    return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  return jsonify({"Status":nvshare.prefetchToDevice()})
+  if gpushare is None:
+    return jsonify({"platform_error":"gpushare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
+  return jsonify({"Status":gpushare.prefetchToDevice()})
 
 @app.route('/prefetch_stream_host', methods=["PUT"])
 def prefetch_stream_host():
-  if nvshare is None:
-    return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  return jsonify({"Status":nvshare.prefetchStreamToHost()})
+  if gpushare is None:
+    return jsonify({"platform_error":"gpushare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
+  return jsonify({"Status":gpushare.prefetchStreamToHost()})
 @app.route('/prefetch_stream_dev', methods=["PUT"])
 def prefetch_stream_dev():
-  if nvshare is None:
-    return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  return jsonify({"Status":nvshare.prefetchStreamToDevice()})
+  if gpushare is None:
+    return jsonify({"platform_error":"gpushare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
+  return jsonify({"Status":gpushare.prefetchStreamToDevice()})
 
 @app.route('/gpu_mem', methods=["GET"])
 def gpu_mem():
-  if nvshare is None:
-    return jsonify({"platform_error":"nvshare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  return jsonify({"allocation":nvshare.total_cuda_allocations()})
+  if gpushare is None:
+    return jsonify({"platform_error":"gpushare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
+  return jsonify({"allocation":gpushare.total_cuda_allocations()})
 
 def append_metadata(user_ret, start, end, was_cold, success=True):
   duration = (end - start).total_seconds()
   ret = {"start": datetime.strftime(start, FORMAT), "end": datetime.strftime(end, FORMAT), "was_cold":was_cold, "duration_sec": duration}
-  if nvshare is not None:
-    ret["gpu_allocation"] = nvshare.total_cuda_allocations()
+  if gpushare is not None:
+    ret["gpu_allocation"] = gpushare.total_cuda_allocations()
   if success:
     ret["user_result"] = json.dumps(user_ret)
   else:
