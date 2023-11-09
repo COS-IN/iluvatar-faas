@@ -84,7 +84,7 @@ fn load_metadata(path: &str) -> Result<HashMap<String, Function>> {
     Ok(ret)
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, Default)]
 /// Struct holding the details about a function that will be run against the Ilúvatar system
 /// If deserialized from JSON or via CSV, column names must match exactly
 pub struct Function {
@@ -115,6 +115,8 @@ pub struct Function {
     pub parsed_isolation: Option<iluvatar_library::types::Isolation>,
     /// Used internally, The code name the function was mapped to
     pub chosen_name: Option<String>,
+    /// Arguments to pass to each invocation of the function
+    pub args: Option<String>,
 }
 #[derive(Debug, serde::Deserialize)]
 pub struct CsvInvocation {
@@ -133,7 +135,10 @@ pub fn safe_cmp(a: &f64, b: &f64) -> std::cmp::Ordering {
     }
 }
 
-fn prepare_function_args(func: &Function, load_type: LoadType) -> Vec<String> {
+pub fn prepare_function_args(func: &Function, load_type: LoadType) -> Vec<String> {
+    if let Some(args) = &func.args {
+        return args.split(';').map(|x| x.to_string()).collect::<Vec<String>>();
+    }
     if let Some(b) = func.use_lookbusy {
         if b {
             return vec![

@@ -801,7 +801,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                     if start.elapsed()?.as_millis() as u64 >= timeout_ms {
                         let stdout = self.read_stdout(container, tid);
                         let stderr = self.read_stderr(container, tid);
-                        if stderr.is_empty() {
+                        if !stderr.is_empty() {
                             warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for container start, but stderr was written to?");
                             return Ok(());
                         }

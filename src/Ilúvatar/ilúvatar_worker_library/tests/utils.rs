@@ -52,7 +52,7 @@ pub async fn full_sim_invoker(
     Arc<dyn Invoker>,
     Arc<RegistrationService>,
     Arc<CharacteristicsMap>,
-    Arc<GpuResourceTracker>,
+    Option<Arc<GpuResourceTracker>>,
     Arc<CpuResourceTracker>,
 ) {
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
@@ -78,15 +78,18 @@ pub async fn full_sim_invoker(
         false => None,
     };
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(cfg.container_resources.clone(), &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
-    let gpu_resource = GpuResourceTracker::boxed(cfg.container_resources.clone(), &TEST_TID)
-        .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
     let lifecycles = factory
         .get_isolation_services(&TEST_TID, false)
         .await
         .unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
+    let mut gpu_resource = None;
+    if let Some(docker) = lifecycles.get(&Isolation::DOCKER) {
+        gpu_resource = GpuResourceTracker::boxed(&cfg.container_resources.gpu_resource, &TEST_TID, docker)
+            .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
+    }
 
     let cm = ContainerManager::boxed(
         cfg.container_resources.clone(),
@@ -157,16 +160,18 @@ pub async fn sim_invoker_svc(
         None => None,
     };
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(cfg.container_resources.clone(), &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
-    let gpu_resource = GpuResourceTracker::boxed(cfg.container_resources.clone(), &TEST_TID)
-        .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
     let lifecycles = factory
         .get_isolation_services(&TEST_TID, false)
         .await
         .unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
-
+    let mut gpu_resource = None;
+    if let Some(docker) = lifecycles.get(&Isolation::DOCKER) {
+        gpu_resource = GpuResourceTracker::boxed(&cfg.container_resources.gpu_resource, &TEST_TID, docker)
+            .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
+    }
     let cm = ContainerManager::boxed(
         cfg.container_resources.clone(),
         lifecycles.clone(),
@@ -233,17 +238,19 @@ pub async fn test_invoker_svc(
         false => None,
     };
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(cfg.container_resources.clone(), &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
-    let gpu_resource = GpuResourceTracker::boxed(cfg.container_resources.clone(), &TEST_TID)
-        .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
 
     let factory = IsolationFactory::new(cfg.clone());
     let lifecycles = factory
         .get_isolation_services(&TEST_TID, true)
         .await
         .unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
-
+    let mut gpu_resource = None;
+    if let Some(docker) = lifecycles.get(&Isolation::DOCKER) {
+        gpu_resource = GpuResourceTracker::boxed(&cfg.container_resources.gpu_resource, &TEST_TID, docker)
+            .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
+    }
     let cm = ContainerManager::boxed(
         cfg.container_resources.clone(),
         lifecycles.clone(),
@@ -399,14 +406,18 @@ pub async fn test_invoke(
     json_args: &str,
     tid: &TransactionId,
 ) -> Arc<Mutex<InvocationResult>> {
-    timeout(
+    let result = timeout(
         Duration::from_secs(20),
         background_test_invoke(invok_svc, reg, json_args, tid),
     )
     .await
     .unwrap_or_else(|e| panic!("invoke timout hit: {:?}", e))
     .unwrap_or_else(|e| panic!("invoke tokio join error: {:?}", e))
-    .unwrap_or_else(|e| panic!("invoke failed: {:?}", e))
+    .unwrap_or_else(|e| panic!("invoke failed: {:?}", e));
+    if result.lock().worker_result.is_none() {
+        panic!("Invocation completed without a result! {:?}", result);
+    }
+    result
 }
 
 pub async fn prewarm(cm: &Arc<ContainerManager>, reg: &Arc<RegisteredFunction>, transaction_id: &TransactionId) {

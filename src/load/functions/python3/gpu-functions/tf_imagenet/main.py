@@ -11,6 +11,13 @@ try:
   import logging
   # tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.WARNING)
   tf.get_logger().setLevel('WARNING')
+  from tensorflow.compat.v1 import ConfigProto
+  from tensorflow.compat.v1 import InteractiveSession
+  config = ConfigProto()
+  config.gpu_options.allow_growth = True
+  config.gpu_options.per_process_gpu_memory_fraction = 0.15
+  session = InteractiveSession(config=config)
+  
   tf.keras.utils.disable_interactive_logging()
 except Exception as e:
   msg = traceback.format_exc()
@@ -20,14 +27,18 @@ Originally https://github.com/ryfeus/lambda-packs
 """
 
 def downloadFromURL(url, local_path):
+  print("downloadFromURL")
   if not os.path.exists(local_path):
     urllib.request.urlretrieve(url, local_path)
 
 def create_graph():
+    print("create_graph")
     with tf.compat.v1.gfile.FastGFile(os.path.join('/tmp/imagenet/', 'classify_image_graph_def.pb'), 'rb') as f:
         graph_def = tf.compat.v1.GraphDef()
         graph_def.ParseFromString(f.read())
+        print("import_graph_def")
         _ = tf.import_graph_def(graph_def, name='')
+        print("import_graph_def done")
 
 if not os.path.exists('/tmp/imagenet/'):
     os.makedirs('/tmp/imagenet/')
@@ -37,6 +48,7 @@ downloadFromURL(
     local_path='/tmp/imagenet/inception-2015-12-05.tgz'
 )
 
+print("global init")
 if not os.path.exists("/tmp/imagenet/classify_image_graph_def.pb"):
   file = tarfile.open('/tmp/imagenet/inception-2015-12-05.tgz', 'r:gz')
   file.extractall('/tmp/imagenet/')
@@ -48,6 +60,7 @@ class NodeLookup(object):
     def __init__(self,
                label_lookup_path=None,
                uid_lookup_path=None):
+        print("NodeLookup __init__")
         if not label_lookup_path:
             label_lookup_path = os.path.join(
                 '/tmp/imagenet/', 'imagenet_2012_challenge_label_map_proto.pbtxt')
@@ -98,6 +111,7 @@ class NodeLookup(object):
         return self.node_lookup[node_id]
 
 def run_inference_on_image(image):
+    print("run_inference_on_image")
     if not tf.io.gfile.exists(image):
         tf.logging.fatal('File does not exist %s', image)
     image_data = tf.compat.v1.gfile.FastGFile(image, 'rb').read()
@@ -133,6 +147,8 @@ def main(args):
   global cold
   was_cold = cold
   cold = False
+
+  print("in main")
   try:
     start = time()
 
@@ -144,6 +160,7 @@ def main(args):
     else: 
         image = '/tmp/imagenet/cropped_panda.jpg'
     inter_start = time()
+    # strResult = "TEST"
     strResult = run_inference_on_image(image)
     end = time()
     return {"body": { "latency":end-start, "cold":was_cold, "start":start, "end":end, "output":strResult, "infer_latency":end-inter_start }}

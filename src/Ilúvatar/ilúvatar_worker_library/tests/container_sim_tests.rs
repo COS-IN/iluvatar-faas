@@ -44,17 +44,11 @@ fn gpu_reg() -> RegisterRequest {
 }
 
 fn build_gpu_env() -> Vec<(String, String)> {
-    vec![(
-        "container_resources.resource_map.gpu.count".to_string(),
-        "1".to_string(),
-    )]
+    vec![("container_resources.gpu_resource.count".to_string(), "1".to_string())]
 }
 
 fn two_gpu_env() -> Vec<(String, String)> {
-    vec![(
-        "container_resources.resource_map.gpu.count".to_string(),
-        "2".to_string(),
-    )]
+    vec![("container_resources.gpu_resource.count".to_string(), "2".to_string())]
 }
 
 mod compute_iso_matching {
@@ -179,10 +173,7 @@ mod compute_iso_matching {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn no_gpu_fails_register() {
-        let env = vec![(
-            "container_resources.resource_map.gpu.count".to_string(),
-            "0".to_string(),
-        )];
+        let env = vec![("container_resources.gpu_resource.count".to_string(), "0".to_string())];
         let (_log, _cfg, _cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
@@ -224,7 +215,7 @@ mod compute_iso_matching {
         let func = reg.register(req, &TEST_TID).await;
         assert_error!(
             func,
-            "Could not register function for compute FPGA because the worker was not configured for it!",
+            "Could not register function for compute FPGA because the worker has no devices of that type!",
             ""
         );
     }
@@ -783,7 +774,10 @@ mod gpu_queueuing {
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
 
-        let gpu_lck = gpu.try_acquire_resource().expect("Should return GPU permit"); // hold GPU to force queueing
+        let gpu_lck = gpu
+            .unwrap_or_else(|| panic!("No gpu resource"))
+            .try_acquire_resource()
+            .expect("Should return GPU permit"); // hold GPU to force queueing
         let inv1 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
         wait_for_queue_len(&invoker, Compute::GPU, 1).await;
         let inv2 = background_test_invoke(&invoker, &func2, &sim_args().unwrap(), &TEST_TID);
@@ -892,7 +886,10 @@ mod gpu_queueuing {
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
 
-        let gpu_lck = gpu.try_acquire_resource().expect("Should return GPU permit"); // hold GPU to force queueing
+        let gpu_lck = gpu
+            .unwrap_or_else(|| panic!("No gpu resource"))
+            .try_acquire_resource()
+            .expect("Should return GPU permit"); // hold GPU to force queueing
         let inv1 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
         wait_for_queue_len(&invoker, Compute::GPU, 1).await;
         let inv2 = background_test_invoke(&invoker, &func2, &sim_args().unwrap(), &TEST_TID);
@@ -1236,43 +1233,6 @@ mod enqueueing_tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    /// This test will change/be removed if the assumption on AlwaysCPU changes
-    async fn always_cpu_errors_no_support() {
-        let mut env = build_gpu_env();
-        env.push(("invocation.enqueueing_policy".to_string(), "AlwaysCPU".to_string()));
-        env.push((
-            "container_resources.resource_map.fpga.count".to_string(),
-            "1".to_string(),
-        ));
-        let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
-        let req = RegisterRequest {
-            function_name: "test".to_string(),
-            function_version: "test".to_string(),
-            cpus: 1,
-            memory: 128,
-            parallel_invokes: 1,
-            image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-            transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: (Compute::GPU | Compute::FPGA).bits(),
-            isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
-        };
-        let func = reg
-            .register(req, &TEST_TID)
-            .await
-            .unwrap_or_else(|e| panic!("Registration failed: {}", e));
-        let invoke = invoker
-            .sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone())
-            .await;
-        assert_error!(
-            invoke,
-            "Cannot enqueue invocation using AlwaysCPU strategy because it does not support CPU",
-            "Non-CPU poly function must fail under only-cpu policy"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_faster_cpu_path_chosen() {
         let mut env = build_gpu_env();
         env.push(("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()));
@@ -1307,16 +1267,10 @@ mod enqueueing_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_faster_gpu_path_chosen() {
         let env = vec![
+            ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
+            ("container_resources.cpu_resource.count".to_string(), "1".to_string()),
             (
-                "container_resources.resource_map.gpu.count".to_string(),
-                "1".to_string(),
-            ),
-            (
-                "container_resources.resource_map.cpu.count".to_string(),
-                "1".to_string(),
-            ),
-            (
-                "container_resources.resource_map.cpu.max_oversubscribe".to_string(),
+                "container_resources.cpu_resource.max_oversubscribe".to_string(),
                 "1".to_string(),
             ),
             ("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()),
@@ -1390,16 +1344,10 @@ mod enqueueing_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prewarm_faster_gpu_path_chosen() {
         let env = vec![
+            ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
+            ("container_resources.cpu_resource.count".to_string(), "1".to_string()),
             (
-                "container_resources.resource_map.gpu.count".to_string(),
-                "1".to_string(),
-            ),
-            (
-                "container_resources.resource_map.cpu.count".to_string(),
-                "1".to_string(),
-            ),
-            (
-                "container_resources.resource_map.cpu.max_oversubscribe".to_string(),
+                "container_resources.cpu_resource.max_oversubscribe".to_string(),
                 "1".to_string(),
             ),
             ("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()),

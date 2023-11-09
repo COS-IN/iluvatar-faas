@@ -95,7 +95,14 @@ pub struct CompletedWorkerInvocation {
     pub invoke_start: String,
 }
 impl CompletedWorkerInvocation {
-    pub fn error(msg: String, name: &str, version: &str, tid: &TransactionId, invoke_start: String) -> Self {
+    pub fn error(
+        msg: String,
+        name: &str,
+        version: &str,
+        tid: &TransactionId,
+        invoke_start: String,
+        invok_lat: Duration,
+    ) -> Self {
         CompletedWorkerInvocation {
             worker_response: InvokeResponse::error(&msg),
             function_output: FunctionExecOutput {
@@ -106,7 +113,7 @@ impl CompletedWorkerInvocation {
                     latency: 0.0,
                 },
             },
-            client_latency_us: 0,
+            client_latency_us: invok_lat.as_micros(),
             function_name: name.to_owned(),
             function_version: version.to_owned(),
             tid: tid.clone(),
@@ -484,11 +491,17 @@ pub async fn worker_invoke(
                 version,
                 tid,
                 invoke_start,
+                invok_lat,
             ),
         },
-        Err(e) => {
-            CompletedWorkerInvocation::error(format!("Invocation error: {:?}", e), name, version, tid, invoke_start)
-        }
+        Err(e) => CompletedWorkerInvocation::error(
+            format!("Invocation error: {:?}", e),
+            name,
+            version,
+            tid,
+            invoke_start,
+            invok_lat,
+        ),
     };
     Ok(c)
 }

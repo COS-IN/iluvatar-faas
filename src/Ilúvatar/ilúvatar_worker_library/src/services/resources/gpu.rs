@@ -1,15 +1,13 @@
-use crate::worker_api::worker_config::ContainerResourceConfig;
-use anyhow::Result;
-use iluvatar_library::{
-    bail_error,
-    transaction::TransactionId,
-    types::ComputeEnum,
-    utils::{execute_cmd, execute_cmd_checked},
+use crate::{
+    services::containers::{docker::DockerIsolation, ContainerIsolationService},
+    worker_api::worker_config::GPUResourceConfig,
 };
+use anyhow::Result;
+use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb, utils::execute_cmd_checked};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tracing::{info, trace, warn};
+use tracing::{debug, error, info, trace};
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct GpuStatus {
@@ -37,72 +35,240 @@ pub type GpuUuid = String;
 #[derive(Debug)]
 pub struct GPU {
     pub gpu_uuid: GpuUuid,
+    pub gpu_private_id: u32,
+    pub hardware_memory_mb: MemSizeMb,
+    pub allocated_mb: MemSizeMb,
+    /// From 1-100
+    pub thread_pct: u32,
+}
+impl GPU {
+    pub fn split_resources(
+        gpu_uuid: GpuUuid,
+        hardware_memory_mb: MemSizeMb,
+        config: &Arc<GPUResourceConfig>,
+        tid: &TransactionId,
+    ) -> Result<Vec<Arc<Self>>> {
+        let (spots, mem_size) = Self::compute_spots(hardware_memory_mb, &gpu_uuid, config, tid)?;
+        let thread_pct = match config.mps_limit_active_threads {
+            Some(true) => (100.0 / spots as f64) as u32,
+            _ => 100,
+        };
+        let mut ret = vec![];
+        for i in 0..spots {
+            ret.push(Arc::new(Self {
+                gpu_uuid: gpu_uuid.clone(),
+                gpu_private_id: i,
+                hardware_memory_mb,
+                allocated_mb: mem_size,
+                thread_pct,
+            }))
+        }
+        Ok(ret)
+    }
+
+    /// Return the number of spots on the GPU and the amount of memory in each spot
+    fn compute_spots(
+        hardware_memory_mb: MemSizeMb,
+        gpu_uuid: &GpuUuid,
+        config: &Arc<GPUResourceConfig>,
+        tid: &TransactionId,
+    ) -> Result<(u32, MemSizeMb)> {
+        if config.driver_hook_enabled() {
+            return match config.funcs_per_device {
+                Some(fs) => Ok((fs, hardware_memory_mb)),
+                None => Ok((16, hardware_memory_mb)),
+            };
+        }
+
+        let per_func_memory_mb = if config.use_standalone_mps.unwrap_or(false) {
+            config.per_func_memory_mb.unwrap_or(hardware_memory_mb)
+        } else if config.per_func_memory_mb.is_some() {
+            config.per_func_memory_mb.unwrap()
+        } else {
+            hardware_memory_mb
+        };
+        if per_func_memory_mb == 0 {
+            anyhow::bail!(
+                "GPU function assigned memory was set to zero, either hardware {} or per_func {:?}",
+                hardware_memory_mb,
+                config.per_func_memory_mb
+            );
+        }
+        let spots = hardware_memory_mb / per_func_memory_mb;
+        info!(tid=%tid, gpu_uuid=%gpu_uuid, spots=spots, hardware_memory_mb=hardware_memory_mb, per_func_memory_mb=per_func_memory_mb, "GPU available spots");
+        Ok((spots as u32, hardware_memory_mb))
+    }
 }
 
+const MPS_CONTAINER_NAME: &str = "iluvatar-mps-daemon";
+lazy_static::lazy_static! {
+  static ref GPU_RESC_TID: TransactionId = "GPU_RESC_TRACK".to_string();
+}
 /// Struct that manages GPU control between containers
 /// A GPU can only be assigned to one container at a time, and must be reutrned via [GpuResourceTracker::return_gpu] after container deletion
 /// For an invocation to use the GPU, it must have isolation over that resource by acquiring it via [GpuResourceTracker::try_acquire_resource]
 pub struct GpuResourceTracker {
     gpus: RwLock<Vec<Arc<GPU>>>,
     concurrency_semaphore: Arc<Semaphore>,
+    docker: Arc<dyn ContainerIsolationService>,
 }
 impl GpuResourceTracker {
-    pub fn boxed(resources: Arc<ContainerResourceConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-        let gpus = GpuResourceTracker::prepare_structs(resources, tid)?;
-        let sem = Arc::new(Semaphore::new(gpus.len()));
-        Ok(Arc::new(GpuResourceTracker {
-            gpus: RwLock::new(gpus),
-            concurrency_semaphore: sem,
-        }))
+    pub fn boxed(
+        resources: &Option<Arc<GPUResourceConfig>>,
+        tid: &TransactionId,
+        docker: &Arc<dyn ContainerIsolationService>,
+    ) -> Result<Option<Arc<Self>>> {
+        if let Some(config) = resources.clone() {
+            let gpus = GpuResourceTracker::prepare_structs(&config, tid)?;
+            if config.mps_enabled() {
+                if let Some(docker) = docker.as_any().downcast_ref::<DockerIsolation>() {
+                    Self::start_mps(docker, tid)?;
+                } else {
+                    bail_error!("MPS is enabled, but isolation service passed was not `docker`");
+                }
+            } else {
+                Self::set_shared_exclusive(tid)?;
+            }
+            return Ok(Some(Arc::new(GpuResourceTracker {
+                concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid),
+                gpus: RwLock::new(gpus),
+                docker: docker.clone(),
+            })));
+        }
+        Ok(None)
     }
 
-    fn prepare_structs(resources: Arc<ContainerResourceConfig>, tid: &TransactionId) -> Result<Vec<Arc<GPU>>> {
+    fn create_concurrency_semaphore(
+        _config: &Arc<GPUResourceConfig>,
+        gpus: &Vec<Arc<GPU>>,
+        _tid: &TransactionId,
+    ) -> Arc<Semaphore> {
+        Arc::new(Semaphore::new(gpus.len()))
+    }
+
+    fn start_mps(docker: &DockerIsolation, tid: &TransactionId) -> Result<()> {
+        debug!(tid=%tid, "Setting MPS exclusive");
+        Self::set_gpu_exclusive(tid)?;
+        debug!(tid=%tid, "Launching MPS container");
+        let args = vec![
+            "--name",
+            MPS_CONTAINER_NAME,
+            "--gpus",
+            "all",
+            "--ipc=host",
+            "--entrypoint",
+            "/usr/bin/nvidia-cuda-mps-control",
+            "-v",
+            "/tmp/nvidia-mps:/tmp/nvidia-mps",
+        ];
+        let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
+        docker.docker_run(args, img_name, "iluvatar_mps_control", Some("-f"), tid, None)
+    }
+
+    fn set_shared_exclusive(tid: &TransactionId) -> Result<()> {
+        let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
+        let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
+        let gpu_cnt = cow
+            .split('\n')
+            .filter(|str| !str.is_empty())
+            .collect::<Vec<&str>>()
+            .len();
+        for i in 0..gpu_cnt {
+            execute_cmd_checked(
+                "/usr/bin/nvidia-smi",
+                vec!["-i", i.to_string().as_str(), "-c", "DEFAULT"],
+                None,
+                tid,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn set_gpu_exclusive(tid: &TransactionId) -> Result<()> {
+        let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
+        let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
+        let gpu_cnt = cow
+            .split('\n')
+            .filter(|str| !str.is_empty())
+            .collect::<Vec<&str>>()
+            .len();
+        for i in 0..gpu_cnt {
+            execute_cmd_checked(
+                "/usr/bin/nvidia-smi",
+                vec!["-i", i.to_string().as_str(), "-c", "EXCLUSIVE_PROCESS"],
+                None,
+                tid,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Return the count of 'physical' GPUs, and list of GPU spot structs
+    fn make_simulated_gpus(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<(u32, Vec<Arc<GPU>>)> {
         let mut ret = vec![];
-        let gpu_config = match resources.resource_map.get(&ComputeEnum::gpu) {
-            Some(c) => c.clone(),
-            None => {
-                warn!(tid=%tid, "resource_map did not have a GPU entry, skipping GPU resource setup");
-                return Ok(ret);
-            }
-        };
-        if gpu_config.count == 0 {
-            info!(tid=%tid, "resource_map had 0 GPUs, skipping GPU resource setup");
-            return Ok(ret);
+        let mut found = 0;
+        let memory_mb = gpu_config
+            .memory_mb
+            .ok_or_else(|| anyhow::format_err!("`memory_mb` config must be provided"))?;
+        for i in 0..gpu_config.count {
+            let gpu_uuid = format!("GPU-{}", i);
+            ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
+            found += 1;
         }
-        if iluvatar_library::utils::is_simulation() {
-            for i in 0..gpu_config.count {
-                ret.push(Arc::new(GPU {
-                    gpu_uuid: format!("GPU-{}", i),
-                }))
-            }
-        } else {
-            let output = execute_cmd("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
-            if !output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                anyhow::bail!(
-                    "nvidia-smi failed with a status of {}; stdout: '{}', stderr '{}' ",
-                    output.status,
-                    stdout,
-                    stderr
-                );
-            }
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let data = stdout.split('\n').collect::<Vec<&str>>();
-            for row in data {
-                let pos = row.find("UUID: ");
-                if let Some(pos) = pos {
-                    let gpu_uuid = &row[(pos + "UUID: ".len())..row.len() - 1];
-                    ret.push(Arc::new(GPU {
-                        gpu_uuid: gpu_uuid.to_string(),
-                    }));
+        Ok((found, ret))
+    }
+
+    /// Return the count of 'physical' GPUs, and list of GPU spot structs
+    fn make_real_gpus(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<(u32, Vec<Arc<GPU>>)> {
+        let mut ret = vec![];
+        let mut found = 0;
+        let output = execute_cmd_checked(
+            "/usr/bin/nvidia-smi",
+            vec!["--query-gpu=gpu_uuid,memory.total", "--format=csv,noheader,nounits"],
+            None,
+            tid,
+        )?;
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .trim(csv::Trim::All)
+            .from_reader(output.stdout.as_slice());
+        for result in reader.records() {
+            match result {
+                Ok(r) => {
+                    let memory_mb = r
+                        .get(1)
+                        .ok_or_else(|| anyhow::format_err!("Reading GPU memory failed"))?
+                        .parse()
+                        .or_else(|e| anyhow::bail!("Failed to parse GPU memory.total {:?} from '{:?}'", e, r))?;
+                    let gpu_uuid = r
+                        .get(0)
+                        .ok_or_else(|| anyhow::format_err!("Reading GPU uuid failed from '{:?}'", r))?
+                        .to_string();
+                    ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
                 }
+                Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read record from nvidia-smi"),
             }
+            found += 1;
         }
-        if ret.len() != gpu_config.count as usize {
+        Ok((found, ret))
+    }
+
+    fn prepare_structs(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<Vec<Arc<GPU>>> {
+        if gpu_config.count == 0 {
+            info!(tid=%tid, "GPU config had 0 GPUs, skipping GPU resource setup");
+            return Ok(vec![]);
+        }
+        let ret;
+        let count;
+        if iluvatar_library::utils::is_simulation() {
+            (count, ret) = Self::make_simulated_gpus(gpu_config, tid)?;
+        } else {
+            (count, ret) = Self::make_real_gpus(gpu_config, tid)?;
+        }
+        if count != gpu_config.count {
             anyhow::bail!(
                 "Was able to prepare {} GPUs, but configuration expected {}",
-                ret.len(),
+                count,
                 gpu_config.count
             );
         }
@@ -153,5 +319,16 @@ impl GpuResourceTracker {
             }
         }
         Ok(ret)
+    }
+}
+impl Drop for GpuResourceTracker {
+    fn drop(&mut self) {
+        if let Some(docker) = self.docker.as_any().downcast_ref::<DockerIsolation>() {
+            let tid: &TransactionId = &GPU_RESC_TID;
+            match docker.get_logs(MPS_CONTAINER_NAME, tid) {
+                Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
+                Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
+            }
+        }
     }
 }

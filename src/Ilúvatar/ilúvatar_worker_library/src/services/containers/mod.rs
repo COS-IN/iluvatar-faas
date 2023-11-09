@@ -120,7 +120,8 @@ impl IsolationFactory {
                 let d = Arc::new(DockerIsolation::new(
                     self.worker_config.container_resources.clone(),
                     self.worker_config.limits.clone(),
-                ));
+                    tid,
+                )?);
                 self.insert_cycle(&mut ret, d)?;
             }
         }

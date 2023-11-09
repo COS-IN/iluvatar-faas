@@ -29,12 +29,18 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
     let factory = IsolationFactory::new(worker_config.clone());
-    let cpu = CpuResourceTracker::new(worker_config.container_resources.clone(), tid)?;
-    let gpu_resource = GpuResourceTracker::boxed(worker_config.container_resources.clone(), tid)?;
+    let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, tid)
+        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make cpu resource tracker"))?;
+
     let isos = factory
         .get_isolation_services(tid, true)
         .await
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"))?;
+    let mut gpu_resource = None;
+    if let Some(docker) = isos.get(&Isolation::DOCKER) {
+        gpu_resource = GpuResourceTracker::boxed(&worker_config.container_resources.gpu_resource, tid, docker)
+            .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make GPU resource tracker"))?;
+    }
 
     let container_man = ContainerManager::boxed(
         worker_config.container_resources.clone(),
@@ -71,7 +77,9 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         #[cfg(feature = "power_cap")]
         energy_limit.clone(),
     );
-    let invoker = invoker_fact.get_invoker_service(tid)?;
+    let invoker = invoker_fact
+        .get_invoker_service(tid)
+        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to get invoker service"))?;
     let health = WorkerHealthService::boxed(invoker.clone(), reg.clone(), tid)
         .await
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker health service"))?;

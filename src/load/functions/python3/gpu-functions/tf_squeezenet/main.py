@@ -1,5 +1,6 @@
 msg = "good"
 import traceback
+session = None
 try:
     import os, sys
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -13,6 +14,15 @@ try:
 
     # import boto3
     import tensorflow.compat.v1 as tf
+
+    from tensorflow.compat.v1 import ConfigProto
+    from tensorflow.compat.v1 import InteractiveSession
+
+    config = ConfigProto()
+    config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction = 0.15
+    session = InteractiveSession(config=config)
+
     from tensorflow.keras.preprocessing import image
     from tensorflow.keras.applications.resnet50 import preprocess_input, decode_predictions
     from tensorflow.keras.utils import get_file
