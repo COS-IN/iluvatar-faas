@@ -41,6 +41,9 @@ impl ContainerPool {
     pub fn register_fqdn(&self, fqdn: String) {
         self.pool.insert(fqdn, Vec::new());
     }
+    pub fn pool_name(&self) -> &str {
+        &self.pool_name
+    }
 
     /// The number of items
     pub fn len(&self) -> u32 {

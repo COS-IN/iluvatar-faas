@@ -197,35 +197,40 @@ impl ContainerManager {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn update_memory_usages(&self, tid: &TransactionId) {
-        debug!(tid=%tid, "updating container memory usages");
+        self.update_container_pool_memory_usages(&self.cpu_containers.idle_containers, tid)
+            .await;
+        self.update_container_pool_memory_usages(&self.cpu_containers.running_containers, tid)
+            .await;
+        self.update_container_pool_memory_usages(&self.gpu_containers.idle_containers, tid)
+            .await;
+        self.update_container_pool_memory_usages(&self.gpu_containers.running_containers, tid)
+            .await;
+    }
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, pool), fields(tid=%tid)))]
+    async fn update_container_pool_memory_usages(&self, pool: &ContainerPool, tid: &TransactionId) {
+        debug!(tid=%tid, pool=%pool.pool_name(), "updating container memory usages");
         let old_total_mem = *self.used_mem_mb.read();
-        let mut all_ctrs = self.cpu_containers.idle_containers.iter();
-        all_ctrs.extend(self.cpu_containers.running_containers.iter());
-        all_ctrs.extend(self.gpu_containers.running_containers.iter());
-        all_ctrs.extend(self.gpu_containers.idle_containers.iter());
-        all_ctrs.retain(|x| x.is_healthy());
-        for container in all_ctrs {
-            if !container.is_healthy() {
-                continue; // don't update unhealthy containers, they will be remove soon
-            }
+        // let mut new_total_mem = 0;
+        for container in pool.iter() {
             let old_usage = container.get_curr_mem_usage();
-            let cont_lifecycle = match self.cont_isolations.get(&container.container_type()) {
-                Some(c) => c,
+            let new_usage = match self.cont_isolations.get(&container.container_type()) {
+                Some(c) => c.update_memory_usage_mb(&container, tid),
                 None => {
                     error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported");
                     continue;
                 }
             };
-            let new_usage = cont_lifecycle.update_memory_usage_mb(&container, tid);
             let diff = new_usage - old_usage;
             debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
-            *self.used_mem_mb.write() += diff;
+            // new_total_mem += new_usage;
+            *self.used_mem_mb.write() -= diff;
         }
 
+        // *self.used_mem_mb.write() = new_total_mem;
         let new_total_mem = *self.used_mem_mb.read();
-        debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Total container memory usage");
+        debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, pool=%pool.pool_name(), "Total container memory usage");
         if new_total_mem < 0 {
-            error!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Container memory usage has gone negative");
+            error!(tid=%tid, old_total=old_total_mem, total=new_total_mem, pool=%pool.pool_name(), "Container memory usage has gone negative");
         }
     }
 
@@ -540,11 +545,9 @@ impl ContainerManager {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
     async fn remove_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
         info!(tid=%tid, container_id=%container.container_id(), "Removing container");
-        let cont_lifecycle = match self.cont_isolations.get(&container.container_type()) {
-            Some(c) => c,
-            None => {
-                bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported")
-            }
+        let r = match self.cont_isolations.get(&container.container_type()) {
+            Some(c) => c.remove_container(container.clone(), "default", tid).await,
+            None => bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported"),
         };
         *self.used_mem_mb.write() -= container.get_curr_mem_usage();
         if let Some(dev) = container.device_resource() {
@@ -553,7 +556,7 @@ impl ContainerManager {
                 None => error!(tid=%tid, iso=?container.container_type(), "Returning GPU but no resoures exist!"),
             }
         }
-        cont_lifecycle.remove_container(container, "default", tid).await
+        r
     }
 
     fn get_resource_pool(&self, compute: Compute) -> Result<&ResourcePool> {

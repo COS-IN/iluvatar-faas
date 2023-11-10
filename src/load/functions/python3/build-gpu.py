@@ -58,13 +58,18 @@ if __name__ == "__main__":
     print(completed.stdout)
     completed.check_returncode()
 
-  with mp.Pool() as p:
-    results = []
-    funcs_dir = "./gpu-functions"
-    for func_name in os.listdir(funcs_dir):
-      if os.path.isdir(os.path.join(funcs_dir, func_name)):
-        dir = os.path.join(funcs_dir, func_name)
-        results.append(p.apply_async(build, [dir, func_name, "Dockerfile.gpu", "iluvatar-action-gpu-base"]))
-        # build(dir, func_name, "Dockerfile.gpu", "iluvatar-action-gpu-base")
-    for r in results:
-      r.get()
+  funcs_dir = "./gpu-functions"
+  for func_name in os.listdir(funcs_dir):
+    if os.path.isdir(os.path.join(funcs_dir, func_name)):
+      dir = os.path.join(funcs_dir, func_name)
+      build(dir, func_name, "Dockerfile.gpu", "iluvatar-action-gpu-base")
+
+  # with mp.Pool() as p:
+  #   results = []
+  #   funcs_dir = "./gpu-functions"
+  #   for func_name in os.listdir(funcs_dir):
+  #     if os.path.isdir(os.path.join(funcs_dir, func_name)):
+  #       dir = os.path.join(funcs_dir, func_name)
+  #       results.append(p.apply_async(build, [dir, func_name, "Dockerfile.gpu", "iluvatar-action-gpu-base"]))
+  #   for r in results:
+  #     r.get()
