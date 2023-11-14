@@ -2,6 +2,7 @@ use super::container_pool::{ContainerPool, ResourcePool, Subpool};
 use super::structs::{Container, ContainerLock, ContainerState};
 use super::ContainerIsolationCollection;
 use crate::services::containers::structs::{InsufficientGPUError, InsufficientMemoryError};
+use crate::services::resources::gpu::GPU;
 use crate::services::{registration::RegisteredFunction, resources::gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
@@ -210,7 +211,6 @@ impl ContainerManager {
     async fn update_container_pool_memory_usages(&self, pool: &ContainerPool, tid: &TransactionId) {
         debug!(tid=%tid, pool=%pool.pool_name(), "updating container memory usages");
         let old_total_mem = *self.used_mem_mb.read();
-        // let mut new_total_mem = 0;
         for container in pool.iter() {
             let old_usage = container.get_curr_mem_usage();
             let new_usage = match self.cont_isolations.get(&container.container_type()) {
@@ -222,8 +222,7 @@ impl ContainerManager {
             };
             let diff = new_usage - old_usage;
             debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
-            // new_total_mem += new_usage;
-            *self.used_mem_mb.write() -= diff;
+            *self.used_mem_mb.write() += diff;
         }
 
         // *self.used_mem_mb.write() = new_total_mem;
@@ -371,6 +370,32 @@ impl ContainerManager {
         pool.add_container(container, tid)
     }
 
+    fn get_gpu(&self, tid: &TransactionId, compute: Compute) -> Result<Option<Arc<GPU>>> {
+        if compute == Compute::GPU {
+            return match self
+                .gpu_resources
+                .as_ref()
+                .ok_or_else(|| anyhow::format_err!("Trying to assign GPU resources when none exist"))?
+                .acquire_gpu()
+            {
+                Some(g) => {
+                    info!(tid=%tid, uuid=%g.gpu_uuid, "Assigning GPU to container");
+                    Ok(Some(g))
+                }
+                None => anyhow::bail!(InsufficientGPUError {}),
+            };
+        }
+        Ok(None)
+    }
+
+    fn return_gpu(&self, gpu: Option<Arc<GPU>>) {
+        if let Some(gpu) = gpu {
+            if let Some(gpu_man) = self.gpu_resources.as_ref() {
+                gpu_man.return_gpu(gpu)
+            }
+        }
+    }
+
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
     async fn try_launch_container(
         &self,
@@ -386,22 +411,7 @@ impl ContainerManager {
             }
         };
 
-        let counter = if compute == Compute::GPU {
-            match self
-                .gpu_resources
-                .as_ref()
-                .ok_or_else(|| anyhow::format_err!("Trying to assign GPU resources when none exist"))?
-                .acquire_gpu()
-            {
-                Some(g) => {
-                    info!(tid=%tid, uuid=%g.gpu_uuid, "Assigning GPU to container");
-                    Some(g)
-                }
-                None => anyhow::bail!(InsufficientGPUError {}),
-            }
-        } else {
-            None
-        };
+        let counter = self.get_gpu(tid, compute)?;
         let curr_mem = *self.used_mem_mb.read();
         if curr_mem + reg.memory > self.resources.memory_mb {
             let avail = self.resources.memory_mb - curr_mem;
@@ -426,7 +436,7 @@ impl ContainerManager {
                 reg,
                 chosen_iso,
                 compute,
-                counter,
+                counter.clone(),
                 tid,
             )
             .await;
@@ -434,6 +444,7 @@ impl ContainerManager {
             Ok(cont) => cont,
             Err(e) => {
                 *self.used_mem_mb.write() -= reg.memory;
+                self.return_gpu(counter);
                 return Err(e);
             }
         };
@@ -445,6 +456,7 @@ impl ContainerManager {
             Ok(_) => (),
             Err(e) => {
                 *self.used_mem_mb.write() -= reg.memory;
+                self.return_gpu(counter);
                 match cont_lifecycle.remove_container(cont, "default", tid).await {
                     Ok(_) => {
                         return Err(e);
@@ -550,12 +562,7 @@ impl ContainerManager {
             None => bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported"),
         };
         *self.used_mem_mb.write() -= container.get_curr_mem_usage();
-        if let Some(dev) = container.device_resource() {
-            match &self.gpu_resources {
-                Some(gpu_r) => gpu_r.return_gpu(dev.clone()),
-                None => error!(tid=%tid, iso=?container.container_type(), "Returning GPU but no resoures exist!"),
-            }
-        }
+        self.return_gpu(container.device_resource().clone());
         r
     }
 

@@ -26,6 +26,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
 
     register_rpc_to_controller(server_config.clone(), tid.clone());
     info!(tid=%tid, "Starting RPC server");
+    debug!(config=?server_config, "Worker configuration");
     let _j = tokio::spawn(
         Server::builder()
             .timeout(Duration::from_secs(server_config.timeout_sec))
