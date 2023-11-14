@@ -4,3 +4,4 @@ __pycache__/*.lock
 **.lock
 **__pycache__**
 .idea/
+.vscode/

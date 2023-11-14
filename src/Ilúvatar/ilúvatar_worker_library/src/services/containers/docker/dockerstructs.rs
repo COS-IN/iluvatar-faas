@@ -1,3 +1,4 @@
+use crate::services::containers::http_client::HttpContainerClient;
 use crate::services::registration::RegisteredFunction;
 use crate::services::{
     containers::structs::{ContainerState, ContainerT, ParsedResult},
@@ -5,35 +6,30 @@ use crate::services::{
 };
 use anyhow::Result;
 use iluvatar_library::{
-    bail_error,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
-    utils::{calculate_base_uri, calculate_invoke_uri, port::Port},
+    utils::port::Port,
 };
 use parking_lot::{Mutex, RwLock};
-use reqwest::Client;
 use std::{
     num::NonZeroU32,
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tracing::warn;
 
 #[derive(Debug)]
 #[allow(unused)]
 pub struct DockerContainer {
     pub container_id: String,
-    pub fqdn: String,
+    fqdn: String,
     /// the associated function inside the container
     pub function: Arc<RegisteredFunction>,
-    pub last_used: RwLock<SystemTime>,
+    last_used: RwLock<SystemTime>,
     /// number of invocations a container has performed
-    pub invocations: Mutex<u32>,
-    pub port: Port,
-    pub invoke_uri: String,
-    pub base_uri: String,
+    invocations: Mutex<u32>,
+    port: Port,
     state: Mutex<ContainerState>,
-    client: Client,
+    client: HttpContainerClient,
     compute: Compute,
     device: Option<Arc<GPU>>,
     mem_usage: RwLock<MemSizeMb>,
@@ -51,17 +47,9 @@ impl DockerContainer {
         state: ContainerState,
         compute: Compute,
         device: Option<Arc<GPU>>,
+        tid: &TransactionId,
     ) -> Result<Self> {
-        let client = match reqwest::Client::builder()
-            .pool_max_idle_per_host(0)
-            .pool_idle_timeout(None)
-            // tiny buffer to allow for network delay from possibly full system
-            .connect_timeout(Duration::from_secs(invoke_timeout + 2))
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => bail_error!(error=%e, "Unable to build reqwest HTTP client"),
-        };
+        let client = HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid)?;
         let r = DockerContainer {
             mem_usage: RwLock::new(function.memory),
             container_id,
@@ -72,8 +60,6 @@ impl DockerContainer {
             port,
             client,
             compute,
-            invoke_uri: calculate_invoke_uri(address.as_str(), port),
-            base_uri: calculate_base_uri(address.as_str(), port),
             state: Mutex::new(state),
             device,
         };
@@ -87,48 +73,21 @@ impl ContainerT for DockerContainer {
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
         *self.invocations.lock() += 1;
         self.touch();
-        let build = self
-            .client
-            .post(&self.invoke_uri)
-            .body(json_args.to_owned())
-            .header("Content-Type", "application/json");
-
-        let start = SystemTime::now();
-        let response = match build.send().await {
-            Ok(r) => r,
+        match self.client.invoke(json_args, tid, &self.container_id).await {
+            Ok(r) => Ok(r),
             Err(e) => {
                 self.mark_unhealthy();
-                bail_error!(tid=%tid, error=%e, container_id=%self.container_id, "HTTP error when trying to connect to container");
-            }
-        };
-        let duration = match start.elapsed() {
-            Ok(dur) => dur,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
-        };
-        let status = response.status();
-        let r = match response.text().await {
-            Ok(r) => r,
-            Err(e) => {
-                bail_error!(tid=%tid, error=%e, container_id=%self.container_id, "Error reading text data from container")
-            }
-        };
-        match status {
-            reqwest::StatusCode::OK => (),
-            reqwest::StatusCode::UNPROCESSABLE_ENTITY => {
-                self.mark_unhealthy();
-                warn!(tid=%tid, status=422, "A user code error occured in the container, marking for removal");
-            }
-            reqwest::StatusCode::INTERNAL_SERVER_ERROR => {
-                self.mark_unhealthy();
-                bail_error!(tid=%tid, status=500, result=%r, "A platform error occured in the container, making for removal");
-            }
-            other => {
-                self.mark_unhealthy();
-                bail_error!(tid=%tid, status=%other, result=%r, "Unknown status code from container call");
+                Err(e)
             }
         }
-        let result = ParsedResult::parse(r, tid)?;
-        Ok((result, duration))
+    }
+
+    async fn prewarm_actions(&self, tid: &TransactionId) -> Result<()> {
+        self.client.move_to_device(tid, &self.container_id).await
+    }
+
+    async fn cooldown_actions(&self, tid: &TransactionId) -> Result<()> {
+        self.client.move_from_device(tid, &self.container_id).await
     }
 
     fn touch(&self) {

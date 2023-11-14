@@ -44,7 +44,7 @@ pub struct Configuration {
     pub influx: Option<Arc<InfluxConfig>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 /// total resources the worker is allowed to allocate to containers
 pub struct ContainerResourceConfig {
     /// total memory pool in MB
@@ -71,7 +71,7 @@ pub struct ContainerResourceConfig {
     /// Settings for the CPU compute resources the worker can use
     pub gpu_resource: Option<Arc<GPUResourceConfig>>,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 /// Configuration detailing a single type of compute
 pub struct CPUResourceConfig {
     /// number of cores it can use, i.e. number of concurrent functions allowed at once
@@ -88,7 +88,7 @@ pub struct CPUResourceConfig {
     /// Used with [Self::max_oversubscribe] and cannot be 0
     pub max_load: Option<f64>,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 /// Configuration detailing a single type of compute
 pub struct GPUResourceConfig {
     /// Number of cores it can use, i.e. number of concurrent functions allowed at once.

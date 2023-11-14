@@ -5,3 +5,4 @@ ilúvatar_worker_library/tests/resources/worker.dev*json
 ilúvatar_controller/src/controller.dev*json
 target/
 **.swp
+.vscode/

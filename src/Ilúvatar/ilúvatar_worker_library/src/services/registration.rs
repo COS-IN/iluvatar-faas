@@ -133,8 +133,9 @@ impl RegistrationService {
         if !request.resource_timings_json.is_empty() {
             match serde_json::from_str::<ResourceTimings>(&request.resource_timings_json) {
                 Ok(r) => {
-                    for dev_compute in compute {
-                        if let Some(timings) = r.get(&((&dev_compute).try_into()?)) {
+                    for dev_compute in compute.into_iter() {
+                        if let Some(timings) = r.get(&dev_compute.try_into()?) {
+                            debug!(tid=%tid, compute=%dev_compute, from_compute=%compute, fqdn=%fqdn, timings=?r, "Registering timings for function");
                             let (cold, warm, exec) = Self::get_characteristics(dev_compute)?;
                             for v in timings.cold_results_sec.iter() {
                                 self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);

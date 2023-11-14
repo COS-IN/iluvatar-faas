@@ -251,6 +251,7 @@ impl ContainerIsolationService for DockerIsolation {
                 ContainerState::Cold,
                 compute,
                 device_resource,
+                tid,
             )?;
             Ok(Arc::new(c))
         }

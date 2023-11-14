@@ -1,7 +1,9 @@
+use crate::trace::prepare_function_args;
 use crate::utils::*;
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::types::{Compute, FunctionInvocationTimings, Isolation, MemSizeMb, ResourceTimings};
+use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -22,6 +24,8 @@ pub struct ToBenchmarkFunction {
     /// The memory to give the func
     /// If empty, will default to 512
     pub memory: Option<MemSizeMb>,
+    /// Arguments to pass to each invocation of the function
+    pub args: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -165,11 +169,11 @@ pub async fn benchmark_controller(
                             let func_exec_us = invoke_result.function_output.body.latency * 1000000.0;
                             let invoke_lat = invoke_result.client_latency_us as f64;
                             let compute = Compute::CPU; // TODO: update when controller returns more details
-                            let resource_entry = match func_data.resource_data.get_mut(&(&compute).try_into()?) {
+                            let resource_entry = match func_data.resource_data.get_mut(&compute.try_into()?) {
                                 Some(r) => r,
                                 None => func_data
                                     .resource_data
-                                    .entry((&compute).try_into()?)
+                                    .entry(compute.try_into()?)
                                     .or_insert_with(FunctionInvocationTimings::new),
                             };
                             if invoke_result.function_output.body.cold {
@@ -257,6 +261,14 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
             Some(c) => *c,
             None => 512,
         };
+        let mut dummy = crate::trace::Function::default();
+        let func_args = match &function.args {
+            Some(arg) => {
+                dummy.args = Some(arg.clone());
+                args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
+            }
+            None => "{\"name\":\"TESTING\"}".to_string(),
+        };
         for supported_compute in compute {
             println!("{} {:?}", &function.name, supported_compute);
 
@@ -292,7 +304,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
                                 &args.host,
                                 args.port,
                                 &gen_tid(),
-                                None,
+                                Some(func_args.clone()),
                                 clock.clone(),
                                 &factory,
                                 None,
@@ -315,7 +327,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
                                 &args.host,
                                 args.port,
                                 &gen_tid(),
-                                None,
+                                Some(func_args.clone()),
                                 clock.clone(),
                                 &factory,
                                 None,
@@ -349,11 +361,11 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
         let func_exec_us = invoke.function_output.body.latency * 1000000.0;
         let compute = Compute::from_bits_truncate(invoke.worker_response.compute);
         if invoke.worker_response.success {
-            let resource_entry = match d.resource_data.get_mut(&(&compute).try_into()?) {
+            let resource_entry = match d.resource_data.get_mut(&compute.try_into()?) {
                 Some(r) => r,
                 None => d
                     .resource_data
-                    .entry((&compute).try_into()?)
+                    .entry(compute.try_into()?)
                     .or_insert_with(FunctionInvocationTimings::new),
             };
             if invoke.function_output.body.cold {

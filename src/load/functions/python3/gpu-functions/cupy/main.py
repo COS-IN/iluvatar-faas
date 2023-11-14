@@ -46,7 +46,7 @@ def math_numpy(size, iters):
     A = np.random.rand(size, size)
     B = np.random.rand(size, size)
 
-  for i in range(iters):
+  for i in range(iters // 10):
     z = (A - B) * (A - B)
     X = np.fft.fft(z)
   return str(np.mean(np.mean(X)))

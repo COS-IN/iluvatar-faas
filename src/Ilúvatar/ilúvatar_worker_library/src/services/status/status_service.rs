@@ -99,12 +99,7 @@ impl StatusService {
 
         let mut gpu_utilization = vec![];
         if let Some(gpu) = &self.gpu {
-            match gpu.gpu_utilization(tid) {
-                Ok(n) => gpu_utilization = n,
-                Err(e) => {
-                    error!(tid=%tid, error=%e, "Unable to get gpu utilization");
-                }
-            };
+            gpu_utilization = gpu.gpu_status(tid);
         }
 
         let mut cpu_instant_lck = self.cpu_instant.lock();

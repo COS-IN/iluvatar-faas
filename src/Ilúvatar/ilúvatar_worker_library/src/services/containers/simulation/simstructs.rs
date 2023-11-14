@@ -155,6 +155,7 @@ impl ContainerT for SimulatorContainer {
             end: timer.format_time(end)?,
             was_cold,
             duration_sec: code_dur.as_secs_f64(),
+            gpu_allocation: None,
         };
         Ok((result, d))
     }

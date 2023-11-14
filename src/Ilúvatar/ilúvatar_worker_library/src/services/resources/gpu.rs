@@ -3,17 +3,37 @@ use crate::{
     worker_api::worker_config::GPUResourceConfig,
 };
 use anyhow::Result;
-use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb, utils::execute_cmd_checked};
+use iluvatar_library::{
+    bail_error, threading::tokio_thread, transaction::TransactionId, types::MemSizeMb, utils::execute_cmd_checked,
+};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, trace};
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub type GpuUuid = String;
+
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
+pub enum Pstate {
+    P0,
+    P1,
+    P2,
+    P3,
+    P4,
+    P5,
+    P6,
+    P7,
+    P8,
+    P9,
+    P10,
+    P11,
+    P12,
+}
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct GpuStatus {
     pub gpu_uuid: GpuUuid,
     /// The current performance state for the GPU. States range from P0 (maximum performance) to P12 (minimum performance).
-    pub pstate: String,
+    pub pstate: Pstate,
     /// Total installed GPU memory.
     pub memory_total: u32,
     /// Total memory allocated by active contexts.
@@ -29,8 +49,22 @@ pub struct GpuStatus {
     /// The software power limit in watts. Set by software like nvidia-smi.
     pub power_limit: f64,
 }
-
-pub type GpuUuid = String;
+impl GpuStatus {
+    pub fn update(&mut self, new_status: GpuStatus) {
+        let alpha = 0.6;
+        self.pstate = new_status.pstate;
+        self.memory_used = Self::moving_avg_u(alpha, self.memory_used, new_status.memory_used);
+        self.utilization_gpu = Self::moving_avg_f(alpha, self.utilization_gpu, new_status.utilization_gpu);
+        self.utilization_memory = Self::moving_avg_f(alpha, self.utilization_memory, new_status.utilization_memory);
+        self.power_draw = Self::moving_avg_f(alpha, self.power_draw, new_status.power_draw);
+    }
+    fn moving_avg_f(alpha: f64, old: f64, new: f64) -> f64 {
+        (new * alpha) + (old * (1.0 - alpha))
+    }
+    fn moving_avg_u(alpha: f64, old: u32, new: u32) -> u32 {
+        ((new as f64 * alpha) + (old as f64 * (1.0 - alpha))) as u32
+    }
+}
 
 #[derive(Debug)]
 pub struct GPU {
@@ -111,12 +145,15 @@ pub struct GpuResourceTracker {
     gpus: RwLock<Vec<Arc<GPU>>>,
     concurrency_semaphore: Arc<Semaphore>,
     docker: Arc<dyn ContainerIsolationService>,
+    _handle: tokio::task::JoinHandle<()>,
+    status_info: RwLock<Vec<GpuStatus>>,
 }
 impl GpuResourceTracker {
     pub fn boxed(
         resources: &Option<Arc<GPUResourceConfig>>,
         tid: &TransactionId,
         docker: &Arc<dyn ContainerIsolationService>,
+        status_config: &Arc<crate::worker_api::worker_config::StatusConfig>,
     ) -> Result<Option<Arc<Self>>> {
         if let Some(config) = resources.clone() {
             let gpus = GpuResourceTracker::prepare_structs(&config, tid)?;
@@ -129,11 +166,21 @@ impl GpuResourceTracker {
             } else {
                 Self::set_shared_exclusive(tid)?;
             }
-            return Ok(Some(Arc::new(GpuResourceTracker {
+            let (handle, tx) = tokio_thread(
+                status_config.report_freq_ms,
+                GPU_RESC_TID.to_owned(),
+                Self::gpu_utilization,
+            );
+
+            let svc = Arc::new(GpuResourceTracker {
                 concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid),
                 gpus: RwLock::new(gpus),
                 docker: docker.clone(),
-            })));
+                _handle: handle,
+                status_info: RwLock::new(vec![]),
+            });
+            tx.send(svc.clone())?;
+            return Ok(Some(svc));
         }
         Ok(None)
     }
@@ -294,31 +341,56 @@ impl GpuResourceTracker {
     }
 
     /// get the utilization of GPUs on the system
-    pub fn gpu_utilization(&self, tid: &TransactionId) -> Result<Vec<GpuStatus>> {
-        let mut ret: Vec<GpuStatus> = vec![];
+    async fn gpu_utilization(svc: Arc<Self>, tid: TransactionId) {
         if !std::path::Path::new("/usr/bin/nvidia-smi").exists() {
             trace!(tid=%tid, "nvidia-smi not found, not checking GPU utilization");
-            return Ok(ret);
+            return;
         }
         let args = vec![
-            "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
-            "--format=csv,noheader,nounits",
+          "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
+          "--format=csv,noheader,nounits",
         ];
-        let nvidia = execute_cmd_checked("/usr/bin/nvidia-smi", &args, None, tid)?;
+        let nvidia = match execute_cmd_checked("/usr/bin/nvidia-smi", &args, None, &tid) {
+            Ok(r) => r,
+            Err(e) => {
+                error!(tid=%tid, error=%e, "Failed to call nvidia-smi");
+                return;
+            }
+        };
+        let is_empty = (*svc.status_info.read()).is_empty();
+        let mut ret: Vec<GpuStatus> = vec![];
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
             .delimiter(b',')
             .trim(csv::Trim::All)
             .from_reader(nvidia.stdout.as_slice());
-        for record in rdr.deserialize() {
+        for record in rdr.deserialize::<GpuStatus>() {
             match record {
-                Ok(rec) => ret.push(rec),
-                Err(e) => {
-                    bail_error!(tid=%tid, error=%e, "Failed to deserialized GPU record from nvidia-smi")
+                Ok(rec) => {
+                    if is_empty {
+                        ret.push(rec);
+                    } else {
+                        let mut lck = svc.status_info.write();
+                        for stat in &mut *lck {
+                            if stat.gpu_uuid == rec.gpu_uuid {
+                                stat.update(rec);
+                                break;
+                            }
+                        }
+                    }
                 }
+                Err(e) => error!(tid=%tid, error=%e, "Failed to deserialized GPU record from nvidia-smi"),
             }
         }
-        Ok(ret)
+        if is_empty {
+            debug!(tid=%tid, "Setting GPU status info for first time");
+            *svc.status_info.write() = ret;
+        }
+    }
+
+    /// get the utilization of GPUs on the system
+    pub fn gpu_status(&self, _tid: &TransactionId) -> Vec<GpuStatus> {
+        (*self.status_info.read()).clone()
     }
 }
 impl Drop for GpuResourceTracker {

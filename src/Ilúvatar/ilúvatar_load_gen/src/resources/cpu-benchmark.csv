@@ -14,7 +14,7 @@ video_processing,docker.io/alfuerst/video_processing-iluvatar-action:latest,CPU,
 imagenet,docker.io/alfuerst/tf_imagenet-iluvatar-gpu:latest,CPU,CONTAINERD,1024,
 squeezenet,docker.io/alfuerst/tf_squeezenet-iluvatar-gpu:latest,CPU,CONTAINERD,1024,
 torch_rnn,docker.io/alfuerst/rnn_generate_character_level-iluvatar-gpu:latest,CPU,CONTAINERD,1024,
-ffmpeg,docker.io/alfuerst/ffmpeg-isoneural-iluvatar-gpu:latest,CPU,CONTAINERD,2048,
+ffmpeg,docker.io/alfuerst/ffmpeg-iluvatar-gpu:latest,CPU,CONTAINERD,2048,
 rodinia-pathfinder,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU,CONTAINERD,2048,bin=pathfinder
 rodinia-srad,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU,CONTAINERD,2048,bin=srad
 rodinia-needle,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU,CONTAINERD,2048,bin=needle
