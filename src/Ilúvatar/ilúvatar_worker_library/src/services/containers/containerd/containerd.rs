@@ -586,6 +586,7 @@ impl ContainerdIsolation {
                         ContainerState::Cold,
                         compute,
                         device_resource,
+                        tid,
                     )?)
                 }
             }

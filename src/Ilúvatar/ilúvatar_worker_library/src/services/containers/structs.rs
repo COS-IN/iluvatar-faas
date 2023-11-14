@@ -49,6 +49,14 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
     fn compute_type(&self) -> Compute;
     /// An optional value, returned with [Some(GPU)] if the container has extra resources
     fn device_resource(&self) -> &Option<Arc<crate::services::resources::gpu::GPU>>;
+    /// Perform any actions that might improve performance before invocation(s) are sent
+    async fn prewarm_actions(&self, _tid: &TransactionId) -> Result<()> {
+        Ok(())
+    }
+    /// Perform any actions to reduce resource usage knowing that function will not be called in the near future
+    async fn cooldown_actions(&self, _tid: &TransactionId) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Cast a container pointer to a concrete type
@@ -91,10 +99,13 @@ pub struct ParsedResult {
     /// Duration in seconds for how long the execution took
     /// As recorded by the platform _inside_ the container
     pub duration_sec: f64,
+    /// Amount of GPU memory allocated by the device.
+    /// Only present if one is attached
+    pub gpu_allocation: Option<u32>,
 }
 impl ParsedResult {
-    pub fn parse(from: String, tid: &TransactionId) -> Result<Self> {
-        match serde_json::from_str(from.as_str()) {
+    pub fn parse(from: &str, tid: &TransactionId) -> Result<Self> {
+        match serde_json::from_str(from) {
             Ok(p) => Ok(p),
             Err(e) => {
                 bail_error!(error=%e, tid=%tid, value=%from, "Failed to parse json from invocation return")

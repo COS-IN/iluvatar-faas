@@ -89,7 +89,7 @@ fn map_from_benchmark(
 ) -> Result<()> {
     let mut total_prewarms = 0;
     for (_fname, func) in funcs.iter_mut() {
-        let device_data: ComputeChoiceList = choose_bench_data_for_func(func, &bench)?;
+        let device_data: ComputeChoiceList = choose_bench_data_for_func(func, bench)?;
         let chosen = match device_data.iter().min_by(|a, b| safe_cmp(&a.1, &b.1)) {
             Some(n) => n,
             None => anyhow::bail!("failed to get a minimum func from {:?}", device_data),

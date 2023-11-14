@@ -120,22 +120,17 @@ impl TryFrom<&String> for Compute {
 impl std::fmt::Display for Compute {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut iter = self.into_iter().peekable();
-        loop {
-          if let Some(i) = iter.next() {
+        while let Some(i) = iter.next() {
             match TryInto::<ComputeEnum>::try_into(i) {
-                Ok(c) => f. write_fmt(format_args!("{:?}", c))?,
+                Ok(c) => f.write_fmt(format_args!("{:?}", c))?,
                 Err(e) => {
-                  tracing::error!(error=%e, "Failed to format Compute");
-                  return Err(std::fmt::Error);
-                },
+                    tracing::error!(error=%e, "Failed to format Compute");
+                    return Err(std::fmt::Error);
+                }
             };
             if iter.peek().is_some() {
-              f. write_str("|")?;
+                f.write_str("|")?;
             }
-          }
-          else {
-            break;
-          }
         }
         Ok(())
     }
@@ -227,31 +222,29 @@ impl FunctionInvocationTimings {
     }
 }
 
-
 #[cfg(test)]
 mod types_tests {
     use super::*;
 
     #[test]
     fn compute_format() {
-      assert_eq!("cpu|gpu", format!("{}", Compute::CPU|Compute::GPU));
-      assert_eq!("cpu", format!("{}", Compute::CPU));
+        assert_eq!("cpu|gpu", format!("{}", Compute::CPU | Compute::GPU));
+        assert_eq!("cpu", format!("{}", Compute::CPU));
     }
 
     #[test]
     fn compute_iterable() {
-      let mut has_cpu = false;
-      let mut has_gpu = false;
-      for c in (Compute::CPU|Compute::GPU).into_iter() {
-        if c == Compute::CPU {
-          has_cpu = true;
+        let mut has_cpu = false;
+        let mut has_gpu = false;
+        for c in (Compute::CPU | Compute::GPU).into_iter() {
+            if c == Compute::CPU {
+                has_cpu = true;
+            }
+            if c == Compute::CPU {
+                has_gpu = true;
+            }
         }
-        if c == Compute::CPU {
-          has_gpu = true;
-        }
-      }
-      assert!(has_cpu);
-      assert!(has_gpu);
+        assert!(has_cpu);
+        assert!(has_gpu);
     }
-
 }

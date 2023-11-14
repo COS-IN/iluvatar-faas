@@ -37,12 +37,16 @@ pub fn calculate_fqdn(function_name: &str, function_version: &str) -> String {
     format!("{}-{}", function_name, function_version)
 }
 
+pub fn format_uri(address: &str, port: Port, path: &str) -> String {
+    format!("http://{}:{}/{}", address, port, path)
+}
+
 pub fn calculate_invoke_uri(address: &str, port: Port) -> String {
-    format!("http://{}:{}/invoke", address, port)
+    format_uri(address, port, "invoke")
 }
 
 pub fn calculate_base_uri(address: &str, port: Port) -> String {
-    format!("http://{}:{}/", address, port)
+    format_uri(address, port, "")
 }
 
 fn prepare_cmd<S, S2, I>(
