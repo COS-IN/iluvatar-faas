@@ -160,25 +160,32 @@ impl QueueingDispatcher {
         cpu: &Arc<CpuResourceTracker>,
         gpu: &Arc<GpuResourceTracker>,
     ) -> Result<Arc<dyn DeviceQueue>> {
-      match invocation_config.queues.get(&ComputeEnum::gpu).as_deref() {
-        Some(q) => 
-          if q == "serial" {
-            Ok(GpuQueueingInvoker::new(
-              cont_manager.clone(),
-              function_config.clone(),
-              invocation_config.clone(),
-              tid,
-              cmap.clone(),
-              cpu.clone(),
-              gpu.clone(),
-            )?)    
-          } else if q == "mqfq" {
-            Ok(MQFQ::new(cont_manager.clone(), cmap.clone())?)
-          } else {
-            anyhow::bail!("Unkonwn GPU queue {}", q);
-          }
-        None => anyhow::bail!("GPU queue was not specified"),
-      }
+        match invocation_config.queues.get(&ComputeEnum::gpu).as_deref() {
+            Some(q) => {
+                if q == "serial" {
+                    Ok(GpuQueueingInvoker::new(
+                        cont_manager.clone(),
+                        function_config.clone(),
+                        invocation_config.clone(),
+                        tid,
+                        cmap.clone(),
+                        cpu.clone(),
+                        gpu.clone(),
+                    )?)
+                } else if q == "mqfq" {
+                    Ok(MQFQ::new(
+                        cont_manager.clone(),
+                        cmap.clone(),
+                        invocation_config.clone(),
+                        cpu.clone(),
+                        gpu.clone(),
+                    )?)
+                } else {
+                    anyhow::bail!("Unkonwn GPU queue {}", q);
+                }
+            }
+            None => anyhow::bail!("GPU queue was not specified"),
+        }
     }
 
     /// Forms invocation data into a [EnqueuedInvocation] that is returned

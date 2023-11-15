@@ -1,27 +1,27 @@
-#![allow(non_snake_case, unused)]
+#![allow(unused)]
 
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::invocation::completion_time_tracker::CompletionTimeTracker;
-use crate::services::{
-    invocation::gpu_q_invoke::{GpuBatch, GpuQueuePolicy},
-    registration::RegisteredFunction,
-};
+use crate::services::resources::cpu::CpuResourceTracker;
+use crate::services::resources::gpu::GpuResourceTracker;
+use crate::services::registration::RegisteredFunction;
+use crate::worker_api::worker_config::InvocationConfig;
 use anyhow::Result;
-use dashmap::mapref::multiple::RefMulti;
-use dashmap::DashMap;
+use dashmap::{DashMap, mapref::multiple::RefMulti};
 use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::threading::tokio_runtime;
 use iluvatar_library::transaction::TransactionId;
 use parking_lot::{Mutex, RwLock};
-use std::cmp;
-use std::cmp::Ordering;
-use std::collections::{BinaryHeap, VecDeque};
-use std::ops::Deref;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use time::OffsetDateTime;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tracing::debug;
+use tokio::sync::Notify;
+use tracing::{debug, error};
+use super::{DeviceQueue, EnqueuedInvocation};
 
-use super::{DeviceQueue, EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation};
+lazy_static::lazy_static! {
+  pub static ref MQFQ_GPU_QUEUE_WORKER_TID: TransactionId = "MQFQ_GPU_Queue".to_string();
+}
 
 /// Multi-Queue Fair Queueing.
 /// Refer to ATC '19 paper by Hedayati et.al.
@@ -82,8 +82,8 @@ pub struct FlowQ {
     /// Actual service time may be different. Updated after function completion somehow?
     /// Is the TTL Keep-alive duration
     in_flight: i32,
-    /// s to wait for next arrival if empty
-    TTL_s: f64,
+    /// seconds to wait for next arrival if queue is empty
+    ttl_sec: f64,
     last_serviced: OffsetDateTime,
     /// avg service time in s
     service_avg: f64,
@@ -101,7 +101,7 @@ impl FlowQ {
             start_time_virt,
             finish_time_virt: 0.0,
             in_flight: 0,
-            TTL_s: 20.0,
+            ttl_sec: 20.0,
             last_serviced: OffsetDateTime::now_utc(),
             service_avg: 10.0,
             allowed_overrun: 10.0,
@@ -109,24 +109,24 @@ impl FlowQ {
     }
 
     /// Return True if should update the global time
-    pub fn push_flowQ(&mut self, item: Arc<EnqueuedInvocation>, vitual_time: f64) -> bool {
+    pub fn push_flow(&mut self, item: Arc<EnqueuedInvocation>, vitual_time: f64) -> bool {
         let start_t = f64::max(vitual_time, self.finish_time_virt); // cognizant of weights
         let finish_t = start_t + (self.service_avg / self.weight);
-        let r = MQRequest::new(item, start_t, finish_t);
-        let rFv = r.finish_time_virt;
+        let req = MQRequest::new(item, start_t, finish_t);
+        let req_finish_virt = req.finish_time_virt;
 
-        self.queue.push_back(r);
+        self.queue.push_back(req);
 
         self.state = MQState::Active;
         self.start_time_virt = f64::max(self.start_time_virt, start_t); // if this was 0?
-        self.finish_time_virt = f64::max(rFv, self.finish_time_virt); // always needed
+        self.finish_time_virt = f64::max(req_finish_virt, self.finish_time_virt); // always needed
 
         self.queue.len() == 1
         //self.start_time_virt = r.start_time_virt; // only if the first element!
     }
 
     /// Remove oldest item. No other svc state update.
-    pub fn pop_flowQ(&mut self, vitual_time: f64) -> Option<Arc<MQRequest>> {
+    pub fn pop_flow(&mut self, vitual_time: f64) -> Option<Arc<MQRequest>> {
         let r = self.queue.pop_front();
 
         if self.queue.is_empty() {
@@ -167,8 +167,8 @@ impl FlowQ {
         }
         // check grace period
         if self.queue.is_empty() {
-            let TTL_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
-            if TTL_remaining > self.TTL_s {
+            let ttl_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
+            if ttl_remaining > self.ttl_sec {
                 self.state = MQState::Inactive;
             }
         }
@@ -180,7 +180,7 @@ struct TokenBucket {
     capacity: i32,
     current: i32,
 }
-
+#[allow(unused)]
 impl TokenBucket {
     fn new(capacity: i32) -> Arc<Self> {
         let svc = Arc::new(TokenBucket {
@@ -215,44 +215,123 @@ pub struct MQFQ {
     cmap: Arc<CharacteristicsMap>,
     /// Use this as a token bucket
     ctrack: Arc<CompletionTimeTracker>,
+
+    signal: Notify,
+    cpu: Arc<CpuResourceTracker>,
+    _thread: std::thread::JoinHandle<()>,
+    gpu: Arc<GpuResourceTracker>,
 }
 
 /// TODO: Pass concurrency semaphore from gpu_q_invoke
 /// TODO: config with D, T, wts, etc.
-
+#[allow(dyn_drop)]
 impl MQFQ {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
         cmap: Arc<CharacteristicsMap>,
+        invocation_config: Arc<InvocationConfig>,
+        cpu: Arc<CpuResourceTracker>,
+        gpu: Arc<GpuResourceTracker>,
     ) -> Result<Arc<Self>> {
+        let (gpu_handle, gpu_tx) = tokio_runtime(
+            invocation_config.queue_sleep_ms,
+            MQFQ_GPU_QUEUE_WORKER_TID.clone(),
+            Self::monitor_queue,
+            Some(Self::gpu_wait_on_queue),
+            None,
+        )?;
+
         let svc = Arc::new(MQFQ {
             mqfq_set: DashMap::new(),
             est_time: Mutex::new(0.0),
             vitual_time: RwLock::new(0.0),
             max_inflight: 4,
-            cmap,
             cont_manager,
             ctrack: Arc::new(CompletionTimeTracker::new()),
+            signal: Notify::new(),
+            _thread: gpu_handle,
+            cpu,
+            gpu,
+            cmap,
         });
+        gpu_tx.send(svc.clone())?;
         Ok(svc)
     }
 
+    async fn gpu_wait_on_queue(invoker_svc: Arc<Self>, tid: TransactionId) {
+        invoker_svc.signal.notified().await;
+        debug!(tid=%tid, "Invoker waken up by signal");
+    }
+    /// Check the invocation queue, running things when there are sufficient resources
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+    async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
+        while let Some(peek_reg) = self.dispatch() {
+            // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
+            if let Some(permit) = self.acquire_resources_to_run(&peek_reg.invok.registration, &tid) {
+                // self.spawn_tokio_worker(self.clone(), batch, permit, &tid);
+                todo!();
+            } else {
+                debug!(tid=%tid, fqdn=%peek_reg.invok.registration.fqdn, "Insufficient resources to run item");
+                break;
+            }
+        }
+    }
+
+    /// Returns an owned permit if there are sufficient resources to run a function
+    /// A return value of [None] means the resources failed to be acquired
+    fn acquire_resources_to_run(
+        &self,
+        reg: &Arc<RegisteredFunction>,
+        tid: &TransactionId,
+    ) -> Option<Box<dyn Drop + Send>> {
+        let mut ret = vec![];
+        match self.cpu.try_acquire_cores(reg, tid) {
+            Ok(c) => ret.push(c),
+            Err(e) => {
+                match e {
+                    tokio::sync::TryAcquireError::Closed => {
+                        error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                    }
+                    tokio::sync::TryAcquireError::NoPermits => {
+                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
+                    }
+                };
+                return None;
+            }
+        };
+        match self.gpu.try_acquire_resource() {
+            Ok(c) => ret.push(Some(c)),
+            Err(e) => {
+                match e {
+                    tokio::sync::TryAcquireError::Closed => {
+                        error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                    }
+                    tokio::sync::TryAcquireError::NoPermits => {
+                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
+                    }
+                };
+                return None;
+            }
+        };
+        Some(Box::new(ret))
+    }
+
     /// Get or create FlowQ
-    fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) -> () {
+    fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) {
         let fname = &item.registration.fqdn;
         let vitual_time = *self.vitual_time.read();
         //        let qret:Arc<FlowQ>;
         // Lookup flow if exists
         if self.mqfq_set.contains_key(fname) {
             let fq = self.mqfq_set.get_mut(fname).unwrap();
-            let mut qret = fq.value().lock().push_flowQ(item, vitual_time);
+            let mut qret = fq.value().lock().push_flow(item, vitual_time);
             // qret //? Always do that here?
         }
         // else, create the FlowQ, add to set, and add item to flow and
         else {
             let fname = item.registration.fqdn.clone();
             let qguard = Arc::new(Mutex::new(FlowQ::new(fname.clone(), 0.0, 1.0)));
-            let mut qret = qguard.lock().push_flowQ(item, vitual_time);
+            let mut qret = qguard.lock().push_flow(item, vitual_time);
             // qret.push_flowQ(item, vitual_time); //? Always do that here?
             // let qret = qguard.lock();
             self.mqfq_set.insert(fname, qguard);
@@ -295,16 +374,11 @@ impl MQFQ {
             return None;
         }
 
-        let nq = self.next_flow();
-        //if nq.is_none() {
-        //    return None
-        //}
-
-        match nq {
+        match self.next_flow() {
             None => None,
             Some(cq) => {
                 let mut chosen_q = cq.lock();
-                let item = chosen_q.pop_flowQ(vitual_time);
+                let item = chosen_q.pop_flow(vitual_time);
                 match item {
                     Some(i) => {
                         let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
@@ -340,25 +414,20 @@ impl MQFQ {
 // }
 
 impl DeviceQueue for MQFQ {
-    #[doc = " The length of items waiting to be ran on the device"]
     fn queue_len(&self) -> usize {
         todo!()
     }
 
-    #[doc = " The estimated time from now the item would be completed if run on the device"]
-    #[doc = " In seconds"]
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         todo!()
     }
 
-    #[doc = " Insert an item into the queue"]
-    #[doc = " If an error is returned, the item was not put enqueued"]
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
-        todo!()
+        self.add_invok_to_flow(item.clone());
+        Ok(())
     }
 
-    #[doc = " Number of invocations currently running"]
     fn running(&self) -> u32 {
-        todo!()
+        self.ctrack.get_inflight() as u32
     }
 }

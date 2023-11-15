@@ -1,19 +1,22 @@
 use super::{
     completion_time_tracker::CompletionTimeTracker,
     queueing::{
-        fcfs_gpu::FcfsGpuQueue, gpu_mqfq::MQFQ, oldest_gpu::BatchGpuQueue, DeviceQueue, EnqueuedInvocation,
-        MinHeapEnqueuedInvocation, MinHeapFloat,
+        fcfs_gpu::FcfsGpuQueue, oldest_gpu::BatchGpuQueue, DeviceQueue, EnqueuedInvocation, MinHeapEnqueuedInvocation,
+        MinHeapFloat,
     },
-};
-use crate::services::containers::{
-    containermanager::ContainerManager,
-    structs::{ContainerLock, ContainerState, InsufficientGPUError, InsufficientMemoryError, ParsedResult},
 };
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
+use crate::services::{
+    containers::{
+        containermanager::ContainerManager,
+        structs::{ContainerState, InsufficientGPUError, InsufficientMemoryError, ParsedResult},
+    },
+    invocation::invoke_on_container,
+};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::{Characteristics, CharacteristicsMap, Values};
+use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::{
     logging::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
 };
@@ -25,7 +28,7 @@ use std::{
 };
 use time::{Instant, OffsetDateTime};
 use tokio::sync::Notify;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
@@ -358,67 +361,23 @@ impl GpuQueueingInvoker {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => n?,
         };
-        self.invoke_on_container(reg, json_args, tid, queue_insert_time, ctr_lock, remove_time, start)
-            .await
-    }
-
-    /// Returns
-    /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
-    /// [Duration]: The E2E latency between the worker and the container
-    /// [Compute]: Compute the invocation was run on
-    /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, ctr_lock, remove_time,cold_time_start) fields(tid=%tid)))]
-    async fn invoke_on_container<'a>(
-        &'a self,
-        reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a str,
-        tid: &'a TransactionId,
-        queue_insert_time: OffsetDateTime,
-        ctr_lock: ContainerLock<'a>,
-        remove_time: String,
-        cold_time_start: Instant,
-    ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        info!(tid=%tid, insert_time=%self.clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (data, duration) = ctr_lock.invoke(json_args).await?;
+        let (data, duration, compute_type, state) = invoke_on_container(
+            reg,
+            json_args,
+            tid,
+            queue_insert_time,
+            &ctr_lock,
+            remove_time,
+            start,
+            &self.cmap,
+            &self.clock,
+        )
+        .await?;
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        match ctr_lock.container.state() {
-            ContainerState::Warm => self.cmap.add(
-                &reg.fqdn,
-                Characteristics::GpuWarmTime,
-                Values::F64(data.duration_sec),
-                true,
-            ),
-            ContainerState::Prewarm => self.cmap.add(
-                &reg.fqdn,
-                Characteristics::GpuPreWarmTime,
-                Values::F64(data.duration_sec),
-                true,
-            ),
-            _ => self.cmap.add(
-                &reg.fqdn,
-                Characteristics::GpuColdTime,
-                Values::F64(cold_time_start.elapsed().as_seconds_f64()),
-                true,
-            ),
-        };
-        self.cmap.add(
-            &reg.fqdn,
-            Characteristics::GpuExecTime,
-            Values::F64(data.duration_sec),
-            true,
-        );
-        // TODO: cmap.queue_insert_time - current time for E2E GPU time
-        // Also same for cpu_q_invoke
-        let e2etime = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
-        // let e2etime = Duration::from_secs_f64(e1); // TODO: Check float?
-
-        self.cmap
-            .add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), true);
-
-        let (compute, state) = (ctr_lock.container.compute_type(), ctr_lock.container.state());
         drop(ctr_lock);
-        Ok((data, duration, compute, state))
+        self.signal.notify_waiters();
+        Ok((data, duration, compute_type, state))
     }
 
     fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {
