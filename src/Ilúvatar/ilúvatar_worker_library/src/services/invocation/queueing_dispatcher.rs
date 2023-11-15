@@ -179,6 +179,7 @@ impl QueueingDispatcher {
                         invocation_config.clone(),
                         cpu.clone(),
                         gpu,
+                        tid,
                     )?)
                 } else {
                     anyhow::bail!("Unkonwn GPU queue {}", q);

@@ -1,23 +1,26 @@
-#![allow(unused)]
-
-use crate::services::containers::containermanager::ContainerManager;
+use super::{DeviceQueue, EnqueuedInvocation};
+use crate::rpc::ContainerState;
+use crate::services::containers::{containermanager::ContainerManager, structs::ParsedResult};
 use crate::services::invocation::completion_time_tracker::CompletionTimeTracker;
+use crate::services::invocation::invoke_on_container;
+use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::GpuResourceTracker;
-use crate::services::registration::RegisteredFunction;
 use crate::worker_api::worker_config::InvocationConfig;
 use anyhow::Result;
-use dashmap::{DashMap, mapref::multiple::RefMulti};
+use dashmap::{mapref::multiple::RefMulti, DashMap};
 use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::threading::tokio_runtime;
+use iluvatar_library::logging::LocalTime;
+use iluvatar_library::threading::{tokio_runtime, EventualItem};
 use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::types::Compute;
 use parking_lot::{Mutex, RwLock};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use time::OffsetDateTime;
-use tokio::sync::Notify;
+use std::time::Duration;
+use time::{Instant, OffsetDateTime};
+use tokio::sync::{Notify, OwnedSemaphorePermit};
 use tracing::{debug, error};
-use super::{DeviceQueue, EnqueuedInvocation};
 
 lazy_static::lazy_static! {
   pub static ref MQFQ_GPU_QUEUE_WORKER_TID: TransactionId = "MQFQ_GPU_Queue".to_string();
@@ -206,7 +209,8 @@ pub struct MQFQ {
     /// System-wide logical clock for resources consumed
     vitual_time: RwLock<f64>,
     /// TODO: Configurable param
-    max_inflight: i32,
+    /// unneeded - inflight limited by GpuResourceTracker
+    // max_inflight: i32,
     /// TODO: Ignored for now
     est_time: Mutex<f64>,
 
@@ -220,6 +224,7 @@ pub struct MQFQ {
     cpu: Arc<CpuResourceTracker>,
     _thread: std::thread::JoinHandle<()>,
     gpu: Arc<GpuResourceTracker>,
+    clock: LocalTime,
 }
 
 /// TODO: Pass concurrency semaphore from gpu_q_invoke
@@ -232,6 +237,7 @@ impl MQFQ {
         invocation_config: Arc<InvocationConfig>,
         cpu: Arc<CpuResourceTracker>,
         gpu: &Option<Arc<GpuResourceTracker>>,
+        tid: &TransactionId,
     ) -> Result<Arc<Self>> {
         let (gpu_handle, gpu_tx) = tokio_runtime(
             invocation_config.queue_sleep_ms,
@@ -245,11 +251,14 @@ impl MQFQ {
             mqfq_set: DashMap::new(),
             est_time: Mutex::new(0.0),
             vitual_time: RwLock::new(0.0),
-            max_inflight: 4,
             ctrack: Arc::new(CompletionTimeTracker::new()),
             signal: Notify::new(),
             _thread: gpu_handle,
-            gpu: gpu.as_ref().ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?.clone(),
+            gpu: gpu
+                .as_ref()
+                .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?
+                .clone(),
+            clock: LocalTime::new(tid)?,
             cpu,
             cmap,
             cont_manager,
@@ -265,16 +274,100 @@ impl MQFQ {
     /// Check the invocation queue, running things when there are sufficient resources
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
-        while let Some(peek_reg) = self.dispatch() {
+        while let Some((next_item, token)) = self.dispatch() {
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
-            if let Some(permit) = self.acquire_resources_to_run(&peek_reg.invok.registration, &tid) {
-                // self.spawn_tokio_worker(self.clone(), batch, permit, &tid);
-                todo!();
+            if let Some(permit) = self.acquire_resources_to_run(&next_item.invok.registration, &tid) {
+                let svc = self.clone();
+                tokio::spawn(async move {
+                    svc.invocation_worker_thread(next_item, permit, token).await;
+                });
             } else {
-                debug!(tid=%tid, fqdn=%peek_reg.invok.registration.fqdn, "Insufficient resources to run item");
+                debug!(tid=%tid, fqdn=%next_item.invok.registration.fqdn, "Insufficient resources to run item");
                 break;
             }
         }
+    }
+
+    /// Handle executing an invocation, plus account for its success or failure
+    /// On success, the results are moved to the pointer and it is signaled
+    /// On failure, [Invoker::handle_invocation_error] is called
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, batch, permit), fields(fqdn=batch.peek().registration.fqdn)))]
+    async fn invocation_worker_thread(
+        &self,
+        item: Arc<MQRequest>,
+        permit: Box<dyn Drop + Send>,
+        token: OwnedSemaphorePermit,
+    ) {
+        if item.invok.lock() {
+            match self
+                .invoke(
+                    &item.invok.registration,
+                    &item.invok.json_args,
+                    &item.invok.tid,
+                    item.invok.queue_insert_time,
+                )
+                .await
+            {
+                Ok((result, duration, compute, container_state)) => {
+                    item.invok.mark_successful(result, duration, compute, container_state)
+                }
+                Err(cause) => self.handle_invocation_error(item.invok.clone(), cause),
+            };
+        }
+        drop(permit);
+        drop(token);
+        self.signal.notify_waiters();
+    }
+
+    /// Handle an error with the given enqueued invocation
+    /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
+    ///   Calls [Self::add_item_to_queue] to do this
+    /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
+    fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
+        item.mark_error(cause);
+    }
+
+    /// acquires a container and invokes the function inside it
+    /// returns the json result and duration as a tuple
+    /// The optional [permit] is dropped to return held resources
+    /// Returns
+    /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
+    /// [Duration]: The E2E latency between the worker and the container
+    /// [Compute]: Compute the invocation was run on
+    /// [ContainerState]: State the container was in for the invocation
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time), fields(tid=%tid)))]
+    async fn invoke<'a>(
+        &'a self,
+        reg: &'a Arc<RegisteredFunction>,
+        json_args: &'a str,
+        tid: &'a TransactionId,
+        queue_insert_time: OffsetDateTime,
+    ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
+        debug!(tid=%tid, "Internal invocation starting");
+        // take run time now because we may have to wait to get a container
+        let remove_time = self.clock.now_str()?;
+
+        let start = Instant::now();
+        let ctr_lock = match self.cont_manager.acquire_container(reg, tid, Compute::GPU) {
+            EventualItem::Future(f) => f.await?,
+            EventualItem::Now(n) => n?,
+        };
+        let (data, duration, compute_type, state) = invoke_on_container(
+            reg,
+            json_args,
+            tid,
+            queue_insert_time,
+            &ctr_lock,
+            remove_time,
+            start,
+            &self.cmap,
+            &self.clock,
+        )
+        .await?;
+        drop(ctr_lock);
+        self.signal.notify_waiters();
+        Ok((data, duration, compute_type, state))
     }
 
     /// Returns an owned permit if there are sufficient resources to run a function
@@ -299,20 +392,6 @@ impl MQFQ {
                 return None;
             }
         };
-        match self.gpu.try_acquire_resource() {
-            Ok(c) => ret.push(Some(c)),
-            Err(e) => {
-                match e {
-                    tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
-                    tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
-                    }
-                };
-                return None;
-            }
-        };
         Some(Box::new(ret))
     }
 
@@ -320,12 +399,10 @@ impl MQFQ {
     fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) {
         let fname = &item.registration.fqdn;
         let vitual_time = *self.vitual_time.read();
-        //        let qret:Arc<FlowQ>;
         // Lookup flow if exists
         if self.mqfq_set.contains_key(fname) {
             let fq = self.mqfq_set.get_mut(fname).unwrap();
             let mut qret = fq.value().lock().push_flow(item, vitual_time);
-            // qret //? Always do that here?
         }
         // else, create the FlowQ, add to set, and add item to flow and
         else {
@@ -360,17 +437,18 @@ impl MQFQ {
     }
 
     // Invoked functions automatically increase the count, conversely for finished functions
-    fn enough_tokens(&self) -> bool {
-        self.ctrack.get_inflight() < self.max_inflight
+    fn get_token(&self) -> Option<OwnedSemaphorePermit> {
+        self.gpu.try_acquire_resource().ok()
     }
 
     /// Main
-    fn dispatch(&self) -> Option<Arc<MQRequest>> {
+    fn dispatch(&self) -> Option<(Arc<MQRequest>, OwnedSemaphorePermit)> {
         // Filter by active queues, and select with lowest start time.
         // How to avoid hoarding of the tokens? Want round-robin.
         let vitual_time = *self.vitual_time.read();
 
-        if !self.enough_tokens() {
+        let token = self.get_token();
+        if token.is_none() {
             return None;
         }
 
@@ -384,7 +462,7 @@ impl MQFQ {
                         let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
                         *self.vitual_time.write() = updated_vitual_time;
                         chosen_q.update_dispatched(updated_vitual_time);
-                        Some(i)
+                        Some((i, token.unwrap()))
                     }
                     None => None,
                 }
@@ -397,29 +475,13 @@ impl MQFQ {
     fn charge_fn(efn: EnqueuedInvocation) -> () {}
 }
 
-/// Main request dispatch.
-//   fn pop_queue(&self) -> Option<GpuBatch> {
-//     let to_run = self.dispatch();
-//     match to_run {
-//         Some(t) => {
-//             let i = &t.invok;
-//             let g = GpuBatch::new(i.clone(), 1.0);
-//             Some(g)
-//         }
-//         None => {
-//             debug!("Nothing in queue to run");
-//             None
-//         } // Asked to run something, but are throttled. Return None?
-//     }
-// }
-
 impl DeviceQueue for MQFQ {
     fn queue_len(&self) -> usize {
-        todo!()
+        0
     }
 
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        todo!()
+    fn est_completion_time(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
+        0.0
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
