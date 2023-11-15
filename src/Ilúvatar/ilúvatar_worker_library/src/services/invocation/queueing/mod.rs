@@ -26,7 +26,7 @@ pub mod queueless;
 // GPU focused queues
 pub mod dynamic_batching;
 pub mod fcfs_gpu;
-pub mod mqfq;
+pub mod gpu_mqfq;
 pub mod oldest_gpu;
 
 #[derive(Debug, serde::Deserialize)]

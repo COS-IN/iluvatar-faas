@@ -10,6 +10,7 @@ use anyhow::Result;
 use dashmap::mapref::multiple::RefMulti;
 use dashmap::DashMap;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::transaction::TransactionId;
 use parking_lot::{Mutex, RwLock};
 use std::cmp;
 use std::cmp::Ordering;
@@ -20,7 +21,7 @@ use time::OffsetDateTime;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::debug;
 
-use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation};
+use super::{DeviceQueue, EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation};
 
 /// Multi-Queue Fair Queueing.
 /// Refer to ATC '19 paper by Hedayati et.al.
@@ -223,7 +224,6 @@ impl MQFQ {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
         cmap: Arc<CharacteristicsMap>,
-        ctrack: Arc<CompletionTimeTracker>,
     ) -> Result<Arc<Self>> {
         let svc = Arc::new(MQFQ {
             mqfq_set: DashMap::new(),
@@ -232,7 +232,7 @@ impl MQFQ {
             max_inflight: 4,
             cmap,
             cont_manager,
-            ctrack,
+            ctrack: Arc::new(CompletionTimeTracker::new()),
         });
         Ok(svc)
     }
@@ -323,47 +323,42 @@ impl MQFQ {
     fn charge_fn(efn: EnqueuedInvocation) -> () {}
 }
 
-#[tonic::async_trait]
-impl GpuQueuePolicy for MQFQ {
-    /// This is limited to the five functions add, peek, pop, len, time
-    /// Of which, we len/time are easy. Add should inject function into the right queue based on some property. pop/peek both select the right ``current'' queue and the function within this queue.
+/// Main request dispatch.
+//   fn pop_queue(&self) -> Option<GpuBatch> {
+//     let to_run = self.dispatch();
+//     match to_run {
+//         Some(t) => {
+//             let i = &t.invok;
+//             let g = GpuBatch::new(i.clone(), 1.0);
+//             Some(g)
+//         }
+//         None => {
+//             debug!("Nothing in queue to run");
+//             None
+//         } // Asked to run something, but are throttled. Return None?
+//     }
+// }
 
-    /// Main request dispatch.
-    fn pop_queue(&self) -> Option<GpuBatch> {
-        let to_run = self.dispatch();
-        match to_run {
-            Some(t) => {
-                let i = &t.invok;
-                let g = GpuBatch::new(i.clone(), 1.0);
-                Some(g)
-            }
-            None => {
-                debug!("Nothing in queue to run");
-                None
-            } // Asked to run something, but are throttled. Return None?
-        }
-    }
-
+impl DeviceQueue for MQFQ {
+    #[doc = " The length of items waiting to be ran on the device"]
     fn queue_len(&self) -> usize {
-        1
-    }
-    fn est_queue_time(&self) -> f64 {
-        *self.est_time.lock()
-    }
-
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid = % item.tid)))]
-    fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
-        // Add mutex lock guard for all these trait methods . Coarse-grained, but MQFQ state machine a bit too complex
-        self.add_invok_to_flow(item.clone());
-        Ok(())
-    }
-
-    fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
         todo!()
-        // This is used for checking available resources. Check the token bucket here and return None
     }
 
-    fn queue_compress(&self) -> () {
+    #[doc = " The estimated time from now the item would be completed if run on the device"]
+    #[doc = " In seconds"]
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+        todo!()
+    }
+
+    #[doc = " Insert an item into the queue"]
+    #[doc = " If an error is returned, the item was not put enqueued"]
+    fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
+        todo!()
+    }
+
+    #[doc = " Number of invocations currently running"]
+    fn running(&self) -> u32 {
         todo!()
     }
 }

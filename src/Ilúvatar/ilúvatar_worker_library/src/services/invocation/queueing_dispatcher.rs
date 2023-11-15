@@ -1,3 +1,4 @@
+use super::queueing::gpu_mqfq::MQFQ;
 use super::queueing::{DeviceQueue, EnqueuedInvocation};
 use super::{
     async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
@@ -11,6 +12,7 @@ use crate::services::{containers::containermanager::ContainerManager, invocation
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{logging::LocalTime, transaction::TransactionId, types::Compute};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -158,15 +160,25 @@ impl QueueingDispatcher {
         cpu: &Arc<CpuResourceTracker>,
         gpu: &Arc<GpuResourceTracker>,
     ) -> Result<Arc<dyn DeviceQueue>> {
-        Ok(GpuQueueingInvoker::new(
-            cont_manager.clone(),
-            function_config.clone(),
-            invocation_config.clone(),
-            tid,
-            cmap.clone(),
-            cpu.clone(),
-            gpu.clone(),
-        )?)
+      match invocation_config.queues.get(&ComputeEnum::gpu).as_deref() {
+        Some(q) => 
+          if q == "serial" {
+            Ok(GpuQueueingInvoker::new(
+              cont_manager.clone(),
+              function_config.clone(),
+              invocation_config.clone(),
+              tid,
+              cmap.clone(),
+              cpu.clone(),
+              gpu.clone(),
+            )?)    
+          } else if q == "mqfq" {
+            Ok(MQFQ::new(cont_manager.clone(), cmap.clone())?)
+          } else {
+            anyhow::bail!("Unkonwn GPU queue {}", q);
+          }
+        None => anyhow::bail!("GPU queue was not specified"),
+      }
     }
 
     /// Forms invocation data into a [EnqueuedInvocation] that is returned

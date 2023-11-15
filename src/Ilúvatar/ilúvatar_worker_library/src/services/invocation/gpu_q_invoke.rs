@@ -1,7 +1,7 @@
 use super::{
     completion_time_tracker::CompletionTimeTracker,
     queueing::{
-        fcfs_gpu::FcfsGpuQueue, mqfq::MQFQ, oldest_gpu::BatchGpuQueue, DeviceQueue, EnqueuedInvocation,
+        fcfs_gpu::FcfsGpuQueue, gpu_mqfq::MQFQ, oldest_gpu::BatchGpuQueue, DeviceQueue, EnqueuedInvocation,
         MinHeapEnqueuedInvocation, MinHeapFloat,
     },
 };
@@ -111,9 +111,6 @@ pub trait GpuQueuePolicy: Send + Sync {
     /// Insert an item into the queue
     /// If an error is returned, the item was not put enqueued
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()>;
-
-    /// Compress the queue into batches.
-    fn queue_compress(&self) -> () {}
 }
 
 pub struct GpuQueueingInvoker {
@@ -154,9 +151,7 @@ impl GpuQueueingInvoker {
             Some(function_config.cpu_max as usize),
         )?;
 
-        let ct = Arc::new(CompletionTimeTracker::new());
-        let q = Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid, &ct);
-
+        let q = Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid);
         let svc = Arc::new(GpuQueueingInvoker {
             cont_manager,
             invocation_config,
@@ -168,7 +163,7 @@ impl GpuQueueingInvoker {
             clock: LocalTime::new(tid)?,
             running: AtomicU32::new(0),
             last_memory_warning: Mutex::new(Instant::now()),
-            completion_tracker: ct,
+            completion_tracker: Arc::new(CompletionTimeTracker::new()),
             queue: q.unwrap(),
         });
         gpu_tx.send(svc.clone())?;
@@ -182,12 +177,10 @@ impl GpuQueueingInvoker {
         cmap: &Arc<CharacteristicsMap>,
         cont_manager: &Arc<ContainerManager>,
         _tid: &TransactionId,
-        completion_tracker: &Arc<CompletionTimeTracker>,
     ) -> Result<Arc<dyn GpuQueuePolicy>> {
         if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::GPU).try_into()?) {
             Ok(match pol.as_str() {
                 "fcfs" => FcfsGpuQueue::new(cont_manager.clone(), cmap.clone())?,
-                "mqfq" => MQFQ::new(cont_manager.clone(), cmap.clone(), completion_tracker.clone())?,
                 "oldest_batch" => BatchGpuQueue::new(cmap.clone())?,
                 unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
             })

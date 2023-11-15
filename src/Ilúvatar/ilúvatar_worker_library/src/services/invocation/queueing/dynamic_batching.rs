@@ -84,15 +84,15 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
     /// 1. When a batch is popped/executed.
     /// 2. When a new item is inserted, and we are under compress_window limit.
     /// Function insertion times will be important for stable sorting?
-    fn queue_compress(&self) -> () {
-        // New items at head of invocation queue. Read the first compress_window batches (of 1) and create the batched list.
-        let mut queue = self.incoming_queue.lock();
-        for _ in [..self.compress_window] {
-            if let Some(hitem) = queue.pop_front() {
-                self.add_item_to_batches(&hitem);
-            }
-        }
-    }
+    // fn queue_compress(&self) -> () {
+    //     // New items at head of invocation queue. Read the first compress_window batches (of 1) and create the batched list.
+    //     let mut queue = self.incoming_queue.lock();
+    //     for _ in [..self.compress_window] {
+    //         if let Some(hitem) = queue.pop_front() {
+    //             self.add_item_to_batches(&hitem);
+    //         }
+    //     }
+    // }
 
     /// XXX: The GPU may already be running functions and we may want to run a single invocation for more fine-grained scheduling.
     /// Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained.
