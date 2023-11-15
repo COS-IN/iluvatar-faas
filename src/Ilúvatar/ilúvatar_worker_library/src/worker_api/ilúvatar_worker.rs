@@ -153,11 +153,6 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             Err(e) => {
                 error!(tid=%request.transaction_id, error=%e, "Failed to check async invocation status");
                 Ok(Response::new(InvokeResponse::error(&e.to_string())))
-                // Ok(Response::new(InvokeResponse {
-                //   json_result: format!("{{ \"Error\": \"{}\" }}", e.to_string()),
-                //   success: false,
-                //   duration_us: 0
-                // }))
             }
         }
     }
@@ -173,7 +168,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             None => {
                 let resp = PrewarmResponse {
                     success: false,
-                    message: "{{ \"Error\": \"Function was not registered\" }}".into(),
+                    message: "{ \"Error\": \"Function was not registered\" }".into(),
                 };
                 return Ok(Response::new(resp));
             }
@@ -182,7 +177,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         if !reg.supported_compute.intersects(compute) {
             let resp = PrewarmResponse {
                 success: false,
-                message: "{{ \"Error\": \"Function was not registered with the specified compute\" }}".to_string(),
+                message: "{ \"Error\": \"Function was not registered with the specified compute\" }".to_string(),
             };
             return Ok(Response::new(resp));
         }
@@ -221,7 +216,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             Ok(_) => {
                 let reply = RegisterResponse {
                     success: true,
-                    function_json_result: "{{\"Ok\": \"function registered\"}}".into(),
+                    function_json_result: "{\"Ok\": \"function registered\"}".into(),
                 };
                 Ok(Response::new(reply))
             }

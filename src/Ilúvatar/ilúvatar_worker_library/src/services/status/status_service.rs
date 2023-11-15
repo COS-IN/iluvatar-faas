@@ -24,7 +24,7 @@ pub struct StatusService {
     config: Arc<StatusConfig>,
     cpu_instant: Mutex<CPUUtilInstant>,
     invoker: Arc<dyn Invoker>,
-    gpu: Arc<GpuResourceTracker>,
+    gpu: Option<Arc<GpuResourceTracker>>,
 }
 
 impl StatusService {
@@ -34,7 +34,7 @@ impl StatusService {
         tid: &TransactionId,
         config: Arc<StatusConfig>,
         invoker: Arc<dyn Invoker>,
-        gpu: Arc<GpuResourceTracker>,
+        gpu: Option<Arc<GpuResourceTracker>>,
     ) -> Result<Arc<Self>> {
         let (handle, sender) = threading::os_thread::<Self>(
             config.report_freq_ms,
@@ -97,13 +97,15 @@ impl StatusService {
             }
         };
 
-        let gpu_utilization = match self.gpu.gpu_utilization(tid) {
-            Ok(n) => n,
-            Err(e) => {
-                error!(tid=%tid, error=%e, "Unable to get gpu utilization");
-                vec![]
-            }
-        };
+        let mut gpu_utilization = vec![];
+        if let Some(gpu) = &self.gpu {
+            match gpu.gpu_utilization(tid) {
+                Ok(n) => gpu_utilization = n,
+                Err(e) => {
+                    error!(tid=%tid, error=%e, "Unable to get gpu utilization");
+                }
+            };
+        }
 
         let mut cpu_instant_lck = self.cpu_instant.lock();
         let computed_util = self.cpu.compute_cpu_util(&cpu_now, &cpu_instant_lck);

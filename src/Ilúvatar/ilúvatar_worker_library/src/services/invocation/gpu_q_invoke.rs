@@ -123,6 +123,7 @@ pub struct GpuQueueingInvoker {
     clock: LocalTime,
     running: AtomicU32,
     last_memory_warning: Mutex<Instant>,
+    last_gpu_warning: Mutex<Instant>,
     cpu: Arc<CpuResourceTracker>,
     _gpu_thread: std::thread::JoinHandle<()>,
     gpu: Arc<GpuResourceTracker>,
@@ -144,7 +145,7 @@ impl GpuQueueingInvoker {
         tid: &TransactionId,
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
-        gpu: Arc<GpuResourceTracker>,
+        gpu: Option<Arc<GpuResourceTracker>>,
     ) -> Result<Arc<Self>> {
         let (gpu_handle, gpu_tx) = tokio_runtime(
             invocation_config.queue_sleep_ms,
@@ -158,7 +159,7 @@ impl GpuQueueingInvoker {
         let svc = Arc::new(GpuQueueingInvoker {
             cont_manager,
             invocation_config,
-            gpu,
+            gpu: gpu.ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?,
             cmap,
             cpu,
             signal: Notify::new(),
@@ -166,8 +167,9 @@ impl GpuQueueingInvoker {
             clock: LocalTime::new(tid)?,
             running: AtomicU32::new(0),
             last_memory_warning: Mutex::new(Instant::now()),
-            completion_tracker: Arc::new(CompletionTimeTracker::new()),
             queue: q.unwrap(),
+            last_gpu_warning: Mutex::new(Instant::now()),
+            completion_tracker: Arc::new(CompletionTimeTracker::new()),
         });
         gpu_tx.send(svc.clone())?;
         debug!(tid=%tid, "Created GpuQueueingInvoker");
@@ -315,7 +317,11 @@ impl GpuQueueingInvoker {
                 }
             };
         } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
-            warn!(tid=%item.tid, "No GPU available to run item right now");
+            let mut warn_time = self.last_gpu_warning.lock();
+            if warn_time.elapsed() > Duration::from_millis(500) {
+                warn!(tid=%item.tid, "No GPU available to run item right now");
+                *warn_time = Instant::now();
+            }
             item.unlock();
             match self.queue.add_item_to_queue(&item) {
                 Ok(_) => self.signal.notify_waiters(),

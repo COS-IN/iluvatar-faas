@@ -3,17 +3,20 @@ use std::{
     time::{Duration, SystemTime},
 };
 // use clap::{ArgMatches, App, SubCommand, Arg};
-use crate::utils::{
-    resolve_handles, save_result_json, worker_invoke, worker_prewarm, worker_register, ErrorHandling,
-    RegistrationResult, Target, ThreadResult,
+use crate::{
+    trace::prepare_function_args,
+    utils::{
+        resolve_handles, save_result_json, worker_invoke, worker_prewarm, worker_register, ErrorHandling,
+        RegistrationResult, Target, ThreadResult,
+    },
 };
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::{
     logging::LocalTime,
     transaction::gen_tid,
-    types::{Compute, ComputeEnum, Isolation, IsolationEnum},
-    utils::{file_utils::ensure_dir, port_utils::Port},
+    types::{Compute, ComputeEnum, Isolation, IsolationEnum, MemSizeMb},
+    utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port},
 };
 use rand::prelude::*;
 use std::path::Path;
@@ -53,6 +56,12 @@ pub struct ScalingArgs {
     #[arg(long)]
     /// Compute the image will use
     compute: ComputeEnum,
+    #[arg(long)]
+    /// Memory need for the function
+    memory_mb: MemSizeMb,
+    #[arg(long)]
+    /// Arguments to pass to function, in [x=y;...] format
+    function_args: Option<String>,
 }
 
 pub fn scaling(args: ScalingArgs) -> Result<()> {
@@ -86,9 +95,11 @@ fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<Thr
         let isolation = (&args.isolation).into();
         let p = args.port;
         let d = args.duration.into();
+        let mem = args.memory_mb;
+        let a = args.function_args.clone();
 
         threads.push(threaded_rt.spawn(async move {
-            scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation, thread_cnt).await
+            scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation, thread_cnt, mem, a).await
         }));
     }
 
@@ -105,6 +116,8 @@ async fn scaling_thread(
     compute: Compute,
     isolation: Isolation,
     thread_cnt: usize,
+    memory_mb: MemSizeMb,
+    func_args: Option<String>,
 ) -> Result<ThreadResult> {
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
     barrier.wait().await;
@@ -115,7 +128,7 @@ async fn scaling_thread(
         name.clone(),
         &version,
         image,
-        512,
+        memory_mb,
         host.clone(),
         port,
         &factory,
@@ -163,15 +176,23 @@ async fn scaling_thread(
     let mut data = Vec::new();
     let mut errors = 0;
     let clock = Arc::new(LocalTime::new(&gen_tid())?);
+    let mut dummy = crate::trace::Function::default();
     loop {
         let tid = format!("{}-{}", thread_id, gen_tid());
+        let args = match &func_args {
+            Some(arg) => {
+                dummy.args = Some(arg.clone());
+                args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
+            }
+            None => "{\"name\":\"TESTING\"}".to_string(),
+        };
         match worker_invoke(
             &name,
             &version,
             &host,
             port,
             &tid,
-            Some("{\"name\":\"TESTING\"}".to_string()),
+            Some(args),
             clock.clone(),
             &factory,
             None,

@@ -735,10 +735,8 @@ mod container_state {
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-        invoker
-            .sync_invocation(reg.clone(), "{}".to_string(), "TEST_TID".to_string())
-            .await
-            .expect("Basic invocation should succeed");
+
+        test_invoke(&invoker, &reg, "{}", &TEST_TID).await;
 
         let c1 = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
             EventualItem::Future(f) => f.await,

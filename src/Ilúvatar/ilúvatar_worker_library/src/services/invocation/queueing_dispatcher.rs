@@ -114,7 +114,7 @@ impl QueueingDispatcher {
         tid: &TransactionId,
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
-        gpu: Arc<GpuResourceTracker>,
+        gpu: Option<Arc<GpuResourceTracker>>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
         let svc = Arc::new(QueueingDispatcher {
@@ -175,7 +175,7 @@ impl QueueingDispatcher {
         tid: &TransactionId,
         function_config: &Arc<FunctionLimits>,
         cpu: &Arc<CpuResourceTracker>,
-        gpu: &Arc<GpuResourceTracker>,
+        gpu: &Option<Arc<GpuResourceTracker>>,
     ) -> Result<Arc<dyn DeviceQueue>> {
         match invocation_config.queues.get(&ComputeEnum::gpu).as_deref() {
             Some(q) => {
@@ -195,7 +195,7 @@ impl QueueingDispatcher {
                         cmap.clone(),
                         invocation_config.clone(),
                         cpu.clone(),
-                        gpu.clone(),
+                        gpu,
                     )?)
                 } else {
                     anyhow::bail!("Unkonwn GPU queue {}", q);

@@ -231,7 +231,7 @@ impl MQFQ {
         cmap: Arc<CharacteristicsMap>,
         invocation_config: Arc<InvocationConfig>,
         cpu: Arc<CpuResourceTracker>,
-        gpu: Arc<GpuResourceTracker>,
+        gpu: &Option<Arc<GpuResourceTracker>>,
     ) -> Result<Arc<Self>> {
         let (gpu_handle, gpu_tx) = tokio_runtime(
             invocation_config.queue_sleep_ms,
@@ -246,13 +246,13 @@ impl MQFQ {
             est_time: Mutex::new(0.0),
             vitual_time: RwLock::new(0.0),
             max_inflight: 4,
-            cont_manager,
             ctrack: Arc::new(CompletionTimeTracker::new()),
             signal: Notify::new(),
             _thread: gpu_handle,
+            gpu: gpu.as_ref().ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?.clone(),
             cpu,
-            gpu,
             cmap,
+            cont_manager,
         });
         gpu_tx.send(svc.clone())?;
         Ok(svc)

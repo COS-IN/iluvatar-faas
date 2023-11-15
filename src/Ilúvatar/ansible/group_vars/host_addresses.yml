@@ -2,8 +2,8 @@ servers:
   127.0.0.1:
     internal_ip: 127.0.0.1
     ipmi_ip: 127.0.0.1
-    hardware_interface: 'enp4s0'
+    hardware_interface: 'enp1s0f1'
   localhost:
     internal_ip: 127.0.0.1
     ipmi_ip: 127.0.0.1
-    hardware_interface: 'enp4s0'
+    hardware_interface: 'enp1s0f1'

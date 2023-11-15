@@ -1,0 +1,5 @@
+onnxruntime-gpu==1.15
+numpy
+transformers
+cuda-python==11.8.0
+nvidia-cudnn-cu11==8.5.0.96

@@ -115,3 +115,9 @@ Can it then generate the ansible vars and put them somewhere?
 ## CI Testing
 
 Run automated tests in github actions CI.
+
+## Optional Memory capping
+
+Currently a container has a limited amount of memory, and under memory pressure _inside_ the container, its processes can be killed by the OS.
+Config allowing memory swapping to disk, or removing the isolation enforced memory cap would alleviate this.
+The worker can still monitor container memory usage and remove containers if server memory pressure is high.
