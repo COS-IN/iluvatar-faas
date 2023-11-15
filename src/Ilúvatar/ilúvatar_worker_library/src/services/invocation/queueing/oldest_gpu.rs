@@ -41,7 +41,7 @@ impl GpuQueuePolicy for BatchGpuQueue {
         }
         None
     }
-    
+
     fn pop_queue(&self) -> Option<GpuBatch> {
         let batch_key = self
             .invoke_batches
@@ -58,7 +58,7 @@ impl GpuQueuePolicy for BatchGpuQueue {
         *self.est_time.lock() -= batch.est_queue_time();
         Some(batch)
     }
-    
+
     fn queue_len(&self) -> usize {
         self.num_queued.load(std::sync::atomic::Ordering::Relaxed)
     }

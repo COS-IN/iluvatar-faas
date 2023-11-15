@@ -1,7 +1,6 @@
 use parking_lot::{Mutex, RwLock};
 use time::{Duration, OffsetDateTime};
 
-
 /// A struct for tracking when the next invocation is expected to complete
 /// Useful for estimating waiting time and invocation completion time
 /// This struct is thread-safe
@@ -14,7 +13,7 @@ impl CompletionTimeTracker {
     pub fn new() -> Self {
         CompletionTimeTracker {
             items: RwLock::new(vec![]),
-            inflight:Mutex::new(0)
+            inflight: Mutex::new(0),
         }
     }
 

@@ -8,7 +8,7 @@ use tracing::debug;
 pub type Subpool = Vec<Container>;
 static LEN_ORDERING: Ordering = Ordering::Relaxed;
 
-/// ContainerPools of running and idle containers. 
+/// ContainerPools of running and idle containers.
 pub struct ResourcePool {
     /// Containers that are currently not running an invocation
     pub idle_containers: ContainerPool,
@@ -24,9 +24,10 @@ impl ResourcePool {
     }
 }
 
-/// List of containers for each function (fqdn). 
+/// List of containers for each function (fqdn).
 pub struct ContainerPool {
-    pool: DashMap<String, Subpool>,  /// fqdn->Vec<Container> 
+    pool: DashMap<String, Subpool>,
+    /// fqdn->Vec<Container>
     len: AtomicU32,
     pool_name: String,
 }

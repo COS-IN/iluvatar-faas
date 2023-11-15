@@ -22,7 +22,7 @@ pub mod docker;
 pub mod simulator;
 pub mod structs;
 
-/// Run, manage, and interact-with containers. 
+/// Run, manage, and interact-with containers.
 #[async_trait]
 pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
     /// Return a container that has been started with the given settings
@@ -80,7 +80,7 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
     fn backend(&self) -> Vec<Isolation>;
 }
 
-/// Different containerization 
+/// Different containerization
 pub type ContainerIsolationCollection = Arc<std::collections::HashMap<Isolation, Arc<dyn ContainerIsolationService>>>;
 
 pub struct IsolationFactory {

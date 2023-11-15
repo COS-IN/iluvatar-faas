@@ -5,7 +5,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error};
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub enum Values {
     Duration(Duration),
     F64(f64),
@@ -121,15 +121,15 @@ pub enum Characteristics {
     MemoryUsage,
     /// Total end to end latency: queuing plus execution
     E2ECpu,
-    E2EGpu
+    E2EGpu,
 }
 
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc.
 #[derive(Debug)]
 pub struct CharacteristicsMap {
-    /// Most recent fn->{char->value} 
+    /// Most recent fn->{char->value}
     map: DashMap<String, DashMap<Characteristics, Values>>,
-    /// Moving average values 
+    /// Moving average values
     agmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
 }
@@ -140,16 +140,16 @@ impl CharacteristicsMap {
 
         CharacteristicsMap {
             map: DashMap::new(),
-	    agmap: DashMap::new(),
+            agmap: DashMap::new(),
             ag,
         }
     }
 
-    /// Set most recent 
+    /// Set most recent
     pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
-      if use_accum {
-        return self.add_agg(fqdn, chr, value);
-      }
+        if use_accum {
+            return self.add_agg(fqdn, chr, value);
+        }
 
         let e0 = self.map.get_mut(fqdn);
 
@@ -166,7 +166,7 @@ impl CharacteristicsMap {
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
-                    }  
+                    }
                     None => {
                         v0.insert(chr, value);
                     }
@@ -180,11 +180,10 @@ impl CharacteristicsMap {
             }
         }
 
-
         self
     }
 
-    /// Update aggregate 
+    /// Update aggregate
     pub fn add_agg(&self, fqdn: &str, chr: Characteristics, value: Values) -> &Self {
         let e0 = self.agmap.get_mut(fqdn);
 
@@ -196,14 +195,11 @@ impl CharacteristicsMap {
                 match e1 {
                     Some(mut v1) => {
                         *v1 = match &v1.value() {
-                            Values::Duration(d) => {
-                                Values::Duration(self.ag.accumulate_dur(d, &unwrap_val_dur(&value)))
-                            }
+                            Values::Duration(d) => Values::Duration(self.ag.accumulate_dur(d, &unwrap_val_dur(&value))),
                             Values::F64(f) => Values::F64(self.ag.accumulate(f, &unwrap_val_f64(&value))),
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
-                        
                     }
                     None => {
                         v0.insert(chr, value);
@@ -220,8 +216,6 @@ impl CharacteristicsMap {
 
         self
     }
-
-
 
     pub fn add_iat(&self, fqdn: &str) {
         let time_now = SystemTime::now();
@@ -240,7 +234,7 @@ impl CharacteristicsMap {
         self.add(fqdn, Characteristics::LastInvTime, Values::Duration(time_now), false);
     }
 
-    /// Most recent value 
+    /// Most recent value
     pub fn lookup(&self, fqdn: &str, chr: &Characteristics) -> Option<Values> {
         let e0 = self.map.get(fqdn)?;
         let e0 = e0.value();
@@ -250,7 +244,7 @@ impl CharacteristicsMap {
         Some(self.clone_value(v))
     }
 
-    /// Moving average lookup 
+    /// Moving average lookup
     pub fn lookup_agg(&self, fqdn: &str, chr: &Characteristics) -> Option<Values> {
         let e0 = self.agmap.get(fqdn)?;
         let e0 = e0.value();
@@ -259,7 +253,7 @@ impl CharacteristicsMap {
 
         Some(self.clone_value(v))
     }
-    
+
     /// Returns the execution time as tracked by [Characteristics::ExecTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_exec_time(&self, fqdn: &str) -> f64 {
@@ -342,27 +336,22 @@ impl CharacteristicsMap {
         }
     }
 
-    /// Tuple of cpu,gpu weights for polymorphic functions 
+    /// Tuple of cpu,gpu weights for polymorphic functions
     pub fn get_dispatch_wts(&self, fqdn: &str) -> (f64, f64) {
         let mut wcpu = 0.0;
         let mut wgpu = 0.0;
-        if let Some(x) = self.lookup(fqdn, &Characteristics::E2ECpu){
+        if let Some(x) = self.lookup(fqdn, &Characteristics::E2ECpu) {
             wcpu = unwrap_val_f64(&x);
         }
-        if let Some(y) = self.lookup(fqdn, &Characteristics::E2EGpu){
+        if let Some(y) = self.lookup(fqdn, &Characteristics::E2EGpu) {
             wgpu = unwrap_val_f64(&y);
         }
         (wcpu, wgpu)
     }
 
     /// Since all completion call-backs point to here, update the dispatch weights as per MWUA?
-    pub fn update_dispatch_wts(&self) -> () {
+    pub fn update_dispatch_wts(&self) -> () {}
 
-
-    }
-
-
-    
     pub fn clone_value(&self, value: &Values) -> Values {
         match value {
             Values::F64(v) => Values::F64(*v),

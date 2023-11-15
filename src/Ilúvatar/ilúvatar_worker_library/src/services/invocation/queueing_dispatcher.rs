@@ -12,24 +12,23 @@ use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::{logging::LocalTime, transaction::TransactionId, types::Compute};
-use std::sync::Arc;
-use tracing::{debug, info};
 use std::collections::HashMap;
+use std::sync::Arc;
 use time::OffsetDateTime;
+use tracing::{debug, info};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
 }
 
-
 pub struct PolyDispatchState {
     cmap: Arc<CharacteristicsMap>,
     /// cpu/gpu -> wt , based on device load.
     device_wts: HashMap<Compute, f64>,
-    /// fn -> cpu_wt, gpu_wt , based on locality and speedup considerations. 
+    /// fn -> cpu_wt, gpu_wt , based on locality and speedup considerations.
     per_fn_wts: HashMap<String, (f64, f64)>,
-    /// Most recent fn->device placement for each fn 
+    /// Most recent fn->device placement for each fn
     prev_dispatch: HashMap<String, Compute>,
     fn_prev_t: HashMap<String, OffsetDateTime>,
 }
@@ -37,41 +36,41 @@ pub struct PolyDispatchState {
 impl PolyDispatchState {
     pub fn boxed(cmap: &Arc<CharacteristicsMap>) -> Arc<Self> {
         Arc::new(Self {
-          cmap: cmap.clone(),
-          device_wts: HashMap::from([(Compute::CPU,1.0), (Compute::GPU,1.0)]),
-          per_fn_wts: HashMap::new(),
-          prev_dispatch: HashMap::new(),
-          fn_prev_t: HashMap::new(),
-      })
+            cmap: cmap.clone(),
+            device_wts: HashMap::from([(Compute::CPU, 1.0), (Compute::GPU, 1.0)]),
+            per_fn_wts: HashMap::new(),
+            prev_dispatch: HashMap::new(),
+            fn_prev_t: HashMap::new(),
+        })
     }
-    fn update_prev_t(&mut self, fid:String, t:OffsetDateTime) -> () {
+    fn update_prev_t(&mut self, fid: String, t: OffsetDateTime) -> () {
         todo!();
     }
-    fn update_locality(&mut self, fid:String, device:String) -> () {
+    fn update_locality(&mut self, fid: String, device: String) -> () {
         todo!();
     }
 
     // Based on the load/utilization etc?
-    fn update_dev_wts(&mut self, device:String, wt:f64) -> () {
+    fn update_dev_wts(&mut self, device: String, wt: f64) -> () {
         todo!();
     }
 
     // Normalize the weights etc into probabilities?
-    fn latency_rewards(&self, fid:&str, device:Compute) -> f64 {
-    let (cpu_e2e, gpu_e2e) = match device {
-        Compute::CPU => {
-          self.cmap.get_dispatch_wts(&fid) //most recent 
-          // Need to compare this to average latency of the /other/ device
-          // let other_lat = self.cmap.get_e2e_gpu(fid, True); // aggregate
-        }
-        _ => {
-          self.cmap.get_dispatch_wts(&fid) //most recent 
-          // let dev_lat = self.cmap.get_e2e_gpu(fid);
-          // let other_lat = self.cmap.get_e2e_cpu(fid, True); // aggregate		
-        }
-    };
-    let diff = cpu_e2e - gpu_e2e;
-    diff 
+    fn latency_rewards(&self, fid: &str, device: Compute) -> f64 {
+        let (cpu_e2e, gpu_e2e) = match device {
+            Compute::CPU => {
+                self.cmap.get_dispatch_wts(&fid) //most recent
+                                                 // Need to compare this to average latency of the /other/ device
+                                                 // let other_lat = self.cmap.get_e2e_gpu(fid, True); // aggregate
+            }
+            _ => {
+                self.cmap.get_dispatch_wts(&fid) //most recent
+                                                 // let dev_lat = self.cmap.get_e2e_gpu(fid);
+                                                 // let other_lat = self.cmap.get_e2e_cpu(fid, True); // aggregate
+            }
+        };
+        let diff = cpu_e2e - gpu_e2e;
+        diff
     }
 }
 
@@ -150,7 +149,6 @@ impl QueueingDispatcher {
         )?)
     }
 
-    
     fn get_invoker_gpu_queue(
         invocation_config: &Arc<InvocationConfig>,
         cmap: &Arc<CharacteristicsMap>,
@@ -254,9 +252,9 @@ impl QueueingDispatcher {
                 }
             }
             EnqueueingPolicy::Bandit1 => {
-		let mut chosen_q = self.bandit1_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
-		chosen_q.enqueue_item(&enqueue)?;
-		enqueues += 1 ;
+                let mut chosen_q = self.bandit1_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
+                chosen_q.enqueue_item(&enqueue)?;
+                enqueues += 1;
             }
         }
 
@@ -266,9 +264,12 @@ impl QueueingDispatcher {
         Ok(enqueue)
     }
 
-
-    fn bandit1_dispatch(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
-
+    fn bandit1_dispatch(
+        &self,
+        reg: Arc<RegisteredFunction>,
+        tid: &TransactionId,
+        enqueue: Arc<EnqueuedInvocation>,
+    ) -> &Arc<dyn DeviceQueue> {
         if reg.cpu_only() {
             return &self.cpu_queue;
         }
@@ -277,14 +278,14 @@ impl QueueingDispatcher {
         }
         todo!();
         // let mut chosen_q ;
-        // let fid = reg.function_name.clone(); 
+        // let fid = reg.function_name.clone();
 
         // self.dispatch_state.update_device_loads();
-        // self.dispatch_state.update_fn_chars(); // implicit? 
+        // self.dispatch_state.update_fn_chars(); // implicit?
 
         // self.cmap.get_e2e_cpu(fid);
         // self.cmap.get_e2e_gpu(fid);
-        
+
         // self.dispatch_state.
 
         // return chosen_q ;
