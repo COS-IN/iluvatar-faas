@@ -5,6 +5,7 @@ use crate::utils::test_invoker_svc;
 use iluvatar_library::threading::EventualItem;
 use iluvatar_library::transaction::TEST_TID;
 use iluvatar_library::types::{Compute, Isolation};
+use iluvatar_library::utils::calculate_base_uri;
 use iluvatar_worker_library::rpc::LanguageRuntime;
 use iluvatar_worker_library::rpc::RegisterRequest;
 use iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer;
@@ -522,7 +523,11 @@ mod get_container {
         let cast_container = cast::<ContainerdContainer>(&c2.container, &TEST_TID).unwrap();
 
         let client = reqwest::Client::new();
-        let result = client.get(&cast_container.base_uri).send().await.unwrap();
+        let result = client
+            .get(calculate_base_uri(&cast_container.address, cast_container.port))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(result.status(), 200);
     }
 }
@@ -555,7 +560,10 @@ mod remove_container {
         let cast_container = cast::<ContainerdContainer>(&c1_cont, &TEST_TID).unwrap();
 
         let client = reqwest::Client::new();
-        let result = client.get(&cast_container.base_uri).send().await;
+        let result = client
+            .get(calculate_base_uri(&cast_container.address, cast_container.port))
+            .send()
+            .await;
         match result {
             Ok(result) => panic!("Unpexpected result when container should be gone {:?}", result),
             Err(e) => {

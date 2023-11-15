@@ -46,31 +46,38 @@ fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms
 }
 
 type ComputeChoiceList = Vec<(String, f64, f64, String)>;
-fn choose_bench_data_for_func<'a>(
-    func: &'a Function,
-    cpu_data: &'a ComputeChoiceList,
-    gpu_data: &'a ComputeChoiceList,
-) -> Result<&'a ComputeChoiceList> {
-    if let Some(func_compute) = func.parsed_compute {
-        if func_compute.contains(Compute::GPU) {
-            if gpu_data.is_empty() {
-                anyhow::bail!(
-                    "Function '{}' wants GPU compute but there are no items in the benchmark that support it",
-                    func.func_name
-                );
+fn choose_bench_data_for_func<'a>(func: &'a Function, bench_data: &'a BenchmarkStore) -> Result<ComputeChoiceList> {
+    let mut data = vec![];
+    for (k, v) in bench_data.data.iter() {
+        // does benchmark match all compute options for function?
+        let mut prefered_compute = Compute::CPU;
+        for func_compute in func.parsed_compute.into_iter() {
+            if !v.resource_data.contains_key(&func_compute.try_into()?) {
+                continue;
             }
-            return Ok(gpu_data);
-        } else if func_compute.contains(Compute::CPU) {
-            return Ok(cpu_data);
-        } else {
-            anyhow::bail!(
-                "Unsupported compute {:?} in 'choose_bench_data_for_func' for function '{}'",
-                func_compute,
-                func.func_name
-            );
+            if func_compute == Compute::GPU {
+                prefered_compute = Compute::GPU;
+            }
+            if func_compute == Compute::FPGA {
+                prefered_compute = Compute::FPGA;
+            }
+        }
+
+        if let Some(timings) = v.resource_data.get(&prefered_compute.try_into()?) {
+            let tot: u128 = timings.warm_invoke_duration_us.iter().sum();
+            let avg_cold_us = timings.cold_invoke_duration_us.iter().sum::<u128>() as f64
+                / timings.cold_invoke_duration_us.len() as f64;
+            let avg_warm_us = tot as f64 / timings.warm_invoke_duration_us.len() as f64;
+            // Cold uses E2E duration because of the cold start time needed
+            data.push((
+                k.clone(),
+                avg_warm_us / 1000.0,
+                avg_cold_us / 1000.0,
+                v.image_name.clone(),
+            ));
         }
     }
-    Ok(cpu_data)
+    Ok(data)
 }
 
 fn map_from_benchmark(
@@ -80,52 +87,19 @@ fn map_from_benchmark(
     _trace_pth: &str,
     max_prewarms: u32,
 ) -> Result<()> {
-    let mut cpu_data = Vec::new();
-    for (k, v) in bench.data.iter() {
-        if let Some(cpu_timings) = v.resource_data.get(&(&Compute::CPU).try_into()?) {
-            let tot: u128 = cpu_timings.warm_invoke_duration_us.iter().sum();
-            let avg_cold_us = cpu_timings.cold_invoke_duration_us.iter().sum::<u128>() as f64
-                / cpu_timings.cold_invoke_duration_us.len() as f64;
-            let avg_warm_us = tot as f64 / cpu_timings.warm_invoke_duration_us.len() as f64;
-            // Cold uses E2E duration because of the cold start time needed
-            cpu_data.push((
-                k.clone(),
-                avg_warm_us / 1000.0,
-                avg_cold_us / 1000.0,
-                v.image_name.clone(),
-            ));
-        }
-    }
-    let mut gpu_data = Vec::new();
-    for (k, v) in bench.data.iter() {
-        if let Some(gpu_timings) = v.resource_data.get(&(&Compute::GPU).try_into()?) {
-            let tot: u128 = gpu_timings.warm_invoke_duration_us.iter().sum();
-            let avg_cold_us = gpu_timings.cold_invoke_duration_us.iter().sum::<u128>() as f64
-                / gpu_timings.cold_invoke_duration_us.len() as f64;
-            let avg_warm_us = tot as f64 / gpu_timings.warm_invoke_duration_us.len() as f64;
-            // Cold uses E2E duration because of the cold start time needed
-            gpu_data.push((
-                k.clone(),
-                avg_warm_us / 1000.0,
-                avg_cold_us / 1000.0,
-                v.image_name.clone(),
-            ));
-        }
-    }
-
     let mut total_prewarms = 0;
     for (_fname, func) in funcs.iter_mut() {
-        let device_data = choose_bench_data_for_func(func, &cpu_data, &gpu_data)?;
+        let device_data: ComputeChoiceList = choose_bench_data_for_func(func, bench)?;
         let chosen = match device_data.iter().min_by(|a, b| safe_cmp(&a.1, &b.1)) {
             Some(n) => n,
-            None => panic!("failed to get a minimum func from {:?}", cpu_data),
+            None => anyhow::bail!("failed to get a minimum func from {:?}", device_data),
         };
         let mut chosen_name = chosen.0.clone();
         let mut chosen_image = chosen.3.clone();
         let mut chosen_warm_time_ms = chosen.1;
         let mut chosen_cold_time_ms = chosen.1;
 
-        for (name, avg_warm, avg_cold, image) in cpu_data.iter() {
+        for (name, avg_warm, avg_cold, image) in device_data.iter() {
             if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
                 chosen_name = name.clone();
                 chosen_image = image.clone();

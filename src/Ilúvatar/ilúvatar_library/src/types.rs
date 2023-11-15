@@ -47,6 +47,13 @@ pub enum ComputeEnum {
     fpga,
 }
 /// To turn Compute back into a string-serializable format for hashmaps
+impl TryInto<ComputeEnum> for Compute {
+    fn try_into(self) -> Result<ComputeEnum, Self::Error> {
+        (&self).try_into()
+    }
+    type Error = anyhow::Error;
+}
+/// To turn Compute back into a string-serializable format for hashmaps
 impl TryInto<ComputeEnum> for &Compute {
     fn try_into(self) -> Result<ComputeEnum, Self::Error> {
         if self.contains(Compute::CPU) {
@@ -109,6 +116,24 @@ impl TryFrom<&String> for Compute {
         Ok(vec.into())
     }
     type Error = anyhow::Error;
+}
+impl std::fmt::Display for Compute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut iter = self.into_iter().peekable();
+        while let Some(i) = iter.next() {
+            match TryInto::<ComputeEnum>::try_into(i) {
+                Ok(c) => f.write_fmt(format_args!("{:?}", c))?,
+                Err(e) => {
+                    tracing::error!(error=%e, "Failed to format Compute");
+                    return Err(std::fmt::Error);
+                }
+            };
+            if iter.peek().is_some() {
+                f.write_str("|")?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
@@ -194,5 +219,32 @@ impl FunctionInvocationTimings {
             warm_invoke_duration_us: Vec::new(),
             cold_invoke_duration_us: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod types_tests {
+    use super::*;
+
+    #[test]
+    fn compute_format() {
+        assert_eq!("cpu|gpu", format!("{}", Compute::CPU | Compute::GPU));
+        assert_eq!("cpu", format!("{}", Compute::CPU));
+    }
+
+    #[test]
+    fn compute_iterable() {
+        let mut has_cpu = false;
+        let mut has_gpu = false;
+        for c in (Compute::CPU | Compute::GPU).into_iter() {
+            if c == Compute::CPU {
+                has_cpu = true;
+            }
+            if c == Compute::CPU {
+                has_gpu = true;
+            }
+        }
+        assert!(has_cpu);
+        assert!(has_gpu);
     }
 }

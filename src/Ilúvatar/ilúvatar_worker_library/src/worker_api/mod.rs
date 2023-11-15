@@ -38,8 +38,13 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"))?;
     let mut gpu_resource = None;
     if let Some(docker) = isos.get(&Isolation::DOCKER) {
-        gpu_resource = GpuResourceTracker::boxed(&worker_config.container_resources.gpu_resource, tid, docker)
-            .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make GPU resource tracker"))?;
+        gpu_resource = GpuResourceTracker::boxed(
+            &worker_config.container_resources.gpu_resource,
+            tid,
+            docker,
+            &worker_config.status,
+        )
+        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make GPU resource tracker"))?;
     }
 
     let container_man = ContainerManager::boxed(

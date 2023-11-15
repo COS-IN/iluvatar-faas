@@ -13,6 +13,7 @@ use crate::bail_error;
 use crate::transaction::TransactionId;
 use crate::utils::port::Port;
 use anyhow::Result;
+use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
 use std::process::{Child, Command, Output, Stdio};
 use tokio::signal::unix::{signal, Signal, SignalKind};
@@ -36,12 +37,16 @@ pub fn calculate_fqdn(function_name: &str, function_version: &str) -> String {
     format!("{}-{}", function_name, function_version)
 }
 
+pub fn format_uri(address: &str, port: Port, path: &str) -> String {
+    format!("http://{}:{}/{}", address, port, path)
+}
+
 pub fn calculate_invoke_uri(address: &str, port: Port) -> String {
-    format!("http://{}:{}/invoke", address, port)
+    format_uri(address, port, "invoke")
 }
 
 pub fn calculate_base_uri(address: &str, port: Port) -> String {
-    format!("http://{}:{}/", address, port)
+    format_uri(address, port, "")
 }
 
 fn prepare_cmd<S, S2, I>(
@@ -101,6 +106,49 @@ where
     S: AsRef<std::ffi::OsStr> + std::fmt::Display + ?Sized,
 {
     match execute_cmd(cmd_pth, args, env, tid) {
+        Ok(out) => match out.status.success() {
+            true => Ok(out),
+            false => {
+                bail_error!(tid=%tid, exe=%cmd_pth, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), code=out.status.code(), "Bad error code executing command")
+            }
+        },
+        Err(e) => Err(e),
+    }
+}
+
+/// Executes the specified executable with args and environment
+/// cmd_pth **must** be an absolute path
+pub async fn execute_cmd_async<S, S2, I>(
+    cmd_pth: &S,
+    args: I,
+    env: Option<&HashMap<String, String>>,
+    tid: &TransactionId,
+) -> Result<Output>
+where
+    I: IntoIterator<Item = S2> + std::fmt::Debug,
+    S2: AsRef<std::ffi::OsStr> + std::fmt::Debug + std::fmt::Display,
+    S: AsRef<std::ffi::OsStr> + std::fmt::Display + ?Sized,
+{
+    let mut cmd: AsyncCommand = prepare_cmd(cmd_pth, args, env, tid)?.into();
+    match cmd.output().await {
+        Ok(out) => Ok(out),
+        Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Running command failed"),
+    }
+}
+/// Executes the specified executable with args and environment
+/// Raises an error if the exit code isn't `0`
+pub async fn execute_cmd_checked_async<S, S2, I>(
+    cmd_pth: &S,
+    args: I,
+    env: Option<&HashMap<String, String>>,
+    tid: &TransactionId,
+) -> Result<Output>
+where
+    I: IntoIterator<Item = S2> + std::fmt::Debug,
+    S2: AsRef<std::ffi::OsStr> + std::fmt::Debug + std::fmt::Display,
+    S: AsRef<std::ffi::OsStr> + std::fmt::Display + ?Sized,
+{
+    match execute_cmd_async(cmd_pth, args, env, tid).await {
         Ok(out) => match out.status.success() {
             true => Ok(out),
             false => {

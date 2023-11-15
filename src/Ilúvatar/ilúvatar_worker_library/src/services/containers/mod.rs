@@ -18,6 +18,7 @@ pub mod containerd;
 pub mod containermanager;
 #[path = "./docker/docker.rs"]
 pub mod docker;
+mod http_client;
 #[path = "./simulation/simulator.rs"]
 pub mod simulator;
 pub mod structs;

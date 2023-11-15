@@ -68,7 +68,7 @@ def get_args(args):
     elif bin == "needle":
       ret = [bin_path, "512", "5", "2"]
     elif bin == "myocyte.out":
-      ret = [bin_path, "800", "1000", "1", "1"]
+      ret = [bin_path, "400", "600", "1", "1"]
     elif bin == "backprop":
       ret = [bin_path, "6097152"]
     elif bin == "lavaMD":
