@@ -15,6 +15,27 @@
     - group_vars/host_addresses.yml
 
   tasks:
+  - name: Create bin directory
+    file:
+      path: "{{bin_dir}}"
+      state: directory
+      recurse: yes
+    become: yes
+      
+  - name: copy worker executable
+    ansible.builtin.copy:
+      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.bin_name}}"
+      dest: "{{exe_dest}}"
+      mode: "preserve"
+    become: yes
+
+  - name: copy worker config
+    ansible.builtin.copy:
+      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.config_name}}"
+      dest: "{{config_dest}}"
+      mode: "preserve"
+    become: yes
+
   - name: Get running worker process
     shell: "ps -ef | grep -v grep | grep -w {{ worker.bin_name }} | awk '{print $2}'"
     register: running_worker
@@ -37,27 +58,6 @@
     shell: "kill {{ item }}"
     when: (ansible_host != "127.0.0.1" and ansible_host != "localhost") and mode == "clean"
     with_items: "{{ running_worker.stdout_lines }}"
-    become: yes
-
-  - name: Create bin directory
-    file:
-      path: "{{bin_dir}}"
-      state: directory
-      recurse: yes
-    become: yes
-      
-  - name: copy worker executable
-    ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.bin_name}}"
-      dest: "{{exe_dest}}"
-      mode: "preserve"
-    become: yes
-
-  - name: copy worker config
-    ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.config_name}}"
-      dest: "{{config_dest}}"
-      mode: "preserve"
     become: yes
 
   - name: clean localhost
@@ -111,10 +111,15 @@
       "ILUVATAR_WORKER__container_resources__startup_timeout_ms" : "{{ worker_startup_timeout_ms | default(10000) }}"
       "ILUVATAR_WORKER__container_resources__pool_freq_ms" : "{{ worker_cm_pool_freq_ms | default(1000) }}"
       "ILUVATAR_WORKER__container_resources__concurrent_creation" : "{{ worker_concurrent_creation | default(5) }}"
-      "ILUVATAR_WORKER__container_resources__resource_map__gpu__count" : "{{ worker_gpus | default(0) }}"
-      "ILUVATAR_WORKER__container_resources__resource_map__cpu__count" : "{{ worker_cores | default(4) }}"
       "ILUVATAR_WORKER__container_resources__memory_buffer_mb" : "{{ worker_memory_buffer | default(0) }}"
       "ILUVATAR_WORKER__container_resources__snapshotter" : "{{ worker_snapshotter | default('zfs') }}"
+      "ILUVATAR_WORKER__container_resources__cpu_resource__count" : "{{ worker_cores | default(4) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__count" : "{{ worker_gpus | default(0) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__use_standalone_mps" : "{{ standalone_mps | default(false) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__per_func_memory_mb" : "{{ per_func_memory_mb | default(2048) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__mps_limit_active_threads" : "{{ mps_limit_threads | default(false) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__use_driver_hook" : "{{ use_driver_hook | default(false) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__funcs_per_device" : "{{ funcs_per_device | default(0) }}"
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
       "ILUVATAR_WORKER__networking__use_pool" : "{{ worker_use_pool | default(true) }}"

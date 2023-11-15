@@ -71,9 +71,9 @@ pub struct RegisterArgs {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    #[arg(short, long)]
+    #[arg(long)]
     ///
-    pub address: String,
+    pub host: String,
     #[arg(short, long)]
     pub port: Port,
     #[command(subcommand)]

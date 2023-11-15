@@ -36,12 +36,12 @@ impl WorkerAPIFactory {
     /// the list of all workers the factory has cached
     pub fn get_cached_workers(&self) -> Vec<(String, Box<dyn WorkerAPI + Send>)> {
         let mut ret: Vec<(String, Box<dyn WorkerAPI + Send>)> = vec![];
-        if self.rpc_apis.is_empty() {
+        if !self.rpc_apis.is_empty() {
             self.rpc_apis
                 .iter()
                 .for_each(|x| ret.push((x.key().clone(), Box::new(x.value().clone()))));
         }
-        if self.sim_apis.is_empty() {
+        if !self.sim_apis.is_empty() {
             self.sim_apis
                 .iter()
                 .for_each(|x| ret.push((x.key().clone(), Box::new(SimWorkerAPI::new(x.value().clone())))));

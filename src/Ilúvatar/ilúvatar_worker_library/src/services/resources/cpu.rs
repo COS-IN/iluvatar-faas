@@ -1,9 +1,8 @@
 use crate::services::registration::RegisteredFunction;
-use crate::worker_api::worker_config::ContainerResourceConfig;
+use crate::worker_api::worker_config::CPUResourceConfig;
 use anyhow::Result;
 use iluvatar_library::threading::tokio_thread;
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{load_avg, nproc};
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -29,11 +28,7 @@ pub struct CpuResourceTracker {
 }
 
 impl CpuResourceTracker {
-    pub fn new(config: Arc<ContainerResourceConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
-        let config = match config.resource_map.get(&ComputeEnum::cpu) {
-            Some(c) => c.clone(),
-            None => anyhow::bail!("Did not have a CPU entry in the `resource_map`"),
-        };
+    pub fn new(config: &Arc<CPUResourceConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
         let mut max_concur = 0;
 
         let cores = nproc(tid, false)?;
@@ -43,6 +38,7 @@ impl CpuResourceTracker {
         };
 
         let (load_handle, load_tx) = match config.concurrency_update_check_ms {
+            Some(0) => (None, None),
             Some(check_dur) => {
                 let max_load = config
                     .max_load

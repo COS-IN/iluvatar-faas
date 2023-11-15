@@ -66,25 +66,62 @@ pub struct ContainerResourceConfig {
     ///   If 0 then the concurrency is unlimited
     pub concurrent_creation: u32,
 
-    /// Settings for the different compute resources the worker can use
-    pub resource_map: HashMap<ComputeEnum, Arc<ComputeResourceConfig>>,
+    /// Settings for the CPU compute resources the worker can use
+    pub cpu_resource: Arc<CPUResourceConfig>,
+    /// Settings for the CPU compute resources the worker can use
+    pub gpu_resource: Option<Arc<GPUResourceConfig>>,
 }
 #[derive(Debug, Deserialize)]
 /// Configuration detailing a single type of compute
-pub struct ComputeResourceConfig {
+pub struct CPUResourceConfig {
     /// number of cores it can use, i.e. number of concurrent functions allowed at once
     /// If this is set to 0, then allocations of the resource will not be managed.
     /// Depending on resource type, will not be allowed (i.e. GPU must have exact number)
     pub count: u32,
-    /// If provided and greated than [Self::count], the resource will be over-subscribed
+    /// If provided and greated than [Self::count], the resource will be over-subscribed to that limit
     /// Not all resources support oversubscription
     pub max_oversubscribe: Option<u32>,
     /// Frequency at which to check the system load and optionally increase the allowed invocation concurrency.
-    /// Used with [Self::max_oversubscribe] and cannot be 0
+    /// Used with [Self::max_oversubscribe], disabled if 0
     pub concurrency_update_check_ms: Option<u64>,
     /// The maximum normalized load average before reducing concurrency.
     /// Used with [Self::max_oversubscribe] and cannot be 0
     pub max_load: Option<f64>,
+}
+#[derive(Debug, Deserialize)]
+/// Configuration detailing a single type of compute
+pub struct GPUResourceConfig {
+    /// Number of cores it can use, i.e. number of concurrent functions allowed at once.
+    /// If this is set to 0, then allocations of the resource will not be managed.
+    /// Depending on resource type, will not be allowed (i.e. GPU must have exact number).
+    pub count: u32,
+    /// The amount of physical memory each GPU has.
+    /// Used for simulations/
+    pub memory_mb: Option<MemSizeMb>,
+    /// Set up a standalone MPS daemon to control GPU access.
+    pub use_standalone_mps: Option<bool>,
+    /// How much physical memory each function is 'allocated' on the GPU.
+    /// Allows (hardware / this) number of items on GPU to have access to the GPU at once.
+    /// If missing, entire GPU is allocated to function.
+    pub per_func_memory_mb: Option<MemSizeMb>,
+    /// Use [CUDA_MPS_ACTIVE_THREAD_PERCENTAGE](https://docs.nvidia.com/deploy/mps/index.html#topic_5_2_5) in proportion to GPU memory allocation.
+    pub mps_limit_active_threads: Option<bool>,
+    /// Enable driver hook library to force unified memory in function.
+    /// Must also pass [Self::funcs_per_device] as greater than 0
+    pub use_driver_hook: Option<bool>,
+    /// Maximum number of functions to allow on device when using driver hook.
+    /// Must also pass [Self::use_driver_hook] as true, defaults to 16 (maximum pre-volta supported MPS clients)
+    pub funcs_per_device: Option<u32>,
+}
+impl GPUResourceConfig {
+    /// Returns true if MPS (of any sort) is enabled
+    pub fn mps_enabled(&self) -> bool {
+        self.use_standalone_mps.unwrap_or(false)
+    }
+    /// Returns true if MPS (of any sort) is enabled
+    pub fn driver_hook_enabled(&self) -> bool {
+        self.use_driver_hook.unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Deserialize)]

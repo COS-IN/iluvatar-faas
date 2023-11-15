@@ -59,7 +59,7 @@ pub struct InvokerFactory {
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
     cpu: Arc<CpuResourceTracker>,
-    gpu_resources: Arc<GpuResourceTracker>,
+    gpu_resources: Option<Arc<GpuResourceTracker>>,
     #[cfg(feature = "power_cap")]
     energy: Arc<EnergyLimiter>,
 }
@@ -71,7 +71,7 @@ impl InvokerFactory {
         invocation_config: Arc<InvocationConfig>,
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
-        gpu_resources: Arc<GpuResourceTracker>,
+        gpu_resources: Option<Arc<GpuResourceTracker>>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Self {
         InvokerFactory {

@@ -72,7 +72,7 @@ run_sim() {
     # return
   else
     echo "Running $TRACE to $results_dir"
-ILUVATAR_WORKER__logging__basename="worker_worker1" ILUVATAR_WORKER__logging__directory=$results_dir ILUVATAR_WORKER__container_resources__resource_map__cpu__count=$CORES ILUVATAR_WORKER__energy__log_folder=$results_dir ILUVATAR_WORKER__invocation__queue_policy=$QUEUE $ILU_HOME/$target/ilúvatar_load_gen trace --out-folder $results_dir --port 8070 --host 'simulation' --target 'worker' --setup 'simulation' --load-type $LOAD_TYPE --input-csv $input --metadata-csv $metadata --prewarms $PREWARM --worker-config $config --function-data ../benchmark/worker_function_benchmarks.json &> $log_file
+ILUVATAR_WORKER__logging__basename="worker_worker1" ILUVATAR_WORKER__logging__directory=$results_dir ILUVATAR_WORKER__container_resources__cpu_resource__count=$CORES ILUVATAR_WORKER__energy__log_folder=$results_dir ILUVATAR_WORKER__invocation__queue_policy=$QUEUE $ILU_HOME/$target/ilúvatar_load_gen trace --out-folder $results_dir --port 8070 --host 'simulation' --target 'worker' --setup 'simulation' --load-type $LOAD_TYPE --input-csv $input --metadata-csv $metadata --prewarms $PREWARM --worker-config $config --function-data ../benchmark/worker_function_benchmarks.json &> $log_file
   fi
 
 python3 plot_status.py -l $results_dir -t $TRACE --out $results_dir

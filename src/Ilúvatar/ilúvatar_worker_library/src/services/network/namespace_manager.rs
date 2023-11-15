@@ -44,6 +44,7 @@ impl NamespaceManager {
 
     pub fn boxed(config: Arc<NetworkingConfig>, tid: &TransactionId, ensure_bridge: bool) -> Result<Arc<Self>> {
         debug!(tid=%tid, "creating namespace manager");
+        Self::ensure_net_config_file(tid, &config)?;
         if ensure_bridge {
             Self::ensure_bridge(tid, &config)?;
         }
@@ -63,7 +64,7 @@ impl NamespaceManager {
         })
     }
 
-    #[tracing::instrument(skip(self), fields(tid=%tid))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     fn monitor_pool(&self, tid: &TransactionId) {
         while self.pool_size() < self.config.pool_size {
             let ns = match self.create_namespace(&self.generate_net_namespace_name(), tid) {
@@ -128,6 +129,26 @@ impl NamespaceManager {
         }
     }
 
+    fn ensure_net_config_file(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
+        let temp_file = utils::file::temp_file_pth("il_worker_br", "conf");
+
+        let mut file = match File::options().read(true).write(true).create_new(true).open(temp_file) {
+            Ok(f) => f,
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::AlreadyExists => return Ok(()),
+                _ => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
+            },
+        };
+        let bridge_json = include_str!("../../resources/cni/il_worker_br.json")
+            .to_string()
+            .replace("$BRIDGE", &config.bridge);
+
+        match writeln!(&mut file, "{}", bridge_json) {
+            Ok(_) => Ok(()),
+            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to write 'il_worker_br' conf file"),
+        }
+    }
+
     fn try_ensure_bridge(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
         if !Self::hardware_exists(tid, config)? {
             anyhow::bail!(
@@ -136,20 +157,6 @@ impl NamespaceManager {
             );
         }
         Self::make_resolv_conf(tid)?;
-        let temp_file = utils::file::temp_file_pth("il_worker_br", "conf");
-
-        let mut file = match File::create(temp_file) {
-            Ok(f) => f,
-            Err(e) => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
-        };
-        let bridge_json = include_str!("../../resources/cni/il_worker_br.json")
-            .to_string()
-            .replace("$BRIDGE", &config.bridge);
-
-        match writeln!(&mut file, "{}", bridge_json) {
-            Ok(_) => (),
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to write 'il_worker_br' conf file"),
-        };
 
         let env = Self::cmd_environment(config);
         let name = BRIDGE_NET_ID.to_string();

@@ -20,7 +20,7 @@ use iluvatar_library::{
     api_register::RegisterWorker,
     logging::LocalTime,
     transaction::{gen_tid, TransactionId, SIMULATION_START_TID},
-    types::{CommunicationMethod, Compute, ComputeEnum, Isolation},
+    types::{CommunicationMethod, Compute, Isolation},
     utils::timing::TimedExt,
 };
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
@@ -44,13 +44,12 @@ async fn controller_sim_register_workers(
             host: worker_config_pth.to_owned(),
             port: 0,
             memory: worker_config.container_resources.memory_mb,
-            cpus: worker_config
+            cpus: worker_config.container_resources.cpu_resource.count,
+            gpus: worker_config
                 .container_resources
-                .resource_map
-                .get(&ComputeEnum::cpu)
-                .expect("`resource_map` did not have CPU entry")
-                .count,
-            gpus: 0,
+                .gpu_resource
+                .as_ref()
+                .map_or(0, |c| c.count),
             compute: Compute::CPU,
             isolation: Isolation::CONTAINERD,
         };
