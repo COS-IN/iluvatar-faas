@@ -24,10 +24,10 @@ pub mod minheap_iat;
 pub mod queueless;
 
 // GPU focused queues
-pub mod fcfs_gpu;
-pub mod oldest_gpu;
 pub mod dynamic_batching;
-pub mod mqfq;
+pub mod fcfs_gpu;
+pub mod gpu_mqfq;
+pub mod oldest_gpu;
 
 #[derive(Debug, serde::Deserialize)]
 /// The policy by which polymorphic functions will be enqueued in the CPU/GPU/etc. queues
@@ -41,7 +41,7 @@ pub enum EnqueueingPolicy {
     AlwaysCPU,
     /// Enqueue based on shortest estimated completion time
     EstCompTime,
-    /// Multi-armed bandit for polymorphic functions. 
+    /// Multi-armed bandit for polymorphic functions.
     Bandit1,
 }
 
@@ -106,7 +106,7 @@ pub trait DeviceQueue: Send + Sync {
 }
 
 #[derive(Debug)]
-/// Function while it is in the invocation queue. Refs to registration, result, arguments, invocation/execution stats. 
+/// Function while it is in the invocation queue. Refs to registration, result, arguments, invocation/execution stats.
 pub struct EnqueuedInvocation {
     pub registration: Arc<RegisteredFunction>,
     /// Pointer where results will be stored on invocation completion

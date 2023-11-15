@@ -1,3 +1,4 @@
+use super::queueing::gpu_mqfq::MQFQ;
 use super::queueing::{DeviceQueue, EnqueuedInvocation};
 use super::{
     async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
@@ -11,11 +12,12 @@ use crate::services::{containers::containermanager::ContainerManager, invocation
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{logging::LocalTime, transaction::TransactionId, types::Compute};
-use std::sync::Arc;
-use tracing::{debug, info};
 use std::collections::HashMap;
+use std::sync::Arc;
 use time::OffsetDateTime;
+use tracing::{debug, info};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -27,7 +29,7 @@ pub struct PolymDispatchCtx {
     cmap: Arc<CharacteristicsMap>,
     /// cpu/gpu -> wt , based on device load.
     device_wts: HashMap<Compute, f64>,
-    /// fn -> cpu_wt, gpu_wt , based on locality and speedup considerations. 
+    /// fn -> cpu_wt, gpu_wt , based on locality and speedup considerations.
     per_fn_wts: HashMap<String, (f64, f64)>,
     /// Most recent fn->device placement for each fn 
     prev_dispatch: HashMap<String, String>,
@@ -38,16 +40,25 @@ pub struct PolymDispatchCtx {
     n_gpu: u64, //Init to to avoid divide by 0 
 }
 
-impl PolymDispatchCtx {
-    fn update_prev_t(&mut self, fid:String, t:OffsetDateTime) -> () {
+impl PolyDispatchCtx {
+    pub fn boxed(cmap: &Arc<CharacteristicsMap>) -> Arc<Self> {
+        Arc::new(Self {
+            cmap: cmap.clone(),
+            device_wts: HashMap::from([(Compute::CPU, 1.0), (Compute::GPU, 1.0)]),
+            per_fn_wts: HashMap::new(),
+            prev_dispatch: HashMap::new(),
+            fn_prev_t: HashMap::new(),
+        })
+    }
+    fn update_prev_t(&mut self, fid: String, t: OffsetDateTime) -> () {
         todo!();
     }
-    fn update_locality(&mut self, fid:String, device:String) -> () {
+    fn update_locality(&mut self, fid: String, device: String) -> () {
         todo!();
     }
 
     // Based on the load/utilization etc?
-    fn update_dev_wts(&mut self, device:String, wt:f64) -> () {
+    fn update_dev_wts(&mut self, device: String, wt: f64) -> () {
         todo!();
     }
     
@@ -129,9 +140,8 @@ impl QueueingDispatcher {
             async_functions: AsyncHelper::new(),
             clock: LocalTime::new(tid)?,
             invocation_config,
+            dispatch_state: PolyDispatchState::boxed(&cmap),
             cmap,
-	    dispatch_wts: HashMap::from([("cpu".to_string(),1.0), ("gpu".to_string(),1.0)]),
-				   
         });
         debug!(tid=%tid, "Created QueueingInvoker");
         Ok(svc)
@@ -158,7 +168,6 @@ impl QueueingDispatcher {
         )?)
     }
 
-    
     fn get_invoker_gpu_queue(
         invocation_config: &Arc<InvocationConfig>,
         cmap: &Arc<CharacteristicsMap>,
@@ -168,15 +177,32 @@ impl QueueingDispatcher {
         cpu: &Arc<CpuResourceTracker>,
         gpu: &Arc<GpuResourceTracker>,
     ) -> Result<Arc<dyn DeviceQueue>> {
-        Ok(GpuQueueingInvoker::new(
-            cont_manager.clone(),
-            function_config.clone(),
-            invocation_config.clone(),
-            tid,
-            cmap.clone(),
-            cpu.clone(),
-            gpu.clone(),
-        )?)
+        match invocation_config.queues.get(&ComputeEnum::gpu).as_deref() {
+            Some(q) => {
+                if q == "serial" {
+                    Ok(GpuQueueingInvoker::new(
+                        cont_manager.clone(),
+                        function_config.clone(),
+                        invocation_config.clone(),
+                        tid,
+                        cmap.clone(),
+                        cpu.clone(),
+                        gpu.clone(),
+                    )?)
+                } else if q == "mqfq" {
+                    Ok(MQFQ::new(
+                        cont_manager.clone(),
+                        cmap.clone(),
+                        invocation_config.clone(),
+                        cpu.clone(),
+                        gpu.clone(),
+                    )?)
+                } else {
+                    anyhow::bail!("Unkonwn GPU queue {}", q);
+                }
+            }
+            None => anyhow::bail!("GPU queue was not specified"),
+        }
     }
 
     /// Forms invocation data into a [EnqueuedInvocation] that is returned

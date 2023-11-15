@@ -108,6 +108,8 @@ pub struct InvocationConfig {
     pub retries: u32,
     /// Duration in milliseconds the worker queue will sleep between checking for new invocations
     pub queue_sleep_ms: u64,
+    /// Queue to use for different compute resources
+    pub queues: HashMap<ComputeEnum, String>,
     /// Queueing policy to use for different compute resources
     pub queue_policies: HashMap<ComputeEnum, String>,
     /// The policy by which the worker decides how to enqueue polymorphic functions
