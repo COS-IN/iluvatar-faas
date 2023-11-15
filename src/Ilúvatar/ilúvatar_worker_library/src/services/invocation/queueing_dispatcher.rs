@@ -35,6 +35,15 @@ pub struct PolyDispatchState {
 }
 
 impl PolyDispatchState {
+    pub fn boxed(cmap: &Arc<CharacteristicsMap>) -> Arc<Self> {
+        Arc::new(Self {
+          cmap: cmap.clone(),
+          device_wts: HashMap::from([(Compute::CPU,1.0), (Compute::GPU,1.0)]),
+          per_fn_wts: HashMap::new(),
+          prev_dispatch: HashMap::new(),
+          fn_prev_t: HashMap::new(),
+      })
+    }
     fn update_prev_t(&mut self, fid:String, t:OffsetDateTime) -> () {
         todo!();
     }
@@ -48,21 +57,21 @@ impl PolyDispatchState {
     }
 
     // Normalize the weights etc into probabilities?
-    fn latency_rewards(&self, fid:String, device:Compute) -> (f64) {
-	match device {
-	    Compute::CPU => {
-		let dev_lat = self.cmap.get_e2e_cpu(fid, False); //most recent 
-		// Need to compare this to average latency of the /other/ device
-		let other_lat = self.cmap.get_e2e_gpu(fid, True); // aggregate
-	    }
-	    _ => {
-		let dev_lat = self.cmap.get_e2e_gpu(fid);
-		let other_lat = self.cmap.get_e2e_cpu(fid, True); // aggregate		
-	    }
-	}
-	let diff = other_lat - dev_lat ;
-	
-	self.cmap.get_e2e 
+    fn latency_rewards(&self, fid:&str, device:Compute) -> f64 {
+    let (cpu_e2e, gpu_e2e) = match device {
+        Compute::CPU => {
+          self.cmap.get_dispatch_wts(&fid) //most recent 
+          // Need to compare this to average latency of the /other/ device
+          // let other_lat = self.cmap.get_e2e_gpu(fid, True); // aggregate
+        }
+        _ => {
+          self.cmap.get_dispatch_wts(&fid) //most recent 
+          // let dev_lat = self.cmap.get_e2e_gpu(fid);
+          // let other_lat = self.cmap.get_e2e_cpu(fid, True); // aggregate		
+        }
+    };
+    let diff = cpu_e2e - gpu_e2e;
+    diff 
     }
 }
 
@@ -113,9 +122,8 @@ impl QueueingDispatcher {
             async_functions: AsyncHelper::new(),
             clock: LocalTime::new(tid)?,
             invocation_config,
+            dispatch_state: PolyDispatchState::boxed(&cmap),
             cmap,
-	    dispatch_wts: HashMap::from([("cpu".to_string(),1.0), ("gpu".to_string(),1.0)]),
-				   
         });
         debug!(tid=%tid, "Created QueueingInvoker");
         Ok(svc)
@@ -267,19 +275,19 @@ impl QueueingDispatcher {
         if reg.gpu_only() {
             return &self.gpu_queue;
         }
-        let mut chosen_q ;
-	let fid = reg.function_name.clone(); 
+        todo!();
+        // let mut chosen_q ;
+        // let fid = reg.function_name.clone(); 
 
-	self.dispatch_state.update_device_loads();
-	self.dispatch_state.update_fn_chars(); // implicit? 
+        // self.dispatch_state.update_device_loads();
+        // self.dispatch_state.update_fn_chars(); // implicit? 
 
-	self.cmap.get_e2e_cpu(fid);
-	self.cmap.get_e2e_gpu(fid);
-	
-	
-	self.dispatch_state.
+        // self.cmap.get_e2e_cpu(fid);
+        // self.cmap.get_e2e_gpu(fid);
+        
+        // self.dispatch_state.
 
-        return chosen_q ;
+        // return chosen_q ;
     }
 }
 

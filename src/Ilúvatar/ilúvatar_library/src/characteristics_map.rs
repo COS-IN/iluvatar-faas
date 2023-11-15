@@ -147,6 +147,10 @@ impl CharacteristicsMap {
 
     /// Set most recent 
     pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
+      if use_accum {
+        return self.add_agg(fqdn, chr, value);
+      }
+
         let e0 = self.map.get_mut(fqdn);
 
         match e0 {
@@ -176,9 +180,6 @@ impl CharacteristicsMap {
             }
         }
 
-	if use_accum {
-	    self = self.add_agg(&self, fqdn, chr, value);
-	}
 
         self
     }
@@ -345,10 +346,10 @@ impl CharacteristicsMap {
     pub fn get_dispatch_wts(&self, fqdn: &str) -> (f64, f64) {
         let mut wcpu = 0.0;
         let mut wgpu = 0.0;
-        if let Some(x) = self.lookup(fqdn, &Characteristics::wt_CPU){
+        if let Some(x) = self.lookup(fqdn, &Characteristics::E2ECpu){
             wcpu = unwrap_val_f64(&x);
         }
-        if let Some(y) = self.lookup(fqdn, &Characteristics::wt_GPU){
+        if let Some(y) = self.lookup(fqdn, &Characteristics::E2EGpu){
             wgpu = unwrap_val_f64(&y);
         }
         (wcpu, wgpu)

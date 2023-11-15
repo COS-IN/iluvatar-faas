@@ -391,10 +391,10 @@ impl CpuQueueingInvoker {
             Values::F64(data.duration_sec),
             true,
         );
-	let e1 = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
-	let e2etime = Duration::from_secs_f64(e1); // TODO: Check float?
-	
-	self.cmap.add(&reg.fqdn, Characteristics::E2ECpu, e2etime, true);
+        let e2etime = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
+        // let e2etime = Duration::from_secs_f64(e1); // TODO: Check float?
+        
+        self.cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
 
         drop(permit);
         self.signal.notify_waiters();

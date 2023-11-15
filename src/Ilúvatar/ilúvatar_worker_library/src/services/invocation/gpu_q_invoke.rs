@@ -424,10 +424,10 @@ impl GpuQueueingInvoker {
         );
 	// TODO: cmap.queue_insert_time - current time for E2E GPU time
 	// Also same for cpu_q_invoke
-	let e1 = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
-	let e2etime = Duration::from_secs_f64(e1); // TODO: Check float?
+	let e2etime = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
+	// let e2etime = Duration::from_secs_f64(e1); // TODO: Check float?
 	
-	self.cmap.add(&reg.fqdn, Characteristics::E2EGpu, e2etime, true);
+	self.cmap.add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), true);
 	
         let (compute, state) = (ctr_lock.container.compute_type(), ctr_lock.container.state());
         drop(ctr_lock);
