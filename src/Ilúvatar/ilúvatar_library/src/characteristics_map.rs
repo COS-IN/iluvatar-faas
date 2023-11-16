@@ -272,6 +272,18 @@ impl CharacteristicsMap {
             0.0
         }
     }
+
+    pub fn avg_cpu_exec_t(&self, fqdn: &str) -> f64 {
+	todo!();
+	0.0
+    }
+
+    pub fn avg_gpu_exec_t(&self, fqdn: &str) -> f64 {
+	todo!();
+	0.0
+    }
+    
+    
     /// Returns the execution time as tracked by [Characteristics::GpuColdTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_gpu_cold_time(&self, fqdn: &str) -> f64 {

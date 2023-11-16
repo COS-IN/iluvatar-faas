@@ -42,7 +42,13 @@ pub enum EnqueueingPolicy {
     /// Enqueue based on shortest estimated completion time
     EstCompTime,
     /// Multi-armed bandit for polymorphic functions.
-    Bandit1,
+    UCB1,
+    /// Multiplicative weights
+    MWUA,
+    /// Locality/E2E time 
+    HitTput,
+    /// Always GPU for polymorphic functions 
+    AlwaysGPU,
 }
 
 #[tonic::async_trait]

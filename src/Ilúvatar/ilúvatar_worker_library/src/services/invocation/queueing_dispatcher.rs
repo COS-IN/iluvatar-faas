@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{debug, info};
+use rand::Rng;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -37,10 +38,10 @@ pub struct PolymDispatchCtx {
     ///Total number of dispatches/rounds
     Total_dispatch: u64,
     n_cpu: u64,
-    n_gpu: u64, //Init to to avoid divide by 0 
+    n_gpu: u64, //Init to 1 to avoid divide by 0 
 }
 
-impl PolyDispatchCtx {
+impl PolymDispatchCtx {
     pub fn boxed(cmap: &Arc<CharacteristicsMap>) -> Arc<Self> {
         Arc::new(Self {
             cmap: cmap.clone(),
@@ -48,6 +49,9 @@ impl PolyDispatchCtx {
             per_fn_wts: HashMap::new(),
             prev_dispatch: HashMap::new(),
             fn_prev_t: HashMap::new(),
+	    Total_dispatch: 1,
+	    n_cpu: 1,
+	    n_gpu: 1,
         })
     }
     fn update_prev_t(&mut self, fid: String, t: OffsetDateTime) -> () {
@@ -64,31 +68,43 @@ impl PolyDispatchCtx {
     
     // Normalize the weights etc into probabilities?
     fn latency_rewards(&self, fid:String, device:String)
-		       -> (Compute, delta:f64) {
-	match device {
-	    Compute::CPU => {
-		let dev_lat = self.cmap.get_e2e_cpu(fid, False); //most recent 
-		// Need to compare this to average latency of the /other/ device
-		let other_lat = self.cmap.get_e2e_gpu(fid, True); // aggregate
-	    }
-	    _ => {
-		let dev_lat = self.cmap.get_e2e_gpu(fid);
-		let other_lat = self.cmap.get_e2e_cpu(fid, True); // aggregate		
-	    }
-	}
-	let diff = other_lat - dev_lat ;
+		       -> (Compute, f64) {
+	todo!();
 	
-	device, diff 
+	// match device {
+	//     Compute::CPU => {
+	// 	let dev_lat = self.cmap.get_e2e_cpu(fid, False); //most recent 
+	// 	// Need to compare this to average latency of the /other/ device
+	// 	let other_lat = self.cmap.get_e2e_gpu(fid, True); // aggregate
+	//     }
+	//     _ => {
+	// 	let dev_lat = self.cmap.get_e2e_gpu(fid);
+	// 	let other_lat = self.cmap.get_e2e_cpu(fid, True); // aggregate		
+	//     }
+	// }
+	// let diff = other_lat - dev_lat ;
+	
+	// device, diff 
     }
 
     /// CPU, GPU IAT previous dispatch 
     fn device_iats(&self, fid: String) -> (f64, f64) {
-
+	todo!();
     }
 
-    /// Set dispatch counters, history, etc. 
+    /// Update dispatch counters, history, etc. 
     fn select_device_for_fn(&mut self, fid: String, device:String) -> () {
-
+	self.Total_dispatch += 1 ;
+	self.prev_dispatch.insert(fid, device); 
+	
+	match device.as_str() {
+	    "cpu" => {
+		self.n_cpu += 1;
+	    },
+	    "gpu" => {
+		self.n_gpu += 1;
+	    },
+	}
     }
 
 }
@@ -300,125 +316,159 @@ impl QueueingDispatcher {
         Ok(enqueue)
     }
 
-    // https://jeremykun.com/2013/10/28/optimism-in-the-face-of-uncertainty-the-ucb1-algorithm/
-    /// Upper-confidence bound on the execution latency. Or the E2E time? 
-    fn ucb1_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
-	// device_wt = exec_time + sqrt(log steps/n), where n is number of times device has been selected for the function
-	// Pick device with lowest weight and dispatch
-        let mut chosen_q ;
-	let selected_device: String;
-	let fid = reg.function_name.clone(); 
-	let cpu_t = cmap.avg_cpu_exec_t(fid); // supposed to running average? 
-	let gpu_t = cmap.avg_gpu_exec_t(fid);
-	let T  = self.dispatch_state.Total_dispatch ; 
-	let n_cpu = self.dispatch_state.n_cpu ;
-	let n_gpu = self.dispatch_state.n_gpu ;
-	
-	let cpu_wt = cpu_t + math.sqrt(2.0*math.log(T)/float(n_cpu));
-	let gpu_wt = cpu_t + math.sqrt(2.0*math.log(T)/float(n_gpu));
-	let device_wts = Hashmap::new({("cpu", cpu_wt), ("gpu", gpu_wt)});
-	// pick smallest of the two, gree
-	selected_device = min_by_value(device_wts);
-
-	self.dispatch_state.select_device_for_fn(fid, selected_device);
-	
-    }
-
-
-    // 
-    /// Multiplicative Weights Update Algorithm 
-    fn mwua_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
-	// the cost is t_recent - t_global_min
-	let eta = 0.3; // learning rate
-	let mut chosen_q ;
-	let selected_device: String;
-	let fid = reg.function_name.clone(); 
-	let cpu_t = cmap.latest_cpu_exec_t(fid); // supposed to running average? 
-	let gpu_t = cmap.latest_gpu_exec_t(fid);
-	let t_min = cmap.min_exec_t(fid); // global min
-	let prev_dev, prev_t = self.dispatch_state.get_prev_exec_time(fid); //depending on device
-	let cost = prev_t - t_min ;
-	let pw_cpu, pw_gpu = self.dispatch_state.per_fn_wts.get(fid);
-
-	// update weights w = w*(1.0 - (eta * cost));
-	
-	// choose proportional to the weights
-	let vec_devices = Vec!["cpu", "gpu"]; 
-	let choice = self.proportional_selection(w_cpu, w_gpu);
-	selected_device = vec_devices[choice]; // Rust out of bounds etc unsafe?!?
-	
-	self.dispatch_state.select_device_for_fn(fid, selected_device);
-    }
 
     /// Given two weights, return 0 or 1 probabilistically 
     fn proportional_selection(&self, wa:f64, wb:f64) -> i32 {
-	let choice ;
+	let mut rng = rand::thread_rng();
 	let wt = wa + wb ;
 	let wa = wa/wt;
 	let wb = wb/wt;
-	let r = random(0, 1); //between 0 and 1 
+	let r = rng.gen_range(0.0..1.0);
 	if r > wa {
 	    return 1;
 	}
 	0 
     }
 
-    /// Proportional to locality, performance, and load 
-    fn prop_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
-	// ratios of the three main factors?
-	let p_warm_cpu ;
-	let p_warm_gpu ;
-	let r_warm:f64 = p_warm_cpu/p_warm_gpu ;
-
-	let exec_cpu ;
-	let exec_gpu ; 
-	let r_exec:f64 = exec_cpu/exec_gpu ; //lower is better, so inverse ? 
-
-	let load_cpu ;
-	let load_gpu ;
-	let r_load:f64 = load_cpu/load_gpu; 
-
-	let r_all = r_warm * r_exec * r_load ;
-
-	let vec_devices = Vec!["cpu", "gpu"]; 
-	let choice = self.proportional_selection(r_all, 1.0);
-	
-	self.dispatch_state.select_device_for_fn(fid, selected_device);
-    }
     
-    
-    /// Multi-armed bandit based dispatch. Load-balancing using stale rewards (latency) and costs (load). Is sticky for locality.
-    fn bandit1_dispatch(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
-	// Nothing to do for non-polymorphic functions
-        if reg.cpu_only() {
+    // https://jeremykun.com/2013/10/28/optimism-in-the-face-of-uncertainty-the-ucb1-algorithm/
+    /// Upper-confidence bound on the execution latency. Or the E2E time? 
+    fn ucb1_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
+	// device_wt = exec_time + sqrt(log steps/n), where n is number of times device has been selected for the function
+	// Pick device with lowest weight and dispatch
+	if reg.cpu_only() {
             return &self.cpu_queue;
         }
         if reg.gpu_only() {
             return &self.gpu_queue;
         }
-	
-        let mut chosen_q ;
-	let mut chosen_device: Compute; 
-	let fid = reg.function_name.clone(); 
 
-	// Three major sources
-	// 1. Locality
+	let fid = reg.fqdn.clone().as_str();  //function name or fqdn?
 	
-
-	// 2. E2E latency and difference
-	   
-	// 3. Device loads 
-
+	let cpu_t = self.cmap.avg_cpu_exec_t(&fid) as f64; // supposed to running average? 
+	let gpu_t = self.cmap.avg_gpu_exec_t(&fid) as f64;
 	
-	self.dispatch_state.update_device_loads();
-	self.dispatch_state.update_fn_chars(); // implicit? 
+	let T  = self.dispatch_state.Total_dispatch as f64 ;
+	let n_cpu = self.dispatch_state.n_cpu as f64;
+	let n_gpu = self.dispatch_state.n_gpu as f64;
 
+	let cpu_ucb = (f64::log(T, 2.0)/n_cpu).sqrt();
+	let gpu_ucb = (f64::log(T, 2.0)/n_gpu).sqrt();
 	
-	self.dispatch_state.update_prev_t(fid, OffsetDateTime::now_utc());
-	self.dispatch_state.update_prev_dispath(fid, chosen_device); 
-        return chosen_q ;
+	let cpu_wt = cpu_t + cpu_ucb ; 
+	let gpu_wt = cpu_t + gpu_ucb ;
+	
+	let device_wts = HashMap::from([
+	    ("cpu", cpu_wt),
+	    ("gpu", gpu_wt)]);
+
+	let min_val_pair = device_wts.iter().min_by(|(_,a),(_,b)| a.partial_cmp(&b).unwrap());
+
+	// pick smallest of the two 
+	let selected_device = min_val_pair.unwrap().0.to_string();
+	
+	self.dispatch_state.select_device_for_fn(fid.to_string(), selected_device);
+
+	if selected_device == "gpu" {
+	    return &self.gpu_queue ;
+	}
+	&self.cpu_queue 
     }
-}
+
+
+    
+//     /// Multiplicative Weights Update Algorithm 
+//     fn mwua_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
+// 	// the cost is t_recent - t_global_min
+// 	let eta = 0.3; // learning rate
+// 	let mut chosen_q ;
+// 	let selected_device: String;
+// 	let fid = reg.function_name.clone(); 
+// 	let cpu_t = cmap.latest_cpu_exec_t(fid); // supposed to running average? 
+// 	let gpu_t = cmap.latest_gpu_exec_t(fid);
+// 	let t_min = cmap.min_exec_t(fid); // global min
+// 	let prev_dev, prev_t = self.dispatch_state.get_prev_exec_time(fid); //depending on device
+// 	let cost = prev_t - t_min ;
+// 	let pw_cpu, pw_gpu = self.dispatch_state.per_fn_wts.get(fid);
+
+// 	// update weights w = w*(1.0 - (eta * cost));
+// 	// Shrinking dart-board: Stick to previous dispatch decision with probability w_t/w_{t-1} .
+	
+// 	// choose proportional to the weights
+// 	let vec_devices = Vec!["cpu", "gpu"]; 
+// 	let choice = self.proportional_selection(w_cpu, w_gpu);
+// 	selected_device = vec_devices[choice]; // Rust out of bounds etc unsafe?!?
+	
+// 	self.dispatch_state.select_device_for_fn(fid, selected_device);
+//     }
+
+
+//     /// Proportional to locality, performance, and load 
+//     fn prop_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
+// 	// ratios of the three main factors?
+// 	let p_warm_cpu ;
+// 	let p_warm_gpu ;
+// 	let r_warm:f64 = p_warm_cpu/p_warm_gpu ;
+
+// 	let exec_cpu ;
+// 	let exec_gpu ; 
+// 	let r_exec:f64 = exec_cpu/exec_gpu ; //lower is better, so inverse ? 
+
+// 	let load_cpu ;
+// 	let load_gpu ;
+// 	let r_load:f64 = load_cpu/load_gpu; 
+
+// 	let r_all = r_warm * r_exec * r_load ;
+
+// 	let vec_devices = Vec!["cpu", "gpu"]; 
+// 	let choice = self.proportional_selection(r_all, 1.0);
+	
+// 	self.dispatch_state.select_device_for_fn(fid, selected_device);
+// 	chosen_queue 
+//     }
+
+
+//     /// Maximize P_warm/E[E2E time] 
+//     fn local_tput_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
+// 	// Estimate cache hit prob? For CPU, the deterministic technique works well. Nearly always close to 1 if present, 0 otherwise.
+// 	// Can use Che's approx. e^{characteristic-time/iat}. How to compute the characteristic time? OG paper defines it as per-object's max hit reuse distance. 
+	
+
+//     }
+    
+//     /// Multi-armed bandit based dispatch. Load-balancing using stale rewards (latency) and costs (load). Is sticky for locality.
+//     fn bandit1_dispatch(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
+// 	// Nothing to do for non-polymorphic functions
+//         if reg.cpu_only() {
+//             return &self.cpu_queue;
+//         }
+//         if reg.gpu_only() {
+//             return &self.gpu_queue;
+//         }
+	
+//         let mut chosen_q ;
+// 	let mut chosen_device: Compute; 
+// 	let fid = reg.function_name.clone(); 
+
+// 	// Three major sources
+// 	// 1. Locality
+	
+
+// 	// 2. E2E latency and difference
+	   
+// 	// 3. Device loads 
+
+	
+// 	self.dispatch_state.update_device_loads();
+// 	self.dispatch_state.update_fn_chars(); // implicit? 
+
+	
+// 	self.dispatch_state.update_prev_t(fid, OffsetDateTime::now_utc());
+// 	self.dispatch_state.update_prev_dispath(fid, chosen_device); 
+//         return chosen_q ;
+//     }
+// }
+
 
 #[tonic::async_trait]
 impl Invoker for QueueingDispatcher {
