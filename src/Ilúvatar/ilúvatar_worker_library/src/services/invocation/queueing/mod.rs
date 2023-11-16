@@ -43,12 +43,11 @@ pub enum EnqueueingPolicy {
     EstCompTime,
     /// Multi-armed bandit for polymorphic functions.
     UCB1,
-    /// Multiplicative weights
-    MWUA,
-    /// Locality/E2E time 
-    HitTput,
-    /// Always GPU for polymorphic functions 
-    AlwaysGPU,
+    // MWUA,
+    // /// Locality/E2E time 
+    // HitTput,
+    // /// Always GPU for polymorphic functions 
+    // AlwaysGPU,
 }
 
 #[tonic::async_trait]

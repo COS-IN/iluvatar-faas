@@ -19,6 +19,8 @@ use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{debug, info};
 use rand::Rng;
+use std::cell::RefCell;
+use parking_lot::{Mutex, RwLock};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -42,8 +44,8 @@ pub struct PolymDispatchCtx {
 }
 
 impl PolymDispatchCtx {
-    pub fn boxed(cmap: &Arc<CharacteristicsMap>) -> Arc<Self> {
-        Arc::new(Self {
+    pub fn boxed(cmap: &Arc<CharacteristicsMap>) -> Self {
+        Self {
             cmap: cmap.clone(),
             device_wts: HashMap::from([(Compute::CPU, 1.0), (Compute::GPU, 1.0)]),
             per_fn_wts: HashMap::new(),
@@ -52,7 +54,7 @@ impl PolymDispatchCtx {
 	    Total_dispatch: 1,
 	    n_cpu: 1,
 	    n_gpu: 1,
-        })
+        }
     }
     fn update_prev_t(&mut self, fid: String, t: OffsetDateTime) -> () {
         todo!();
@@ -92,21 +94,6 @@ impl PolymDispatchCtx {
 	todo!();
     }
 
-    /// Update dispatch counters, history, etc. 
-    fn select_device_for_fn(&mut self, fid: String, device:String) -> () {
-	self.Total_dispatch += 1 ;
-	self.prev_dispatch.insert(fid, device); 
-	
-	match device.as_str() {
-	    "cpu" => {
-		self.n_cpu += 1;
-	    },
-	    "gpu" => {
-		self.n_gpu += 1;
-	    },
-	}
-    }
-
 }
 
 pub struct QueueingDispatcher {
@@ -116,7 +103,7 @@ pub struct QueueingDispatcher {
     clock: LocalTime,
     cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Arc<dyn DeviceQueue>,
-    dispatch_state: Arc<PolymDispatchCtx>,
+    dispatch_state: RwLock<PolymDispatchCtx>,
 }
 
 #[allow(dyn_drop)]
@@ -156,7 +143,7 @@ impl QueueingDispatcher {
             async_functions: AsyncHelper::new(),
             clock: LocalTime::new(tid)?,
             invocation_config,
-            dispatch_state: PolyDispatchState::boxed(&cmap),
+            dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
         });
         debug!(tid=%tid, "Created QueueingInvoker");
@@ -316,6 +303,25 @@ impl QueueingDispatcher {
         Ok(enqueue)
     }
 
+    /// Should be in its struct, but mutable borrow etc 
+    fn select_device_for_fn(&self, fid: String, device:String) -> () {
+
+	let mut d = self.dispatch_state.write();
+	
+	d.Total_dispatch += 1 ;
+	
+	d.prev_dispatch.insert(fid, device.clone()); 
+	
+	match device.as_str() {
+	    "cpu" => {
+		d.n_cpu += 1;
+	    },
+	    "gpu" => {
+		d.n_gpu += 1;
+	    },
+	    &_ => (),
+	}
+    }
 
     /// Given two weights, return 0 or 1 probabilistically 
     fn proportional_selection(&self, wa:f64, wb:f64) -> i32 {
@@ -343,14 +349,14 @@ impl QueueingDispatcher {
             return &self.gpu_queue;
         }
 
-	let fid = reg.fqdn.clone().as_str();  //function name or fqdn?
+	let fid = reg.fqdn.as_str();  //function name or fqdn?
 	
 	let cpu_t = self.cmap.avg_cpu_exec_t(&fid) as f64; // supposed to running average? 
 	let gpu_t = self.cmap.avg_gpu_exec_t(&fid) as f64;
 	
-	let T  = self.dispatch_state.Total_dispatch as f64 ;
-	let n_cpu = self.dispatch_state.n_cpu as f64;
-	let n_gpu = self.dispatch_state.n_gpu as f64;
+	let T  = self.dispatch_state.read().Total_dispatch as f64 ;
+	let n_cpu = self.dispatch_state.read().n_cpu as f64;
+	let n_gpu = self.dispatch_state.read().n_gpu as f64;
 
 	let cpu_ucb = (f64::log(T, 2.0)/n_cpu).sqrt();
 	let gpu_ucb = (f64::log(T, 2.0)/n_gpu).sqrt();
@@ -367,7 +373,7 @@ impl QueueingDispatcher {
 	// pick smallest of the two 
 	let selected_device = min_val_pair.unwrap().0.to_string();
 	
-	self.dispatch_state.select_device_for_fn(fid.to_string(), selected_device);
+	self.select_device_for_fn(fid.to_string(), selected_device.clone());
 
 	if selected_device == "gpu" {
 	    return &self.gpu_queue ;
@@ -467,7 +473,9 @@ impl QueueingDispatcher {
 // 	self.dispatch_state.update_prev_dispath(fid, chosen_device); 
 //         return chosen_q ;
 //     }
-// }
+
+    
+}
 
 
 #[tonic::async_trait]
