@@ -264,7 +264,7 @@ impl QueueingDispatcher {
 		enqueues += 1 ;
             }
             EnqueueingPolicy::HitTput => {
-		let mut chosen_q = self.ucb1_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
+		let mut chosen_q = self.HitTput_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
 		chosen_q.enqueue_item(&enqueue)?;
 		enqueues += 1 ;
             }	   
@@ -369,15 +369,19 @@ impl QueueingDispatcher {
 
 
 	let eta = 0.3; // learning rate
-	let mut chosen_q ;
 	let selected_device: String;
 	let fid = reg.fqdn.as_str();
 
-	let prev_wts = self.dispatch_state.read().per_fn_wts.get(fid.clone()).unwrap_or((1.0 as f64, 1.0 as 64)) ;
-	let prev_dispatch = self.dispatch_state.read().prev_dispatch.get(fid.to_string()).unwrap_or("cpu");
+	let b = self.dispatch_state.read() ;
+	let prev_wts = b.per_fn_wts.get(fid.clone()).unwrap_or(&(1.0 as f64, 1.0 as f64)) ;
+	
+	let b2 = self.dispatch_state.read() ;
+	let prev_dispatch = b2.prev_dispatch.get(fid).unwrap();
+
+	    //_or(&"cpu".to_string());
 
 	// Apply the reward/cost
-	let t_other = match prev_dispatch.clone() {
+	let t_other = match prev_dispatch.as_str() {
 	    "gpu" => self.cmap.latest_gpu_e2e_t(&fid),
 	    _ => self.cmap.latest_cpu_e2e_t(&fid),
 	};
@@ -388,13 +392,13 @@ impl QueueingDispatcher {
 	let cost = 1.0 - (eta * (t_other - tmin));
 	// TODO: Shrinking dartboard locality 
 	// update weight?
-	let new_wt = match prev_dispatch.clone() {
+	let new_wt = match prev_dispatch.as_str() {
 	    "gpu" => prev_wts.1 * cost,
 	    _ => prev_wts.0 * cost,
 	};
 
 	// update the weight tuple 
-	let mut new_wts = match prev_dispatch.clone() {
+	let mut new_wts = match prev_dispatch.as_str() {
 	    "gpu" => (prev_wts.0, new_wt),
 	    _ => (new_wt, prev_wts.1) };
 
@@ -408,7 +412,7 @@ impl QueueingDispatcher {
 
 	self.select_device_for_fn(fid.to_string(), selected_device.to_string());
 	// update the weights
-	let d = self.dispatch_state.write();
+	let mut d = self.dispatch_state.write();
 	d.per_fn_wts.insert(fid.to_string(), new_wts);
 
 	
@@ -420,6 +424,22 @@ impl QueueingDispatcher {
 	&self.cpu_queue 
     }
 
+
+    /// Prob. of warm hit divided by avg e2e time. per-fn wts
+    fn HitTput_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
+	// the cost is t_recent - t_global_min
+	if reg.cpu_only() {
+            return &self.cpu_queue;
+        }
+        if reg.gpu_only() {
+            return &self.gpu_queue;
+        }
+
+	
+
+
+	&self.cpu_queue
+    }
     
     
 
