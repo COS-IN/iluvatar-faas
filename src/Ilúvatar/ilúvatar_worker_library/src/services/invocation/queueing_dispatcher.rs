@@ -56,45 +56,8 @@ impl PolymDispatchCtx {
 	    n_gpu: 1,
         }
     }
-    fn update_prev_t(&mut self, fid: String, t: OffsetDateTime) -> () {
-        todo!();
-    }
-    fn update_locality(&mut self, fid: String, device: String) -> () {
-        todo!();
-    }
-
-    // Based on the load/utilization etc?
-    fn update_dev_wts(&mut self, device: String, wt: f64) -> () {
-        todo!();
-    }
-    
-    // Normalize the weights etc into probabilities?
-    fn latency_rewards(&self, fid:String, device:String)
-		       -> (Compute, f64) {
-	todo!();
-	
-	// match device {
-	//     Compute::CPU => {
-	// 	let dev_lat = self.cmap.get_e2e_cpu(fid, False); //most recent 
-	// 	// Need to compare this to average latency of the /other/ device
-	// 	let other_lat = self.cmap.get_e2e_gpu(fid, True); // aggregate
-	//     }
-	//     _ => {
-	// 	let dev_lat = self.cmap.get_e2e_gpu(fid);
-	// 	let other_lat = self.cmap.get_e2e_cpu(fid, True); // aggregate		
-	//     }
-	// }
-	// let diff = other_lat - dev_lat ;
-	
-	// device, diff 
-    }
-
-    /// CPU, GPU IAT previous dispatch 
-    fn device_iats(&self, fid: String) -> (f64, f64) {
-	todo!();
-    }
-
 }
+
 
 pub struct QueueingDispatcher {
     async_functions: AsyncHelper,
@@ -295,6 +258,18 @@ impl QueueingDispatcher {
 		chosen_q.enqueue_item(&enqueue)?;
 		enqueues += 1 ;
             }
+            EnqueueingPolicy::MWUA => {
+		let mut chosen_q = self.mwua_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
+		chosen_q.enqueue_item(&enqueue)?;
+		enqueues += 1 ;
+            }
+            EnqueueingPolicy::HitTput => {
+		let mut chosen_q = self.ucb1_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
+		chosen_q.enqueue_item(&enqueue)?;
+		enqueues += 1 ;
+            }	   
+
+	    
         }
 
         if enqueues == 0 {
@@ -303,13 +278,12 @@ impl QueueingDispatcher {
         Ok(enqueue)
     }
 
+    // Ideally should be in the ctx struct, but mutability?
     /// Should be in its struct, but mutable borrow etc 
     fn select_device_for_fn(&self, fid: String, device:String) -> () {
-
 	let mut d = self.dispatch_state.write();
 	
-	d.Total_dispatch += 1 ;
-	
+	d.Total_dispatch += 1 ;	
 	d.prev_dispatch.insert(fid, device.clone()); 
 	
 	match device.as_str() {
@@ -351,8 +325,8 @@ impl QueueingDispatcher {
 
 	let fid = reg.fqdn.as_str();  //function name or fqdn?
 	
-	let cpu_t = self.cmap.avg_cpu_exec_t(&fid) as f64; // supposed to running average? 
-	let gpu_t = self.cmap.avg_gpu_exec_t(&fid) as f64;
+	let cpu_t = self.cmap.avg_cpu_e2e_t(&fid) as f64; // supposed to running average? 
+	let gpu_t = self.cmap.avg_gpu_e2e_t(&fid) as f64;
 	
 	let T  = self.dispatch_state.read().Total_dispatch as f64 ;
 	let n_cpu = self.dispatch_state.read().n_cpu as f64;
@@ -383,31 +357,71 @@ impl QueueingDispatcher {
 
 
     
-//     /// Multiplicative Weights Update Algorithm 
-//     fn mwua_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
-// 	// the cost is t_recent - t_global_min
-// 	let eta = 0.3; // learning rate
-// 	let mut chosen_q ;
-// 	let selected_device: String;
-// 	let fid = reg.function_name.clone(); 
-// 	let cpu_t = cmap.latest_cpu_exec_t(fid); // supposed to running average? 
-// 	let gpu_t = cmap.latest_gpu_exec_t(fid);
-// 	let t_min = cmap.min_exec_t(fid); // global min
-// 	let prev_dev, prev_t = self.dispatch_state.get_prev_exec_time(fid); //depending on device
-// 	let cost = prev_t - t_min ;
-// 	let pw_cpu, pw_gpu = self.dispatch_state.per_fn_wts.get(fid);
+    /// Multiplicative Weights Update Algorithm 
+    fn mwua_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
+	// the cost is t_recent - t_global_min
+	if reg.cpu_only() {
+            return &self.cpu_queue;
+        }
+        if reg.gpu_only() {
+            return &self.gpu_queue;
+        }
 
-// 	// update weights w = w*(1.0 - (eta * cost));
-// 	// Shrinking dart-board: Stick to previous dispatch decision with probability w_t/w_{t-1} .
-	
-// 	// choose proportional to the weights
-// 	let vec_devices = Vec!["cpu", "gpu"]; 
-// 	let choice = self.proportional_selection(w_cpu, w_gpu);
-// 	selected_device = vec_devices[choice]; // Rust out of bounds etc unsafe?!?
-	
-// 	self.dispatch_state.select_device_for_fn(fid, selected_device);
-//     }
 
+	let eta = 0.3; // learning rate
+	let mut chosen_q ;
+	let selected_device: String;
+	let fid = reg.fqdn.as_str();
+
+	let prev_wts = self.dispatch_state.read().per_fn_wts.get(fid.clone()).unwrap_or((1.0 as f64, 1.0 as 64)) ;
+	let prev_dispatch = self.dispatch_state.read().prev_dispatch.get(fid.to_string()).unwrap_or("cpu");
+
+	// Apply the reward/cost
+	let t_other = match prev_dispatch.clone() {
+	    "gpu" => self.cmap.latest_gpu_e2e_t(&fid),
+	    _ => self.cmap.latest_cpu_e2e_t(&fid),
+	};
+
+	// global minimum best ever recorded 
+	let tmin = self.cmap.get_best_time(&fid); 
+
+	let cost = 1.0 - (eta * (t_other - tmin));
+	// TODO: Shrinking dartboard locality 
+	// update weight?
+	let new_wt = match prev_dispatch.clone() {
+	    "gpu" => prev_wts.1 * cost,
+	    _ => prev_wts.0 * cost,
+	};
+
+	// update the weight tuple 
+	let mut new_wts = match prev_dispatch.clone() {
+	    "gpu" => (prev_wts.0, new_wt),
+	    _ => (new_wt, prev_wts.1) };
+
+	// 0 or 1 
+	let selected = self.proportional_selection(new_wts.0, new_wts.1);
+		
+	let selected_device = match selected {
+	    1 => "gpu",
+	    _ => "cpu",
+	};
+
+	self.select_device_for_fn(fid.to_string(), selected_device.to_string());
+	// update the weights
+	let d = self.dispatch_state.write();
+	d.per_fn_wts.insert(fid.to_string(), new_wts);
+
+	
+	match selected_device.clone() {
+	    "gpu" => return &self.gpu_queue,
+	    _ => return &self.cpu_queue,
+	};
+	
+	&self.cpu_queue 
+    }
+
+    
+    
 
 //     /// Proportional to locality, performance, and load 
 //     fn prop_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {

@@ -43,9 +43,9 @@ pub enum EnqueueingPolicy {
     EstCompTime,
     /// Multi-armed bandit for polymorphic functions.
     UCB1,
-    // MWUA,
+    MWUA,
     // /// Locality/E2E time 
-    // HitTput,
+    HitTput,
     // /// Always GPU for polymorphic functions 
     // AlwaysGPU,
 }

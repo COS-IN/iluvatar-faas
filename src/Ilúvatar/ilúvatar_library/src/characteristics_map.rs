@@ -282,6 +282,32 @@ impl CharacteristicsMap {
 	todo!();
 	0.0
     }
+
+    pub fn avg_cpu_e2e_t(&self, fqdn: &str) -> f64 {
+	todo!();
+	0.0
+    }
+    
+    pub fn avg_gpu_e2e_t(&self, fqdn: &str) -> f64 {
+	todo!();
+	0.0
+    }
+
+    pub fn latest_cpu_e2e_t(&self, fqdn: &str) -> f64 {
+	todo!();
+	0.0
+    }
+    
+    pub fn latest_gpu_e2e_t(&self, fqdn: &str) -> f64 {
+	todo!();
+	0.0
+    }
+
+    pub fn get_best_time(&self, fqdn: &str) -> f64 {
+	todo!();
+	0.0
+    }
+
     
     
     /// Returns the execution time as tracked by [Characteristics::GpuColdTime]
