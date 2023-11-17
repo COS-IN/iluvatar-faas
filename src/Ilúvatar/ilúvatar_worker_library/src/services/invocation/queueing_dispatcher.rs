@@ -36,10 +36,15 @@ pub struct PolymDispatchCtx {
     per_fn_wts: HashMap<String, (f64, f64)>,
     /// Most recent fn->device placement for each fn 
     prev_dispatch: HashMap<String, String>,
-    fn_prev_t: HashMap<String, OffsetDateTime>,
+    /// Previous dispatch of the function to CPU 
+    cpu_prev_t: HashMap<String, OffsetDateTime>,
+    /// Previous dispatch of the function to GPU 
+    gpu_prev_t: HashMap<String, OffsetDateTime>,    
     ///Total number of dispatches/rounds
     Total_dispatch: u64,
+    /// Total Number to CPU so far 
     n_cpu: u64,
+    /// Total number to GPU 
     n_gpu: u64, //Init to 1 to avoid divide by 0 
 }
 
@@ -50,7 +55,8 @@ impl PolymDispatchCtx {
             device_wts: HashMap::from([(Compute::CPU, 1.0), (Compute::GPU, 1.0)]),
             per_fn_wts: HashMap::new(),
             prev_dispatch: HashMap::new(),
-            fn_prev_t: HashMap::new(),
+            cpu_prev_t: HashMap::new(),
+	    gpu_prev_t: HashMap::new(),
 	    Total_dispatch: 1,
 	    n_cpu: 1,
 	    n_gpu: 1,
@@ -284,14 +290,16 @@ impl QueueingDispatcher {
 	let mut d = self.dispatch_state.write();
 	
 	d.Total_dispatch += 1 ;	
-	d.prev_dispatch.insert(fid, device.clone()); 
+	d.prev_dispatch.insert(fid.clone(), device.clone()); 
 	
 	match device.as_str() {
 	    "cpu" => {
 		d.n_cpu += 1;
+		d.cpu_prev_t.insert(fid.clone(), OffsetDateTime::now_utc());
 	    },
 	    "gpu" => {
 		d.n_gpu += 1;
+		d.gpu_prev_t.insert(fid.clone(), OffsetDateTime::now_utc());
 	    },
 	    &_ => (),
 	}
@@ -356,7 +364,7 @@ impl QueueingDispatcher {
     }
 
 
-    
+    // Shrinking dartboard : Geulen, Sascha, Berthold Vöcking, and Melanie Winkler. "Regret Minimization for Online Buffering Problems Using the Weighted Majority Algorithm." COLT. 2010.
     /// Multiplicative Weights Update Algorithm 
     fn mwua_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
 	// the cost is t_recent - t_global_min
@@ -390,7 +398,7 @@ impl QueueingDispatcher {
         let tmin = self.cmap.get_best_time(&fid);
 
         let cost = 1.0 - (eta * (t_other - tmin)/f64::min(t_other, 0.1));
-        // TODO: Shrinking dartboard locality
+        // Shrinking dartboard locality
         // With probability equal to cost, select the previous device, for improving locality
         let mut rng = rand::thread_rng();
         let r = rng.gen_range(0.0..1.0);
@@ -443,11 +451,39 @@ impl QueueingDispatcher {
         if reg.gpu_only() {
             return &self.gpu_queue;
         }
+	let egpu = self.gpu_queue.est_completion_time(&reg, tid);
+	let ecpu = self.cpu_queue.est_completion_time(&reg, tid);
 
+	let tnow = OffsetDateTime::now_utc();
 	
+	let fqdn = &reg.fqdn;
 
+	let b = self.dispatch_state.read();
+	let last_gpu = b.gpu_prev_t.get(fqdn);
+	let iat_gpu = match last_gpu {
+	    Some(tg) => {(tnow - *tg).as_seconds_f64()},
+	    _ => {10000.0}, //infinity essentially 
+	};
 
-	&self.cpu_queue
+	let last_cpu = b.cpu_prev_t.get(fqdn);
+	let iat_cpu = match last_cpu {
+	    Some(tg) => {(tnow - *tg).as_seconds_f64()},
+	    _ => {10000.0}, //infinity essentially 
+	};
+
+	let pgpu = self.gpu_queue.WarmHitP(&reg, iat_gpu);
+	let pcpu = self.cpu_queue.WarmHitP(&reg, iat_cpu);
+
+	let rgpu = pgpu/egpu ;
+	let rcpu = pcpu/ecpu ;
+
+	// choose the maximum of the two? or probabilistically?
+
+	let n = self.proportional_selection(rcpu, rgpu);
+	match n {
+	    0 => {return &self.cpu_queue;},
+	    _ => {return &self.gpu_queue;},
+	}
     }
     
     

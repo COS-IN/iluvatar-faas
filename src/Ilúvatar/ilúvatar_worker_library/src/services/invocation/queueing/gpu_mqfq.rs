@@ -19,6 +19,7 @@ use tokio::sync::Notify;
 use tracing::{debug, error};
 use super::{DeviceQueue, EnqueuedInvocation};
 
+
 lazy_static::lazy_static! {
   pub static ref MQFQ_GPU_QUEUE_WORKER_TID: TransactionId = "MQFQ_GPU_Queue".to_string();
 }
@@ -79,16 +80,19 @@ pub struct FlowQ {
     /// Virtual finish time. F = S + service_avg/Wt
     finish_time_virt: f64,
     /// Number concurrently executing, to enforce cap?
-    /// Actual service time may be different. Updated after function completion somehow?
-    /// Is the TTL Keep-alive duration
     in_flight: i32,
-    /// seconds to wait for next arrival if queue is empty
+    /// Keep-alive. Seconds to wait for next arrival if queue is empty
     ttl_sec: f64,
     last_serviced: OffsetDateTime,
-    /// avg service time in s
+    /// avg function execution time in seconds 
     service_avg: f64,
     /// Max service this flow can be ahead of others
     allowed_overrun: f64,
+    /// Inactive -> Active transition timestamp. Use to compute active period (eviction time) when going back from Active -> Inactive. 
+    active_start_t: OffsetDateTime,
+    /// Avg active wall_t in seconds 
+    avg_active_t: f64,
+    num_active_periods:i32,
 }
 
 impl FlowQ {
@@ -105,22 +109,33 @@ impl FlowQ {
             last_serviced: OffsetDateTime::now_utc(),
             service_avg: 10.0,
             allowed_overrun: 10.0,
+	    active_start_t:OffsetDateTime::now_utc(),
+	    avg_active_t: 0.0,
+	    num_active_periods:0
         }
     }
 
     /// Return True if should update the global time
     pub fn push_flow(&mut self, item: Arc<EnqueuedInvocation>, vitual_time: f64) -> bool {
         let start_t = f64::max(vitual_time, self.finish_time_virt); // cognizant of weights
+	// TODO: Update the service_avg regularly from cmap 
         let finish_t = start_t + (self.service_avg / self.weight);
         let req = MQRequest::new(item, start_t, finish_t);
         let req_finish_virt = req.finish_time_virt;
 
         self.queue.push_back(req);
 
-        self.state = MQState::Active;
         self.start_time_virt = f64::max(self.start_time_virt, start_t); // if this was 0?
         self.finish_time_virt = f64::max(req_finish_virt, self.finish_time_virt); // always needed
 
+	if self.queue.len() == 1 {
+	    if self.state == MQState::Inactive {
+		// We just turned active, so mark the time
+		self.active_start_t = OffsetDateTime::now_utc();
+		self.num_active_periods += 1;
+	    }
+	}
+        self.state = MQState::Active;	
         self.queue.len() == 1
         //self.start_time_virt = r.start_time_virt; // only if the first element!
     }
@@ -129,12 +144,13 @@ impl FlowQ {
     pub fn pop_flow(&mut self, vitual_time: f64) -> Option<Arc<MQRequest>> {
         let r = self.queue.pop_front();
 
-        if self.queue.is_empty() {
-            // Turn inactive
-            self.state = MQState::Inactive;
-            self.finish_time_virt = 0.0; // This clears the history if empty queue. Do we want that?
-            self.start_time_virt = 0.0;
-        }
+        // already handled in set_idle_throttled 	
+        // if self.queue.is_empty() {
+        //     self.state = MQState::Inactive;
+        //     self.finish_time_virt = 0.0; // Clears the history if empty queue?
+        //     self.start_time_virt = 0.0;	    
+        // }
+	
         self.update_dispatched(vitual_time);
         // MQFQ should remove from the active list if not ready
         r
@@ -170,8 +186,21 @@ impl FlowQ {
             let ttl_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
             if ttl_remaining > self.ttl_sec {
                 self.state = MQState::Inactive;
+		self.finish_time_virt = 0.0; // Clears the history if empty queue?
+		self.start_time_virt = 0.0;
+		// Update the active period/eviction time 
+		let active_t = (OffsetDateTime::now_utc() - self.active_start_t).as_seconds_f64();
+		let n = self.num_active_periods as f64;
+		let prev_avg = self.avg_active_t; 
+		let new_avg = (n*prev_avg) + active_t/(n+1.0) ;
+		self.avg_active_t = new_avg ; 
             }
         }
+    }
+
+    /// Estimated q wait time, assumes weight = 1 
+    fn est_flow_wait(&self) -> f64 {
+	self.finish_time_virt - self.start_time_virt
     }
 }
 
@@ -350,6 +379,7 @@ impl MQFQ {
         };
         // Active, not throttled, and lowest start_time_virt
         let avail_flows = self.mqfq_set.iter().filter(filt).map(|x| x.value().clone());
+	// TODO: do we need the clone? 
 
         let chosen_q =
             avail_flows.min_by(|x, y| x.lock().start_time_virt.partial_cmp(&y.lock().start_time_virt).unwrap());
@@ -395,9 +425,10 @@ impl MQFQ {
 
     /// Function just finished running. Completion call-back. Add tokens?
     fn charge_fn(efn: EnqueuedInvocation) -> () {}
-}
 
-/// Main request dispatch.
+} // END MQFQ 
+
+
 //   fn pop_queue(&self) -> Option<GpuBatch> {
 //     let to_run = self.dispatch();
 //     match to_run {
@@ -415,11 +446,20 @@ impl MQFQ {
 
 impl DeviceQueue for MQFQ {
     fn queue_len(&self) -> usize {
-        todo!()
+	//sum(self.mqfq_set.iter().map(|x| x.len()))
+	let per_flow_q_len = self.mqfq_set.iter().map(|x| x.value().lock().queue.len());
+	let s:usize = per_flow_q_len.sum();
+	s 
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        todo!()
+	// sum_q (q_F-q_S) / max_in_flight
+	let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().lock().est_flow_wait());
+	
+	let total_wait: f64 = per_flow_wait_times.sum();
+	let C = self.max_inflight as f64;
+	
+	total_wait / C 	
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
@@ -430,4 +470,24 @@ impl DeviceQueue for MQFQ {
     fn running(&self) -> u32 {
         self.ctrack.get_inflight() as u32
     }
+
+
+    fn WarmHitP(&self, reg: &Arc<RegisteredFunction>, iat:f64) -> f64 {
+	// if flowq doesnt exist or inactive, 0
+	// else (active or throttled), but no guarantees
+	// Average eviction time for the queue? eviction == q becomes inactive
+	// 1 - e^-(AET/iat)
+	let fname = &reg.fqdn ; 
+	let f = self.mqfq_set.get(fname);
+	match f {
+	    Some(fq) => {
+		let aet = fq.value().lock().avg_active_t;
+		let r = -aet/iat;
+		return 1.0 - r.exp();		
+	    },
+	    None => return 0.0,
+	}
+	return 0.0
+    }
+    
 }
