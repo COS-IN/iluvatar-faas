@@ -360,68 +360,77 @@ impl QueueingDispatcher {
     /// Multiplicative Weights Update Algorithm 
     fn mwua_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
 	// the cost is t_recent - t_global_min
-	if reg.cpu_only() {
-            return &self.cpu_queue;
+        if reg.cpu_only() {
+                return &self.cpu_queue;
+            }
+            if reg.gpu_only() {
+                return &self.gpu_queue;
+            }
+
+
+        let eta = 0.3; // learning rate
+        let selected_device: String;
+        let fid = reg.fqdn.as_str();
+
+        let b = self.dispatch_state.read() ;
+        let prev_wts = b.per_fn_wts.get(fid.clone()).unwrap_or(&(1.0 as f64, 1.0 as f64)) ;
+
+        let b2 = self.dispatch_state.read() ;
+        let prev_dispatch = b2.prev_dispatch.get(fid).unwrap();
+
+            //_or(&"cpu".to_string());
+
+        // Apply the reward/cost
+        let t_other = match prev_dispatch.as_str() {
+            "gpu" => self.cmap.latest_gpu_e2e_t(&fid),
+            _ => self.cmap.latest_cpu_e2e_t(&fid),
+        };
+
+        // global minimum best ever recorded
+        let tmin = self.cmap.get_best_time(&fid);
+
+        let cost = 1.0 - (eta * (t_other - tmin)/f64::min(t_other, 0.1));
+        // TODO: Shrinking dartboard locality
+        // With probability equal to cost, select the previous device, for improving locality
+        let mut rng = rand::thread_rng();
+        let r = rng.gen_range(0.0..1.0);
+        let use_prev = r < cost ;
+
+        // update weight?
+        let new_wt = match prev_dispatch.as_str() {
+            "gpu" => prev_wts.1 * cost,
+            _ => prev_wts.0 * cost,
+        };
+
+        // update the weight tuple
+        let mut new_wts = match prev_dispatch.as_str() {
+            "gpu" => (prev_wts.0, new_wt),
+            _ => (new_wt, prev_wts.1) };
+
+        // 0 or 1
+        let selected = self.proportional_selection(new_wts.0, new_wts.1);
+
+        let mut selected_device = match selected {
+            1 => "gpu",
+            _ => "cpu",
+        };
+
+        if use_prev {
+            selected_device = prev_dispatch.as_str();
         }
-        if reg.gpu_only() {
-            return &self.gpu_queue;
-        }
+
+        self.select_device_for_fn(fid.to_string(), selected_device.to_string());
+        // update the weights
+        let mut d = self.dispatch_state.write();
+        d.per_fn_wts.insert(fid.to_string(), new_wts);
 
 
-	let eta = 0.3; // learning rate
-	let selected_device: String;
-	let fid = reg.fqdn.as_str();
+        match selected_device.clone() {
+            "gpu" => return &self.gpu_queue,
+            _ => return &self.cpu_queue,
+        };
 
-	let b = self.dispatch_state.read() ;
-	let prev_wts = b.per_fn_wts.get(fid.clone()).unwrap_or(&(1.0 as f64, 1.0 as f64)) ;
-	
-	let b2 = self.dispatch_state.read() ;
-	let prev_dispatch = b2.prev_dispatch.get(fid).unwrap();
-
-	    //_or(&"cpu".to_string());
-
-	// Apply the reward/cost
-	let t_other = match prev_dispatch.as_str() {
-	    "gpu" => self.cmap.latest_gpu_e2e_t(&fid),
-	    _ => self.cmap.latest_cpu_e2e_t(&fid),
-	};
-
-	// global minimum best ever recorded 
-	let tmin = self.cmap.get_best_time(&fid); 
-
-	let cost = 1.0 - (eta * (t_other - tmin));
-	// TODO: Shrinking dartboard locality 
-	// update weight?
-	let new_wt = match prev_dispatch.as_str() {
-	    "gpu" => prev_wts.1 * cost,
-	    _ => prev_wts.0 * cost,
-	};
-
-	// update the weight tuple 
-	let mut new_wts = match prev_dispatch.as_str() {
-	    "gpu" => (prev_wts.0, new_wt),
-	    _ => (new_wt, prev_wts.1) };
-
-	// 0 or 1 
-	let selected = self.proportional_selection(new_wts.0, new_wts.1);
-		
-	let selected_device = match selected {
-	    1 => "gpu",
-	    _ => "cpu",
-	};
-
-	self.select_device_for_fn(fid.to_string(), selected_device.to_string());
-	// update the weights
-	let mut d = self.dispatch_state.write();
-	d.per_fn_wts.insert(fid.to_string(), new_wts);
-
-	
-	match selected_device.clone() {
-	    "gpu" => return &self.gpu_queue,
-	    _ => return &self.cpu_queue,
-	};
-	
-	&self.cpu_queue 
+        &self.cpu_queue
     }
 
 
