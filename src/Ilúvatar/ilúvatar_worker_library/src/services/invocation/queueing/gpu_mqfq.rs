@@ -118,7 +118,8 @@ impl FlowQ {
     /// Return True if should update the global time
     pub fn push_flow(&mut self, item: Arc<EnqueuedInvocation>, vitual_time: f64) -> bool {
         let start_t = f64::max(vitual_time, self.finish_time_virt); // cognizant of weights
-	// TODO: Update the service_avg regularly from cmap 
+	// Update the service_avg regularly from cmap
+
         let finish_t = start_t + (self.service_avg / self.weight);
         let req = MQRequest::new(item, start_t, finish_t);
         let req_finish_virt = req.finish_time_virt;
@@ -353,6 +354,7 @@ impl MQFQ {
         // Lookup flow if exists
         if self.mqfq_set.contains_key(fname) {
             let fq = self.mqfq_set.get_mut(fname).unwrap();
+	    fq.value().lock().service_avg = self.cmap.avg_gpu_exec_t(fname); // hope this doesnt starve? 
             let mut qret = fq.value().lock().push_flow(item, vitual_time);
             // qret //? Always do that here?
         }
