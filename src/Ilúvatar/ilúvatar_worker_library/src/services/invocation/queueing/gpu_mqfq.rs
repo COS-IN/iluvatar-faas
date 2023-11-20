@@ -8,7 +8,7 @@ use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::GpuResourceTracker;
 use crate::worker_api::worker_config::InvocationConfig;
 use anyhow::Result;
-use dashmap::{mapref::multiple::RefMulti, DashMap};
+use dashmap::{mapref::multiple::RefMutMulti, DashMap};
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::threading::{tokio_runtime, EventualItem};
@@ -234,12 +234,9 @@ impl TokenBucket {
 
 pub struct MQFQ {
     /// Keyed by function name  (qid)
-    mqfq_set: DashMap<String, Arc<Mutex<FlowQ>>>,
+    mqfq_set: DashMap<String, FlowQ>,
     /// System-wide logical clock for resources consumed
     vitual_time: RwLock<f64>,
-    /// TODO: Configurable param
-    /// unneeded - inflight limited by GpuResourceTracker
-    // max_inflight: i32,
     /// TODO: Ignored for now
     est_time: Mutex<f64>,
 
@@ -426,46 +423,52 @@ impl MQFQ {
 
     /// Get or create FlowQ
     fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) {
-        let fname = &item.registration.fqdn;
-        let vitual_time = *self.vitual_time.read();
-        // Lookup flow if exists
-        if self.mqfq_set.contains_key(fname) {
-            let fq = self.mqfq_set.get_mut(fname).unwrap();
-            fq.value().lock().service_avg = self.cmap.avg_gpu_exec_t(fname); // hope this doesnt starve?
-            let mut qret = fq.value().lock().push_flow(item, vitual_time);
-        }
-        // else, create the FlowQ, add to set, and add item to flow and
-        else {
-            let fname = item.registration.fqdn.clone();
-            let qguard = Arc::new(Mutex::new(FlowQ::new(fname.clone(), 0.0, 1.0)));
-            let mut qret = qguard.lock().push_flow(item, vitual_time);
-            // qret.push_flowQ(item, vitual_time); //? Always do that here?
-            // let qret = qguard.lock();
-            self.mqfq_set.insert(fname, qguard);
-        }
-    }
+      let vitual_time = *self.vitual_time.read();
+      match self.mqfq_set.get_mut(&item.registration.fqdn) {
+          Some(mut fq) => {
+            if fq.value_mut().push_flow(item, vitual_time) {
+              let mut lck = self.vitual_time.write();
+              *lck = f64::min(*lck, fq.finish_time_virt);
+            }
+          },
+          None => {
+              let fname = item.registration.fqdn.clone();
+              let mut qguard = FlowQ::new(fname.clone(), 0.0, 1.0);
+              if qguard.push_flow(item, vitual_time) {
+                let mut lck = self.vitual_time.write();
+                *lck = f64::min(*lck, qguard.finish_time_virt);
+                }
+              self.mqfq_set.insert(fname, qguard);
+          },
+      };
+  }
 
-    /// Earliest eligible flow
-    fn next_flow(&self) -> Option<Arc<Mutex<FlowQ>>> {
-        let vitual_time = *self.vitual_time.read();
-        // TODO: Should be <Mutex<Arc<FlowQ>> ?
-        let filt = |x: &RefMulti<'_, String, Arc<Mutex<FlowQ>>>| {
-            // update state and check for active at same time
-            let mut val = x.value().lock();
-            val.set_idle_throttled(vitual_time);
-            val.state == MQState::Active
-        };
-        // Active, not throttled, and lowest start_time_virt
-        let avail_flows = self.mqfq_set.iter().filter(filt).map(|x| x.value().clone());
-        // TODO: do we need the clone?
-
-        let chosen_q =
-            avail_flows.min_by(|x, y| x.lock().start_time_virt.partial_cmp(&y.lock().start_time_virt).unwrap());
-        match chosen_q {
-            Some(chosen_q) => Some(chosen_q.clone()),
-            None => None,
-        }
-    }
+  /// Earliest eligible flow
+  fn next_flow<'a>(&'a self) -> Option<RefMutMulti<'_, String, FlowQ>> {
+      let vitual_time = *self.vitual_time.read();
+      let mut min_time = f64::MAX;
+      let mut min_q = None;
+      for mut q in self.mqfq_set.iter_mut() {
+          let val = q.value_mut();
+          val.set_idle_throttled(vitual_time);
+          if val.state == MQState::Active {
+              // Active, not throttled, and lowest start_time_virt
+              if min_q.is_none() {
+                  min_time = q.start_time_virt;
+                  min_q = Some(q);
+              } else {
+                  if q.start_time_virt < min_time {
+                      min_time = q.start_time_virt;
+                      min_q = Some(q);
+                  }
+              }
+          }
+      }
+      if min_q.is_some() {
+          *self.vitual_time.write() = min_time;
+      }
+      min_q
+  }
 
     // Invoked functions automatically increase the count, conversely for finished functions
     fn get_token(&self) -> Option<OwnedSemaphorePermit> {
@@ -485,9 +488,10 @@ impl MQFQ {
 
         match self.next_flow() {
             None => None,
-            Some(cq) => {
-                let mut chosen_q = cq.lock();
+            Some(mut chosen_q) => {
+                // let mut chosen_q = cq;
                 let item = chosen_q.pop_flow(vitual_time);
+                // drop(chosen_q);
                 match item {
                     Some(i) => {
                         let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
@@ -509,19 +513,15 @@ impl MQFQ {
 impl DeviceQueue for MQFQ {
     fn queue_len(&self) -> usize {
         //sum(self.mqfq_set.iter().map(|x| x.len()))
-        let per_flow_q_len = self.mqfq_set.iter().map(|x| x.value().lock().queue.len());
-        let s: usize = per_flow_q_len.sum();
-        s
+        let per_flow_q_len = self.mqfq_set.iter().map(|x| x.value().queue.len());
+        per_flow_q_len.sum::<usize>()
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         // sum_q (q_F-q_S) / max_in_flight
-        let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().lock().est_flow_wait());
-
+        let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
         let total_wait: f64 = per_flow_wait_times.sum();
-        let C = self.gpu.outstanding() as f64;
-
-        total_wait / C
+        total_wait / self.gpu.outstanding() as f64
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
@@ -542,12 +542,11 @@ impl DeviceQueue for MQFQ {
         let f = self.mqfq_set.get(fname);
         match f {
             Some(fq) => {
-                let aet = fq.value().lock().avg_active_t;
+                let aet = fq.value().avg_active_t;
                 let r = -aet / iat;
-                return 1.0 - r.exp();
+                1.0 - r.exp()
             }
-            None => return 0.0,
+            None => 0.0,
         }
-        return 0.0;
     }
 }
