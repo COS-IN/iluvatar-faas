@@ -328,6 +328,9 @@ impl GpuResourceTracker {
     pub fn try_acquire_resource(&self) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
         self.concurrency_semaphore.clone().try_acquire_many_owned(1)
     }
+    pub fn outstanding(&self) -> u32 {
+        ((*self.gpus.read()).len() - self.concurrency_semaphore.available_permits()) as u32
+    }
 
     /// Acquire a GPU so it can be attached to a container
     /// [None] means no GPU is available

@@ -1,6 +1,8 @@
 use dashmap::DashMap;
 use ordered_float::OrderedFloat;
-use std::cmp::Ordering;
+use std::cmp::{min, Ordering};
+use std::f64::NAN;
+use std::num::FpCategory::Nan;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error};
@@ -131,6 +133,8 @@ pub struct CharacteristicsMap {
     map: DashMap<String, DashMap<Characteristics, Values>>,
     /// Moving average values
     agmap: DashMap<String, DashMap<Characteristics, Values>>,
+    /// Minimum of the values
+    minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
 }
 
@@ -141,15 +145,19 @@ impl CharacteristicsMap {
         CharacteristicsMap {
             map: DashMap::new(),
             agmap: DashMap::new(),
+            minmap: DashMap::new(),
             ag,
         }
     }
 
     /// Set most recent
     pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
-        if use_accum {
-            return self.add_agg(fqdn, chr, value);
-        }
+        self.add_agg(fqdn.clone(), chr.clone(), value.clone());
+        self.add_min(fqdn.clone(), chr.clone(), value.clone());
+
+        //if use_accum {
+        //    return self.add_agg(fqdn, chr, value);
+        //}
 
         let e0 = self.map.get_mut(fqdn);
 
@@ -217,6 +225,39 @@ impl CharacteristicsMap {
         self
     }
 
+    pub fn add_min(&self, fqdn: &str, chr: Characteristics, value: Values) -> &Self {
+        let e0 = self.minmap.get_mut(fqdn);
+
+        match e0 {
+            // dashself.map of given fqdn
+            Some(v0) => {
+                let e1 = v0.get_mut(&chr);
+                // entry against given characteristic
+                match e1 {
+                    Some(mut v1) => {
+                        *v1 = match &v1.value() {
+                            Values::Duration(d) => Values::Duration(min(*d, unwrap_val_dur(&value))),
+                            Values::F64(f) => Values::F64(f64::min(*f, unwrap_val_f64(&value))),
+                            Values::U64(_) => todo!(),
+                            Values::Str(_) => todo!(),
+                        };
+                    }
+                    None => {
+                        v0.insert(chr, value);
+                    }
+                }
+            }
+            None => {
+                // dashmap for given fname does not exist create and populate
+                let d = DashMap::new();
+                d.insert(chr, value);
+                self.minmap.insert(fqdn.to_owned(), d);
+            }
+        }
+
+        self
+    }
+
     pub fn add_iat(&self, fqdn: &str) {
         let time_now = SystemTime::now();
         let time_now = time_now.duration_since(UNIX_EPOCH).expect("Time went backwards");
@@ -254,6 +295,15 @@ impl CharacteristicsMap {
         Some(self.clone_value(v))
     }
 
+    pub fn lookup_min(&self, fqdn: &str, chr: &Characteristics) -> Option<Values> {
+        let e0 = self.minmap.get(fqdn)?;
+        let e0 = e0.value();
+        let v = e0.get(chr)?;
+        let v = v.value();
+
+        Some(self.clone_value(v))
+    }
+
     /// Returns the execution time as tracked by [Characteristics::ExecTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_exec_time(&self, fqdn: &str) -> f64 {
@@ -272,6 +322,73 @@ impl CharacteristicsMap {
             0.0
         }
     }
+
+    pub fn avg_cpu_e2e_t(&self, fqdn: &str) -> f64 {
+        //if let Some(exectime) =
+        if let Some(et) = self.lookup_agg(fqdn, &Characteristics::E2ECpu) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn avg_gpu_e2e_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup_agg(fqdn, &Characteristics::E2EGpu) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn avg_cpu_exec_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup_agg(fqdn, &Characteristics::ExecTime) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn avg_gpu_exec_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup_agg(fqdn, &Characteristics::GpuExecTime) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn latest_cpu_e2e_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup(fqdn, &Characteristics::E2ECpu) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn latest_gpu_e2e_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup(fqdn, &Characteristics::E2EGpu) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn get_best_time(&self, fqdn: &str) -> f64 {
+        let c = match self.lookup_min(fqdn, &Characteristics::E2ECpu) {
+            Some(_c) => unwrap_val_f64(&_c),
+            _ => f64::NAN,
+        };
+        let g = match self.lookup_min(fqdn, &Characteristics::E2EGpu) {
+            Some(_g) => unwrap_val_f64(&_g),
+            _ => f64::NAN,
+        };
+        // Avoid returning 0 for non-polymorphic functions with Nans?
+        let m = f64::min(c, g);
+        if f64::is_nan(m) {
+            return 0.0;
+        }
+        m
+    }
+
     /// Returns the execution time as tracked by [Characteristics::GpuColdTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_gpu_cold_time(&self, fqdn: &str) -> f64 {

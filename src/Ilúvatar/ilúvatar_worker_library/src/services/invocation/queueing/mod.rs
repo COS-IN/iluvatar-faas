@@ -42,7 +42,12 @@ pub enum EnqueueingPolicy {
     /// Enqueue based on shortest estimated completion time
     EstCompTime,
     /// Multi-armed bandit for polymorphic functions.
-    Bandit1,
+    UCB1,
+    MWUA,
+    // /// Locality/E2E time
+    HitTput,
+    // /// Always GPU for polymorphic functions
+    // AlwaysGPU,
 }
 
 #[tonic::async_trait]
@@ -103,6 +108,9 @@ pub trait DeviceQueue: Send + Sync {
 
     /// Number of invocations currently running
     fn running(&self) -> u32;
+
+    /// Warm hit probability for the function. Needs most recent IAT
+    fn WarmHitP(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64;
 }
 
 #[derive(Debug)]

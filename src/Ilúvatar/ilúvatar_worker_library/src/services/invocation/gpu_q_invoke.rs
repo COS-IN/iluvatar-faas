@@ -424,6 +424,10 @@ impl DeviceQueue for GpuQueueingInvoker {
     fn running(&self) -> u32 {
         self.running.load(std::sync::atomic::Ordering::Relaxed)
     }
+
+    fn WarmHitP(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64 {
+        0.5 //TODO!
+    }
 }
 
 #[cfg(test)]
