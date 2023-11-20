@@ -32,7 +32,7 @@ lazy_static::lazy_static! {
 ///   1. Concurrency with D tokens.
 ///   2. Grace period for anticipatory batching.
 /// Each function is its own flow.
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum MQState {
     /// Non-empty queues are active
     Active,
@@ -131,12 +131,10 @@ impl FlowQ {
         self.start_time_virt = f64::max(self.start_time_virt, start_t); // if this was 0?
         self.finish_time_virt = f64::max(req_finish_virt, self.finish_time_virt); // always needed
 
-        if self.queue.len() == 1 {
-            if self.state == MQState::Inactive {
-                // We just turned active, so mark the time
-                self.active_start_t = OffsetDateTime::now_utc();
-                self.num_active_periods += 1;
-            }
+        if self.queue.len() == 1 && self.state == MQState::Inactive {
+            // We just turned active, so mark the time
+            self.active_start_t = OffsetDateTime::now_utc();
+            self.num_active_periods += 1;
         }
         self.state = MQState::Active;
         self.queue.len() == 1
@@ -164,12 +162,9 @@ impl FlowQ {
         self.last_serviced = OffsetDateTime::now_utc();
         self.in_flight = self.in_flight + 1;
         // let next_item = self.queue.front();
-        match self.queue.front() {
-            Some(next_item) => {
-                self.start_time_virt = next_item.start_time_virt;
-            }
-            None => (),
-        };
+        if let Some(next_item) = self.queue.front() {
+            self.start_time_virt = next_item.start_time_virt;
+        }
         // start timer for grace period?
         let gap = self.start_time_virt - vitual_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
         if gap > self.allowed_overrun {
@@ -423,52 +418,52 @@ impl MQFQ {
 
     /// Get or create FlowQ
     fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) {
-      let vitual_time = *self.vitual_time.read();
-      match self.mqfq_set.get_mut(&item.registration.fqdn) {
-          Some(mut fq) => {
-            if fq.value_mut().push_flow(item, vitual_time) {
-              let mut lck = self.vitual_time.write();
-              *lck = f64::min(*lck, fq.finish_time_virt);
-            }
-          },
-          None => {
-              let fname = item.registration.fqdn.clone();
-              let mut qguard = FlowQ::new(fname.clone(), 0.0, 1.0);
-              if qguard.push_flow(item, vitual_time) {
-                let mut lck = self.vitual_time.write();
-                *lck = f64::min(*lck, qguard.finish_time_virt);
+        let vitual_time = *self.vitual_time.read();
+        match self.mqfq_set.get_mut(&item.registration.fqdn) {
+            Some(mut fq) => {
+                if fq.value_mut().push_flow(item, vitual_time) {
+                    let mut lck = self.vitual_time.write();
+                    *lck = f64::min(*lck, fq.finish_time_virt);
                 }
-              self.mqfq_set.insert(fname, qguard);
-          },
-      };
-  }
+            }
+            None => {
+                let fname = item.registration.fqdn.clone();
+                let mut qguard = FlowQ::new(fname.clone(), 0.0, 1.0);
+                if qguard.push_flow(item, vitual_time) {
+                    let mut lck = self.vitual_time.write();
+                    *lck = f64::min(*lck, qguard.finish_time_virt);
+                }
+                self.mqfq_set.insert(fname, qguard);
+            }
+        };
+    }
 
-  /// Earliest eligible flow
-  fn next_flow<'a>(&'a self) -> Option<RefMutMulti<'_, String, FlowQ>> {
-      let vitual_time = *self.vitual_time.read();
-      let mut min_time = f64::MAX;
-      let mut min_q = None;
-      for mut q in self.mqfq_set.iter_mut() {
-          let val = q.value_mut();
-          val.set_idle_throttled(vitual_time);
-          if val.state == MQState::Active {
-              // Active, not throttled, and lowest start_time_virt
-              if min_q.is_none() {
-                  min_time = q.start_time_virt;
-                  min_q = Some(q);
-              } else {
-                  if q.start_time_virt < min_time {
-                      min_time = q.start_time_virt;
-                      min_q = Some(q);
-                  }
-              }
-          }
-      }
-      if min_q.is_some() {
-          *self.vitual_time.write() = min_time;
-      }
-      min_q
-  }
+    /// Earliest eligible flow
+    fn next_flow<'a>(&'a self) -> Option<RefMutMulti<'_, String, FlowQ>> {
+        let vitual_time = *self.vitual_time.read();
+        let mut min_time = f64::MAX;
+        let mut min_q = None;
+        for mut q in self.mqfq_set.iter_mut() {
+            let val = q.value_mut();
+            val.set_idle_throttled(vitual_time);
+            if val.state == MQState::Active {
+                // Active, not throttled, and lowest start_time_virt
+                if min_q.is_none() {
+                    min_time = q.start_time_virt;
+                    min_q = Some(q);
+                } else {
+                    if q.start_time_virt < min_time {
+                        min_time = q.start_time_virt;
+                        min_q = Some(q);
+                    }
+                }
+            }
+        }
+        if min_q.is_some() {
+            *self.vitual_time.write() = min_time;
+        }
+        min_q
+    }
 
     // Invoked functions automatically increase the count, conversely for finished functions
     fn get_token(&self) -> Option<OwnedSemaphorePermit> {
@@ -548,5 +543,95 @@ impl DeviceQueue for MQFQ {
             }
             None => 0.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod flowq_tests {
+    use super::*;
+
+    fn item() -> Arc<EnqueuedInvocation> {
+        let name = "test";
+        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let rf = Arc::new(RegisteredFunction {
+            function_name: name.to_string(),
+            function_version: name.to_string(),
+            fqdn: name.to_string(),
+            image_name: name.to_string(),
+            memory: 1,
+            cpus: 1,
+            snapshot_base: "".to_string(),
+            parallel_invokes: 1,
+            isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
+            supported_compute: iluvatar_library::types::Compute::CPU,
+        });
+        Arc::new(EnqueuedInvocation::new(
+            rf,
+            name.to_string(),
+            name.to_string(),
+            clock.now(),
+        ))
+    }
+
+    #[test]
+    fn insert_set_active() {
+        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+        assert_eq!(q.state, MQState::Inactive);
+        let item = item();
+        let r = q.push_flow(item, 1.0);
+        assert!(r, "single item requests VT update");
+        assert_eq!(q.state, MQState::Active, "queue should be set active");
+    }
+
+    #[test]
+    fn active_pop_stays() {
+        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+        assert_eq!(q.state, MQState::Inactive);
+        let item = item();
+        let r = q.push_flow(item.clone(), 5.0);
+        assert!(r, "single item requests VT update");
+        assert_eq!(q.state, MQState::Active, "queue should be set active");
+        let item2 = q.pop_flow(0.0);
+        assert!(item2.is_some(), "must get item from queue");
+        assert_eq!(item.queue_insert_time, item2.unwrap().invok.queue_insert_time);
+        assert_eq!(q.state, MQState::Active, "inline queue should be active");
+    }
+
+    #[test]
+    fn overrun_pop_causes_throttle() {
+        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+        assert_eq!(q.state, MQState::Inactive);
+        let item = item();
+        let r = q.push_flow(item.clone(), 20.0);
+        assert!(r, "single item requests VT update");
+        assert_eq!(q.state, MQState::Active, "queue should be set active");
+        let item2 = q.pop_flow(0.0);
+        assert!(item2.is_some(), "must get item from queue");
+        assert_eq!(item.queue_insert_time, item2.unwrap().invok.queue_insert_time);
+        assert_eq!(q.state, MQState::Throttled, "advanced queue should be throttled");
+    }
+
+    #[test]
+    fn throttled_empty_q_made_active_grace_period() {
+        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+        let item = item();
+        q.push_flow(item.clone(), 20.0);
+        q.state = MQState::Throttled;
+        q.last_serviced = OffsetDateTime::now_utc();
+        q.set_idle_throttled(10.0);
+        assert_eq!(q.state, MQState::Active);
+    }
+
+    #[test]
+    fn throttled_full_q_made_active() {
+        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+        let item = item();
+        q.push_flow(item.clone(), 20.0);
+        assert!(!q.queue.is_empty(), "queue not empty");
+
+        q.state = MQState::Throttled;
+        q.last_serviced = OffsetDateTime::now_utc() - Duration::from_secs(30);
+        q.set_idle_throttled(10.0);
+        assert_eq!(q.state, MQState::Active);
     }
 }
