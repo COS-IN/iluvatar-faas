@@ -147,6 +147,7 @@ pub struct GpuResourceTracker {
     docker: Arc<dyn ContainerIsolationService>,
     _handle: tokio::task::JoinHandle<()>,
     status_info: RwLock<Vec<GpuStatus>>,
+    config: Arc<GPUResourceConfig>,
 }
 impl GpuResourceTracker {
     pub fn boxed(
@@ -178,6 +179,7 @@ impl GpuResourceTracker {
                 docker: docker.clone(),
                 _handle: handle,
                 status_info: RwLock::new(vec![]),
+                config: config,
             });
             tx.send(svc.clone())?;
             return Ok(Some(svc));
@@ -326,7 +328,16 @@ impl GpuResourceTracker {
     /// Return a permit access to a single GPU
     /// Returns an error if none are available
     pub fn try_acquire_resource(&self) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
-        self.concurrency_semaphore.clone().try_acquire_many_owned(1)
+      let limit = self.config.limit_on_utilization.unwrap_or(0);
+      if limit == 0 {
+        return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
+      }
+      if let Some(gpu_stat) = self.status_info.read().first() {
+        if gpu_stat.utilization_gpu <= limit as f64 {
+          return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
+        }
+      }
+      Err(tokio::sync::TryAcquireError::NoPermits)
     }
     pub fn outstanding(&self) -> u32 {
         ((*self.gpus.read()).len() - self.concurrency_semaphore.available_permits()) as u32

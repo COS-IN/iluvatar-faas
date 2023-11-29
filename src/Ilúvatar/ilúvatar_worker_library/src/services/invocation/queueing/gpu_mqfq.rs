@@ -71,7 +71,7 @@ impl MQRequest {
 /// A single queue of entities (invocations) of the same priority/locality class
 pub struct FlowQ {
     /// Q name for indexing/debugging etc
-    fqdn: String,
+    pub fqdn: String,
     /// Simple FIFO for now
     queue: VecDeque<Arc<MQRequest>>,
     /// (0,1]
@@ -318,7 +318,7 @@ impl MQFQ {
     /// Check the invocation queue, running things when there are sufficient resources
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
-        while let Some((next_item, token)) = self.dispatch() {
+        while let Some((next_item, token)) = self.dispatch(&tid) {
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
             if let Some(permit) = self.acquire_resources_to_run(&next_item.invok.registration, &tid) {
                 let svc = self.clone();
@@ -462,7 +462,7 @@ impl MQFQ {
     }
 
     /// Earliest eligible flow
-    fn next_flow<'a>(&'a self) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    fn next_flow<'a>(&'a self, tid: &'a TransactionId) -> Option<RefMutMulti<'_, String, FlowQ>> {
         let vitual_time = *self.vitual_time.read();
         let mut min_time = f64::MAX;
         let mut min_q = None;
@@ -471,12 +471,18 @@ impl MQFQ {
             val.set_idle_throttled(vitual_time);
             if val.state == MQState::Active {
                 // Active, not throttled, and lowest start_time_virt
+                if val.queue.is_empty() {
+                  debug!(tid=%tid, qid=%val.fqdn, "flow is empty");
+                  continue;
+                }
                 if min_q.is_none() {
+                    debug!(tid=%tid, qid=%val.fqdn, "first active Q");
                     min_time = q.start_time_virt;
                     min_q = Some(q);
                 } else {
                     if q.start_time_virt < min_time {
-                        min_time = q.start_time_virt;
+                      debug!(tid=%tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
+                      min_time = q.start_time_virt;
                         min_q = Some(q);
                     }
                 }
@@ -494,33 +500,42 @@ impl MQFQ {
     }
 
     /// Main
-    fn dispatch(&self) -> Option<(Arc<MQRequest>, OwnedSemaphorePermit)> {
+    fn dispatch(&self, tid: &TransactionId) -> Option<(Arc<MQRequest>, OwnedSemaphorePermit)> {
         // Filter by active queues, and select with lowest start time.
         // How to avoid hoarding of the tokens? Want round-robin.
         let vitual_time = *self.vitual_time.read();
+        let qlen = self.queue_len();
 
         let token = self.get_token();
         if token.is_none() {
-            return None;
+          debug!(tid=%tid, qlen=qlen, "no token");
+          return None;
         }
 
-        match self.next_flow() {
-            None => None,
-            Some(mut chosen_q) => {
-                // let mut chosen_q = cq;
-                let item = chosen_q.pop_flow(vitual_time);
-                // drop(chosen_q);
-                match item {
-                    Some(i) => {
-                        let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
-                        *self.vitual_time.write() = updated_vitual_time;
-                        chosen_q.update_dispatched(updated_vitual_time);
-                        Some((i, token.unwrap()))
-                    }
-                    None => None,
-                }
-            }
+        if let Some(mut chosen_q) = self.next_flow(tid) {
+          // let item = chosen_q.pop_flow(vitual_time);
+          // drop(chosen_q);
+          if let Some(i) = chosen_q.pop_flow(vitual_time) {
+              // Some(i) => {
+                  let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
+                  *self.vitual_time.write() = updated_vitual_time;
+                  chosen_q.update_dispatched(updated_vitual_time);
+                  return Some((i, token.unwrap()));
+              // }
+              // None => None,
+          } else {
+            debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "empty flow");
+          }
+        } else {
+          debug!(tid=%tid, qlen=qlen, "no chosen flow");
         }
+        None
+        // match self.next_flow() {
+        //     None => None,
+        //     Some(mut chosen_q) => {
+        //         // let mut chosen_q = cq;
+        //     }
+        // }
         // Update MQFQ State
     }
 

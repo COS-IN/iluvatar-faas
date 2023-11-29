@@ -112,6 +112,10 @@ pub struct GPUResourceConfig {
     /// Maximum number of functions to allow on device when using driver hook.
     /// Must also pass [Self::use_driver_hook] as true, defaults to 16 (maximum pre-volta supported MPS clients)
     pub funcs_per_device: Option<u32>,
+    /// Monitor GPU utilization as a means of limiting when additional items can be run on a device
+    /// If present and > 0, this is additional to limiting the number of running functions per device
+    /// Otherwise, does nothing
+    pub limit_on_utilization: Option<u32>,
 }
 impl GPUResourceConfig {
     /// Returns true if MPS (of any sort) is enabled
