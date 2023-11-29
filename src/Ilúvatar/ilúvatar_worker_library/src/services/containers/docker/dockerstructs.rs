@@ -29,7 +29,7 @@ pub struct DockerContainer {
     invocations: Mutex<u32>,
     port: Port,
     state: Mutex<ContainerState>,
-    client: HttpContainerClient,
+    pub client: HttpContainerClient,
     compute: Compute,
     device: Option<Arc<GPU>>,
     mem_usage: RwLock<MemSizeMb>,

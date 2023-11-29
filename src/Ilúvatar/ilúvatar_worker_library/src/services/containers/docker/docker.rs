@@ -366,7 +366,7 @@ impl ContainerIsolationService for DockerIsolation {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
     fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
         debug!(tid=%tid, container_id=%container.container_id(), "Updating memory usage for container");
-        let cast_container = match crate::services::containers::structs::cast::<DockerContainer>(container, tid) {
+        let cast_container = match crate::services::containers::structs::cast::<DockerContainer>(container) {
             Ok(c) => c,
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Error casting container to DockerContainer");

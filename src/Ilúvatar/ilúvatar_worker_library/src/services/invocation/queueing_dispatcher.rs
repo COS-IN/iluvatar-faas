@@ -436,11 +436,9 @@ impl QueueingDispatcher {
         d.per_fn_wts.insert(fid.to_string(), new_wts);
 
         match selected_device.clone() {
-            "gpu" => return &self.gpu_queue,
-            _ => return &self.cpu_queue,
-        };
-
-        &self.cpu_queue
+            "gpu" => &self.gpu_queue,
+            _ => &self.cpu_queue,
+        }
     }
 
     /// Prob. of warm hit divided by avg e2e time. per-fn wts

@@ -1,6 +1,7 @@
 use super::container_pool::{ContainerPool, ResourcePool, Subpool};
 use super::structs::{Container, ContainerLock, ContainerState};
 use super::ContainerIsolationCollection;
+use crate::services::containers::docker::dockerstructs::DockerContainer;
 use crate::services::containers::structs::{InsufficientGPUError, InsufficientMemoryError};
 use crate::services::resources::gpu::GPU;
 use crate::services::{registration::RegisteredFunction, resources::gpu::GpuResourceTracker};
@@ -661,5 +662,38 @@ impl ContainerManager {
             }
         }
         Ok(ret)
+    }
+
+    async fn move_to_dev(cont: Container, tid: TransactionId) {
+        match crate::services::containers::structs::cast::<DockerContainer>(&cont) {
+            Ok(c) => {
+                if let Err(e) = c.client.move_to_device(&tid, &c.container_id).await {
+                    error!(tid=%tid, error=%e, "Error moving data to device");
+                }
+            }
+            Err(e) => error!(tid=%tid, error=%e, "Error casting container to DockerContainer"),
+        };
+    }
+    /// Tell all GPU containers of the given function to move memory onto the device
+    pub async fn madvise_to_device(&self, fqdn: String, tid: TransactionId) {
+        debug!(tid=%tid, fqdn=%fqdn, "moving to device");
+        let f = Self::move_to_dev;
+        self.gpu_containers.idle_containers.iter_fqdn(tid, &fqdn, f).await;
+    }
+    async fn move_off_device(cont: Container, tid: TransactionId) {
+        match crate::services::containers::structs::cast::<DockerContainer>(&cont) {
+            Ok(c) => {
+                if let Err(e) = c.client.move_from_device(&tid, &c.container_id).await {
+                    error!(tid=%tid, error=%e, "Error moving data from device");
+                }
+            }
+            Err(e) => error!(tid=%tid, error=%e, "Error casting container to DockerContainer"),
+        };
+    }
+    /// Tell all GPU containers of the given function to move memory off of the device
+    pub async fn madvise_off_device(&self, fqdn: String, tid: TransactionId) {
+        debug!(tid=%tid, fqdn=%fqdn, "moving off device");
+        let f = Self::move_off_device;
+        self.gpu_containers.idle_containers.iter_fqdn(tid, &fqdn, f).await;
     }
 }

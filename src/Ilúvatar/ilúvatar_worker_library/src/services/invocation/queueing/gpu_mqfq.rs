@@ -71,7 +71,7 @@ impl MQRequest {
 /// A single queue of entities (invocations) of the same priority/locality class
 pub struct FlowQ {
     /// Q name for indexing/debugging etc
-    qid: String,
+    fqdn: String,
     /// Simple FIFO for now
     queue: VecDeque<Arc<MQRequest>>,
     /// (0,1]
@@ -95,14 +95,14 @@ pub struct FlowQ {
     /// Avg active wall_t in seconds
     avg_active_t: f64,
     num_active_periods: i32,
+
+    cont_manager: Arc<ContainerManager>,
 }
 
 impl FlowQ {
-    pub fn new(qid: String, start_time_virt: f64, weight: f64) -> Self {
+    pub fn new(fqdn: String, start_time_virt: f64, weight: f64, cont_manager: &Arc<ContainerManager>) -> Self {
         Self {
-            qid: qid,
             queue: VecDeque::new(),
-            weight: weight,
             state: MQState::Inactive,
             start_time_virt,
             finish_time_virt: 0.0,
@@ -114,7 +114,30 @@ impl FlowQ {
             active_start_t: OffsetDateTime::now_utc(),
             avg_active_t: 0.0,
             num_active_periods: 0,
+            cont_manager: cont_manager.clone(),
+            fqdn,
+            weight,
         }
+    }
+
+    fn update_state(&mut self, new_state: MQState) {
+        if new_state != self.state && new_state == MQState::Active {
+            debug!(queue=%self.fqdn, "Switching state to active");
+            let ctr = self.cont_manager.clone();
+            let fname = self.fqdn.clone();
+            tokio::spawn(async move {
+                ctr.madvise_to_device(fname, MQFQ_GPU_QUEUE_WORKER_TID.clone()).await;
+            });
+        }
+        if new_state != self.state && self.state == MQState::Active {
+            debug!(queue=%self.fqdn, "Switching state off active");
+            let ctr = self.cont_manager.clone();
+            let fname = self.fqdn.clone();
+            tokio::spawn(async move {
+                ctr.madvise_off_device(fname, MQFQ_GPU_QUEUE_WORKER_TID.clone()).await;
+            });
+        }
+        self.state = new_state;
     }
 
     /// Return True if should update the global time
@@ -136,7 +159,7 @@ impl FlowQ {
             self.active_start_t = OffsetDateTime::now_utc();
             self.num_active_periods += 1;
         }
-        self.state = MQState::Active;
+        self.update_state(MQState::Active);
         self.queue.len() == 1
         //self.start_time_virt = r.start_time_virt; // only if the first element!
     }
@@ -168,7 +191,7 @@ impl FlowQ {
         // start timer for grace period?
         let gap = self.start_time_virt - vitual_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
         if gap > self.allowed_overrun {
-            self.state = MQState::Throttled;
+            self.update_state(MQState::Throttled);
         }
     }
 
@@ -176,14 +199,14 @@ impl FlowQ {
     pub fn set_idle_throttled(&mut self, vitual_time: f64) {
         let gap = self.start_time_virt - vitual_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
         if gap <= self.allowed_overrun {
-            self.state = MQState::Active;
+            self.update_state(MQState::Active);
             return;
         }
         // check grace period
         if self.queue.is_empty() {
             let ttl_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
             if ttl_remaining > self.ttl_sec {
-                self.state = MQState::Inactive;
+                self.update_state(MQState::Inactive);
                 self.finish_time_virt = 0.0; // Clears the history if empty queue?
                 self.start_time_virt = 0.0;
                 // Update the active period/eviction time
@@ -428,7 +451,7 @@ impl MQFQ {
             }
             None => {
                 let fname = item.registration.fqdn.clone();
-                let mut qguard = FlowQ::new(fname.clone(), 0.0, 1.0);
+                let mut qguard = FlowQ::new(fname.clone(), 0.0, 1.0, &self.cont_manager);
                 if qguard.push_flow(item, vitual_time) {
                     let mut lck = self.vitual_time.write();
                     *lck = f64::min(*lck, qguard.finish_time_virt);

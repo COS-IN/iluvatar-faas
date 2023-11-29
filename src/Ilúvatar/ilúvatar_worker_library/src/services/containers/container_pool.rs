@@ -2,7 +2,10 @@ use super::structs::{Container, ContainerState};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::{transaction::TransactionId, types::Compute};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
 use tracing::debug;
 
 pub type Subpool = Vec<Container>;
@@ -62,6 +65,24 @@ impl ContainerPool {
             }
         }
         ret
+    }
+
+    pub async fn iter_fqdn<'a: 'b, 'b, T>(
+        &'a self,
+        tid: TransactionId,
+        fqdn: &'a str,
+        func: fn(Arc<dyn super::structs::ContainerT>, TransactionId) -> T,
+    ) where
+        T: std::future::Future<Output = ()> + Send + 'static,
+    {
+        match self.pool.get(fqdn) {
+            Some(f) => {
+                for i in (*f).iter() {
+                    func(i.clone(), tid.clone()).await;
+                }
+            }
+            None => (),
+        }
     }
 
     /// Returns a random container for the fqdn, or [None] if none is available
