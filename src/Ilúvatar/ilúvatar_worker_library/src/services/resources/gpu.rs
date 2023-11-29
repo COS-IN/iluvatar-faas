@@ -328,6 +328,8 @@ impl GpuResourceTracker {
     /// Return a permit access to a single GPU
     /// Returns an error if none are available
     pub fn try_acquire_resource(&self) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
+      // TODO: make this work with mutltiple GPUs such that the GPU a container has is checked for utilization
+      // currently assumes there is only one container
       let limit = self.config.limit_on_utilization.unwrap_or(0);
       if limit == 0 {
         return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
