@@ -146,8 +146,10 @@
       # Invocation config
       "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
       "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(100) }}"
-      "ILUVATAR_WORKER__invocation__cpu__queue_policies" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
-      "ILUVATAR_WORKER__invocation__gpu__queue_policies" : "{{ worker_gpu_queue_policy | default('fcfs') }}"
+      "ILUVATAR_WORKER__invocation__queue_policies__cpu" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
+      "ILUVATAR_WORKER__invocation__queue_policies__gpu" : "{{ worker_gpu_queue_policy | default('fcfs') }}"
+      "ILUVATAR_WORKER__invocation__queues__gpu" : "{{ worker_gpu_queue | default('serial') }}"
+      "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('serial') }}"
       "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"

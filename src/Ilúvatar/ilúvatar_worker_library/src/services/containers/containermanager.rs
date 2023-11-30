@@ -379,7 +379,7 @@ impl ContainerManager {
                 .gpu_resources
                 .as_ref()
                 .ok_or_else(|| anyhow::format_err!("Trying to assign GPU resources when none exist"))?
-                .acquire_gpu()
+                .acquire_gpu(tid)
             {
                 Some(g) => {
                     info!(tid=%tid, uuid=%g.gpu_uuid, "Assigning GPU to container");
@@ -391,10 +391,10 @@ impl ContainerManager {
         Ok(None)
     }
 
-    fn return_gpu(&self, gpu: Option<Arc<GPU>>) {
+    fn return_gpu(&self, gpu: Option<Arc<GPU>>, tid: &TransactionId) {
         if let Some(gpu) = gpu {
             if let Some(gpu_man) = self.gpu_resources.as_ref() {
-                gpu_man.return_gpu(gpu)
+                gpu_man.return_gpu(gpu, tid)
             }
         }
     }
@@ -447,7 +447,7 @@ impl ContainerManager {
             Ok(cont) => cont,
             Err(e) => {
                 *self.used_mem_mb.write() -= reg.memory;
-                self.return_gpu(counter);
+                self.return_gpu(counter, tid);
                 return Err(e);
             }
         };
@@ -459,7 +459,7 @@ impl ContainerManager {
             Ok(_) => (),
             Err(e) => {
                 *self.used_mem_mb.write() -= reg.memory;
-                self.return_gpu(counter);
+                self.return_gpu(counter, tid);
                 match cont_lifecycle.remove_container(cont, "default", tid).await {
                     Ok(_) => {
                         return Err(e);
@@ -565,7 +565,7 @@ impl ContainerManager {
             None => bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported"),
         };
         *self.used_mem_mb.write() -= container.get_curr_mem_usage();
-        self.return_gpu(container.device_resource().clone());
+        self.return_gpu(container.device_resource().clone(), tid);
         r
     }
 

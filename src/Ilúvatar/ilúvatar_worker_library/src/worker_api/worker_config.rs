@@ -91,7 +91,7 @@ pub struct CPUResourceConfig {
 #[derive(Debug, Deserialize, Default)]
 /// Configuration detailing a single type of compute
 pub struct GPUResourceConfig {
-    /// Number of cores it can use, i.e. number of concurrent functions allowed at once.
+    /// Number of GPU devices it can use, i.e. number of concurrent functions allowed at once.
     /// If this is set to 0, then allocations of the resource will not be managed.
     /// Depending on resource type, will not be allowed (i.e. GPU must have exact number).
     pub count: u32,

@@ -53,12 +53,21 @@ impl CompletionTimeTracker {
         if let Some(item) = self.items.read().first() {
             let dur = *item - OffsetDateTime::now_utc();
             if dur.is_negative() {
-                return Duration::seconds(0);
+                return Duration::seconds_f64(0.0);
             }
             dur
         } else {
-            Duration::seconds(0)
+            Duration::seconds_f64(0.0)
         }
+    }
+
+    /// Remove all times that have expired
+    pub fn remove_outdated(&self) {
+      let now = OffsetDateTime::now_utc();
+      let items: Vec<OffsetDateTime> = self.items.read().iter().filter(|t| (**t - now).is_negative()).map(|t| t.to_owned()).collect();
+      for i in items {
+          self.remove_item(i);
+      }
     }
 }
 
@@ -175,5 +184,16 @@ mod tracker_tests {
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 5.0);
         assert_le!(time.as_seconds_f64(), 10.0);
+    }
+
+    #[test]
+    fn old_item_removed() {
+        let tracker = CompletionTimeTracker::new();
+
+        tracker.add_item(OffsetDateTime::now_utc() - Duration::seconds(10));
+        tracker.remove_outdated();
+        let time = tracker.next_avail();
+        assert_eq!(time.as_seconds_f64(), 0.0);
+        assert_eq!(tracker.get_inflight(), 0);
     }
 }

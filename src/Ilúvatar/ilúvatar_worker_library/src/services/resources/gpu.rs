@@ -1,13 +1,14 @@
 use crate::{
-    services::containers::{docker::DockerIsolation, ContainerIsolationService},
-    worker_api::worker_config::GPUResourceConfig,
+    services::{containers::{docker::DockerIsolation, ContainerIsolationService}, invocation::completion_time_tracker::CompletionTimeTracker},
+    worker_api::worker_config::{GPUResourceConfig, ContainerResourceConfig},
 };
 use anyhow::Result;
 use iluvatar_library::{
-    bail_error, threading::tokio_thread, transaction::TransactionId, types::MemSizeMb, utils::execute_cmd_checked,
+    bail_error, threading::tokio_thread, transaction::TransactionId, types::MemSizeMb, utils::{execute_cmd_checked, execute_cmd_checked_async},
 };
 use parking_lot::RwLock;
-use std::sync::Arc;
+use time::{OffsetDateTime, Duration};
+use std::{sync::Arc, collections::HashMap};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, trace};
 
@@ -144,14 +145,18 @@ lazy_static::lazy_static! {
 pub struct GpuResourceTracker {
     gpus: RwLock<Vec<Arc<GPU>>>,
     concurrency_semaphore: Arc<Semaphore>,
+    gpu_passout_tracker: CompletionTimeTracker,
+    gpu_passout_times: RwLock<HashMap<u32, OffsetDateTime>>,
     docker: Arc<dyn ContainerIsolationService>,
     _handle: tokio::task::JoinHandle<()>,
     status_info: RwLock<Vec<GpuStatus>>,
+    container_config: Arc<ContainerResourceConfig>,
     config: Arc<GPUResourceConfig>,
 }
 impl GpuResourceTracker {
     pub fn boxed(
         resources: &Option<Arc<GPUResourceConfig>>,
+        container_config: &Arc<ContainerResourceConfig>,
         tid: &TransactionId,
         docker: &Arc<dyn ContainerIsolationService>,
         status_config: &Arc<crate::worker_api::worker_config::StatusConfig>,
@@ -180,6 +185,9 @@ impl GpuResourceTracker {
                 _handle: handle,
                 status_info: RwLock::new(vec![]),
                 config: config,
+                container_config: container_config.clone(),
+                gpu_passout_tracker: CompletionTimeTracker::new(),
+                gpu_passout_times: RwLock::new(HashMap::new()),
             });
             tx.send(svc.clone())?;
             return Ok(Some(svc));
@@ -347,12 +355,33 @@ impl GpuResourceTracker {
 
     /// Acquire a GPU so it can be attached to a container
     /// [None] means no GPU is available
-    pub fn acquire_gpu(self: &Arc<Self>) -> Option<Arc<GPU>> {
-        self.gpus.write().pop()
+    pub fn acquire_gpu(self: &Arc<Self>, tid: &TransactionId) -> Option<Arc<GPU>> {
+        self.gpu_passout_tracker.remove_outdated();
+        if self.gpu_passout_tracker.get_inflight() > self.container_config.concurrent_creation as i32 {
+          return None;
+        }
+        // give container time to start up and begin running on GPU
+        let mut lock = self.gpus.write();
+        if !lock.is_empty() {
+            let gpu = lock.pop().unwrap();
+            drop(lock);
+            let t = OffsetDateTime::now_utc();
+            self.gpu_passout_times.write().insert(gpu.gpu_private_id, t);
+            self.gpu_passout_tracker.add_item(t + Duration::seconds(10));
+            debug!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "GPU allocating");
+            return Some(gpu)
+        } else {
+          None
+        }
     }
 
     /// Return a GPU that has been removed from a container
-    pub fn return_gpu(&self, gpu: Arc<GPU>) {
+    pub fn return_gpu(&self, gpu: Arc<GPU>, tid: &TransactionId) {
+        info!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "GPU returned");
+        match self.gpu_passout_times.read().get(&gpu.gpu_private_id) {
+            Some(t) => self.gpu_passout_tracker.remove_item(*t),
+            None => error!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "Returning GPU had no matching passout time"),
+        }
         self.gpus.write().push(gpu);
     }
 
@@ -366,7 +395,7 @@ impl GpuResourceTracker {
           "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
           "--format=csv,noheader,nounits",
         ];
-        let nvidia = match execute_cmd_checked("/usr/bin/nvidia-smi", &args, None, &tid) {
+        let nvidia = match execute_cmd_checked_async("/usr/bin/nvidia-smi", &args, None, &tid).await {
             Ok(r) => r,
             Err(e) => {
                 error!(tid=%tid, error=%e, "Failed to call nvidia-smi");

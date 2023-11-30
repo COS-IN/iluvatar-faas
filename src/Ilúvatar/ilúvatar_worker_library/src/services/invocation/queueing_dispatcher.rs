@@ -14,9 +14,8 @@ use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{logging::LocalTime, transaction::TransactionId, types::Compute};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use rand::Rng;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use time::OffsetDateTime;
@@ -27,6 +26,7 @@ lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
 }
 
+#[allow(unused)]
 pub struct PolymDispatchCtx {
     cmap: Arc<CharacteristicsMap>,
     /// cpu/gpu -> wt , based on device load.
@@ -40,7 +40,7 @@ pub struct PolymDispatchCtx {
     /// Previous dispatch of the function to GPU
     gpu_prev_t: HashMap<String, OffsetDateTime>,
     ///Total number of dispatches/rounds
-    Total_dispatch: u64,
+    total_dispatch: u64,
     /// Total Number to CPU so far
     n_cpu: u64,
     /// Total number to GPU
@@ -56,7 +56,7 @@ impl PolymDispatchCtx {
             prev_dispatch: HashMap::new(),
             cpu_prev_t: HashMap::new(),
             gpu_prev_t: HashMap::new(),
-            Total_dispatch: 1,
+            total_dispatch: 1,
             n_cpu: 1,
             n_gpu: 1,
         }
@@ -259,18 +259,15 @@ impl QueueingDispatcher {
                 }
             }
             EnqueueingPolicy::UCB1 => {
-                let mut chosen_q = self.ucb1_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
-                chosen_q.enqueue_item(&enqueue)?;
+                self.ucb1_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
                 enqueues += 1;
             }
             EnqueueingPolicy::MWUA => {
-                let mut chosen_q = self.mwua_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
-                chosen_q.enqueue_item(&enqueue)?;
+                self.mwua_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
                 enqueues += 1;
             }
             EnqueueingPolicy::HitTput => {
-                let mut chosen_q = self.HitTput_dispatch(reg.clone(), &tid.clone(), enqueue.clone());
-                chosen_q.enqueue_item(&enqueue)?;
+                self.hit_tput_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
                 enqueues += 1;
             }
         }
@@ -286,7 +283,7 @@ impl QueueingDispatcher {
     fn select_device_for_fn(&self, fid: String, device: String) -> () {
         let mut d = self.dispatch_state.write();
 
-        d.Total_dispatch += 1;
+        d.total_dispatch += 1;
         d.prev_dispatch.insert(fid.clone(), device.clone());
 
         match device.as_str() {
@@ -307,7 +304,7 @@ impl QueueingDispatcher {
         let mut rng = rand::thread_rng();
         let wt = wa + wb;
         let wa = wa / wt;
-        let wb = wb / wt;
+        // let wb = wb / wt;
         let r = rng.gen_range(0.0..1.0);
         if r > wa {
             return 1;
@@ -320,16 +317,16 @@ impl QueueingDispatcher {
     fn ucb1_dispatch(
         &self,
         reg: Arc<RegisteredFunction>,
-        tid: &TransactionId,
-        enqueue: Arc<EnqueuedInvocation>,
-    ) -> &Arc<dyn DeviceQueue> {
+        _tid: &TransactionId,
+        enqueue: &Arc<EnqueuedInvocation>,
+    ) -> Result<()> {
         // device_wt = exec_time + sqrt(log steps/n), where n is number of times device has been selected for the function
         // Pick device with lowest weight and dispatch
         if reg.cpu_only() {
-            return &self.cpu_queue;
+            return self.cpu_queue.enqueue_item(enqueue);
         }
         if reg.gpu_only() {
-            return &self.gpu_queue;
+            return self.gpu_queue.enqueue_item(enqueue);
         }
 
         let fid = reg.fqdn.as_str(); //function name or fqdn?
@@ -337,15 +334,15 @@ impl QueueingDispatcher {
         let cpu_t = self.cmap.avg_cpu_e2e_t(&fid) as f64; // supposed to running average?
         let gpu_t = self.cmap.avg_gpu_e2e_t(&fid) as f64;
 
-        let T = self.dispatch_state.read().Total_dispatch as f64;
+        let total_dispatch = self.dispatch_state.read().total_dispatch as f64;
         let n_cpu = self.dispatch_state.read().n_cpu as f64;
         let n_gpu = self.dispatch_state.read().n_gpu as f64;
 
-        let cpu_ucb = (f64::log(T, 2.0) / n_cpu).sqrt();
-        let gpu_ucb = (f64::log(T, 2.0) / n_gpu).sqrt();
+        let cpu_ucb = (f64::log(total_dispatch, 2.0) / n_cpu).sqrt();
+        let gpu_ucb = (f64::log(total_dispatch, 2.0) / n_gpu).sqrt();
 
         let cpu_wt = cpu_t + cpu_ucb;
-        let gpu_wt = cpu_t + gpu_ucb;
+        let gpu_wt = gpu_t + gpu_ucb;
 
         let device_wts = HashMap::from([("cpu", cpu_wt), ("gpu", gpu_wt)]);
 
@@ -357,9 +354,10 @@ impl QueueingDispatcher {
         self.select_device_for_fn(fid.to_string(), selected_device.clone());
 
         if selected_device == "gpu" {
-            return &self.gpu_queue;
+            self.gpu_queue.enqueue_item(enqueue)
+        } else {
+            self.cpu_queue.enqueue_item(enqueue)
         }
-        &self.cpu_queue
     }
 
     // Shrinking dartboard : Geulen, Sascha, Berthold Vöcking, and Melanie Winkler. "Regret Minimization for Online Buffering Problems Using the Weighted Majority Algorithm." COLT. 2010.
@@ -367,19 +365,19 @@ impl QueueingDispatcher {
     fn mwua_dispatch(
         &self,
         reg: Arc<RegisteredFunction>,
-        tid: &TransactionId,
-        enqueue: Arc<EnqueuedInvocation>,
-    ) -> &Arc<dyn DeviceQueue> {
+        _tid: &TransactionId,
+        enqueue: &Arc<EnqueuedInvocation>,
+    ) -> Result<()> {
         // the cost is t_recent - t_global_min
         if reg.cpu_only() {
-            return &self.cpu_queue;
+            return self.cpu_queue.enqueue_item(enqueue);
         }
         if reg.gpu_only() {
-            return &self.gpu_queue;
+            return self.gpu_queue.enqueue_item(enqueue);
         }
 
         let eta = 0.3; // learning rate
-        let selected_device: String;
+        // let selected_device: String;
         let fid = reg.fqdn.as_str();
 
         let b = self.dispatch_state.read();
@@ -413,7 +411,7 @@ impl QueueingDispatcher {
         };
 
         // update the weight tuple
-        let mut new_wts = match prev_dispatch.as_str() {
+        let new_wts = match prev_dispatch.as_str() {
             "gpu" => (prev_wts.0, new_wt),
             _ => (new_wt, prev_wts.1),
         };
@@ -436,24 +434,24 @@ impl QueueingDispatcher {
         d.per_fn_wts.insert(fid.to_string(), new_wts);
 
         match selected_device.clone() {
-            "gpu" => &self.gpu_queue,
-            _ => &self.cpu_queue,
+            "gpu" => self.gpu_queue.enqueue_item(enqueue),
+            _ => self.cpu_queue.enqueue_item(enqueue),
         }
     }
 
     /// Prob. of warm hit divided by avg e2e time. per-fn wts
-    fn HitTput_dispatch(
+    fn hit_tput_dispatch(
         &self,
         reg: Arc<RegisteredFunction>,
         tid: &TransactionId,
-        enqueue: Arc<EnqueuedInvocation>,
-    ) -> &Arc<dyn DeviceQueue> {
+        enqueue: &Arc<EnqueuedInvocation>,
+    ) -> Result<()> {
         // the cost is t_recent - t_global_min
         if reg.cpu_only() {
-            return &self.cpu_queue;
+            return self.cpu_queue.enqueue_item(enqueue);
         }
         if reg.gpu_only() {
-            return &self.gpu_queue;
+            return self.gpu_queue.enqueue_item(enqueue);
         }
         let egpu = self.gpu_queue.est_completion_time(&reg, tid);
         let ecpu = self.cpu_queue.est_completion_time(&reg, tid);
@@ -482,15 +480,10 @@ impl QueueingDispatcher {
         let rcpu = pcpu / ecpu;
 
         // choose the maximum of the two? or probabilistically?
-
         let n = self.proportional_selection(rcpu, rgpu);
         match n {
-            0 => {
-                return &self.cpu_queue;
-            }
-            _ => {
-                return &self.gpu_queue;
-            }
+            0 => self.cpu_queue.enqueue_item(enqueue),
+            _ => self.gpu_queue.enqueue_item(enqueue)
         }
     }
 

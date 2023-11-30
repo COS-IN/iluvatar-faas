@@ -28,7 +28,7 @@ use std::{
 };
 use time::{Instant, OffsetDateTime};
 use tokio::sync::Notify;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, warn, info};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
@@ -172,7 +172,7 @@ impl GpuQueueingInvoker {
             completion_tracker: Arc::new(CompletionTimeTracker::new()),
         });
         gpu_tx.send(svc.clone())?;
-        debug!(tid=%tid, "Created GpuQueueingInvoker");
+        info!(tid=%tid, "Created GpuQueueingInvoker");
         Ok(svc)
     }
 

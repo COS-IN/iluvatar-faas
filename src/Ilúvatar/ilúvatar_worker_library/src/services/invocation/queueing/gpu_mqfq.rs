@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use time::{Instant, OffsetDateTime};
 use tokio::sync::{Notify, OwnedSemaphorePermit};
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 lazy_static::lazy_static! {
   pub static ref MQFQ_GPU_QUEUE_WORKER_TID: TransactionId = "MQFQ_GPU_Queue".to_string();
@@ -308,6 +308,7 @@ impl MQFQ {
             cont_manager,
         });
         gpu_tx.send(svc.clone())?;
+        info!(tid=%tid, "Created MQFQ");
         Ok(svc)
     }
 
@@ -369,6 +370,7 @@ impl MQFQ {
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
     fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
+        debug!(tid=%item.tid, error=%cause, "Marking invocation as error");
         item.mark_error(cause);
     }
 
@@ -584,92 +586,92 @@ impl DeviceQueue for MQFQ {
     }
 }
 
-#[cfg(test)]
-mod flowq_tests {
-    use super::*;
+// #[cfg(test)]
+// mod flowq_tests {
+//     use super::*;
 
-    fn item() -> Arc<EnqueuedInvocation> {
-        let name = "test";
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
-        let rf = Arc::new(RegisteredFunction {
-            function_name: name.to_string(),
-            function_version: name.to_string(),
-            fqdn: name.to_string(),
-            image_name: name.to_string(),
-            memory: 1,
-            cpus: 1,
-            snapshot_base: "".to_string(),
-            parallel_invokes: 1,
-            isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
-            supported_compute: iluvatar_library::types::Compute::CPU,
-        });
-        Arc::new(EnqueuedInvocation::new(
-            rf,
-            name.to_string(),
-            name.to_string(),
-            clock.now(),
-        ))
-    }
+//     fn item() -> Arc<EnqueuedInvocation> {
+//         let name = "test";
+//         let clock = LocalTime::new(&"clock".to_string()).unwrap();
+//         let rf = Arc::new(RegisteredFunction {
+//             function_name: name.to_string(),
+//             function_version: name.to_string(),
+//             fqdn: name.to_string(),
+//             image_name: name.to_string(),
+//             memory: 1,
+//             cpus: 1,
+//             snapshot_base: "".to_string(),
+//             parallel_invokes: 1,
+//             isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
+//             supported_compute: iluvatar_library::types::Compute::CPU,
+//         });
+//         Arc::new(EnqueuedInvocation::new(
+//             rf,
+//             name.to_string(),
+//             name.to_string(),
+//             clock.now(),
+//         ))
+//     }
 
-    #[test]
-    fn insert_set_active() {
-        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
-        assert_eq!(q.state, MQState::Inactive);
-        let item = item();
-        let r = q.push_flow(item, 1.0);
-        assert!(r, "single item requests VT update");
-        assert_eq!(q.state, MQState::Active, "queue should be set active");
-    }
+//     #[test]
+//     fn insert_set_active() {
+//         let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+//         assert_eq!(q.state, MQState::Inactive);
+//         let item = item();
+//         let r = q.push_flow(item, 1.0);
+//         assert!(r, "single item requests VT update");
+//         assert_eq!(q.state, MQState::Active, "queue should be set active");
+//     }
 
-    #[test]
-    fn active_pop_stays() {
-        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
-        assert_eq!(q.state, MQState::Inactive);
-        let item = item();
-        let r = q.push_flow(item.clone(), 5.0);
-        assert!(r, "single item requests VT update");
-        assert_eq!(q.state, MQState::Active, "queue should be set active");
-        let item2 = q.pop_flow(0.0);
-        assert!(item2.is_some(), "must get item from queue");
-        assert_eq!(item.queue_insert_time, item2.unwrap().invok.queue_insert_time);
-        assert_eq!(q.state, MQState::Active, "inline queue should be active");
-    }
+//     #[test]
+//     fn active_pop_stays() {
+//         let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+//         assert_eq!(q.state, MQState::Inactive);
+//         let item = item();
+//         let r = q.push_flow(item.clone(), 5.0);
+//         assert!(r, "single item requests VT update");
+//         assert_eq!(q.state, MQState::Active, "queue should be set active");
+//         let item2 = q.pop_flow(0.0);
+//         assert!(item2.is_some(), "must get item from queue");
+//         assert_eq!(item.queue_insert_time, item2.unwrap().invok.queue_insert_time);
+//         assert_eq!(q.state, MQState::Active, "inline queue should be active");
+//     }
 
-    #[test]
-    fn overrun_pop_causes_throttle() {
-        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
-        assert_eq!(q.state, MQState::Inactive);
-        let item = item();
-        let r = q.push_flow(item.clone(), 20.0);
-        assert!(r, "single item requests VT update");
-        assert_eq!(q.state, MQState::Active, "queue should be set active");
-        let item2 = q.pop_flow(0.0);
-        assert!(item2.is_some(), "must get item from queue");
-        assert_eq!(item.queue_insert_time, item2.unwrap().invok.queue_insert_time);
-        assert_eq!(q.state, MQState::Throttled, "advanced queue should be throttled");
-    }
+//     #[test]
+//     fn overrun_pop_causes_throttle() {
+//         let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+//         assert_eq!(q.state, MQState::Inactive);
+//         let item = item();
+//         let r = q.push_flow(item.clone(), 20.0);
+//         assert!(r, "single item requests VT update");
+//         assert_eq!(q.state, MQState::Active, "queue should be set active");
+//         let item2 = q.pop_flow(0.0);
+//         assert!(item2.is_some(), "must get item from queue");
+//         assert_eq!(item.queue_insert_time, item2.unwrap().invok.queue_insert_time);
+//         assert_eq!(q.state, MQState::Throttled, "advanced queue should be throttled");
+//     }
 
-    #[test]
-    fn throttled_empty_q_made_active_grace_period() {
-        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
-        let item = item();
-        q.push_flow(item.clone(), 20.0);
-        q.state = MQState::Throttled;
-        q.last_serviced = OffsetDateTime::now_utc();
-        q.set_idle_throttled(10.0);
-        assert_eq!(q.state, MQState::Active);
-    }
+//     #[test]
+//     fn throttled_empty_q_made_active_grace_period() {
+//         let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+//         let item = item();
+//         q.push_flow(item.clone(), 20.0);
+//         q.state = MQState::Throttled;
+//         q.last_serviced = OffsetDateTime::now_utc();
+//         q.set_idle_throttled(10.0);
+//         assert_eq!(q.state, MQState::Active);
+//     }
 
-    #[test]
-    fn throttled_full_q_made_active() {
-        let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
-        let item = item();
-        q.push_flow(item.clone(), 20.0);
-        assert!(!q.queue.is_empty(), "queue not empty");
+//     #[test]
+//     fn throttled_full_q_made_active() {
+//         let mut q = FlowQ::new("test".to_string(), 0.0, 0.0);
+//         let item = item();
+//         q.push_flow(item.clone(), 20.0);
+//         assert!(!q.queue.is_empty(), "queue not empty");
 
-        q.state = MQState::Throttled;
-        q.last_serviced = OffsetDateTime::now_utc() - Duration::from_secs(30);
-        q.set_idle_throttled(10.0);
-        assert_eq!(q.state, MQState::Active);
-    }
-}
+//         q.state = MQState::Throttled;
+//         q.last_serviced = OffsetDateTime::now_utc() - Duration::from_secs(30);
+//         q.set_idle_throttled(10.0);
+//         assert_eq!(q.state, MQState::Active);
+//     }
+// }

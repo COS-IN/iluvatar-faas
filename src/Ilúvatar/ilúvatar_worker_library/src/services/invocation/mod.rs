@@ -20,7 +20,7 @@ use time::OffsetDateTime;
 use tracing::info;
 
 pub mod async_tracker;
-mod completion_time_tracker;
+pub mod completion_time_tracker;
 mod cpu_q_invoke;
 #[cfg(feature = "power_cap")]
 pub mod energy_limiter;

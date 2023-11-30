@@ -307,7 +307,7 @@ impl ContainerIsolationService for DockerIsolation {
     ) -> Result<()> {
         let output = execute_cmd(
             "/usr/bin/docker",
-            vec!["ps", "--filter", "label=owner=iluvatar_worker", "-q"],
+            vec!["ps", "--filter", "label=owner=iluvatar_worker", "-aq"],
             None,
             tid,
         )?;
