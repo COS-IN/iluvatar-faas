@@ -392,16 +392,12 @@ impl DeviceQueue for CpuQueueingInvoker {
         self.running.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    fn WarmHitP(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64 {
+    fn warm_hit_probability(&self, reg: &Arc<RegisteredFunction>, _iat: f64) -> f64 {
         let fqdn = &reg.fqdn;
         let cstate = self.cont_manager.container_exists(fqdn, Compute::CPU);
         match cstate {
-            ContainerState::Cold => {
-                return 0.01;
-            }
-            _ => {
-                return 1.0 - 0.01;
-            }
+            ContainerState::Cold => 0.01,
+            _ => 1.0 - 0.01,
         }
     }
 }

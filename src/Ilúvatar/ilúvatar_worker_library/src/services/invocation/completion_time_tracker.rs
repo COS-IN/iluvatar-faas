@@ -18,14 +18,13 @@ impl CompletionTimeTracker {
     }
 
     pub fn get_inflight(&self) -> i32 {
-        let inf = self.inflight.lock();
-        inf.clone()
+        *self.inflight.lock()
     }
 
     /// Add a new time to the struct
     pub fn add_item(&self, completion_time: OffsetDateTime) {
         let mut cnt = self.inflight.lock();
-        *cnt = *cnt + 1;
+        *cnt += 1;
         let mut items = self.items.write();
         let pos = items.binary_search(&completion_time);
         match pos {
@@ -37,7 +36,7 @@ impl CompletionTimeTracker {
     /// Remove the item with the time from the tracker
     pub fn remove_item(&self, completion_time: OffsetDateTime) {
         let mut cnt = self.inflight.lock();
-        *cnt = *cnt - 1;
+        *cnt -= 1;
         let mut items = self.items.write();
         let pos = items.binary_search(&completion_time);
         match pos {
@@ -63,11 +62,17 @@ impl CompletionTimeTracker {
 
     /// Remove all times that have expired
     pub fn remove_outdated(&self) {
-      let now = OffsetDateTime::now_utc();
-      let items: Vec<OffsetDateTime> = self.items.read().iter().filter(|t| (**t - now).is_negative()).map(|t| t.to_owned()).collect();
-      for i in items {
-          self.remove_item(i);
-      }
+        let now = OffsetDateTime::now_utc();
+        let items: Vec<OffsetDateTime> = self
+            .items
+            .read()
+            .iter()
+            .filter(|t| (**t - now).is_negative())
+            .map(|t| t.to_owned())
+            .collect();
+        for i in items {
+            self.remove_item(i);
+        }
     }
 }
 

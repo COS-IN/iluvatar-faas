@@ -14,7 +14,7 @@ use iluvatar_library::logging::LocalTime;
 use iluvatar_library::threading::{tokio_runtime, EventualItem};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,6 +42,7 @@ pub enum MQState {
     Inactive,
 }
 
+#[allow(unused)]
 enum MQEvent {
     GraceExpired,
     RequestDispatched,
@@ -183,7 +184,7 @@ impl FlowQ {
     /// Check if the start time is ahead of global time by allowed overrun
     pub fn update_dispatched(&mut self, vitual_time: f64) {
         self.last_serviced = OffsetDateTime::now_utc();
-        self.in_flight = self.in_flight + 1;
+        self.in_flight += 1;
         // let next_item = self.queue.front();
         if let Some(next_item) = self.queue.front() {
             self.start_time_virt = next_item.start_time_virt;
@@ -233,11 +234,10 @@ struct TokenBucket {
 #[allow(unused)]
 impl TokenBucket {
     fn new(capacity: i32) -> Arc<Self> {
-        let svc = Arc::new(TokenBucket {
+        Arc::new(TokenBucket {
             capacity: capacity,
             current: 0,
-        });
-        svc
+        })
     }
     fn get_tok(&self) -> bool {
         //can return none if none available?
@@ -245,8 +245,8 @@ impl TokenBucket {
         b > 0
     }
 
-    fn add_tok(&mut self) -> () {
-        self.current = self.current + 1;
+    fn add_tok(&mut self) {
+        self.current += 1;
     }
 }
 
@@ -255,8 +255,6 @@ pub struct MQFQ {
     mqfq_set: DashMap<String, FlowQ>,
     /// System-wide logical clock for resources consumed
     vitual_time: RwLock<f64>,
-    /// TODO: Ignored for now
-    est_time: Mutex<f64>,
 
     ///Remaining passed by gpu_q_invoke
     cont_manager: Arc<ContainerManager>,
@@ -293,7 +291,6 @@ impl MQFQ {
 
         let svc = Arc::new(MQFQ {
             mqfq_set: DashMap::new(),
-            est_time: Mutex::new(0.0),
             vitual_time: RwLock::new(0.0),
             ctrack: Arc::new(CompletionTimeTracker::new()),
             signal: Notify::new(),
@@ -474,19 +471,17 @@ impl MQFQ {
             if val.state == MQState::Active {
                 // Active, not throttled, and lowest start_time_virt
                 if val.queue.is_empty() {
-                  debug!(tid=%tid, qid=%val.fqdn, "flow is empty");
-                  continue;
+                    debug!(tid=%tid, qid=%val.fqdn, "flow is empty");
+                    continue;
                 }
                 if min_q.is_none() {
                     debug!(tid=%tid, qid=%val.fqdn, "first active Q");
                     min_time = q.start_time_virt;
                     min_q = Some(q);
-                } else {
-                    if q.start_time_virt < min_time {
-                      debug!(tid=%tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
-                      min_time = q.start_time_virt;
-                        min_q = Some(q);
-                    }
+                } else if q.start_time_virt < min_time {
+                    debug!(tid=%tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
+                    min_time = q.start_time_virt;
+                    min_q = Some(q);
                 }
             }
         }
@@ -510,26 +505,26 @@ impl MQFQ {
 
         let token = self.get_token();
         if token.is_none() {
-          debug!(tid=%tid, qlen=qlen, "no token");
-          return None;
+            debug!(tid=%tid, qlen=qlen, "no token");
+            return None;
         }
 
         if let Some(mut chosen_q) = self.next_flow(tid) {
-          // let item = chosen_q.pop_flow(vitual_time);
-          // drop(chosen_q);
-          if let Some(i) = chosen_q.pop_flow(vitual_time) {
-              // Some(i) => {
-                  let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
-                  *self.vitual_time.write() = updated_vitual_time;
-                  chosen_q.update_dispatched(updated_vitual_time);
-                  return Some((i, token.unwrap()));
-              // }
-              // None => None,
-          } else {
-            debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "empty flow");
-          }
+            // let item = chosen_q.pop_flow(vitual_time);
+            // drop(chosen_q);
+            if let Some(i) = chosen_q.pop_flow(vitual_time) {
+                // Some(i) => {
+                let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
+                *self.vitual_time.write() = updated_vitual_time;
+                chosen_q.update_dispatched(updated_vitual_time);
+                return Some((i, token.unwrap()));
+                // }
+                // None => None,
+            } else {
+                debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "empty flow");
+            }
         } else {
-          debug!(tid=%tid, qlen=qlen, "no chosen flow");
+            debug!(tid=%tid, qlen=qlen, "no chosen flow");
         }
         None
         // match self.next_flow() {
@@ -541,8 +536,8 @@ impl MQFQ {
         // Update MQFQ State
     }
 
-    /// Function just finished running. Completion call-back. Add tokens?
-    fn charge_fn(efn: EnqueuedInvocation) -> () {}
+    // /// Function just finished running. Completion call-back. Add tokens?
+    // fn charge_fn(efn: EnqueuedInvocation) {}
 } // END MQFQ
 
 impl DeviceQueue for MQFQ {
@@ -552,7 +547,7 @@ impl DeviceQueue for MQFQ {
         per_flow_q_len.sum::<usize>()
     }
 
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    fn est_completion_time(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
         // sum_q (q_F-q_S) / max_in_flight
         let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
         let total_wait: f64 = per_flow_wait_times.sum();
@@ -568,7 +563,7 @@ impl DeviceQueue for MQFQ {
         self.ctrack.get_inflight() as u32
     }
 
-    fn WarmHitP(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64 {
+    fn warm_hit_probability(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64 {
         // if flowq doesnt exist or inactive, 0
         // else (active or throttled), but no guarantees
         // Average eviction time for the queue? eviction == q becomes inactive

@@ -1,14 +1,21 @@
 use crate::{
-    services::{containers::{docker::DockerIsolation, ContainerIsolationService}, invocation::completion_time_tracker::CompletionTimeTracker},
-    worker_api::worker_config::{GPUResourceConfig, ContainerResourceConfig},
+    services::{
+        containers::{docker::DockerIsolation, ContainerIsolationService},
+        invocation::completion_time_tracker::CompletionTimeTracker,
+    },
+    worker_api::worker_config::{ContainerResourceConfig, GPUResourceConfig},
 };
 use anyhow::Result;
 use iluvatar_library::{
-    bail_error, threading::tokio_thread, transaction::TransactionId, types::MemSizeMb, utils::{execute_cmd_checked, execute_cmd_checked_async},
+    bail_error,
+    threading::tokio_thread,
+    transaction::TransactionId,
+    types::MemSizeMb,
+    utils::{execute_cmd_checked, execute_cmd_checked_async},
 };
 use parking_lot::RwLock;
-use time::{OffsetDateTime, Duration};
-use std::{sync::Arc, collections::HashMap};
+use std::{collections::HashMap, sync::Arc};
+use time::{Duration, OffsetDateTime};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, trace};
 
@@ -336,18 +343,18 @@ impl GpuResourceTracker {
     /// Return a permit access to a single GPU
     /// Returns an error if none are available
     pub fn try_acquire_resource(&self) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
-      // TODO: make this work with mutltiple GPUs such that the GPU a container has is checked for utilization
-      // currently assumes there is only one container
-      let limit = self.config.limit_on_utilization.unwrap_or(0);
-      if limit == 0 {
-        return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
-      }
-      if let Some(gpu_stat) = self.status_info.read().first() {
-        if gpu_stat.utilization_gpu <= limit as f64 {
-          return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
+        // TODO: make this work with mutltiple GPUs such that the GPU a container has is checked for utilization
+        // currently assumes there is only one container
+        let limit = self.config.limit_on_utilization.unwrap_or(0);
+        if limit == 0 {
+            return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
         }
-      }
-      Err(tokio::sync::TryAcquireError::NoPermits)
+        if let Some(gpu_stat) = self.status_info.read().first() {
+            if gpu_stat.utilization_gpu <= limit as f64 {
+                return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
+            }
+        }
+        Err(tokio::sync::TryAcquireError::NoPermits)
     }
     pub fn outstanding(&self) -> u32 {
         ((*self.gpus.read()).len() - self.concurrency_semaphore.available_permits()) as u32
@@ -358,7 +365,7 @@ impl GpuResourceTracker {
     pub fn acquire_gpu(self: &Arc<Self>, tid: &TransactionId) -> Option<Arc<GPU>> {
         self.gpu_passout_tracker.remove_outdated();
         if self.gpu_passout_tracker.get_inflight() > self.container_config.concurrent_creation as i32 {
-          return None;
+            return None;
         }
         // give container time to start up and begin running on GPU
         let mut lock = self.gpus.write();
@@ -369,9 +376,9 @@ impl GpuResourceTracker {
             self.gpu_passout_times.write().insert(gpu.gpu_private_id, t);
             self.gpu_passout_tracker.add_item(t + Duration::seconds(10));
             debug!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "GPU allocating");
-            return Some(gpu)
+            Some(gpu)
         } else {
-          None
+            None
         }
     }
 
@@ -380,7 +387,9 @@ impl GpuResourceTracker {
         info!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "GPU returned");
         match self.gpu_passout_times.read().get(&gpu.gpu_private_id) {
             Some(t) => self.gpu_passout_tracker.remove_item(*t),
-            None => error!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "Returning GPU had no matching passout time"),
+            None => {
+                error!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "Returning GPU had no matching passout time")
+            }
         }
         self.gpus.write().push(gpu);
     }

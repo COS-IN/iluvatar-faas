@@ -11,6 +11,7 @@ use std::collections::VecDeque;
 use std::sync::{atomic::AtomicUsize, Arc};
 
 /// Combines invocations into batches, and returned the batch with the oldest item in front
+#[allow(unused)]
 pub struct DynBatchGpuQueue {
     /// Grouped invocations of same function ready for dispatch.
     invoke_batches: DashMap<String, GpuBatch>,
@@ -24,7 +25,7 @@ pub struct DynBatchGpuQueue {
     /// Initially, just add invocations in an FCFS queue which is later compressed into batches.
     incoming_queue: Mutex<VecDeque<Arc<EnqueuedInvocation>>>, // from FcfsGpuQueue
 }
-
+#[allow(unused)]
 impl DynBatchGpuQueue {
     pub fn new(cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
         let svc = Arc::new(DynBatchGpuQueue {
@@ -84,7 +85,7 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
     /// 1. When a batch is popped/executed.
     /// 2. When a new item is inserted, and we are under compress_window limit.
     /// Function insertion times will be important for stable sorting?
-    // fn queue_compress(&self) -> () {
+    // fn queue_compress(&self) {
     //     // New items at head of invocation queue. Read the first compress_window batches (of 1) and create the batched list.
     //     let mut queue = self.incoming_queue.lock();
     //     for _ in [..self.compress_window] {

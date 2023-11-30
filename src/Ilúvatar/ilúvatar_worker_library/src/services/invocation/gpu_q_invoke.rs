@@ -28,7 +28,7 @@ use std::{
 };
 use time::{Instant, OffsetDateTime};
 use tokio::sync::Notify;
-use tracing::{debug, error, warn, info};
+use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
@@ -425,7 +425,7 @@ impl DeviceQueue for GpuQueueingInvoker {
         self.running.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    fn WarmHitP(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64 {
+    fn warm_hit_probability(&self, _reg: &Arc<RegisteredFunction>, _iat: f64) -> f64 {
         0.5 //TODO!
     }
 }

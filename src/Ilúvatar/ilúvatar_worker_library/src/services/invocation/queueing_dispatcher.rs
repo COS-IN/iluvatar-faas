@@ -34,7 +34,7 @@ pub struct PolymDispatchCtx {
     /// fn -> cpu_wt, gpu_wt , based on locality and speedup considerations.
     per_fn_wts: HashMap<String, (f64, f64)>,
     /// Most recent fn->device placement for each fn
-    prev_dispatch: HashMap<String, String>,
+    prev_dispatch: HashMap<String, ComputeEnum>,
     /// Previous dispatch of the function to CPU
     cpu_prev_t: HashMap<String, OffsetDateTime>,
     /// Previous dispatch of the function to GPU
@@ -147,7 +147,7 @@ impl QueueingDispatcher {
         cpu: &Arc<CpuResourceTracker>,
         gpu: &Option<Arc<GpuResourceTracker>>,
     ) -> Result<Arc<dyn DeviceQueue>> {
-        match invocation_config.queues.get(&ComputeEnum::gpu).as_deref() {
+        match invocation_config.queues.get(&ComputeEnum::gpu) {
             Some(q) => {
                 if q == "serial" {
                     Ok(GpuQueueingInvoker::new(
@@ -280,32 +280,32 @@ impl QueueingDispatcher {
 
     // Ideally should be in the ctx struct, but mutability?
     /// Should be in its struct, but mutable borrow etc
-    fn select_device_for_fn(&self, fid: String, device: String) -> () {
+    fn select_device_for_fn(&self, fid: String, device: ComputeEnum) {
         let mut d = self.dispatch_state.write();
 
         d.total_dispatch += 1;
-        d.prev_dispatch.insert(fid.clone(), device.clone());
+        d.prev_dispatch.insert(fid.clone(), device);
 
-        match device.as_str() {
-            "cpu" => {
+        match device {
+            ComputeEnum::cpu => {
                 d.n_cpu += 1;
                 d.cpu_prev_t.insert(fid.clone(), OffsetDateTime::now_utc());
             }
-            "gpu" => {
+            ComputeEnum::gpu => {
                 d.n_gpu += 1;
                 d.gpu_prev_t.insert(fid.clone(), OffsetDateTime::now_utc());
             }
-            &_ => (),
+            _ => todo!(),
         }
     }
 
     /// Given two weights, return 0 or 1 probabilistically
     fn proportional_selection(&self, wa: f64, wb: f64) -> i32 {
-        let mut rng = rand::thread_rng();
+        // let mut rng = rand::thread_rng();
         let wt = wa + wb;
         let wa = wa / wt;
         // let wb = wb / wt;
-        let r = rng.gen_range(0.0..1.0);
+        let r = rand::thread_rng().gen_range(0.0..1.0);
         if r > wa {
             return 1;
         }
@@ -331,8 +331,8 @@ impl QueueingDispatcher {
 
         let fid = reg.fqdn.as_str(); //function name or fqdn?
 
-        let cpu_t = self.cmap.avg_cpu_e2e_t(&fid) as f64; // supposed to running average?
-        let gpu_t = self.cmap.avg_gpu_e2e_t(&fid) as f64;
+        let cpu_t = self.cmap.avg_cpu_e2e_t(fid); // supposed to running average?
+        let gpu_t = self.cmap.avg_gpu_e2e_t(fid);
 
         let total_dispatch = self.dispatch_state.read().total_dispatch as f64;
         let n_cpu = self.dispatch_state.read().n_cpu as f64;
@@ -344,19 +344,18 @@ impl QueueingDispatcher {
         let cpu_wt = cpu_t + cpu_ucb;
         let gpu_wt = gpu_t + gpu_ucb;
 
-        let device_wts = HashMap::from([("cpu", cpu_wt), ("gpu", gpu_wt)]);
+        let device_wts = HashMap::from([(ComputeEnum::cpu, cpu_wt), (ComputeEnum::gpu, gpu_wt)]);
 
-        let min_val_pair = device_wts.iter().min_by(|(_, a), (_, b)| a.partial_cmp(&b).unwrap());
+        let min_val_pair = device_wts.iter().min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
 
         // pick smallest of the two
-        let selected_device = min_val_pair.unwrap().0.to_string();
+        let selected_device = min_val_pair.unwrap().0;
 
-        self.select_device_for_fn(fid.to_string(), selected_device.clone());
+        self.select_device_for_fn(fid.to_string(), *selected_device);
 
-        if selected_device == "gpu" {
-            self.gpu_queue.enqueue_item(enqueue)
-        } else {
-            self.cpu_queue.enqueue_item(enqueue)
+        match selected_device {
+            ComputeEnum::gpu => self.gpu_queue.enqueue_item(enqueue),
+            _ => self.cpu_queue.enqueue_item(enqueue),
         }
     }
 
@@ -377,25 +376,22 @@ impl QueueingDispatcher {
         }
 
         let eta = 0.3; // learning rate
-        // let selected_device: String;
         let fid = reg.fqdn.as_str();
 
         let b = self.dispatch_state.read();
-        let prev_wts = b.per_fn_wts.get(fid.clone()).unwrap_or(&(1.0 as f64, 1.0 as f64));
+        let prev_wts = b.per_fn_wts.get(fid).unwrap_or(&(1.0, 1.0));
 
         let b2 = self.dispatch_state.read();
-        let prev_dispatch = b2.prev_dispatch.get(fid).unwrap();
-
-        //_or(&"cpu".to_string());
+        let prev_dispatch = b2.prev_dispatch.get(fid).unwrap_or(&ComputeEnum::cpu);
 
         // Apply the reward/cost
-        let t_other = match prev_dispatch.as_str() {
-            "gpu" => self.cmap.latest_gpu_e2e_t(&fid),
-            _ => self.cmap.latest_cpu_e2e_t(&fid),
+        let t_other = match prev_dispatch {
+            ComputeEnum::gpu => self.cmap.latest_gpu_e2e_t(fid),
+            _ => self.cmap.latest_cpu_e2e_t(fid),
         };
 
         // global minimum best ever recorded
-        let tmin = self.cmap.get_best_time(&fid);
+        let tmin = self.cmap.get_best_time(fid);
 
         let cost = 1.0 - (eta * (t_other - tmin) / f64::min(t_other, 0.1));
         // Shrinking dartboard locality
@@ -405,14 +401,14 @@ impl QueueingDispatcher {
         let use_prev = r < cost;
 
         // update weight?
-        let new_wt = match prev_dispatch.as_str() {
-            "gpu" => prev_wts.1 * cost,
+        let new_wt = match prev_dispatch {
+            ComputeEnum::gpu => prev_wts.1 * cost,
             _ => prev_wts.0 * cost,
         };
 
         // update the weight tuple
-        let new_wts = match prev_dispatch.as_str() {
-            "gpu" => (prev_wts.0, new_wt),
+        let new_wts = match prev_dispatch {
+            ComputeEnum::gpu => (prev_wts.0, new_wt),
             _ => (new_wt, prev_wts.1),
         };
 
@@ -420,21 +416,21 @@ impl QueueingDispatcher {
         let selected = self.proportional_selection(new_wts.0, new_wts.1);
 
         let mut selected_device = match selected {
-            1 => "gpu",
-            _ => "cpu",
+            1 => ComputeEnum::gpu,
+            _ => ComputeEnum::cpu,
         };
 
         if use_prev {
-            selected_device = prev_dispatch.as_str();
+            selected_device = *prev_dispatch;
         }
 
-        self.select_device_for_fn(fid.to_string(), selected_device.to_string());
+        self.select_device_for_fn(fid.to_string(), selected_device);
         // update the weights
         let mut d = self.dispatch_state.write();
         d.per_fn_wts.insert(fid.to_string(), new_wts);
 
-        match selected_device.clone() {
-            "gpu" => self.gpu_queue.enqueue_item(enqueue),
+        match selected_device {
+            ComputeEnum::gpu => self.gpu_queue.enqueue_item(enqueue),
             _ => self.cpu_queue.enqueue_item(enqueue),
         }
     }
@@ -473,8 +469,8 @@ impl QueueingDispatcher {
             _ => 10000.0, //infinity essentially
         };
 
-        let pgpu = self.gpu_queue.WarmHitP(&reg, iat_gpu);
-        let pcpu = self.cpu_queue.WarmHitP(&reg, iat_cpu);
+        let pgpu = self.gpu_queue.warm_hit_probability(&reg, iat_gpu);
+        let pcpu = self.cpu_queue.warm_hit_probability(&reg, iat_cpu);
 
         let rgpu = pgpu / egpu;
         let rcpu = pcpu / ecpu;
@@ -483,7 +479,7 @@ impl QueueingDispatcher {
         let n = self.proportional_selection(rcpu, rgpu);
         match n {
             0 => self.cpu_queue.enqueue_item(enqueue),
-            _ => self.gpu_queue.enqueue_item(enqueue)
+            _ => self.gpu_queue.enqueue_item(enqueue),
         }
     }
 

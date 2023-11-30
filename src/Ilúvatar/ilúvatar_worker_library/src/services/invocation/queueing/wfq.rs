@@ -77,7 +77,7 @@ impl WFQueue {
     }
     
     /// EntityQ * num_classes but arranged somehow. 
-    fn mk_wfq_set(num_classes:i32) -> () {
+    fn mk_wfq_set(num_classes:i32) {
 	
     }
 
@@ -87,9 +87,9 @@ impl WFQueue {
     }
 
     /// Function just finished running. Completion call-back. 
-    fn charge_fn(efn: EnqueuedInvocation) -> () {
+    // fn charge_fn(efn: EnqueuedInvocation) {
 
-    }
+    // }
     
 }
 

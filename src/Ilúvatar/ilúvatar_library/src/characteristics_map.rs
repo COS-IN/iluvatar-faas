@@ -1,8 +1,6 @@
 use dashmap::DashMap;
 use ordered_float::OrderedFloat;
 use std::cmp::{min, Ordering};
-use std::f64::NAN;
-use std::num::FpCategory::Nan;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error};
@@ -83,7 +81,6 @@ impl AgExponential {
 
 ////////////////////////////////////////////////////////////////
 /// CharacteristicsMap Implementation  
-
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Characteristics {
     /// Running avg of _all_ times on CPU for invocations
@@ -127,6 +124,7 @@ pub enum Characteristics {
 }
 
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc.
+/// TODO: make get/set functions for Characteristics auto-generated
 #[derive(Debug)]
 pub struct CharacteristicsMap {
     /// Most recent fn->{char->value}
@@ -151,13 +149,9 @@ impl CharacteristicsMap {
     }
 
     /// Set most recent
-    pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
-        self.add_agg(fqdn.clone(), chr.clone(), value.clone());
-        self.add_min(fqdn.clone(), chr.clone(), value.clone());
-
-        //if use_accum {
-        //    return self.add_agg(fqdn, chr, value);
-        //}
+    pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, _use_accum: bool) -> &Self {
+        self.add_agg(fqdn.clone(), chr, value.clone());
+        self.add_min(fqdn.clone(), chr, value.clone());
 
         let e0 = self.map.get_mut(fqdn);
 
@@ -467,7 +461,7 @@ impl CharacteristicsMap {
     }
 
     /// Since all completion call-backs point to here, update the dispatch weights as per MWUA?
-    pub fn update_dispatch_wts(&self) -> () {}
+    pub fn update_dispatch_wts(&self) {}
 
     pub fn clone_value(&self, value: &Values) -> Values {
         match value {

@@ -367,7 +367,7 @@ mod prewarm {
             EventualItem::Now(n) => n,
         }
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-        let cast_container = cast::<ContainerdContainer>(&c.container, &TEST_TID).unwrap();
+        let cast_container = cast::<ContainerdContainer>(&c.container).unwrap();
         assert!(cast_container.task.running);
         assert_eq!(c.container.function().function_name, "test");
         assert_eq!(c.container.function().function_version, "test");
@@ -390,7 +390,7 @@ mod prewarm {
             EventualItem::Now(n) => n,
         }
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-        let cast_container = cast::<DockerContainer>(&c.container, &TEST_TID).unwrap();
+        let cast_container = cast::<DockerContainer>(&c.container).unwrap();
         assert_eq!(cast_container.function.function_name, "test");
         assert_eq!(cast_container.function.function_version, "test");
         assert_eq!(c.container.container_type(), Isolation::DOCKER);
@@ -425,7 +425,7 @@ mod prewarm {
             EventualItem::Now(n) => n,
         }
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-        let cast_container = match cast::<ContainerdContainer>(&c.container, &TEST_TID) {
+        let cast_container = match cast::<ContainerdContainer>(&c.container) {
             Ok(c) => c,
             Err(e) => panic!("{:?}", e),
         };
@@ -520,7 +520,7 @@ mod get_container {
         }
         .expect("should have gotten prewarmed container");
 
-        let cast_container = cast::<ContainerdContainer>(&c2.container, &TEST_TID).unwrap();
+        let cast_container = cast::<ContainerdContainer>(&c2.container).unwrap();
 
         let client = reqwest::Client::new();
         let result = client
@@ -557,7 +557,7 @@ mod remove_container {
         drop(c1);
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-        let cast_container = cast::<ContainerdContainer>(&c1_cont, &TEST_TID).unwrap();
+        let cast_container = cast::<ContainerdContainer>(&c1_cont).unwrap();
 
         let client = reqwest::Client::new();
         let result = client

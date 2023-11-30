@@ -61,7 +61,7 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
 
 /// Cast a container pointer to a concrete type
 /// ```let contd: &ContainerdContainer = cast::<ContainerdContainer>(&container, tid)```
-pub fn cast<'a, T>(c: &'a Container) -> Result<&'a T>
+pub fn cast<T>(c: &Container) -> Result<&T>
 where
     T: ContainerT + ToAny,
 {

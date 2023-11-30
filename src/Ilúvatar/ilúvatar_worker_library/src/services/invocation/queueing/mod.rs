@@ -110,7 +110,7 @@ pub trait DeviceQueue: Send + Sync {
     fn running(&self) -> u32;
 
     /// Warm hit probability for the function. Needs most recent IAT
-    fn WarmHitP(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64;
+    fn warm_hit_probability(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64;
 }
 
 #[derive(Debug)]
