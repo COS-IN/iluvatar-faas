@@ -150,8 +150,8 @@ impl CharacteristicsMap {
 
     /// Set most recent
     pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, _use_accum: bool) -> &Self {
-        self.add_agg(fqdn.clone(), chr, value.clone());
-        self.add_min(fqdn.clone(), chr, value.clone());
+        self.add_agg(fqdn, chr, value.clone());
+        self.add_min(fqdn, chr, value.clone());
 
         let e0 = self.map.get_mut(fqdn);
 
