@@ -121,7 +121,10 @@ impl ContainerManager {
         loop {
             let to_remove = match rx.recv().await {
                 Some(c) => c,
-                None => return,
+                None => {
+                    error!(tid=%tid, "failed to get service");
+                    return;
+                }
             };
             let cont_lifecycle = match self.cont_isolations.get(&to_remove.container_type()) {
                 Some(c) => c,
@@ -339,6 +342,13 @@ impl ContainerManager {
     pub fn return_container(&self, container: &Container, tid: &TransactionId) {
         if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
             (*cnt).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        if !container.is_healthy() {
+            warn!(tid=%tid, container_id=%container.container_id(), "Returned container is unhealthy, sending for removal");
+            if let Err(e) = self.unhealthy_removal_rx.send(container.clone()) {
+                error!(tid=%tid, error=%e, "Failed to send container for removal on return");
+            }
+            return;
         }
         let resource_pool = match self.get_resource_pool(container.compute_type()) {
             Ok(r) => r,
@@ -566,6 +576,7 @@ impl ContainerManager {
         };
         *self.used_mem_mb.write() -= container.get_curr_mem_usage();
         self.return_gpu(container.device_resource().clone(), tid);
+        container.remove_drop(tid);
         r
     }
 
@@ -584,6 +595,7 @@ impl ContainerManager {
     /// If any are free to be removed
     async fn reclaim_gpu(&self, tid: &TransactionId) -> Result<()> {
         // TODO: Eviction ordering, have list sorted
+        let mut evicted = false;
         let mut killable = self.gpu_containers.idle_containers.iter();
         while let Some(chosen) = killable.pop() {
             if self
@@ -593,8 +605,12 @@ impl ContainerManager {
                 .is_some()
             {
                 self.remove_container(chosen, tid).await?;
+                evicted = true;
                 break;
             }
+        }
+        if !evicted {
+            warn!(tid=%tid, "tried to evict a container for a GPU, but was unable");
         }
         Ok(())
     }

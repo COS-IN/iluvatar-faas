@@ -7,7 +7,7 @@ use anyhow::Result;
 use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
-    types::{Compute, Isolation, MemSizeMb},
+    types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -213,6 +213,12 @@ impl ContainerT for SimulatorContainer {
     }
     fn device_resource(&self) -> &Option<Arc<GPU>> {
         &self.device
+    }
+    fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
+        todo!();
+    }
+    fn remove_drop(&self, _tid: &TransactionId) {
+        todo!();
     }
 }
 

@@ -46,6 +46,32 @@ pub struct GpuStatus {
     pub memory_total: u32,
     /// Total memory allocated by active contexts.
     pub memory_used: u32,
+    /// Instant GPU compute utilization, this field is not in the CSV, so reader must be flexible to it being missing.
+    /// Percent of time over the past sample period during which one or more kernels was executing on the GPU.
+    /// The sample period may be between 1 second and 1/6 second depending on the product.
+    pub instant_utilization_gpu: f64,
+    /// A moving average of GPU compute utilization
+    /// Percent of time over the past sample period during which one or more kernels was executing on the GPU.
+    /// The sample period may be between 1 second and 1/6 second depending on the product.
+    pub utilization_gpu: f64,
+    /// Percent of time over the past sample period during which global (device) memory was being read or written.
+    /// The sample period may be between 1 second and 1/6 second depending on the product.
+    pub utilization_memory: f64,
+    /// The last measured power draw for the entire board, in watts. Only available if power management is supported. This reading is accurate to within +/- 5 watts.
+    pub power_draw: f64,
+    /// The software power limit in watts. Set by software like nvidia-smi.
+    pub power_limit: f64,
+}
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
+pub struct GpuParseStatus {
+    pub gpu_uuid: GpuUuid,
+    /// The current performance state for the GPU. States range from P0 (maximum performance) to P12 (minimum performance).
+    pub pstate: Pstate,
+    /// Total installed GPU memory.
+    pub memory_total: u32,
+    /// Total memory allocated by active contexts.
+    pub memory_used: u32,
+    /// A moving average of GPU compute utilization
     /// Percent of time over the past sample period during which one or more kernels was executing on the GPU.
     /// The sample period may be between 1 second and 1/6 second depending on the product.
     pub utilization_gpu: f64,
@@ -58,9 +84,10 @@ pub struct GpuStatus {
     pub power_limit: f64,
 }
 impl GpuStatus {
-    pub fn update(&mut self, new_status: GpuStatus) {
+    pub fn update(&mut self, new_status: GpuParseStatus) {
         let alpha = 0.6;
         self.pstate = new_status.pstate;
+        self.instant_utilization_gpu = new_status.utilization_gpu;
         self.memory_used = Self::moving_avg_u(alpha, self.memory_used, new_status.memory_used);
         self.utilization_gpu = Self::moving_avg_f(alpha, self.utilization_gpu, new_status.utilization_gpu);
         self.utilization_memory = Self::moving_avg_f(alpha, self.utilization_memory, new_status.utilization_memory);
@@ -71,6 +98,21 @@ impl GpuStatus {
     }
     fn moving_avg_u(alpha: f64, old: u32, new: u32) -> u32 {
         ((new as f64 * alpha) + (old as f64 * (1.0 - alpha))) as u32
+    }
+}
+impl Into<GpuStatus> for GpuParseStatus {
+    fn into(self) -> GpuStatus {
+      GpuStatus {
+        gpu_uuid: self.gpu_uuid,
+        pstate: self.pstate,
+        memory_total: self.memory_total,
+        memory_used: self.memory_used,
+        instant_utilization_gpu: self.utilization_gpu,
+        utilization_gpu: self.utilization_gpu,
+        utilization_memory: self.utilization_memory,
+        power_draw: self.power_draw,
+        power_limit: self.power_limit,
+    }
     }
 }
 
@@ -418,11 +460,11 @@ impl GpuResourceTracker {
             .delimiter(b',')
             .trim(csv::Trim::All)
             .from_reader(nvidia.stdout.as_slice());
-        for record in rdr.deserialize::<GpuStatus>() {
+        for record in rdr.deserialize::<GpuParseStatus>() {
             match record {
                 Ok(rec) => {
                     if is_empty {
-                        ret.push(rec);
+                        ret.push(rec.into());
                     } else {
                         let mut lck = svc.status_info.write();
                         for stat in &mut *lck {
@@ -433,7 +475,10 @@ impl GpuResourceTracker {
                         }
                     }
                 }
-                Err(e) => error!(tid=%tid, error=%e, "Failed to deserialized GPU record from nvidia-smi"),
+                Err(e) => {
+                  let stdout = String::from_utf8_lossy(&nvidia.stdout);
+                  error!(tid=%tid, error=%e, stdout=%stdout, "Failed to deserialized GPU record from nvidia-smi")
+                },
             }
         }
         if is_empty {

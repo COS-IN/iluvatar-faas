@@ -13,7 +13,7 @@ use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::threading::{tokio_runtime, EventualItem};
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::Compute;
+use iluvatar_library::types::{Compute, DroppableToken};
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -316,12 +316,12 @@ impl MQFQ {
     /// Check the invocation queue, running things when there are sufficient resources
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
-        while let Some((next_item, token)) = self.dispatch(&tid) {
+        while let Some((next_item, gpu_token)) = self.dispatch(&tid) {
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
-            if let Some(permit) = self.acquire_resources_to_run(&next_item.invok.registration, &tid) {
+            if let Some(cpu_permit) = self.acquire_resources_to_run(&next_item.invok.registration, &tid) {
                 let svc = self.clone();
                 tokio::spawn(async move {
-                    svc.invocation_worker_thread(next_item, permit, token).await;
+                    svc.invocation_worker_thread(next_item, cpu_permit, gpu_token).await;
                 });
             } else {
                 debug!(tid=%tid, fqdn=%next_item.invok.registration.fqdn, "Insufficient resources to run item");
@@ -338,7 +338,7 @@ impl MQFQ {
         &self,
         item: Arc<MQRequest>,
         permit: Box<dyn Drop + Send>,
-        token: OwnedSemaphorePermit,
+        token: DroppableToken,
     ) {
         if item.invok.lock() {
             match self
@@ -347,6 +347,7 @@ impl MQFQ {
                     &item.invok.json_args,
                     &item.invok.tid,
                     item.invok.queue_insert_time,
+                    token,
                 )
                 .await
             {
@@ -357,7 +358,6 @@ impl MQFQ {
             };
         }
         drop(permit);
-        drop(token);
         self.signal.notify_waiters();
     }
 
@@ -386,6 +386,7 @@ impl MQFQ {
         json_args: &'a str,
         tid: &'a TransactionId,
         queue_insert_time: OffsetDateTime,
+        gpu_token: DroppableToken,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
         debug!(tid=%tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
@@ -396,7 +397,7 @@ impl MQFQ {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => n?,
         };
-        let (data, duration, compute_type, state) = invoke_on_container(
+        match invoke_on_container(
             reg,
             json_args,
             tid,
@@ -407,10 +408,21 @@ impl MQFQ {
             &self.cmap,
             &self.clock,
         )
-        .await?;
-        drop(ctr_lock);
-        self.signal.notify_waiters();
-        Ok((data, duration, compute_type, state))
+        .await
+        {
+            Ok(c) => Ok(c),
+            Err(e) => {
+                debug!(tid=%tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
+                if !ctr_lock.container.is_healthy() {
+                    debug!(tid=%tid, container_id=%ctr_lock.container.container_id(), "Adding gpu token to drop_on_remove for container");
+                    // container will be removed, but holds onto GPU until deleted
+                    ctr_lock.container.add_drop_on_remove(gpu_token, tid);
+                }
+                Err(e)
+            }
+        }
+        // ctr_lock.container
+        // Ok((data, duration, compute_type, state))
     }
 
     /// Returns an owned permit if there are sufficient resources to run a function
@@ -497,7 +509,7 @@ impl MQFQ {
     }
 
     /// Main
-    fn dispatch(&self, tid: &TransactionId) -> Option<(Arc<MQRequest>, OwnedSemaphorePermit)> {
+    fn dispatch(&self, tid: &TransactionId) -> Option<(Arc<MQRequest>, DroppableToken)> {
         // Filter by active queues, and select with lowest start time.
         // How to avoid hoarding of the tokens? Want round-robin.
         let vitual_time = *self.vitual_time.read();
@@ -510,16 +522,11 @@ impl MQFQ {
         }
 
         if let Some(mut chosen_q) = self.next_flow(tid) {
-            // let item = chosen_q.pop_flow(vitual_time);
-            // drop(chosen_q);
             if let Some(i) = chosen_q.pop_flow(vitual_time) {
-                // Some(i) => {
                 let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
                 *self.vitual_time.write() = updated_vitual_time;
                 chosen_q.update_dispatched(updated_vitual_time);
-                return Some((i, token.unwrap()));
-                // }
-                // None => None,
+                return Some((i, Box::new(token.unwrap())));
             } else {
                 debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "empty flow");
             }
@@ -527,12 +534,6 @@ impl MQFQ {
             debug!(tid=%tid, qlen=qlen, "no chosen flow");
         }
         None
-        // match self.next_flow() {
-        //     None => None,
-        //     Some(mut chosen_q) => {
-        //         // let mut chosen_q = cq;
-        //     }
-        // }
         // Update MQFQ State
     }
 

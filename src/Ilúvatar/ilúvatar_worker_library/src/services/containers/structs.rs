@@ -5,7 +5,7 @@ use iluvatar_library::{
     bail_error,
     logging::timezone,
     transaction::TransactionId,
-    types::{Compute, Isolation, MemSizeMb},
+    types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
 use std::{
     sync::Arc,
@@ -18,6 +18,7 @@ use time::{
 use tracing::debug;
 
 #[tonic::async_trait]
+#[allow(dyn_drop)]
 pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
     /// Invoke the function within the container, passing the json args to it
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)>;
@@ -57,6 +58,10 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
     async fn cooldown_actions(&self, _tid: &TransactionId) -> Result<()> {
         Ok(())
     }
+    /// Add an item to be 'held' by the container until it's removal by the container manager
+    fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId);
+    /// Release all held virtual resources, called on container removal
+    fn remove_drop(&self, tid: &TransactionId);
 }
 
 /// Cast a container pointer to a concrete type

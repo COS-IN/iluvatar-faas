@@ -341,7 +341,7 @@ impl ContainerIsolationService for DockerIsolation {
             match self.get_logs(container.container_id(), tid) {
                 Ok((_out, err)) => {
                     // stderr was written to, gunicorn server is either up or crashed
-                    if err.contains("Listening at") {
+                    if err.contains("Booting worker with pid") {
                         break;
                     }
                 }

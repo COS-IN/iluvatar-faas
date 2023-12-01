@@ -222,6 +222,12 @@ impl FunctionInvocationTimings {
     }
 }
 
+#[allow(drop_bounds)]
+pub trait DroppableMovableTrait: Drop + Send + std::fmt::Debug {}
+impl DroppableMovableTrait for tokio::sync::OwnedSemaphorePermit {}
+#[allow(drop_bounds, dyn_drop)]
+pub type DroppableToken = Box<dyn DroppableMovableTrait>;
+
 #[cfg(test)]
 mod types_tests {
     use super::*;
