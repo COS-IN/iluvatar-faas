@@ -121,10 +121,10 @@ impl HttpContainerClient {
     }
 
     fn check_driver_status(&self, tid: &TransactionId, text: &str) -> Result<()> {
-        match serde_json::from_str::<HashMap<String, String>>(text) {
+        match serde_json::from_str::<HashMap<String, i32>>(text) {
             Ok(p) => match p.get("Status") {
                 Some(code) => {
-                    if code == "0" {
+                    if code == &0 {
                         return Ok(());
                     }
                     bail_error!(tid=%tid, code=code, "Return had non-zero status code")

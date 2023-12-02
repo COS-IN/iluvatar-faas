@@ -103,7 +103,6 @@ mod container_available {
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
         test_invoke(&invoker, &func, sim_args().unwrap().as_str(), &"invoke1".to_string()).await;
-
         assert_eq!(cm.container_available(&func.fqdn, Compute::GPU), ContainerState::Warm);
     }
 

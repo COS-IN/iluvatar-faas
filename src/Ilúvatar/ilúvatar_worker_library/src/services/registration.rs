@@ -116,7 +116,7 @@ impl RegistrationService {
 
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         if self.reg_map.read().contains_key(&fqdn) {
-            anyhow::bail!(format!("Function {} is already registered!", fqdn));
+            anyhow::bail!("Function {} is already registered!", fqdn);
         }
 
         let mut rf = RegisteredFunction {

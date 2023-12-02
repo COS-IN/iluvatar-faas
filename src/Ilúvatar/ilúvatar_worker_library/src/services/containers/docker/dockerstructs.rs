@@ -155,7 +155,7 @@ impl ContainerT for DockerContainer {
     }
     fn remove_drop(&self, tid: &TransactionId) {
         let mut lck = self.drop_on_remove.lock();
-        let to_drop = std::mem::replace(&mut *lck, vec![]);
+        let to_drop = std::mem::take(&mut *lck);
         debug!(tid=%tid, container_id=%self.container_id(), num_tokens=to_drop.len(), "Droppoing tokens");
         for i in to_drop.into_iter() {
             drop(i);

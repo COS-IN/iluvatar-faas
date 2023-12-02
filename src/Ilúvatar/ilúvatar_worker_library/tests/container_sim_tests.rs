@@ -44,11 +44,31 @@ fn gpu_reg() -> RegisterRequest {
 }
 
 fn build_gpu_env() -> Vec<(String, String)> {
-    vec![("container_resources.gpu_resource.count".to_string(), "1".to_string())]
+    vec![
+        ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
+        (
+            "container_resources.gpu_resource.memory_mb".to_string(),
+            "2048".to_string(),
+        ),
+        (
+            "container_resources.gpu_resource.funcs_per_device".to_string(),
+            "1".to_string(),
+        ),
+    ]
 }
 
 fn two_gpu_env() -> Vec<(String, String)> {
-    vec![("container_resources.gpu_resource.count".to_string(), "2".to_string())]
+    vec![
+        ("container_resources.gpu_resource.count".to_string(), "2".to_string()),
+        (
+            "container_resources.gpu_resource.memory_mb".to_string(),
+            "2048".to_string(),
+        ),
+        (
+            "container_resources.gpu_resource.funcs_per_device".to_string(),
+            "1".to_string(),
+        ),
+    ]
 }
 
 mod compute_iso_matching {
@@ -173,8 +193,7 @@ mod compute_iso_matching {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn no_gpu_fails_register() {
-        let env = vec![("container_resources.gpu_resource.count".to_string(), "0".to_string())];
-        let (_log, _cfg, _cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -1268,6 +1287,14 @@ mod enqueueing_tests {
     async fn cold_faster_gpu_path_chosen() {
         let env = vec![
             ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
+            (
+                "container_resources.gpu_resource.memory_mb".to_string(),
+                "2048".to_string(),
+            ),
+            (
+                "container_resources.gpu_resource.funcs_per_device".to_string(),
+                "1".to_string(),
+            ),
             ("container_resources.cpu_resource.count".to_string(), "1".to_string()),
             (
                 "container_resources.cpu_resource.max_oversubscribe".to_string(),
@@ -1345,12 +1372,21 @@ mod enqueueing_tests {
     async fn prewarm_faster_gpu_path_chosen() {
         let env = vec![
             ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
+            (
+                "container_resources.gpu_resource.memory_mb".to_string(),
+                "2048".to_string(),
+            ),
+            (
+                "container_resources.gpu_resource.funcs_per_device".to_string(),
+                "1".to_string(),
+            ),
             ("container_resources.cpu_resource.count".to_string(), "1".to_string()),
             (
                 "container_resources.cpu_resource.max_oversubscribe".to_string(),
                 "1".to_string(),
             ),
             ("invocation.enqueueing_policy".to_string(), "EstCompTime".to_string()),
+            ("invocation.queues.gpu".to_string(), "serial".to_string()),
         ];
         let (_log, _cfg, cm, invoker, reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
         let req = RegisterRequest {

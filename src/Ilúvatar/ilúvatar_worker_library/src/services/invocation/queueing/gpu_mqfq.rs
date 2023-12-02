@@ -548,10 +548,12 @@ impl DeviceQueue for MQFQ {
         per_flow_q_len.sum::<usize>()
     }
 
-    fn est_completion_time(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
+    fn est_completion_time(&self, _reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         // sum_q (q_F-q_S) / max_in_flight
         let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
         let total_wait: f64 = per_flow_wait_times.sum();
+        debug!(tid=%tid, qt=total_wait, runtime=0.0, "GPU estimated completion time of item");
+
         total_wait / self.gpu.outstanding() as f64
     }
 

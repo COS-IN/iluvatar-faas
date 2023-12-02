@@ -508,7 +508,10 @@ mod charmap {
         println!("      : looking up the new element");
         println!(
             "      :   {:?}",
-            unwrap_val_dur(&m.lookup("video_processing.0.0.1", &Characteristics::ExecTime).unwrap())
+            unwrap_val_dur(
+                &m.lookup_agg("video_processing.0.0.1", &Characteristics::ExecTime)
+                    .unwrap()
+            )
         );
         println!("      : Adding three more");
         m.add(
@@ -532,13 +535,16 @@ mod charmap {
         println!("      : dumping whole map");
         m.dump();
         assert_eq!(
-            unwrap_val_dur(&m.lookup("video_processing.0.0.1", &Characteristics::ExecTime).unwrap()),
+            unwrap_val_dur(
+                &m.lookup_agg("video_processing.0.0.1", &Characteristics::ExecTime)
+                    .unwrap()
+            ),
             Duration::from_secs_f64(4.808000049)
         );
     }
 
     #[test]
-    fn lookup() {
+    fn lookup_agg() {
         let m = CharacteristicsMap::new(AgExponential::new(0.6));
 
         let push_video = || {
@@ -676,7 +682,10 @@ mod charmap {
         println!("      : dumping whole map");
         m.dump();
         assert_eq!(
-            unwrap_val_f64(&m.lookup("video_processing.0.0.1", &Characteristics::ExecTime).unwrap()),
+            unwrap_val_f64(
+                &m.lookup_agg("video_processing.0.0.1", &Characteristics::ExecTime)
+                    .unwrap()
+            ),
             0.48719999999999997
         );
     }
@@ -690,7 +699,7 @@ mod charmap {
         let fjd_011 = "json_dump.0.1.1".to_string();
 
         let verify_iat_lookup = |fname: &str, val_expc: f64| {
-            let val = m.lookup(fname, &Characteristics::IAT).unwrap_or(Values::F64(0.0));
+            let val = m.lookup_agg(fname, &Characteristics::IAT).unwrap_or(Values::F64(0.0));
             assert!(approx_eq!(f64, unwrap_val_f64(&val), val_expc, epsilon = 0.005));
             // assert_eq!( unwrap_val_f64( &val ), val_expc );
         };

@@ -100,19 +100,19 @@ impl GpuStatus {
         ((new as f64 * alpha) + (old as f64 * (1.0 - alpha))) as u32
     }
 }
-impl Into<GpuStatus> for GpuParseStatus {
-    fn into(self) -> GpuStatus {
-      GpuStatus {
-        gpu_uuid: self.gpu_uuid,
-        pstate: self.pstate,
-        memory_total: self.memory_total,
-        memory_used: self.memory_used,
-        instant_utilization_gpu: self.utilization_gpu,
-        utilization_gpu: self.utilization_gpu,
-        utilization_memory: self.utilization_memory,
-        power_draw: self.power_draw,
-        power_limit: self.power_limit,
-    }
+impl From<GpuParseStatus> for GpuStatus {
+    fn from(val: GpuParseStatus) -> Self {
+        GpuStatus {
+            gpu_uuid: val.gpu_uuid,
+            pstate: val.pstate,
+            memory_total: val.memory_total,
+            memory_used: val.memory_used,
+            instant_utilization_gpu: val.utilization_gpu,
+            utilization_gpu: val.utilization_gpu,
+            utilization_memory: val.utilization_memory,
+            power_draw: val.power_draw,
+            power_limit: val.power_limit,
+        }
     }
 }
 
@@ -193,6 +193,7 @@ lazy_static::lazy_static! {
 /// For an invocation to use the GPU, it must have isolation over that resource by acquiring it via [GpuResourceTracker::try_acquire_resource]
 pub struct GpuResourceTracker {
     gpus: RwLock<Vec<Arc<GPU>>>,
+    total_gpu_structs: u32,
     concurrency_semaphore: Arc<Semaphore>,
     gpu_passout_tracker: CompletionTimeTracker,
     gpu_passout_times: RwLock<HashMap<u32, OffsetDateTime>>,
@@ -229,6 +230,7 @@ impl GpuResourceTracker {
 
             let svc = Arc::new(GpuResourceTracker {
                 concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid),
+                total_gpu_structs: gpus.len() as u32,
                 gpus: RwLock::new(gpus),
                 docker: docker.clone(),
                 _handle: handle,
@@ -399,7 +401,7 @@ impl GpuResourceTracker {
         Err(tokio::sync::TryAcquireError::NoPermits)
     }
     pub fn outstanding(&self) -> u32 {
-        ((*self.gpus.read()).len() - self.concurrency_semaphore.available_permits()) as u32
+        self.total_gpu_structs - self.concurrency_semaphore.available_permits() as u32
     }
 
     /// Acquire a GPU so it can be attached to a container
@@ -476,9 +478,9 @@ impl GpuResourceTracker {
                     }
                 }
                 Err(e) => {
-                  let stdout = String::from_utf8_lossy(&nvidia.stdout);
-                  error!(tid=%tid, error=%e, stdout=%stdout, "Failed to deserialized GPU record from nvidia-smi")
-                },
+                    let stdout = String::from_utf8_lossy(&nvidia.stdout);
+                    error!(tid=%tid, error=%e, stdout=%stdout, "Failed to deserialized GPU record from nvidia-smi")
+                }
             }
         }
         if is_empty {
