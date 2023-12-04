@@ -350,7 +350,7 @@ impl GpuResourceTracker {
           "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
           "--format=csv,noheader,nounits",
         ];
-        let nvidia = match execute_cmd_checked("/usr/bin/nvidia-smi", &args, None, &tid) {
+        let nvidia = match execute_cmd_checked("/usr/bin/nvidia-smi", args, None, &tid) {
             Ok(r) => r,
             Err(e) => {
                 error!(tid=%tid, error=%e, "Failed to call nvidia-smi");
