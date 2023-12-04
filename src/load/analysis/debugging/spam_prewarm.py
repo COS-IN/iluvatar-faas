@@ -15,7 +15,7 @@ config = os.path.join(os.environ["HOME"], ".config/Ilúvatar/worker_cli.json")
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--threads", '-t', required=True, help="number of concurrent clients to reach to", type=int)
 argparser.add_argument("--worker", '-w', required=True, help="worker name", type=str)
-argparser.add_argument("--cli", '-c', required=False, help="cli location", default="../../../Ilúvatar/target/release/ilúvatar_worker_cli", type=str)
+argparser.add_argument("--cli", '-c', required=False, help="cli location", default="../../../Ilúvatar/target/release/iluvatar_worker_cli", type=str)
 argparser.add_argument("--config", required=False, help="config location", default=config, type=str)
 argparser.add_argument("--count", required=False, help="config location", default=1, type=int)
 

@@ -16,5 +16,5 @@ Build the worker with full spanning enabled to capture more span events, either 
 After running the worker as long as you want, take the output data and send it to the crate's executable to convert to a flame graph like this.
 
 ```bash
-cat /tmp/ilúvatar/logs/worker.flame | inferno-flamegraph > tracing-flamegraph.svg
+cat /tmp/iluvatar/logs/worker.flame | inferno-flamegraph > tracing-flamegraph.svg
 ```

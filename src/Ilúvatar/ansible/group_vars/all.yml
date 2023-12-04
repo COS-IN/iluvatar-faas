@@ -1,9 +1,9 @@
-ilúvatar_home: "{{ lookup('env', 'ILU_HOME') | default(playbook_dir ~ '/..', true) }}"
+iluvatar_home: "{{ lookup('env', 'ILU_HOME') | default(playbook_dir ~ '/..', true) }}"
 mode: deploy
 target: release
 
 controller:
-  bin_name: "ilúvatar_controller"
+  bin_name: "iluvatar_controller"
   config_name: "controller.json"
   host: "{{ hostvars[ groups['controller']|first ].ansible_host }}"
   port: "{{ controller_port | default(8089) }}"
@@ -11,7 +11,7 @@ controller:
   load_metric: "{{ controller_load_metric | default('loadavg') }}"
 
 worker:
-  bin_name: "ilúvatar_worker"
+  bin_name: "iluvatar_worker"
   config_name: "worker.json"
   port: "{{ worker_port | default(8070) }}"
 

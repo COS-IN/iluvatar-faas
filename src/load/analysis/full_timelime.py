@@ -103,7 +103,7 @@ def span_function(log):
 
 def is_child(parent_log, check_log):
   parent_fn = span_function(parent_log)
-  if short_span_name(parent_log) == "ilúvatar_worker::invoke" and short_span_name(check_log) == "invoker::enqueue_invocation":
+  if short_span_name(parent_log) == "iluvatar_worker::invoke" and short_span_name(check_log) == "invoker::enqueue_invocation":
     # hack because the API and invoker class have a shared function name
     # so that name will be in `enqueue`'s parent spans, but not associated
     return False
@@ -146,7 +146,7 @@ with open(args.log, 'r') as f:
 
     if log["fields"]["message"] == "new":
       targets.add(span_name(log))
-      if span_name(log) == "iluvatar_worker_library::worker_api::ilúvatar_worker::invoke":
+      if span_name(log) == "iluvatar_worker_library::worker_api::iluvatar_worker::invoke":
         invocation_tids.add(tid)
       by_tid_entry[tid].append(log)
     if log["fields"]["message"] == "close":

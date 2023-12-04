@@ -1,0 +1,20 @@
+[package]
+name = "iluvatar_controller"
+description = "A controller to be an entry point to a cluster of workers that primarily load-balances invocations between them."
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+categories.workspace = true
+
+[dependencies]
+actix-web = "4"
+iluvatar_library = { path = "../iluvatar_library" }
+iluvatar_controller_library = { path = "../iluvatar_controller_library" }
+clap = { version = "4.1", features = ["derive"] }
+tracing = "0.1"
+tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util", "parking_lot"] }
+anyhow = "1.0.13"

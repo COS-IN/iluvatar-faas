@@ -18,20 +18,20 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Install non-apt dependencies and build Ilúvatar, assumes python3 exists
 cd src/Ilúvatar/docs/examples
 ./sample_setup.sh
-sudo ../../target/debug/ilúvatar_worker -c ../../ilúvatar_worker/src/worker.dev.json &
+sudo ../../target/debug/iluvatar_worker -c ../../iluvatar_worker/src/worker.dev.json &
 worker_pid=$(echo $!)
 ```
 
 Register a function with the worker.
 
 ```sh
-../../target/debug/ilúvatar_worker_cli --address "127.0.0.1" --port 8079 register --name "hello" --version 1 --image "docker.io/alfuerst/hello-iluvatar-action:latest" --memory 128 --cpu 1
+../../target/debug/iluvatar_worker_cli --address "127.0.0.1" --port 8079 register --name "hello" --version 1 --image "docker.io/alfuerst/hello-iluvatar-action:latest" --memory 128 --cpu 1
 ```
 
 Invoke the newly registered function, passing custom arguments.
 
 ```sh
-../../target/debug/ilúvatar_worker_cli --address "127.0.0.1" --port 8079 invoke --name "hello" --version 1 -a name=`whoami`
+../../target/debug/iluvatar_worker_cli --address "127.0.0.1" --port 8079 invoke --name "hello" --version 1 -a name=`whoami`
 ```
 
 Kill the worker running in the background.

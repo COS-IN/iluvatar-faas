@@ -15,7 +15,7 @@ Later values will override those in earlier paths if multiple are present.
 
 Environment variables [ansible setup](../ansible/worker.yml).
 
-See [this Rust file](../ilúvatar_worker_library/src/worker_api/worker_config.rs) for details on the configuration file and its meaning.
+See [this Rust file](../iluvatar_worker_library/src/worker_api/worker_config.rs) for details on the configuration file and its meaning.
 
 Configuration via environment variables is also supported.
 The must be prefixed with `ILUVATAR_WORKER`, and traversing down objects are separated by a double underscore `__`.
@@ -24,7 +24,7 @@ So `config.networking.use_pool` transforms to `ILUVATAR_WORKER__networking__use_
 A full example of launching the worker would look like this.
 
 ```bash
-ILUVATAR_WORKER__networking__use_pool=false ./ilúvatar_worker --config /my/config/path.json
+ILUVATAR_WORKER__networking__use_pool=false ./iluvatar_worker --config /my/config/path.json
 ```
 
 ## Commands
@@ -49,7 +49,7 @@ It can also be compiled from the Makefile via `make spans` (release build) or `m
 
 ## Detailed Documentation
 
-The worker code is put [into a library](../ilúvatar_worker_library/), [and a binary](../ilúvatar_worker/).
+The worker code is put [into a library](../iluvatar_worker_library/), [and a binary](../iluvatar_worker/).
 This keeps the actual code only compiled for the binary to a minimum, maximizing code reuse
 
 The documentation on the Rust code provides details about the purpose and utilization of individual structs, types, enums, etc.
@@ -60,5 +60,5 @@ cargo doc -p iluvatar_worker_library --open
 ```
 
 ```bash
-cargo doc -p ilúvatar_worker --open
+cargo doc -p iluvatar_worker --open
 ```

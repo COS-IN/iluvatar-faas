@@ -2,7 +2,7 @@
   vars:
     host_group: "{{ groups['controller'] }}"
     host_group_size: "{{ host_group | length }}"
-    bin_dir: "/tmp/ilúvatar/bin"
+    bin_dir: "/tmp/iluvatar/bin"
     exe_dest: "{{bin_dir}}/{{ controller.bin_name }}"
     config_dest: "{{bin_dir}}/{{ controller.config_name }}"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
@@ -36,7 +36,7 @@
 
   - name: copy controller executable
     ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/{{target}}/{{controller.bin_name}}"
+      src: "{{iluvatar_home}}/target/{{target}}/{{controller.bin_name}}"
       dest: "{{exe_dest}}"
       mode: "preserve"
     when: mode == "deploy"
@@ -44,7 +44,7 @@
 
   - name: copy controller config
     ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/{{target}}/{{controller.config_name}}"
+      src: "{{iluvatar_home}}/target/{{target}}/{{controller.config_name}}"
       dest: "{{config_dest}}"
       mode: "preserve"
     when: mode == "deploy"
@@ -64,7 +64,7 @@
       "ILUVATAR_CONTROLLER__name": "{{ controller.host }}"
       "ILUVATAR_CONTROLLER__port": "{{ controller.port }}"
       "ILUVATAR_CONTROLLER__address": "{{ __worker_address | default('localhost') }}"
-      "ILUVATAR_CONTROLLER__logging__directory" : "{{ controller_log_dir | default('/tmp/ilúvatar/logs') }}"
+      "ILUVATAR_CONTROLLER__logging__directory" : "{{ controller_log_dir | default('/tmp/iluvatar/logs') }}"
       "ILUVATAR_CONTROLLER__logging__level" : "{{ controller_log_level | default('info') }}"
       "ILUVATAR_CONTROLLER__load_balancer__algorithm" : "{{ controller.algorithm }}"
       "ILUVATAR_CONTROLLER__load_balancer__load_metric" : "{{ controller.load_metric }}"
