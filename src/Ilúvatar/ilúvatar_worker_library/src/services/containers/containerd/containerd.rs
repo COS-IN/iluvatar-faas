@@ -89,11 +89,11 @@ impl ContainerdIsolation {
         true
     }
 
-    fn send_bg_packet(&self, pid: u32, fqdn: &str, container_id: &String, tid: &TransactionId) {
+    fn send_bg_packet(&self, pid: u32, fqdn: &str, container_id: &str, tid: &TransactionId) {
         let _ = self.tx.send(BGPacket {
             pid,
             fqdn: String::from(fqdn),
-            container_id: container_id.clone(),
+            container_id: container_id.to_owned(),
             tid: tid.clone(),
         });
     }
