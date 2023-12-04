@@ -124,7 +124,7 @@ impl WorkerAPI for RPCWorkerAPI {
         tid: TransactionId,
     ) -> Result<InvokeResponse> {
         let request = Request::new(InvokeRequest {
-            function_name: function_name,
+            function_name,
             function_version: version,
             json_args: args,
             transaction_id: tid,
@@ -182,7 +182,7 @@ impl WorkerAPI for RPCWorkerAPI {
         compute: Compute,
     ) -> Result<String> {
         let request = Request::new(PrewarmRequest {
-            function_name: function_name,
+            function_name,
             function_version: version,
             transaction_id: tid.clone(),
             compute: compute.bits(),

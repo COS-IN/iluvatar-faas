@@ -3,9 +3,9 @@ pub mod energy_logging;
 pub mod energy_service;
 pub mod ipmi;
 pub mod perf;
-pub mod tegrastats;
 pub mod process_pct;
 pub mod rapl;
+pub mod tegrastats;
 
 #[derive(Debug, serde::Deserialize, clap::Parser)]
 #[clap(author, version, about)]
@@ -77,7 +77,7 @@ impl EnergyConfig {
         Self::enabled(&self.perf_freq_ms)
     }
     pub fn tegra_enabled(&self) -> bool {
-      Self::enabled(&self.tegra_freq_ms)
+        Self::enabled(&self.tegra_freq_ms)
     }
     pub fn rapl_enabled(&self) -> bool {
         Self::enabled(&self.rapl_freq_ms)

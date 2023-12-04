@@ -15,13 +15,13 @@ use crate::utils::port::Port;
 use anyhow::Result;
 use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
-use std::process::{Child, Command, Output, Stdio};
-use tokio::signal::unix::{signal, Signal, SignalKind};
 use std::num::ParseIntError;
-use std::{thread, time, str};
+use std::process::{Child, Command, Output, Stdio};
+use std::{str, thread, time};
+use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, info};
 
-pub fn get_child_pid( ppid: u32 ) -> Result<u32, ParseIntError> {
+pub fn get_child_pid(ppid: u32) -> Result<u32, ParseIntError> {
     let output = Command::new("pgrep")
         .arg("-P")
         .arg(ppid.to_string())
@@ -31,12 +31,12 @@ pub fn get_child_pid( ppid: u32 ) -> Result<u32, ParseIntError> {
     str::from_utf8(&output.stdout).unwrap().trim().parse::<u32>()
 }
 
-pub fn try_get_child_pid( ppid: u32, timeout_ms: u64,  tries: u32 ) -> u32 {
+pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {
     let millis = time::Duration::from_millis(timeout_ms);
     let mut tries = tries;
 
     while tries > 0 {
-        let r = get_child_pid( ppid );
+        let r = get_child_pid(ppid);
 
         let cpid = r.unwrap_or(0);
         if cpid != 0 {

@@ -163,10 +163,8 @@ impl GpuResourceTracker {
                 } else {
                     bail_error!("MPS is enabled, but isolation service passed was not `docker`");
                 }
-            } else {
-                if !config.is_tegra.unwrap_or(false) {
-                    Self::set_shared_exclusive(tid)?;
-                }
+            } else if !config.is_tegra.unwrap_or(false) {
+                Self::set_shared_exclusive(tid)?;
             }
             let (handle, tx) = tokio_thread(
                 status_config.report_freq_ms,
@@ -275,7 +273,7 @@ impl GpuResourceTracker {
         let mut found = 0;
         if gpu_config.is_tegra.unwrap_or(false) {
             let gpu_uuid = "291aa685-fbb1-44ec-8a5d-79550dc13f55".to_string();
-            let memory_mb: MemSizeMb = 30623; 
+            let memory_mb: MemSizeMb = 30623;
             ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
             found += 1;
             return Ok((found, ret));
@@ -363,7 +361,7 @@ impl GpuResourceTracker {
           "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
           "--format=csv,noheader,nounits",
         ];
-        let nvidia = match execute_cmd_checked("/usr/bin/nvidia-smi", &args, None, &tid) {
+        let nvidia = match execute_cmd_checked("/usr/bin/nvidia-smi", args, None, &tid) {
             Ok(r) => r,
             Err(e) => {
                 error!(tid=%tid, error=%e, "Failed to call nvidia-smi");

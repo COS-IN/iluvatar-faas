@@ -1,14 +1,8 @@
 use super::ContainerIsolationService;
+use crate::services::containers::containerd::containerdstructs::{ContainerdContainer, Task};
 use crate::services::containers::structs::{Container, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
 use crate::services::registration::RegisteredFunction;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
-use std::thread;
-use std::sync::mpsc;
-use std::sync::mpsc::sync_channel;
-use crate::services::containers::containerd::containerdstructs::{ContainerdContainer, Task};
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
 use client::services::v1::container::Runtime;
@@ -30,18 +24,24 @@ use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::utils::{
-    try_get_child_pid,
     cgroup::cgroup_namespace,
     file::{temp_file_pth, touch, try_remove_pth},
     port::Port,
+    try_get_child_pid,
 };
 use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb};
 use inotify::{Inotify, WatchMask};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
-use sha2::{Digest, Sha256};
-use std::process::Command;
-use tracing::{debug, error, info, warn};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::process::Command;
+use std::sync::mpsc;
+use std::sync::mpsc::sync_channel;
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, SystemTime};
+use tracing::{debug, error, info, warn};
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
@@ -50,7 +50,7 @@ const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
 pub struct BGPacket {
     pid: u32,
     fqdn: String,
-    container_id: String, 
+    container_id: String,
     tid: TransactionId,
 }
 
@@ -64,7 +64,7 @@ pub struct ContainerdIsolation {
     downloaded_images: Arc<DashMap<String, bool>>,
     creation_sem: Option<tokio::sync::Semaphore>,
     tx: Arc<mpsc::SyncSender<BGPacket>>,
-    bg_workqueue: thread::JoinHandle<Result<()>>, 
+    bg_workqueue: thread::JoinHandle<Result<()>>,
 }
 
 /// A service to handle the low-level details of containerd container lifecycles:
@@ -89,13 +89,13 @@ impl ContainerdIsolation {
         true
     }
 
-    fn send_bg_packet( &self, pid: u32, fqdn: &str, container_id: &String, tid: &TransactionId) {
-        let _ = self.tx.send(BGPacket{
-                pid: pid,
-                fqdn: String::from(fqdn),
-                container_id: container_id.clone(), 
-                tid: tid.clone(),
-            });
+    fn send_bg_packet(&self, pid: u32, fqdn: &str, container_id: &String, tid: &TransactionId) {
+        let _ = self.tx.send(BGPacket {
+            pid,
+            fqdn: String::from(fqdn),
+            container_id: container_id.clone(),
+            tid: tid.clone(),
+        });
     }
 
     pub fn new(
@@ -120,25 +120,26 @@ impl ContainerdIsolation {
             downloaded_images: Arc::new(DashMap::new()),
             creation_sem: sem,
             tx: Arc::new(send),
-            bg_workqueue: thread::spawn(move ||{
-                  loop {
-                      match recv.recv() {
-                          Ok(x) => {
-                            let ccpid = try_get_child_pid( x.pid, 1, 500 );
+            bg_workqueue: thread::spawn(move || {
+                loop {
+                    match recv.recv() {
+                        Ok(x) => {
+                            let ccpid = try_get_child_pid(x.pid, 1, 500);
                             info!(
-                                      tid=%x.tid, 
-                                      fqdn=%x.fqdn, 
-                                      container_id=%x.container_id, 
-                                      pid=%x.pid, 
-                                      cpid=%ccpid, 
+                                      tid=%x.tid,
+                                      fqdn=%x.fqdn,
+                                      container_id=%x.container_id,
+                                      pid=%x.pid,
+                                      cpid=%ccpid,
                                       "tag_pid_mapping"
                             );
-                          },
-                          Err(e) => {
-                              bail_error!(error=%e, "background receive channel broken!");
-                          },
-                      }
-                  };}),
+                        }
+                        Err(e) => {
+                            bail_error!(error=%e, "background receive channel broken!");
+                        }
+                    }
+                }
+            }),
         }
     }
 
@@ -561,7 +562,7 @@ impl ContainerdIsolation {
             created_at: None,
             updated_at: None,
             extensions: HashMap::new(),
-            labels: labels,
+            labels,
             snapshot_key: "".to_string(),
             snapshotter: self.config.snapshotter.clone(),
         };
@@ -603,9 +604,9 @@ impl ContainerdIsolation {
             rootfs: mounts,
             checkpoint: None,
             options: None,
-            stdin: stdin,
-            stdout: stdout,
-            stderr: stderr,
+            stdin,
+            stdout,
+            stderr,
             terminal: false,
         };
         let req = with_namespace!(req, namespace);
@@ -713,12 +714,12 @@ impl ContainerIsolationService for ContainerdIsolation {
             Ok(r) => {
                 debug!("Task {}: {:?} started", container.container_id, r);
                 container.task.running = true;
-                self.send_bg_packet( 
-                                  container.task.pid.clone(),
-                                  fqdn,
-                                  &container.task.container_id.clone().unwrap(),
-                                  tid
-                              );
+                self.send_bg_packet(
+                    container.task.pid,
+                    fqdn,
+                    &container.task.container_id.clone().unwrap(),
+                    tid,
+                );
                 Ok(Arc::new(container))
             }
             Err(e) => bail_error!(tid=%tid, error=%e, "Starting task failed"),

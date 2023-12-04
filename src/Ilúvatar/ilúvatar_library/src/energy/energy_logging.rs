@@ -1,7 +1,7 @@
 use super::{ipmi::IPMIMonitor, process_pct::ProcessMonitor, rapl::RaplMonitor};
 use crate::{
     cpu_interaction::CpuFreqMonitor,
-    energy::{perf::start_perf_stat, EnergyConfig, tegrastats::start_tegrastats},
+    energy::{perf::start_perf_stat, tegrastats::start_tegrastats, EnergyConfig},
     transaction::TransactionId,
 };
 use anyhow::Result;
@@ -49,23 +49,25 @@ impl EnergyLogger {
                 };
 
                 let tegra_child = match config.tegra_enabled() {
-                  true => {
-                    let tegra_file = Path::new(&config.log_folder);
-                    let tegra_file = tegra_file.join("tegrastats.log");
-                    debug!(tid=%tid, "Starting tegra monitoring");
-                    let f = match tegra_file.to_str() {
-                      Some(f) => f,
-                      None => {
-                        anyhow::bail!("Failed to start tegra because the log file could not be formatted properly");
-                      },
-                    };
-                    if let Some(ms) = config.tegra_freq_ms {
-                      Some(start_tegrastats(&f, tid, ms).await?)  
-                    } else {
-                      None
+                    true => {
+                        let tegra_file = Path::new(&config.log_folder);
+                        let tegra_file = tegra_file.join("tegrastats.log");
+                        debug!(tid=%tid, "Starting tegra monitoring");
+                        let f = match tegra_file.to_str() {
+                            Some(f) => f,
+                            None => {
+                                anyhow::bail!(
+                                    "Failed to start tegra because the log file could not be formatted properly"
+                                );
+                            }
+                        };
+                        if let Some(ms) = config.tegra_freq_ms {
+                            Some(start_tegrastats(&f, tid, ms).await?)
+                        } else {
+                            None
+                        }
                     }
-                  },
-                  false => None
+                    false => None,
                 };
 
                 let ipmi = match config.ipmi_enabled() {
@@ -105,7 +107,7 @@ impl EnergyLogger {
                 };
                 (perf_child, tegra_child, ipmi, rapl, proc, cpu_mon)
             }
-            None => (None, None, None, None, None, None), 
+            None => (None, None, None, None, None, None),
         };
 
         Ok(Arc::new(EnergyLogger {
