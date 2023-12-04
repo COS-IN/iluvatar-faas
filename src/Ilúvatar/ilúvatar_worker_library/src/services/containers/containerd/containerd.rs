@@ -120,23 +120,21 @@ impl ContainerdIsolation {
             downloaded_images: Arc::new(DashMap::new()),
             creation_sem: sem,
             tx: Arc::new(send),
-            bg_workqueue: thread::spawn(move || {
-                loop {
-                    match recv.recv() {
-                        Ok(x) => {
-                            let ccpid = try_get_child_pid(x.pid, 1, 500);
-                            info!(
-                                      tid=%x.tid,
-                                      fqdn=%x.fqdn,
-                                      container_id=%x.container_id,
-                                      pid=%x.pid,
-                                      cpid=%ccpid,
-                                      "tag_pid_mapping"
-                            );
-                        }
-                        Err(e) => {
-                            bail_error!(error=%e, "background receive channel broken!");
-                        }
+            bg_workqueue: thread::spawn(move || loop {
+                match recv.recv() {
+                    Ok(x) => {
+                        let ccpid = try_get_child_pid(x.pid, 1, 500);
+                        info!(
+                                  tid=%x.tid,
+                                  fqdn=%x.fqdn,
+                                  container_id=%x.container_id,
+                                  pid=%x.pid,
+                                  cpid=%ccpid,
+                                  "tag_pid_mapping"
+                        );
+                    }
+                    Err(e) => {
+                        bail_error!(error=%e, "background receive channel broken!");
                     }
                 }
             }),
