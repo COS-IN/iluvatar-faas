@@ -206,7 +206,7 @@ impl ContainerIsolationService for DockerIsolation {
             args.push("--gpus");
             args.push(gpu.as_str());
 
-            if let Some(gpu_config) = self.config.gpu_resource.clone() {
+            if let Some(gpu_config) = self.config.gpu_resource.as_ref() {
                 if gpu_config.is_tegra.unwrap_or(false) {
                     args.push("--runtime");
                     args.push("nvidia");
