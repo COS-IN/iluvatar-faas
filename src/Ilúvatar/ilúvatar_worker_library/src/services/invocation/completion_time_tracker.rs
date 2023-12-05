@@ -196,9 +196,10 @@ mod tracker_tests {
         let tracker = CompletionTimeTracker::new();
 
         tracker.add_item(OffsetDateTime::now_utc() - Duration::seconds(10));
+        tracker.add_item(OffsetDateTime::now_utc() + Duration::seconds(10));
         tracker.remove_outdated();
         let time = tracker.next_avail();
-        assert_eq!(time.as_seconds_f64(), 0.0);
-        assert_eq!(tracker.get_inflight(), 0);
+        assert!(time.as_seconds_f64() > 0.0);
+        assert_eq!(tracker.get_inflight(), 1);
     }
 }

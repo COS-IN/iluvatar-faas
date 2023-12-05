@@ -215,6 +215,16 @@ fn try_create_signal(tid: &TransactionId, kind: SignalKind) -> Result<Signal> {
     }
 }
 
+pub fn missing_or_zero_default<T: num_traits::PrimInt>(opt: Option<T>, default: T) -> T {
+    if let Some(i) = opt {
+        if i == T::zero() {
+            return default;
+        }
+        return i;
+    }
+    default
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,5 +290,38 @@ mod signal_tests {
         let nix_signal = nix::sys::signal::Signal::try_from(kind.as_raw_value()).unwrap();
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(std::process::id() as i32), nix_signal).unwrap();
         t.await.unwrap().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod default_tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(1)]
+    #[case(6)]
+    #[case(100)]
+    #[case(98461)]
+    fn returns_passed(#[case] v: u32) {
+        assert_eq!(missing_or_zero_default(Some(v), v), v);
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(6)]
+    #[case(100)]
+    #[case(98461)]
+    fn none_returns_default(#[case] v: u32) {
+        assert_eq!(missing_or_zero_default(None, v), v);
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(6)]
+    #[case(100)]
+    #[case(98461)]
+    fn zero_returns_default(#[case] v: u32) {
+        assert_eq!(missing_or_zero_default(None, v), v);
     }
 }

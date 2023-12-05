@@ -126,6 +126,11 @@ impl ContainerManager {
                     return;
                 }
             };
+            if let Ok(pool) = self.get_resource_pool(to_remove.compute_type()) {
+                if pool.remove_container(&to_remove, tid).is_none() {
+                    error!(tid=%tid, container_id=%to_remove.container_id(), "Failed to remove container from container pool before cull");
+                }
+            }
             let cont_lifecycle = match self.cont_isolations.get(&to_remove.container_type()) {
                 Some(c) => c,
                 None => {
@@ -136,11 +141,6 @@ impl ContainerManager {
             let stdout = cont_lifecycle.read_stdout(&to_remove, tid);
             let stderr = cont_lifecycle.read_stderr(&to_remove, tid);
             warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
-            if let Ok(pool) = self.get_resource_pool(to_remove.compute_type()) {
-                if pool.remove_container(&to_remove, tid).is_none() {
-                    error!(tid=%tid, container_id=%to_remove.container_id(), "Failed to remove container from container pool before cull");
-                }
-            }
             match self.purge_container(to_remove, tid).await {
                 Ok(_) => (),
                 Err(cause) => {
@@ -202,7 +202,7 @@ impl ContainerManager {
     async fn update_memory_usages(&self, tid: &TransactionId) {
         self.update_container_pool_memory_usages(&self.cpu_containers, tid)
             .await;
-        self.update_container_pool_memory_usages(&self.cpu_containers, tid)
+        self.update_container_pool_memory_usages(&self.gpu_containers, tid)
             .await;
     }
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, pool), fields(tid=%tid)))]

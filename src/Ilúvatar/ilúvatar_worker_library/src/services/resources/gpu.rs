@@ -11,7 +11,7 @@ use iluvatar_library::{
     threading::tokio_thread,
     transaction::TransactionId,
     types::MemSizeMb,
-    utils::{execute_cmd_checked, execute_cmd_checked_async},
+    utils::{execute_cmd_checked, execute_cmd_checked_async, missing_or_zero_default},
 };
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
@@ -158,16 +158,13 @@ impl GPU {
         tid: &TransactionId,
     ) -> Result<(u32, MemSizeMb)> {
         if config.driver_hook_enabled() {
-            return match config.funcs_per_device {
-                Some(fs) => Ok((fs, hardware_memory_mb)),
-                None => Ok((16, hardware_memory_mb)),
-            };
+            return Ok((missing_or_zero_default(config.funcs_per_device, 16), hardware_memory_mb));
         }
 
         let per_func_memory_mb = if config.use_standalone_mps.unwrap_or(false) {
-            config.per_func_memory_mb.unwrap_or(hardware_memory_mb)
-        } else if config.per_func_memory_mb.is_some() {
-            config.per_func_memory_mb.unwrap()
+            missing_or_zero_default(config.per_func_memory_mb, hardware_memory_mb)
+        } else if let Some(per_func_memory_mb) = config.per_func_memory_mb {
+            per_func_memory_mb
         } else {
             hardware_memory_mb
         };
@@ -229,7 +226,7 @@ impl GpuResourceTracker {
             );
 
             let svc = Arc::new(GpuResourceTracker {
-                concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid),
+                concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid)?,
                 total_gpu_structs: gpus.len() as u32,
                 gpus: RwLock::new(gpus),
                 docker: docker.clone(),
@@ -247,11 +244,15 @@ impl GpuResourceTracker {
     }
 
     fn create_concurrency_semaphore(
-        _config: &Arc<GPUResourceConfig>,
+        config: &Arc<GPUResourceConfig>,
         gpus: &Vec<Arc<GPU>>,
         _tid: &TransactionId,
-    ) -> Arc<Semaphore> {
-        Arc::new(Semaphore::new(gpus.len()))
+    ) -> Result<Arc<Semaphore>> {
+        let cnt = missing_or_zero_default(config.concurrent_running_funcs, gpus.len() as u32);
+        if cnt > gpus.len() as u32 {
+          anyhow::bail!("Value set for the number of concurrently running functions is larger than the number of available GPUs")
+        }
+        Ok(Arc::new(Semaphore::new(cnt as usize)))
     }
 
     fn start_mps(docker: &DockerIsolation, tid: &TransactionId) -> Result<()> {
@@ -389,7 +390,11 @@ impl GpuResourceTracker {
     pub fn try_acquire_resource(&self) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
         // TODO: make this work with mutltiple GPUs such that the GPU a container has is checked for utilization
         // currently assumes there is only one container
-        let limit = self.config.limit_on_utilization.unwrap_or(0);
+        self.gpu_passout_tracker.remove_outdated();
+        if self.gpu_passout_tracker.get_inflight() > self.container_config.concurrent_creation as i32 {
+            return Err(tokio::sync::TryAcquireError::NoPermits);
+        }
+        let limit = missing_or_zero_default(self.config.limit_on_utilization, 0);
         if limit == 0 {
             return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
         }
@@ -418,7 +423,7 @@ impl GpuResourceTracker {
             drop(lock);
             let t = OffsetDateTime::now_utc();
             self.gpu_passout_times.write().insert(gpu.gpu_private_id, t);
-            self.gpu_passout_tracker.add_item(t + Duration::seconds(10));
+            self.gpu_passout_tracker.add_item(t + Duration::seconds(1));
             debug!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "GPU allocating");
             Some(gpu)
         } else {

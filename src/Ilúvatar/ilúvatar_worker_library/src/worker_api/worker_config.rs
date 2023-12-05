@@ -109,9 +109,12 @@ pub struct GPUResourceConfig {
     /// Enable driver hook library to force unified memory in function.
     /// Must also pass [Self::funcs_per_device] as greater than 0
     pub use_driver_hook: Option<bool>,
-    /// Maximum number of functions to allow on device when using driver hook.
+    /// Maximum number of function containers to allow on device when using driver hook.
     /// Must also pass [Self::use_driver_hook] as true, defaults to 16 (maximum pre-volta supported MPS clients)
     pub funcs_per_device: Option<u32>,
+    /// Maximum number of functions to run concurrently on GPU
+    /// If empty, defaults to [Self::funcs_per_device]
+    pub concurrent_running_funcs: Option<u32>,
     /// Monitor GPU utilization as a means of limiting when additional items can be run on a device
     /// If present and > 0, this is additional to limiting the number of running functions per device
     /// Otherwise, does nothing
