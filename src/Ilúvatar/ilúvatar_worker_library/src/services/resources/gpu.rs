@@ -209,6 +209,9 @@ impl GpuResourceTracker {
         status_config: &Arc<crate::worker_api::worker_config::StatusConfig>,
     ) -> Result<Option<Arc<Self>>> {
         if let Some(config) = resources.clone() {
+            if config.count == 0 {
+                return Ok(None);
+            }
             let gpus = GpuResourceTracker::prepare_structs(&config, tid)?;
             if config.mps_enabled() {
                 if let Some(docker) = docker.as_any().downcast_ref::<DockerIsolation>() {
@@ -250,7 +253,7 @@ impl GpuResourceTracker {
     ) -> Result<Arc<Semaphore>> {
         let cnt = missing_or_zero_default(config.concurrent_running_funcs, gpus.len() as u32);
         if cnt > gpus.len() as u32 {
-          anyhow::bail!("Value set for the number of concurrently running functions is larger than the number of available GPUs")
+            anyhow::bail!("Value set for the number of concurrently running functions is larger than the number of available GPUs")
         }
         Ok(Arc::new(Semaphore::new(cnt as usize)))
     }

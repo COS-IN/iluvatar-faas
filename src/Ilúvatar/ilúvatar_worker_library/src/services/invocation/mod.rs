@@ -8,7 +8,7 @@ use crate::services::{
     containers::structs::{ContainerState, ParsedResult},
     registration::RegisteredFunction,
 };
-use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
+use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
@@ -60,6 +60,7 @@ pub struct InvokerFactory {
     cmap: Arc<CharacteristicsMap>,
     cpu: Arc<CpuResourceTracker>,
     gpu_resources: Option<Arc<GpuResourceTracker>>,
+    gpu_config: Option<Arc<GPUResourceConfig>>,
     #[cfg(feature = "power_cap")]
     energy: Arc<EnergyLimiter>,
 }
@@ -72,6 +73,7 @@ impl InvokerFactory {
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
         gpu_resources: Option<Arc<GpuResourceTracker>>,
+        gpu_config: Option<Arc<GPUResourceConfig>>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Self {
         InvokerFactory {
@@ -81,6 +83,7 @@ impl InvokerFactory {
             cmap,
             cpu,
             gpu_resources,
+            gpu_config,
             #[cfg(feature = "power_cap")]
             energy,
         }
@@ -95,6 +98,7 @@ impl InvokerFactory {
             self.cmap.clone(),
             self.cpu.clone(),
             self.gpu_resources.clone(),
+            &self.gpu_config,
             #[cfg(feature = "power_cap")]
             self.energy.clone(),
         )?;

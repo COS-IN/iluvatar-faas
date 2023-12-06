@@ -115,11 +115,13 @@ pub struct GPUResourceConfig {
     /// Maximum number of functions to run concurrently on GPU
     /// If empty, defaults to [Self::funcs_per_device]
     pub concurrent_running_funcs: Option<u32>,
+    pub prefetch_memory: Option<bool>,
     /// Monitor GPU utilization as a means of limiting when additional items can be run on a device
     /// If present and > 0, this is additional to limiting the number of running functions per device
     /// Otherwise, does nothing
     pub limit_on_utilization: Option<u32>,
 }
+
 impl GPUResourceConfig {
     /// Returns true if MPS (of any sort) is enabled
     pub fn mps_enabled(&self) -> bool {
@@ -128,6 +130,10 @@ impl GPUResourceConfig {
     /// Returns true if MPS (of any sort) is enabled
     pub fn driver_hook_enabled(&self) -> bool {
         self.use_driver_hook.unwrap_or(false)
+    }
+    ///
+    pub fn send_driver_memory_hints(&self) -> bool {
+        self.driver_hook_enabled() && self.prefetch_memory.unwrap_or(false)
     }
 }
 

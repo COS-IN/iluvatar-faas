@@ -6,7 +6,7 @@ use crate::services::invocation::invoke_on_container;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::GpuResourceTracker;
-use crate::worker_api::worker_config::InvocationConfig;
+use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
 use iluvatar_library::characteristics_map::CharacteristicsMap;
@@ -98,10 +98,17 @@ pub struct FlowQ {
     num_active_periods: i32,
 
     cont_manager: Arc<ContainerManager>,
+    gpu_config: Arc<GPUResourceConfig>,
 }
 
 impl FlowQ {
-    pub fn new(fqdn: String, start_time_virt: f64, weight: f64, cont_manager: &Arc<ContainerManager>) -> Self {
+    pub fn new(
+        fqdn: String,
+        start_time_virt: f64,
+        weight: f64,
+        cont_manager: &Arc<ContainerManager>,
+        gpu_config: &Arc<GPUResourceConfig>,
+    ) -> Self {
         Self {
             queue: VecDeque::new(),
             state: MQState::Inactive,
@@ -118,25 +125,30 @@ impl FlowQ {
             cont_manager: cont_manager.clone(),
             fqdn,
             weight,
+            gpu_config: gpu_config.clone(),
         }
     }
 
     fn update_state(&mut self, new_state: MQState) {
         if new_state != self.state && new_state == MQState::Active {
             debug!(queue=%self.fqdn, "Switching state to active");
-            let ctr = self.cont_manager.clone();
-            let fname = self.fqdn.clone();
-            tokio::spawn(async move {
-                ctr.madvise_to_device(fname, MQFQ_GPU_QUEUE_WORKER_TID.clone()).await;
-            });
+            if self.gpu_config.send_driver_memory_hints() {
+                let ctr = self.cont_manager.clone();
+                let fname = self.fqdn.clone();
+                tokio::spawn(async move {
+                    ctr.madvise_to_device(fname, MQFQ_GPU_QUEUE_WORKER_TID.clone()).await;
+                });
+            }
         }
         if new_state != self.state && self.state == MQState::Active {
             debug!(queue=%self.fqdn, "Switching state off active");
-            let ctr = self.cont_manager.clone();
-            let fname = self.fqdn.clone();
-            tokio::spawn(async move {
-                ctr.madvise_off_device(fname, MQFQ_GPU_QUEUE_WORKER_TID.clone()).await;
-            });
+            if self.gpu_config.send_driver_memory_hints() {
+                let ctr = self.cont_manager.clone();
+                let fname = self.fqdn.clone();
+                tokio::spawn(async move {
+                    ctr.madvise_off_device(fname, MQFQ_GPU_QUEUE_WORKER_TID.clone()).await;
+                });
+            }
         }
         self.state = new_state;
     }
@@ -266,6 +278,7 @@ pub struct MQFQ {
     cpu: Arc<CpuResourceTracker>,
     _thread: std::thread::JoinHandle<()>,
     gpu: Arc<GpuResourceTracker>,
+    gpu_config: Arc<GPUResourceConfig>,
     clock: LocalTime,
 }
 
@@ -279,6 +292,7 @@ impl MQFQ {
         invocation_config: Arc<InvocationConfig>,
         cpu: Arc<CpuResourceTracker>,
         gpu: &Option<Arc<GpuResourceTracker>>,
+        gpu_config: &Option<Arc<GPUResourceConfig>>,
         tid: &TransactionId,
     ) -> Result<Arc<Self>> {
         let (gpu_handle, gpu_tx) = tokio_runtime(
@@ -303,6 +317,10 @@ impl MQFQ {
             cpu,
             cmap,
             cont_manager,
+            gpu_config: gpu_config
+                .as_ref()
+                .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU config"))?
+                .clone(),
         });
         gpu_tx.send(svc.clone())?;
         info!(tid=%tid, "Created MQFQ");
@@ -462,7 +480,7 @@ impl MQFQ {
             }
             None => {
                 let fname = item.registration.fqdn.clone();
-                let mut qguard = FlowQ::new(fname.clone(), 0.0, 1.0, &self.cont_manager);
+                let mut qguard = FlowQ::new(fname.clone(), 0.0, 1.0, &self.cont_manager, &self.gpu_config);
                 if qguard.push_flow(item, vitual_time) {
                     let mut lck = self.vitual_time.write();
                     *lck = f64::min(*lck, qguard.finish_time_virt);

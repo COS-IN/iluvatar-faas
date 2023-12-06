@@ -80,6 +80,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         cmap.clone(),
         cpu,
         gpu_resource.clone(),
+        worker_config.container_resources.gpu_resource.clone(),
         #[cfg(feature = "power_cap")]
         energy_limit.clone(),
     );

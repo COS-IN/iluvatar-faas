@@ -9,7 +9,7 @@ use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::{containers::containermanager::ContainerManager, invocation::queueing::EnqueueingPolicy};
-use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
+use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::types::ComputeEnum;
@@ -69,7 +69,7 @@ pub struct QueueingDispatcher {
     cmap: Arc<CharacteristicsMap>,
     clock: LocalTime,
     cpu_queue: Arc<dyn DeviceQueue>,
-    gpu_queue: Arc<dyn DeviceQueue>,
+    gpu_queue: Option<Arc<dyn DeviceQueue>>,
     dispatch_state: RwLock<PolymDispatchCtx>,
 }
 
@@ -85,6 +85,7 @@ impl QueueingDispatcher {
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
         gpu: Option<Arc<GpuResourceTracker>>,
+        gpu_config: &Option<Arc<GPUResourceConfig>>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
         let svc = Arc::new(QueueingDispatcher {
@@ -106,6 +107,7 @@ impl QueueingDispatcher {
                 &function_config,
                 &cpu,
                 &gpu,
+                gpu_config,
             )?,
             async_functions: AsyncHelper::new(),
             clock: LocalTime::new(tid)?,
@@ -146,11 +148,16 @@ impl QueueingDispatcher {
         function_config: &Arc<FunctionLimits>,
         cpu: &Arc<CpuResourceTracker>,
         gpu: &Option<Arc<GpuResourceTracker>>,
-    ) -> Result<Arc<dyn DeviceQueue>> {
+        gpu_config: &Option<Arc<GPUResourceConfig>>,
+    ) -> Result<Option<Arc<dyn DeviceQueue>>> {
+        if gpu.is_none() || gpu_config.is_none() {
+            info!(tid=%tid, "GPU resource tracker or GPU config is missing, not creating gpu queue");
+            return Ok(None);
+        }
         match invocation_config.queues.get(&ComputeEnum::gpu) {
             Some(q) => {
                 if q == "serial" {
-                    Ok(GpuQueueingInvoker::new(
+                    Ok(Some(GpuQueueingInvoker::new(
                         cont_manager.clone(),
                         function_config.clone(),
                         invocation_config.clone(),
@@ -158,21 +165,39 @@ impl QueueingDispatcher {
                         cmap.clone(),
                         cpu.clone(),
                         gpu.clone(),
-                    )?)
+                    )?))
                 } else if q == "mqfq" {
-                    Ok(MQFQ::new(
+                    Ok(Some(MQFQ::new(
                         cont_manager.clone(),
                         cmap.clone(),
                         invocation_config.clone(),
                         cpu.clone(),
                         gpu,
+                        gpu_config,
                         tid,
-                    )?)
+                    )?))
                 } else {
                     anyhow::bail!("Unkonwn GPU queue {}", q);
                 }
             }
             None => anyhow::bail!("GPU queue was not specified"),
+        }
+    }
+
+    fn enqueue_cpu_check(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
+        Self::enqueue_check(&Some(&self.cpu_queue), item, Compute::CPU)
+    }
+    fn enqueue_gpu_check(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
+        Self::enqueue_check(&self.gpu_queue.as_ref(), item, Compute::GPU)
+    }
+    fn enqueue_check(
+        q: &Option<&Arc<dyn DeviceQueue>>,
+        item: &Arc<EnqueuedInvocation>,
+        compute: Compute,
+    ) -> Result<()> {
+        match q {
+            Some(q) => q.enqueue_item(item),
+            None => anyhow::bail!("No queue present for compute {}", compute),
         }
     }
 
@@ -195,11 +220,11 @@ impl QueueingDispatcher {
         let mut enqueues = 0;
 
         if reg.supported_compute == Compute::CPU {
-            self.cpu_queue.enqueue_item(&enqueue)?;
+            self.enqueue_cpu_check(&enqueue)?;
             return Ok(enqueue);
         }
         if reg.supported_compute == Compute::GPU {
-            self.gpu_queue.enqueue_item(&enqueue)?;
+            self.enqueue_gpu_check(&enqueue)?;
             return Ok(enqueue);
         }
 
@@ -211,17 +236,17 @@ impl QueueingDispatcher {
         match policy {
             EnqueueingPolicy::All => {
                 if reg.supported_compute.contains(Compute::CPU) {
-                    self.cpu_queue.enqueue_item(&enqueue)?;
+                    self.enqueue_cpu_check(&enqueue)?;
                     enqueues += 1;
                 }
                 if reg.supported_compute.contains(Compute::GPU) {
-                    self.gpu_queue.enqueue_item(&enqueue)?;
+                    self.enqueue_gpu_check(&enqueue)?;
                     enqueues += 1;
                 }
             }
             EnqueueingPolicy::AlwaysCPU => {
                 if reg.supported_compute.contains(Compute::CPU) {
-                    self.cpu_queue.enqueue_item(&enqueue)?;
+                    self.enqueue_cpu_check(&enqueue)?;
                     enqueues += 1;
                 } else {
                     anyhow::bail!(
@@ -233,28 +258,42 @@ impl QueueingDispatcher {
             EnqueueingPolicy::ShortestExecTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
-                    opts.push((self.cmap.get_exec_time(&reg.fqdn), &self.cpu_queue));
+                    opts.push((self.cmap.get_exec_time(&reg.fqdn), Some(&self.cpu_queue), Compute::CPU));
                 }
                 if reg.supported_compute.contains(Compute::GPU) {
-                    opts.push((self.cmap.get_gpu_exec_time(&reg.fqdn), &self.gpu_queue));
+                    opts.push((
+                        self.cmap.get_gpu_exec_time(&reg.fqdn),
+                        self.gpu_queue.as_ref(),
+                        Compute::GPU,
+                    ));
                 }
                 let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
-                if let Some((_, q)) = best {
-                    q.enqueue_item(&enqueue)?;
+                if let Some((_, q, c)) = best {
+                    Self::enqueue_check(q, &enqueue, *c)?;
                     enqueues += 1;
                 }
             }
             EnqueueingPolicy::EstCompTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
-                    opts.push((self.cpu_queue.est_completion_time(reg, &tid), &self.cpu_queue));
+                    opts.push((
+                        self.cpu_queue.est_completion_time(reg, &tid),
+                        Some(&self.cpu_queue),
+                        Compute::CPU,
+                    ));
                 }
                 if reg.supported_compute.contains(Compute::GPU) {
-                    opts.push((self.gpu_queue.est_completion_time(reg, &tid), &self.gpu_queue));
+                    if let Some(gpu_queue) = &self.gpu_queue {
+                        opts.push((
+                            gpu_queue.est_completion_time(reg, &tid),
+                            self.gpu_queue.as_ref(),
+                            Compute::GPU,
+                        ));
+                    }
                 }
                 let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
-                if let Some((_, q)) = best {
-                    q.enqueue_item(&enqueue)?;
+                if let Some((_, q, c)) = best {
+                    Self::enqueue_check(q, &enqueue, *c)?;
                     enqueues += 1;
                 }
             }
@@ -323,10 +362,14 @@ impl QueueingDispatcher {
         // device_wt = exec_time + sqrt(log steps/n), where n is number of times device has been selected for the function
         // Pick device with lowest weight and dispatch
         if reg.cpu_only() {
-            return self.cpu_queue.enqueue_item(enqueue);
+            return self.enqueue_cpu_check(enqueue);
+            // return Self::enqueue_check(&Some(self.cpu_queue), &enqueue, Compute::CPU);
+            // return self.cpu_queue.enqueue_item(enqueue);
         }
         if reg.gpu_only() {
-            return self.gpu_queue.enqueue_item(enqueue);
+            return self.enqueue_gpu_check(enqueue);
+            // return Self::enqueue_check(&self.gpu_queue, &enqueue, Compute::GPU);
+            // return self.gpu_queue.enqueue_item(enqueue);
         }
 
         let fid = reg.fqdn.as_str(); //function name or fqdn?
@@ -354,7 +397,7 @@ impl QueueingDispatcher {
         self.select_device_for_fn(fid.to_string(), *selected_device);
 
         match selected_device {
-            ComputeEnum::gpu => self.gpu_queue.enqueue_item(enqueue),
+            ComputeEnum::gpu => self.enqueue_gpu_check(enqueue),
             _ => self.cpu_queue.enqueue_item(enqueue),
         }
     }
@@ -369,10 +412,12 @@ impl QueueingDispatcher {
     ) -> Result<()> {
         // the cost is t_recent - t_global_min
         if reg.cpu_only() {
-            return self.cpu_queue.enqueue_item(enqueue);
+            return self.enqueue_cpu_check(enqueue);
+            // return self.cpu_queue.enqueue_item(enqueue);
         }
         if reg.gpu_only() {
-            return self.gpu_queue.enqueue_item(enqueue);
+            return self.enqueue_gpu_check(enqueue);
+            // return self.gpu_queue.enqueue_item(enqueue);
         }
 
         let eta = 0.3; // learning rate
@@ -430,8 +475,8 @@ impl QueueingDispatcher {
         d.per_fn_wts.insert(fid.to_string(), new_wts);
 
         match selected_device {
-            ComputeEnum::gpu => self.gpu_queue.enqueue_item(enqueue),
-            _ => self.cpu_queue.enqueue_item(enqueue),
+            ComputeEnum::gpu => self.enqueue_gpu_check(enqueue),
+            _ => self.enqueue_cpu_check(enqueue),
         }
     }
 
@@ -444,42 +489,46 @@ impl QueueingDispatcher {
     ) -> Result<()> {
         // the cost is t_recent - t_global_min
         if reg.cpu_only() {
-            return self.cpu_queue.enqueue_item(enqueue);
+            return self.enqueue_cpu_check(enqueue);
         }
         if reg.gpu_only() {
-            return self.gpu_queue.enqueue_item(enqueue);
+            return self.enqueue_gpu_check(enqueue);
         }
-        let egpu = self.gpu_queue.est_completion_time(&reg, tid);
-        let ecpu = self.cpu_queue.est_completion_time(&reg, tid);
+        if let Some(gpu_queue) = &self.gpu_queue {
+            let egpu = gpu_queue.est_completion_time(&reg, tid);
+            let ecpu = self.cpu_queue.est_completion_time(&reg, tid);
 
-        let tnow = OffsetDateTime::now_utc();
+            let tnow = OffsetDateTime::now_utc();
 
-        let fqdn = &reg.fqdn;
+            let fqdn = &reg.fqdn;
 
-        let b = self.dispatch_state.read();
-        let last_gpu = b.gpu_prev_t.get(fqdn);
-        let iat_gpu = match last_gpu {
-            Some(tg) => (tnow - *tg).as_seconds_f64(),
-            _ => 10000.0, //infinity essentially
-        };
+            let b = self.dispatch_state.read();
+            let last_gpu = b.gpu_prev_t.get(fqdn);
+            let iat_gpu = match last_gpu {
+                Some(tg) => (tnow - *tg).as_seconds_f64(),
+                _ => 10000.0, //infinity essentially
+            };
 
-        let last_cpu = b.cpu_prev_t.get(fqdn);
-        let iat_cpu = match last_cpu {
-            Some(tg) => (tnow - *tg).as_seconds_f64(),
-            _ => 10000.0, //infinity essentially
-        };
+            let last_cpu = b.cpu_prev_t.get(fqdn);
+            let iat_cpu = match last_cpu {
+                Some(tg) => (tnow - *tg).as_seconds_f64(),
+                _ => 10000.0, //infinity essentially
+            };
 
-        let pgpu = self.gpu_queue.warm_hit_probability(&reg, iat_gpu);
-        let pcpu = self.cpu_queue.warm_hit_probability(&reg, iat_cpu);
+            let pgpu = gpu_queue.warm_hit_probability(&reg, iat_gpu);
+            let pcpu = self.cpu_queue.warm_hit_probability(&reg, iat_cpu);
 
-        let rgpu = pgpu / egpu;
-        let rcpu = pcpu / ecpu;
+            let rgpu = pgpu / egpu;
+            let rcpu = pcpu / ecpu;
 
-        // choose the maximum of the two? or probabilistically?
-        let n = self.proportional_selection(rcpu, rgpu);
-        match n {
-            0 => self.cpu_queue.enqueue_item(enqueue),
-            _ => self.gpu_queue.enqueue_item(enqueue),
+            // choose the maximum of the two? or probabilistically?
+            let n = self.proportional_selection(rcpu, rgpu);
+            match n {
+                0 => self.enqueue_gpu_check(enqueue),
+                _ => self.enqueue_cpu_check(enqueue),
+            }
+        } else {
+            anyhow::bail!("GPU queue was 'None' in hit_tput_dispatch");
         }
     }
 
@@ -578,7 +627,7 @@ impl Invoker for QueueingDispatcher {
     fn queue_len(&self) -> std::collections::HashMap<Compute, usize> {
         [
             (Compute::CPU, self.cpu_queue.queue_len()),
-            (Compute::GPU, self.gpu_queue.queue_len()),
+            (Compute::GPU, self.gpu_queue.as_ref().map_or(0, |g| g.queue_len())),
         ]
         .iter()
         .cloned()
@@ -587,6 +636,6 @@ impl Invoker for QueueingDispatcher {
 
     /// The number of functions currently running
     fn running_funcs(&self) -> u32 {
-        self.cpu_queue.running() + self.gpu_queue.running()
+        self.cpu_queue.running() + self.gpu_queue.as_ref().map_or(0, |g| g.running())
     }
 }
