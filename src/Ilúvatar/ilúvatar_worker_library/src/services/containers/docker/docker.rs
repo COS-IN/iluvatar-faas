@@ -239,7 +239,8 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
-        self.docker_run(args, image_name, cid.as_str(), Some("-w 1"), tid, None)?;
+        let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
+        self.docker_run(args, image_name, cid.as_str(), Some(proc_args.as_str()), tid, None)?;
         drop(permit);
         unsafe {
             let c = DockerContainer::new(
