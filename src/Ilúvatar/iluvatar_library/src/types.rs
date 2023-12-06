@@ -14,7 +14,7 @@ pub enum CommunicationMethod {
 
 bitflags! {
   #[derive(serde::Deserialize, serde::Serialize)]
-  /// The compute methods that a function supports
+  /// The compute methods that a function supports. XXX Rename this ComputeDevice
   /// Having each one of these means it can run on each compute independently.
   /// e.g. having `CPU|GPU` will run fine in a CPU-only container, or one with an attached GPU
   pub struct Compute: u32 {
@@ -221,6 +221,12 @@ impl FunctionInvocationTimings {
         }
     }
 }
+
+#[allow(drop_bounds)]
+pub trait DroppableMovableTrait: Drop + Send + std::fmt::Debug {}
+impl DroppableMovableTrait for tokio::sync::OwnedSemaphorePermit {}
+#[allow(drop_bounds, dyn_drop)]
+pub type DroppableToken = Box<dyn DroppableMovableTrait>;
 
 #[cfg(test)]
 mod types_tests {

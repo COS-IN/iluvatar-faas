@@ -41,6 +41,7 @@ csv = "1.1"
 influxdb2 = "0.4"
 num-traits = "0.2"
 influxdb2-structmap = "0.2"
+rand = "0.8"
 
 [build-dependencies]
 tonic-build = "0.7.2"

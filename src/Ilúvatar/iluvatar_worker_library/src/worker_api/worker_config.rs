@@ -91,7 +91,7 @@ pub struct CPUResourceConfig {
 #[derive(Debug, Deserialize, Default)]
 /// Configuration detailing a single type of compute
 pub struct GPUResourceConfig {
-    /// Number of cores it can use, i.e. number of concurrent functions allowed at once.
+    /// Number of GPU devices it can use, i.e. number of concurrent functions allowed at once.
     /// If this is set to 0, then allocations of the resource will not be managed.
     /// Depending on resource type, will not be allowed (i.e. GPU must have exact number).
     pub count: u32,
@@ -109,10 +109,19 @@ pub struct GPUResourceConfig {
     /// Enable driver hook library to force unified memory in function.
     /// Must also pass [Self::funcs_per_device] as greater than 0
     pub use_driver_hook: Option<bool>,
-    /// Maximum number of functions to allow on device when using driver hook.
+    /// Maximum number of function containers to allow on device when using driver hook.
     /// Must also pass [Self::use_driver_hook] as true, defaults to 16 (maximum pre-volta supported MPS clients)
     pub funcs_per_device: Option<u32>,
+    /// Maximum number of functions to run concurrently on GPU
+    /// If empty, defaults to [Self::funcs_per_device]
+    pub concurrent_running_funcs: Option<u32>,
+    pub prefetch_memory: Option<bool>,
+    /// Monitor GPU utilization as a means of limiting when additional items can be run on a device
+    /// If present and > 0, this is additional to limiting the number of running functions per device
+    /// Otherwise, does nothing
+    pub limit_on_utilization: Option<u32>,
 }
+
 impl GPUResourceConfig {
     /// Returns true if MPS (of any sort) is enabled
     pub fn mps_enabled(&self) -> bool {
@@ -121,6 +130,10 @@ impl GPUResourceConfig {
     /// Returns true if MPS (of any sort) is enabled
     pub fn driver_hook_enabled(&self) -> bool {
         self.use_driver_hook.unwrap_or(false)
+    }
+    ///
+    pub fn send_driver_memory_hints(&self) -> bool {
+        self.driver_hook_enabled() && self.prefetch_memory.unwrap_or(false)
     }
 }
 
@@ -145,6 +158,8 @@ pub struct InvocationConfig {
     pub retries: u32,
     /// Duration in milliseconds the worker queue will sleep between checking for new invocations
     pub queue_sleep_ms: u64,
+    /// Queue to use for different compute resources
+    pub queues: HashMap<ComputeEnum, String>,
     /// Queueing policy to use for different compute resources
     pub queue_policies: HashMap<ComputeEnum, String>,
     /// The policy by which the worker decides how to enqueue polymorphic functions

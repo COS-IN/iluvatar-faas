@@ -25,6 +25,10 @@
       "cpu": "fcfs",
       "gpu": "fcfs"
     },
+    "queues": {
+      "cpu": "serial",
+      "gpu": "serial"
+    },
     "power_cap": 0.0
   },
   "logging": {

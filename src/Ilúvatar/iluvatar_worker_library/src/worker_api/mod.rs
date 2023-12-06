@@ -39,6 +39,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     if let Some(docker) = isos.get(&Isolation::DOCKER) {
         gpu_resource = GpuResourceTracker::boxed(
             &worker_config.container_resources.gpu_resource,
+            &worker_config.container_resources,
             tid,
             docker,
             &worker_config.status,
@@ -78,6 +79,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         cmap.clone(),
         cpu,
         gpu_resource.clone(),
+        worker_config.container_resources.gpu_resource.clone(),
         #[cfg(feature = "power_cap")]
         energy_limit.clone(),
     );

@@ -5,15 +5,18 @@ use super::{
         MinHeapFloat,
     },
 };
-use crate::services::containers::{
-    containermanager::ContainerManager,
-    structs::{ContainerLock, ContainerState, InsufficientGPUError, InsufficientMemoryError, ParsedResult},
-};
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
+use crate::services::{
+    containers::{
+        containermanager::ContainerManager,
+        structs::{ContainerState, InsufficientGPUError, InsufficientMemoryError, ParsedResult},
+    },
+    invocation::invoke_on_container,
+};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::{Characteristics, CharacteristicsMap, Values};
+use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::{
     logging::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
 };
@@ -106,7 +109,7 @@ pub trait GpuQueuePolicy: Send + Sync {
 
     /// Destructively return the first batch in the queue.
     /// This function will only be called if something is known to be un the queue, so using `unwrap` to remove an [Option] is safe
-    fn pop_queue(&self) -> GpuBatch;
+    fn pop_queue(&self) -> Option<GpuBatch>;
 
     /// Insert an item into the queue
     /// If an error is returned, the item was not put enqueued
@@ -128,7 +131,7 @@ pub struct GpuQueueingInvoker {
     queue: Arc<dyn GpuQueuePolicy>,
     /// Track completion time here because the limited number of GPUs and inability to overcommit
     /// means we need to know roughly when one will become available to better predict completion time for incoming invocations
-    completion_tracker: CompletionTimeTracker,
+    completion_tracker: Arc<CompletionTimeTracker>,
 }
 
 #[allow(dyn_drop)]
@@ -151,8 +154,9 @@ impl GpuQueueingInvoker {
             Some(Self::gpu_wait_on_queue),
             Some(function_config.cpu_max as usize),
         )?;
+
+        let q = Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid);
         let svc = Arc::new(GpuQueueingInvoker {
-            queue: Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid)?,
             cont_manager,
             invocation_config,
             gpu: gpu.ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?,
@@ -163,11 +167,12 @@ impl GpuQueueingInvoker {
             clock: LocalTime::new(tid)?,
             running: AtomicU32::new(0),
             last_memory_warning: Mutex::new(Instant::now()),
+            queue: q.unwrap(),
             last_gpu_warning: Mutex::new(Instant::now()),
-            completion_tracker: CompletionTimeTracker::new(),
+            completion_tracker: Arc::new(CompletionTimeTracker::new()),
         });
         gpu_tx.send(svc.clone())?;
-        debug!(tid=%tid, "Created GpuQueueingInvoker");
+        info!(tid=%tid, "Created GpuQueueingInvoker");
         Ok(svc)
     }
 
@@ -197,9 +202,13 @@ impl GpuQueueingInvoker {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some(peek_reg) = self.queue.next_batch() {
+            // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
             if let Some(permit) = self.acquire_resources_to_run(&peek_reg, &tid) {
-                let batch = self.queue.pop_queue();
-                self.spawn_tokio_worker(self.clone(), batch, permit, &tid);
+                let b = self.queue.pop_queue();
+                match b {
+                    None => break,
+                    Some(batch) => self.spawn_tokio_worker(self.clone(), batch, permit, &tid),
+                }
             } else {
                 debug!(tid=%tid, fqdn=%peek_reg.fqdn, "Insufficient resources to run item");
                 break;
@@ -358,59 +367,23 @@ impl GpuQueueingInvoker {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => n?,
         };
-        self.invoke_on_container(reg, json_args, tid, queue_insert_time, ctr_lock, remove_time, start)
-            .await
-    }
-
-    /// Returns
-    /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
-    /// [Duration]: The E2E latency between the worker and the container
-    /// [Compute]: Compute the invocation was run on
-    /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, ctr_lock, remove_time,cold_time_start) fields(tid=%tid)))]
-    async fn invoke_on_container<'a>(
-        &'a self,
-        reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a str,
-        tid: &'a TransactionId,
-        queue_insert_time: OffsetDateTime,
-        ctr_lock: ContainerLock<'a>,
-        remove_time: String,
-        cold_time_start: Instant,
-    ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        info!(tid=%tid, insert_time=%self.clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (data, duration) = ctr_lock.invoke(json_args).await?;
+        let (data, duration, compute_type, state) = invoke_on_container(
+            reg,
+            json_args,
+            tid,
+            queue_insert_time,
+            &ctr_lock,
+            remove_time,
+            start,
+            &self.cmap,
+            &self.clock,
+        )
+        .await?;
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        match ctr_lock.container.state() {
-            ContainerState::Warm => self.cmap.add(
-                &reg.fqdn,
-                Characteristics::GpuWarmTime,
-                Values::F64(data.duration_sec),
-                true,
-            ),
-            ContainerState::Prewarm => self.cmap.add(
-                &reg.fqdn,
-                Characteristics::GpuPreWarmTime,
-                Values::F64(data.duration_sec),
-                true,
-            ),
-            _ => self.cmap.add(
-                &reg.fqdn,
-                Characteristics::GpuColdTime,
-                Values::F64(cold_time_start.elapsed().as_seconds_f64()),
-                true,
-            ),
-        };
-        self.cmap.add(
-            &reg.fqdn,
-            Characteristics::GpuExecTime,
-            Values::F64(data.duration_sec),
-            true,
-        );
-        let (compute, state) = (ctr_lock.container.compute_type(), ctr_lock.container.state());
         drop(ctr_lock);
-        Ok((data, duration, compute, state))
+        self.signal.notify_waiters();
+        Ok((data, duration, compute_type, state))
     }
 
     fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {
@@ -424,6 +397,7 @@ impl GpuQueueingInvoker {
         };
         (t, exists)
     }
+    // } //?
 }
 
 #[tonic::async_trait]
@@ -449,6 +423,10 @@ impl DeviceQueue for GpuQueueingInvoker {
 
     fn running(&self) -> u32 {
         self.running.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn warm_hit_probability(&self, _reg: &Arc<RegisteredFunction>, _iat: f64) -> f64 {
+        0.5 //TODO!
     }
 }
 

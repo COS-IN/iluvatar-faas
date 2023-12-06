@@ -1,11 +1,11 @@
 use dashmap::DashMap;
 use ordered_float::OrderedFloat;
-use std::cmp::Ordering;
+use std::cmp::{min, Ordering};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Values {
     Duration(Duration),
     F64(f64),
@@ -81,7 +81,6 @@ impl AgExponential {
 
 ////////////////////////////////////////////////////////////////
 /// CharacteristicsMap Implementation  
-
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Characteristics {
     /// Running avg of _all_ times on CPU for invocations
@@ -119,11 +118,21 @@ pub enum Characteristics {
     /// The running avg memory usage
     /// TODO: record this somewhere
     MemoryUsage,
+    /// Total end to end latency: queuing plus execution
+    E2ECpu,
+    E2EGpu,
 }
 
+/// Historical execution characteristics of functions. Cold/warm times, energy, etc.
+/// TODO: make get/set functions for Characteristics auto-generated
 #[derive(Debug)]
 pub struct CharacteristicsMap {
+    /// Most recent fn->{char->value}
     map: DashMap<String, DashMap<Characteristics, Values>>,
+    /// Moving average values
+    agmap: DashMap<String, DashMap<Characteristics, Values>>,
+    /// Minimum of the values
+    minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
 }
 
@@ -133,11 +142,17 @@ impl CharacteristicsMap {
 
         CharacteristicsMap {
             map: DashMap::new(),
+            agmap: DashMap::new(),
+            minmap: DashMap::new(),
             ag,
         }
     }
 
-    pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, use_accum: bool) -> &Self {
+    /// Set most recent
+    pub fn add(&self, fqdn: &str, chr: Characteristics, value: Values, _use_accum: bool) -> &Self {
+        self.add_agg(fqdn, chr, value.clone());
+        self.add_min(fqdn, chr, value.clone());
+
         let e0 = self.map.get_mut(fqdn);
 
         match e0 {
@@ -147,23 +162,46 @@ impl CharacteristicsMap {
                 // entry against given characteristic
                 match e1 {
                     Some(mut v1) => {
-                        if use_accum {
-                            *v1 = match &v1.value() {
-                                Values::Duration(d) => {
-                                    Values::Duration(self.ag.accumulate_dur(d, &unwrap_val_dur(&value)))
-                                }
-                                Values::F64(f) => Values::F64(self.ag.accumulate(f, &unwrap_val_f64(&value))),
-                                Values::U64(_) => todo!(),
-                                Values::Str(_) => todo!(),
-                            };
-                        } else {
-                            *v1 = match &v1.value() {
-                                Values::Duration(_d) => Values::Duration(unwrap_val_dur(&value)),
-                                Values::F64(_f) => Values::F64(unwrap_val_f64(&value)),
-                                Values::U64(_) => todo!(),
-                                Values::Str(_) => todo!(),
-                            };
-                        }
+                        *v1 = match &v1.value() {
+                            Values::Duration(_d) => Values::Duration(unwrap_val_dur(&value)),
+                            Values::F64(_f) => Values::F64(unwrap_val_f64(&value)),
+                            Values::U64(_) => todo!(),
+                            Values::Str(_) => todo!(),
+                        };
+                    }
+                    None => {
+                        v0.insert(chr, value);
+                    }
+                }
+            }
+            None => {
+                // dashmap for given fname does not exist create and populate
+                let d = DashMap::new();
+                d.insert(chr, value.clone());
+                self.map.insert(fqdn.to_owned(), d);
+            }
+        }
+
+        self
+    }
+
+    /// Update aggregate
+    pub fn add_agg(&self, fqdn: &str, chr: Characteristics, value: Values) -> &Self {
+        let e0 = self.agmap.get_mut(fqdn);
+
+        match e0 {
+            // dashself.map of given fqdn
+            Some(v0) => {
+                let e1 = v0.get_mut(&chr);
+                // entry against given characteristic
+                match e1 {
+                    Some(mut v1) => {
+                        *v1 = match &v1.value() {
+                            Values::Duration(d) => Values::Duration(self.ag.accumulate_dur(d, &unwrap_val_dur(&value))),
+                            Values::F64(f) => Values::F64(self.ag.accumulate(f, &unwrap_val_f64(&value))),
+                            Values::U64(_) => todo!(),
+                            Values::Str(_) => todo!(),
+                        };
                     }
                     None => {
                         v0.insert(chr, value);
@@ -174,7 +212,40 @@ impl CharacteristicsMap {
                 // dashmap for given fname does not exist create and populate
                 let d = DashMap::new();
                 d.insert(chr, value);
-                self.map.insert(fqdn.to_owned(), d);
+                self.agmap.insert(fqdn.to_owned(), d);
+            }
+        }
+
+        self
+    }
+
+    pub fn add_min(&self, fqdn: &str, chr: Characteristics, value: Values) -> &Self {
+        let e0 = self.minmap.get_mut(fqdn);
+
+        match e0 {
+            // dashself.map of given fqdn
+            Some(v0) => {
+                let e1 = v0.get_mut(&chr);
+                // entry against given characteristic
+                match e1 {
+                    Some(mut v1) => {
+                        *v1 = match &v1.value() {
+                            Values::Duration(d) => Values::Duration(min(*d, unwrap_val_dur(&value))),
+                            Values::F64(f) => Values::F64(f64::min(*f, unwrap_val_f64(&value))),
+                            Values::U64(_) => todo!(),
+                            Values::Str(_) => todo!(),
+                        };
+                    }
+                    None => {
+                        v0.insert(chr, value);
+                    }
+                }
+            }
+            None => {
+                // dashmap for given fname does not exist create and populate
+                let d = DashMap::new();
+                d.insert(chr, value);
+                self.minmap.insert(fqdn.to_owned(), d);
             }
         }
 
@@ -198,6 +269,7 @@ impl CharacteristicsMap {
         self.add(fqdn, Characteristics::LastInvTime, Values::Duration(time_now), false);
     }
 
+    /// Most recent value
     pub fn lookup(&self, fqdn: &str, chr: &Characteristics) -> Option<Values> {
         let e0 = self.map.get(fqdn)?;
         let e0 = e0.value();
@@ -206,6 +278,26 @@ impl CharacteristicsMap {
 
         Some(self.clone_value(v))
     }
+
+    /// Moving average lookup
+    pub fn lookup_agg(&self, fqdn: &str, chr: &Characteristics) -> Option<Values> {
+        let e0 = self.agmap.get(fqdn)?;
+        let e0 = e0.value();
+        let v = e0.get(chr)?;
+        let v = v.value();
+
+        Some(self.clone_value(v))
+    }
+
+    pub fn lookup_min(&self, fqdn: &str, chr: &Characteristics) -> Option<Values> {
+        let e0 = self.minmap.get(fqdn)?;
+        let e0 = e0.value();
+        let v = e0.get(chr)?;
+        let v = v.value();
+
+        Some(self.clone_value(v))
+    }
+
     /// Returns the execution time as tracked by [Characteristics::ExecTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_exec_time(&self, fqdn: &str) -> f64 {
@@ -224,6 +316,73 @@ impl CharacteristicsMap {
             0.0
         }
     }
+
+    pub fn avg_cpu_e2e_t(&self, fqdn: &str) -> f64 {
+        //if let Some(exectime) =
+        if let Some(et) = self.lookup_agg(fqdn, &Characteristics::E2ECpu) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn avg_gpu_e2e_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup_agg(fqdn, &Characteristics::E2EGpu) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn avg_cpu_exec_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup_agg(fqdn, &Characteristics::ExecTime) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn avg_gpu_exec_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup_agg(fqdn, &Characteristics::GpuExecTime) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn latest_cpu_e2e_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup(fqdn, &Characteristics::E2ECpu) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn latest_gpu_e2e_t(&self, fqdn: &str) -> f64 {
+        if let Some(et) = self.lookup(fqdn, &Characteristics::E2EGpu) {
+            unwrap_val_f64(&et)
+        } else {
+            0.0
+        }
+    }
+
+    pub fn get_best_time(&self, fqdn: &str) -> f64 {
+        let c = match self.lookup_min(fqdn, &Characteristics::E2ECpu) {
+            Some(_c) => unwrap_val_f64(&_c),
+            _ => f64::NAN,
+        };
+        let g = match self.lookup_min(fqdn, &Characteristics::E2EGpu) {
+            Some(_g) => unwrap_val_f64(&_g),
+            _ => f64::NAN,
+        };
+        // Avoid returning 0 for non-polymorphic functions with Nans?
+        let m = f64::min(c, g);
+        if f64::is_nan(m) {
+            return 0.0;
+        }
+        m
+    }
+
     /// Returns the execution time as tracked by [Characteristics::GpuColdTime]
     /// Returns 0.0 if it was not found, or an error occured
     pub fn get_gpu_cold_time(&self, fqdn: &str) -> f64 {
@@ -288,6 +447,22 @@ impl CharacteristicsMap {
         }
     }
 
+    /// Tuple of cpu,gpu weights for polymorphic functions
+    pub fn get_dispatch_wts(&self, fqdn: &str) -> (f64, f64) {
+        let mut wcpu = 0.0;
+        let mut wgpu = 0.0;
+        if let Some(x) = self.lookup(fqdn, &Characteristics::E2ECpu) {
+            wcpu = unwrap_val_f64(&x);
+        }
+        if let Some(y) = self.lookup(fqdn, &Characteristics::E2EGpu) {
+            wgpu = unwrap_val_f64(&y);
+        }
+        (wcpu, wgpu)
+    }
+
+    /// Since all completion call-backs point to here, update the dispatch weights as per MWUA?
+    pub fn update_dispatch_wts(&self) {}
+
     pub fn clone_value(&self, value: &Values) -> Values {
         match value {
             Values::F64(v) => Values::F64(*v),
@@ -333,7 +508,10 @@ mod charmap {
         println!("      : looking up the new element");
         println!(
             "      :   {:?}",
-            unwrap_val_dur(&m.lookup("video_processing.0.0.1", &Characteristics::ExecTime).unwrap())
+            unwrap_val_dur(
+                &m.lookup_agg("video_processing.0.0.1", &Characteristics::ExecTime)
+                    .unwrap()
+            )
         );
         println!("      : Adding three more");
         m.add(
@@ -357,13 +535,16 @@ mod charmap {
         println!("      : dumping whole map");
         m.dump();
         assert_eq!(
-            unwrap_val_dur(&m.lookup("video_processing.0.0.1", &Characteristics::ExecTime).unwrap()),
+            unwrap_val_dur(
+                &m.lookup_agg("video_processing.0.0.1", &Characteristics::ExecTime)
+                    .unwrap()
+            ),
             Duration::from_secs_f64(4.808000049)
         );
     }
 
     #[test]
-    fn lookup() {
+    fn lookup_agg() {
         let m = CharacteristicsMap::new(AgExponential::new(0.6));
 
         let push_video = || {
@@ -501,7 +682,10 @@ mod charmap {
         println!("      : dumping whole map");
         m.dump();
         assert_eq!(
-            unwrap_val_f64(&m.lookup("video_processing.0.0.1", &Characteristics::ExecTime).unwrap()),
+            unwrap_val_f64(
+                &m.lookup_agg("video_processing.0.0.1", &Characteristics::ExecTime)
+                    .unwrap()
+            ),
             0.48719999999999997
         );
     }
@@ -515,7 +699,7 @@ mod charmap {
         let fjd_011 = "json_dump.0.1.1".to_string();
 
         let verify_iat_lookup = |fname: &str, val_expc: f64| {
-            let val = m.lookup(fname, &Characteristics::IAT).unwrap_or(Values::F64(0.0));
+            let val = m.lookup_agg(fname, &Characteristics::IAT).unwrap_or(Values::F64(0.0));
             assert!(approx_eq!(f64, unwrap_val_f64(&val), val_expc, epsilon = 0.005));
             // assert_eq!( unwrap_val_f64( &val ), val_expc );
         };

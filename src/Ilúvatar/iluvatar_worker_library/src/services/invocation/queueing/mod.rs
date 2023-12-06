@@ -24,7 +24,9 @@ pub mod minheap_iat;
 pub mod queueless;
 
 // GPU focused queues
+pub mod dynamic_batching;
 pub mod fcfs_gpu;
+pub mod gpu_mqfq;
 pub mod oldest_gpu;
 
 #[derive(Debug, serde::Deserialize)]
@@ -39,6 +41,13 @@ pub enum EnqueueingPolicy {
     AlwaysCPU,
     /// Enqueue based on shortest estimated completion time
     EstCompTime,
+    /// Multi-armed bandit for polymorphic functions.
+    UCB1,
+    MWUA,
+    // /// Locality/E2E time
+    HitTput,
+    // /// Always GPU for polymorphic functions
+    // AlwaysGPU,
 }
 
 #[tonic::async_trait]
@@ -99,10 +108,13 @@ pub trait DeviceQueue: Send + Sync {
 
     /// Number of invocations currently running
     fn running(&self) -> u32;
+
+    /// Warm hit probability for the function. Needs most recent IAT
+    fn warm_hit_probability(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64;
 }
 
 #[derive(Debug)]
-/// A struct to hold a function while it is in the invocation queue
+/// Function while it is in the invocation queue. Refs to registration, result, arguments, invocation/execution stats.
 pub struct EnqueuedInvocation {
     pub registration: Arc<RegisteredFunction>,
     /// Pointer where results will be stored on invocation completion
@@ -183,19 +195,23 @@ impl EnqueuedInvocation {
         debug!(tid=%self.tid, "queued invocation completed successfully");
     }
 
+    pub fn mark_error(&self, error: anyhow::Error) {
+        let mut result_ptr = self.result_ptr.lock();
+        error!(tid=%self.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after error");
+        result_ptr.duration = Duration::from_micros(0);
+        result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", error);
+        result_ptr.completed = true;
+        self.signal();
+    }
+
     /// Increment the attempts counter on the function
     /// If the number of errors has exceeded the retries, mark it as complete and return `false` to indicate no re-trying
     pub fn increment_error_retry(&self, error: anyhow::Error, retries: u32) -> bool {
-        let mut result_ptr = self.result_ptr.lock();
-        if result_ptr.attempts >= retries {
-            error!(tid=%self.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after attempts");
-            result_ptr.duration = Duration::from_micros(0);
-            result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", error);
-            result_ptr.completed = true;
-            self.signal();
+        if self.result_ptr.lock().attempts >= retries {
+            self.mark_error(error);
             false
         } else {
-            result_ptr.attempts += 1;
+            self.result_ptr.lock().attempts += 1;
             self.unlock();
             true
         }

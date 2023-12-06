@@ -5,6 +5,7 @@ use crate::services::{
     resources::gpu::GPU,
 };
 use anyhow::Result;
+use iluvatar_library::types::DroppableToken;
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
@@ -16,9 +17,10 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+use tracing::{debug, warn};
 
 #[derive(Debug)]
-#[allow(unused)]
+#[allow(unused, dyn_drop)]
 pub struct DockerContainer {
     pub container_id: String,
     fqdn: String,
@@ -29,10 +31,11 @@ pub struct DockerContainer {
     invocations: Mutex<u32>,
     port: Port,
     state: Mutex<ContainerState>,
-    client: HttpContainerClient,
+    pub client: HttpContainerClient,
     compute: Compute,
     device: Option<Arc<GPU>>,
     mem_usage: RwLock<MemSizeMb>,
+    drop_on_remove: Mutex<Vec<DroppableToken>>,
 }
 
 impl DockerContainer {
@@ -62,6 +65,7 @@ impl DockerContainer {
             compute,
             state: Mutex::new(state),
             device,
+            drop_on_remove: Mutex::new(vec![]),
         };
         Ok(r)
     }
@@ -76,6 +80,7 @@ impl ContainerT for DockerContainer {
         match self.client.invoke(json_args, tid, &self.container_id).await {
             Ok(r) => Ok(r),
             Err(e) => {
+                warn!(tid=%tid, container_id=%self.container_id(), "Marking container unhealthy");
                 self.mark_unhealthy();
                 Err(e)
             }
@@ -143,6 +148,18 @@ impl ContainerT for DockerContainer {
     }
     fn device_resource(&self) -> &Option<Arc<GPU>> {
         &self.device
+    }
+    fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
+        debug!(tid=%tid, container_id=%self.container_id(), "Adding token to drop on remove");
+        self.drop_on_remove.lock().push(item);
+    }
+    fn remove_drop(&self, tid: &TransactionId) {
+        let mut lck = self.drop_on_remove.lock();
+        let to_drop = std::mem::take(&mut *lck);
+        debug!(tid=%tid, container_id=%self.container_id(), num_tokens=to_drop.len(), "Droppoing tokens");
+        for i in to_drop.into_iter() {
+            drop(i);
+        }
     }
 }
 

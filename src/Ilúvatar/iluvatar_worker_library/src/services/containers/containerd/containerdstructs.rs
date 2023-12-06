@@ -10,7 +10,7 @@ use crate::services::{
 use anyhow::Result;
 use iluvatar_library::{
     transaction::TransactionId,
-    types::{Compute, Isolation, MemSizeMb},
+    types::{Compute, DroppableToken, Isolation, MemSizeMb},
     utils::port_utils::Port,
 };
 use parking_lot::{Mutex, RwLock};
@@ -19,6 +19,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct Task {
@@ -101,6 +102,7 @@ impl ContainerT for ContainerdContainer {
         match self.client.invoke(json_args, tid, &self.container_id).await {
             Ok(r) => Ok(r),
             Err(e) => {
+                warn!(tid=%tid, container_id=%self.container_id(), "Marking container unhealthy");
                 self.mark_unhealthy();
                 Err(e)
             }
@@ -160,6 +162,12 @@ impl ContainerT for ContainerdContainer {
     }
     fn device_resource(&self) -> &Option<Arc<GPU>> {
         &self.device
+    }
+    fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
+        todo!();
+    }
+    fn remove_drop(&self, _tid: &TransactionId) {
+        todo!();
     }
 }
 

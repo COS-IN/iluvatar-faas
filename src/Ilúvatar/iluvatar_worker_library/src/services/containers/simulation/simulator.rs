@@ -11,7 +11,6 @@ use iluvatar_library::{
     types::{Compute, Isolation, MemSizeMb},
 };
 use std::sync::Arc;
-use tracing::warn;
 
 pub mod simstructs;
 
@@ -89,14 +88,7 @@ impl ContainerIsolationService for SimulatorIsolation {
     }
 
     fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
-        let cast_container = match crate::services::containers::structs::cast::<SimulatorContainer>(container, tid) {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(tid=%tid, error=%e, "Error casting container to SimulatorContainer");
-                return container.get_curr_mem_usage();
-            }
-        };
-        cast_container.function.memory
+        container.get_curr_mem_usage()
     }
 
     fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {

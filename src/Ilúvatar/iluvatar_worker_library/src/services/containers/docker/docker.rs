@@ -69,33 +69,35 @@ impl DockerIsolation {
             run_args.push(a);
         }
         let output = execute_cmd("/usr/bin/docker", run_args, env, tid)?;
-        if let Some(status) = output.status.code() {
-            if status != 0 {
-                bail_error!(tid=%tid, status=status, output=?output, "Failed to create docker container with exit code");
+        match output.status.code() {
+            Some(0) => {
+                debug!(tid=%tid, name=%image_name, containerid=%container_id, output=?output, "Docker container started successfully");
+                info!(tid=%tid, name=%image_name, containerid=%container_id, "Docker container started successfully");
+                Ok(())
             }
-        } else {
-            bail_error!(tid=%tid, output=?output, "Failed to create docker container with no exit code");
+            Some(error_stat) => {
+                bail_error!(tid=%tid, status=error_stat, output=?output, "Failed to create docker container with exit code")
+            }
+            None => bail_error!(tid=%tid, output=?output, "Failed to create docker container with no exit code"),
         }
-        debug!(tid=%tid, name=%image_name, containerid=%container_id, output=?output, "Docker container started successfully");
-        info!(tid=%tid, name=%image_name, containerid=%container_id, "Docker container started successfully");
-        Ok(())
     }
 
     /// Get the stdout and stderr of a container
     pub fn get_logs(&self, container_id: &str, tid: &TransactionId) -> Result<(String, String)> {
         let args = vec!["logs", container_id];
         let output = execute_cmd("/usr/bin/docker", args, None, tid)?;
-        if let Some(status) = output.status.code() {
-            if status != 0 {
-                bail_error!(tid=%tid, status=status, output=?output, "Failed to get docker logs with exit code");
+        match output.status.code() {
+            Some(0) => Ok((
+                String::from_utf8_lossy(&output.stdout).to_string(),
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            )),
+            Some(error_stat) => {
+                bail_error!(tid=%tid, container_id=%container_id, status=error_stat, output=?output, "Failed to get docker logs with exit code")
             }
-        } else {
-            bail_error!(tid=%tid, output=?output, "Failed to get docker logs no exit code");
+            None => {
+                bail_error!(tid=%tid, container_id=%container_id, output=?output, "Failed to get docker logs no exit code")
+            }
         }
-        Ok((
-            String::from_utf8_lossy(&output.stdout).to_string(),
-            String::from_utf8_lossy(&output.stderr).to_string(),
-        ))
     }
 
     fn get_stderr(&self, container: &Container, tid: &TransactionId) -> Result<String> {
@@ -205,11 +207,11 @@ impl ContainerIsolationService for DockerIsolation {
             gpu = format!("device={}", device.gpu_uuid);
             args.push("--gpus");
             args.push(gpu.as_str());
-            args.push("-e");
-            mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
-            args.push(mps_thread.as_str());
             if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
                 args.push("--ipc=host");
+                args.push("-e");
+                mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
+                args.push(mps_thread.as_str());
             }
             if self
                 .config
@@ -237,7 +239,8 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
-        self.docker_run(args, image_name, cid.as_str(), Some("-w 1"), tid, None)?;
+        let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
+        self.docker_run(args, image_name, cid.as_str(), Some(proc_args.as_str()), tid, None)?;
         drop(permit);
         unsafe {
             let c = DockerContainer::new(
@@ -265,14 +268,15 @@ impl ContainerIsolationService for DockerIsolation {
             None,
             tid,
         )?;
-        if let Some(status) = output.status.code() {
-            if status != 0 {
-                bail_error!(tid=%tid, container_id=%container.container_id(), status=status, output=?output, "Failed to remove docker container with exit code");
+        match output.status.code() {
+            Some(0) => Ok(()),
+            Some(error_stat) => {
+                bail_error!(tid=%tid, container_id=%container.container_id(), status=error_stat, output=?output, "Failed to remove docker container with exit code")
             }
-        } else {
-            bail_error!(tid=%tid, container_id=%container.container_id(), output=?output, "Failed to remove docker container with no exit code");
+            None => {
+                bail_error!(tid=%tid, container_id=%container.container_id(), output=?output, "Failed to remove docker container with no exit code")
+            }
         }
-        Ok(())
     }
 
     async fn prepare_function_registration(
@@ -286,13 +290,13 @@ impl ContainerIsolationService for DockerIsolation {
         }
 
         let output = execute_cmd("/usr/bin/docker", vec!["pull", rf.image_name.as_str()], None, tid)?;
-        if let Some(status) = output.status.code() {
-            if status != 0 {
-                bail_error!(tid=%tid, status=status, output=?output, "Failed to pull docker image with exit code");
+        match output.status.code() {
+            Some(0) => (),
+            Some(error_stat) => {
+                bail_error!(tid=%tid, status=error_stat, output=?output, "Failed to pull docker image with exit code")
             }
-        } else {
-            bail_error!(tid=%tid, output=?output, "Failed to pull docker image with no exit code");
-        }
+            None => bail_error!(tid=%tid, output=?output, "Failed to pull docker image with no exit code"),
+        };
         trace!(tid=%tid, name=%rf.image_name, output=?output, "Docker image pulled successfully");
         info!(tid=%tid, name=%rf.image_name, "Docker image pulled successfully");
         self.pulled_images.insert(rf.image_name.clone());
@@ -307,17 +311,17 @@ impl ContainerIsolationService for DockerIsolation {
     ) -> Result<()> {
         let output = execute_cmd(
             "/usr/bin/docker",
-            vec!["ps", "--filter", "label=owner=iluvatar_worker", "-q"],
+            vec!["ps", "--filter", "label=owner=iluvatar_worker", "-aq"],
             None,
             tid,
         )?;
-        if let Some(status) = output.status.code() {
-            if status != 0 {
-                bail_error!(tid=%tid, status=status, output=?output, "Failed to run 'docker ps' with exit code");
+        match output.status.code() {
+            Some(0) => (),
+            Some(error_stat) => {
+                bail_error!(tid=%tid, status=error_stat, output=?output, "Failed to run 'docker ps' with exit code")
             }
-        } else {
-            bail_error!(tid=%tid, output=?output, "Failed to run 'docker ps' with no exit code");
-        }
+            None => bail_error!(tid=%tid, output=?output, "Failed to run 'docker ps' with no exit code"),
+        };
         let cow = String::from_utf8_lossy(&output.stdout);
         let stdout: Vec<&str> = cow.split('\n').filter(|str| !str.is_empty()).collect();
         for docker_id in stdout {
@@ -341,7 +345,7 @@ impl ContainerIsolationService for DockerIsolation {
             match self.get_logs(container.container_id(), tid) {
                 Ok((_out, err)) => {
                     // stderr was written to, gunicorn server is either up or crashed
-                    if err.contains("Listening at") {
+                    if err.contains("Booting worker with pid") {
                         break;
                     }
                 }
@@ -366,7 +370,7 @@ impl ContainerIsolationService for DockerIsolation {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
     fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
         debug!(tid=%tid, container_id=%container.container_id(), "Updating memory usage for container");
-        let cast_container = match crate::services::containers::structs::cast::<DockerContainer>(container, tid) {
+        let cast_container = match crate::services::containers::structs::cast::<DockerContainer>(container) {
             Ok(c) => c,
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Error casting container to DockerContainer");

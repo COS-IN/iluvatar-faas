@@ -1,5 +1,6 @@
 use self::queueing_dispatcher::QueueingDispatcher;
 use super::containers::containermanager::ContainerManager;
+use super::containers::structs::ContainerLock;
 use super::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -7,14 +8,19 @@ use crate::services::{
     containers::structs::{ContainerState, ParsedResult},
     registration::RegisteredFunction,
 };
-use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
+use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
+use iluvatar_library::characteristics_map::{Characteristics, Values};
+use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
+use time::Instant;
+use time::OffsetDateTime;
+use tracing::info;
 
 pub mod async_tracker;
-mod completion_time_tracker;
+pub mod completion_time_tracker;
 mod cpu_q_invoke;
 #[cfg(feature = "power_cap")]
 pub mod energy_limiter;
@@ -54,6 +60,7 @@ pub struct InvokerFactory {
     cmap: Arc<CharacteristicsMap>,
     cpu: Arc<CpuResourceTracker>,
     gpu_resources: Option<Arc<GpuResourceTracker>>,
+    gpu_config: Option<Arc<GPUResourceConfig>>,
     #[cfg(feature = "power_cap")]
     energy: Arc<EnergyLimiter>,
 }
@@ -66,6 +73,7 @@ impl InvokerFactory {
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
         gpu_resources: Option<Arc<GpuResourceTracker>>,
+        gpu_config: Option<Arc<GPUResourceConfig>>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Self {
         InvokerFactory {
@@ -75,6 +83,7 @@ impl InvokerFactory {
             cmap,
             cpu,
             gpu_resources,
+            gpu_config,
             #[cfg(feature = "power_cap")]
             energy,
         }
@@ -89,6 +98,7 @@ impl InvokerFactory {
             self.cmap.clone(),
             self.cpu.clone(),
             self.gpu_resources.clone(),
+            &self.gpu_config,
             #[cfg(feature = "power_cap")]
             self.energy.clone(),
         )?;
@@ -130,3 +140,45 @@ impl InvocationResult {
 }
 
 pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
+
+/// Returns
+/// [ParsedResult] A result representing the function output, the user result plus some platform tracking
+/// [Duration]: The E2E latency between the worker and the container
+/// [Compute]: Compute the invocation was run on
+/// [ContainerState]: State the container was in for the invocation
+#[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit, ctr_lock, remove_time,cold_time_start) fields(tid=%tid)))]
+async fn invoke_on_container<'a>(
+    reg: &'a Arc<RegisteredFunction>,
+    json_args: &'a str,
+    tid: &'a TransactionId,
+    queue_insert_time: OffsetDateTime,
+    // permit: Option<Box<dyn Drop + Send>>,
+    ctr_lock: &'a ContainerLock<'a>,
+    remove_time: String,
+    cold_time_start: Instant,
+    cmap: &'a Arc<CharacteristicsMap>,
+    clock: &'a LocalTime,
+) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
+    info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
+    let (data, duration) = ctr_lock.invoke(json_args).await?;
+    let (char, time) = match ctr_lock.container.state() {
+        ContainerState::Warm => (Characteristics::WarmTime, data.duration_sec),
+        ContainerState::Prewarm => (Characteristics::PreWarmTime, data.duration_sec),
+        _ => (Characteristics::ColdTime, cold_time_start.elapsed().as_seconds_f64()),
+    };
+    cmap.add(&reg.fqdn, char, Values::F64(time), true);
+    cmap.add(
+        &reg.fqdn,
+        Characteristics::ExecTime,
+        Values::F64(data.duration_sec),
+        true,
+    );
+    let e2etime = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
+    cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
+    Ok((
+        data,
+        duration,
+        ctr_lock.container.compute_type(),
+        ctr_lock.container.state(),
+    ))
+}

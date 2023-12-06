@@ -1,4 +1,4 @@
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use time::{Duration, OffsetDateTime};
 
 /// A struct for tracking when the next invocation is expected to complete
@@ -6,17 +6,25 @@ use time::{Duration, OffsetDateTime};
 /// This struct is thread-safe
 pub struct CompletionTimeTracker {
     items: RwLock<Vec<OffsetDateTime>>,
+    inflight: Mutex<i32>, // Could be a semaphore but whatever
 }
 
 impl CompletionTimeTracker {
     pub fn new() -> Self {
         CompletionTimeTracker {
             items: RwLock::new(vec![]),
+            inflight: Mutex::new(0),
         }
+    }
+
+    pub fn get_inflight(&self) -> i32 {
+        *self.inflight.lock()
     }
 
     /// Add a new time to the struct
     pub fn add_item(&self, completion_time: OffsetDateTime) {
+        let mut cnt = self.inflight.lock();
+        *cnt += 1;
         let mut items = self.items.write();
         let pos = items.binary_search(&completion_time);
         match pos {
@@ -27,6 +35,8 @@ impl CompletionTimeTracker {
 
     /// Remove the item with the time from the tracker
     pub fn remove_item(&self, completion_time: OffsetDateTime) {
+        let mut cnt = self.inflight.lock();
+        *cnt -= 1;
         let mut items = self.items.write();
         let pos = items.binary_search(&completion_time);
         match pos {
@@ -42,11 +52,26 @@ impl CompletionTimeTracker {
         if let Some(item) = self.items.read().first() {
             let dur = *item - OffsetDateTime::now_utc();
             if dur.is_negative() {
-                return Duration::seconds(0);
+                return Duration::seconds_f64(0.0);
             }
             dur
         } else {
-            Duration::seconds(0)
+            Duration::seconds_f64(0.0)
+        }
+    }
+
+    /// Remove all times that have expired
+    pub fn remove_outdated(&self) {
+        let now = OffsetDateTime::now_utc();
+        let items: Vec<OffsetDateTime> = self
+            .items
+            .read()
+            .iter()
+            .filter(|t| (**t - now).is_negative())
+            .map(|t| t.to_owned())
+            .collect();
+        for i in items {
+            self.remove_item(i);
         }
     }
 }
@@ -164,5 +189,17 @@ mod tracker_tests {
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 5.0);
         assert_le!(time.as_seconds_f64(), 10.0);
+    }
+
+    #[test]
+    fn old_item_removed() {
+        let tracker = CompletionTimeTracker::new();
+
+        tracker.add_item(OffsetDateTime::now_utc() - Duration::seconds(10));
+        tracker.add_item(OffsetDateTime::now_utc() + Duration::seconds(10));
+        tracker.remove_outdated();
+        let time = tracker.next_avail();
+        assert!(time.as_seconds_f64() > 0.0);
+        assert_eq!(tracker.get_inflight(), 1);
     }
 }

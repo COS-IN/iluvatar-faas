@@ -108,12 +108,14 @@ fn map_from_benchmark(
             }
         }
 
-        if func.chosen_name.is_none() {
+        if func.image_name.is_none() {
             println!("{} mapped to function '{}'", &func.func_name, chosen_name);
             func.cold_dur_ms = chosen_cold_time_ms as u64;
             func.warm_dur_ms = chosen_warm_time_ms as u64;
             func.chosen_name = Some(chosen_name);
             func.image_name = Some(chosen_image);
+        } else {
+            func.chosen_name = Some(func.func_name.clone());
         }
         if func.prewarms.is_none() {
             let prewarms = compute_prewarms(func, default_prewarms, max_prewarms);

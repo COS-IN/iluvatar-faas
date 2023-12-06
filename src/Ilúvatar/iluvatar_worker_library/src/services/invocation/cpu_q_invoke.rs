@@ -5,14 +5,15 @@ use super::queueing::{
 use super::queueing::{DeviceQueue, EnqueuedInvocation, InvokerCpuQueuePolicy};
 use crate::services::containers::{
     containermanager::ContainerManager,
-    structs::{ContainerLock, ContainerState, InsufficientGPUError, InsufficientMemoryError, ParsedResult},
+    structs::{ContainerState, InsufficientGPUError, InsufficientMemoryError, ParsedResult},
 };
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
+use crate::services::invocation::invoke_on_container;
 use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::{Characteristics, CharacteristicsMap, Values};
+use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::{
     logging::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
 };
@@ -286,18 +287,18 @@ impl CpuQueueingInvoker {
             EventualItem::Future(_) => return Ok(false), // no bypass
             EventualItem::Now(n) => n?,
         };
-        match self
-            .invoke_on_container(
-                &item.registration,
-                &item.json_args,
-                &item.tid,
-                remove_time,
-                None,
-                ctr_lock,
-                self.clock.format_time(remove_time)?,
-                Instant::now(),
-            )
-            .await
+        match invoke_on_container(
+            &item.registration,
+            &item.json_args,
+            &item.tid,
+            remove_time,
+            &ctr_lock,
+            self.clock.format_time(remove_time)?,
+            Instant::now(),
+            &self.cmap,
+            &self.clock,
+        )
+        .await
         {
             Ok((result, duration, compute, state)) => item.mark_successful(result, duration, compute, state),
             Err(e) => self.handle_invocation_error(item.clone(), e),
@@ -331,77 +332,26 @@ impl CpuQueueingInvoker {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => n?,
         };
-        self.invoke_on_container(
+        self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (data, duration, compute_type, state) = invoke_on_container(
             reg,
             json_args,
             tid,
             queue_insert_time,
-            permit,
-            ctr_lock,
+            &ctr_lock,
             remove_time,
             start,
+            &self.cmap,
+            &self.clock,
         )
-        .await
-    }
-
-    /// Returns
-    /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
-    /// [Duration]: The E2E latency between the worker and the container
-    /// [Compute]: Compute the invocation was run on
-    /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit, ctr_lock, remove_time,cold_time_start) fields(tid=%tid)))]
-    async fn invoke_on_container<'a>(
-        &'a self,
-        reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a str,
-        tid: &'a TransactionId,
-        queue_insert_time: OffsetDateTime,
-        permit: Option<Box<dyn Drop + Send>>,
-        ctr_lock: ContainerLock<'a>,
-        remove_time: String,
-        cold_time_start: Instant,
-    ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        info!(tid=%tid, insert_time=%self.clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
-        self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (data, duration) = ctr_lock.invoke(json_args).await?;
+        .await?;
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        match ctr_lock.container.state() {
-            ContainerState::Warm => self.cmap.add(
-                &reg.fqdn,
-                Characteristics::WarmTime,
-                Values::F64(data.duration_sec),
-                true,
-            ),
-            ContainerState::Prewarm => self.cmap.add(
-                &reg.fqdn,
-                Characteristics::PreWarmTime,
-                Values::F64(data.duration_sec),
-                true,
-            ),
-            _ => self.cmap.add(
-                &reg.fqdn,
-                Characteristics::ColdTime,
-                Values::F64(cold_time_start.elapsed().as_seconds_f64()),
-                true,
-            ),
-        };
-        self.cmap.add(
-            &reg.fqdn,
-            Characteristics::ExecTime,
-            Values::F64(data.duration_sec),
-            true,
-        );
         drop(permit);
         self.signal.notify_waiters();
-        Ok((
-            data,
-            duration,
-            ctr_lock.container.compute_type(),
-            ctr_lock.container.state(),
-        ))
+        Ok((data, duration, compute_type, state))
     }
 
-    fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {
+    fn get_est_completion_time_from_containers(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {
         let avail = self
             .cont_manager
             .container_available(&item.fqdn, iluvatar_library::types::Compute::CPU);
@@ -422,7 +372,7 @@ impl DeviceQueue for CpuQueueingInvoker {
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         let qt = self.queue.est_queue_time();
-        let (runtime, state) = self.get_est_completion_time_from_containers_gpu(reg);
+        let (runtime, state) = self.get_est_completion_time_from_containers(reg);
         debug!(tid=%tid, qt=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
         qt + runtime
     }
@@ -440,5 +390,14 @@ impl DeviceQueue for CpuQueueingInvoker {
 
     fn running(&self) -> u32 {
         self.running.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn warm_hit_probability(&self, reg: &Arc<RegisteredFunction>, _iat: f64) -> f64 {
+        let fqdn = &reg.fqdn;
+        let cstate = self.cont_manager.container_exists(fqdn, Compute::CPU);
+        match cstate {
+            ContainerState::Cold => 0.01,
+            _ => 1.0 - 0.01,
+        }
     }
 }

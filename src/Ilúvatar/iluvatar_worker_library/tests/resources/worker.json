@@ -24,6 +24,10 @@
     "queue_policies": {
       "cpu": "fcfs",
       "gpu": "fcfs"
+    },
+    "queues": {
+      "cpu": "serial",
+      "gpu": "serial"
     }
   },
   "logging": {

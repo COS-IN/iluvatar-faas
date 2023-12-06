@@ -120,6 +120,10 @@
       "ILUVATAR_WORKER__container_resources__gpu_resource__mps_limit_active_threads" : "{{ mps_limit_threads | default(false) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__use_driver_hook" : "{{ use_driver_hook | default(false) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__funcs_per_device" : "{{ funcs_per_device | default(0) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__limit_on_utilization" : "{{ gpu_limit_on_utilization | default(0) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__concurrent_running_funcs" : "{{ gpu_concurrent_running | default(0) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__prefetch_memory" : "{{ gpu_prefetch_memory | default(false) }}"
+
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
       "ILUVATAR_WORKER__networking__use_pool" : "{{ worker_use_pool | default(true) }}"
@@ -145,8 +149,10 @@
       # Invocation config
       "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
       "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(100) }}"
-      "ILUVATAR_WORKER__invocation__cpu__queue_policy" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
-      "ILUVATAR_WORKER__invocation__gpu__queue_policy" : "{{ worker_gpu_queue_policy | default('fcfs') }}"
+      "ILUVATAR_WORKER__invocation__queue_policies__cpu" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
+      "ILUVATAR_WORKER__invocation__queue_policies__gpu" : "{{ worker_gpu_queue_policy | default('fcfs') }}"
+      "ILUVATAR_WORKER__invocation__queues__gpu" : "{{ worker_gpu_queue | default('serial') }}"
+      "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('serial') }}"
       "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"

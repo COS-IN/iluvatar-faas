@@ -673,7 +673,7 @@ impl ContainerIsolationService for ContainerdIsolation {
 
     /// Removed the specified container in the containerd namespace
     async fn remove_container(&self, container: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
-        let container = crate::services::containers::structs::cast::<ContainerdContainer>(&container, tid)?;
+        let container = crate::services::containers::structs::cast::<ContainerdContainer>(&container)?;
         self.remove_container_internal(&container.container_id, ctd_namespace, tid)
             .await?;
         self.namespace_manager
@@ -820,7 +820,7 @@ impl ContainerIsolationService for ContainerdIsolation {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
     fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
-        let cast_container = match crate::services::containers::structs::cast::<ContainerdContainer>(container, tid) {
+        let cast_container = match crate::services::containers::structs::cast::<ContainerdContainer>(container) {
             Ok(c) => c,
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Error casting container to ContainerdContainer");

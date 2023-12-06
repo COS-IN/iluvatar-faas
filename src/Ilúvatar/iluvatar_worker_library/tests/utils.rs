@@ -87,8 +87,14 @@ pub async fn full_sim_invoker(
         .unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
     let mut gpu_resource = None;
     if let Some(docker) = lifecycles.get(&Isolation::DOCKER) {
-        gpu_resource = GpuResourceTracker::boxed(&cfg.container_resources.gpu_resource, &TEST_TID, docker, &cfg.status)
-            .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
+        gpu_resource = GpuResourceTracker::boxed(
+            &cfg.container_resources.gpu_resource,
+            &cfg.container_resources,
+            &TEST_TID,
+            docker,
+            &cfg.status,
+        )
+        .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     }
 
     let cm = ContainerManager::boxed(
@@ -113,6 +119,7 @@ pub async fn full_sim_invoker(
         cmap.clone(),
         cpu.clone(),
         gpu_resource.clone(),
+        cfg.container_resources.gpu_resource.clone(),
     );
     let invoker = invoker_fact
         .get_invoker_service(&TEST_TID)
@@ -169,8 +176,14 @@ pub async fn sim_invoker_svc(
         .unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
     let mut gpu_resource = None;
     if let Some(docker) = lifecycles.get(&Isolation::DOCKER) {
-        gpu_resource = GpuResourceTracker::boxed(&cfg.container_resources.gpu_resource, &TEST_TID, docker, &cfg.status)
-            .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
+        gpu_resource = GpuResourceTracker::boxed(
+            &cfg.container_resources.gpu_resource,
+            &cfg.container_resources,
+            &TEST_TID,
+            docker,
+            &cfg.status,
+        )
+        .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     }
     let cm = ContainerManager::boxed(
         cfg.container_resources.clone(),
@@ -194,6 +207,7 @@ pub async fn sim_invoker_svc(
         cmap.clone(),
         cpu,
         gpu_resource,
+        cfg.container_resources.gpu_resource.clone(),
     );
     let invoker = invoker_fact
         .get_invoker_service(&TEST_TID)
@@ -248,8 +262,14 @@ pub async fn test_invoker_svc(
         .unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
     let mut gpu_resource = None;
     if let Some(docker) = lifecycles.get(&Isolation::DOCKER) {
-        gpu_resource = GpuResourceTracker::boxed(&cfg.container_resources.gpu_resource, &TEST_TID, docker, &cfg.status)
-            .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
+        gpu_resource = GpuResourceTracker::boxed(
+            &cfg.container_resources.gpu_resource,
+            &cfg.container_resources,
+            &TEST_TID,
+            docker,
+            &cfg.status,
+        )
+        .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     }
     let cm = ContainerManager::boxed(
         cfg.container_resources.clone(),
@@ -273,6 +293,7 @@ pub async fn test_invoker_svc(
         cmap,
         cpu,
         gpu_resource,
+        cfg.container_resources.gpu_resource.clone(),
     );
     let invoker = invoker_fact
         .get_invoker_service(&TEST_TID)

@@ -7,7 +7,7 @@ use anyhow::Result;
 use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
-    types::{Compute, Isolation, MemSizeMb},
+    types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -16,6 +16,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+use tracing::debug;
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -28,9 +29,11 @@ pub struct SimulatorContainer {
     /// number of invocations a container has performed
     pub invocations: Mutex<u32>,
     pub state: Mutex<ContainerState>,
+    current_memory: Mutex<MemSizeMb>,
     compute: Compute,
     iso: Isolation,
     device: Option<Arc<GPU>>,
+    drop_on_remove: Mutex<Vec<DroppableToken>>,
 }
 impl SimulatorContainer {
     pub fn new(
@@ -49,9 +52,11 @@ impl SimulatorContainer {
             last_used: RwLock::new(SystemTime::now()),
             invocations: Mutex::new(0),
             state: Mutex::new(state),
+            current_memory: Mutex::new(reg.memory),
             compute,
             iso,
             device,
+            drop_on_remove: Mutex::new(vec![]),
         }
     }
 }
@@ -178,11 +183,11 @@ impl ContainerT for SimulatorContainer {
     }
 
     fn get_curr_mem_usage(&self) -> MemSizeMb {
-        self.function.memory
+        *self.current_memory.lock()
     }
 
-    fn set_curr_mem_usage(&self, _usage: MemSizeMb) {
-        // do nothing
+    fn set_curr_mem_usage(&self, usage: MemSizeMb) {
+        *self.current_memory.lock() = usage;
     }
 
     fn function(&self) -> Arc<RegisteredFunction> {
@@ -213,6 +218,18 @@ impl ContainerT for SimulatorContainer {
     }
     fn device_resource(&self) -> &Option<Arc<GPU>> {
         &self.device
+    }
+    fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
+        debug!(tid=%tid, container_id=%self.container_id(), "Adding token to drop on remove");
+        self.drop_on_remove.lock().push(item);
+    }
+    fn remove_drop(&self, tid: &TransactionId) {
+        let mut lck = self.drop_on_remove.lock();
+        let to_drop = std::mem::take(&mut *lck);
+        debug!(tid=%tid, container_id=%self.container_id(), num_tokens=to_drop.len(), "Droppoing tokens");
+        for i in to_drop.into_iter() {
+            drop(i);
+        }
     }
 }
 
