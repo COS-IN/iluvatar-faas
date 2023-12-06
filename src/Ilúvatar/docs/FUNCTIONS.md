@@ -5,7 +5,7 @@
 Launch the worker using your custom configuration.
 
 ```bash
-sudo ilúvatar_worker -c ilúvatar_worker/src/worker.dev.json
+sudo iluvatar_worker -c iluvatar_worker/src/worker.dev.json
 ```
 
 Register a simple function.
@@ -13,31 +13,31 @@ Currently, functions must use pre-built images.
 The system does not support building images from function code at runtime.
 
 ```shell
-foo@cosin:~$ ilúvatar_worker_cli --address localhost --port 8079 register --name myfunc --version 1 --memory 512 --cpu 1 --image docker.io/alfuerst/hello-iluvatar-action:latest --isolation containerd --compute cpu
+foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 register --name myfunc --version 1 --memory 512 --cpu 1 --image docker.io/alfuerst/hello-iluvatar-action:latest --isolation containerd --compute cpu
 {"Ok": "function registered"}
 ```
 
 Then invoke it, with or without arguments.
 
 ```shell
-foo@cosin:~$ ilúvatar_worker_cli --address localhost --port 8079 invoke --name myfunc --version 1 -a name=Alex
+foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 invoke --name myfunc --version 1 -a name=Alex
 {"json_result":"{\"body\": {\"greeting\": \"Hello Alex from python!\", \"cold\": false, \"start\": 1680185561.5550308, \"end\": 1680185561.5550325, \"latency\": 1.6689300537109375e-06}}","success":true,"duration_us":2025,"compute":1,"container_state":3}
 ```
 
 ```shell
-foo@cosin:~$ ilúvatar_worker_cli --address localhost --port 8079 invoke --name myfunc --version 1
+foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 invoke --name myfunc --version 1
 {"json_result":"{\"body\": {\"greeting\": \"Hello stranger from python!\", \"cold\": false, \"start\": 1680185580.6946194, \"end\": 1680185580.6946208, \"latency\": 1.430511474609375e-06}}","success":true,"duration_us":1916,"compute":1,"container_state":3}
 ```
 
 Or invoke the function asynchronously.
 
 ```shell
-foo@cosin:~$ ilúvatar_worker_cli --address localhost --port 8079 invoke-async --name myfunc --version 1
+foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 invoke-async --name myfunc --version 1
 125F17C0-C10A-7FB8-C12F-10C17450FB68
 ```
 
 ```shell
-foo@cosin:~$ ilúvatar_worker_cli --address localhost --port 8079 invoke-async-check --cookie 125F17C0-C10A-7FB8-C12F-10C17450FB68
+foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 invoke-async-check --cookie 125F17C0-C10A-7FB8-C12F-10C17450FB68
 {"json_result":"{\"body\": {\"greeting\": \"Hello stranger from python!\", \"cold\": false, \"start\": 1680185826.4311872, \"end\": 1680185826.431189, \"latency\": 1.9073486328125e-06}}","success":true,"duration_us":2138,"compute":1,"container_state":3}
 ```
 

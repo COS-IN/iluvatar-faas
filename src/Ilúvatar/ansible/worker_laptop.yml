@@ -4,7 +4,7 @@
     host_group: "{{ groups['workers'] }}"
     worker_index_base: 0
     assigned_port: "{{ (worker.port | int + host_group.index(inventory_hostname)) }}"
-    bin_dir: "/tmp/ilúvatar/bin"
+    bin_dir: "/tmp/iluvatar/bin"
     exe_dest: "{{bin_dir}}/{{ worker.bin_name }}"
     config_dest: "{{bin_dir}}/{{ inventory_hostname }}.json"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
@@ -46,14 +46,14 @@
       
   - name: copy worker executable
     ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.bin_name}}"
+      src: "{{iluvatar_home}}/target/{{target}}/{{worker.bin_name}}"
       dest: "{{exe_dest}}"
       mode: "preserve"
     become: yes
 
   - name: copy worker config
     ansible.builtin.copy:
-      src: "{{ilúvatar_home}}/target/{{target}}/{{worker.config_name}}"
+      src: "{{iluvatar_home}}/target/{{target}}/{{worker.config_name}}"
       dest: "{{config_dest}}"
       mode: "preserve"
     become: yes
@@ -94,7 +94,7 @@
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
       "ILUVATAR_WORKER__address" : "{{ __worker_address }}"
       "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/ilúvatar/logs') }}"
+      "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
       "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
       "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:{{ controller.port }}"
       # Container resources
@@ -110,7 +110,7 @@
       "ILUVATAR_WORKER__energy__ipmi_freq_ms" : "{{ worker_ipmi_log_freq_ms | default(0) }}"
       "ILUVATAR_WORKER__energy__ipmi_pass_file" : "{{ worker_ipmi_pass_file | default('') }}"
       "ILUVATAR_WORKER__energy__ipmi_ip_addr" : "{{ worker_ipmi_ip_addr | default(servers[ansible_host].ipmi_ip) }}"
-      "ILUVATAR_WORKER__energy__log_folder": "{{ worker_log_dir | default('/tmp/ilúvatar/logs') }}"
+      "ILUVATAR_WORKER__energy__log_folder": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
     register: worker_output
   - debug: 
         var: worker_output
@@ -145,7 +145,7 @@
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
       "ILUVATAR_WORKER__address" : "{{ __worker_address }}"
       "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/ilúvatar/logs') }}"
+      "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
       "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
       "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:{{ controller.port }}"
       # Container resources
@@ -161,7 +161,7 @@
       "ILUVATAR_WORKER__energy__ipmi_freq_ms" : "{{ worker_ipmi_log_freq_ms | default(0) }}"
       "ILUVATAR_WORKER__energy__ipmi_pass_file" : "{{ worker_ipmi_pass_file | default('') }}"
       "ILUVATAR_WORKER__energy__ipmi_ip_addr" : "{{ worker_ipmi_ip_addr | default(servers[ansible_host].ipmi_ip) }}"
-      "ILUVATAR_WORKER__energy__log_folder": "{{ worker_log_dir | default('/tmp/ilúvatar/logs') }}"
+      "ILUVATAR_WORKER__energy__log_folder": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
     register: worker_output
   - debug: 
         var: worker_output

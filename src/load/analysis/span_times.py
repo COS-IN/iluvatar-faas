@@ -126,7 +126,7 @@ with open(args.log, 'r') as f:
 
     if log["fields"]["message"] == "new":
       targets.add(span_name(log))
-      if span_name(log) == "iluvatar_worker_library::worker_api::ilúvatar_worker::invoke":
+      if span_name(log) == "iluvatar_worker_library::worker_api::iluvatar_worker::invoke":
         invocation_tids.add(tid)
     if log["fields"]["message"] == "close":
       # if "iluvatar_worker_library::services::invocation::invoker::invoke" == span_name(log):

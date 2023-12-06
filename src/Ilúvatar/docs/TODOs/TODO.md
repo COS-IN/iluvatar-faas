@@ -109,7 +109,7 @@ TransactionId, code execution time, latencies, etc.
 ## Generate Ansible variables
 
 Can on-build, the ansible mappings of Iluvatar environment variables to config struct members be done?
-Something like `ilúvatar_worker` can reference `ilúvatar_worker_library` in it's `build.rs`, giving it access to the types.
+Something like `iluvatar_worker` can reference `iluvatar_worker_library` in it's `build.rs`, giving it access to the types.
 Can it then generate the ansible vars and put them somewhere?
 
 ## CI Testing

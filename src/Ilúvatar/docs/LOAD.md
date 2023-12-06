@@ -11,14 +11,14 @@ These must be passed *before* the command value.
 1. `--help` prints help information of shared information.
 
 ```sh
-ilúvatar_load_gen -p 8079 -h localhost trace 
-ilúvatar_load_gen --help
+iluvatar_load_gen -p 8079 -h localhost trace 
+iluvatar_load_gen --help
 ```
 
 `--help` can also be specified for each command, with detailed help for it.
 
 ```bash
-ilúvatar_load_gen trace --help
+iluvatar_load_gen trace --help
 ```
 
 ## Scaling load
@@ -32,7 +32,7 @@ This way invocations aren't primarily limited by the CPU usage and delay of invo
 1. `--duration`, `-d`: How long to run before increasing the number of threads
 
 After the duration is done for each number of threads, the throughput results will be stored in a json folder in the `--out` directory.
-They will be formatted as a list of the `ThreadResult` struct described [here](../ilúvatar_load_gen/src/utils.rs).
+They will be formatted as a list of the `ThreadResult` struct described [here](../iluvatar_load_gen/src/utils.rs).
 
 ## Trace load
 
@@ -40,7 +40,7 @@ This allows a series of predetermined function invocations to be run on either a
 Two csv files control what functions are run at what time, to the millisecond.
 
 ```sh
-ilúvatar_load_gen -p 100 -h localhost trace 
+iluvatar_load_gen -p 100 -h localhost trace 
 ```
 
 1. `--target`, `-t`: What is the experiment targeting?
@@ -98,7 +98,7 @@ Defaults to 0.
 
 ### Generating Traces
 
-The two CSV files for metadata and invocations must match the various fields detailed by their Rust struct equivalents, [Function](../ilúvatar_load_gen/src/trace/trace.rs) and [CsvInvocation](../ilúvatar_load_gen/src/trace/trace.rs) respectively.
+The two CSV files for metadata and invocations must match the various fields detailed by their Rust struct equivalents, [Function](../iluvatar_load_gen/src/trace/trace.rs) and [CsvInvocation](../iluvatar_load_gen/src/trace/trace.rs) respectively.
 
 Generating traces is currently done externally using Python scripts.
 This is done as preparing and parsing the Azure workload data is resource intensive.
@@ -111,19 +111,19 @@ A complex scenario of preparing the Azure data and using it to generate a trace 
 An example load call to a live system:
 
 ```bash
-ilúvatar_load_gen -p 100 -h localhost trace --target "worker" --setup "live" --input "/my/trace/input.csv" --metadata "/my/trace/metadata-input.csv" --load-type "functions" --function-data "/my/function/data.json
+iluvatar_load_gen -p 100 -h localhost trace --target "worker" --setup "live" --input "/my/trace/input.csv" --metadata "/my/trace/metadata-input.csv" --load-type "functions" --function-data "/my/function/data.json
 ```
 
 An example load call for a simulation:
 
 ```bash
-ilúvatar_load_gen -p 100 -h localhost trace --target "controller" --setup "simulation" --input "/my/trace/input.csv" --metadata "/my/trace/metadata-input.csv" --worker-config "/my/worker/config.json" --controller-config "/my/controller/config.json" --workers 3
+iluvatar_load_gen -p 100 -h localhost trace --target "controller" --setup "simulation" --input "/my/trace/input.csv" --metadata "/my/trace/metadata-input.csv" --worker-config "/my/worker/config.json" --controller-config "/my/controller/config.json" --workers 3
 ```
 
 ## Benchmark load
 
 The `benchmark` command repeatedly runs functions on a system to determine the runtime characteristics of each.
-Results of the benchmark will be stored as json, in the format specified by the `BenchmarkStore` struct [here](../ilúvatar_load_gen/src/benchmark.rs)
+Results of the benchmark will be stored as json, in the format specified by the `BenchmarkStore` struct [here](../iluvatar_load_gen/src/benchmark.rs)
 
 1. `--functions-dir`: A directory holding the functions that are to be benchmarked.
 It is assumed that images for each already exist and are available, they are not prepared by this.
@@ -151,5 +151,5 @@ Results will be combined into one file.
 An example load call for a worker:
 
 ```bash
-ilúvatar_load_gen -p 100 -h localhost benchmark --target "worker" --functions-dir "src/load/functions/python3/functions" --cold-iters 5 --warm-iters 5
+iluvatar_load_gen -p 100 -h localhost benchmark --target "worker" --functions-dir "src/load/functions/python3/functions" --cold-iters 5 --warm-iters 5
 ```

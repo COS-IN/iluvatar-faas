@@ -39,7 +39,7 @@ mkdir -p $sub_dir
 # waiting for IPMI to return to normal
 sleep 5s
 
-../../../Ilúvatar/target/release/ilúvatar_energy_mon --enable-rapl --enable-ipmi --enable-perf --log-folder $sub_dir \
+../../../Ilúvatar/target/release/iluvatar_energy_mon --enable-rapl --enable-ipmi --enable-perf --log-folder $sub_dir \
 --log-freq-ms $MONITOR_MS --perf-stat-duration-ms $MONITOR_MS --ipmi-pass-file $IPMI_PASS --ipmi-ip-addr $IPMI_ADDR &
 
 monitor_pid=$!
@@ -73,7 +73,7 @@ mkdir -p $sub_dir
 # waiting for IPMI to return to normal
 sleep 5s
 
-../../../Ilúvatar/target/release/ilúvatar_energy_mon --enable-rapl --enable-ipmi --enable-perf --log-folder $sub_dir \
+../../../Ilúvatar/target/release/iluvatar_energy_mon --enable-rapl --enable-ipmi --enable-perf --log-folder $sub_dir \
 --log-freq-ms $MONITOR_MS --perf-stat-duration-ms $MONITOR_MS --ipmi-pass-file $IPMI_PASS --ipmi-ip-addr $IPMI_ADDR &
 
 monitor_pid=$!

@@ -3,9 +3,9 @@
 ## Advanced Options
 
 All configuration for the worker and controller are located in two central structs, one for each piece.
-The [controller is much simpler](../ilúvatar_controller_library/src/controller/controller_config.rs) and allows for changing the load balancing algorithm and what load metric might be used to balance invocations.
+The [controller is much simpler](../iluvatar_controller_library/src/controller/controller_config.rs) and allows for changing the load balancing algorithm and what load metric might be used to balance invocations.
 
-The [worker configuration](ilúvatar_worker_library/src/worker_api/worker_config.rs) has many more options as it can micromanage invocations in many ways.
+The [worker configuration](iluvatar_worker_library/src/worker_api/worker_config.rs) has many more options as it can micromanage invocations in many ways.
 The primary struct, `Configuration`, contains many sub-structures.
 `ContainerResourceConfig` has generic resources the container pool is allowed to use to store running and warm containers.
 `ComputeResourceConfig` allows overloading CPU resources, and enabling GPU resources if the hardware is available.

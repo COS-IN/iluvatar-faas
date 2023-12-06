@@ -19,7 +19,7 @@ If using ssh, Ansible will expect an ssh key to be set up that allow connection 
 
 ## Configuration via Ansible
 
-Most of the configuration uses the default json files for both [controller](../ilúvatar_controller/src/controller.json) and [worker](../ilúvatar_worker/src/worker.json).
+Most of the configuration uses the default json files for both [controller](../iluvatar_controller/src/controller.json) and [worker](../iluvatar_worker/src/worker.json).
 Configuration of both can be overloaded at _runtime_ using environment variables as described in both [worker](./WORKER.md) and [controller](./CONTROLLER.md) sections, and Ansible can take advantage of that.
 The tasks that start the executables and set their environment, allowing injection through Ansible.
 The startup task (`run worker executable`) for the [worker](../ansible/worker.yml) has a number of examples of this.
@@ -63,9 +63,9 @@ A simple command to run Ilúvatar on the local machine.
 
 ```sh
 # clean the environment to remove any possible leftover parts 
-ansible-playbook -i environments/local/hosts.ini ilúvatar.yml -e mode=clean -e "@./group_vars/host_addresses.yml"
+ansible-playbook -i environments/local/hosts.ini iluvatar.yml -e mode=clean -e "@./group_vars/host_addresses.yml"
 # Deploy the system
-ansible-playbook -i environments/local/hosts.ini ilúvatar.yml -e mode=deploy -e "@./group_vars/host_addresses.yml"
+ansible-playbook -i environments/local/hosts.ini iluvatar.yml -e mode=deploy -e "@./group_vars/host_addresses.yml"
 ```
 
 ### Tear down
@@ -73,5 +73,5 @@ ansible-playbook -i environments/local/hosts.ini ilúvatar.yml -e mode=deploy -e
 To clean up services without starting them again, just pass `mode=clean`.
 
 ```sh
-ansible-playbook -i environments/local/hosts.ini ilúvatar.yml -e mode=clean -e "@./group_vars/host_addresses.yml"
+ansible-playbook -i environments/local/hosts.ini iluvatar.yml -e mode=clean -e "@./group_vars/host_addresses.yml"
 ```

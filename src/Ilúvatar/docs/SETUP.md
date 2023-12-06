@@ -96,7 +96,7 @@ These instructions are to set up a ZFS pool for use with Ilúvatar.
 
 ```bash
 # vary these based on your setup
-ilu_base=/data2/ilúvatar
+ilu_base=/data2/iluvatar
 sudo mkdir -p $ilu_base/zfs
 
 sudo fallocate -l 100G $ilu_base/zfs/ilu-pool
