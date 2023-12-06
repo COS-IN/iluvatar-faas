@@ -4,7 +4,7 @@
 ## Power cap
 
 A power-capping feature has been implemented where the worker monitors system-level usage and can force queue invocations if power usage exceeds a certain limit.
-The code can be found [here](../ilúvatar_worker_library/src/services/invocation/energy_limiter.rs).
+The code can be found [here](../iluvatar_worker_library/src/services/invocation/energy_limiter.rs).
 Two policies exist for it that are described in the `PowerCapVersion` enum.
 An energy measuring source, either IPMI or RAPL must also be configured to use this feature at runtime.
 

@@ -1,0 +1,26 @@
+{
+  "name": "local",
+  "address": "127.0.0.1",
+  "port": 8078,
+  "timeout_sec": 6000,
+  "logging": {
+    "level": "info",
+    "directory": "/tmp/iluvatar/logs",
+    "basename": "load_balancer",
+    "spanning": "NEW+CLOSE",
+    "flame": "",
+    "span_energy_monitoring": false
+  },
+  "load_balancer": {
+    "algorithm": "LeastLoaded",
+    "load_metric": "loadavg",
+    "thread_sleep_ms": 1000
+  },
+  "influx": {
+    "host": "http://localhost:8086",
+    "org":"ilu",
+    "token": "pI126L1l7SjfJVuMOPsnWYoBIQvU96sa6w4T8Gu8OpWmvlm65j1NxCtUDgiWKu_zZ_0dl08q1WMg5tisAtd62w==",
+    "enabled": true,
+    "update_freq_ms": 1000
+  }
+}

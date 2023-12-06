@@ -5,7 +5,7 @@ CORES=2
 MEMORY=4096
 
 results_dir="."
-worker_log_dir="/tmp/ilúvatar/logs/ansible"
+worker_log_dir="/tmp/iluvatar/logs/ansible"
 environment='local'
 hosts="-e @../../../ansible/group_vars/local_addresses.yml"
 host_file="../../../ansible/environments/$environment/hosts.ini"
@@ -38,7 +38,7 @@ ansible-playbook -i $host_file $ILU_HOME/ansible/worker.yml -e worker_log_dir=$w
 ansible-playbook -i $host_file $ILU_HOME/ansible/worker.yml $hosts -e mode=deploy -e worker_memory_mb=$MEMORY \
     -e worker_cores=$CORES -e worker_status_ms=500 -e worker_memory_buffer=1024 -e worker_queue_policy="fcfs" -e worker_snapshotter='overlayfs' \
     -e influx_enabled=false -e worker_log_dir=$worker_log_dir >> $log_file &&
-$ILU_HOME/target/release/ilúvatar_load_gen scaling --out-folder $results_dir --port 8070 --host $host --target worker --start 1 --end 4 --image docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest --compute cpu --isolation containerd --duration=60 >> $log_file
+$ILU_HOME/target/release/iluvatar_load_gen scaling --out-folder $results_dir --port 8070 --host $host --target worker --start 1 --end 4 --image docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest --compute cpu --isolation containerd --duration=60 >> $log_file
 
 sleep 30
 cleanup

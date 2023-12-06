@@ -19,7 +19,7 @@ So `config.load_balancer.algorithm` transforms to `ILUVATAR_CONTROLLER__load_bal
 For example.
 
 ```bash
-ILUVATAR_CONTROLLER__load_balancer__algorithm='RoundRobin' ./ilúvatar_controller --config /my/config/path.json
+ILUVATAR_CONTROLLER__load_balancer__algorithm='RoundRobin' ./iluvatar_controller --config /my/config/path.json
 ```
 
-See [this Rust file](../ilúvatar_controller_library/src/controller/controller_config.rs) for details on the configuration file and their descriptions.
+See [this Rust file](../iluvatar_controller_library/src/controller/controller_config.rs) for details on the configuration file and their descriptions.

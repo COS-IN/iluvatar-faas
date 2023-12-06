@@ -67,7 +67,7 @@ with open(args.log, 'r') as f:
 
     if log["fields"]["message"] == "new":
       targets.add(span_name(log))
-      if span_name(log) == "iluvatar_worker_library::worker_api::ilúvatar_worker::invoke":
+      if span_name(log) == "iluvatar_worker_library::worker_api::iluvatar_worker::invoke":
         invocation_tids.add(tid)
       by_tid_entry[tid].append(log)
     if log["fields"]["message"] == "close":
@@ -139,7 +139,7 @@ def plot_invocation_timeline(tid, title):
   for i, name in enumerate(labels):
     # these functions cross the invocation boundary, so we should remove the invoke time from their duration
     if name in ["ContainerLock::invoke", "cpu_q_invoke::invoke_on_container", "queueing_dispatcher::sync_invocation", 
-                "invoker_trait::invocation_worker_thread", "containerdstructs::call_container", "ilúvatar_worker::invoke", 
+                "invoker_trait::invocation_worker_thread", "containerdstructs::call_container", "iluvatar_worker::invoke", 
                 "ContainerdContainer::invoke"]:
       data[i] = data[i] - float(target["code_duration_ms"])
 

@@ -1,8 +1,8 @@
-ilúvatar_worker_cli/src/worker.dev*json
-ilúvatar_worker_cli/tests/resources/worker.dev*json
-ilúvatar_worker/src/worker.dev*json
-ilúvatar_worker_library/tests/resources/worker.dev*json
-ilúvatar_controller/src/controller.dev*json
+iluvatar_worker_cli/src/worker.dev*json
+iluvatar_worker_cli/tests/resources/worker.dev*json
+iluvatar_worker/src/worker.dev*json
+iluvatar_worker_library/tests/resources/worker.dev*json
+iluvatar_controller/src/controller.dev*json
 target/
 **.swp
 .vscode/

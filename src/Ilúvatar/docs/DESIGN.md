@@ -10,12 +10,12 @@ It also includes two secondary pieces, a time series database and a standalone e
 The focus of the Ilúvatar system.
 The worker comprises a number of components.
 
-1. **Invocation queue:** all invocations are inserted into this queue before being dispatched to a container. Code for the queuing mechanisms starts [here](../ilúvatar_worker_library/src/services/invocation/queueing_dispatcher.rs).
-1. **Container pool:** created containers are kept in a pool that ensures containers have memory available. It also performs evictions based on a configurable policy. Code for the queuing mechanisms starts [here](../ilúvatar_worker_library/src/services/containers/containermanager.rs).
-1. **Isolation mechanisms:** Ilúvatar can use multiple isolation mechanisms and has the easy ability to implement additional ones. Currently, [Docker](../ilúvatar_worker_library/src/services/containers/docker/docker.rs) and [Containerd](../ilúvatar_worker_library/src/services/containers/containerd/containerd.rs) are supported. New backends must implement the `ContainerT` and `ContainerIsolationService` traits.
+1. **Invocation queue:** all invocations are inserted into this queue before being dispatched to a container. Code for the queuing mechanisms starts [here](../iluvatar_worker_library/src/services/invocation/queueing_dispatcher.rs).
+1. **Container pool:** created containers are kept in a pool that ensures containers have memory available. It also performs evictions based on a configurable policy. Code for the queuing mechanisms starts [here](../iluvatar_worker_library/src/services/containers/containermanager.rs).
+1. **Isolation mechanisms:** Ilúvatar can use multiple isolation mechanisms and has the easy ability to implement additional ones. Currently, [Docker](../iluvatar_worker_library/src/services/containers/docker/docker.rs) and [Containerd](../iluvatar_worker_library/src/services/containers/containerd/containerd.rs) are supported. New backends must implement the `ContainerT` and `ContainerIsolationService` traits.
 1. **Function invocation:** arguments are passed to a container and the function executed inside it. Details can be found [below](#invocation-details).
-1. **Resource control:** CPU, GPU, and memory resources can be used by several parts of the system. Components [here](../ilúvatar_worker_library/src/services/resources/) ensure that they are never over-allocated unless specified by configuration.
-1. **System monitoring:** captured Linux metrics are used by various policies in the worker. This is managed by the [status service](../ilúvatar_worker_library/src/services/status/status_service.rs)
+1. **Resource control:** CPU, GPU, and memory resources can be used by several parts of the system. Components [here](../iluvatar_worker_library/src/services/resources/) ensure that they are never over-allocated unless specified by configuration.
+1. **System monitoring:** captured Linux metrics are used by various policies in the worker. This is managed by the [status service](../iluvatar_worker_library/src/services/status/status_service.rs)
 
 Information on running the Ilúvatar worker can be found [here](docs/WORKER.md).
 
@@ -34,17 +34,17 @@ curl -X POST -H "Content-Type: application/json" -d "{}" http://localhost:8081/i
 
 On completion of the invocation, a JSON blob is returned.
 This contains fixed information the worker expects to receive from the server, plus any return value from the function code.
-The structure of the `ParsedResult` struct can be found [here](../Ilúvatar/ilúvatar_worker_library/src/services/containers/structs.rs).
+The structure of the `ParsedResult` struct can be found [here](../Ilúvatar/iluvatar_worker_library/src/services/containers/structs.rs).
 
 This interaction is controlled by the per-backend implementation.
-The Docker example can be found [here](../ilúvatar_worker_library/src/services/containers/docker/dockerstructs.rs).
+The Docker example can be found [here](../iluvatar_worker_library/src/services/containers/docker/dockerstructs.rs).
 A new backend would not be required to use this invocation handshake, or the current backends could support multiple ways of performing an invocation.
 That would just depend on tracking what type of container had been started (i.e. if it uses the web server or another mechanism).
 
 ## Controller
 
 The primary component of the controller is to load-balance invocations as they arrive.
-There are several [implemented policies](../ilúvatar_controller_library/src/services/load_balance/balancers/) for this.
+There are several [implemented policies](../iluvatar_controller_library/src/services/load_balance/balancers/) for this.
 It also pulls worker data from InfluxDB, and monitors worker health to avoid routing to broken workers.
 On function registration, the controller is responsible in making sure all workers receive the registration information for functions that will execute on any worker.
 Currently, it registers all functions on all workers.

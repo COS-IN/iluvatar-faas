@@ -3,7 +3,9 @@
 Ilúvatar is an open Serverless platform built with the goal of jumpstarting and streamlining FaaS research.
 It provides a system that is easy and consistent to use, highly modifiable, and directly reports experimental results.
 
-<!-- <img src="./imgs/logo1.jpeg" alt="Ilúvatar orchestrating functions" width="300"/> -->
+<center>
+<img src="./imgs/logo1.png" alt="Ilúvatar logo" width="300"/>
+</center>
 
 ## Try it Out
 
@@ -16,20 +18,20 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Install non-apt dependencies and build Ilúvatar, assumes python3 exists
 cd src/Ilúvatar/docs/examples
 ./sample_setup.sh
-sudo ../../target/debug/ilúvatar_worker -c ../../ilúvatar_worker/src/worker.dev.json &
+sudo ../../target/debug/iluvatar_worker -c ../../iluvatar_worker/src/worker.dev.json &
 worker_pid=$(echo $!)
 ```
 
 Register a function with the worker.
 
 ```sh
-../../target/debug/ilúvatar_worker_cli --address "127.0.0.1" --port 8079 register --name "hello" --version 1 --image "docker.io/alfuerst/hello-iluvatar-action:latest" --memory 128 --cpu 1
+../../target/debug/iluvatar_worker_cli --address "127.0.0.1" --port 8079 register --name "hello" --version 1 --image "docker.io/alfuerst/hello-iluvatar-action:latest" --memory 128 --cpu 1
 ```
 
 Invoke the newly registered function, passing custom arguments.
 
 ```sh
-../../target/debug/ilúvatar_worker_cli --address "127.0.0.1" --port 8079 invoke --name "hello" --version 1 -a name=`whoami`
+../../target/debug/iluvatar_worker_cli --address "127.0.0.1" --port 8079 invoke --name "hello" --version 1 -a name=`whoami`
 ```
 
 Kill the worker running in the background.
@@ -63,11 +65,14 @@ It also does not have the research-first features implemented in Ilúvatar.
 
 See Ilúvatar in action for research [right here](./src/Ilúvatar/docs/RESEARCH.md)
 
-## More documentation
+## More documentation / Questions
 
 Ilúvatar supports a large variety of customization in configuration and setup, and methods of load generation and experimentation.
 It is easy to create custom functions that run new Python programs, [information is in this document](./src/Ilúvatar/docs/FUNCTIONS.md#preparing-code-to-be-functions).
 Detailed documentation can be found [closer to the code](./src/Ilúvatar/README.md).
+
+If you have questions, want help working with Ilúvatar, or anything else, we have a [Discord server](https://discord.gg/r4CZ7bZhmJ).
+Definitely gives faster answers than opening an issue for a question.
 
 ## Why 'Ilúvatar'?
 
