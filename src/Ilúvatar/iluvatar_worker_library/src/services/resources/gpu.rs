@@ -337,7 +337,8 @@ impl GpuResourceTracker {
         let mut ret = vec![];
         let mut found = 0;
         if gpu_config.is_tegra.unwrap_or(false) {
-            let gpu_uuid = "291aa685-fbb1-44ec-8a5d-79550dc13f55".to_string();
+            let gpu_uuid = "tegra_00-0000-0000-0000-dummy_uuid00".to_string();
+                           
             let memory_mb: MemSizeMb = 30623;
             ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
             found += 1;
