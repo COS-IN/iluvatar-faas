@@ -166,9 +166,7 @@ impl ContainerT for ContainerdContainer {
     fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
         todo!();
     }
-    fn remove_drop(&self, _tid: &TransactionId) {
-        todo!();
-    }
+    fn remove_drop(&self, _tid: &TransactionId) {}
 }
 
 impl crate::services::containers::structs::ToAny for ContainerdContainer {

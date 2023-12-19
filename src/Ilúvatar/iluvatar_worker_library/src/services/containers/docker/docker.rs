@@ -59,14 +59,14 @@ impl DockerIsolation {
         mut run_args: Vec<&'a str>,
         image_name: &'a str,
         container_id: &str,
-        proc_args: Option<&'a str>,
+        proc_args: Option<Vec<&'a str>>,
         tid: &TransactionId,
         env: Option<&HashMap<String, String>>,
     ) -> Result<()> {
         run_args.insert(0, "run");
         run_args.extend(["--label", "owner=iluvatar_worker", "--detach", image_name]);
         if let Some(a) = proc_args {
-            run_args.push(a);
+            run_args.extend(a);
         }
         let output = execute_cmd("/usr/bin/docker", run_args, env, tid)?;
         match output.status.code() {
@@ -239,8 +239,10 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
-        let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
-        self.docker_run(args, image_name, cid.as_str(), Some(proc_args.as_str()), tid, None)?;
+        let time = format!("{}", self.limits_config.timeout_sec);
+        let proc_args = vec!["server:app", "-w", "1", "--timeout", time.as_str()];
+        // let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
+        self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None)?;
         drop(permit);
         unsafe {
             let c = DockerContainer::new(
