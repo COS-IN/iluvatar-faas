@@ -167,7 +167,7 @@ impl ContainerT for ContainerdContainer {
         todo!();
     }
     fn remove_drop(&self, _tid: &TransactionId) {
-        todo!();
+        
     }
 }
 
