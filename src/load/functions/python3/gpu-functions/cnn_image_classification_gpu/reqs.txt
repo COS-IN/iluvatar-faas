@@ -1,0 +1,13 @@
+uuid
+s3transfer
+jmespath
+tensorboard
+tensorflow
+tensorflow-estimator
+numpy
+keras
+Keras-Applications
+Keras-Preprocessing
+Pillow
+gunicorn
+flask

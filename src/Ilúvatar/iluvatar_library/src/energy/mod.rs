@@ -5,6 +5,7 @@ pub mod ipmi;
 pub mod perf;
 pub mod process_pct;
 pub mod rapl;
+pub mod tegrastats;
 
 #[derive(Debug, serde::Deserialize, clap::Parser)]
 #[clap(author, version, about)]
@@ -27,6 +28,14 @@ pub struct EnergyConfig {
     /// Executing `kill -9 $(ps -ax | grep perf | awk '"'"'{print $1}'"'"' )` on the host should work.
     #[clap(long, action)]
     pub perf_freq_ms: Option<u64>,
+
+    /// Log energy usage as monitored via `tegrastats`
+    /// If 0 then tegra is disabled
+    /// Currently tegra is not killed on worker shutdown, it must be killed manually and externally.
+    /// It is also hard to guarantee that tegra will be removed, as the mode of the main process exiting can vary.
+    /// Executing `kill -9 $(ps -ax | grep tegra | awk '"'"'{print $1}'"'"' )` on the host should work.
+    #[clap(long, action)]
+    pub tegra_freq_ms: Option<u64>,
 
     /// Log instantaneous cpu utilization of this process.
     /// If 0 then logging is disabled.
@@ -66,6 +75,9 @@ impl EnergyConfig {
     }
     pub fn perf_enabled(&self) -> bool {
         Self::enabled(&self.perf_freq_ms)
+    }
+    pub fn tegra_enabled(&self) -> bool {
+        Self::enabled(&self.tegra_freq_ms)
     }
     pub fn rapl_enabled(&self) -> bool {
         Self::enabled(&self.rapl_freq_ms)

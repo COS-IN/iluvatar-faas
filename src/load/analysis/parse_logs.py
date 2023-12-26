@@ -142,6 +142,7 @@ def prepare_energy_log(df: pd.DataFrame) -> pd.DataFrame:
           data["kern_cpu_hz_std"] = np.std(json_log["kernel_cpu_freqs"])
           for cpu in range(len(json_log["kernel_cpu_freqs"])):
             data["kern_cpu{}_hz".format(cpu)] = json_log["kernel_cpu_freqs"][cpu]
+
         cpu_data.append(data)
 
   cpu_df = pd.DataFrame.from_records(cpu_data)

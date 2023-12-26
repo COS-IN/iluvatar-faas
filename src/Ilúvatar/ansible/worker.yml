@@ -132,6 +132,10 @@
       # Energy config
       "ILUVATAR_WORKER__energy__rapl_freq_ms" : "{{ worker_rapl_log_freq_ms | default(0) }}"
       "ILUVATAR_WORKER__energy__perf_freq_ms" : "{{ worker_perf_log_freq_ms | default(0) }}"
+      "ILUVATAR_WORKER__energy__tegra_freq_ms" : "{{ worker_tegra_log_freq_ms | default(0) }}"
+      "ILUVATAR_WORKER__energy__process_freq_ms" : "{{ worker_process_log_freq_ms | default(0) }}"
+      "ILUVATAR_WORKER__energy__kernel_cpu_frequencies_freq_ms" : "{{ worker_kernel_cpu_frequencies_log_freq_ms | default(0) }}"
+      "ILUVATAR_WORKER__energy__hardware_cpu_frequencies_freq_ms" : "{{ worker_hardware_cpu_frequencies_log_freq_ms | default(0) }}"
       "ILUVATAR_WORKER__energy__ipmi_freq_ms" : "{{ worker_ipmi_log_freq_ms | default(0) }}"
       "ILUVATAR_WORKER__energy__ipmi_pass_file" : "{{ worker_ipmi_pass_file | default('') }}"
       "ILUVATAR_WORKER__energy__ipmi_ip_addr" : "{{ worker_ipmi_ip_addr | default(servers[ansible_host].ipmi_ip) }}"

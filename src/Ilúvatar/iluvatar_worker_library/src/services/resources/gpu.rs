@@ -215,11 +215,11 @@ impl GpuResourceTracker {
             let gpus = GpuResourceTracker::prepare_structs(&config, tid)?;
             if config.mps_enabled() {
                 if let Some(docker) = docker.as_any().downcast_ref::<DockerIsolation>() {
-                    Self::start_mps(docker, tid)?;
+                    Self::start_mps(&config, docker, tid)?;
                 } else {
                     bail_error!("MPS is enabled, but isolation service passed was not `docker`");
                 }
-            } else {
+            } else if !config.is_tegra.unwrap_or(false) {
                 Self::set_shared_exclusive(tid)?;
             }
             let (handle, tx) = tokio_thread(
@@ -258,9 +258,11 @@ impl GpuResourceTracker {
         Ok(Arc::new(Semaphore::new(cnt as usize)))
     }
 
-    fn start_mps(docker: &DockerIsolation, tid: &TransactionId) -> Result<()> {
+    fn start_mps(gpu_config: &Arc<GPUResourceConfig>, docker: &DockerIsolation, tid: &TransactionId) -> Result<()> {
         debug!(tid=%tid, "Setting MPS exclusive");
-        Self::set_gpu_exclusive(tid)?;
+        if !gpu_config.is_tegra.unwrap_or(false) {
+            Self::set_gpu_exclusive(tid)?;
+        }
         debug!(tid=%tid, "Launching MPS container");
         let args = vec![
             "--name",
@@ -334,12 +336,22 @@ impl GpuResourceTracker {
     fn make_real_gpus(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<(u32, Vec<Arc<GPU>>)> {
         let mut ret = vec![];
         let mut found = 0;
+        if gpu_config.is_tegra.unwrap_or(false) {
+            let gpu_uuid = "tegra_00-0000-0000-0000-dummy_uuid00".to_string();
+
+            let memory_mb: MemSizeMb = 30623;
+            ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
+            found += 1;
+            return Ok((found, ret));
+        }
+
         let output = execute_cmd_checked(
             "/usr/bin/nvidia-smi",
             vec!["--query-gpu=gpu_uuid,memory.total", "--format=csv,noheader,nounits"],
             None,
             tid,
         )?;
+
         let mut reader = csv::ReaderBuilder::new()
             .has_headers(false)
             .trim(csv::Trim::All)

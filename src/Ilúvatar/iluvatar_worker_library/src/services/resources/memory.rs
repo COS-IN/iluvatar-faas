@@ -53,9 +53,11 @@ mod memory_resource_tests {
     use super::*;
 
     fn tracker(memory: MemSizeMb, buffer: MemSizeMb) -> Arc<MemoryResourceTracker> {
-        let mut cfg = ContainerResourceConfig::default();
-        cfg.memory_mb = memory;
-        cfg.memory_buffer_mb = buffer;
+        let cfg = ContainerResourceConfig {
+            memory_mb: memory,
+            memory_buffer_mb: buffer,
+            ..Default::default()
+        };
         MemoryResourceTracker::boxed(&Arc::new(cfg))
     }
 

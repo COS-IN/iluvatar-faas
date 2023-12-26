@@ -207,6 +207,15 @@ impl ContainerIsolationService for DockerIsolation {
             gpu = format!("device={}", device.gpu_uuid);
             args.push("--gpus");
             args.push(gpu.as_str());
+
+            if let Some(gpu_config) = self.config.gpu_resource.as_ref() {
+                if gpu_config.is_tegra.unwrap_or(false) {
+                    args.push("--runtime");
+                    args.push("nvidia");
+                }
+            }
+
+            args.push("-e");
             if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
                 args.push("--ipc=host");
                 args.push("-e");

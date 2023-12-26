@@ -15,9 +15,40 @@ use crate::utils::port::Port;
 use anyhow::Result;
 use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
+use std::num::ParseIntError;
 use std::process::{Child, Command, Output, Stdio};
+use std::{str, thread, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, info};
+
+pub fn get_child_pid(ppid: u32) -> Result<u32, ParseIntError> {
+    let output = Command::new("pgrep")
+        .arg("-P")
+        .arg(ppid.to_string())
+        .output()
+        .expect("failed to execute process");
+
+    str::from_utf8(&output.stdout).unwrap().trim().parse::<u32>()
+}
+
+pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {
+    let millis = time::Duration::from_millis(timeout_ms);
+    let mut tries = tries;
+
+    while tries > 0 {
+        let r = get_child_pid(ppid);
+
+        let cpid = r.unwrap_or(0);
+        if cpid != 0 {
+            return cpid;
+        }
+
+        tries -= 1;
+        thread::sleep(millis);
+    }
+
+    0
+}
 
 lazy_static::lazy_static! {
   pub static ref SIMULATION_CHECK: parking_lot::Mutex<bool>  = parking_lot::Mutex::new(false);
