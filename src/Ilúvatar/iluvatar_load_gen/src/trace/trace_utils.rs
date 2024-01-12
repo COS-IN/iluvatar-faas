@@ -402,7 +402,6 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             anyhow::bail!("Failed to write json of result because {}", e);
         }
     };
-
     for r in results {
         let to_write = format!(
             "{},{},{},{},{},{},{}\n",

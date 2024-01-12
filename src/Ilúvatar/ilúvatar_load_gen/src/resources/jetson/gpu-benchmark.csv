@@ -1,0 +1,16 @@
+name,image_name,compute,isolation,memory,args
+rodinia-pathfinder,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,bin=pathfinder
+rodinia-srad,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,bin=srad
+rodinia-needle,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,bin=needle
+rodinia-myocyte,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,bin=myocyte.out
+rodinia-gaussian,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,GPU,DOCKER,3072,bin=gaussian
+rodinia-lavamd,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,bin=lavaMD
+rodinia-lud,docker.io/alfuerst/rodinia-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,bin=lud
+imagenet,docker.io/alfuerst/tf_imagenet-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,
+squeezenet,docker.io/alfuerst/tf_squeezenet-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,
+torch_rnn,docker.io/alfuerst/rnn_generate_character_level-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,
+cupy,docker.io/alfuerst/cupy-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,
+onnx-roberta,docker.io/alfuerst/onnx-roberta-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,
+pyhpc-eos,docker.io/alfuerst/pyhpc-eos-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,
+pyhpc-isoneural,docker.io/alfuerst/pyhpc-isoneural-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,
+ffmpeg,docker.io/alfuerst/ffmpeg-iluvatar-gpu:latest,CPU|GPU,DOCKER|CONTAINERD,3072,

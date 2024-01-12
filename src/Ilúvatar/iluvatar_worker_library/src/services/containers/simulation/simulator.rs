@@ -17,6 +17,12 @@ pub mod simstructs;
 #[derive(Debug)]
 pub struct SimulatorIsolation {}
 
+impl Default for SimulatorIsolation {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimulatorIsolation {
     pub fn new() -> Self {
         SimulatorIsolation {}

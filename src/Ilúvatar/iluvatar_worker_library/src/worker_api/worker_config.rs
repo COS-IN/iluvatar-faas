@@ -120,6 +120,8 @@ pub struct GPUResourceConfig {
     /// If present and > 0, this is additional to limiting the number of running functions per device
     /// Otherwise, does nothing
     pub limit_on_utilization: Option<u32>,
+    /// Tegra Platform - avoids use to nvidia-smi.
+    pub is_tegra: Option<bool>,
 }
 
 impl GPUResourceConfig {

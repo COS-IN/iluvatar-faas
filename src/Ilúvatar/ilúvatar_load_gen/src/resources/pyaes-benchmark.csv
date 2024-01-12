@@ -1,0 +1,6 @@
+name,image_name,compute,isolation,memory
+1_pyaes_2000,docker.io/aarehman/1_pyaes_2000-iluvatar-action:latest,CPU,CONTAINERD,512
+2_pyaes_1500,docker.io/aarehman/2_pyaes_1500-iluvatar-action:latest,CPU,CONTAINERD,512
+3_pyaes_1000,docker.io/aarehman/3_pyaes_1000-iluvatar-action:latest,CPU,CONTAINERD,512
+4_pyaes_500,docker.io/aarehman/4_pyaes_500-iluvatar-action:latest,CPU,CONTAINERD,512
+5_pyaes_250,docker.io/aarehman/5_pyaes_250-iluvatar-action:latest,CPU,CONTAINERD,512
