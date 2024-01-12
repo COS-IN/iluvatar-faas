@@ -275,7 +275,9 @@ impl GpuResourceTracker {
             "/tmp/nvidia-mps:/tmp/nvidia-mps",
         ];
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
-        docker.docker_run(args, img_name, "iluvatar_mps_control", Some(vec!["-f"]), tid, None).await
+        docker
+            .docker_run(args, img_name, "iluvatar_mps_control", Some(vec!["-f"]), tid, None)
+            .await
     }
 
     fn set_shared_exclusive(tid: &TransactionId) -> Result<()> {
@@ -409,8 +411,13 @@ impl GpuResourceTracker {
         }
         Err(tokio::sync::TryAcquireError::NoPermits)
     }
+
     pub fn outstanding(&self) -> u32 {
         self.total_gpu_structs - self.concurrency_semaphore.available_permits() as u32
+    }
+
+    pub fn total_gpus(&self) -> u32 {
+      self.total_gpu_structs
     }
 
     /// Acquire a GPU so it can be attached to a container
@@ -508,11 +515,9 @@ impl Drop for GpuResourceTracker {
         if let Some(docker) = self.docker.as_any().downcast_ref::<DockerIsolation>() {
             let tid: &TransactionId = &GPU_RESC_TID;
             match Runtime::new() {
-                Ok(r) => {
-                    match r.block_on(docker.get_logs(MPS_CONTAINER_NAME, tid)) {
-                        Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
-                        Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
-                    }
+                Ok(r) => match r.block_on(docker.get_logs(MPS_CONTAINER_NAME, tid)) {
+                    Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
+                    Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
                 },
                 Err(e) => error!(error=%e, tid=%tid, "Failed to create runtime"),
             }

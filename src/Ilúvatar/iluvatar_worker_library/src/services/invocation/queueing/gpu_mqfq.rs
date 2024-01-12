@@ -54,7 +54,7 @@ enum MQEvent {
 // TODO: Average completion time using little's law, and other estimates.
 
 pub struct MQRequest {
-    invok: Arc<EnqueuedInvocation>,
+    pub invok: Arc<EnqueuedInvocation>,
     // Do we maintain a backward pointer to FlowQ? qid atleast?
     start_time_virt: f64,
     finish_time_virt: f64,
@@ -544,6 +544,7 @@ impl MQFQ {
             if let Some(i) = chosen_q.pop_flow(vitual_time) {
                 let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
                 *self.vitual_time.write() = updated_vitual_time;
+                info!(tid=%i.invok.tid, vitual_time=updated_vitual_time, old_vitual_time=vitual_time, "new dispatch");
                 chosen_q.update_dispatched(updated_vitual_time);
                 return Some((i, Box::new(token.unwrap())));
             } else {
@@ -567,13 +568,14 @@ impl DeviceQueue for MQFQ {
         per_flow_q_len.sum::<usize>()
     }
 
-    fn est_completion_time(&self, _reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         // sum_q (q_F-q_S) / max_in_flight
         let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
         let total_wait: f64 = per_flow_wait_times.sum();
+        
         debug!(tid=%tid, qt=total_wait, runtime=0.0, "GPU estimated completion time of item");
 
-        total_wait / self.gpu.outstanding() as f64
+        (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn)
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {

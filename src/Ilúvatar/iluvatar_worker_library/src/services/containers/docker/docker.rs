@@ -11,7 +11,7 @@ use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
-    utils::{execute_cmd, port::free_local_port, execute_cmd_async},
+    utils::{execute_cmd, execute_cmd_async, port::free_local_port},
 };
 use std::collections::HashMap;
 use std::{sync::Arc, time::SystemTime};
@@ -242,7 +242,8 @@ impl ContainerIsolationService for DockerIsolation {
         let time = format!("{}", self.limits_config.timeout_sec);
         let proc_args = vec!["server:app", "-w", "1", "--timeout", time.as_str()];
         // let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
-        self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None).await?;
+        self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None)
+            .await?;
         drop(permit);
         unsafe {
             let c = DockerContainer::new(
@@ -269,7 +270,8 @@ impl ContainerIsolationService for DockerIsolation {
             vec!["rm", "--force", container.container_id().as_str()],
             None,
             tid,
-        ).await?;
+        )
+        .await?;
         match output.status.code() {
             Some(0) => Ok(()),
             Some(error_stat) => {
@@ -316,7 +318,8 @@ impl ContainerIsolationService for DockerIsolation {
             vec!["ps", "--filter", "label=owner=iluvatar_worker", "-aq"],
             None,
             tid,
-        ).await?;
+        )
+        .await?;
         match output.status.code() {
             Some(0) => (),
             Some(error_stat) => {
@@ -356,7 +359,7 @@ impl ContainerIsolationService for DockerIsolation {
                 }
             };
             if start.elapsed()?.as_millis() as u64 >= timeout_ms {
-              let (stdout, stderr) = self.get_logs(container.container_id(), tid).await?;
+                let (stdout, stderr) = self.get_logs(container.container_id(), tid).await?;
                 // let stdout = self.read_stdout(container, tid).await;
                 // let stderr = self.read_stderr(container, tid).await;
                 if !stderr.is_empty() {
@@ -391,7 +394,9 @@ impl ContainerIsolationService for DockerIsolation {
             ],
             None,
             tid,
-        ).await {
+        )
+        .await
+        {
             Ok(o) => o,
             Err(e) => {
                 error!(tid=%tid, error=%e, "Failed to run 'docker stats' with error");

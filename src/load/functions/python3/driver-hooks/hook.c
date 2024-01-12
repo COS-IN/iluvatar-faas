@@ -988,13 +988,13 @@ CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
   // blockDimX = min(blockDimX, maxBlock);
   // blockDimY = min(blockDimY, maxBlock);
   // blockDimZ = min(blockDimZ, maxBlock);
-  // outstanding_kernels++;
+  ++outstanding_kernels;
   // printf("New Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n",
         //  blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
   result = real_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX,
                                blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra);
   cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuLaunchKernel));
-  outstanding_kernels--;
+  --outstanding_kernels;
   return result;
 }
 

@@ -235,12 +235,12 @@ impl QueueingDispatcher {
             .unwrap_or(&EnqueueingPolicy::All);
         match policy {
             EnqueueingPolicy::All => {
-                if reg.supported_compute.contains(Compute::CPU) {
-                    self.enqueue_cpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
                 if reg.supported_compute.contains(Compute::GPU) {
                     self.enqueue_gpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+                if reg.supported_compute.contains(Compute::CPU) {
+                    self.enqueue_cpu_check(&enqueue)?;
                     enqueues += 1;
                 }
             }
@@ -363,13 +363,9 @@ impl QueueingDispatcher {
         // Pick device with lowest weight and dispatch
         if reg.cpu_only() {
             return self.enqueue_cpu_check(enqueue);
-            // return Self::enqueue_check(&Some(self.cpu_queue), &enqueue, Compute::CPU);
-            // return self.cpu_queue.enqueue_item(enqueue);
         }
         if reg.gpu_only() {
             return self.enqueue_gpu_check(enqueue);
-            // return Self::enqueue_check(&self.gpu_queue, &enqueue, Compute::GPU);
-            // return self.gpu_queue.enqueue_item(enqueue);
         }
 
         let fid = reg.fqdn.as_str(); //function name or fqdn?
@@ -413,21 +409,18 @@ impl QueueingDispatcher {
         // the cost is t_recent - t_global_min
         if reg.cpu_only() {
             return self.enqueue_cpu_check(enqueue);
-            // return self.cpu_queue.enqueue_item(enqueue);
         }
         if reg.gpu_only() {
             return self.enqueue_gpu_check(enqueue);
-            // return self.gpu_queue.enqueue_item(enqueue);
         }
 
         let eta = 0.3; // learning rate
         let fid = reg.fqdn.as_str();
 
         let b = self.dispatch_state.read();
-        let prev_wts = b.per_fn_wts.get(fid).unwrap_or(&(1.0, 1.0));
-
-        let b2 = self.dispatch_state.read();
-        let prev_dispatch = b2.prev_dispatch.get(fid).unwrap_or(&ComputeEnum::cpu);
+        let prev_wts = *b.per_fn_wts.get(fid).unwrap_or(&(1.0, 1.0));
+        let prev_dispatch = *b.prev_dispatch.get(fid).unwrap_or(&ComputeEnum::cpu);
+        drop(b);
 
         // Apply the reward/cost
         let t_other = match prev_dispatch {
@@ -441,8 +434,7 @@ impl QueueingDispatcher {
         let cost = 1.0 - (eta * (t_other - tmin) / f64::min(t_other, 0.1));
         // Shrinking dartboard locality
         // With probability equal to cost, select the previous device, for improving locality
-        let mut rng = rand::thread_rng();
-        let r = rng.gen_range(0.0..1.0);
+        let r = rand::thread_rng().gen_range(0.0..1.0);
         let use_prev = r < cost;
 
         // update weight?
@@ -457,22 +449,22 @@ impl QueueingDispatcher {
             _ => (new_wt, prev_wts.1),
         };
 
-        // 0 or 1
-        let selected = self.proportional_selection(new_wts.0, new_wts.1);
-
-        let mut selected_device = match selected {
-            1 => ComputeEnum::gpu,
-            _ => ComputeEnum::cpu,
+        let selected_device = if use_prev {
+            prev_dispatch
+        } else {
+            // 0 or 1
+            let selected = self.proportional_selection(new_wts.0, new_wts.1);
+            match selected {
+                1 => ComputeEnum::gpu,
+                _ => ComputeEnum::cpu,
+            }
         };
-
-        if use_prev {
-            selected_device = *prev_dispatch;
-        }
 
         self.select_device_for_fn(fid.to_string(), selected_device);
         // update the weights
         let mut d = self.dispatch_state.write();
         d.per_fn_wts.insert(fid.to_string(), new_wts);
+        drop(d);
 
         match selected_device {
             ComputeEnum::gpu => self.enqueue_gpu_check(enqueue),
@@ -503,14 +495,14 @@ impl QueueingDispatcher {
             let fqdn = &reg.fqdn;
 
             let b = self.dispatch_state.read();
-            let last_gpu = b.gpu_prev_t.get(fqdn);
-            let iat_gpu = match last_gpu {
+            // let last_gpu = b.gpu_prev_t.get(fqdn);
+            let iat_gpu = match b.gpu_prev_t.get(fqdn) {
                 Some(tg) => (tnow - *tg).as_seconds_f64(),
                 _ => 10000.0, //infinity essentially
             };
 
-            let last_cpu = b.cpu_prev_t.get(fqdn);
-            let iat_cpu = match last_cpu {
+            // let last_cpu = b.cpu_prev_t.get(fqdn);
+            let iat_cpu = match b.cpu_prev_t.get(fqdn) {
                 Some(tg) => (tnow - *tg).as_seconds_f64(),
                 _ => 10000.0, //infinity essentially
             };

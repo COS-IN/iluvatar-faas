@@ -125,11 +125,11 @@ impl HttpContainerClient {
             Ok(p) => match p.get("Status") {
                 Some(code) => {
                     match code {
-                      0 => Ok (()),
-                      // these error codes are converted CUresult codes
-                      // 3 == CUDA_ERROR_NOT_INITIALIZED, so container is probably just created and hasn't used driver yet
-                      3 => Ok (()),
-                      _ => bail_error!(tid=%tid, code=code, "Return had non-zero status code")
+                        0 => Ok(()),
+                        // these error codes are converted CUresult codes
+                        // 3 == CUDA_ERROR_NOT_INITIALIZED, so container is probably just created and hasn't used driver yet
+                        3 => Ok(()),
+                        _ => bail_error!(tid=%tid, code=code, "Return had non-zero status code"),
                     }
                 }
                 None => bail_error!(tid=%tid, result=%text, "Return didn't have driver status result"),
