@@ -151,18 +151,20 @@ impl RegistrationService {
                     for dev_compute in compute.into_iter() {
                         if let Some(timings) = r.get(&dev_compute.try_into()?) {
                             debug!(tid=%tid, compute=%dev_compute, from_compute=%compute, fqdn=%fqdn, timings=?r, "Registering timings for function");
-                            let (cold, warm, exec) = Self::get_characteristics(dev_compute)?;
+                            let (cold, warm, exec, e2e) = Self::get_characteristics(dev_compute)?;
                             for v in timings.cold_results_sec.iter() {
                                 self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
                             }
                             for v in timings.warm_results_sec.iter() {
                                 self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
                             }
-                            for v in timings.warm_worker_duration_us.iter() {
-                                self.characteristics_map.add(&fqdn, warm, Values::F64(*v as f64), true);
-                            }
                             for v in timings.cold_worker_duration_us.iter() {
                                 self.characteristics_map.add(&fqdn, cold, Values::F64(*v as f64), true);
+                                self.characteristics_map.add(&fqdn, e2e, Values::F64(*v as f64), true);
+                            }
+                            for v in timings.warm_worker_duration_us.iter() {
+                                self.characteristics_map.add(&fqdn, warm, Values::F64(*v as f64), true);
+                                self.characteristics_map.add(&fqdn, e2e, Values::F64(*v as f64), true);
                             }
                         }
                     }
@@ -178,18 +180,22 @@ impl RegistrationService {
     }
 
     /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute device
-    fn get_characteristics(compute: Compute) -> Result<(Characteristics, Characteristics, Characteristics)> {
+    fn get_characteristics(
+        compute: Compute,
+    ) -> Result<(Characteristics, Characteristics, Characteristics, Characteristics)> {
         if compute == Compute::CPU {
             Ok((
                 Characteristics::ColdTime,
                 Characteristics::WarmTime,
                 Characteristics::ExecTime,
+                Characteristics::E2ECpu,
             ))
         } else if compute == Compute::GPU {
             Ok((
                 Characteristics::GpuColdTime,
                 Characteristics::GpuWarmTime,
                 Characteristics::GpuExecTime,
+                Characteristics::E2EGpu,
             ))
         } else {
             anyhow::bail!("Unknown compute to get characteristics for registration: {:?}", compute)

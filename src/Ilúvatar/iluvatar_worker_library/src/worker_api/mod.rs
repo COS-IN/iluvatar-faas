@@ -44,6 +44,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
             docker,
             &worker_config.status,
         )
+        .await
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make GPU resource tracker"))?;
     }
 

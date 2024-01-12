@@ -93,14 +93,14 @@ impl ContainerIsolationService for SimulatorIsolation {
         Ok(())
     }
 
-    fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
+    async fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
         container.get_curr_mem_usage()
     }
 
-    fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
+    async fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
         "".to_string()
     }
-    fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
+    async fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
         "".to_string()
     }
 }

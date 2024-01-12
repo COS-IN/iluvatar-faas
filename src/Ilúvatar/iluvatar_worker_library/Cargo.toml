@@ -14,7 +14,7 @@ categories.workspace = true
 iluvatar_library = { path = "../iluvatar_library" }
 tonic = "0.7.2"
 prost = "0.10"
-tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot"] }
+tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot"] }
 lazy_static = "1.4.0"
 anyhow = "1.0.13"
 guid-create = "0.2.0"

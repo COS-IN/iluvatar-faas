@@ -105,7 +105,7 @@ pub struct ParsedResult {
     pub duration_sec: f64,
     /// Amount of GPU memory allocated by the device.
     /// Only present if one is attached
-    pub gpu_allocation: Option<u32>,
+    pub gpu_allocation_mb: Option<MemSizeMb>,
 }
 impl ParsedResult {
     pub fn parse(from: &str, tid: &TransactionId) -> Result<Self> {

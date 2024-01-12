@@ -94,6 +94,7 @@ pub async fn full_sim_invoker(
             docker,
             &cfg.status,
         )
+        .await
         .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     }
 
@@ -183,6 +184,7 @@ pub async fn sim_invoker_svc(
             docker,
             &cfg.status,
         )
+        .await
         .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     }
     let cm = ContainerManager::boxed(
@@ -269,6 +271,7 @@ pub async fn test_invoker_svc(
             docker,
             &cfg.status,
         )
+        .await
         .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     }
     let cm = ContainerManager::boxed(

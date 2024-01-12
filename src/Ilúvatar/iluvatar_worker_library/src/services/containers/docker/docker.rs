@@ -11,7 +11,7 @@ use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
-    utils::{execute_cmd, port::free_local_port},
+    utils::{execute_cmd, execute_cmd_async, port::free_local_port},
 };
 use std::collections::HashMap;
 use std::{sync::Arc, time::SystemTime};
@@ -54,7 +54,7 @@ impl DockerIsolation {
         })
     }
 
-    pub fn docker_run<'a>(
+    pub async fn docker_run<'a>(
         &self,
         mut run_args: Vec<&'a str>,
         image_name: &'a str,
@@ -68,7 +68,7 @@ impl DockerIsolation {
         if let Some(a) = proc_args {
             run_args.extend(a);
         }
-        let output = execute_cmd("/usr/bin/docker", run_args, env, tid)?;
+        let output = execute_cmd_async("/usr/bin/docker", run_args, env, tid).await?;
         match output.status.code() {
             Some(0) => {
                 debug!(tid=%tid, name=%image_name, containerid=%container_id, output=?output, "Docker container started successfully");
@@ -83,9 +83,9 @@ impl DockerIsolation {
     }
 
     /// Get the stdout and stderr of a container
-    pub fn get_logs(&self, container_id: &str, tid: &TransactionId) -> Result<(String, String)> {
+    pub async fn get_logs(&self, container_id: &str, tid: &TransactionId) -> Result<(String, String)> {
         let args = vec!["logs", container_id];
-        let output = execute_cmd("/usr/bin/docker", args, None, tid)?;
+        let output = execute_cmd_async("/usr/bin/docker", args, None, tid).await?;
         match output.status.code() {
             Some(0) => Ok((
                 String::from_utf8_lossy(&output.stdout).to_string(),
@@ -100,13 +100,13 @@ impl DockerIsolation {
         }
     }
 
-    fn get_stderr(&self, container: &Container, tid: &TransactionId) -> Result<String> {
-        let (_out, err) = self.get_logs(container.container_id(), tid)?;
+    async fn get_stderr(&self, container: &Container, tid: &TransactionId) -> Result<String> {
+        let (_out, err) = self.get_logs(container.container_id(), tid).await?;
         Ok(err)
     }
 
-    fn get_stdout(&self, container: &Container, tid: &TransactionId) -> Result<String> {
-        let (out, _err) = self.get_logs(container.container_id(), tid)?;
+    async fn get_stdout(&self, container: &Container, tid: &TransactionId) -> Result<String> {
+        let (out, _err) = self.get_logs(container.container_id(), tid).await?;
         Ok(out)
     }
 
@@ -251,7 +251,8 @@ impl ContainerIsolationService for DockerIsolation {
         let time = format!("{}", self.limits_config.timeout_sec);
         let proc_args = vec!["server:app", "-w", "1", "--timeout", time.as_str()];
         // let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
-        self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None)?;
+        self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None)
+            .await?;
         drop(permit);
         unsafe {
             let c = DockerContainer::new(
@@ -273,12 +274,13 @@ impl ContainerIsolationService for DockerIsolation {
 
     /// Removed the specified container in the containerd namespace
     async fn remove_container(&self, container: Container, _ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
-        let output = execute_cmd(
+        let output = execute_cmd_async(
             "/usr/bin/docker",
             vec!["rm", "--force", container.container_id().as_str()],
             None,
             tid,
-        )?;
+        )
+        .await?;
         match output.status.code() {
             Some(0) => Ok(()),
             Some(error_stat) => {
@@ -300,7 +302,7 @@ impl ContainerIsolationService for DockerIsolation {
             return Ok(());
         }
 
-        let output = execute_cmd("/usr/bin/docker", vec!["pull", rf.image_name.as_str()], None, tid)?;
+        let output = execute_cmd_async("/usr/bin/docker", vec!["pull", rf.image_name.as_str()], None, tid).await?;
         match output.status.code() {
             Some(0) => (),
             Some(error_stat) => {
@@ -320,12 +322,13 @@ impl ContainerIsolationService for DockerIsolation {
         _self_src: Arc<dyn ContainerIsolationService>,
         tid: &TransactionId,
     ) -> Result<()> {
-        let output = execute_cmd(
+        let output = execute_cmd_async(
             "/usr/bin/docker",
             vec!["ps", "--filter", "label=owner=iluvatar_worker", "-aq"],
             None,
             tid,
-        )?;
+        )
+        .await?;
         match output.status.code() {
             Some(0) => (),
             Some(error_stat) => {
@@ -336,7 +339,7 @@ impl ContainerIsolationService for DockerIsolation {
         let cow = String::from_utf8_lossy(&output.stdout);
         let stdout: Vec<&str> = cow.split('\n').filter(|str| !str.is_empty()).collect();
         for docker_id in stdout {
-            let output = execute_cmd("/usr/bin/docker", vec!["rm", "--force", docker_id], None, tid)?;
+            let output = execute_cmd_async("/usr/bin/docker", vec!["rm", "--force", docker_id], None, tid).await?;
             if let Some(status) = output.status.code() {
                 if status != 0 {
                     bail_error!(tid=%tid, docker_id=%docker_id, status=status, output=?output, "Failed to remove docker container with exit code");
@@ -353,7 +356,7 @@ impl ContainerIsolationService for DockerIsolation {
     async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
         let start = SystemTime::now();
         loop {
-            match self.get_logs(container.container_id(), tid) {
+            match self.get_logs(container.container_id(), tid).await {
                 Ok((_out, err)) => {
                     // stderr was written to, gunicorn server is either up or crashed
                     if err.contains("Booting worker with pid") {
@@ -365,8 +368,9 @@ impl ContainerIsolationService for DockerIsolation {
                 }
             };
             if start.elapsed()?.as_millis() as u64 >= timeout_ms {
-                let stdout = self.read_stdout(container, tid);
-                let stderr = self.read_stderr(container, tid);
+                let (stdout, stderr) = self.get_logs(container.container_id(), tid).await?;
+                // let stdout = self.read_stdout(container, tid).await;
+                // let stderr = self.read_stderr(container, tid).await;
                 if !stderr.is_empty() {
                     warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for docker container start, but stderr was written to?");
                     return Ok(());
@@ -379,7 +383,7 @@ impl ContainerIsolationService for DockerIsolation {
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
-    fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
+    async fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb {
         debug!(tid=%tid, container_id=%container.container_id(), "Updating memory usage for container");
         let cast_container = match crate::services::containers::structs::cast::<DockerContainer>(container) {
             Ok(c) => c,
@@ -388,7 +392,7 @@ impl ContainerIsolationService for DockerIsolation {
                 return container.get_curr_mem_usage();
             }
         };
-        let output = match execute_cmd(
+        let output = match execute_cmd_async(
             "/usr/bin/docker",
             vec![
                 "stats",
@@ -399,7 +403,9 @@ impl ContainerIsolationService for DockerIsolation {
             ],
             None,
             tid,
-        ) {
+        )
+        .await
+        {
             Ok(o) => o,
             Err(e) => {
                 error!(tid=%tid, error=%e, "Failed to run 'docker stats' with error");
@@ -431,14 +437,14 @@ impl ContainerIsolationService for DockerIsolation {
         }
     }
 
-    fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
-        match self.get_stdout(container, tid) {
+    async fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
+        match self.get_stdout(container, tid).await {
             Ok(out) => out,
             Err(_) => "".to_string(),
         }
     }
-    fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
-        match self.get_stderr(container, tid) {
+    async fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
+        match self.get_stderr(container, tid).await {
             Ok(err) => err,
             Err(_) => "".to_string(),
         }
