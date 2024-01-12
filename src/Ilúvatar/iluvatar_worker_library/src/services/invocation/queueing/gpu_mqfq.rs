@@ -544,7 +544,7 @@ impl MQFQ {
             if let Some(i) = chosen_q.pop_flow(vitual_time) {
                 let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
                 *self.vitual_time.write() = updated_vitual_time;
-                info!(tid=%i.invok.tid, vitual_time=updated_vitual_time, old_vitual_time=vitual_time, "new dispatch");
+                // info!(tid=%i.invok.tid, vitual_time=updated_vitual_time, old_vitual_time=vitual_time, "new dispatch");
                 chosen_q.update_dispatched(updated_vitual_time);
                 return Some((i, Box::new(token.unwrap())));
             } else {
@@ -572,7 +572,7 @@ impl DeviceQueue for MQFQ {
         // sum_q (q_F-q_S) / max_in_flight
         let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
         let total_wait: f64 = per_flow_wait_times.sum();
-        
+
         debug!(tid=%tid, qt=total_wait, runtime=0.0, "GPU estimated completion time of item");
 
         (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn)

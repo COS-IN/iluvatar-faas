@@ -180,7 +180,9 @@ impl RegistrationService {
     }
 
     /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute device
-    fn get_characteristics(compute: Compute) -> Result<(Characteristics, Characteristics, Characteristics, Characteristics)> {
+    fn get_characteristics(
+        compute: Compute,
+    ) -> Result<(Characteristics, Characteristics, Characteristics, Characteristics)> {
         if compute == Compute::CPU {
             Ok((
                 Characteristics::ColdTime,

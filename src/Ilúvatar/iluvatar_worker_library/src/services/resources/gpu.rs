@@ -259,7 +259,11 @@ impl GpuResourceTracker {
         Ok(Arc::new(Semaphore::new(cnt as usize)))
     }
 
-    async fn start_mps(gpu_config: &Arc<GPUResourceConfig>, docker: &DockerIsolation, tid: &TransactionId) -> Result<()> {
+    async fn start_mps(
+        gpu_config: &Arc<GPUResourceConfig>,
+        docker: &DockerIsolation,
+        tid: &TransactionId,
+    ) -> Result<()> {
         debug!(tid=%tid, "Setting MPS exclusive");
         if !gpu_config.is_tegra.unwrap_or(false) {
             Self::set_gpu_exclusive(tid)?;
@@ -429,7 +433,7 @@ impl GpuResourceTracker {
     }
 
     pub fn total_gpus(&self) -> u32 {
-      self.total_gpu_structs
+        self.total_gpu_structs
     }
 
     /// Acquire a GPU so it can be attached to a container
