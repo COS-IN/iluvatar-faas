@@ -67,14 +67,14 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
 
     /// Update the current resident memory size of the container
     /// If an error occurs, the memory usage will not be change and the container will be marked unhealthy
-    fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb;
+    async fn update_memory_usage_mb(&self, container: &Container, tid: &TransactionId) -> MemSizeMb;
 
     /// get the contents of the container's stdout as a string
     /// or an error message string if something went wrong
-    fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String;
+    async fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String;
     /// get the contents of the container's stderr as a string
     /// or an error message string if something went wrong
-    fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String;
+    async fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String;
 
     /// The backend type for this lifecycle
     /// Real backends should only submit one Isolation type, returning a vector here allows the simulation to "act" as multiple backends

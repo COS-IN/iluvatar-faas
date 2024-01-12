@@ -138,8 +138,8 @@ impl ContainerManager {
                     continue;
                 }
             };
-            let stdout = cont_lifecycle.read_stdout(&to_remove, tid);
-            let stderr = cont_lifecycle.read_stderr(&to_remove, tid);
+            let stdout = cont_lifecycle.read_stdout(&to_remove, tid).await;
+            let stderr = cont_lifecycle.read_stderr(&to_remove, tid).await;
             warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
             match self.purge_container(to_remove, tid).await {
                 Ok(_) => (),
@@ -212,7 +212,7 @@ impl ContainerManager {
         for container in pool.iter() {
             let old_usage = container.get_curr_mem_usage();
             let new_usage = match self.cont_isolations.get(&container.container_type()) {
-                Some(c) => c.update_memory_usage_mb(&container, tid),
+                Some(c) => c.update_memory_usage_mb(&container, tid).await,
                 None => {
                     error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported");
                     continue;

@@ -3,6 +3,7 @@ from flask import Flask, request, jsonify
 import os, traceback, json
 from datetime import datetime
 from http import HTTPStatus
+from math import ceil
 
 DRIVER="libgpushare.so"
 def driver_enabled() -> bool:
@@ -15,6 +16,7 @@ gpushare = None
 if driver_enabled():
   import ctypes
   gpushare = ctypes.CDLL(DRIVER, mode=os.RTLD_GLOBAL)
+  gpushare.total_cuda_allocations.restype = ctypes.c_double
 
 FORMAT="%Y-%m-%d %H:%M:%S:%f+%z"
 cold=True
@@ -75,13 +77,13 @@ def prefetch_stream_dev():
 def gpu_mem():
   if gpushare is None:
     return jsonify({"platform_error":"gpushare was not preloaded, but required for call", "was_cold":cold}), HTTPStatus.INTERNAL_SERVER_ERROR
-  return jsonify({"allocation":gpushare.total_cuda_allocations()})
+  return jsonify({"gpu_allocation_mb": ceil(gpushare.total_cuda_allocations())})
 
 def append_metadata(user_ret, start, end, was_cold, success=True):
   duration = (end - start).total_seconds()
   ret = {"start": datetime.strftime(start, FORMAT), "end": datetime.strftime(end, FORMAT), "was_cold":was_cold, "duration_sec": duration}
   if gpushare is not None:
-    ret["gpu_allocation"] = gpushare.total_cuda_allocations()
+    ret["gpu_allocation_mb"] = ceil(gpushare.total_cuda_allocations())
   if success:
     ret["user_result"] = json.dumps(user_ret)
   else:
@@ -102,6 +104,10 @@ def invoke():
   except Exception as e:
     # Usually comes from malformed json arguments
     return jsonify({"platform_error":str(e), "was_cold":was_cold}), HTTPStatus.INTERNAL_SERVER_ERROR
+
+  if gpushare is not None:
+    gpushare.ensure_on_device()
+    gpushare.check_async_prefetch()
 
   start = datetime.now()
   try:

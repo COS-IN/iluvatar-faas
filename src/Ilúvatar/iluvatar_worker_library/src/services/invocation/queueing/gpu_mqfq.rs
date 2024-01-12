@@ -20,10 +20,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use time::{Instant, OffsetDateTime};
 use tokio::sync::{Notify, OwnedSemaphorePermit};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
   pub static ref MQFQ_GPU_QUEUE_WORKER_TID: TransactionId = "MQFQ_GPU_Queue".to_string();
+  pub static ref MQFQ_GPU_QUEUE_BKG_TID: TransactionId = "MQFQ_GPU_Bkg".to_string();
 }
 
 /// Multi-Queue Fair Queueing.
@@ -136,7 +137,7 @@ impl FlowQ {
                 let ctr = self.cont_manager.clone();
                 let fname = self.fqdn.clone();
                 tokio::spawn(async move {
-                    ctr.madvise_to_device(fname, MQFQ_GPU_QUEUE_WORKER_TID.clone()).await;
+                    ctr.madvise_to_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
                 });
             }
         }
@@ -146,7 +147,7 @@ impl FlowQ {
                 let ctr = self.cont_manager.clone();
                 let fname = self.fqdn.clone();
                 tokio::spawn(async move {
-                    ctr.madvise_off_device(fname, MQFQ_GPU_QUEUE_WORKER_TID.clone()).await;
+                    ctr.madvise_off_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
                 });
             }
         }
@@ -342,7 +343,7 @@ impl MQFQ {
                     svc.invocation_worker_thread(next_item, cpu_permit, gpu_token).await;
                 });
             } else {
-                debug!(tid=%tid, fqdn=%next_item.invok.registration.fqdn, "Insufficient resources to run item");
+                warn!(tid=%tid, fqdn=%next_item.invok.registration.fqdn, "Insufficient resources to run item");
                 break;
             }
         }

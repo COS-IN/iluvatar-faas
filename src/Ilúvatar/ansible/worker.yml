@@ -70,6 +70,13 @@
     become: yes
     when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
     run_once: true
+    register: clean_cmd
+    failed_when: clean_cmd.rc != 0
+    environment:
+      "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
+      "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
+      "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
+      "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
 
   - name: clean distrib host
     ansible.builtin.command: 
@@ -80,7 +87,14 @@
         - clean
     become: yes
     when: mode == "clean"
-
+    register: clean_cmd
+    failed_when: clean_cmd.rc != 0
+    environment:
+      "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
+      "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
+      "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
+      "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
+    
   - name: run worker executable
     ansible.builtin.command: 
       argv: 

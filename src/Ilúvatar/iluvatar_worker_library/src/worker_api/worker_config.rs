@@ -96,7 +96,7 @@ pub struct GPUResourceConfig {
     /// Depending on resource type, will not be allowed (i.e. GPU must have exact number).
     pub count: u32,
     /// The amount of physical memory each GPU has.
-    /// Used for simulations/
+    /// Used for simulations
     pub memory_mb: Option<MemSizeMb>,
     /// Set up a standalone MPS daemon to control GPU access.
     pub use_standalone_mps: Option<bool>,
