@@ -45,9 +45,9 @@ impl WorkerHealthService {
         tid: &TransactionId,
     ) -> Result<Arc<Self>> {
         let img_name = if worker_config.container_resources.gpu_resource.as_ref().unwrap().is_tegra.unwrap_or(false) {
-             "docker.io/alfuerst/hello-iluvatar-action:latest".to_string()
-        } else {
             "docker.io/aarehman/hello-iluvatar-action:aarch64".to_string()
+        } else {
+            "docker.io/alfuerst/hello-iluvatar-action:latest".to_string()
         };
 
         let health_func = RegisterRequest {
