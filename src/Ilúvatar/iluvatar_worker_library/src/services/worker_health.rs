@@ -39,12 +39,19 @@ pub struct WorkerHealthService {
 
 impl WorkerHealthService {
     pub async fn boxed(
-        worker_config: WorkerConfig, 
+        worker_config: WorkerConfig,
         invoker_svc: Arc<dyn Invoker>,
         reg: Arc<RegistrationService>,
         tid: &TransactionId,
     ) -> Result<Arc<Self>> {
-        let img_name = if worker_config.container_resources.gpu_resource.as_ref().unwrap().is_tegra.unwrap_or(false) {
+        let img_name = if worker_config
+            .container_resources
+            .gpu_resource
+            .as_ref()
+            .unwrap()
+            .is_tegra
+            .unwrap_or(false)
+        {
             "docker.io/aarehman/hello-iluvatar-action:aarch64".to_string()
         } else {
             "docker.io/alfuerst/hello-iluvatar-action:latest".to_string()
