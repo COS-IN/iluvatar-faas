@@ -137,6 +137,7 @@
       "ILUVATAR_WORKER__container_resources__gpu_resource__limit_on_utilization" : "{{ gpu_limit_on_utilization | default(0) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__concurrent_running_funcs" : "{{ gpu_concurrent_running | default(0) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__prefetch_memory" : "{{ gpu_prefetch_memory | default(false) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__status_update_freq_ms" : "{{ gpu_status_update | default(0) }}"
 
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"

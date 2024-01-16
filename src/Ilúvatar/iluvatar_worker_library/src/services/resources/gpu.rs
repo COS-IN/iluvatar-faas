@@ -13,6 +13,7 @@ use iluvatar_library::{
     types::MemSizeMb,
     utils::{execute_cmd_checked, execute_cmd_checked_async, missing_or_zero_default},
 };
+use nvml_wrapper::{error::NvmlError, Nvml};
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use time::{Duration, OffsetDateTime};
@@ -38,6 +39,26 @@ pub enum Pstate {
     P11,
     P12,
 }
+impl From<nvml_wrapper::enum_wrappers::device::PerformanceState> for Pstate {
+    fn from(value: nvml_wrapper::enum_wrappers::device::PerformanceState) -> Self {
+        match value {
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Zero => Self::P0,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::One => Self::P1,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Two => Self::P2,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Three => Self::P3,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Four => Self::P4,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Five => Self::P5,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Six => Self::P6,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Seven => Self::P7,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Eight => Self::P8,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Nine => Self::P9,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Ten => Self::P10,
+            nvml_wrapper::enum_wrappers::device::PerformanceState::Eleven => Self::P11,
+            _ => Self::P12,
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct GpuStatus {
     pub gpu_uuid: GpuUuid,
@@ -200,6 +221,7 @@ pub struct GpuResourceTracker {
     status_info: RwLock<Vec<GpuStatus>>,
     container_config: Arc<ContainerResourceConfig>,
     config: Arc<GPUResourceConfig>,
+    nvml: Option<Nvml>,
 }
 impl GpuResourceTracker {
     pub async fn boxed(
@@ -224,10 +246,18 @@ impl GpuResourceTracker {
                 Self::set_shared_exclusive(tid)?;
             }
             let (handle, tx) = tokio_thread(
-                status_config.report_freq_ms,
+                missing_or_zero_default(config.status_update_freq_ms, status_config.report_freq_ms),
                 GPU_RESC_TID.to_owned(),
                 Self::gpu_utilization,
             );
+
+            let nvml = match Nvml::init() {
+                Ok(n) => Some(n),
+                Err(e) => {
+                    error!(tid=%tid, error=%e, "Error loading NVML");
+                    None
+                }
+            };
 
             let svc = Arc::new(GpuResourceTracker {
                 concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid)?,
@@ -240,6 +270,7 @@ impl GpuResourceTracker {
                 container_config: container_config.clone(),
                 gpu_passout_tracker: CompletionTimeTracker::new(),
                 gpu_passout_times: RwLock::new(HashMap::new()),
+                nvml,
             });
             tx.send(svc.clone())?;
             return Ok(Some(svc));
@@ -471,7 +502,7 @@ impl GpuResourceTracker {
     }
 
     /// get the utilization of GPUs on the system
-    async fn gpu_utilization(svc: Arc<Self>, tid: TransactionId) {
+    async fn smi_gpu_utilization(svc: Arc<Self>, tid: TransactionId) {
         if !std::path::Path::new("/usr/bin/nvidia-smi").exists() {
             trace!(tid=%tid, "nvidia-smi not found, not checking GPU utilization");
             return;
@@ -518,6 +549,58 @@ impl GpuResourceTracker {
         if is_empty {
             debug!(tid=%tid, "Setting GPU status info for first time");
             *svc.status_info.write() = ret;
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn nvml_gpu_utilization(nvml: &Nvml, svc: &Arc<Self>, tid: &TransactionId) -> Result<(), NvmlError> {
+        let is_empty = (*svc.status_info.read()).is_empty();
+        let mut ret: Vec<GpuStatus> = vec![];
+        let dev_count = nvml.device_count()?;
+
+        for i in 0..dev_count {
+            let device = nvml.device_by_index(i)?;
+
+            let utilization = device.utilization_rates()?;
+            let memory = device.memory_info()?;
+            let stat = GpuParseStatus {
+                gpu_uuid: device.uuid()?,
+                memory_total: (memory.total / (1024 * 1024)) as u32,
+                memory_used: (memory.used / (1024 * 1024)) as u32,
+                utilization_gpu: utilization.gpu as f64,
+                utilization_memory: utilization.memory as f64,
+                power_draw: device.power_usage()? as f64 / 1000.0,
+                power_limit: device.enforced_power_limit()? as f64 / 1000.0,
+                pstate: device.performance_state()?.into(),
+            };
+            if is_empty {
+                ret.push(stat.into());
+            } else {
+                let mut lck = svc.status_info.write();
+                for old_stat in &mut *lck {
+                    if old_stat.gpu_uuid == stat.gpu_uuid {
+                        old_stat.update(stat);
+                        break;
+                    }
+                }
+            }
+        }
+        if is_empty {
+            debug!(tid=%tid, "Setting GPU status info for first time");
+            *svc.status_info.write() = ret;
+        }
+        Ok(())
+    }
+
+    /// get the utilization of GPUs on the system
+    async fn gpu_utilization(svc: Arc<Self>, tid: TransactionId) {
+        if let Some(nvml) = &svc.nvml {
+            if let Err(e) = Self::nvml_gpu_utilization(nvml, &svc, &tid).await {
+                error!(tid=%tid, error=%e, "Error using NVML to query device utilization");
+                Self::smi_gpu_utilization(svc, tid).await
+            }
+        } else {
+            Self::smi_gpu_utilization(svc, tid).await
         }
     }
 
