@@ -222,7 +222,7 @@ impl ContainerIsolationService for DockerIsolation {
                 args.push(mps_thread.as_str());
                 args.push("-v");
                 args.push("/tmp/nvidia-mps:/tmp/nvidia-mps");
-              }
+            }
             if self
                 .config
                 .gpu_resource
