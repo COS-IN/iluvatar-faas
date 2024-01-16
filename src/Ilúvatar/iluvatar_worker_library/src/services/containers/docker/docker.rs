@@ -215,12 +215,13 @@ impl ContainerIsolationService for DockerIsolation {
                 }
             }
 
-            args.push("-e");
             if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
                 args.push("--ipc=host");
                 args.push("-e");
                 mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
                 args.push(mps_thread.as_str());
+                args.push("-v");
+                args.push("/tmp/nvidia-mps:/tmp/nvidia-mps");
             }
             if self
                 .config
@@ -230,8 +231,6 @@ impl ContainerIsolationService for DockerIsolation {
             {
                 args.push("-e");
                 args.push("LD_PRELOAD=/app/libgpushare.so");
-                args.push("-v");
-                args.push("/tmp/nvidia-mps:/tmp/nvidia-mps");
             }
         }
 
