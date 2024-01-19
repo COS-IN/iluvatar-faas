@@ -1,8 +1,5 @@
 use crate::{
-    services::{
-        containers::{docker::DockerIsolation, ContainerIsolationService},
-        invocation::completion_time_tracker::CompletionTimeTracker,
-    },
+    services::containers::{docker::DockerIsolation, ContainerIsolationService},
     worker_api::worker_config::{ContainerResourceConfig, GPUResourceConfig},
 };
 use anyhow::Result;
@@ -15,8 +12,7 @@ use iluvatar_library::{
 };
 use nvml_wrapper::{error::NvmlError, Nvml};
 use parking_lot::RwLock;
-use std::{collections::HashMap, sync::Arc};
-use time::{Duration, OffsetDateTime};
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, trace};
@@ -214,12 +210,10 @@ pub struct GpuResourceTracker {
     gpus: RwLock<Vec<Arc<GPU>>>,
     total_gpu_structs: u32,
     concurrency_semaphore: Arc<Semaphore>,
-    gpu_passout_tracker: CompletionTimeTracker,
-    gpu_passout_times: RwLock<HashMap<u32, OffsetDateTime>>,
     docker: Arc<dyn ContainerIsolationService>,
     _handle: tokio::task::JoinHandle<()>,
     status_info: RwLock<Vec<GpuStatus>>,
-    container_config: Arc<ContainerResourceConfig>,
+    _container_config: Arc<ContainerResourceConfig>,
     config: Arc<GPUResourceConfig>,
     nvml: Option<Nvml>,
 }
@@ -267,9 +261,7 @@ impl GpuResourceTracker {
                 _handle: handle,
                 status_info: RwLock::new(vec![]),
                 config: config,
-                container_config: container_config.clone(),
-                gpu_passout_tracker: CompletionTimeTracker::new(),
-                gpu_passout_times: RwLock::new(HashMap::new()),
+                _container_config: container_config.clone(),
                 nvml,
             });
             tx.send(svc.clone())?;
@@ -438,15 +430,11 @@ impl GpuResourceTracker {
         Ok(ret)
     }
 
-    /// Return a permit access to a single GPU
-    /// Returns an error if none are available
+    /// Return a permit access to run on a single GPU
+    /// Returns an error if none are available for execution
     pub fn try_acquire_resource(&self) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
         // TODO: make this work with mutltiple GPUs such that the GPU a container has is checked for utilization
-        // currently assumes there is only one container
-        self.gpu_passout_tracker.remove_outdated();
-        if self.gpu_passout_tracker.get_inflight() > self.container_config.concurrent_creation as i32 {
-            return Err(tokio::sync::TryAcquireError::NoPermits);
-        }
+        // currently assumes there is only one physical GPU
         let limit = missing_or_zero_default(self.config.limit_on_utilization, 0);
         if limit == 0 {
             return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
@@ -470,34 +458,16 @@ impl GpuResourceTracker {
     /// Acquire a GPU so it can be attached to a container
     /// [None] means no GPU is available
     pub fn acquire_gpu(self: &Arc<Self>, tid: &TransactionId) -> Option<Arc<GPU>> {
-        self.gpu_passout_tracker.remove_outdated();
-        if self.gpu_passout_tracker.get_inflight() > self.container_config.concurrent_creation as i32 {
-            return None;
+        let gpu = self.gpus.write().pop();
+        if let Some(g) = &gpu {
+            debug!(tid=%tid, gpu_uuid=g.gpu_uuid, private=g.gpu_private_id, "GPU allocating");
         }
-        // give container time to start up and begin running on GPU
-        let mut lock = self.gpus.write();
-        if !lock.is_empty() {
-            let gpu = lock.pop().unwrap();
-            drop(lock);
-            let t = OffsetDateTime::now_utc();
-            self.gpu_passout_times.write().insert(gpu.gpu_private_id, t);
-            self.gpu_passout_tracker.add_item(t + Duration::seconds(1));
-            debug!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "GPU allocating");
-            Some(gpu)
-        } else {
-            None
-        }
+        gpu
     }
 
     /// Return a GPU that has been removed from a container
     pub fn return_gpu(&self, gpu: Arc<GPU>, tid: &TransactionId) {
         info!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "GPU returned");
-        match self.gpu_passout_times.read().get(&gpu.gpu_private_id) {
-            Some(t) => self.gpu_passout_tracker.remove_item(*t),
-            None => {
-                error!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "Returning GPU had no matching passout time")
-            }
-        }
         self.gpus.write().push(gpu);
     }
 

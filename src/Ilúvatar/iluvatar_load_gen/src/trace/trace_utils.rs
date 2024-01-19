@@ -115,7 +115,10 @@ fn map_from_benchmark(
             func.chosen_name = Some(chosen_name);
             func.image_name = Some(chosen_image);
         } else {
-            func.chosen_name = Some(func.func_name.clone());
+            if let Some((_last, elements)) = func.func_name.split('-').collect::<Vec<&str>>().split_last() {
+              let name = elements.join("-");
+              func.chosen_name = Some(name);  
+            }
         }
         if func.prewarms.is_none() {
             let prewarms = compute_prewarms(func, default_prewarms, max_prewarms);
