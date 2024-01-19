@@ -91,3 +91,7 @@ Fast Control Plane for Serverless Computing. In Proceedings of the 32nd
 International Symposium on High-Performance Parallel and Distributed Com-
 puting (HPDC ’23), June 16–23, 2023, Orlando, FL, USA. ACM, New York, NY,
 USA, 14 pages. https://doi.org/10.1145/3588195.3592995`
+
+## Acknowledgements
+
+This work has been funded by grants from the National Science Foundation, including the ICICLE AI Institute (OAC 2112606)
