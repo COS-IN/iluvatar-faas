@@ -1,4 +1,4 @@
-use crate::services::invocation::queueing::EnqueueingPolicy;
+use crate::services::invocation::queueing::{gpu_mqfq::MqfqConfig, EnqueueingPolicy};
 use config::{Config, File};
 use iluvatar_library::{
     energy::EnergyConfig,
@@ -173,6 +173,7 @@ pub struct InvocationConfig {
     /// If present and not zero, invocations with an execution duration less than this
     ///   will bypass concurrency restrictions and be run immediately
     pub bypass_duration_ms: Option<u64>,
+    pub mqfq_config: Option<Arc<MqfqConfig>>,
 }
 
 #[derive(Debug, Deserialize)]

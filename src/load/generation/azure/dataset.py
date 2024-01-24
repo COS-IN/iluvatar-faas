@@ -204,7 +204,7 @@ def real_trace_row(func_name, row, min_start=0, min_end=1440):
 
   return trace, (func_name, cold_dur, warm_dur, mem, float(row["IAT_mean"]))
 
-def ecdf_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
+def ecdf_trace_row(func_name, row, duration_min:int, scale: float = 1.0, seed: int = None):
   """
   Create invocations for the function using the function's ECDF
   """
@@ -219,7 +219,7 @@ def ecdf_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
   cold_dur = int(row["Maximum"])
   warm_dur = int(row["percentile_Average_25"])
   mem = int(row["divvied"])
-  rng = np.random.default_rng(None)
+  rng = np.random.default_rng(seed)
 
   end_ms = duration_min * secs_p_min * milis_p_sec
   expected_invokes = ceil(end_ms / mean_iat_ms)
