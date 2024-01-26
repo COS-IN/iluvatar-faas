@@ -108,7 +108,7 @@ fn map_from_benchmark(
             let mut chosen_image = chosen.3.clone();
             let mut chosen_warm_time_ms = chosen.1;
             let mut chosen_cold_time_ms = chosen.1;
-    
+
             for (name, avg_warm, avg_cold, image) in device_data.iter() {
                 if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
                     chosen_name = name.clone();
@@ -117,7 +117,7 @@ fn map_from_benchmark(
                     chosen_cold_time_ms = *avg_cold;
                 }
             }
-    
+
             if func.image_name.is_none() {
                 println!("{} mapped to function '{}'", &func.func_name, chosen_name);
                 func.cold_dur_ms = chosen_cold_time_ms as u64;

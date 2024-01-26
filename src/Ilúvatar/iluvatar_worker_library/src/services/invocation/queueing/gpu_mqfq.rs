@@ -146,29 +146,23 @@ impl FlowQ {
 
     fn update_state(&mut self, new_state: MQState) {
         if new_state != self.state {
-            info!(queue=%self.fqdn, old_state=?self.state, new_state=?new_state, "Switching state")
-        }
-        if new_state != self.state && new_state == MQState::Active {
-            debug!(queue=%self.fqdn, "Switching state to active");
-            if self.gpu_config.send_driver_memory_hints() {
+            debug!(queue=%self.fqdn, old_state=?self.state, new_state=?new_state, "Switching state");
+            if new_state == MQState::Active && self.gpu_config.send_driver_memory_hints() {
                 let ctr = self.cont_manager.clone();
                 let fname = self.fqdn.clone();
                 tokio::spawn(async move {
                     ctr.madvise_to_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
                 });
             }
-        }
-        if new_state != self.state && self.state == MQState::Active {
-            debug!(queue=%self.fqdn, "Switching state off active");
-            if self.gpu_config.send_driver_memory_hints() {
+            if self.state == MQState::Active && self.gpu_config.send_driver_memory_hints() {
                 let ctr = self.cont_manager.clone();
                 let fname = self.fqdn.clone();
                 tokio::spawn(async move {
                     ctr.madvise_off_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
                 });
             }
+            self.state = new_state;
         }
-        self.state = new_state;
     }
 
     /// Return True if should update the global time
@@ -192,7 +186,6 @@ impl FlowQ {
         }
         self.update_state(MQState::Active);
         self.queue.len() == 1
-        //self.start_time_virt = r.start_time_virt; // only if the first element!
     }
 
     /// Remove oldest item. No other svc state update.
@@ -456,8 +449,6 @@ impl MQFQ {
                 Err(e)
             }
         }
-        // ctr_lock.container
-        // Ok((data, duration, compute_type, state))
     }
 
     /// Returns an owned permit if there are sufficient resources to run a function
@@ -567,7 +558,6 @@ impl MQFQ {
             if let Some(i) = chosen_q.pop_flow(vitual_time) {
                 let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
                 *self.vitual_time.write() = updated_vitual_time;
-                // info!(tid=%i.invok.tid, vitual_time=updated_vitual_time, old_vitual_time=vitual_time, "new dispatch");
                 chosen_q.update_dispatched(updated_vitual_time);
                 return Some((i, Box::new(token.unwrap())));
             } else {
@@ -579,14 +569,11 @@ impl MQFQ {
         None
         // Update MQFQ State
     }
-
-    // /// Function just finished running. Completion call-back. Add tokens?
-    // fn charge_fn(efn: EnqueuedInvocation) {}
 } // END MQFQ
 
 impl DeviceQueue for MQFQ {
     fn queue_len(&self) -> usize {
-        //sum(self.mqfq_set.iter().map(|x| x.len()))
+        // sum(self.mqfq_set.iter().map(|x| x.len()))
         let per_flow_q_len = self.mqfq_set.iter().map(|x| x.value().queue.len());
         per_flow_q_len.sum::<usize>()
     }
