@@ -29,8 +29,8 @@ pub struct TraceArgs {
     #[arg(long)]
     /// The number of pre-warmed containers to create for each function.
     /// Computes how many containers to prewarm based on function characteristics.
-    /// There will be no prewarmed GPU containers
     /// If this is 0, then there will be _no_ prewarms.
+    /// There will be no prewarmed GPU containers.
     prewarms: Option<u32>,
     #[arg(long, default_value_t = 5)]
     /// The maximum number of prewarms any function is allowed to have

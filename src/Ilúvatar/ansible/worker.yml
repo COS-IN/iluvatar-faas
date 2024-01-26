@@ -137,6 +137,7 @@
       "ILUVATAR_WORKER__container_resources__gpu_resource__limit_on_utilization" : "{{ gpu_limit_on_utilization | default(0) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__concurrent_running_funcs" : "{{ gpu_concurrent_running | default(0) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__prefetch_memory" : "{{ gpu_prefetch_memory | default(false) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__status_update_freq_ms" : "{{ gpu_status_update | default(0) }}"
 
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
@@ -172,6 +173,12 @@
       "ILUVATAR_WORKER__invocation__queues__gpu" : "{{ worker_gpu_queue | default('serial') }}"
       "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('serial') }}"
       "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
+
+      # MQFQ Config
+      "ILUVATAR_WORKER__invocation__mqfq_config__allowed_overrun" : "{{ mqfq_allowed_overrun | default(0.0) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__in_flight" : "{{ mqfq_allowed_overrun | default(false) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__dynamic_weights" : "{{ mqfq_allowed_overrun | default(false) }}"
+
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
 

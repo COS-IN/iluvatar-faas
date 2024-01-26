@@ -594,7 +594,7 @@ void *dlsym_225(void *handle, const char *symbol)
 
 void *dlsym_234(void *handle, const char *symbol)
 {
-    log_debug("%s:%d called", __FUNCTION__, __LINE__);
+  log_debug("%s:%d called", __FUNCTION__, __LINE__);
 	if (strncmp(symbol, "cu", 2) != 0) {
 		return (real_dlsym_234(handle, symbol));
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
@@ -632,7 +632,7 @@ void *dlsym_234(void *handle, const char *symbol)
 
 void *dlsym_231(void *handle, const char *symbol)
 {
-    log_debug("%s:%d called", __FUNCTION__, __LINE__);
+  log_debug("%s:%d called", __FUNCTION__, __LINE__);
 	if (strncmp(symbol, "cu", 2) != 0) {
 		return (real_dlsym_231(handle, symbol));
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
@@ -830,40 +830,46 @@ int madviseToDevice() {
   return result;
 }
 
-CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize)
+CUresult cuMemAllocManaged(CUdeviceptr *dptr, size_t bytesize, enum CUmemAttach_flags_enum flags)
 {
-	static int got_max_mem_size = 0;
-  size_t junk;
 	CUresult result = CUDA_SUCCESS;
 
 	/* Return immediately if not initialized */
 	if (real_cuMemAllocManaged == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
-	if (got_max_mem_size == 0) {
-		result = cuMemGetInfo(&gpushare_size_mem_allocatable, &junk);
-		cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemGetInfo));
-		got_max_mem_size = 1;
-	}
-
-	if ((sum_allocated + bytesize) > gpushare_size_mem_allocatable) {
-		if (enable_single_oversub == 0) {
-			return CUDA_ERROR_OUT_OF_MEMORY;
-		} else {
-			log_warn("Memory allocations exceeded physical GPU"
-				 " memory capacity. This can cause extreme"
-				 " performance degradation!");
-		}
-	}
-
-	log_debug("cuMemAlloc requested %zu bytes", bytesize);
-	result = real_cuMemAllocManaged(dptr, bytesize, CU_MEM_ATTACH_GLOBAL);
+	// log_debug("cuMemAllocManaged requested %zu bytes", bytesize);
+	result = real_cuMemAllocManaged(dptr, bytesize, flags);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAllocManaged));
-	log_debug("cuMemAllocManaged allocated %zu bytes at 0x%llx", bytesize, *dptr);
+	// log_debug("cuMemAllocManaged allocated %zu bytes at 0x%llx", bytesize, *dptr);
 	result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
   result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_ACCESSED_BY, assignedDevice);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
-	log_debug("cuMemAdvise set advice");
+	// log_debug("cuMemAllocManaged cuMemAdvise set advice");
+  
+	if (result == CUDA_SUCCESS) {
+		insert_cuda_allocation(*dptr, bytesize);
+	}
+
+	return result;
+}
+
+CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize)
+{
+	CUresult result = CUDA_SUCCESS;
+
+	/* Return immediately if not initialized */
+	if (real_cuMemAllocManaged == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+
+	// log_debug("cuMemAlloc requested %zu bytes", bytesize);
+	result = real_cuMemAllocManaged(dptr, bytesize, CU_MEM_ATTACH_GLOBAL);
+	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAllocManaged));
+	// log_debug("cuMemAlloc allocated %zu bytes at 0x%llx", bytesize, *dptr);
+	result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+  result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_ACCESSED_BY, assignedDevice);
+	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+	// log_debug("cuMemAlloc cuMemAdvise set advice");
   
 	if (result == CUDA_SUCCESS) {
 		insert_cuda_allocation(*dptr, bytesize);

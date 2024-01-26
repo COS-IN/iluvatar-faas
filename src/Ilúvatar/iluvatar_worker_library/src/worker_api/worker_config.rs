@@ -1,4 +1,4 @@
-use crate::services::invocation::queueing::EnqueueingPolicy;
+use crate::services::invocation::queueing::{gpu_mqfq::MqfqConfig, EnqueueingPolicy};
 use config::{Config, File};
 use iluvatar_library::{
     energy::EnergyConfig,
@@ -98,6 +98,9 @@ pub struct GPUResourceConfig {
     /// The amount of physical memory each GPU has.
     /// Used for simulations
     pub memory_mb: Option<MemSizeMb>,
+    /// How often to update GPU resource usage status
+    /// Maybe be delayed if update takes longer than freq
+    pub status_update_freq_ms: Option<u64>,
     /// Set up a standalone MPS daemon to control GPU access.
     pub use_standalone_mps: Option<bool>,
     /// How much physical memory each function is 'allocated' on the GPU.
@@ -170,6 +173,7 @@ pub struct InvocationConfig {
     /// If present and not zero, invocations with an execution duration less than this
     ///   will bypass concurrency restrictions and be run immediately
     pub bypass_duration_ms: Option<u64>,
+    pub mqfq_config: Option<Arc<MqfqConfig>>,
 }
 
 #[derive(Debug, Deserialize)]
