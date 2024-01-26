@@ -1,6 +1,4 @@
 msg = "good"
-device_to_use='cpu'
-device_to_use='gpu'
 import traceback
 try:
     import os, sys
@@ -8,27 +6,36 @@ try:
     # os.environ['AUTOGRAPH_VERBOSITY'] = '1'
     # sys.stdout = open(os.devnull, 'w')
     # sys.stderr = open(os.devnull, 'w')
-    import numpy as np
     import uuid
     from time import time
-    import logging
 
     import tensorflow.compat.v1 as tf
+    tf.disable_v2_behavior()
+    tf.keras.utils.disable_interactive_logging()
     from tensorflow.keras.preprocessing import image
     from tensorflow.keras.applications.resnet50 import preprocess_input, decode_predictions
     from tensorflow.keras.utils import get_file
+    import numpy as np
+    import uuid
+    from time import time
     from squeezenet import SqueezeNet
-    tf.disable_v2_behavior()
+    import logging
     # tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
     # tf.get_logger().setLevel('ERROR')
     # tf.get_logger().setLevel(logging.ERROR)
     # logging.getLogger("tensorflow").setLevel(logging.WARNING)
-    tf.keras.utils.disable_interactive_logging()
     # ds = tf.config.list_physical_devices(device_type=None)
     # print( ds )
 
 except Exception as e:
     msg = traceback.format_exc()
+
+def has_gpu() -> bool:
+  return os.path.isfile("/usr/bin/nvidia-smi")  
+
+device_to_use='cpu'
+if has_gpu():
+  device_to_use='gpu'
 
 tmp = "/tmp/"
 cold = True
