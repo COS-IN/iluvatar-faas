@@ -64,7 +64,7 @@ mod flowq_tests {
                 .gpu_resource
                 .as_ref()
                 .expect("GPU config was missing"),
-            &cfg.invocation.mqfq_config.as_ref().expect("MQFQ config was missing"),
+            cfg.invocation.mqfq_config.as_ref().expect("MQFQ config was missing"),
         );
         (log, cm, q)
     }
@@ -117,7 +117,7 @@ mod flowq_tests {
         let r = q.push_flow(item.clone(), 20.0);
         assert!(r, "single item requests VT update");
         let r = q.push_flow(item.clone(), 30.0);
-        assert_eq!(r, false, "second item does not request VT update");
+        assert!(!r, "second item does not request VT update");
         assert_eq!(q.state, MQState::Active, "queue should be set active");
         let item2 = q.pop_flow(0.0);
         assert!(item2.is_some(), "must get item from queue");

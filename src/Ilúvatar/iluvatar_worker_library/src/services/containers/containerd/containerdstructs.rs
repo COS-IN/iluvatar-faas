@@ -164,7 +164,7 @@ impl ContainerT for ContainerdContainer {
         &self.device
     }
     fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
-        todo!();
+        todo!("Containerd containers are CPU-only and shouldn't be given anything to drop on remove!");
     }
     fn remove_drop(&self, _tid: &TransactionId) {}
 }

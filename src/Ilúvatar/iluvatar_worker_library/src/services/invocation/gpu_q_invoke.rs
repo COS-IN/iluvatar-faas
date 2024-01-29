@@ -238,7 +238,7 @@ impl GpuQueueingInvoker {
                 return None;
             }
         };
-        match self.gpu.try_acquire_resource() {
+        match self.gpu.try_acquire_resource(None) {
             Ok(c) => ret.push(Some(c)),
             Err(e) => {
                 match e {
