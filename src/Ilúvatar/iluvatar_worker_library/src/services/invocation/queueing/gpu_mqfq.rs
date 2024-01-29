@@ -538,7 +538,7 @@ impl MQFQ {
 
     // Invoked functions automatically increase the count, conversely for finished functions
     fn get_token(&self) -> Option<OwnedSemaphorePermit> {
-        self.gpu.try_acquire_resource().ok()
+        self.gpu.try_acquire_resource(None).ok()
     }
 
     /// Main

@@ -3,6 +3,7 @@ use crate::{
     worker_api::worker_config::{ContainerResourceConfig, GPUResourceConfig},
 };
 use anyhow::Result;
+use dashmap::DashMap;
 use iluvatar_library::{
     bail_error,
     threading::tokio_thread,
@@ -12,12 +13,14 @@ use iluvatar_library::{
 };
 use nvml_wrapper::{error::NvmlError, Nvml};
 use parking_lot::RwLock;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::runtime::Runtime;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, trace};
 
 pub type GpuUuid = String;
+pub type PrivateGpuId = u32;
+type GpuCollection = DashMap<PrivateGpuId, Vec<Arc<GPU>>>;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub enum Pstate {
@@ -135,17 +138,20 @@ impl From<GpuParseStatus> for GpuStatus {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 pub struct GPU {
     pub gpu_uuid: GpuUuid,
-    pub gpu_private_id: u32,
-    pub hardware_memory_mb: MemSizeMb,
-    pub allocated_mb: MemSizeMb,
+    gpu_hardware_id: PrivateGpuId,
+    gpu_private_id: PrivateGpuId,
+    hardware_memory_mb: MemSizeMb,
+    allocated_mb: MemSizeMb,
     /// From 1-100
     pub thread_pct: u32,
 }
 impl GPU {
     pub fn split_resources(
         gpu_uuid: GpuUuid,
+        gpu_hardware_id: PrivateGpuId,
         hardware_memory_mb: MemSizeMb,
         config: &Arc<GPUResourceConfig>,
         tid: &TransactionId,
@@ -163,6 +169,7 @@ impl GPU {
                 hardware_memory_mb,
                 allocated_mb: mem_size,
                 thread_pct,
+                gpu_hardware_id,
             }))
         }
         Ok(ret)
@@ -207,9 +214,9 @@ lazy_static::lazy_static! {
 /// A GPU can only be assigned to one container at a time, and must be reutrned via [GpuResourceTracker::return_gpu] after container deletion
 /// For an invocation to use the GPU, it must have isolation over that resource by acquiring it via [GpuResourceTracker::try_acquire_resource]
 pub struct GpuResourceTracker {
-    gpus: RwLock<Vec<Arc<GPU>>>,
+    gpus: GpuCollection,
     total_gpu_structs: u32,
-    concurrency_semaphore: Arc<Semaphore>,
+    concurrency_semaphore: HashMap<PrivateGpuId, Arc<Semaphore>>,
     docker: Arc<dyn ContainerIsolationService>,
     _handle: tokio::task::JoinHandle<()>,
     status_info: RwLock<Vec<GpuStatus>>,
@@ -255,14 +262,14 @@ impl GpuResourceTracker {
 
             let svc = Arc::new(GpuResourceTracker {
                 concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid)?,
-                total_gpu_structs: gpus.len() as u32,
-                gpus: RwLock::new(gpus),
+                total_gpu_structs: gpus.iter().map(|v| v.len()).sum::<usize>() as u32,
                 docker: docker.clone(),
                 _handle: handle,
                 status_info: RwLock::new(vec![]),
-                config: config,
                 _container_config: container_config.clone(),
                 nvml,
+                gpus,
+                config,
             });
             tx.send(svc.clone())?;
             return Ok(Some(svc));
@@ -272,14 +279,19 @@ impl GpuResourceTracker {
 
     fn create_concurrency_semaphore(
         config: &Arc<GPUResourceConfig>,
-        gpus: &Vec<Arc<GPU>>,
+        gpus: &GpuCollection,
         _tid: &TransactionId,
-    ) -> Result<Arc<Semaphore>> {
-        let cnt = missing_or_zero_default(config.concurrent_running_funcs, gpus.len() as u32);
-        if cnt > gpus.len() as u32 {
-            anyhow::bail!("Value set for the number of concurrently running functions is larger than the number of available GPUs")
+    ) -> Result<HashMap<PrivateGpuId, Arc<Semaphore>>> {
+        let mut ret = HashMap::new();
+        for items in gpus.iter() {
+            let gpu_cnt = items.value().len();
+            let cnt = missing_or_zero_default(config.concurrent_running_funcs, gpu_cnt as u32);
+            if cnt > gpu_cnt as u32 {
+                anyhow::bail!("Value set for the number of concurrently running functions on GPU {} is larger than the number of available GPUs", items.key());
+            }
+            ret.insert(*items.key(), Arc::new(Semaphore::new(gpu_cnt)));
         }
-        Ok(Arc::new(Semaphore::new(cnt as usize)))
+        Ok(ret)
     }
 
     async fn start_mps(
@@ -310,20 +322,22 @@ impl GpuResourceTracker {
     }
 
     fn set_shared_exclusive(tid: &TransactionId) -> Result<()> {
-        let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
-        let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
-        let gpu_cnt = cow
-            .split('\n')
-            .filter(|str| !str.is_empty())
-            .collect::<Vec<&str>>()
-            .len();
-        for i in 0..gpu_cnt {
-            execute_cmd_checked(
-                "/usr/bin/nvidia-smi",
-                vec!["-i", i.to_string().as_str(), "-c", "DEFAULT"],
-                None,
-                tid,
-            )?;
+        if !iluvatar_library::utils::is_simulation() {
+            let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
+            let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
+            let gpu_cnt = cow
+                .split('\n')
+                .filter(|str| !str.is_empty())
+                .collect::<Vec<&str>>()
+                .len();
+            for i in 0..gpu_cnt {
+                execute_cmd_checked(
+                    "/usr/bin/nvidia-smi",
+                    vec!["-i", i.to_string().as_str(), "-c", "DEFAULT"],
+                    None,
+                    tid,
+                )?;
+            }
         }
         Ok(())
     }
@@ -348,36 +362,34 @@ impl GpuResourceTracker {
     }
 
     /// Return the count of 'physical' GPUs, and list of GPU spot structs
-    fn make_simulated_gpus(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<(u32, Vec<Arc<GPU>>)> {
-        let mut ret = vec![];
-        let mut found = 0;
+    fn make_simulated_gpus(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<GpuCollection> {
+        let ret = GpuCollection::new();
         let memory_mb = gpu_config
             .memory_mb
             .ok_or_else(|| anyhow::format_err!("`memory_mb` config must be provided"))?;
         for i in 0..gpu_config.count {
             let gpu_uuid = format!("GPU-{}", i);
-            ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
-            found += 1;
+            ret.insert(i, GPU::split_resources(gpu_uuid, i, memory_mb, gpu_config, tid)?);
         }
-        Ok((found, ret))
+        Ok(ret)
     }
 
     /// Return the count of 'physical' GPUs, and list of GPU spot structs
-    fn make_real_gpus(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<(u32, Vec<Arc<GPU>>)> {
-        let mut ret = vec![];
-        let mut found = 0;
+    fn make_real_gpus(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<GpuCollection> {
+        let ret = GpuCollection::new();
         if gpu_config.is_tegra.unwrap_or(false) {
             let gpu_uuid = "tegra_00-0000-0000-0000-dummy_uuid00".to_string();
-
             let memory_mb: MemSizeMb = 30623;
-            ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
-            found += 1;
-            return Ok((found, ret));
+            ret.insert(0, GPU::split_resources(gpu_uuid, 0, memory_mb, gpu_config, tid)?);
+            return Ok(ret);
         }
 
         let output = execute_cmd_checked(
             "/usr/bin/nvidia-smi",
-            vec!["--query-gpu=gpu_uuid,memory.total", "--format=csv,noheader,nounits"],
+            vec![
+                "--query-gpu=gpu_uuid,index,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
             None,
             tid,
         )?;
@@ -389,40 +401,46 @@ impl GpuResourceTracker {
         for result in reader.records() {
             match result {
                 Ok(r) => {
-                    let memory_mb = r
-                        .get(1)
-                        .ok_or_else(|| anyhow::format_err!("Reading GPU memory failed"))?
-                        .parse()
-                        .or_else(|e| anyhow::bail!("Failed to parse GPU memory.total {:?} from '{:?}'", e, r))?;
                     let gpu_uuid = r
                         .get(0)
                         .ok_or_else(|| anyhow::format_err!("Reading GPU uuid failed from '{:?}'", r))?
                         .to_string();
-                    ret.extend(GPU::split_resources(gpu_uuid, memory_mb, gpu_config, tid)?);
+                    let index = r
+                        .get(1)
+                        .ok_or_else(|| anyhow::format_err!("Reading GPU index failed"))?
+                        .parse()
+                        .or_else(|e| anyhow::bail!("Failed to parse GPU index {:?} from '{:?}'", e, r))?;
+                    let memory_mb = r
+                        .get(2)
+                        .ok_or_else(|| anyhow::format_err!("Reading GPU memory failed"))?
+                        .parse()
+                        .or_else(|e| anyhow::bail!("Failed to parse GPU memory.total {:?} from '{:?}'", e, r))?;
+                    ret.insert(
+                        index,
+                        GPU::split_resources(gpu_uuid, index, memory_mb, gpu_config, tid)?,
+                    );
                 }
                 Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read record from nvidia-smi"),
             }
-            found += 1;
         }
-        Ok((found, ret))
+        Ok(ret)
     }
 
-    fn prepare_structs(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<Vec<Arc<GPU>>> {
+    fn prepare_structs(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<GpuCollection> {
         if gpu_config.count == 0 {
             info!(tid=%tid, "GPU config had 0 GPUs, skipping GPU resource setup");
-            return Ok(vec![]);
+            return Ok(GpuCollection::new());
         }
-        let ret;
-        let count;
-        if iluvatar_library::utils::is_simulation() {
-            (count, ret) = Self::make_simulated_gpus(gpu_config, tid)?;
+        let ret = if iluvatar_library::utils::is_simulation() {
+            Self::make_simulated_gpus(gpu_config, tid)?
         } else {
-            (count, ret) = Self::make_real_gpus(gpu_config, tid)?;
-        }
-        if count != gpu_config.count {
+            Self::make_real_gpus(gpu_config, tid)?
+        };
+        let found_physical = ret.len();
+        if found_physical as u32 != gpu_config.count {
             anyhow::bail!(
                 "Was able to prepare {} GPUs, but configuration expected {}",
-                count,
+                found_physical,
                 gpu_config.count
             );
         }
@@ -430,35 +448,75 @@ impl GpuResourceTracker {
         Ok(ret)
     }
 
-    /// Return a permit access to run on a single GPU
+    /// Return a permit access to run on the given GPU
+    /// If [gpu] is [None], then this will always return a token for GPU 0
     /// Returns an error if none are available for execution
-    pub fn try_acquire_resource(&self) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
-        // TODO: make this work with mutltiple GPUs such that the GPU a container has is checked for utilization
-        // currently assumes there is only one physical GPU
+    pub fn try_acquire_resource(
+        &self,
+        gpu: Option<&Arc<GPU>>,
+    ) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
         let limit = missing_or_zero_default(self.config.limit_on_utilization, 0);
+        let gpu_hardware_id = gpu.map_or(0, |g| g.gpu_hardware_id);
         if limit == 0 {
-            return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
+            return match self.concurrency_semaphore.get(&gpu_hardware_id) {
+                Some(val) => val.clone().try_acquire_many_owned(1),
+                None => {
+                    let uuid = gpu.map_or("none_gpu", |g| g.gpu_uuid.as_str());
+                    error!(uuid=%uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
+                    Err(tokio::sync::TryAcquireError::NoPermits)
+                }
+            };
         }
-        if let Some(gpu_stat) = self.status_info.read().first() {
-            if gpu_stat.utilization_gpu <= limit as f64 {
-                return self.concurrency_semaphore.clone().try_acquire_many_owned(1);
-            }
+        let gpu_stat = self.status_info.read();
+        if gpu_stat.len() >= gpu_hardware_id as usize
+            && gpu_stat[gpu_hardware_id as usize].utilization_gpu <= limit as f64
+        {
+            return match self.concurrency_semaphore.get(&gpu_hardware_id) {
+                Some(val) => val.clone().try_acquire_many_owned(1),
+                None => {
+                    let uuid = gpu.map_or("none_gpu", |g| g.gpu_uuid.as_str());
+                    error!(uuid=%uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
+                    Err(tokio::sync::TryAcquireError::NoPermits)
+                }
+            };
+        } else {
+            error!(private_id = gpu_hardware_id, "GPU id not found");
         }
         Err(tokio::sync::TryAcquireError::NoPermits)
     }
 
     pub fn outstanding(&self) -> u32 {
-        self.total_gpu_structs - self.concurrency_semaphore.available_permits() as u32
+        self.total_gpu_structs
+            - self
+                .concurrency_semaphore
+                .iter()
+                .map(|item| item.1.available_permits() as u32)
+                .sum::<u32>()
     }
 
     pub fn total_gpus(&self) -> u32 {
         self.total_gpu_structs
     }
 
-    /// Acquire a GPU so it can be attached to a container
-    /// [None] means no GPU is available
+    pub fn physical_gpus(&self) -> u32 {
+        self.gpus.len() as u32
+    }
+
+    /// Acquire a GPU so it can be attached to a container.
+    /// Returns a pointer to the least-loaded GPU
+    /// [None] means no GPU is available.
     pub fn acquire_gpu(self: &Arc<Self>, tid: &TransactionId) -> Option<Arc<GPU>> {
-        let gpu = self.gpus.write().pop();
+        let mut best_idx = 0;
+        let mut available = 0;
+        for item in self.gpus.iter() {
+            let avil = item.value().len();
+            if avil > available {
+                available = avil;
+                best_idx = *item.key();
+            }
+        }
+
+        let gpu = self.gpus.get_mut(&best_idx)?.pop();
         if let Some(g) = &gpu {
             debug!(tid=%tid, gpu_uuid=g.gpu_uuid, private=g.gpu_private_id, "GPU allocating");
         }
@@ -468,7 +526,10 @@ impl GpuResourceTracker {
     /// Return a GPU that has been removed from a container
     pub fn return_gpu(&self, gpu: Arc<GPU>, tid: &TransactionId) {
         info!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "GPU returned");
-        self.gpus.write().push(gpu);
+        match self.gpus.get_mut(&gpu.gpu_private_id) {
+            Some(mut v) => v.push(gpu),
+            None => info!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "Tried to return illegal GPU"),
+        }
     }
 
     /// get the utilization of GPUs on the system
