@@ -34,8 +34,8 @@ pub struct ContainerManager {
     used_mem_mb: Arc<RwLock<MemSizeMb>>,
     cont_isolations: ContainerIsolationCollection,
     /// For keep-alive eviction
-    prioritized_list: RwLock<Subpool>,
-    prioritized_gpu_list: RwLock<Subpool>,
+    pub prioritized_list: RwLock<Subpool>,
+    pub prioritized_gpu_list: RwLock<Subpool>,
     _worker_thread: std::thread::JoinHandle<()>,
     _health_thread: tokio::task::JoinHandle<()>,
     gpu_resources: Option<Arc<GpuResourceTracker>>,
@@ -624,17 +624,17 @@ impl ContainerManager {
     }
 
     fn compute_eviction_priorities(&self, tid: &TransactionId) {
-        debug!(tid=%tid, "Computing eviction priorities");
         let mut ordered = self.cpu_containers.iter();
+        debug!(tid=%tid, num_containers=%ordered.len(), "Computing CPU eviction priorities");
         self.order_pool_eviction(tid, &mut ordered);
         *self.prioritized_list.write() = ordered;
     }
 
     fn compute_gpu_eviction_priorities(&self, tid: &TransactionId) {
-        debug!(tid=%tid, "Computing eviction priorities");
         let mut ordered = self.gpu_containers.iter();
+        debug!(tid=%tid, num_containers=%ordered.len(), "Computing GPU eviction priorities");
         self.order_pool_eviction(tid, &mut ordered);
-        *self.prioritized_list.write() = ordered;
+        *self.prioritized_gpu_list.write() = ordered;
     }
 
     fn lru_eviction(c1: &Container, c2: &Container) -> Ordering {
