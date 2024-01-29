@@ -572,20 +572,16 @@ impl ContainerManager {
     /// Reclaim a single GPU from a container via eviction
     /// If any are free to be removed
     async fn reclaim_gpu(&self, tid: &TransactionId) -> Result<()> {
-        // let lck = self.prioritized_gpu_list.write();
-        let mut chosen= None;
+        let mut chosen = None;
         for cont in self.prioritized_gpu_list.read().iter() {
-            if self.gpu_containers.remove_container(&cont, tid).is_some() {
-                // self.purge_container(chosen, tid).await?;
-                // evicted = true;
+            if self.gpu_containers.remove_container(cont, tid).is_some() {
                 chosen = Some(cont.clone());
                 break;
             }
         }
-        // drop(lck);
         match chosen {
-          Some(c) => self.purge_container(c, tid).await?,
-          None => warn!(tid=%tid, "tried to evict a container for a GPU, but was unable")
+            Some(c) => self.purge_container(c, tid).await?,
+            None => warn!(tid=%tid, "tried to evict a container for a GPU, but was unable"),
         };
         Ok(())
     }
@@ -616,15 +612,15 @@ impl ContainerManager {
     }
 
     fn order_pool_eviction(&self, tid: &TransactionId, list: &mut Subpool) {
-      debug!(tid=%tid, "Computing eviction priorities");
-      let comparator = match self.resources.eviction.as_str() {
-          "LRU" => ContainerManager::lru_eviction,
-          _ => {
-              error!(tid=%tid, algorithm=%self.resources.eviction, "Unkonwn eviction algorithm");
-              return;
-          }
-      };
-      list.sort_by(comparator);
+        debug!(tid=%tid, "Computing eviction priorities");
+        let comparator = match self.resources.eviction.as_str() {
+            "LRU" => ContainerManager::lru_eviction,
+            _ => {
+                error!(tid=%tid, algorithm=%self.resources.eviction, "Unkonwn eviction algorithm");
+                return;
+            }
+        };
+        list.sort_by(comparator);
     }
 
     fn compute_eviction_priorities(&self, tid: &TransactionId) {
