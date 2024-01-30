@@ -8,7 +8,7 @@ use iluvatar_library::{
     bail_error,
     threading::tokio_thread,
     transaction::TransactionId,
-    types::MemSizeMb,
+    types::{DroppableToken, MemSizeMb},
     utils::{execute_cmd_checked, execute_cmd_checked_async, missing_or_zero_default},
 };
 use nvml_wrapper::{error::NvmlError, Nvml};
@@ -16,7 +16,7 @@ use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use tokio::runtime::Runtime;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 pub type GpuUuid = String;
 pub type PrivateGpuId = u32;
@@ -141,6 +141,7 @@ impl From<GpuParseStatus> for GpuStatus {
 #[allow(unused)]
 pub struct GPU {
     pub gpu_uuid: GpuUuid,
+    private_id: GpuUuid,
     gpu_hardware_id: PrivateGpuId,
     gpu_private_id: PrivateGpuId,
     hardware_memory_mb: MemSizeMb,
@@ -165,6 +166,7 @@ impl GPU {
         for i in 0..spots {
             ret.push(Arc::new(Self {
                 gpu_uuid: gpu_uuid.clone(),
+                private_id: format!("{}-{}-{}", gpu_uuid, gpu_hardware_id, i),
                 gpu_private_id: i,
                 hardware_memory_mb,
                 allocated_mb: mem_size,
@@ -454,12 +456,16 @@ impl GpuResourceTracker {
     pub fn try_acquire_resource(
         &self,
         gpu: Option<&Arc<GPU>>,
-    ) -> Result<OwnedSemaphorePermit, tokio::sync::TryAcquireError> {
+        tid: &TransactionId,
+    ) -> Result<DroppableToken, tokio::sync::TryAcquireError> {
         let limit = missing_or_zero_default(self.config.limit_on_utilization, 0);
         let gpu_hardware_id = gpu.map_or(0, |g| g.gpu_hardware_id);
         if limit == 0 {
             return match self.concurrency_semaphore.get(&gpu_hardware_id) {
-                Some(val) => val.clone().try_acquire_many_owned(1),
+                Some(val) => match val.clone().try_acquire_many_owned(1) {
+                    Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id.to_string(), tid.clone()).into()),
+                    Err(e) => Err(e),
+                },
                 None => {
                     let uuid = gpu.map_or("none_gpu", |g| g.gpu_uuid.as_str());
                     error!(uuid=%uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
@@ -468,19 +474,22 @@ impl GpuResourceTracker {
             };
         }
         let gpu_stat = self.status_info.read();
-        if gpu_stat.len() >= gpu_hardware_id as usize
-            && gpu_stat[gpu_hardware_id as usize].utilization_gpu <= limit as f64
-        {
-            return match self.concurrency_semaphore.get(&gpu_hardware_id) {
-                Some(val) => val.clone().try_acquire_many_owned(1),
-                None => {
-                    let uuid = gpu.map_or("none_gpu", |g| g.gpu_uuid.as_str());
-                    error!(uuid=%uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
-                    Err(tokio::sync::TryAcquireError::NoPermits)
-                }
-            };
+        if gpu_stat.len() > gpu_hardware_id as usize {
+            if gpu_stat[gpu_hardware_id as usize].utilization_gpu <= limit as f64 {
+                return match self.concurrency_semaphore.get(&gpu_hardware_id) {
+                    Some(val) => match val.clone().try_acquire_many_owned(1) {
+                        Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id.to_string(), tid.clone()).into()),
+                        Err(e) => Err(e),
+                    },
+                    None => {
+                        let uuid = gpu.map_or("none_gpu", |g| g.gpu_uuid.as_str());
+                        error!(uuid=%uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
+                        Err(tokio::sync::TryAcquireError::NoPermits)
+                    }
+                };
+            }
         } else {
-            error!(private_id = gpu_hardware_id, "GPU id not found");
+            warn!(private_id=gpu_hardware_id, stat=?gpu_stat, "GPU id not found");
         }
         Err(tokio::sync::TryAcquireError::NoPermits)
     }
@@ -518,17 +527,38 @@ impl GpuResourceTracker {
 
         let gpu = self.gpus.get_mut(&best_idx)?.pop();
         if let Some(g) = &gpu {
-            debug!(tid=%tid, gpu_uuid=g.gpu_uuid, private=g.gpu_private_id, "GPU allocating");
+            debug!(tid=%tid, gpu_uuid=g.gpu_uuid, private=g.gpu_private_id, uuid=g.private_id, "GPU allocating");
         }
         gpu
     }
 
     /// Return a GPU that has been removed from a container
     pub fn return_gpu(&self, gpu: Arc<GPU>, tid: &TransactionId) {
-        info!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "GPU returned");
-        match self.gpus.get_mut(&gpu.gpu_private_id) {
-            Some(mut v) => v.push(gpu),
-            None => info!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, "Tried to return illegal GPU"),
+        debug!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, hardware_id=gpu.gpu_hardware_id, uuid=gpu.private_id, "GPU returned");
+        match self.gpus.get_mut(&gpu.gpu_hardware_id) {
+            Some(mut v) => {
+                #[cfg(debug_assertions)]
+                for cont in v.iter() {
+                    if cont.gpu_uuid == gpu.gpu_uuid
+                        && cont.gpu_private_id == gpu.gpu_private_id
+                        && cont.gpu_hardware_id == gpu.gpu_hardware_id
+                    {
+                        error!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, hardware_id=gpu.gpu_hardware_id, uuid=gpu.private_id, "Tried to return GPU twice");
+                        break;
+                    }
+                }
+                v.push(gpu)
+            }
+            None => {
+                let keys = self
+                    .gpus
+                    .iter()
+                    .map(|i| *i.key())
+                    .map(|i| i.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                error!(tid=%tid, keys=keys, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, hardware_id=gpu.gpu_hardware_id, uuid=gpu.private_id, "Tried to return illegal GPU")
+            }
         }
     }
 
@@ -652,5 +682,32 @@ impl Drop for GpuResourceTracker {
                 Err(e) => error!(error=%e, tid=%tid, "Failed to create runtime"),
             }
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct GpuToken {
+    _token: OwnedSemaphorePermit,
+    gpu_id: GpuUuid,
+    tid: TransactionId,
+}
+impl GpuToken {
+    pub fn new(token: OwnedSemaphorePermit, gpu_id: GpuUuid, tid: TransactionId) -> Self {
+        Self {
+            _token: token,
+            gpu_id,
+            tid,
+        }
+    }
+}
+impl Drop for GpuToken {
+    fn drop(&mut self) {
+        debug!(tid=%self.tid, gpu=%self.gpu_id, "Dropping GPU token");
+    }
+}
+impl iluvatar_library::types::DroppableMovableTrait for GpuToken {}
+impl Into<DroppableToken> for GpuToken {
+    fn into(self) -> DroppableToken {
+        Box::new(self)
     }
 }

@@ -21,7 +21,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 use time::{Instant, OffsetDateTime};
-use tokio::sync::{Notify, OwnedSemaphorePermit};
+use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
@@ -346,10 +346,10 @@ impl MQFQ {
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some((next_item, gpu_token)) = self.dispatch(&tid) {
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
-            if let Some(cpu_permit) = self.acquire_resources_to_run(&next_item.invok.registration, &tid) {
+            if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invok.registration, &tid) {
                 let svc = self.clone();
                 tokio::spawn(async move {
-                    svc.invocation_worker_thread(next_item, cpu_permit, gpu_token).await;
+                    svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;
                 });
             } else {
                 warn!(tid=%tid, fqdn=%next_item.invok.registration.fqdn, "Insufficient resources to run item");
@@ -365,8 +365,8 @@ impl MQFQ {
     async fn invocation_worker_thread(
         &self,
         item: Arc<MQRequest>,
-        permit: Box<dyn Drop + Send>,
-        token: DroppableToken,
+        cpu_token: DroppableToken,
+        gpu_token: DroppableToken,
     ) {
         if item.invok.lock() {
             match self
@@ -375,7 +375,7 @@ impl MQFQ {
                     &item.invok.json_args,
                     &item.invok.tid,
                     item.invok.queue_insert_time,
-                    token,
+                    gpu_token,
                 )
                 .await
             {
@@ -385,7 +385,7 @@ impl MQFQ {
                 Err(cause) => self.handle_invocation_error(item.invok.clone(), cause),
             };
         }
-        drop(permit);
+        drop(cpu_token);
         self.signal.notify_waiters();
     }
 
@@ -457,10 +457,11 @@ impl MQFQ {
         &self,
         reg: &Arc<RegisteredFunction>,
         tid: &TransactionId,
-    ) -> Option<Box<dyn Drop + Send>> {
-        let mut ret = vec![];
+    ) -> Option<DroppableToken> {
+        let mut ret: Vec<DroppableToken> = vec![];
         match self.cpu.try_acquire_cores(reg, tid) {
-            Ok(c) => ret.push(c),
+            Ok(Some(c)) => ret.push(Box::new(c)),
+            Ok(_) => (),
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
@@ -537,8 +538,8 @@ impl MQFQ {
     }
 
     // Invoked functions automatically increase the count, conversely for finished functions
-    fn get_token(&self) -> Option<OwnedSemaphorePermit> {
-        self.gpu.try_acquire_resource(None).ok()
+    fn get_token(&self, tid: &TransactionId) -> Option<DroppableToken> {
+        self.gpu.try_acquire_resource(None, tid).ok()
     }
 
     /// Main
@@ -547,10 +548,14 @@ impl MQFQ {
         // How to avoid hoarding of the tokens? Want round-robin.
         let vitual_time = *self.vitual_time.read();
         let qlen = self.queue_len();
+        if qlen == 0 {
+            debug!(tid=%tid, qlen=qlen, "Empty queue");
+            return None;
+        }
 
-        let token = self.get_token();
+        let token = self.get_token(tid);
         if token.is_none() {
-            debug!(tid=%tid, qlen=qlen, "no token");
+            debug!(tid=%tid, qlen=qlen, "No token");
             return None;
         }
 
@@ -559,12 +564,12 @@ impl MQFQ {
                 let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
                 *self.vitual_time.write() = updated_vitual_time;
                 chosen_q.update_dispatched(updated_vitual_time);
-                return Some((i, Box::new(token.unwrap())));
+                return Some((i, token.unwrap()));
             } else {
-                debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "empty flow");
+                debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "Empty flow chosen");
             }
         } else {
-            debug!(tid=%tid, qlen=qlen, "no chosen flow");
+            debug!(tid=%tid, qlen=qlen, "No chosen flow");
         }
         None
         // Update MQFQ State

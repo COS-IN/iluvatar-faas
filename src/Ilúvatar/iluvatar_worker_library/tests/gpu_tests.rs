@@ -96,8 +96,9 @@ mod gpu_tests {
         assert_eq!(gpu_svc.outstanding(), 0);
         let gpu = gpu_svc.acquire_gpu(&TEST_TID);
         assert!(gpu.is_some());
-        let token: tokio::sync::OwnedSemaphorePermit =
-            gpu_svc.try_acquire_resource(None).expect("Should get GPU token");
+        let token = gpu_svc
+            .try_acquire_resource(None, &TEST_TID)
+            .expect("Should get GPU token");
         assert_eq!(gpu_svc.outstanding(), 1);
         drop(token);
     }
@@ -121,7 +122,7 @@ mod gpu_tests {
         let gpu = gpu_svc.acquire_gpu(&TEST_TID);
         assert!(gpu.is_some());
         let token = gpu_svc
-            .try_acquire_resource(gpu.as_ref())
+            .try_acquire_resource(gpu.as_ref(), &TEST_TID)
             .expect("Should get GPU token");
         assert_eq!(gpu_svc.outstanding(), 1);
         drop(token);

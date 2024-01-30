@@ -131,7 +131,9 @@ impl ContainerManager {
             };
             if let Ok(pool) = self.get_resource_pool(to_remove.compute_type()) {
                 if pool.remove_container(&to_remove, tid).is_none() {
-                    error!(tid=%tid, container_id=%to_remove.container_id(), "Failed to remove container from container pool before cull");
+                    warn!(tid=%tid, container_id=%to_remove.container_id(), compute=%to_remove.compute_type(),
+                          "Failed to remove container from container pool before cull");
+                    // continue;
                 }
             }
             let cont_lifecycle = match self.cont_isolations.get(&to_remove.container_type()) {
@@ -165,6 +167,7 @@ impl ContainerManager {
     pub fn num_containers(&self) -> u32 {
         self.cpu_containers.len() + self.gpu_containers.len()
     }
+
     /// Returns the best possible idle container's [ContainerState] at this time
     /// Not a guarantee it will be available
     pub fn container_available(&self, fqdn: &str, compute: Compute) -> ContainerState {
@@ -176,6 +179,7 @@ impl ContainerManager {
         }
         ContainerState::Cold
     }
+
     /// Returns the best possible idle container's [ContainerState] at this time
     /// Can be either running or idle, if [ContainerState::Cold], then possibly no container found
     pub fn container_exists(&self, fqdn: &str, compute: Compute) -> ContainerState {
@@ -212,7 +216,7 @@ impl ContainerManager {
     async fn update_container_pool_memory_usages(&self, pool: &ContainerPool, tid: &TransactionId) {
         debug!(tid=%tid, pool=%pool.pool_name(), "updating container memory usages");
         let old_total_mem = *self.used_mem_mb.read();
-        for container in pool.iter() {
+        for container in pool.iter().iter().filter(|c| c.is_healthy()) {
             let old_usage = container.get_curr_mem_usage();
             let new_usage = match self.cont_isolations.get(&container.container_type()) {
                 Some(c) => c.update_memory_usage_mb(&container, tid).await,
@@ -223,10 +227,9 @@ impl ContainerManager {
             };
             let diff = new_usage - old_usage;
             debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
-            *self.used_mem_mb.write() += diff;
+            *self.used_mem_mb.write() += diff;  
         }
 
-        // *self.used_mem_mb.write() = new_total_mem;
         let new_total_mem = *self.used_mem_mb.read();
         debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, pool=%pool.pool_name(), "Total container memory usage");
         if new_total_mem < 0 {
@@ -574,7 +577,7 @@ impl ContainerManager {
     async fn reclaim_gpu(&self, tid: &TransactionId) -> Result<()> {
         let mut chosen = None;
         for cont in self.prioritized_gpu_list.read().iter() {
-            if self.gpu_containers.remove_container(cont, tid).is_some() {
+            if cont.is_healthy() && self.gpu_containers.remove_container(cont, tid).is_some() {
                 chosen = Some(cont.clone());
                 break;
             }
