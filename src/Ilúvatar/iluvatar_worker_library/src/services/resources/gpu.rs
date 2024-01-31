@@ -82,6 +82,10 @@ pub struct GpuStatus {
     pub power_draw: f64,
     /// The software power limit in watts. Set by software like nvidia-smi.
     pub power_limit: f64,
+    /// Number of functions running at the time
+    pub num_running: u32,
+    /// Estimated utilization manually tracked by service to account for newly launched functions
+    pub est_utilization_gpu: f64,
 }
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct GpuParseStatus {
@@ -105,7 +109,7 @@ pub struct GpuParseStatus {
     pub power_limit: f64,
 }
 impl GpuStatus {
-    pub fn update(&mut self, new_status: GpuParseStatus) {
+    pub fn update(&mut self, new_status: GpuParseStatus, num_running: u32) {
         let alpha = 0.6;
         self.pstate = new_status.pstate;
         self.instant_utilization_gpu = new_status.utilization_gpu;
@@ -113,6 +117,8 @@ impl GpuStatus {
         self.utilization_gpu = Self::moving_avg_f(alpha, self.utilization_gpu, new_status.utilization_gpu);
         self.utilization_memory = Self::moving_avg_f(alpha, self.utilization_memory, new_status.utilization_memory);
         self.power_draw = Self::moving_avg_f(alpha, self.power_draw, new_status.power_draw);
+        self.num_running = num_running;
+        self.est_utilization_gpu = self.utilization_gpu;
     }
     fn moving_avg_f(alpha: f64, old: f64, new: f64) -> f64 {
         (new * alpha) + (old * (1.0 - alpha))
@@ -133,6 +139,8 @@ impl From<GpuParseStatus> for GpuStatus {
             utilization_memory: val.utilization_memory,
             power_draw: val.power_draw,
             power_limit: val.power_limit,
+            num_running: 0,
+            est_utilization_gpu: val.utilization_gpu,
         }
     }
 }
@@ -219,7 +227,7 @@ pub struct GpuResourceTracker {
     gpus: GpuCollection,
     total_gpu_structs: u32,
     concurrency_semaphore: HashMap<PrivateGpuId, Arc<Semaphore>>,
-    docker: Arc<dyn ContainerIsolationService>,
+    docker: Option<Arc<dyn ContainerIsolationService>>,
     _handle: tokio::task::JoinHandle<()>,
     status_info: RwLock<Vec<GpuStatus>>,
     _container_config: Arc<ContainerResourceConfig>,
@@ -231,7 +239,7 @@ impl GpuResourceTracker {
         resources: &Option<Arc<GPUResourceConfig>>,
         container_config: &Arc<ContainerResourceConfig>,
         tid: &TransactionId,
-        docker: &Arc<dyn ContainerIsolationService>,
+        docker: &Option<&Arc<dyn ContainerIsolationService>>,
         status_config: &Arc<crate::worker_api::worker_config::StatusConfig>,
     ) -> Result<Option<Arc<Self>>> {
         if let Some(config) = resources.clone() {
@@ -240,10 +248,14 @@ impl GpuResourceTracker {
             }
             let gpus = GpuResourceTracker::prepare_structs(&config, tid)?;
             if config.mps_enabled() {
-                if let Some(docker) = docker.as_any().downcast_ref::<DockerIsolation>() {
-                    Self::start_mps(&config, docker, tid).await?;
+                if docker.is_some() {
+                    if let Some(docker) = docker.as_ref().unwrap().as_any().downcast_ref::<DockerIsolation>() {
+                        Self::start_mps(&config, docker, tid).await?;
+                    } else {
+                        bail_error!("MPS is enabled, but isolation service passed was not `docker`");
+                    }
                 } else {
-                    bail_error!("MPS is enabled, but isolation service passed was not `docker`");
+                    bail_error!("MPS is enabled, but docker service not present");
                 }
             } else if !config.is_tegra.unwrap_or(false) {
                 Self::set_shared_exclusive(tid)?;
@@ -265,7 +277,7 @@ impl GpuResourceTracker {
             let svc = Arc::new(GpuResourceTracker {
                 concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid)?,
                 total_gpu_structs: gpus.iter().map(|v| v.len()).sum::<usize>() as u32,
-                docker: docker.clone(),
+                docker: docker.cloned(),
                 _handle: handle,
                 status_info: RwLock::new(vec![]),
                 _container_config: container_config.clone(),
@@ -291,7 +303,7 @@ impl GpuResourceTracker {
             if cnt > gpu_cnt as u32 {
                 anyhow::bail!("Value set for the number of concurrently running functions on GPU {} is larger than the number of available GPUs", items.key());
             }
-            ret.insert(*items.key(), Arc::new(Semaphore::new(gpu_cnt)));
+            ret.insert(*items.key(), Arc::new(Semaphore::new(cnt as usize)));
         }
         Ok(ret)
     }
@@ -460,10 +472,14 @@ impl GpuResourceTracker {
     ) -> Result<DroppableToken, tokio::sync::TryAcquireError> {
         let limit = missing_or_zero_default(self.config.limit_on_utilization, 0);
         let gpu_hardware_id = gpu.map_or(0, |g| g.gpu_hardware_id);
+        // info!(tid=%tid, gpu_hardware_id=gpu_hardware_id, limit=limit, "limit on GPU util");
         if limit == 0 {
             return match self.concurrency_semaphore.get(&gpu_hardware_id) {
                 Some(val) => match val.clone().try_acquire_many_owned(1) {
-                    Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id.to_string(), tid.clone()).into()),
+                    Ok(p) => {
+                        info!(tid=%tid, permits=val.available_permits(), gpu_hardware_id=gpu_hardware_id, limit=limit, "Num available permits");
+                        Ok(GpuToken::new(p, gpu_hardware_id.to_string(), tid.clone()).into())
+                    }
                     Err(e) => Err(e),
                 },
                 None => {
@@ -473,12 +489,19 @@ impl GpuResourceTracker {
                 }
             };
         }
-        let gpu_stat = self.status_info.read();
+        let mut gpu_stat = self.status_info.upgradable_read();
         if gpu_stat.len() > gpu_hardware_id as usize {
-            if gpu_stat[gpu_hardware_id as usize].utilization_gpu <= limit as f64 {
+            if gpu_stat[gpu_hardware_id as usize].est_utilization_gpu <= limit as f64 {
                 return match self.concurrency_semaphore.get(&gpu_hardware_id) {
                     Some(val) => match val.clone().try_acquire_many_owned(1) {
-                        Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id.to_string(), tid.clone()).into()),
+                        Ok(p) => {
+                            gpu_stat.with_upgraded(|stat| {
+                                let stat = &mut stat[gpu_hardware_id as usize];
+                                let per_fn = stat.instant_utilization_gpu / stat.num_running as f64;
+                                stat.est_utilization_gpu += per_fn;
+                            });
+                            Ok(GpuToken::new(p, gpu_hardware_id.to_string(), tid.clone()).into())
+                        }
                         Err(e) => Err(e),
                     },
                     None => {
@@ -595,7 +618,7 @@ impl GpuResourceTracker {
                         let mut lck = svc.status_info.write();
                         for stat in &mut *lck {
                             if stat.gpu_uuid == rec.gpu_uuid {
-                                stat.update(rec);
+                                stat.update(rec, svc.outstanding());
                                 break;
                             }
                         }
@@ -640,7 +663,7 @@ impl GpuResourceTracker {
                 let mut lck = svc.status_info.write();
                 for old_stat in &mut *lck {
                     if old_stat.gpu_uuid == stat.gpu_uuid {
-                        old_stat.update(stat);
+                        old_stat.update(stat, svc.outstanding());
                         break;
                     }
                 }
@@ -672,14 +695,16 @@ impl GpuResourceTracker {
 }
 impl Drop for GpuResourceTracker {
     fn drop(&mut self) {
-        if let Some(docker) = self.docker.as_any().downcast_ref::<DockerIsolation>() {
-            let tid: &TransactionId = &GPU_RESC_TID;
-            match Runtime::new() {
-                Ok(r) => match r.block_on(docker.get_logs(MPS_CONTAINER_NAME, tid)) {
-                    Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
-                    Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
-                },
-                Err(e) => error!(error=%e, tid=%tid, "Failed to create runtime"),
+        if let Some(d) = &self.docker {
+            if let Some(docker) = d.as_any().downcast_ref::<DockerIsolation>() {
+                let tid: &TransactionId = &GPU_RESC_TID;
+                match Runtime::new() {
+                    Ok(r) => match r.block_on(docker.get_logs(MPS_CONTAINER_NAME, tid)) {
+                        Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
+                        Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
+                    },
+                    Err(e) => error!(error=%e, tid=%tid, "Failed to create runtime"),
+                }
             }
         }
     }
@@ -706,8 +731,8 @@ impl Drop for GpuToken {
     }
 }
 impl iluvatar_library::types::DroppableMovableTrait for GpuToken {}
-impl Into<DroppableToken> for GpuToken {
-    fn into(self) -> DroppableToken {
-        Box::new(self)
+impl From<GpuToken> for DroppableToken {
+    fn from(val: GpuToken) -> Self {
+        Box::new(val)
     }
 }

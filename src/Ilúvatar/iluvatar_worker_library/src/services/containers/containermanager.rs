@@ -219,7 +219,7 @@ impl ContainerManager {
         for container in pool.iter().iter().filter(|c| c.is_healthy()) {
             let old_usage = container.get_curr_mem_usage();
             let new_usage = match self.cont_isolations.get(&container.container_type()) {
-                Some(c) => c.update_memory_usage_mb(&container, tid).await,
+                Some(c) => c.update_memory_usage_mb(container, tid).await,
                 None => {
                     error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported");
                     continue;
@@ -227,7 +227,7 @@ impl ContainerManager {
             };
             let diff = new_usage - old_usage;
             debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
-            *self.used_mem_mb.write() += diff;  
+            *self.used_mem_mb.write() += diff;
         }
 
         let new_total_mem = *self.used_mem_mb.read();

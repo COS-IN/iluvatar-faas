@@ -35,18 +35,15 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         .get_isolation_services(tid, true)
         .await
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"))?;
-    let mut gpu_resource = None;
-    if let Some(docker) = isos.get(&Isolation::DOCKER) {
-        gpu_resource = GpuResourceTracker::boxed(
-            &worker_config.container_resources.gpu_resource,
-            &worker_config.container_resources,
-            tid,
-            docker,
-            &worker_config.status,
-        )
-        .await
-        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make GPU resource tracker"))?;
-    }
+    let gpu_resource = GpuResourceTracker::boxed(
+        &worker_config.container_resources.gpu_resource,
+        &worker_config.container_resources,
+        tid,
+        &isos.get(&Isolation::DOCKER),
+        &worker_config.status,
+    )
+    .await
+    .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make GPU resource tracker"))?;
 
     let container_man = ContainerManager::boxed(
         worker_config.container_resources.clone(),

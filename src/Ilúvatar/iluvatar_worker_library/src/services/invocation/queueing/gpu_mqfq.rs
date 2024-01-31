@@ -368,6 +368,8 @@ impl MQFQ {
         cpu_token: DroppableToken,
         gpu_token: DroppableToken,
     ) {
+        let ct = OffsetDateTime::now_utc();
+        self.ctrack.add_item(ct);
         if item.invok.lock() {
             match self
                 .invoke(
@@ -375,6 +377,7 @@ impl MQFQ {
                     &item.invok.json_args,
                     &item.invok.tid,
                     item.invok.queue_insert_time,
+                    cpu_token,
                     gpu_token,
                 )
                 .await
@@ -385,8 +388,8 @@ impl MQFQ {
                 Err(cause) => self.handle_invocation_error(item.invok.clone(), cause),
             };
         }
-        drop(cpu_token);
         self.signal.notify_waiters();
+        self.ctrack.remove_item(ct);
     }
 
     /// Handle an error with the given enqueued invocation
@@ -414,6 +417,7 @@ impl MQFQ {
         json_args: &'a str,
         tid: &'a TransactionId,
         queue_insert_time: OffsetDateTime,
+        cpu_token: DroppableToken,
         gpu_token: DroppableToken,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
         debug!(tid=%tid, "Internal invocation starting");
@@ -438,7 +442,10 @@ impl MQFQ {
         )
         .await
         {
-            Ok(c) => Ok(c),
+            Ok(c) => {
+                drop(cpu_token);
+                Ok(c)
+            }
             Err(e) => {
                 debug!(tid=%tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
                 if !ctr_lock.container.is_healthy() {
@@ -453,11 +460,7 @@ impl MQFQ {
 
     /// Returns an owned permit if there are sufficient resources to run a function
     /// A return value of [None] means the resources failed to be acquired
-    fn acquire_resources_to_run(
-        &self,
-        reg: &Arc<RegisteredFunction>,
-        tid: &TransactionId,
-    ) -> Option<DroppableToken> {
+    fn acquire_resources_to_run(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Option<DroppableToken> {
         let mut ret: Vec<DroppableToken> = vec![];
         match self.cpu.try_acquire_cores(reg, tid) {
             Ok(Some(c)) => ret.push(Box::new(c)),
