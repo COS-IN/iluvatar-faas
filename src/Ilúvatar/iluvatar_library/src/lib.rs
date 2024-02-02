@@ -20,6 +20,7 @@ pub mod influx;
 pub mod logging;
 pub mod threading;
 pub mod types;
+pub mod mindicator;
 
 /// The number of logical processors on the system
 /// * `all` - returns all the processors on the system when true
