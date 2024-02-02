@@ -21,6 +21,7 @@ use tracing::{debug, error, info, trace, warn};
 pub type GpuUuid = String;
 pub type PrivateGpuId = u32;
 type GpuCollection = DashMap<PrivateGpuId, Vec<Arc<GPU>>>;
+type MetadataCollection = HashMap<PrivateGpuId, GpuMetadata>;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub enum Pstate {
@@ -145,13 +146,22 @@ impl From<GpuParseStatus> for GpuStatus {
     }
 }
 
+#[allow(unused)]
+struct GpuMetadata {
+    pub gpu_uuid: GpuUuid,
+    pub hardware_id: PrivateGpuId,
+    pub hardware_memory_mb: MemSizeMb,
+    pub num_structs: u32,
+    pub max_runnig: u32,
+    pub sem: Arc<Semaphore>,
+}
+
 #[derive(Debug)]
 #[allow(unused)]
 pub struct GPU {
     pub gpu_uuid: GpuUuid,
-    private_id: GpuUuid,
     gpu_hardware_id: PrivateGpuId,
-    gpu_private_id: PrivateGpuId,
+    struct_id: PrivateGpuId,
     hardware_memory_mb: MemSizeMb,
     allocated_mb: MemSizeMb,
     /// From 1-100
@@ -159,7 +169,7 @@ pub struct GPU {
 }
 impl GPU {
     pub fn split_resources(
-        gpu_uuid: GpuUuid,
+        gpu_uuid: &GpuUuid,
         gpu_hardware_id: PrivateGpuId,
         hardware_memory_mb: MemSizeMb,
         config: &Arc<GPUResourceConfig>,
@@ -174,8 +184,7 @@ impl GPU {
         for i in 0..spots {
             ret.push(Arc::new(Self {
                 gpu_uuid: gpu_uuid.clone(),
-                private_id: format!("{}-{}-{}", gpu_uuid, gpu_hardware_id, i),
-                gpu_private_id: i,
+                struct_id: i,
                 hardware_memory_mb,
                 allocated_mb: mem_size,
                 thread_pct,
@@ -226,7 +235,7 @@ lazy_static::lazy_static! {
 pub struct GpuResourceTracker {
     gpus: GpuCollection,
     total_gpu_structs: u32,
-    concurrency_semaphore: HashMap<PrivateGpuId, Arc<Semaphore>>,
+    gpu_metadata: MetadataCollection,
     docker: Option<Arc<dyn ContainerIsolationService>>,
     _handle: tokio::task::JoinHandle<()>,
     status_info: RwLock<Vec<GpuStatus>>,
@@ -246,7 +255,7 @@ impl GpuResourceTracker {
             if config.count == 0 {
                 return Ok(None);
             }
-            let gpus = GpuResourceTracker::prepare_structs(&config, tid)?;
+            let (gpu_structs, metadata) = Self::prepare_structs(&config, tid)?;
             if config.mps_enabled() {
                 if docker.is_some() {
                     if let Some(docker) = docker.as_ref().unwrap().as_any().downcast_ref::<DockerIsolation>() {
@@ -275,14 +284,14 @@ impl GpuResourceTracker {
             };
 
             let svc = Arc::new(GpuResourceTracker {
-                concurrency_semaphore: Self::create_concurrency_semaphore(&config, &gpus, tid)?,
-                total_gpu_structs: gpus.iter().map(|v| v.len()).sum::<usize>() as u32,
+                total_gpu_structs: gpu_structs.iter().map(|v| v.len()).sum::<usize>() as u32,
                 docker: docker.cloned(),
                 _handle: handle,
                 status_info: RwLock::new(vec![]),
                 _container_config: container_config.clone(),
+                gpus: gpu_structs,
+                gpu_metadata: metadata,
                 nvml,
-                gpus,
                 config,
             });
             tx.send(svc.clone())?;
@@ -293,19 +302,16 @@ impl GpuResourceTracker {
 
     fn create_concurrency_semaphore(
         config: &Arc<GPUResourceConfig>,
-        gpus: &GpuCollection,
+        gpu_hardware_id: PrivateGpuId,
+        gpus: &Vec<Arc<GPU>>,
         _tid: &TransactionId,
-    ) -> Result<HashMap<PrivateGpuId, Arc<Semaphore>>> {
-        let mut ret = HashMap::new();
-        for items in gpus.iter() {
-            let gpu_cnt = items.value().len();
-            let cnt = missing_or_zero_default(config.concurrent_running_funcs, gpu_cnt as u32);
-            if cnt > gpu_cnt as u32 {
-                anyhow::bail!("Value set for the number of concurrently running functions on GPU {} is larger than the number of available GPUs", items.key());
-            }
-            ret.insert(*items.key(), Arc::new(Semaphore::new(cnt as usize)));
+    ) -> Result<Arc<Semaphore>> {
+        let gpu_cnt = gpus.len();
+        let cnt = missing_or_zero_default(config.concurrent_running_funcs, gpu_cnt as u32);
+        if cnt > gpu_cnt as u32 {
+            anyhow::bail!("Value set for the number of concurrently running functions on GPU {} is larger than the number of available GPUs structs", gpu_hardware_id);
         }
-        Ok(ret)
+        Ok(Arc::new(Semaphore::new(cnt as usize)))
     }
 
     async fn start_mps(
@@ -376,26 +382,57 @@ impl GpuResourceTracker {
     }
 
     /// Return the count of 'physical' GPUs, and list of GPU spot structs
-    fn make_simulated_gpus(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<GpuCollection> {
+    fn make_simulated_gpus(
+        gpu_config: &Arc<GPUResourceConfig>,
+        tid: &TransactionId,
+    ) -> Result<(GpuCollection, MetadataCollection)> {
         let ret = GpuCollection::new();
+        let mut meta = MetadataCollection::new();
         let memory_mb = gpu_config
             .memory_mb
-            .ok_or_else(|| anyhow::format_err!("`memory_mb` config must be provided"))?;
-        for i in 0..gpu_config.count {
-            let gpu_uuid = format!("GPU-{}", i);
-            ret.insert(i, GPU::split_resources(gpu_uuid, i, memory_mb, gpu_config, tid)?);
+            .ok_or_else(|| anyhow::format_err!("`memory_mb` config must be provided during simulation"))?;
+        for gpu_hardware_id in 0..gpu_config.count {
+            let gpu_uuid = format!("GPU-{}", gpu_hardware_id);
+            let gpu_structs = GPU::split_resources(&gpu_uuid, gpu_hardware_id, memory_mb, gpu_config, tid)?;
+            let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id, &gpu_structs, tid)?;
+            let metadata = GpuMetadata {
+                gpu_uuid: gpu_uuid.clone(),
+                hardware_id: gpu_hardware_id,
+                hardware_memory_mb: memory_mb,
+                num_structs: gpu_structs.len() as u32,
+                max_runnig: sem.available_permits() as u32,
+                sem,
+            };
+            meta.insert(gpu_hardware_id, metadata);
+            ret.insert(gpu_hardware_id, gpu_structs);
         }
-        Ok(ret)
+        Ok((ret, meta))
     }
 
     /// Return the count of 'physical' GPUs, and list of GPU spot structs
-    fn make_real_gpus(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<GpuCollection> {
+    fn make_real_gpus(
+        gpu_config: &Arc<GPUResourceConfig>,
+        tid: &TransactionId,
+    ) -> Result<(GpuCollection, MetadataCollection)> {
         let ret = GpuCollection::new();
+        let mut meta = MetadataCollection::new();
         if gpu_config.is_tegra.unwrap_or(false) {
             let gpu_uuid = "tegra_00-0000-0000-0000-dummy_uuid00".to_string();
             let memory_mb: MemSizeMb = 30623;
-            ret.insert(0, GPU::split_resources(gpu_uuid, 0, memory_mb, gpu_config, tid)?);
-            return Ok(ret);
+            let gpu_hardware_id: PrivateGpuId = 0;
+            let gpu_structs = GPU::split_resources(&gpu_uuid, gpu_hardware_id, memory_mb, gpu_config, tid)?;
+            let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id, &gpu_structs, tid)?;
+            let metadata = GpuMetadata {
+                gpu_uuid: gpu_uuid.clone(),
+                hardware_id: gpu_hardware_id,
+                hardware_memory_mb: memory_mb,
+                num_structs: gpu_structs.len() as u32,
+                max_runnig: sem.available_permits() as u32,
+                sem,
+            };
+            meta.insert(gpu_hardware_id, metadata);
+            ret.insert(gpu_hardware_id, gpu_structs);
+            return Ok((ret, meta));
         }
 
         let output = execute_cmd_checked(
@@ -419,7 +456,7 @@ impl GpuResourceTracker {
                         .get(0)
                         .ok_or_else(|| anyhow::format_err!("Reading GPU uuid failed from '{:?}'", r))?
                         .to_string();
-                    let index = r
+                    let gpu_hardware_id = r
                         .get(1)
                         .ok_or_else(|| anyhow::format_err!("Reading GPU index failed"))?
                         .parse()
@@ -429,28 +466,39 @@ impl GpuResourceTracker {
                         .ok_or_else(|| anyhow::format_err!("Reading GPU memory failed"))?
                         .parse()
                         .or_else(|e| anyhow::bail!("Failed to parse GPU memory.total {:?} from '{:?}'", e, r))?;
-                    ret.insert(
-                        index,
-                        GPU::split_resources(gpu_uuid, index, memory_mb, gpu_config, tid)?,
-                    );
+                    let structs = GPU::split_resources(&gpu_uuid, gpu_hardware_id, memory_mb, gpu_config, tid)?;
+                    let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id, &structs, tid)?;
+                    let metadata = GpuMetadata {
+                        gpu_uuid: gpu_uuid.clone(),
+                        hardware_id: gpu_hardware_id,
+                        hardware_memory_mb: memory_mb,
+                        num_structs: structs.len() as u32,
+                        max_runnig: sem.available_permits() as u32,
+                        sem,
+                    };
+                    meta.insert(gpu_hardware_id, metadata);
+                    ret.insert(gpu_hardware_id, structs);
                 }
                 Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read record from nvidia-smi"),
             }
         }
-        Ok(ret)
+        Ok((ret, meta))
     }
 
-    fn prepare_structs(gpu_config: &Arc<GPUResourceConfig>, tid: &TransactionId) -> Result<GpuCollection> {
+    fn prepare_structs(
+        gpu_config: &Arc<GPUResourceConfig>,
+        tid: &TransactionId,
+    ) -> Result<(GpuCollection, MetadataCollection)> {
         if gpu_config.count == 0 {
             info!(tid=%tid, "GPU config had 0 GPUs, skipping GPU resource setup");
-            return Ok(GpuCollection::new());
+            return Ok((GpuCollection::new(), MetadataCollection::new()));
         }
-        let ret = if iluvatar_library::utils::is_simulation() {
+        let (structs, metadata) = if iluvatar_library::utils::is_simulation() {
             Self::make_simulated_gpus(gpu_config, tid)?
         } else {
             Self::make_real_gpus(gpu_config, tid)?
         };
-        let found_physical = ret.len();
+        let found_physical = structs.len();
         if found_physical as u32 != gpu_config.count {
             anyhow::bail!(
                 "Was able to prepare {} GPUs, but configuration expected {}",
@@ -458,8 +506,8 @@ impl GpuResourceTracker {
                 gpu_config.count
             );
         }
-        info!(tid=%tid, gpus=?ret, "GPUs prepared");
-        Ok(ret)
+        info!(tid=%tid, gpus=?structs, "GPUs prepared");
+        Ok((structs, metadata))
     }
 
     /// Return a permit access to run on the given GPU
@@ -472,14 +520,10 @@ impl GpuResourceTracker {
     ) -> Result<DroppableToken, tokio::sync::TryAcquireError> {
         let limit = missing_or_zero_default(self.config.limit_on_utilization, 0);
         let gpu_hardware_id = gpu.map_or(0, |g| g.gpu_hardware_id);
-        // info!(tid=%tid, gpu_hardware_id=gpu_hardware_id, limit=limit, "limit on GPU util");
         if limit == 0 {
-            return match self.concurrency_semaphore.get(&gpu_hardware_id) {
-                Some(val) => match val.clone().try_acquire_many_owned(1) {
-                    Ok(p) => {
-                        info!(tid=%tid, permits=val.available_permits(), gpu_hardware_id=gpu_hardware_id, limit=limit, "Num available permits");
-                        Ok(GpuToken::new(p, gpu_hardware_id.to_string(), tid.clone()).into())
-                    }
+            return match self.gpu_metadata.get(&gpu_hardware_id) {
+                Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
+                    Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id, tid.clone()).into()),
                     Err(e) => Err(e),
                 },
                 None => {
@@ -489,18 +533,21 @@ impl GpuResourceTracker {
                 }
             };
         }
-        let mut gpu_stat = self.status_info.upgradable_read();
+        let gpu_stat = self.status_info.read();
         if gpu_stat.len() > gpu_hardware_id as usize {
             if gpu_stat[gpu_hardware_id as usize].est_utilization_gpu <= limit as f64 {
-                return match self.concurrency_semaphore.get(&gpu_hardware_id) {
-                    Some(val) => match val.clone().try_acquire_many_owned(1) {
+                drop(gpu_stat);
+                return match self.gpu_metadata.get(&gpu_hardware_id) {
+                    Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
                         Ok(p) => {
-                            gpu_stat.with_upgraded(|stat| {
-                                let stat = &mut stat[gpu_hardware_id as usize];
-                                let per_fn = stat.instant_utilization_gpu / stat.num_running as f64;
-                                stat.est_utilization_gpu += per_fn;
-                            });
-                            Ok(GpuToken::new(p, gpu_hardware_id.to_string(), tid.clone()).into())
+                            let mut gpu_stat = self.status_info.write();
+                            let stat = &mut gpu_stat[gpu_hardware_id as usize];
+                            stat.est_utilization_gpu += if stat.num_running > 0 {
+                                stat.instant_utilization_gpu / stat.num_running as f64
+                            } else {
+                                0.0
+                            };
+                            Ok(GpuToken::new(p, gpu_hardware_id, tid.clone()).into())
                         }
                         Err(e) => Err(e),
                     },
@@ -520,9 +567,9 @@ impl GpuResourceTracker {
     pub fn outstanding(&self) -> u32 {
         self.total_gpu_structs
             - self
-                .concurrency_semaphore
+                .gpu_metadata
                 .iter()
-                .map(|item| item.1.available_permits() as u32)
+                .map(|item| item.1.sem.available_permits() as u32)
                 .sum::<u32>()
     }
 
@@ -550,23 +597,23 @@ impl GpuResourceTracker {
 
         let gpu = self.gpus.get_mut(&best_idx)?.pop();
         if let Some(g) = &gpu {
-            debug!(tid=%tid, gpu_uuid=g.gpu_uuid, private=g.gpu_private_id, uuid=g.private_id, "GPU allocating");
+            debug!(tid=%tid, gpu_uuid=g.gpu_uuid, struct_id=g.struct_id, "GPU allocating");
         }
         gpu
     }
 
     /// Return a GPU that has been removed from a container
     pub fn return_gpu(&self, gpu: Arc<GPU>, tid: &TransactionId) {
-        debug!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, hardware_id=gpu.gpu_hardware_id, uuid=gpu.private_id, "GPU returned");
+        debug!(tid=%tid, gpu_uuid=gpu.gpu_uuid, struct_id=gpu.struct_id, hardware_id=gpu.gpu_hardware_id, "GPU returned");
         match self.gpus.get_mut(&gpu.gpu_hardware_id) {
             Some(mut v) => {
                 #[cfg(debug_assertions)]
                 for cont in v.iter() {
                     if cont.gpu_uuid == gpu.gpu_uuid
-                        && cont.gpu_private_id == gpu.gpu_private_id
+                        && cont.struct_id == gpu.struct_id
                         && cont.gpu_hardware_id == gpu.gpu_hardware_id
                     {
-                        error!(tid=%tid, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, hardware_id=gpu.gpu_hardware_id, uuid=gpu.private_id, "Tried to return GPU twice");
+                        error!(tid=%tid, gpu_uuid=gpu.gpu_uuid, struct_id=gpu.struct_id, hardware_id=gpu.gpu_hardware_id, "Tried to return GPU twice");
                         break;
                     }
                 }
@@ -580,7 +627,7 @@ impl GpuResourceTracker {
                     .map(|i| i.to_string())
                     .collect::<Vec<String>>()
                     .join(", ");
-                error!(tid=%tid, keys=keys, gpu_uuid=gpu.gpu_uuid, private=gpu.gpu_private_id, hardware_id=gpu.gpu_hardware_id, uuid=gpu.private_id, "Tried to return illegal GPU")
+                error!(tid=%tid, keys=keys, gpu_uuid=gpu.gpu_uuid, struct_id=gpu.struct_id, hardware_id=gpu.gpu_hardware_id, "Tried to return illegal GPU")
             }
         }
     }
@@ -616,9 +663,14 @@ impl GpuResourceTracker {
                         ret.push(rec.into());
                     } else {
                         let mut lck = svc.status_info.write();
-                        for stat in &mut *lck {
+                        for (i, stat) in lck.iter_mut().enumerate() {
                             if stat.gpu_uuid == rec.gpu_uuid {
-                                stat.update(rec, svc.outstanding());
+                                let running = if let Some(meta) = svc.gpu_metadata.get(&(i as u32)) {
+                                    meta.max_runnig - meta.sem.available_permits() as u32
+                                } else {
+                                    0
+                                };
+                                stat.update(rec, running);
                                 break;
                             }
                         }
@@ -661,11 +713,13 @@ impl GpuResourceTracker {
                 ret.push(stat.into());
             } else {
                 let mut lck = svc.status_info.write();
-                for old_stat in &mut *lck {
-                    if old_stat.gpu_uuid == stat.gpu_uuid {
-                        old_stat.update(stat, svc.outstanding());
-                        break;
-                    }
+                if lck.len() > i as usize {
+                    let running = if let Some(meta) = svc.gpu_metadata.get(&i) {
+                        meta.max_runnig - meta.sem.available_permits() as u32
+                    } else {
+                        0
+                    };
+                    lck[i as usize].update(stat, running);
                 }
             }
         }
@@ -713,11 +767,11 @@ impl Drop for GpuResourceTracker {
 #[derive(Debug)]
 pub struct GpuToken {
     _token: OwnedSemaphorePermit,
-    gpu_id: GpuUuid,
+    gpu_id: PrivateGpuId,
     tid: TransactionId,
 }
 impl GpuToken {
-    pub fn new(token: OwnedSemaphorePermit, gpu_id: GpuUuid, tid: TransactionId) -> Self {
+    pub fn new(token: OwnedSemaphorePermit, gpu_id: PrivateGpuId, tid: TransactionId) -> Self {
         Self {
             _token: token,
             gpu_id,
@@ -727,7 +781,7 @@ impl GpuToken {
 }
 impl Drop for GpuToken {
     fn drop(&mut self) {
-        debug!(tid=%self.tid, gpu=%self.gpu_id, "Dropping GPU token");
+        debug!(tid=%self.tid, gpu=self.gpu_id, "Dropping GPU token");
     }
 }
 impl iluvatar_library::types::DroppableMovableTrait for GpuToken {}
