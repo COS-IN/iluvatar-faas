@@ -33,11 +33,11 @@ lazy_static::lazy_static! {
 #[allow(unused)]
 pub struct MqfqConfig {
     /// maximum allowed flow overrun, in seconds, default 10 sec if missing
-    allowed_overrun: Option<f64>,
+    pub allowed_overrun: Option<f64>,
     /// in-flight execution cap, unused
-    in_flight: Option<u32>,
+    pub in_flight: Option<u32>,
     /// enable dynamic weights for queues, unused
-    dynamic_weights: Option<bool>,
+    pub dynamic_weights: Option<bool>,
 }
 
 /// Multi-Queue Fair Queueing.
@@ -46,7 +46,7 @@ pub struct MqfqConfig {
 ///   1. Concurrency with D tokens.
 ///   2. Grace period for anticipatory batching.
 /// Each function is its own flow.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub enum MQState {
     /// Non-empty queues are active
     Active,
@@ -69,8 +69,8 @@ enum MQEvent {
 pub struct MQRequest {
     pub invok: Arc<EnqueuedInvocation>,
     // Do we maintain a backward pointer to FlowQ? qid atleast?
-    start_time_virt: f64,
-    finish_time_virt: f64,
+    pub start_time_virt: f64,
+    pub finish_time_virt: f64,
 }
 
 impl MQRequest {

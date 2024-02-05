@@ -664,7 +664,7 @@ impl ContainerManager {
         Ok(ret)
     }
 
-    async fn move_to_dev(cont: Container, tid: TransactionId) {
+    pub async fn move_to_device(cont: Container, tid: TransactionId) {
         match crate::services::containers::structs::cast::<DockerContainer>(&cont) {
             Ok(c) => {
                 if let Err(e) = c.client.move_to_device(&tid, &c.container_id).await {
@@ -677,10 +677,10 @@ impl ContainerManager {
     /// Tell all GPU containers of the given function to move memory onto the device
     pub async fn madvise_to_device(&self, fqdn: String, tid: TransactionId) {
         debug!(tid=%tid, fqdn=%fqdn, "moving to device");
-        let f = Self::move_to_dev;
+        let f = Self::move_to_device;
         self.gpu_containers.iter_fqdn(tid, &fqdn, f).await;
     }
-    async fn move_off_device(cont: Container, tid: TransactionId) {
+    pub async fn move_off_device(cont: Container, tid: TransactionId) {
         match crate::services::containers::structs::cast::<DockerContainer>(&cont) {
             Ok(c) => {
                 if let Err(e) = c.client.move_from_device(&tid, &c.container_id).await {

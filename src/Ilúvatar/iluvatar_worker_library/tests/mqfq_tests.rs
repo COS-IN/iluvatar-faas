@@ -16,6 +16,7 @@ use time::{Duration, OffsetDateTime};
 fn build_gpu_env(overrun: f64) -> Vec<(String, String)> {
     vec![
         ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
+        ("invocation.queues.gpu".to_string(), "mqfq".to_string()),
         (
             "invocation.mqfq_config.allowed_overrun".to_string(),
             format!("{}", overrun),

@@ -17,6 +17,7 @@ use tracing::{debug, error};
 //  CPU focused queues
 pub mod avail_scale;
 pub mod cold_priority;
+pub mod concur_mqfq;
 pub mod fcfs;
 pub mod minheap;
 pub mod minheap_ed;
