@@ -147,17 +147,17 @@ pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
 #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit, ctr_lock, remove_time,cold_time_start) fields(tid=%tid)))]
-async fn invoke_on_container<'a>(
-    reg: &'a Arc<RegisteredFunction>,
-    json_args: &'a str,
-    tid: &'a TransactionId,
+async fn invoke_on_container(
+    reg: &Arc<RegisteredFunction>,
+    json_args: &str,
+    tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
     // permit: Option<Box<dyn Drop + Send>>,
-    ctr_lock: &'a ContainerLock<'a>,
+    ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
-    cmap: &'a Arc<CharacteristicsMap>,
-    clock: &'a LocalTime,
+    cmap: &Arc<CharacteristicsMap>,
+    clock: &LocalTime,
 ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
     info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;

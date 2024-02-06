@@ -129,18 +129,18 @@ impl ParsedResult {
 }
 
 /// A struct denoting that the owner has a lock on the container to invoke with
-pub struct ContainerLock<'a> {
+pub struct ContainerLock {
     pub container: Container,
-    container_mrg: &'a ContainerManager,
-    transaction_id: &'a TransactionId,
+    container_mrg: Arc<ContainerManager>,
+    transaction_id: TransactionId,
 }
 
-impl<'a> ContainerLock<'a> {
-    pub fn new(container: Container, container_mrg: &'a ContainerManager, tid: &'a TransactionId) -> Self {
+impl ContainerLock {
+    pub fn new(container: Container, container_mrg: &Arc<ContainerManager>, tid: &TransactionId) -> Self {
         ContainerLock {
             container,
-            container_mrg,
-            transaction_id: tid,
+            container_mrg: container_mrg.clone(),
+            transaction_id: tid.clone(),
         }
     }
 
@@ -150,16 +150,16 @@ impl<'a> ContainerLock<'a> {
     /// [Duration]: The E2E latency between the worker and the container
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args), fields(tid=%self.transaction_id), name="ContainerLock::invoke"))]
     pub async fn invoke(&self, json_args: &str) -> Result<(ParsedResult, Duration)> {
-        self.container.invoke(json_args, self.transaction_id).await
+        self.container.invoke(json_args, &self.transaction_id).await
     }
 }
 
 /// Automatically release the lock on the container when the lock is dropped
-impl<'a> Drop for ContainerLock<'a> {
+impl Drop for ContainerLock {
     fn drop(&mut self) {
         debug!(tid=%self.transaction_id, container_id=%self.container.container_id(), "Dropping container lock");
         self.container_mrg
-            .return_container(&self.container, self.transaction_id);
+            .return_container(&self.container, &self.transaction_id);
     }
 }
 

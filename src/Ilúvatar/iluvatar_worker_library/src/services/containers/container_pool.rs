@@ -143,6 +143,23 @@ impl ContainerPool {
         }
     }
 
+    /// Returns true if an idle container with the attached GPU is available
+    pub fn has_gpu_container(&self, fqdn: &str, gpu_token: &crate::services::resources::gpu::GpuToken) -> bool {
+        match self.idle_pool.get(fqdn) {
+            Some(c) => {
+                for cont in &*c {
+                    if let Some(gpu) = cont.device_resource() {
+                        if gpu.gpu_hardware_id == gpu_token.gpu_id {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            None => false,
+        }
+    }
+
     /// Returns the best possible state of idle containers
     /// If none are available, returns [ContainerState::Cold]
     pub fn has_idle_container(&self, fqdn: &str) -> ContainerState {

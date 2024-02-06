@@ -236,7 +236,7 @@ impl GpuQueueingInvoker {
             }
         };
         match self.gpu.try_acquire_resource(None, tid) {
-            Ok(c) => ret.push(c),
+            Ok(c) => ret.push(c.into()),
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {

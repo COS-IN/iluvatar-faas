@@ -22,9 +22,13 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use time::Instant;
 use time::OffsetDateTime;
+use tokio::sync::Notify;
 use tracing::{debug, error, info};
 
-#[allow(unused)]
+lazy_static::lazy_static! {
+  pub static ref MQFQ_STATE_MON: TransactionId = "MQFQ_State_Mon".to_string();
+}
+
 struct Flow {
     mindicator: Arc<Mindicator>,
     cpu: Arc<CpuResourceTracker>,
@@ -35,8 +39,8 @@ struct Flow {
     registration: Arc<RegisteredFunction>,
     clock: LocalTime,
     cmap: Arc<CharacteristicsMap>,
+    queue_signal: Arc<Notify>,
 }
-#[allow(unused)]
 impl Flow {
     pub fn new(
         queue: &SharedQueue,
@@ -48,6 +52,7 @@ impl Flow {
         registration: &Arc<RegisteredFunction>,
         cmap: &Arc<CharacteristicsMap>,
         tid: &TransactionId,
+        signal: Arc<Notify>,
     ) -> Result<Self> {
         Ok(Self {
             queue: queue.clone(),
@@ -59,6 +64,7 @@ impl Flow {
             registration: registration.clone(),
             clock: LocalTime::new(tid)?,
             cmap: cmap.clone(),
+            queue_signal: signal,
         })
     }
 
@@ -90,21 +96,21 @@ impl Flow {
                         error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
                     }
                     tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
+                        // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
                     }
                 };
                 return None;
             }
         };
         match self.gpu.try_acquire_resource(gpu.as_ref(), tid) {
-            Ok(c) => ret.push(c),
+            Ok(c) => ret.push(c.into()),
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                        error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
                     }
                     tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
+                        // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
                     }
                 };
                 return None;
@@ -113,28 +119,38 @@ impl Flow {
         Some(Box::new(ret))
     }
 
-    pub async fn get_container<'a>(&'a self, tid: &'a TransactionId) -> Result<ContainerLock<'a>> {
-        let ctr_lck = match self
+    pub async fn get_container(&self, tid: &TransactionId) -> Option<ContainerLock> {
+        let res_lck = match self
             .cont_manager
             .acquire_container(&self.registration, tid, Compute::GPU)
         {
-            EventualItem::Future(f) => f.await?,
-            EventualItem::Now(n) => {
-                let lck = n?;
-                tokio::task::spawn(ContainerManager::move_to_device(lck.container.clone(), tid.clone()));
-                lck
-            }
+            EventualItem::Future(f) => f.await,
+            EventualItem::Now(n) => n,
         };
-        Ok(ctr_lck)
+        match res_lck {
+            Ok(lck) => Some(lck),
+            Err(cause) => {
+                if cause
+                    .downcast_ref::<crate::services::containers::structs::InsufficientGPUError>()
+                    .is_some()
+                {
+                    None
+                } else {
+                    error!(tid=%tid, error=%cause, "Error getting new container");
+                    None
+                }
+            }
+        }
     }
 
-    pub async fn invoke<'a>(
-        &self,
-        ctr_lck: &ContainerLock<'a>,
+    pub async fn invoke(
+        self: &Arc<Self>,
+        ctr_lck: ContainerLock,
         item: Arc<MQRequest>,
-        remove_time: String,
+        remove_time: OffsetDateTime,
         tokens: DroppableToken,
-    ) -> Option<DroppableToken> {
+        tid: TransactionId,
+    ) {
         let start = Instant::now();
         if item.invok.lock() {
             let ct = OffsetDateTime::now_utc();
@@ -145,7 +161,7 @@ impl Flow {
                 &item.invok.tid,
                 item.invok.queue_insert_time,
                 &ctr_lck,
-                remove_time,
+                self.clock.format_time(remove_time).unwrap_or_else(|_| "".to_string()),
                 start,
                 &self.cmap,
                 &self.clock,
@@ -153,6 +169,7 @@ impl Flow {
             .await
             {
                 Ok((result, duration, compute, container_state)) => {
+                    info!(tid=%tid, "!!invoke done!!");
                     item.invok.mark_successful(result, duration, compute, container_state);
                 }
                 Err(cause) => {
@@ -162,52 +179,50 @@ impl Flow {
                         debug!(tid=%item.invok.tid, container_id=%ctr_lck.container.container_id(), "Adding gpu token to drop_on_remove for container");
                         // container will be removed, but holds onto GPU until deleted
                         ctr_lck.container.add_drop_on_remove(tokens, &item.invok.tid);
-                        return None;
                     }
                 }
             }
             self.ctrack.remove_item(ct);
+            self.queue_signal.notify_waiters();
         }
-        Some(tokens)
     }
 
-    pub async fn run(&self, tid: &TransactionId) {
-        while !self.queue.queue.read().is_empty() {
-            let ctr_lck = match self.get_container(tid).await {
-                Ok(c) => c,
-                Err(e) => {
-                    error!(tid=%tid, error=%e, "Failed to get container");
-                    continue;
-                },
-            };
-            let mut tokens: Option<DroppableToken> =
-                self.acquire_resources_to_run(&self.registration, tid, ctr_lck.container.device_resource().clone());
-            while let Some(has_tokens) = tokens {
-                let min = self.mindicator.min();
-                if let Some(item) = self.queue.pop_flow(tid, min) {
-                    let remove_time = self.clock.now_str().unwrap();
-                    tokens = self.invoke(&ctr_lck, item, remove_time, has_tokens).await;
-                } else {
-                    break;
+    pub async fn run(self: &Arc<Self>, tid: &TransactionId) {
+        loop {
+            self.queue.set_idle_throttled(tid);
+            while self.queue.allowed_to_run() {
+                let mv_tid = tid.clone();
+                let svc = self.clone();
+                // TODO: madvise memory to device
+                let ctr_lck = match svc.get_container(&mv_tid).await {
+                    Some(c) => c,
+                    None => continue,
+                };
+                if let Some(has_tokens) = self.acquire_resources_to_run(
+                    &self.registration,
+                    &mv_tid,
+                    ctr_lck.container.device_resource().clone(),
+                ) {
+                    let min: f64 = self.mindicator.min();
+                    if let Some(item) = self.queue.pop_flow(&mv_tid, min) {
+                        let remove_time = self.clock.now();
+                        tokio::task::spawn(async move {
+                            svc.invoke(ctr_lck, item, remove_time, has_tokens, mv_tid).await;
+                        });
+                    } else {
+                        break;
+                    }
                 }
             }
-            if !self.queue.state_active_in_ttl() {
-                info!("exiting flow queue");
-                tokio::task::spawn(ContainerManager::move_off_device(
-                    ctr_lck.container.clone(),
-                    tid.clone(),
-                ));
-                drop(ctr_lck);
-                break;
-            } else {
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tokio::select! {
+              _ = self.queue_signal.notified() => continue,
+              _ = self.queue.global_signal.notified() => continue
             }
         }
     }
 }
 
 /// A single queue of entities (invocations) of the same priority/locality class
-#[allow(unused)]
 struct FuncQueue {
     /// Q name for indexing/debugging etc
     pub registration: Arc<RegisteredFunction>,
@@ -220,7 +235,6 @@ struct FuncQueue {
     pub start_time_virt: RwLock<f64>,
     /// Virtual finish time. F = S + service_avg/Wt
     pub finish_time_virt: RwLock<f64>,
-    pub max_flows: u32,
     /// Keep-alive. Seconds to wait for next arrival if queue is empty
     ttl_sec: f64,
     pub last_serviced: RwLock<OffsetDateTime>,
@@ -230,7 +244,6 @@ struct FuncQueue {
     pub allowed_overrun: f64,
 
     cont_manager: Arc<ContainerManager>,
-    gpu_config: Arc<GPUResourceConfig>,
     mindicator: Arc<Mindicator>,
     mindicator_id: usize,
     cpu: Arc<CpuResourceTracker>,
@@ -238,6 +251,8 @@ struct FuncQueue {
     ctrack: Arc<CompletionTimeTracker>,
     cmap: Arc<CharacteristicsMap>,
     flow_tid: TransactionId,
+    pub global_signal: Arc<Notify>,
+    pub queue_signal: Arc<Notify>,
 }
 type SharedQueue = Arc<FuncQueue>;
 impl FuncQueue {
@@ -245,7 +260,6 @@ impl FuncQueue {
         registration: Arc<RegisteredFunction>,
         weight: f64,
         cont_manager: &Arc<ContainerManager>,
-        gpu_config: &Arc<GPUResourceConfig>,
         q_config: &Arc<MqfqConfig>,
         mindicator: &Arc<Mindicator>,
         mindicator_id: usize,
@@ -253,6 +267,7 @@ impl FuncQueue {
         gpu: &Arc<GpuResourceTracker>,
         ctrack: &Arc<CompletionTimeTracker>,
         cmap: &Arc<CharacteristicsMap>,
+        signal: &Arc<Notify>,
     ) -> SharedQueue {
         let start_time_virt = mindicator.min();
         Arc::new(Self {
@@ -265,10 +280,8 @@ impl FuncQueue {
             last_serviced: RwLock::new(OffsetDateTime::now_utc()),
             service_avg: 10.0,
             allowed_overrun: missing_default(q_config.allowed_overrun, 10.0),
-            max_flows: missing_default(q_config.in_flight, 4),
             registration: registration.clone(),
             weight,
-            gpu_config: gpu_config.clone(),
             mindicator: mindicator.clone(),
             mindicator_id,
             gpu: gpu.clone(),
@@ -276,10 +289,12 @@ impl FuncQueue {
             ctrack: ctrack.clone(),
             cont_manager: cont_manager.clone(),
             cmap: cmap.clone(),
+            global_signal: signal.clone(),
+            queue_signal: Arc::new(Notify::new()),
         })
     }
 
-    fn start_new_flow(self: &Arc<Self>, tid: &TransactionId) {
+    fn start_new_flow(self: &Arc<Self>, _tid: &TransactionId) {
         let tid: TransactionId = format!("flow-{}", self.registration.fqdn);
         match Flow::new(
             &self,
@@ -291,10 +306,11 @@ impl FuncQueue {
             &self.registration,
             &self.cmap,
             &tid,
+            self.queue_signal.clone(),
         ) {
             Ok(flow) => {
                 tokio::spawn(async move {
-                    flow.run(&tid).await;
+                    Arc::new(flow).run(&tid).await;
                 });
             }
             Err(e) => {
@@ -308,13 +324,13 @@ impl FuncQueue {
             let mut state = self.state.write();
             info!(tid=%tid, queue=%self.registration.fqdn, old_state=?*state, new_state=?new_state, "Switching state");
             *state = new_state;
+            self.global_signal.notify_waiters();
         }
     }
 
-    pub fn state_active_in_ttl(&self) -> bool {
+    pub fn allowed_to_run(&self) -> bool {
         let state = *self.state.read();
-        // TODO: ttl stuff
-        state == MQState::Active
+        state == MQState::Active && !self.queue.read().is_empty()
     }
 
     pub fn push_flow(self: &Arc<Self>, item: Arc<EnqueuedInvocation>) {
@@ -331,7 +347,8 @@ impl FuncQueue {
         *start_time_virt = f64::max(*start_time_virt, start_t); // if this was 0?
         drop(start_time_virt);
         *self.finish_time_virt.write() = f64::max(req_finish_virt, finish_time_virt); // always needed
-
+                                                                                      // info!("pushing flow");
+        self.queue_signal.notify_waiters();
         self.update_state(&self.flow_tid, MQState::Active);
     }
 
@@ -357,35 +374,34 @@ impl FuncQueue {
             // start timer for grace period?
         } else {
             // queue is empty
+            self.mindicator.remove(self.mindicator_id);
+            // info!("dispatch queue empty");
             self.update_state(tid, MQState::Inactive);
         }
         let gap = new_start_time_virt - glob_virt_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
         if gap >= self.allowed_overrun {
+            // info!("dispatch queue overrun");
             self.update_state(tid, MQState::Throttled);
         }
     }
 
     // /// The vitual_time may have advanced, so reset throttle. Call on dispatch
-    // pub fn set_idle_throttled(&mut self, vitual_time: f64) {
-    //     let gap = self.start_time_virt - vitual_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
-    //     if gap <= self.allowed_overrun {
-    //         self.update_state(MQState::Active);
-    //         return;
-    //     }
-    //     // check grace period
-    //     if self.queue.is_empty() {
-    //         let ttl_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
-    //         if ttl_remaining > self.ttl_sec {
-    //             self.update_state(MQState::Inactive);
-    //             // Update the active period/eviction time
-    //             let active_t = (OffsetDateTime::now_utc() - self.active_start_t).as_seconds_f64();
-    //             let n = self.num_active_periods as f64;
-    //             let prev_avg = self.avg_active_t;
-    //             let new_avg = (n * prev_avg) + active_t / (n + 1.0);
-    //             self.avg_active_t = new_avg;
-    //         }
-    //     }
-    // }
+    pub fn set_idle_throttled(self: &Arc<Self>, tid: &TransactionId) {
+        let gap = *self.start_time_virt.read() - self.mindicator.min();
+        if gap <= self.allowed_overrun {
+            // info!("set_idle_throttled under overrun");
+            self.update_state(tid, MQState::Active);
+            return;
+        }
+        // check grace period
+        if self.queue.read().is_empty() {
+            let ttl_remaining = (OffsetDateTime::now_utc() - *self.last_serviced.read()).as_seconds_f64();
+            if ttl_remaining > self.ttl_sec {
+                // info!("set_idle_throttled ttl overshtot");
+                self.update_state(tid, MQState::Inactive);
+            }
+        }
+    }
 
     /// Estimated q wait time, assumes weight = 1
     fn est_flow_wait(&self) -> f64 {
@@ -405,9 +421,9 @@ pub struct ConcurMqfq {
 
     cpu: Arc<CpuResourceTracker>,
     gpu: Arc<GpuResourceTracker>,
-    gpu_config: Arc<GPUResourceConfig>,
     q_config: Arc<MqfqConfig>,
     mindicator: Arc<Mindicator>,
+    signal: Arc<Notify>,
 }
 
 #[allow(dyn_drop)]
@@ -425,7 +441,9 @@ impl ConcurMqfq {
             .mqfq_config
             .clone()
             .ok_or_else(|| anyhow::format_err!("Tried to create MQFQ without a MqfqConfig"))?;
-
+        gpu_config
+            .as_ref()
+            .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU config"))?;
         let svc = Arc::new(ConcurMqfq {
             queues: DashMap::new(),
             ctrack: Arc::new(CompletionTimeTracker::new()),
@@ -436,12 +454,9 @@ impl ConcurMqfq {
             cpu,
             cmap,
             cont_manager,
-            gpu_config: gpu_config
-                .as_ref()
-                .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU config"))?
-                .clone(),
             q_config,
             mindicator: Mindicator::boxed(0),
+            signal: Arc::new(Notify::new()),
         });
         info!(tid=%tid, "Created ConcurMqfq");
         Ok(svc)
@@ -454,6 +469,7 @@ impl ConcurMqfq {
             Some(fq) => {
                 info!("inserting into existing flow");
                 fq.push_flow(item);
+                // fq.global_signal.notify_waiters();
             }
             None => {
                 info!("making new flow");
@@ -464,7 +480,6 @@ impl ConcurMqfq {
                     item.registration.clone(),
                     1.0,
                     &self.cont_manager,
-                    &self.gpu_config,
                     &self.q_config,
                     &self.mindicator,
                     mindicator_id,
@@ -472,10 +487,13 @@ impl ConcurMqfq {
                     &self.gpu,
                     &self.ctrack,
                     &self.cmap,
+                    &self.signal,
                 );
+                // let sig = qguard.global_signal.clone();
                 qguard.start_new_flow(&item.tid);
                 qguard.push_flow(item);
                 self.queues.insert(fname, qguard);
+                // sig.notify_waiters();
             }
         };
     }

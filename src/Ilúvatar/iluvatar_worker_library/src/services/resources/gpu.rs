@@ -160,7 +160,7 @@ struct GpuMetadata {
 #[allow(unused)]
 pub struct GPU {
     pub gpu_uuid: GpuUuid,
-    gpu_hardware_id: PrivateGpuId,
+    pub gpu_hardware_id: PrivateGpuId,
     struct_id: PrivateGpuId,
     hardware_memory_mb: MemSizeMb,
     allocated_mb: MemSizeMb,
@@ -511,57 +511,117 @@ impl GpuResourceTracker {
     }
 
     /// Return a permit access to run on the given GPU
-    /// If [gpu] is [None], then this will always return a token for GPU 0
+    /// If [gpu] is [None], then this will return a token for the least loaded GPU
     /// Returns an error if none are available for execution
     pub fn try_acquire_resource(
         &self,
         gpu: Option<&Arc<GPU>>,
         tid: &TransactionId,
-    ) -> Result<DroppableToken, tokio::sync::TryAcquireError> {
+    ) -> Result<GpuToken, tokio::sync::TryAcquireError> {
         let limit = missing_or_zero_default(self.config.limit_on_utilization, 0);
-        let gpu_hardware_id = gpu.map_or(0, |g| g.gpu_hardware_id);
-        if limit == 0 {
-            return match self.gpu_metadata.get(&gpu_hardware_id) {
+        match gpu {
+            Some(gpu) => {
+              let gpu_hardware_id = gpu.gpu_hardware_id;
+              if limit == 0 {
+                  return match self.gpu_metadata.get(&gpu_hardware_id) {
+                      Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
+                          Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id, tid.clone())),
+                          Err(e) => Err(e),
+                      },
+                      None => {
+                          error!(tid=%tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
+                          Err(tokio::sync::TryAcquireError::NoPermits)
+                      }
+                  };
+              }
+              let gpu_stat = self.status_info.read();
+              if gpu_stat.len() > gpu_hardware_id as usize {
+                  if gpu_stat[gpu_hardware_id as usize].est_utilization_gpu <= limit as f64 {
+                      drop(gpu_stat);
+                      return match self.gpu_metadata.get(&gpu_hardware_id) {
+                          Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
+                              Ok(p) => {
+                                  let mut gpu_stat = self.status_info.write();
+                                  let stat = &mut gpu_stat[gpu_hardware_id as usize];
+                                  stat.est_utilization_gpu += if stat.num_running > 0 {
+                                      stat.instant_utilization_gpu / stat.num_running as f64
+                                  } else {
+                                      0.0
+                                  };
+                                  Ok(GpuToken::new(p, gpu_hardware_id, tid.clone()))
+                              }
+                              Err(e) => Err(e),
+                          },
+                          None => {
+                              error!(tid=%tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
+                              Err(tokio::sync::TryAcquireError::NoPermits)
+                          }
+                      };
+                  }
+              } else {
+                  warn!(private_id=gpu_hardware_id, stat=?gpu_stat, "GPU id not found");
+              }
+              Err(tokio::sync::TryAcquireError::NoPermits)
+            },
+            None => self.try_acquire_least_loaded_resource(tid, limit),
+        }
+    }
+
+    fn try_acquire_least_loaded_resource(&self, tid: &TransactionId, limit: u32) -> Result<GpuToken, tokio::sync::TryAcquireError> {
+      if limit == 0 {
+        let mut gpu_hardware_id = 0;
+        let mut available = 0;
+        for (_, meta) in self.gpu_metadata.iter() {
+            let avil = meta.sem.available_permits();
+            if avil >= available {
+                available = avil;
+                gpu_hardware_id = meta.hardware_id;
+            }
+        }
+        return match self.gpu_metadata.get(&gpu_hardware_id) {
+          Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
+              Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id, tid.clone())),
+              Err(e) => Err(e),
+          },
+          None => Err(tokio::sync::TryAcquireError::NoPermits)
+        };
+      } else {
+        let limit = limit as f64;
+        let gpu_stat = self.status_info.read();
+        let mut min_util = 101.0;
+        let mut gpu_hardware_id = None;
+        
+        for (i, stat) in gpu_stat.iter().enumerate() {
+            if stat.est_utilization_gpu <= limit && stat.est_utilization_gpu <= min_util {
+                gpu_hardware_id = Some(i);
+                min_util = stat.est_utilization_gpu;
+            }
+        }
+        drop(gpu_stat);
+        if let Some(gpu_hardware_id) = gpu_hardware_id {
+          return match self.gpu_metadata.get(&(gpu_hardware_id as u32)) {
                 Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                    Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id, tid.clone()).into()),
+                    Ok(p) => {
+                        let mut gpu_stat = self.status_info.write();
+                        let stat = &mut gpu_stat[gpu_hardware_id as usize];
+                        stat.est_utilization_gpu += if stat.num_running > 0 {
+                            stat.instant_utilization_gpu / stat.num_running as f64
+                        } else {
+                            0.0
+                        };
+                        Ok(GpuToken::new(p, gpu_hardware_id as u32, tid.clone()))
+                    }
                     Err(e) => Err(e),
                 },
                 None => {
-                    let uuid = gpu.map_or("none_gpu", |g| g.gpu_uuid.as_str());
-                    error!(uuid=%uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
+                    error!(tid=%tid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                     Err(tokio::sync::TryAcquireError::NoPermits)
                 }
             };
-        }
-        let gpu_stat = self.status_info.read();
-        if gpu_stat.len() > gpu_hardware_id as usize {
-            if gpu_stat[gpu_hardware_id as usize].est_utilization_gpu <= limit as f64 {
-                drop(gpu_stat);
-                return match self.gpu_metadata.get(&gpu_hardware_id) {
-                    Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                        Ok(p) => {
-                            let mut gpu_stat = self.status_info.write();
-                            let stat = &mut gpu_stat[gpu_hardware_id as usize];
-                            stat.est_utilization_gpu += if stat.num_running > 0 {
-                                stat.instant_utilization_gpu / stat.num_running as f64
-                            } else {
-                                0.0
-                            };
-                            Ok(GpuToken::new(p, gpu_hardware_id, tid.clone()).into())
-                        }
-                        Err(e) => Err(e),
-                    },
-                    None => {
-                        let uuid = gpu.map_or("none_gpu", |g| g.gpu_uuid.as_str());
-                        error!(uuid=%uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
-                        Err(tokio::sync::TryAcquireError::NoPermits)
-                    }
-                };
-            }
         } else {
-            warn!(private_id=gpu_hardware_id, stat=?gpu_stat, "GPU id not found");
+          Err(tokio::sync::TryAcquireError::NoPermits)
         }
-        Err(tokio::sync::TryAcquireError::NoPermits)
+      }
     }
 
     pub fn outstanding(&self) -> u32 {
@@ -767,7 +827,7 @@ impl Drop for GpuResourceTracker {
 #[derive(Debug)]
 pub struct GpuToken {
     _token: OwnedSemaphorePermit,
-    gpu_id: PrivateGpuId,
+    pub gpu_id: PrivateGpuId,
     tid: TransactionId,
 }
 impl GpuToken {

@@ -47,11 +47,9 @@ fn build_gpu_env(overrun: f64, num_gpus: u32) -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod flowq_tests {
-    use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
-
-    use crate::utils::{background_test_invoke, resolve_invoke};
-
     use super::*;
+    use crate::utils::{background_test_invoke, resolve_invoke};
+    use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn insert_set_active() {
@@ -106,7 +104,7 @@ mod flowq_tests {
         let r2_lck = r2.lock();
         let r2_res = r2_lck.worker_result.as_ref().unwrap();
         let r2_start = formatter
-            .parse_python_container_time(&r2_res.end)
+            .parse_python_container_time(&r2_res.start)
             .unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r2_res.start, e));
         let r2_end = formatter
             .parse_python_container_time(&r2_res.end)
@@ -152,7 +150,7 @@ mod flowq_tests {
         let r2_lck = r2.lock();
         let r2_res = r2_lck.worker_result.as_ref().unwrap();
         let r2_start = formatter
-            .parse_python_container_time(&r2_res.end)
+            .parse_python_container_time(&r2_res.start)
             .unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r2_res.start, e));
         let r2_end = formatter
             .parse_python_container_time(&r2_res.end)
@@ -194,7 +192,7 @@ mod flowq_tests {
         let r2_lck = r2.lock();
         let r2_res = r2_lck.worker_result.as_ref().unwrap();
         let r2_start = formatter
-            .parse_python_container_time(&r2_res.end)
+            .parse_python_container_time(&r2_res.start)
             .unwrap_or_else(|e| panic!("Failed to parse time '{}' because {}", r2_res.start, e));
         let r2_end = formatter
             .parse_python_container_time(&r2_res.end)

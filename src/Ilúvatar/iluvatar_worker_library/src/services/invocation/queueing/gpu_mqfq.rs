@@ -5,7 +5,7 @@ use crate::services::invocation::completion_time_tracker::CompletionTimeTracker;
 use crate::services::invocation::invoke_on_container;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
-use crate::services::resources::gpu::GpuResourceTracker;
+use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
@@ -510,10 +510,12 @@ impl MQFQ {
     }
 
     /// Earliest eligible flow
-    fn next_flow<'a>(&'a self, tid: &'a TransactionId) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    fn next_flow<'a>(&'a self, tid: &'a TransactionId, token: &GpuToken) -> Option<RefMutMulti<'_, String, FlowQ>> {
         let vitual_time = *self.vitual_time.read();
         let mut min_time = f64::MAX;
         let mut min_q = None;
+        let mut min_time_with_cont = f64::MAX;
+        let mut min_q_with_cont = None;
         for mut q in self.mqfq_set.iter_mut() {
             let val = q.value_mut();
             val.set_idle_throttled(vitual_time);
@@ -523,25 +525,40 @@ impl MQFQ {
                     debug!(tid=%tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
                     continue;
                 }
-                if min_q.is_none() {
-                    debug!(tid=%tid, qid=%val.fqdn, "first active Q");
-                    min_time = q.start_time_virt;
-                    min_q = Some(q);
-                } else if q.start_time_virt <= min_time {
-                    debug!(tid=%tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
-                    min_time = q.start_time_virt;
-                    min_q = Some(q);
+                if self.cont_manager.warm_container(&val.fqdn, token) {
+                    if min_q_with_cont.is_none() {
+                        debug!(tid=%tid, qid=%val.fqdn, "first active Q, matched to GPU");
+                        min_time_with_cont = q.start_time_virt;
+                        min_q_with_cont = Some(q);
+                    } else if q.start_time_virt <= min_time_with_cont {
+                        debug!(tid=%tid, qid=%q.fqdn, old_t=min_time_with_cont, new_t=q.start_time_virt, "new min Q, matched to GPU");
+                        min_time_with_cont = q.start_time_virt;
+                        min_q_with_cont = Some(q);
+                    }
+                } else {
+                    if min_q.is_none() {
+                      debug!(tid=%tid, qid=%val.fqdn, "first active Q");
+                      min_time = q.start_time_virt;
+                      min_q = Some(q);
+                    } else if q.start_time_virt <= min_time {
+                        debug!(tid=%tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
+                        min_time = q.start_time_virt;
+                        min_q = Some(q);
+                    }
                 }
             }
         }
         if min_time != f64::MAX {
             *self.vitual_time.write() = min_time;
         }
+        if min_q_with_cont.is_some() {
+            return min_q_with_cont;
+        }
         min_q
     }
 
     // Invoked functions automatically increase the count, conversely for finished functions
-    fn get_token(&self, tid: &TransactionId) -> Option<DroppableToken> {
+    fn get_token(&self, tid: &TransactionId) -> Option<GpuToken> {
         self.gpu.try_acquire_resource(None, tid).ok()
     }
 
@@ -556,26 +573,28 @@ impl MQFQ {
             return None;
         }
 
-        let token = self.get_token(tid);
-        if token.is_none() {
-            debug!(tid=%tid, qlen=qlen, "No token");
-            return None;
+        match self.get_token(tid) {
+            Some(token) => {
+                if let Some(mut chosen_q) = self.next_flow(tid, &token) {
+                  if let Some(i) = chosen_q.pop_flow(vitual_time) {
+                      let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
+                      *self.vitual_time.write() = updated_vitual_time;
+                      chosen_q.update_dispatched(updated_vitual_time);
+                      Some((i, token.into()))
+                  } else {
+                      debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "Empty flow chosen");
+                      None
+                  }
+                } else {
+                    debug!(tid=%tid, qlen=qlen, "No chosen flow");
+                    None
+                }
+            },
+            None => {
+              debug!(tid=%tid, qlen=qlen, "No token");
+              None
+            },
         }
-
-        if let Some(mut chosen_q) = self.next_flow(tid) {
-            if let Some(i) = chosen_q.pop_flow(vitual_time) {
-                let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
-                *self.vitual_time.write() = updated_vitual_time;
-                chosen_q.update_dispatched(updated_vitual_time);
-                return Some((i, token.unwrap()));
-            } else {
-                debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "Empty flow chosen");
-            }
-        } else {
-            debug!(tid=%tid, qlen=qlen, "No chosen flow");
-        }
-        None
-        // Update MQFQ State
     }
 } // END MQFQ
 

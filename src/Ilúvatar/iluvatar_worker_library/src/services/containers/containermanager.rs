@@ -3,7 +3,7 @@ use super::structs::{Container, ContainerLock, ContainerState};
 use super::ContainerIsolationCollection;
 use crate::services::containers::docker::dockerstructs::DockerContainer;
 use crate::services::containers::structs::{InsufficientGPUError, InsufficientMemoryError};
-use crate::services::resources::gpu::GPU;
+use crate::services::resources::gpu::{GpuToken, GPU};
 use crate::services::{registration::RegisteredFunction, resources::gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
@@ -181,6 +181,12 @@ impl ContainerManager {
     }
 
     /// Returns the best possible idle container's [ContainerState] at this time
+    /// Not a guarantee it will be available
+    pub fn warm_container(&self, fqdn: &str, gpu_token: &GpuToken) -> bool {
+        self.gpu_containers.has_gpu_container(fqdn, gpu_token)
+    }
+
+    /// Returns the best possible idle container's [ContainerState] at this time
     /// Can be either running or idle, if [ContainerState::Cold], then possibly no container found
     pub fn container_exists(&self, fqdn: &str, compute: Compute) -> ContainerState {
         let mut ret = ContainerState::Cold;
@@ -245,39 +251,44 @@ impl ContainerManager {
     /// A return type [EventualItem::Now] means an existing container has been acquired
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, compute), fields(tid=%tid)))]
     pub fn acquire_container<'a>(
-        &'a self,
-        reg: &Arc<RegisteredFunction>,
+        self: &'a Arc<Self>,
+        reg: &'a Arc<RegisteredFunction>,
         tid: &'a TransactionId,
         compute: Compute,
-    ) -> EventualItem<impl Future<Output = Result<ContainerLock<'a>>>> {
+    ) -> EventualItem<impl Future<Output = Result<ContainerLock>> + 'a> {
         let cont = self.try_acquire_container(&reg.fqdn, tid, compute);
         let cont = match cont {
             Some(l) => EventualItem::Now(Ok(l)),
-            None => EventualItem::Future(self.cold_start(reg.clone(), tid, compute)), // no available container, cold start
+            None => {
+                // no available container, cold start
+                let r = reg.clone();
+                // let tid = tid.clone();
+                EventualItem::Future(self.cold_start(r, &tid, compute))
+            }
         };
         cont
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
     /// Returns an warmed container if one is available
-    fn try_acquire_container<'a>(
-        &'a self,
+    fn try_acquire_container(
+        self: &Arc<Self>,
         fqdn: &str,
-        tid: &'a TransactionId,
+        tid: &TransactionId,
         compute: Compute,
-    ) -> Option<ContainerLock<'a>> {
+    ) -> Option<ContainerLock> {
         if let Ok(pool) = self.get_resource_pool(compute) {
             return self.acquire_container_from_pool(pool, fqdn, tid);
         }
         None
     }
 
-    fn acquire_container_from_pool<'a>(
-        &'a self,
-        pool: &'a ContainerPool,
+    fn acquire_container_from_pool(
+        self: &Arc<Self>,
+        pool: &ContainerPool,
         fqdn: &str,
-        tid: &'a TransactionId,
-    ) -> Option<ContainerLock<'a>> {
+        tid: &TransactionId,
+    ) -> Option<ContainerLock> {
         loop {
             match pool.activate_random_container(fqdn, tid) {
                 Some(c) => {
@@ -294,12 +305,12 @@ impl ContainerManager {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
     /// Starts a new container and returns a [ContainerLock] for it to be used
-    async fn cold_start<'a>(
-        &'a self,
+    async fn cold_start(
+        self: &Arc<Self>,
         reg: Arc<RegisteredFunction>,
-        tid: &'a TransactionId,
+        tid: &TransactionId,
         compute: Compute,
-    ) -> Result<ContainerLock<'a>> {
+    ) -> Result<ContainerLock> {
         debug!(tid=%tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
         let container = self.launch_container_internal(&reg, tid, compute).await?;
         let rpool = self.get_resource_pool(compute)?;
@@ -316,7 +327,7 @@ impl ContainerManager {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
     /// Returns a [ContainerLock] for the given container
     /// Returns [None] if the container is unhealthy or an error occurs
-    fn try_lock_container<'a>(&'a self, container: Container, tid: &'a TransactionId) -> Option<ContainerLock<'a>> {
+    fn try_lock_container(self: &Arc<Self>, container: Container, tid: &TransactionId) -> Option<ContainerLock> {
         if container.is_healthy() {
             debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
             container.touch();
@@ -671,7 +682,7 @@ impl ContainerManager {
                     error!(tid=%tid, error=%e, "Error moving data to device");
                 }
             }
-            Err(e) => error!(tid=%tid, error=%e, "Error casting container to DockerContainer"),
+            Err(e) => error!(tid=%tid, error=%e, "move_to_device Error casting container to DockerContainer"),
         };
     }
     /// Tell all GPU containers of the given function to move memory onto the device
@@ -687,7 +698,7 @@ impl ContainerManager {
                     error!(tid=%tid, error=%e, "Error moving data from device");
                 }
             }
-            Err(e) => error!(tid=%tid, error=%e, "Error casting container to DockerContainer"),
+            Err(e) => error!(tid=%tid, error=%e, "move_off_device Error casting container to DockerContainer"),
         };
     }
     /// Tell all GPU containers of the given function to move memory off of the device
