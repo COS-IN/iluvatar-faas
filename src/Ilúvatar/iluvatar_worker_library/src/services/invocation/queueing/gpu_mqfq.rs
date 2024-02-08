@@ -38,6 +38,9 @@ pub struct MqfqConfig {
     pub in_flight: Option<u32>,
     /// enable dynamic weights for queues, unused
     pub dynamic_weights: Option<bool>,
+    /// VT time increment per invocation
+    /// If [None] or 0.0, uses avg execution time for the function
+    pub service_average: Option<f64>,
 }
 
 /// Multi-Queue Fair Queueing.
@@ -102,7 +105,7 @@ pub struct FlowQ {
     ttl_sec: f64,
     pub last_serviced: OffsetDateTime,
     /// avg function execution time in seconds
-    service_avg: f64,
+    service_avg: Option<f64>,
     /// Max service this flow can be ahead of others
     allowed_overrun: f64,
     /// Inactive -> Active transition timestamp. Use to compute active period (eviction time) when going back from Active -> Inactive.
@@ -113,6 +116,7 @@ pub struct FlowQ {
 
     cont_manager: Arc<ContainerManager>,
     gpu_config: Arc<GPUResourceConfig>,
+    cmap: Arc<CharacteristicsMap>,
 }
 
 impl FlowQ {
@@ -123,6 +127,7 @@ impl FlowQ {
         cont_manager: &Arc<ContainerManager>,
         gpu_config: &Arc<GPUResourceConfig>,
         q_config: &Arc<MqfqConfig>,
+        cmap: &Arc<CharacteristicsMap>,
     ) -> Self {
         Self {
             queue: VecDeque::new(),
@@ -132,7 +137,7 @@ impl FlowQ {
             in_flight: 0,
             ttl_sec: 20.0,
             last_serviced: OffsetDateTime::now_utc(),
-            service_avg: 10.0,
+            service_avg: q_config.service_average.clone(),
             allowed_overrun: missing_default(q_config.allowed_overrun, 10.0),
             active_start_t: OffsetDateTime::now_utc(),
             avg_active_t: 0.0,
@@ -141,6 +146,7 @@ impl FlowQ {
             fqdn,
             weight,
             gpu_config: gpu_config.clone(),
+            cmap: cmap.clone(),
         }
     }
 
@@ -165,12 +171,23 @@ impl FlowQ {
         }
     }
 
+    fn service_avg(&self, item: &Arc<EnqueuedInvocation>) -> f64 {
+        let avg = match self.service_avg {
+          Some(avg) if avg != 0.0 => avg,
+          _ => self.cmap.avg_gpu_exec_t(&item.registration.fqdn)
+        };
+        if avg <= 0.0 {
+            10.0 // no record in cmap yet
+        } else {
+            avg
+        }
+    }
+
     /// Return True if should update the global time
     pub fn push_flow(&mut self, item: Arc<EnqueuedInvocation>, vitual_time: f64) -> bool {
         let start_t = f64::max(vitual_time, self.finish_time_virt); // cognizant of weights
-                                                                    // Update the service_avg regularly from cmap
-
-        let finish_t = start_t + (self.service_avg / self.weight);
+        let service_avg = self.service_avg(&item);
+        let finish_t = start_t + (service_avg / self.weight);
         let req = MQRequest::new(item, start_t, finish_t);
         let req_finish_virt = req.finish_time_virt;
 
@@ -499,6 +516,7 @@ impl MQFQ {
                     &self.cont_manager,
                     &self.gpu_config,
                     &self.q_config,
+                    &self.cmap,
                 );
                 if qguard.push_flow(item, vitual_time) {
                     let mut lck = self.vitual_time.write();
@@ -565,7 +583,6 @@ impl MQFQ {
     /// Main
     fn dispatch(&self, tid: &TransactionId) -> Option<(Arc<MQRequest>, DroppableToken)> {
         // Filter by active queues, and select with lowest start time.
-        // How to avoid hoarding of the tokens? Want round-robin.
         let vitual_time = *self.vitual_time.read();
         let qlen = self.queue_len();
         if qlen == 0 {

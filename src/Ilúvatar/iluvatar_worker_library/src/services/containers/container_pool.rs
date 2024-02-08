@@ -76,6 +76,7 @@ impl ContainerPool {
         ret
     }
 
+    /// Apply a function to all the idle containers of the given function
     pub async fn iter_fqdn<'a: 'b, 'b, T>(
         &'a self,
         tid: TransactionId,

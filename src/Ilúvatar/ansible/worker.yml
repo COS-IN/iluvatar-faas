@@ -178,6 +178,7 @@
       "ILUVATAR_WORKER__invocation__mqfq_config__allowed_overrun" : "{{ mqfq_allowed_overrun | default(0.0) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__in_flight" : "{{ mqfq_allowed_overrun | default(false) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__dynamic_weights" : "{{ mqfq_allowed_overrun | default(false) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__service_average" : "{{ mqfq_service_average | default(10.0) }}"
 
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
