@@ -20,7 +20,7 @@ impl Mindicator {
         if val.is_nan() {
             anyhow::bail!("Value passed to mindicator was NaN!!")
         }
-        self.data.write()[proc_id as usize] = val;
+        self.data.write()[proc_id] = val;
         Ok(())
     }
 
@@ -36,7 +36,7 @@ impl Mindicator {
 
     /// Unset the min value for the position
     pub fn remove(&self, proc_id: usize) {
-        self.data.write()[proc_id as usize] = f64::MAX;
+        self.data.write()[proc_id] = f64::MAX;
     }
 
     /// Add additional slots to the mindicator

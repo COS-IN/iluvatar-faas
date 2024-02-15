@@ -201,29 +201,30 @@ extern CUresult cuGetProcAddress(const char *symbol, void **pfn,
 	int cudaVersion, cuuint64_t flags);
 extern CUresult cuMemGetInfo(size_t *free, size_t *total);
 extern CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize);
+extern CUresult cuMemAllocManaged(CUdeviceptr *dptr, size_t bytesize, enum CUmemAttach_flags_enum flags);
 extern CUresult cuMemFree(CUdeviceptr dptr);
 extern CUresult cuInit(unsigned int flags);
-extern CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
-	unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX,
-	unsigned int blockDimY, unsigned int blockDimZ,
-	unsigned int sharedMemBytes, CUstream hStream, void **kernelParams,
-	void **extra);
-extern CUresult cuMemcpy(CUdeviceptr dst, CUdeviceptr src,
-	size_t ByteCount);
-extern CUresult cuMemcpyAsync(CUdeviceptr dst, CUdeviceptr src,
-	size_t ByteCount, CUstream hStream);
-extern CUresult cuMemcpyDtoH(void *dstHost, CUdeviceptr srcDevice,
-	size_t ByteCount);
-extern CUresult cuMemcpyHtoD(CUdeviceptr dstDevice,
-	const void* srcHost, size_t ByteCount);
-extern CUresult cuMemcpyDtoD(CUdeviceptr dstDevice,
-	CUdeviceptr srcDevice, size_t ByteCount);
-extern CUresult cuMemcpyDtoHAsync(void* dstHost,
-	CUdeviceptr srcDevice, size_t ByteCount, CUstream hStream);
-extern CUresult cuMemcpyHtoDAsync(CUdeviceptr dstDevice,
-	const void* srcHost, size_t ByteCount, CUstream hStream);
-extern CUresult cuMemcpyDtoDAsync(CUdeviceptr dstDevice,
-	CUdeviceptr srcDevice, size_t ByteCount, CUstream hStream);
+// extern CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
+// 	unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX,
+// 	unsigned int blockDimY, unsigned int blockDimZ,
+// 	unsigned int sharedMemBytes, CUstream hStream, void **kernelParams,
+// 	void **extra);
+// extern CUresult cuMemcpy(CUdeviceptr dst, CUdeviceptr src,
+// 	size_t ByteCount);
+// extern CUresult cuMemcpyAsync(CUdeviceptr dst, CUdeviceptr src,
+// 	size_t ByteCount, CUstream hStream);
+// extern CUresult cuMemcpyDtoH(void *dstHost, CUdeviceptr srcDevice,
+// 	size_t ByteCount);
+// extern CUresult cuMemcpyHtoD(CUdeviceptr dstDevice,
+// 	const void* srcHost, size_t ByteCount);
+// extern CUresult cuMemcpyDtoD(CUdeviceptr dstDevice,
+// 	CUdeviceptr srcDevice, size_t ByteCount);
+// extern CUresult cuMemcpyDtoHAsync(void* dstHost,
+// 	CUdeviceptr srcDevice, size_t ByteCount, CUstream hStream);
+// extern CUresult cuMemcpyHtoDAsync(CUdeviceptr dstDevice,
+// 	const void* srcHost, size_t ByteCount, CUstream hStream);
+// extern CUresult cuMemcpyDtoDAsync(CUdeviceptr dstDevice,
+// 	CUdeviceptr srcDevice, size_t ByteCount, CUstream hStream);
 
 /* Real CUDA functions */
 extern cuGetProcAddress_func real_cuGetProcAddress;

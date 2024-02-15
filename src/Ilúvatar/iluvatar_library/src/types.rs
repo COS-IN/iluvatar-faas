@@ -39,7 +39,7 @@ bitflags! {
 /// To be used with CLI args and other places where it needs to be converted into a string
 /// The compute methods that a function supports
 /// Having each one of these means it can run on each compute independently.
-/// I.E. having [Self::CPU|Self::GPU] will run fine in a CPU-only container, or one with an attached GPU
+/// I.E. having [ComputeEnum::cpu]|[ComputeEnum::gpu] will run fine in a CPU-only container, or one with an attached GPU
 #[allow(non_camel_case_types)]
 pub enum ComputeEnum {
     cpu,

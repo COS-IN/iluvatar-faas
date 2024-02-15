@@ -16,12 +16,14 @@ use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::sync::{atomic::AtomicU32, Arc};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
   pub static ref CTR_MGR_WORKER_TID: TransactionId = "CtrMrgWorker".to_string();
   pub static ref CTR_MGR_HEALTH_WORKER_TID: TransactionId = "CtrMrgHealthWorker".to_string();
   pub static ref CTR_MGR_REMOVER_TID: TransactionId = "CtrMrgUnhealthyRemoved".to_string();
+  pub static ref CTR_MGR_PRI_TID: TransactionId = "CtrMrgPriorities".to_string();
 }
 
 /// Manage and control access to containers and system resources. CPU and GPU resource pools. Primary container state-tracking.
@@ -38,6 +40,9 @@ pub struct ContainerManager {
     pub prioritized_gpu_list: RwLock<Subpool>,
     _worker_thread: std::thread::JoinHandle<()>,
     _health_thread: tokio::task::JoinHandle<()>,
+    _priorities_thread: tokio::task::JoinHandle<()>,
+    /// Signal to tell to re-compute eviction priorities
+    prioritiy_notify: Arc<Notify>,
     gpu_resources: Option<Arc<GpuResourceTracker>>,
     /// A channel to send unhealthy containers to to be removed async to the sender
     /// Containers must not be in a pool when sent here
@@ -69,6 +74,32 @@ impl ContainerManager {
         (handle, tx, del_tx)
     }
 
+    fn priorities_thread() -> (
+        tokio::task::JoinHandle<()>,
+        std::sync::mpsc::Sender<Arc<Self>>,
+        Arc<Notify>,
+    ) {
+        let n = Arc::new(Notify::new());
+        let n_c = n.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = tokio::spawn(async move {
+            let tid: &TransactionId = &CTR_MGR_PRI_TID;
+            let service: Arc<Self> = match rx.recv() {
+                Ok(cm) => cm,
+                Err(e) => {
+                    error!(tid=%tid, error=%e, "Tokio service thread failed to receive service from channel!");
+                    return;
+                }
+            };
+            loop {
+                n_c.notified().await;
+                service.recompute_eviction_priorities(tid);
+            }
+        });
+
+        (handle, tx, n)
+    }
+
     pub async fn boxed(
         resources: Arc<ContainerResourceConfig>,
         cont_isolations: ContainerIsolationCollection,
@@ -83,6 +114,7 @@ impl ContainerManager {
             None,
         )?;
         let (health_handle, health_tx, del_ctr_tx) = Self::deletion_thread();
+        let (pri_handle, pri_tx, pri_notif) = Self::priorities_thread();
         let cm = Arc::new(ContainerManager {
             resources,
             cont_isolations,
@@ -94,19 +126,28 @@ impl ContainerManager {
             prioritized_gpu_list: RwLock::new(Vec::new()),
             _worker_thread: worker_handle,
             _health_thread: health_handle,
+            _priorities_thread: pri_handle,
             unhealthy_removal_rx: del_ctr_tx,
             outstanding_containers: DashMap::new(),
+            prioritiy_notify: pri_notif,
         });
         tx.send(cm.clone())?;
         health_tx.send(cm.clone())?;
+        pri_tx.send(cm.clone())?;
         Ok(cm)
+    }
+
+    #[tracing::instrument(skip(self), fields(tid=%tid))]
+    fn recompute_eviction_priorities(&self, tid: &TransactionId) {
+        self.compute_eviction_priorities(tid);
+        self.compute_gpu_eviction_priorities(tid);
     }
 
     #[tracing::instrument(skip(service), fields(tid=%tid))]
     async fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) {
         service.update_memory_usages(&tid).await;
-        service.compute_eviction_priorities(&tid);
-        service.compute_gpu_eviction_priorities(&tid);
+        // service.recompute_eviction_priorities(&tid);
+        service.prioritiy_notify.notify_waiters();
         if service.resources.memory_buffer_mb > 0 {
             let reclaim = service.resources.memory_buffer_mb - service.free_memory();
             if reclaim > 0 {
@@ -263,7 +304,7 @@ impl ContainerManager {
                 // no available container, cold start
                 let r = reg.clone();
                 // let tid = tid.clone();
-                EventualItem::Future(self.cold_start(r, &tid, compute))
+                EventualItem::Future(self.cold_start(r, tid, compute))
             }
         };
         cont
@@ -318,6 +359,7 @@ impl ContainerManager {
             self.purge_container(container, tid).await?;
             return Err(e);
         };
+        self.prioritiy_notify.notify_waiters();
         info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
         container.set_state(ContainerState::Cold);
         self.try_lock_container(container, tid)
@@ -541,6 +583,7 @@ impl ContainerManager {
         container.set_state(ContainerState::Prewarm);
         let pool = self.get_resource_pool(compute)?;
         pool.add_idle_container(container, tid)?;
+        self.prioritiy_notify.notify_waiters();
         // self.add_container_to_pool(&pool.idle_containers, container, tid)?;
         info!(tid=%tid, fqdn=%reg.fqdn, "function was successfully prewarmed");
         Ok(())
@@ -569,6 +612,7 @@ impl ContainerManager {
         *self.used_mem_mb.write() -= container.get_curr_mem_usage();
         self.return_gpu(container.device_resource().clone(), tid);
         container.remove_drop(tid);
+        self.prioritiy_notify.notify_waiters();
         r
     }
 

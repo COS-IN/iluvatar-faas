@@ -27,9 +27,6 @@ use std::{
 use tokio::{runtime::Runtime, task::JoinHandle};
 
 fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms: u32) -> u32 {
-    if func.parsed_compute.unwrap() == Compute::GPU {
-        return 0;
-    }
     match default_prewarms {
         None => 0,
         Some(0) => 0,
@@ -220,6 +217,12 @@ fn worker_prewarm_functions(
             let h_c = host.to_owned();
             let f_c = func_name.clone();
             let fct_cln = factory.clone();
+            let compute = func
+                .parsed_compute
+                .expect("Did not have a `parsed_compute` in prewarm")
+                .into_iter()
+                .max()
+                .expect("Did not get a max for `parsed_compute` in prewarm");
             prewarm_calls.push(async move {
                 let mut errors = "Prewarm errors:".to_string();
                 let mut it = (1..4).peekable();
@@ -232,7 +235,7 @@ fn worker_prewarm_functions(
                         &tid,
                         &fct_cln,
                         Some(communication_method),
-                        Compute::CPU,
+                        compute,
                     )
                     .await
                     {
@@ -242,6 +245,7 @@ fn worker_prewarm_functions(
                             if it.peek().is_none() {
                                 anyhow::bail!("prewarm failed because {}", errors)
                             }
+                            std::thread::sleep(Duration::from_millis(100));
                         }
                     };
                 }
@@ -345,7 +349,7 @@ fn worker_wait_reg(
                 .expect("Did not have a `parsed_compute` when going to register");
             let isol = func
                 .parsed_isolation
-                .expect("Did not have a `parsed_coparsed_isolationmpute` when going to register");
+                .expect("Did not have a `parsed_isolation` when going to register");
             let mem = func.mem_mb;
             let func_timings = match &func.chosen_name {
                 Some(chosen_name) => match bench_data.as_ref() {

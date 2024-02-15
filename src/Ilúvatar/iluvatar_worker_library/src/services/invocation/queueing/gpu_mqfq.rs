@@ -137,7 +137,7 @@ impl FlowQ {
             in_flight: 0,
             ttl_sec: 20.0,
             last_serviced: OffsetDateTime::now_utc(),
-            service_avg: q_config.service_average.clone(),
+            service_avg: q_config.service_average,
             allowed_overrun: missing_default(q_config.allowed_overrun, 10.0),
             active_start_t: OffsetDateTime::now_utc(),
             avg_active_t: 0.0,
@@ -153,13 +153,6 @@ impl FlowQ {
     fn update_state(&mut self, new_state: MQState) {
         if new_state != self.state {
             debug!(queue=%self.fqdn, old_state=?self.state, new_state=?new_state, "Switching state");
-            if new_state == MQState::Active && self.gpu_config.send_driver_memory_hints() {
-                let ctr = self.cont_manager.clone();
-                let fname = self.fqdn.clone();
-                tokio::spawn(async move {
-                    ctr.madvise_to_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
-                });
-            }
             if self.state == MQState::Active && self.gpu_config.send_driver_memory_hints() {
                 let ctr = self.cont_manager.clone();
                 let fname = self.fqdn.clone();
@@ -173,8 +166,8 @@ impl FlowQ {
 
     fn service_avg(&self, item: &Arc<EnqueuedInvocation>) -> f64 {
         let avg = match self.service_avg {
-          Some(avg) if avg != 0.0 => avg,
-          _ => self.cmap.avg_gpu_exec_t(&item.registration.fqdn)
+            Some(avg) if avg != 0.0 => avg,
+            _ => self.cmap.avg_gpu_exec_t(&item.registration.fqdn),
         };
         if avg <= 0.0 {
             10.0 // no record in cmap yet
@@ -200,8 +193,8 @@ impl FlowQ {
             // We just turned active, so mark the time
             self.active_start_t = OffsetDateTime::now_utc();
             self.num_active_periods += 1;
+            self.update_state(MQState::Active);
         }
-        self.update_state(MQState::Active);
         self.queue.len() == 1
     }
 
@@ -444,7 +437,13 @@ impl MQFQ {
         let start = Instant::now();
         let ctr_lock = match self.cont_manager.acquire_container(reg, tid, Compute::GPU) {
             EventualItem::Future(f) => f.await?,
-            EventualItem::Now(n) => n?,
+            EventualItem::Now(n) => {
+                let n = n?;
+                let ctr = n.container.clone();
+                let t = tid.clone();
+                tokio::spawn(async move { ContainerManager::move_to_device(ctr, t).await });
+                n
+            }
         };
         match invoke_on_container(
             reg,
@@ -553,16 +552,14 @@ impl MQFQ {
                         min_time_with_cont = q.start_time_virt;
                         min_q_with_cont = Some(q);
                     }
-                } else {
-                    if min_q.is_none() {
-                      debug!(tid=%tid, qid=%val.fqdn, "first active Q");
-                      min_time = q.start_time_virt;
-                      min_q = Some(q);
-                    } else if q.start_time_virt <= min_time {
-                        debug!(tid=%tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
-                        min_time = q.start_time_virt;
-                        min_q = Some(q);
-                    }
+                } else if min_q.is_none() {
+                    debug!(tid=%tid, qid=%val.fqdn, "first active Q");
+                    min_time = q.start_time_virt;
+                    min_q = Some(q);
+                } else if q.start_time_virt <= min_time {
+                    debug!(tid=%tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
+                    min_time = q.start_time_virt;
+                    min_q = Some(q);
                 }
             }
         }
@@ -593,24 +590,24 @@ impl MQFQ {
         match self.get_token(tid) {
             Some(token) => {
                 if let Some(mut chosen_q) = self.next_flow(tid, &token) {
-                  if let Some(i) = chosen_q.pop_flow(vitual_time) {
-                      let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
-                      *self.vitual_time.write() = updated_vitual_time;
-                      chosen_q.update_dispatched(updated_vitual_time);
-                      Some((i, token.into()))
-                  } else {
-                      debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "Empty flow chosen");
-                      None
-                  }
+                    if let Some(i) = chosen_q.pop_flow(vitual_time) {
+                        let updated_vitual_time = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
+                        *self.vitual_time.write() = updated_vitual_time;
+                        chosen_q.update_dispatched(updated_vitual_time);
+                        Some((i, token.into()))
+                    } else {
+                        debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "Empty flow chosen");
+                        None
+                    }
                 } else {
                     debug!(tid=%tid, qlen=qlen, "No chosen flow");
                     None
                 }
-            },
+            }
             None => {
-              debug!(tid=%tid, qlen=qlen, "No token");
-              None
-            },
+                debug!(tid=%tid, qlen=qlen, "No token");
+                None
+            }
         }
     }
 } // END MQFQ

@@ -297,7 +297,7 @@ impl FuncQueue {
     fn start_new_flow(self: &Arc<Self>, _tid: &TransactionId) {
         let tid: TransactionId = format!("flow-{}", self.registration.fqdn);
         match Flow::new(
-            &self,
+            self,
             &self.mindicator,
             &self.cpu,
             &self.gpu,
