@@ -209,8 +209,16 @@ impl ContainerT for ContainerdContainer {
 	    Some(v) => v,
 	    _ => 0.0,
 	};
+
+	let wx = &j["stat64"]["wx"];
+	let wb = &wx["bytes"];
+	let write_bytes = match wb.as_f64() {
+	    Some(v) => v,
+	    _ => 0.0,
+	};
   
-	let total_bytes = read_bytes ;
+	
+	let total_bytes = read_bytes + write_bytes;
 	
 	debug!(vethname=vethname, bytes=total_bytes, "Read network bytes"); 
 

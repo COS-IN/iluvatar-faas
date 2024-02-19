@@ -93,7 +93,7 @@ where
 {
     debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
     if !std::path::Path::new(&cmd_pth).exists() {
-        bail_error!(tid=%tid, command=%cmd_pth, "Command does not exists");
+        bail_error!(tid=%tid, command=%cmd_pth, "Command does not exist");
     }
     let mut cmd = Command::new(cmd_pth);
     cmd.args(args);

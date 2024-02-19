@@ -600,6 +600,8 @@ impl Invoker for QueueingDispatcher {
         match result_ptr.completed {
             true => {
                 info!(tid=%tid, "Invocation complete");
+		//update the usage stats here?
+		
                 Ok(queued.result_ptr.clone())
             }
             false => {

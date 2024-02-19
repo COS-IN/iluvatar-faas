@@ -40,7 +40,7 @@ impl NamespaceManager {
             pool: Arc::new(Mutex::new(Vec::new())),
             _worker_thread: worker_thread,
         }
-    }
+    } 
 
     pub fn boxed(config: Arc<NetworkingConfig>, tid: &TransactionId, ensure_bridge: bool) -> Result<Arc<Self>> {
         debug!(tid=%tid, "creating namespace manager");
