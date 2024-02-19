@@ -35,7 +35,10 @@ pub struct ContainerdContainer {
     /// The containerd task in the container
     pub task: Task,
     pub port: Port,
+    /// IP Address assigned 
     pub address: String,
+    /// Network interface 
+    pub net_iface_name: String, 
     fqdn: String,
     /// the associated function inside the container
     pub function: Arc<RegisteredFunction>,
@@ -58,6 +61,7 @@ impl ContainerdContainer {
         task: Task,
         port: Port,
         address: String,
+	net_iface_name: String, 
         _parallel_invokes: NonZeroU32,
         fqdn: &str,
         function: &Arc<RegisteredFunction>,
@@ -74,6 +78,7 @@ impl ContainerdContainer {
             task,
             port,
             address,
+	    net_iface_name,
             client,
             compute,
             fqdn: fqdn.to_owned(),

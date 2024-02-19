@@ -544,7 +544,7 @@ impl ContainerdIsolation {
         debug!(tid=%tid, namespace=%ns.name, containerid=%cid, "Assigning namespace to container");
 
         let address = &ns.namespace.ips[0].address;
-
+	let netif = &ns.namespace.interfaces[0].name;
         let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name, &cid);
         let mut labels: HashMap<String, String> = HashMap::new();
         labels.insert("owner".to_string(), "iluvatar_worker".to_string());
@@ -625,7 +625,7 @@ impl ContainerdIsolation {
                         task,
                         port,
                         address.clone(),
-                        std::num::NonZeroU32::new_unchecked(parallel_invokes),
+			netif.clone(), std::num::NonZeroU32::new_unchecked(parallel_invokes),
                         fqdn,
                         reg,
                         ns,
