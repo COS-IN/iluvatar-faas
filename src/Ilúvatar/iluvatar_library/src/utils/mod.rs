@@ -246,6 +246,13 @@ fn try_create_signal(tid: &TransactionId, kind: SignalKind) -> Result<Signal> {
     }
 }
 
+pub fn missing_default<T>(opt: Option<T>, default: T) -> T {
+    if let Some(i) = opt {
+        return i;
+    }
+    default
+}
+
 pub fn missing_or_zero_default<T: num_traits::PrimInt>(opt: Option<T>, default: T) -> T {
     if let Some(i) = opt {
         if i == T::zero() {

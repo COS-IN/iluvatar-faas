@@ -16,5 +16,5 @@ iluvatar_library = { path = "../iluvatar_library" }
 iluvatar_controller_library = { path = "../iluvatar_controller_library" }
 clap = { version = "4.1", features = ["derive"] }
 tracing = "0.1"
-tokio = { version = "1.19.2", features = ["macros", "rt-multi-thread", "test-util", "parking_lot"] }
+tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "test-util", "parking_lot"] }
 anyhow = "1.0.13"

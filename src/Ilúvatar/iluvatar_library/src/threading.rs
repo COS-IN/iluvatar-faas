@@ -12,6 +12,7 @@ pub enum EventualItem<Left: Future> {
     Now(Left::Output),
 }
 
+/// return time in milliseconds to sleep for
 fn sleep_time<T>(call_ms: u64, start_t: SystemTime, tid: &TransactionId) -> u64 {
     match start_t.elapsed() {
         Ok(d) => std::cmp::max(1, call_ms as i128 - d.as_millis() as i128) as u64,

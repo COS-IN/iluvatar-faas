@@ -15,7 +15,7 @@ except Exception as e:
 
 tmp = "/tmp/"
 cold = True
-model_url="https://media.githubusercontent.com/media/onnx/models/main/text/machine_comprehension/roberta/model/roberta-sequence-classification-9.onnx"
+model_url="https://media.githubusercontent.com/media/onnx/models/main/validated/text/machine_comprehension/roberta/model/roberta-sequence-classification-9.onnx"
 model_object_key = "roberta-sequence-classification-9.onnx"
 model_path = tmp + model_object_key
 

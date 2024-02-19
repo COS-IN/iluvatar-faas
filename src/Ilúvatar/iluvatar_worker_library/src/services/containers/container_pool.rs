@@ -84,13 +84,14 @@ impl ContainerPool {
     ) where
         T: std::future::Future<Output = ()> + Send + 'static,
     {
-        match self.idle_pool.get(fqdn) {
-            Some(f) => {
-                for i in (*f).iter() {
-                    func(i.clone(), tid.clone()).await;
-                }
+        let mut ctrs = vec![];
+        if let Some(f) = self.idle_pool.get(fqdn) {
+            for i in (*f).iter() {
+                ctrs.push(i.clone());
             }
-            None => (),
+        }
+        for i in ctrs.into_iter() {
+            func(i, tid.clone()).await;
         }
     }
 

@@ -89,33 +89,42 @@ fn map_from_benchmark(
 ) -> Result<()> {
     let mut total_prewarms = 0;
     for (_fname, func) in funcs.iter_mut() {
-        let device_data: ComputeChoiceList = choose_bench_data_for_func(func, bench)?;
-        let chosen = match device_data.iter().min_by(|a, b| safe_cmp(&a.1, &b.1)) {
-            Some(n) => n,
-            None => anyhow::bail!("failed to get a minimum func from {:?}", device_data),
-        };
-        let mut chosen_name = chosen.0.clone();
-        let mut chosen_image = chosen.3.clone();
-        let mut chosen_warm_time_ms = chosen.1;
-        let mut chosen_cold_time_ms = chosen.1;
-
-        for (name, avg_warm, avg_cold, image) in device_data.iter() {
-            if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
-                chosen_name = name.clone();
-                chosen_image = image.clone();
-                chosen_warm_time_ms = *avg_warm;
-                chosen_cold_time_ms = *avg_cold;
+        if let Some((_last, elements)) = func.func_name.split('-').collect::<Vec<&str>>().split_last() {
+            let name = elements.join("-");
+            if bench.data.contains_key(&name) && func.image_name.is_some() {
+                println!("{} mapped to self name in benchmark", func.func_name);
+                func.chosen_name = Some(name);
             }
-        }
-
-        if func.image_name.is_none() {
-            println!("{} mapped to function '{}'", &func.func_name, chosen_name);
-            func.cold_dur_ms = chosen_cold_time_ms as u64;
-            func.warm_dur_ms = chosen_warm_time_ms as u64;
-            func.chosen_name = Some(chosen_name);
-            func.image_name = Some(chosen_image);
-        } else {
+        } else if bench.data.contains_key(&func.func_name) && func.image_name.is_some() {
+            println!("{} mapped to exact name in benchmark", func.func_name);
             func.chosen_name = Some(func.func_name.clone());
+        } else {
+            let device_data: ComputeChoiceList = choose_bench_data_for_func(func, bench)?;
+            let chosen = match device_data.iter().min_by(|a, b| safe_cmp(&a.1, &b.1)) {
+                Some(n) => n,
+                None => anyhow::bail!("failed to get a minimum func from {:?}", device_data),
+            };
+            let mut chosen_name = chosen.0.clone();
+            let mut chosen_image = chosen.3.clone();
+            let mut chosen_warm_time_ms = chosen.1;
+            let mut chosen_cold_time_ms = chosen.1;
+
+            for (name, avg_warm, avg_cold, image) in device_data.iter() {
+                if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
+                    chosen_name = name.clone();
+                    chosen_image = image.clone();
+                    chosen_warm_time_ms = *avg_warm;
+                    chosen_cold_time_ms = *avg_cold;
+                }
+            }
+
+            if func.image_name.is_none() {
+                println!("{} mapped to function '{}'", &func.func_name, chosen_name);
+                func.cold_dur_ms = chosen_cold_time_ms as u64;
+                func.warm_dur_ms = chosen_warm_time_ms as u64;
+                func.chosen_name = Some(chosen_name);
+                func.image_name = Some(chosen_image);
+            }
         }
         if func.prewarms.is_none() {
             let prewarms = compute_prewarms(func, default_prewarms, max_prewarms);

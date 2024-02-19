@@ -33,6 +33,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 #include "common.h"
 #include "cuda_defs.h"
@@ -70,7 +71,9 @@ cuGetErrorString_func real_cuGetErrorString = NULL;
 cuGetErrorName_func real_cuGetErrorName = NULL;
 cuCtxSetCurrent_func real_cuCtxSetCurrent = NULL;
 cuCtxGetCurrent_func real_cuCtxGetCurrent = NULL;
+cuStreamSynchronize_func real_cuStreamSynchronize = NULL;
 cuInit_func real_cuInit = NULL;
+cuDeviceGetAttribute_func real_cuDeviceGetAttribute = NULL;
 
 nvmlDeviceGetUtilizationRates_func real_nvmlDeviceGetUtilizationRates = NULL;
 nvmlInit_func real_nvmlInit = NULL;
@@ -87,7 +90,70 @@ int enable_single_oversub = 0;
 int nvml_ok = 1;
 CUdevice assignedDevice;
 CUstream asyncPrefetchStream = NULL;
+bool async_prefetch_outstanding = false;
+bool on_device = true;
+DeviceDimMax dims;
 
+CUresult
+get_compute_limits(DeviceDimMax *dims)
+{
+  log_debug("getting compute limits");
+
+  int attribute = 0;
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->max_threads_per_block = max(attribute, 1);
+
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->multiprocessor_count = max(attribute, 1);
+
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MAX_BLOCKS_PER_MULTIPROCESSOR, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->blocks_per_mp = max(attribute, 1);
+
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->threads_per_mp = max(attribute, 1);
+
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->block.x = max(attribute, 1);
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Y, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->block.y = max(attribute, 1);
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Z, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->block.z = max(attribute, 1);
+
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->grid.x = max(attribute, 1);
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->grid.y = max(attribute, 1);
+  CUDA_CHECK_ERR(real_cuDeviceGetAttribute(&attribute, CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z, assignedDevice), CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  dims->grid.z = max(attribute, 1);
+  log_debug("device properties:");
+  log_debug("max_threads_per_block=%d; SMP count: %d; Blocks per SMP: %d; Threads per SMP: %d", 
+            dims->max_threads_per_block, dims->multiprocessor_count, dims->blocks_per_mp, dims->threads_per_mp);
+  log_debug("block = %d * %d * %d; dim = %d * %d * %d", dims->block.x, dims->block.y, dims->block.z, dims->grid.x, dims->grid.y, dims->grid.z);
+  return CUDA_SUCCESS;
+}
+
+int prefetchToDevice();
+void ensure_on_device() {
+  if (!on_device) {
+    log_debug("Memory not on device, moving");
+    prefetchToDevice();
+  } else {
+    log_debug("Memory on device");
+  }
+}
+
+void check_async_prefetch() {
+  if (async_prefetch_outstanding) {
+    if (asyncPrefetchStream == NULL) {
+      log_debug("Synchronizing default stream");
+      real_cuStreamSynchronize(CU_STREAM_PER_THREAD);
+    } else {
+      log_debug("Synchronizing custom stream");
+      real_cuStreamSynchronize(asyncPrefetchStream);
+    }
+  }
+  async_prefetch_outstanding = false;
+}
 
 /* Representation of a CUDA memory allocation */
 struct cuda_mem_allocation {
@@ -283,8 +349,19 @@ static void bootstrap_cuda(void)
 	error = dlerror();
 	if (error != NULL)
 		log_fatal("%s", error);
+	real_cuStreamSynchronize = (cuStreamSynchronize_func)
+		real_dlsym_225(cuda_handle,CUDA_SYMBOL_STRING(cuStreamSynchronize));
+	error = dlerror();
+	if (error != NULL)
+		log_fatal("%s", error);
+  real_cuDeviceGetAttribute = (cuDeviceGetAttribute_func)
+      real_dlsym_225(cuda_handle, CUDA_SYMBOL_STRING(cuDeviceGetAttribute));
+  error = dlerror();
+  if (error != NULL)
+    log_fatal("%s", error);
 }
 
+/* Return the allocation in MB */
 double total_cuda_allocations()
 {
   return toMiB(sum_allocated);
@@ -517,7 +594,7 @@ void *dlsym_225(void *handle, const char *symbol)
 
 void *dlsym_234(void *handle, const char *symbol)
 {
-    log_debug("%s:%d called", __FUNCTION__, __LINE__);
+  log_debug("%s:%d called", __FUNCTION__, __LINE__);
 	if (strncmp(symbol, "cu", 2) != 0) {
 		return (real_dlsym_234(handle, symbol));
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
@@ -555,7 +632,7 @@ void *dlsym_234(void *handle, const char *symbol)
 
 void *dlsym_231(void *handle, const char *symbol)
 {
-    log_debug("%s:%d called", __FUNCTION__, __LINE__);
+  log_debug("%s:%d called", __FUNCTION__, __LINE__);
 	if (strncmp(symbol, "cu", 2) != 0) {
 		return (real_dlsym_231(handle, symbol));
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
@@ -668,6 +745,7 @@ int prefetchStreamToHost() {
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
       result = real_cuMemPrefetchAsync(a->ptr, a->size, CU_DEVICE_CPU, asyncPrefetchStream);
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
+      async_prefetch_outstanding = true;
 	}
   return result;
 }
@@ -685,6 +763,7 @@ int prefetchStreamToDevice() {
     CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
     result = real_cuMemPrefetchAsync(a->ptr, a->size, assignedDevice, asyncPrefetchStream);
     CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
+    async_prefetch_outstanding = true;
 	}
   return result;
 }
@@ -702,6 +781,8 @@ int prefetchToHost() {
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
       result = real_cuMemPrefetchAsync(a->ptr, a->size, CU_DEVICE_CPU, CU_STREAM_PER_THREAD);
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
+      async_prefetch_outstanding = true;
+      on_device = false;
 	}
   return result;
 }
@@ -717,6 +798,8 @@ int prefetchToDevice() {
     CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
     result = real_cuMemPrefetchAsync(a->ptr, a->size, assignedDevice, CU_STREAM_PER_THREAD);
     CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
+    async_prefetch_outstanding = true;
+    on_device = true;
 	}
   return result;
 }
@@ -729,6 +812,7 @@ int madviseToHost() {
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
       result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+      on_device = false;
 	}
   return result;
 }
@@ -741,44 +825,51 @@ int madviseToDevice() {
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
       result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+      on_device = true;
 	}
   return result;
 }
 
-CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize)
+CUresult cuMemAllocManaged(CUdeviceptr *dptr, size_t bytesize, enum CUmemAttach_flags_enum flags)
 {
-	static int got_max_mem_size = 0;
-  size_t junk;
 	CUresult result = CUDA_SUCCESS;
 
 	/* Return immediately if not initialized */
 	if (real_cuMemAllocManaged == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
-	if (got_max_mem_size == 0) {
-		result = cuMemGetInfo(&gpushare_size_mem_allocatable, &junk);
-		cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemGetInfo));
-		got_max_mem_size = 1;
-	}
-
-	if ((sum_allocated + bytesize) > gpushare_size_mem_allocatable) {
-		if (enable_single_oversub == 0) {
-			return CUDA_ERROR_OUT_OF_MEMORY;
-		} else {
-			log_warn("Memory allocations exceeded physical GPU"
-				 " memory capacity. This can cause extreme"
-				 " performance degradation!");
-		}
-	}
-
-	log_debug("cuMemAlloc requested %zu bytes", bytesize);
-	result = real_cuMemAllocManaged(dptr, bytesize, CU_MEM_ATTACH_GLOBAL);
+	// log_debug("cuMemAllocManaged requested %zu bytes", bytesize);
+	result = real_cuMemAllocManaged(dptr, bytesize, flags);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAllocManaged));
-	log_debug("cuMemAllocManaged allocated %zu bytes at 0x%llx", bytesize, *dptr);
+	// log_debug("cuMemAllocManaged allocated %zu bytes at 0x%llx", bytesize, *dptr);
 	result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
   result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_ACCESSED_BY, assignedDevice);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
-	log_debug("cuMemAdvise set advice");
+	// log_debug("cuMemAllocManaged cuMemAdvise set advice");
+  
+	if (result == CUDA_SUCCESS) {
+		insert_cuda_allocation(*dptr, bytesize);
+	}
+
+	return result;
+}
+
+CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize)
+{
+	CUresult result = CUDA_SUCCESS;
+
+	/* Return immediately if not initialized */
+	if (real_cuMemAllocManaged == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+
+	// log_debug("cuMemAlloc requested %zu bytes", bytesize);
+	result = real_cuMemAllocManaged(dptr, bytesize, CU_MEM_ATTACH_GLOBAL);
+	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAllocManaged));
+	// log_debug("cuMemAlloc allocated %zu bytes at 0x%llx", bytesize, *dptr);
+	result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+  result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_ACCESSED_BY, assignedDevice);
+	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+	// log_debug("cuMemAlloc cuMemAdvise set advice");
   
 	if (result == CUDA_SUCCESS) {
 		insert_cuda_allocation(*dptr, bytesize);
@@ -873,8 +964,13 @@ CUresult cuInit(unsigned int flags)
     return CUDA_ERROR_UNKNOWN;
   }
   CUDA_CHECK_ERR(real_cuDeviceGet(&assignedDevice, 0), CUDA_SYMBOL_STRING(cuDeviceGet));
-	return result;
+
+  result = get_compute_limits(&dims);
+  
+  return result;
 }
+
+int outstanding_kernels = 0;
 
 CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
 	unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX,
@@ -883,15 +979,29 @@ CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
 	void **extra)
 {
 	CUresult result = CUDA_SUCCESS;
+  // unsigned int maxDim = 64;
+  // unsigned int maxBlock = 16;
 
-	/* Return immediately if not initialized */
-	if (real_cuLaunchKernel == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+  /* Return immediately if not initialized */
+  if (real_cuLaunchKernel == NULL)
+    return CUDA_ERROR_NOT_INITIALIZED;
 
-	result = real_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX,
-		blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuLaunchKernel));
-
-	return result;
+  // printf("out: %d Old Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n", outstanding_kernels,
+  //      blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
+  // gridDimX = min(gridDimX, maxDim);
+  // gridDimY = min(gridDimY, maxDim);
+  // gridDimZ = min(gridDimZ, maxDim);
+  // blockDimX = min(blockDimX, maxBlock);
+  // blockDimY = min(blockDimY, maxBlock);
+  // blockDimZ = min(blockDimZ, maxBlock);
+  ++outstanding_kernels;
+  // printf("New Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n",
+        //  blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
+  result = real_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX,
+                               blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra);
+  cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuLaunchKernel));
+  --outstanding_kernels;
+  return result;
 }
 
 

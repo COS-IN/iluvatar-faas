@@ -135,6 +135,9 @@
     become: yes
     when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
     run_once: true
+    register: clean_cmd
+    failed_when: clean_cmd.rc != 0
+    environment: "{{proxy_env}}"
 
   - name: clean distrib host
     ansible.builtin.command: 
@@ -145,6 +148,8 @@
         - clean
     become: yes
     when: mode == "clean"
+    register: clean_cmd
+    failed_when: clean_cmd.rc != 0
     environment: "{{proxy_env}}"
 
   - name: run worker executable

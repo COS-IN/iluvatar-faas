@@ -94,6 +94,7 @@ pub async fn full_sim_invoker(
             docker,
             &cfg.status,
         )
+        .await
         .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     }
 
@@ -183,6 +184,7 @@ pub async fn sim_invoker_svc(
             docker,
             &cfg.status,
         )
+        .await
         .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     }
     let cm = ContainerManager::boxed(
@@ -269,6 +271,7 @@ pub async fn test_invoker_svc(
             docker,
             &cfg.status,
         )
+        .await
         .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
     }
     let cm = ContainerManager::boxed(
@@ -453,6 +456,15 @@ pub fn sim_args() -> anyhow::Result<String> {
         format!("cold_dur_ms={}", 5000),
         format!("warm_dur_ms={}", 1000),
         format!("mem_mb={}", 512),
+    ];
+    iluvatar_library::utils::config::args_to_json(&fmt)
+}
+
+pub fn short_sim_args() -> anyhow::Result<String> {
+    let fmt = vec![
+        format!("cold_dur_ms={}", 500),
+        format!("warm_dur_ms={}", 100),
+        format!("mem_mb={}", 128),
     ];
     iluvatar_library::utils::config::args_to_json(&fmt)
 }

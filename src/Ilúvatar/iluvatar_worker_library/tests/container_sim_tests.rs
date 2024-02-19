@@ -795,7 +795,7 @@ mod gpu_queueuing {
 
         let gpu_lck = gpu
             .unwrap_or_else(|| panic!("No gpu resource"))
-            .try_acquire_resource()
+            .try_acquire_resource(None)
             .expect("Should return GPU permit"); // hold GPU to force queueing
         let inv1 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
         wait_for_queue_len(&invoker, Compute::GPU, 1).await;
@@ -907,7 +907,7 @@ mod gpu_queueuing {
 
         let gpu_lck = gpu
             .unwrap_or_else(|| panic!("No gpu resource"))
-            .try_acquire_resource()
+            .try_acquire_resource(None)
             .expect("Should return GPU permit"); // hold GPU to force queueing
         let inv1 = background_test_invoke(&invoker, &func1, &sim_args().unwrap(), &TEST_TID);
         wait_for_queue_len(&invoker, Compute::GPU, 1).await;

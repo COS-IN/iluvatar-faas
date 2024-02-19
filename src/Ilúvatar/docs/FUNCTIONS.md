@@ -13,7 +13,7 @@ Currently, functions must use pre-built images.
 The system does not support building images from function code at runtime.
 
 ```shell
-foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 register --name myfunc --version 1 --memory 512 --cpu 1 --image docker.io/alfuerst/hello-iluvatar-action:latest --isolation containerd --compute cpu
+foo@cosin:~$ iluvatar_worker_cli --host localhost --port 8079 register --name myfunc --version 1 --memory 512 --cpu 1 --image docker.io/alfuerst/hello-iluvatar-action:latest --isolation containerd --compute cpu
 {"Ok": "function registered"}
 ```
 

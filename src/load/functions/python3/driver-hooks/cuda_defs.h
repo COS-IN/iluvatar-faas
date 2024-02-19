@@ -78,11 +78,52 @@ typedef enum CUmem_advise_flags_enum {
   CU_MEM_ADVISE_UNSET_ACCESSED_BY = 0x6
 } CUmem_advise_flags;
 
-#define CU_STREAM_PER_THREAD ((CUstream)0x2) 
+#define CU_STREAM_PER_THREAD ((CUstream)0x2)
 
-typedef enum nvmlReturn_t_enum {
-	NVML_SUCCESS = 0,
-	NVML_ERROR_UNKNOWN = 999
+typedef enum CUdevice_attribute
+{
+  // Maximum number of threads per block
+  CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK = 1,
+  // Maximum block dimension X
+  CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_X = 2,
+  // Maximum block dimension Y
+  CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Y = 3,
+  // Maximum block dimension Z
+  CU_DEVICE_ATTRIBUTE_MAX_BLOCK_DIM_Z = 4,
+  // Maximum grid dimension X
+  CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X = 5,
+  // Maximum grid dimension Y
+  CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Y = 6,
+  // Maximum grid dimension Z
+  CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_Z = 7,
+  // Number of multiprocessors on device
+  CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT = 16,
+  // Maximum resident threads per multiprocessor
+  CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR = 39,
+  // Maximum number of blocks per multiprocessor
+  CU_DEVICE_ATTRIBUTE_MAX_BLOCKS_PER_MULTIPROCESSOR = 106,
+} CUdevice_attribute_flags;
+
+typedef struct Dims
+{
+  int x;
+  int y;
+  int z;
+} Dims, *Dims_t;
+
+typedef struct DeviceDimMax {
+  int max_threads_per_block;
+  int multiprocessor_count;
+  int blocks_per_mp;
+  int threads_per_mp;
+  Dims block;
+  Dims grid;
+} DeviceDimMax, *DeviceDimMax_t;
+
+typedef enum nvmlReturn_t_enum
+{
+  NVML_SUCCESS = 0,
+  NVML_ERROR_UNKNOWN = 999
 } nvmlReturn_t;
 
 /*
@@ -145,6 +186,8 @@ typedef CUresult (*cuMemcpyHtoDAsync_func)(CUdeviceptr dstDevice,
 	const void* srcHost, size_t ByteCount, CUstream hStream);
 typedef CUresult (*cuMemcpyDtoDAsync_func)(CUdeviceptr dstDevice,
 	CUdeviceptr srcDevice, size_t ByteCount, CUstream hStream);
+typedef CUresult (*cuStreamSynchronize_func)(CUstream hStream);
+typedef CUresult (*cuDeviceGetAttribute_func)(int *pi, CUdevice_attribute_flags attrib, CUdevice dev);
 
 typedef nvmlReturn_t (*nvmlDeviceGetUtilizationRates_func)(nvmlDevice_t device,
 	nvmlUtilization_t *utilization);
@@ -202,6 +245,8 @@ extern cuMemcpyHtoD_func real_cuMemcpyHtoD;
 extern cuMemcpyHtoDAsync_func real_cuMemcpyHtoDAsync;
 extern cuMemcpyDtoD_func real_cuMemcpyDtoD;
 extern cuMemcpyDtoDAsync_func real_cuMemcpyDtoDAsync;
+extern cuStreamSynchronize_func real_cuStreamSynchronize;
+extern cuDeviceGetAttribute_func real_cuDeviceGetAttribute;
 
 extern void cuda_driver_check_error(CUresult err, const char *func_name);
 
