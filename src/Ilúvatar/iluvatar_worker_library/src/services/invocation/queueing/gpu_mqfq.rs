@@ -41,6 +41,8 @@ pub struct MqfqConfig {
     /// VT time increment per invocation
     /// If [None] or 0.0, uses avg execution time for the function
     pub service_average: Option<f64>,
+    /// TTL for active flow turning to inactive, default to 2.0 if [None]
+    pub ttl_sec: Option<f64>,
 }
 
 /// Multi-Queue Fair Queueing.
@@ -135,7 +137,7 @@ impl FlowQ {
             start_time_virt,
             finish_time_virt: start_time_virt,
             in_flight: 0,
-            ttl_sec: 20.0,
+            ttl_sec: missing_default(q_config.ttl_sec, 2.0),
             last_serviced: OffsetDateTime::now_utc(),
             service_avg: q_config.service_average,
             allowed_overrun: missing_default(q_config.allowed_overrun, 10.0),
