@@ -1,3 +1,4 @@
+use crate::services::containers::structs::CtrResources;
 use crate::services::{
     containers::{
         http_client::HttpContainerClient,
@@ -7,16 +8,15 @@ use crate::services::{
     registration::RegisteredFunction,
     resources::gpu::GPU,
 };
-use crate::services::containers::structs::CtrResources;
 use anyhow::Result;
+use iluvatar_library::{
+    bail_error, utils,
+    utils::{execute_cmd, execute_cmd_checked},
+};
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
     utils::port_utils::Port,
-};
-use iluvatar_library::{
-    bail_error, utils,
-    utils::{execute_cmd, execute_cmd_checked},
 };
 use parking_lot::{Mutex, RwLock};
 use std::{
@@ -26,9 +26,8 @@ use std::{
 };
 use tracing::{debug, error, info, warn};
 
-use serde_json::{Value, Error, from_str}; 
+use serde_json::{from_str, Error, Value};
 use std::collections::HashMap;
-
 
 type JsonMap = HashMap<String, serde_json::Value>;
 
@@ -39,7 +38,6 @@ pub struct Task {
     pub running: bool,
 }
 
-
 #[derive(Debug)]
 #[allow(unused)]
 pub struct ContainerdContainer {
@@ -47,10 +45,10 @@ pub struct ContainerdContainer {
     /// The containerd task in the container
     pub task: Task,
     pub port: Port,
-    /// IP Address assigned 
+    /// IP Address assigned
     pub address: String,
-    /// Network interface 
-    pub net_iface_name: String, 
+    /// Network interface
+    pub net_iface_name: String,
     fqdn: String,
     /// the associated function inside the container
     pub function: Arc<RegisteredFunction>,
@@ -65,7 +63,7 @@ pub struct ContainerdContainer {
     client: HttpContainerClient,
     compute: Compute,
     device: Option<Arc<GPU>>,
-    ctr_resources:RwLock<CtrResources>,
+    ctr_resources: RwLock<CtrResources>,
 }
 
 impl ContainerdContainer {
@@ -74,7 +72,7 @@ impl ContainerdContainer {
         task: Task,
         port: Port,
         address: String,
-	net_iface_name: String, 
+        net_iface_name: String,
         _parallel_invokes: NonZeroU32,
         fqdn: &str,
         function: &Arc<RegisteredFunction>,
@@ -91,7 +89,7 @@ impl ContainerdContainer {
             task,
             port,
             address,
-	    net_iface_name,
+            net_iface_name,
             client,
             compute,
             fqdn: fqdn.to_owned(),
@@ -102,7 +100,14 @@ impl ContainerdContainer {
             mem_usage: RwLock::new(function.memory),
             state: Mutex::new(state),
             device,
-	    ctr_resources: RwLock::new(CtrResources{cpu: 0.0, mem: 0.0, disk: 0.0, cumul_disk: 0.0, net: 0.0, cumul_net: 0.0}),
+            ctr_resources: RwLock::new(CtrResources {
+                cpu: 0.0,
+                mem: 0.0,
+                disk: 0.0,
+                cumul_disk: 0.0,
+                net: 0.0,
+                cumul_net: 0.0,
+            }),
         })
     }
 
@@ -184,71 +189,72 @@ impl ContainerT for ContainerdContainer {
     }
 
     fn update_ctr_resources(&self) {
-	
-	// Networking:
-	let vethname = self.net_iface_name.clone();
-	// ip -s -j link {}
-	// json output, filter stats64.rx.bytes and stats64.tx.bytes
-	let tid: TransactionId = String::from("Na");
-	let ipout = match execute_cmd_checked("/usr/sbin/ip",
-					      vec!["-s", "-j", "link", "show",  vethname.as_str()],
-					      None, &tid) {
-	    Ok(out)  => out,
-	    Err(e) => return 
-	};
-	
-	let stdout = String::from_utf8_lossy(&ipout.stdout);
+        // Networking:
+        let vethname = self.net_iface_name.clone();
+        // ip -s -j link {}
+        // json output, filter stats64.rx.bytes and stats64.tx.bytes
+        let tid: TransactionId = String::from("Na");
+        let ipout = match execute_cmd_checked(
+            "/usr/sbin/ip",
+            vec!["-s", "-j", "link", "show", vethname.as_str()],
+            None,
+            &tid,
+        ) {
+            Ok(out) => out,
+            Err(e) => return,
+        };
 
-	debug!(?stdout, "Output from ip link");
-	
-	let json_out = serde_json::from_str::<Vec<Value>>(&stdout).unwrap();
-	
-	let j = &json_out[0];
+        let stdout = String::from_utf8_lossy(&ipout.stdout);
 
-	debug!(?j, "Parsed JSON");
-	
-	let rx = &j["stats64"]["rx"];
-	let rb = &rx["bytes"];
+        debug!(?stdout, "Output from ip link");
 
-	debug!(?rb, "Parsed RB");
-		    
-	let read_bytes = match rb.as_f64() {
-	    Some(v) => v,
-	    _ => 0.0,
-	};
+        let json_out = serde_json::from_str::<Vec<Value>>(&stdout).unwrap();
 
-	debug!(?read_bytes, "read bytes");
-	
-	let wx = &j["stats64"]["wx"];
-	let wb = &wx["bytes"];
-	let write_bytes = match wb.as_f64() {
-	    Some(v) => v,
-	    _ => 0.0,
-	};
-  
-	
-	let total_bytes = (read_bytes + write_bytes) as f32;
+        let j = &json_out[0];
 
-        let old_r =  self.ctr_resources.read().unwrap().clone() ;
+        debug!(?j, "Parsed JSON");
+
+        let rx = &j["stats64"]["rx"];
+        let rb = &rx["bytes"];
+
+        debug!(?rb, "Parsed RB");
+
+        let read_bytes = match rb.as_f64() {
+            Some(v) => v,
+            _ => 0.0,
+        };
+
+        debug!(?read_bytes, "read bytes");
+
+        let wx = &j["stats64"]["wx"];
+        let wb = &wx["bytes"];
+        let write_bytes = match wb.as_f64() {
+            Some(v) => v,
+            _ => 0.0,
+        };
+
+        let total_bytes = (read_bytes + write_bytes) as f32;
+
+        let old_r = self.ctr_resources.read().unwrap().clone();
         let delta_n = total_bytes - old_r.cumul_net;
         let mlock = self.ctr_resources.write();
         *mlock.cumul_net = total_bytes;
         *mlock.net = delta_n;
 
-        old_r.net = delta_n ;
+        old_r.net = delta_n;
         old_r.cumul_net = total_bytes;
 
-	// let old_c = self.ctr_resources.cumul_net.clone();
-	// let diff = total_bytes - old_c ;
-	// self.ctr_resources.cumul_net = total_bytes ;
-	// self.ctr_resources.net = diff ;
-	
-	//self.ctr_resources.unwrap().cumul_net = total_bytes as f32; 
-	
-	debug!(vethname=vethname, bytes=total_bytes, "Read network bytes"); 
+        // let old_c = self.ctr_resources.cumul_net.clone();
+        // let diff = total_bytes - old_c ;
+        // self.ctr_resources.cumul_net = total_bytes ;
+        // self.ctr_resources.net = diff ;
+
+        //self.ctr_resources.unwrap().cumul_net = total_bytes as f32;
+
+        debug!(vethname = vethname, bytes = total_bytes, "Read network bytes");
         // return old_r
     }
-    
+
     fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
         todo!("Containerd containers are CPU-only and shouldn't be given anything to drop on remove!");
     }
