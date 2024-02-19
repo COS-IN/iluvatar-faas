@@ -215,7 +215,7 @@ impl FlowQ {
             // start timer for grace period?
         } else {
             // queue is empty
-            self.update_state(MQState::Inactive);
+            self.check_empty_q_grace_period();
         }
         let gap = self.start_time_virt - vitual_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
         if gap >= self.allowed_overrun {
@@ -223,15 +223,8 @@ impl FlowQ {
         }
     }
 
-    /// The vitual_time may have advanced, so reset throttle. Call on dispatch
-    pub fn set_idle_throttled(&mut self, vitual_time: f64) {
-        let gap = self.start_time_virt - vitual_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
-        if gap <= self.allowed_overrun {
-            self.update_state(MQState::Active);
-            return;
-        }
-        // check grace period
-        if self.queue.is_empty() {
+    fn check_empty_q_grace_period(&mut self) {
+        if self.state == MQState::Active {
             let ttl_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
             if ttl_remaining > self.ttl_sec {
                 self.update_state(MQState::Inactive);
@@ -243,6 +236,21 @@ impl FlowQ {
                 self.avg_active_t = new_avg;
             }
         }
+    }
+
+    /// The vitual_time may have advanced, so reset throttle. Call on dispatch
+    pub fn set_idle_throttled(&mut self, vitual_time: f64) {
+        // check grace period
+        if self.queue.is_empty() {
+            return self.check_empty_q_grace_period();
+        }
+
+        let gap = self.start_time_virt - vitual_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
+        if gap <= self.allowed_overrun {
+            self.update_state(MQState::Active);
+            return;
+        }
+        self.update_state(MQState::Throttled);
     }
 
     /// Estimated q wait time, assumes weight = 1
@@ -298,6 +306,7 @@ pub struct MQFQ {
 
 /// TODO: Pass concurrency semaphore from gpu_q_invoke
 /// TODO: config with D, T, wts, etc.
+/// TODO: limit number active queues via GPU memory sizing
 #[allow(dyn_drop)]
 impl MQFQ {
     pub fn new(
@@ -439,9 +448,11 @@ impl MQFQ {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => {
                 let n = n?;
-                let ctr = n.container.clone();
-                let t = tid.clone();
-                tokio::spawn(async move { ContainerManager::move_to_device(ctr, t).await });
+                if self.gpu_config.send_driver_memory_hints() {
+                    let ctr = n.container.clone();
+                    let t = tid.clone();
+                    tokio::spawn(ContainerManager::move_to_device(ctr, t));
+                }
                 n
             }
         };

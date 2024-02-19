@@ -211,7 +211,7 @@ impl CPUUtilInstant {
             cpu_guest_nice: Self::safe_get_val(&strs, 10, tid)?,
         })
     }
-    fn safe_get_val(split_line: &Vec<&str>, pos: usize, tid: &TransactionId) -> Result<f64> {
+    fn safe_get_val(split_line: &[&str], pos: usize, tid: &TransactionId) -> Result<f64> {
         if split_line.len() >= pos {
             match split_line[pos].parse::<f64>() {
                 Ok(v) => Ok(v),

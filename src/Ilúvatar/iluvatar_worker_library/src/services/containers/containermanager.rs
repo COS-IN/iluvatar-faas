@@ -1,5 +1,5 @@
 use super::container_pool::{ContainerPool, Subpool};
-use super::structs::{Container, ContainerLock, ContainerState};
+use super::structs::{Container, ContainerLock, ContainerState, ContainerT};
 use super::ContainerIsolationCollection;
 use crate::services::containers::docker::dockerstructs::DockerContainer;
 use crate::services::containers::structs::{InsufficientGPUError, InsufficientMemoryError};
@@ -721,11 +721,10 @@ impl ContainerManager {
 
     pub async fn move_to_device(cont: Container, tid: TransactionId) {
         match crate::services::containers::structs::cast::<DockerContainer>(&cont) {
-            Ok(c) => {
-                if let Err(e) = c.client.move_to_device(&tid, &c.container_id).await {
-                    error!(tid=%tid, error=%e, "Error moving data to device");
-                }
-            }
+            Ok(c) => match c.client.move_to_device(&tid, &c.container_id).await {
+                Ok(()) => c.set_state(ContainerState::Warm),
+                Err(e) => error!(tid=%tid, error=%e, "Error moving data to device"),
+            },
             Err(e) => error!(tid=%tid, error=%e, "move_to_device Error casting container to DockerContainer"),
         };
     }
@@ -738,8 +737,10 @@ impl ContainerManager {
     pub async fn move_off_device(cont: Container, tid: TransactionId) {
         match crate::services::containers::structs::cast::<DockerContainer>(&cont) {
             Ok(c) => {
-                if let Err(e) = c.client.move_from_device(&tid, &c.container_id).await {
-                    error!(tid=%tid, error=%e, "Error moving data from device");
+                match c.client.move_from_device(&tid, &c.container_id).await {
+                    // container is "prewarmed" because we need to do work to fully start
+                    Ok(()) => c.set_state(ContainerState::Prewarm),
+                    Err(e) => error!(tid=%tid, error=%e, "Error moving data from device"),
                 }
             }
             Err(e) => error!(tid=%tid, error=%e, "move_off_device Error casting container to DockerContainer"),

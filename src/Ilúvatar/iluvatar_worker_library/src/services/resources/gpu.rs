@@ -303,7 +303,7 @@ impl GpuResourceTracker {
     fn create_concurrency_semaphore(
         config: &Arc<GPUResourceConfig>,
         gpu_hardware_id: PrivateGpuId,
-        gpus: &Vec<Arc<GPU>>,
+        gpus: &[Arc<GPU>],
         _tid: &TransactionId,
     ) -> Result<Arc<Semaphore>> {
         let gpu_cnt = gpus.len();

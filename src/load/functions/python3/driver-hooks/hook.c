@@ -410,7 +410,6 @@ static void initialize_libgpushare(void)
 	value = getenv(ENV_GPUSHARE_DEBUG);
 	if (value != NULL)
 		__debug = 1;	
-    __debug = 1;	
 	value = getenv(ENV_GPUSHARE_ENABLE_SINGLE_OVERSUB);
 	if (value != NULL) {
 		enable_single_oversub = 1;
@@ -753,8 +752,8 @@ int prefetchStreamToHost() {
     CUDA_CHECK_ERR(real_cuStreamCreate(&asyncPrefetchStream, CU_STREAM_NON_BLOCKING), CUDA_SYMBOL_STRING(cuStreamCreate));
 
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
-      result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
-      CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+      // result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
+      // CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
       result = real_cuMemPrefetchAsync(a->ptr, a->size, CU_DEVICE_CPU, asyncPrefetchStream);
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
       async_prefetch_outstanding = true;
@@ -770,9 +769,10 @@ int prefetchStreamToDevice() {
   if (real_cuStreamCreate == NULL) return CUDA_ERROR_NOT_INITIALIZED;
   if (asyncPrefetchStream == NULL)
     CUDA_CHECK_ERR(real_cuStreamCreate(&asyncPrefetchStream, CU_STREAM_NON_BLOCKING), CUDA_SYMBOL_STRING(cuStreamCreate));
+
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
-    result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
-    CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+    // result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+    // CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
     result = real_cuMemPrefetchAsync(a->ptr, a->size, assignedDevice, asyncPrefetchStream);
     CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
     async_prefetch_outstanding = true;
@@ -789,8 +789,8 @@ int prefetchToHost() {
   if (real_cuMemAdvise == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
-      result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
-      CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+      // result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
+      // CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
       result = real_cuMemPrefetchAsync(a->ptr, a->size, CU_DEVICE_CPU, CU_STREAM_PER_THREAD);
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
       async_prefetch_outstanding = true;
@@ -806,8 +806,8 @@ int prefetchToDevice() {
 	struct cuda_mem_allocation *tmp, *a;
 
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
-    result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
-    CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+    // result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+    // CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
     result = real_cuMemPrefetchAsync(a->ptr, a->size, assignedDevice, CU_STREAM_PER_THREAD);
     CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
     async_prefetch_outstanding = true;
