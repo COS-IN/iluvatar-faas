@@ -7,11 +7,16 @@ use crate::services::{
     registration::RegisteredFunction,
     resources::gpu::GPU,
 };
+use crate::services::containers::structs::CtrResources;
 use anyhow::Result;
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
     utils::port_utils::Port,
+};
+use iluvatar_library::{
+    bail_error, utils,
+    utils::{execute_cmd, execute_cmd_checked},
 };
 use parking_lot::{Mutex, RwLock};
 use std::{
@@ -19,7 +24,11 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tracing::warn;
+use tracing::{debug, error, info, warn};
+
+use serde_json::{Value, Error, from_str}; 
+use std::collections::HashMap;
+type JsonMap = HashMap<String, serde_json::Value>;
 
 #[derive(Debug)]
 pub struct Task {
@@ -27,6 +36,7 @@ pub struct Task {
     pub container_id: Option<String>,
     pub running: bool,
 }
+
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -53,6 +63,7 @@ pub struct ContainerdContainer {
     client: HttpContainerClient,
     compute: Compute,
     device: Option<Arc<GPU>>,
+    ctr_resources:Option<CtrResources>, 
 }
 
 impl ContainerdContainer {
@@ -89,6 +100,7 @@ impl ContainerdContainer {
             mem_usage: RwLock::new(function.memory),
             state: Mutex::new(state),
             device,
+	    ctr_resources: Option::from(CtrResources { cpu: 0.0, mem: 0.0, disk: 0.0, cumul_disk: 0.0, net: 0.0, cumul_net: 0.0 }),
         })
     }
 
@@ -168,6 +180,42 @@ impl ContainerT for ContainerdContainer {
     fn device_resource(&self) -> &Option<Arc<GPU>> {
         &self.device
     }
+
+    fn update_ctr_resources(&self) {
+
+	if self.ctr_resources.is_none() {
+	    return
+	}
+	
+	// Networking:
+	let vethname = self.net_iface_name.clone();
+	// ip -s -j link {}
+	// json output, filter stats64.rx.bytes and stats64.tx.bytes
+	let tid: TransactionId = String::from("Na");
+	let ipout = match execute_cmd_checked("/bin/ip",
+					      vec!["-s", "-j", "link", "show",  vethname.as_str()],
+					      None, &tid) {
+	    Ok(out)  => out,
+	    Err(e) => return 
+	};
+	
+	let stdout = String::from_utf8_lossy(&ipout.stdout);
+	let json_out = serde_json::from_str::<Vec<Value>>(&stdout).unwrap();
+	
+	let j = &json_out[0];
+	let rx = &j["stat64"]["rx"];
+	let rb = &rx["bytes"];
+	let read_bytes = match rb.as_f64() {
+	    Some(v) => v,
+	    _ => 0.0,
+	};
+  
+	let total_bytes = read_bytes ;
+	
+	debug!(vethname=vethname, bytes=total_bytes, "Read network bytes"); 
+
+    }
+    
     fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
         todo!("Containerd containers are CPU-only and shouldn't be given anything to drop on remove!");
     }

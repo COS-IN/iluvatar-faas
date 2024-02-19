@@ -219,6 +219,12 @@ impl ContainerT for SimulatorContainer {
     fn device_resource(&self) -> &Option<Arc<GPU>> {
         &self.device
     }
+
+    fn update_ctr_resources(&self) {
+	todo!()
+    }
+
+    
     fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
         debug!(tid=%tid, container_id=%self.container_id(), "Adding token to drop on remove");
         self.drop_on_remove.lock().push(item);
