@@ -192,7 +192,7 @@ impl ContainerT for ContainerdContainer {
 	// ip -s -j link {}
 	// json output, filter stats64.rx.bytes and stats64.tx.bytes
 	let tid: TransactionId = String::from("Na");
-	let ipout = match execute_cmd_checked("/bin/ip",
+	let ipout = match execute_cmd_checked("/usr/sbin/ip",
 					      vec!["-s", "-j", "link", "show",  vethname.as_str()],
 					      None, &tid) {
 	    Ok(out)  => out,
@@ -200,16 +200,27 @@ impl ContainerT for ContainerdContainer {
 	};
 	
 	let stdout = String::from_utf8_lossy(&ipout.stdout);
+
+	debug!(?stdout, "Output from ip link");
+	
 	let json_out = serde_json::from_str::<Vec<Value>>(&stdout).unwrap();
 	
 	let j = &json_out[0];
+
+	debug!(?j, "Parsed JSON");
+	
 	let rx = &j["stat64"]["rx"];
 	let rb = &rx["bytes"];
+
+	debug!(?rb, "Parsed RB");
+		    
 	let read_bytes = match rb.as_f64() {
 	    Some(v) => v,
 	    _ => 0.0,
 	};
 
+	debug!(?read_bytes, "read bytes");
+	
 	let wx = &j["stat64"]["wx"];
 	let wb = &wx["bytes"];
 	let write_bytes = match wb.as_f64() {
