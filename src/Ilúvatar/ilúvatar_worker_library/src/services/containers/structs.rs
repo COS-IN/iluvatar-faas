@@ -17,6 +17,16 @@ use time::{
 };
 use tracing::debug;
 
+// TODO: Make this copy type? copying 6 numbers vs. reference tracking
+pub struct CtrResources {
+    pub cpu: f32, //CPU % of sorts?
+    pub mem: f32, // MB occupied j
+    pub disk: f32,  // bytes read+written in most recent execution
+    pub cumul_disk: f32, //I/O usually has cumulative stats. disk = new.cumul_disk - old.cumul_disk
+    pub net: f32,
+    pub cumul_net: f32
+}
+
 #[tonic::async_trait]
 pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
     /// Invoke the function within the container, passing the json args to it
@@ -34,6 +44,9 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
     fn get_curr_mem_usage(&self) -> MemSizeMb;
     /// Update the memory usage of this container
     fn set_curr_mem_usage(&self, usage: MemSizeMb);
+    /// Mostly called after function invocation
+    fn update_ctr_resources(&self);
+
     /// the function this container serves
     fn function(&self) -> Arc<RegisteredFunction>;
     /// the fully qualified domain name of the function

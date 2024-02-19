@@ -18,7 +18,9 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+use std::path::Path;
 use tracing::warn;
+use crate::services::containers::structs::CtrResources;
 
 #[derive(Debug)]
 pub struct Task {
@@ -51,6 +53,7 @@ pub struct ContainerdContainer {
     client: Client,
     compute: Compute,
     device: Option<Arc<GPU>>,
+    ctr_resources: Option<CtrResources>, //rw lock? or just copy this everywhere?
 }
 
 impl ContainerdContainer {
@@ -97,6 +100,7 @@ impl ContainerdContainer {
             mem_usage: RwLock::new(function.memory),
             state: Mutex::new(state),
             device,
+            ctr_resources: Option::from(CtrResources { cpu: 0.0, mem: 0.0, disk: 0.0, cumul_disk: 0.0, net: 0.0, cumul_net: 0.0 }),
         })
     }
 
@@ -220,6 +224,33 @@ impl ContainerT for ContainerdContainer {
     }
     fn device_resource(&self) -> &Option<Arc<GPU>> {
         &self.device
+    }
+
+
+    fn update_ctr_resources(&self) {
+        let old = self.ctr_resources.unwrap();
+        // read in the disk and networking values somehow
+        //0. Find the cgroup name
+        let cgname = self.container_id;
+        //1. Get the list of pids in this container
+        let pids: Vec<i32> ;
+        let cgroups_base = Path::new("/sys/fs/cgroups/cpu/system.slice/");
+        let task_path = cgroups_base+cgname+"/tasks";
+        let mut lines = io::BufReader::new(file).lines();
+
+        let mut vec = Vec::new();
+        while let Some(Ok(line)) = lines.next() {
+            vec.push(line);
+        }
+
+        // Root required for accessing io? aargh
+        procfs::process::Io ;
+
+        let disk_base = "/proc/{}/"
+//https://jpetazzo.github.io/2013/10/08/docker-containers-metrics/
+        //Network still a challenge, lets use blkio for disk and make it work.
+
+        todo!()
     }
 }
 
