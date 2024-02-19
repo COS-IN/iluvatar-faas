@@ -28,6 +28,8 @@ use tracing::{debug, error, info, warn};
 
 use serde_json::{Value, Error, from_str}; 
 use std::collections::HashMap;
+
+
 type JsonMap = HashMap<String, serde_json::Value>;
 
 #[derive(Debug)]
@@ -63,7 +65,7 @@ pub struct ContainerdContainer {
     client: HttpContainerClient,
     compute: Compute,
     device: Option<Arc<GPU>>,
-    ctr_resources:CtrResources,
+    ctr_resources:RwLock<CtrResources>,
 }
 
 impl ContainerdContainer {
@@ -100,7 +102,7 @@ impl ContainerdContainer {
             mem_usage: RwLock::new(function.memory),
             state: Mutex::new(state),
             device,
-	    ctr_resources: CtrResources{cpu: 0.0, mem: 0.0, disk: 0.0, cumul_disk: 0.0, net: 0.0, cumul_net: 0.0},
+	    ctr_resources: RwLock::new(CtrResources{cpu: 0.0, mem: 0.0, disk: 0.0, cumul_disk: 0.0, net: 0.0, cumul_net: 0.0}),
         })
     }
 
@@ -227,6 +229,15 @@ impl ContainerT for ContainerdContainer {
 	
 	let total_bytes = (read_bytes + write_bytes) as f32;
 
+        let old_r =  self.ctr_resources.read().unwrap().clone() ;
+        let delta_n = total_bytes - old_r.cumul_net;
+        let mlock = self.ctr_resources.write();
+        *mlock.cumul_net = total_bytes;
+        *mlock.net = delta_n;
+
+        old_r.net = delta_n ;
+        old_r.cumul_net = total_bytes;
+
 	// let old_c = self.ctr_resources.cumul_net.clone();
 	// let diff = total_bytes - old_c ;
 	// self.ctr_resources.cumul_net = total_bytes ;
@@ -235,7 +246,7 @@ impl ContainerT for ContainerdContainer {
 	//self.ctr_resources.unwrap().cumul_net = total_bytes as f32; 
 	
 	debug!(vethname=vethname, bytes=total_bytes, "Read network bytes"); 
-
+        // return old_r
     }
     
     fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
