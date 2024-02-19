@@ -543,6 +543,8 @@ impl ContainerdIsolation {
         let ns = self.namespace_manager.get_namespace(tid)?;
         debug!(tid=%tid, namespace=%ns.name, containerid=%cid, "Assigning namespace to container");
 
+	debug!(?ns, "Namespace details"); // pretty print? 
+	
         let address = &ns.namespace.ips[0].address;
 	let netif = &ns.namespace.interfaces[0].name;
         let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name, &cid);

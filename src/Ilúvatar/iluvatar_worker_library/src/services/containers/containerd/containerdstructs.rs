@@ -219,6 +219,8 @@ impl ContainerT for ContainerdContainer {
   
 	
 	let total_bytes = read_bytes + write_bytes;
+
+	//self.ctr_resources.unwrap().cumul_net = total_bytes as f32; 
 	
 	debug!(vethname=vethname, bytes=total_bytes, "Read network bytes"); 
 
