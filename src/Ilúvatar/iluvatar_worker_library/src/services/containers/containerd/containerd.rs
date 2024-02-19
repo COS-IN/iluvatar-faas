@@ -543,10 +543,11 @@ impl ContainerdIsolation {
         let ns = self.namespace_manager.get_namespace(tid)?;
         debug!(tid=%tid, namespace=%ns.name, containerid=%cid, "Assigning namespace to container");
 
-	debug!(?ns, "Namespace details"); // pretty print? 
+	debug!(?ns, "Namespace details");
+	// Each network namespace has 3 interfaces. The bridge itself, the veth, and the eth0 interface assigned to the container. We want the veth for network monitoring. Assume its the middle? FIX later? 
 	
         let address = &ns.namespace.ips[0].address;
-	let netif = &ns.namespace.interfaces[0].name;
+	let netif = &ns.namespace.interfaces[1].name;
         let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name, &cid);
         let mut labels: HashMap<String, String> = HashMap::new();
         labels.insert("owner".to_string(), "iluvatar_worker".to_string());
