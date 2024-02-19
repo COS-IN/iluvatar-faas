@@ -10,102 +10,7 @@
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     __hardware_interface: "{{ hardware_interface | default(servers[ansible_host].hardware_interface) }}"
     SIGINT: 2
-  vars_files:
-    - group_vars/all.yml
-    - group_vars/host_addresses.yml
-
-  tasks:
-  - name: Create bin directory
-    file:
-      path: "{{bin_dir}}"
-      state: directory
-      recurse: yes
-    become: yes
-      
-  - name: copy worker executable
-    ansible.builtin.copy:
-      src: "{{iluvatar_home}}/target/{{target}}/{{worker.bin_name}}"
-      dest: "{{exe_dest}}"
-      mode: "preserve"
-    become: yes
-
-  - name: copy worker config
-    ansible.builtin.copy:
-      src: "{{iluvatar_home}}/target/{{target}}/{{worker.config_name}}"
-      dest: "{{config_dest}}"
-      mode: "preserve"
-    become: yes
-
-  - name: Get running worker process
-    shell: "ps -ef | grep -v grep | grep -w {{ worker.bin_name }} | awk '{print $2}'"
-    register: running_worker
-    when: mode == "clean"
-
-  - name: debug print
-    # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
-    run_once: true
-    debug:
-      msg: "{{ __worker_address }}"
-
-  - name: Kill running worker process on localhost
-    shell: "kill -s INT {{ item }}"
-    with_items: "{{ running_worker.stdout_lines }}"
-    become: yes
-    when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
-    run_once: true
-
-  - name: Kill running worker process distrib
-    shell: "kill {{ item }}"
-    when: (ansible_host != "127.0.0.1" and ansible_host != "localhost") and mode == "clean"
-    with_items: "{{ running_worker.stdout_lines }}"
-    become: yes
-
-  - name: clean localhost
-    ansible.builtin.command: 
-      argv: 
-        - "{{exe_dest}}"
-        - -c 
-        - "{{config_dest}}"
-        - clean
-    become: yes
-    when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
-    run_once: true
-    register: clean_cmd
-    failed_when: clean_cmd.rc != 0
-    environment:
-      "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
-      "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
-
-  - name: clean distrib host
-    ansible.builtin.command: 
-      argv: 
-        - "{{exe_dest}}"
-        - -c 
-        - "{{config_dest}}"
-        - clean
-    become: yes
-    when: mode == "clean"
-    register: clean_cmd
-    failed_when: clean_cmd.rc != 0
-    environment:
-      "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
-      "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
-    
-  - name: run worker executable
-    ansible.builtin.command: 
-      argv: 
-        - "{{exe_dest}}"
-        - -c 
-        - "{{config_dest}}"
-    become: yes
-    async: 2592000               # 60*60*24*30 – 1 month
-    poll: 0
-    when: mode == "deploy"
-    environment:
+    proxy_env:
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
       "ILUVATAR_WORKER__address" : "{{ __worker_address }}"
@@ -137,7 +42,6 @@
       "ILUVATAR_WORKER__container_resources__gpu_resource__limit_on_utilization" : "{{ gpu_limit_on_utilization | default(0) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__concurrent_running_funcs" : "{{ gpu_concurrent_running | default(0) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__prefetch_memory" : "{{ gpu_prefetch_memory | default(false) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__status_update_freq_ms" : "{{ gpu_status_update | default(0) }}"
 
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
@@ -173,15 +77,114 @@
       "ILUVATAR_WORKER__invocation__queues__gpu" : "{{ worker_gpu_queue | default('serial') }}"
       "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('serial') }}"
       "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
-
-      # MQFQ Config
-      "ILUVATAR_WORKER__invocation__mqfq_config__allowed_overrun" : "{{ mqfq_allowed_overrun | default(0.0) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__in_flight" : "{{ mqfq_allowed_overrun | default(false) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__dynamic_weights" : "{{ mqfq_allowed_overrun | default(false) }}"
-
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
 
+  vars_files:
+    - group_vars/all.yml
+    - group_vars/host_addresses.yml
+
+  tasks:
+  - name: Create bin directory
+    file:
+      path: "{{bin_dir}}"
+      state: directory
+      recurse: yes
+    become: yes
+      
+  - name: copy worker executable
+    ansible.builtin.copy:
+      src: "{{__bin_src}}/{{worker.bin_name}}"
+      dest: "{{exe_dest}}"
+      mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
+    become: yes
+
+  - name: copy worker config
+    ansible.builtin.copy:
+      src: "{{iluvatar_home}}/target/{{target}}/{{worker.config_name}}"
+      dest: "{{config_dest}}"
+      mode: "preserve"
+    become: yes
+
+  - name: Get running worker process
+    shell: "ps -ef | grep -v grep | grep -w {{ worker.bin_name }} | awk '{print $2}'"
+    register: running_worker
+    when: mode == "clean"
+
+  - name: Kill running worker process on localhost
+    shell: "kill -s INT {{ item }}"
+    with_items: "{{ running_worker.stdout_lines }}"
+    become: yes
+    when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
+    run_once: true
+
+  - name: Kill running worker process distrib
+    shell: "kill {{ item }}"
+    when: (ansible_host != "127.0.0.1" and ansible_host != "localhost") and mode == "clean"
+    with_items: "{{ running_worker.stdout_lines }}"
+    become: yes
+
+  - name: clean localhost
+    ansible.builtin.command: 
+      argv: 
+        - "{{exe_dest}}"
+        - -c 
+        - "{{config_dest}}"
+        - clean
+    become: yes
+    when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
+    run_once: true
+    register: clean_cmd
+    failed_when: clean_cmd.rc != 0
+    environment: "{{proxy_env}}"
+
+  - name: clean distrib host
+    ansible.builtin.command: 
+      argv: 
+        - "{{exe_dest}}"
+        - -c 
+        - "{{config_dest}}"
+        - clean
+    become: yes
+    when: mode == "clean"
+    register: clean_cmd
+    failed_when: clean_cmd.rc != 0
+    environment: "{{proxy_env}}"
+
+  - name: run worker executable
+    ansible.builtin.command: 
+      argv: 
+        - "{{exe_dest}}"
+        - -c 
+        - "{{config_dest}}"
+    become: yes
+    async: 2592000               # 60*60*24*30 – 1 month
+    poll: 0
+    when: mode == "deploy"
+    environment: "{{proxy_env}}"
+    register: worker_output
+
+  - name: run worker executable through perf
+    ansible.builtin.command: 
+      argv: 
+        - perf
+        - record
+        - -F
+        - "{{perf_record_freq_hz}} | default(1000)"
+        - -g
+        - --user-callchains
+        - --inherit
+        - -o 
+        - "{{worker_log_dir}}/perf.data"
+        - "{{exe_dest}}"
+        - -c 
+        - "{{config_dest}}"
+    become: yes
+    async: 2592000               # 60*60*24*30 – 1 month
+    poll: 0
+    when: mode == "perf"
+    environment: "{{proxy_env}}"
     register: worker_output
 
   - name: debug print
@@ -202,4 +205,4 @@
     until: result.msg == expected
     retries: 10
     delay: 5
-    when: mode == "deploy"
+    when: mode == "deploy" or mode == "perf"

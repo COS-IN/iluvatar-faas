@@ -1,5 +1,5 @@
 ARG REPO=alfuerst
-FROM ${REPO}/iluvatar-action-gpu-base:aarch64
+FROM ${REPO}/iluvatar-action-gpu-base
 WORKDIR /app
 
 RUN wget https://media.githubusercontent.com/media/onnx/models/main/text/machine_comprehension/roberta/model/roberta-sequence-classification-9.onnx && \

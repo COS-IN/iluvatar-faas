@@ -3,6 +3,7 @@ use super::{
     registration::{RegisteredFunction, RegistrationService},
 };
 use crate::rpc::{HealthResponse, LanguageRuntime, RegisterRequest};
+use crate::worker_api::worker_config::WorkerConfig;
 use anyhow::Result;
 use iluvatar_library::{
     transaction::TransactionId,
@@ -38,14 +39,28 @@ pub struct WorkerHealthService {
 
 impl WorkerHealthService {
     pub async fn boxed(
+        worker_config: WorkerConfig,
         invoker_svc: Arc<dyn Invoker>,
         reg: Arc<RegistrationService>,
         tid: &TransactionId,
     ) -> Result<Arc<Self>> {
+        let img_name = if worker_config
+            .container_resources
+            .gpu_resource
+            .as_ref()
+            .unwrap()
+            .is_tegra
+            .unwrap_or(false)
+        {
+            "docker.io/aarehman/hello-iluvatar-action:aarch64".to_string()
+        } else {
+            "docker.io/alfuerst/hello-iluvatar-action:latest".to_string()
+        };
+
         let health_func = RegisterRequest {
             function_name: TEST_FUNC_NAME.to_string(),
             function_version: TEST_FUNC_VERSION.to_string(),
-            image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+            image_name: img_name,
             memory: 75,
             cpus: 1,
             parallel_invokes: 1,

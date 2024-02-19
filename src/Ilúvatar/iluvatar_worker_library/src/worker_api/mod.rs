@@ -87,7 +87,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let invoker = invoker_fact
         .get_invoker_service(tid)
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to get invoker service"))?;
-    let health = WorkerHealthService::boxed(invoker.clone(), reg.clone(), tid)
+    let health = WorkerHealthService::boxed(worker_config.clone(), invoker.clone(), reg.clone(), tid)
         .await
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker health service"))?;
     let status = StatusService::boxed(
