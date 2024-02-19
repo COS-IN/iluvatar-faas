@@ -25,7 +25,7 @@ def push(func_name, log):
   docker_cmd(["push", image_name(func_name)], log)
 
 def build(path, function_name, dockerfile_base, basename):
-  shutil.copy("server.py", path)
+  shutil.copy("../server.py", path)
   shutil.copy(dockerfile_base, path)
   log_file = open(os.path.join(path, "build.log"), 'w')
 
@@ -52,5 +52,5 @@ if __name__ == "__main__":
   for func_name in os.listdir(funcs_dir):
     if os.path.isdir(os.path.join(funcs_dir, func_name)):
       dir = os.path.join(funcs_dir, func_name)
-      build(dir, func_name, "Dockerfile.cpu", "iluvatar-action-base")
+      build(dir, func_name, "../Dockerfile.cpu", "iluvatar-action-base")
       

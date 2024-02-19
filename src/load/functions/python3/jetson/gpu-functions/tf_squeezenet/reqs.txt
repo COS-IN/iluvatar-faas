@@ -1,6 +1,7 @@
 uuid
 s3transfer
 jmespath
+protobuf==3.20
 tensorboard==2.13
 tensorflow==2.13
 tensorflow-estimator==2.13
