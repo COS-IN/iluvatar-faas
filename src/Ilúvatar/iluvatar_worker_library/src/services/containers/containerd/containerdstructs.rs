@@ -209,7 +209,7 @@ impl ContainerT for ContainerdContainer {
 
 	debug!(?j, "Parsed JSON");
 	
-	let rx = &j["stat64"]["rx"];
+	let rx = &j["stats64"]["rx"];
 	let rb = &rx["bytes"];
 
 	debug!(?rb, "Parsed RB");
@@ -221,7 +221,7 @@ impl ContainerT for ContainerdContainer {
 
 	debug!(?read_bytes, "read bytes");
 	
-	let wx = &j["stat64"]["wx"];
+	let wx = &j["stats64"]["wx"];
 	let wb = &wx["bytes"];
 	let write_bytes = match wb.as_f64() {
 	    Some(v) => v,
