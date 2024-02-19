@@ -177,6 +177,7 @@ async fn invoke_on_container<'a>(
     cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
 
     ctr_lock.container.update_ctr_resources();
+    // info!(fn, exectime, network reads, etc. "Function completion");
     
     // TODO: Also update the cmap? cmap.add(fn, net_bytes, container.ctr_resources.net_bytes) 
     

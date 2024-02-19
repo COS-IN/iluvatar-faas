@@ -18,7 +18,7 @@ use time::{
 use tracing::debug;
 
 // TODO: Make this copy type? copying 6 numbers vs. reference tracking
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct CtrResources {
     pub cpu: f32, //CPU % of sorts?
     pub mem: f32, // MB occupied j

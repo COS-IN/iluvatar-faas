@@ -63,7 +63,7 @@ pub struct ContainerdContainer {
     client: HttpContainerClient,
     compute: Compute,
     device: Option<Arc<GPU>>,
-    ctr_resources:Option<CtrResources>, 
+    ctr_resources:CtrResources,
 }
 
 impl ContainerdContainer {
@@ -100,7 +100,7 @@ impl ContainerdContainer {
             mem_usage: RwLock::new(function.memory),
             state: Mutex::new(state),
             device,
-	    ctr_resources: Option::from(CtrResources { cpu: 0.0, mem: 0.0, disk: 0.0, cumul_disk: 0.0, net: 0.0, cumul_net: 0.0 }),
+	    ctr_resources: CtrResources{cpu: 0.0, mem: 0.0, disk: 0.0, cumul_disk: 0.0, net: 0.0, cumul_net: 0.0},
         })
     }
 
@@ -182,10 +182,6 @@ impl ContainerT for ContainerdContainer {
     }
 
     fn update_ctr_resources(&self) {
-
-	if self.ctr_resources.is_none() {
-	    return
-	}
 	
 	// Networking:
 	let vethname = self.net_iface_name.clone();
@@ -229,8 +225,13 @@ impl ContainerT for ContainerdContainer {
 	};
   
 	
-	let total_bytes = read_bytes + write_bytes;
+	let total_bytes = (read_bytes + write_bytes) as f32;
 
+	// let old_c = self.ctr_resources.cumul_net.clone();
+	// let diff = total_bytes - old_c ;
+	// self.ctr_resources.cumul_net = total_bytes ;
+	// self.ctr_resources.net = diff ;
+	
 	//self.ctr_resources.unwrap().cumul_net = total_bytes as f32; 
 	
 	debug!(vethname=vethname, bytes=total_bytes, "Read network bytes"); 
