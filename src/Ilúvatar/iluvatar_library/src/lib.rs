@@ -18,6 +18,7 @@ pub mod cpu_interaction;
 pub mod energy;
 pub mod influx;
 pub mod logging;
+pub mod mindicator;
 pub mod threading;
 pub mod types;
 

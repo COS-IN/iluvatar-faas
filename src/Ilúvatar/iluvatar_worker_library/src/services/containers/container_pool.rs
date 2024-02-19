@@ -76,6 +76,7 @@ impl ContainerPool {
         ret
     }
 
+    /// Apply a function to all the idle containers of the given function
     pub async fn iter_fqdn<'a: 'b, 'b, T>(
         &'a self,
         tid: TransactionId,
@@ -140,6 +141,23 @@ impl ContainerPool {
             None => {
                 bail_error!(tid=%tid, container_id=%container.container_id(), "Supposedly running container was not found in running pool")
             }
+        }
+    }
+
+    /// Returns true if an idle container with the attached GPU is available
+    pub fn has_gpu_container(&self, fqdn: &str, gpu_token: &crate::services::resources::gpu::GpuToken) -> bool {
+        match self.idle_pool.get(fqdn) {
+            Some(c) => {
+                for cont in &*c {
+                    if let Some(gpu) = cont.device_resource() {
+                        if gpu.gpu_hardware_id == gpu_token.gpu_id && cont.state() == ContainerState::Warm {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            None => false,
         }
     }
 

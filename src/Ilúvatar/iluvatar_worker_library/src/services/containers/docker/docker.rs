@@ -144,6 +144,7 @@ impl DockerIsolation {
             "GiB" => 1024.0,
             "MiB" => 1.0,
             "KiB" => 1.0 / 1024.0,
+            "B" => 1.0 / (1024.0 * 1024.0),
             unknown => anyhow::bail!("Memory scale '{}' had an unsupported size format", unknown),
         };
         Ok(f64::ceil(parsed * scale) as MemSizeMb)

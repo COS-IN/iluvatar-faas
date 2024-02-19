@@ -1,3 +1,4 @@
+use super::queueing::concur_mqfq::ConcurMqfq;
 use super::queueing::gpu_mqfq::MQFQ;
 use super::queueing::{DeviceQueue, EnqueuedInvocation};
 use super::{
@@ -168,6 +169,16 @@ impl QueueingDispatcher {
                     )?))
                 } else if q == "mqfq" {
                     Ok(Some(MQFQ::new(
+                        cont_manager.clone(),
+                        cmap.clone(),
+                        invocation_config.clone(),
+                        cpu.clone(),
+                        gpu,
+                        gpu_config,
+                        tid,
+                    )?))
+                } else if q == "concur_mqfq" {
+                    Ok(Some(ConcurMqfq::new(
                         cont_manager.clone(),
                         cmap.clone(),
                         invocation_config.clone(),

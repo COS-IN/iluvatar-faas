@@ -246,6 +246,8 @@ fn try_create_signal(tid: &TransactionId, kind: SignalKind) -> Result<Signal> {
     }
 }
 
+/// Returns the default if the option is missing
+/// Otherwise returns the given
 pub fn missing_default<T>(opt: Option<T>, default: T) -> T {
     if let Some(i) = opt {
         return i;
@@ -253,6 +255,8 @@ pub fn missing_default<T>(opt: Option<T>, default: T) -> T {
     default
 }
 
+/// Returns the default if the option is missing or is zero
+/// Otherwise returns the given
 pub fn missing_or_zero_default<T: num_traits::PrimInt>(opt: Option<T>, default: T) -> T {
     if let Some(i) = opt {
         if i == T::zero() {
@@ -360,6 +364,33 @@ mod default_tests {
     #[case(100)]
     #[case(98461)]
     fn zero_returns_default(#[case] v: u32) {
-        assert_eq!(missing_or_zero_default(None, v), v);
+        assert_eq!(missing_or_zero_default(Some(0), v), v);
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(6)]
+    #[case(100)]
+    #[case(98461)]
+    fn def_returns_passed(#[case] v: u32) {
+        assert_eq!(missing_default(Some(v), v), v);
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(6)]
+    #[case(100)]
+    #[case(98461)]
+    fn def_none_returns_default(#[case] v: u32) {
+        assert_eq!(missing_default(None, v), v);
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(6)]
+    #[case(100)]
+    #[case(98461)]
+    fn def_zero_returns_zero(#[case] v: u32) {
+        assert_eq!(missing_default(Some(0), v), 0);
     }
 }

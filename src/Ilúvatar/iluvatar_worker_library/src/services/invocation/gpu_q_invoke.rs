@@ -16,7 +16,7 @@ use crate::services::{
 };
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::{characteristics_map::CharacteristicsMap, types::DroppableToken};
 use iluvatar_library::{
     logging::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
 };
@@ -218,14 +218,11 @@ impl GpuQueueingInvoker {
 
     /// Returns an owned permit if there are sufficient resources to run a function
     /// A return value of [None] means the resources failed to be acquired
-    fn acquire_resources_to_run(
-        &self,
-        reg: &Arc<RegisteredFunction>,
-        tid: &TransactionId,
-    ) -> Option<Box<dyn Drop + Send>> {
-        let mut ret = vec![];
+    fn acquire_resources_to_run(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Option<DroppableToken> {
+        let mut ret: Vec<DroppableToken> = vec![];
         match self.cpu.try_acquire_cores(reg, tid) {
-            Ok(c) => ret.push(c),
+            Ok(Some(c)) => ret.push(Box::new(c)),
+            Ok(_) => (),
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
@@ -238,8 +235,8 @@ impl GpuQueueingInvoker {
                 return None;
             }
         };
-        match self.gpu.try_acquire_resource(None) {
-            Ok(c) => ret.push(Some(c)),
+        match self.gpu.try_acquire_resource(None, tid) {
+            Ok(c) => ret.push(c.into()),
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
@@ -257,13 +254,7 @@ impl GpuQueueingInvoker {
 
     /// Runs the specific invocation inside a new tokio worker thread
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, batch, permit), fields(tid=%tid)))]
-    fn spawn_tokio_worker(
-        &self,
-        invoker_svc: Arc<Self>,
-        batch: GpuBatch,
-        permit: Box<dyn Drop + Send>,
-        tid: &TransactionId,
-    ) {
+    fn spawn_tokio_worker(&self, invoker_svc: Arc<Self>, batch: GpuBatch, permit: DroppableToken, tid: &TransactionId) {
         debug!(tid=%tid, "Launching invocation thread for queued item");
         tokio::spawn(async move {
             invoker_svc.invocation_worker_thread(batch, permit).await;
@@ -274,7 +265,7 @@ impl GpuQueueingInvoker {
     /// On success, the results are moved to the pointer and it is signaled
     /// On failure, [Invoker::handle_invocation_error] is called
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, batch, permit), fields(fqdn=batch.peek().registration.fqdn)))]
-    async fn invocation_worker_thread(&self, batch: GpuBatch, permit: Box<dyn Drop + Send>) {
+    async fn invocation_worker_thread(&self, batch: GpuBatch, permit: DroppableToken) {
         let now = OffsetDateTime::now_utc();
         let est_finish_time = now + time::Duration::seconds_f64(batch.est_queue_time());
         self.completion_tracker.add_item(est_finish_time);

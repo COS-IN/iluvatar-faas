@@ -410,7 +410,6 @@ static void initialize_libgpushare(void)
 	value = getenv(ENV_GPUSHARE_DEBUG);
 	if (value != NULL)
 		__debug = 1;	
-    __debug = 1;	
 	value = getenv(ENV_GPUSHARE_ENABLE_SINGLE_OVERSUB);
 	if (value != NULL) {
 		enable_single_oversub = 1;
@@ -554,13 +553,16 @@ void dump_symbol(void *handle, const char *symbol){
  */
 void *dlsym_225(void *handle, const char *symbol)
 {
-    log_debug("%s:%d called", __FUNCTION__, __LINE__);
-    dump_symbol( handle, symbol );
+    // log_debug("%s:%d called", __FUNCTION__, __LINE__);
+    // dump_symbol( handle, symbol );
+  // return (real_dlsym_225(handle, symbol));
 
 	if (strncmp(symbol, "cu", 2) != 0) {
 		return (real_dlsym_225(handle, symbol));
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
 		return (void *)(&cuMemAlloc);
+	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAllocManaged)) == 0) {
+		return (void *)(&cuMemAllocManaged);
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemFree)) == 0) {
 		return (void *)(&cuMemFree);
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemGetInfo)) == 0) {
@@ -569,32 +571,34 @@ void *dlsym_225(void *handle, const char *symbol)
 		return (void *)(&cuGetProcAddress);
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuInit)) == 0) {
 		return (void *)(&cuInit);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
-		return (void *)(&cuLaunchKernel);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpy)) == 0) {
-		return (void *)(&cuMemcpy);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyAsync)) == 0) {
-		return (void *)(&cuMemcpyAsync);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoH)) == 0) {
-		return (void *)(&cuMemcpyDtoH);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoHAsync)) == 0) {
-		return (void *)(&cuMemcpyDtoHAsync);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoD)) == 0) {
-		return (void *)(&cuMemcpyHtoD);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoDAsync)) == 0) {
-		return (void *)(&cuMemcpyHtoDAsync);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoD)) == 0) {
-		return (void *)(&cuMemcpyDtoD);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync)) == 0) {
-		return (void *)(&cuMemcpyDtoDAsync);
-	}
+  }
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
+	// 	return (void *)(&cuLaunchKernel);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpy)) == 0) {
+	// 	return (void *)(&cuMemcpy);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoH)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoH);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoHAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoHAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoD)) == 0) {
+	// 	return (void *)(&cuMemcpyHtoD);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoDAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyHtoDAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoD)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoD);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoDAsync);
+	// }
 
 	return (real_dlsym_225(handle, symbol));
 }
 
 void *dlsym_234(void *handle, const char *symbol)
 {
-  log_debug("%s:%d called", __FUNCTION__, __LINE__);
+  // log_debug("%s:%d called", __FUNCTION__, __LINE__);
+  // return (real_dlsym_234(handle, symbol));
 	if (strncmp(symbol, "cu", 2) != 0) {
 		return (real_dlsym_234(handle, symbol));
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
@@ -607,24 +611,24 @@ void *dlsym_234(void *handle, const char *symbol)
 		return (void *)(&cuGetProcAddress);
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuInit)) == 0) {
 		return (void *)(&cuInit);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
-		return (void *)(&cuLaunchKernel);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpy)) == 0) {
-		return (void *)(&cuMemcpy);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyAsync)) == 0) {
-		return (void *)(&cuMemcpyAsync);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoH)) == 0) {
-		return (void *)(&cuMemcpyDtoH);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoHAsync)) == 0) {
-		return (void *)(&cuMemcpyDtoHAsync);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoD)) == 0) {
-		return (void *)(&cuMemcpyHtoD);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoDAsync)) == 0) {
-		return (void *)(&cuMemcpyHtoDAsync);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoD)) == 0) {
-		return (void *)(&cuMemcpyDtoD);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync)) == 0) {
-		return (void *)(&cuMemcpyDtoDAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
+	// 	return (void *)(&cuLaunchKernel);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpy)) == 0) {
+	// 	return (void *)(&cuMemcpy);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoH)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoH);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoHAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoHAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoD)) == 0) {
+	// 	return (void *)(&cuMemcpyHtoD);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoDAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyHtoDAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoD)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoD);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoDAsync);
 	}
 
 	return (real_dlsym_234(handle, symbol));
@@ -632,7 +636,8 @@ void *dlsym_234(void *handle, const char *symbol)
 
 void *dlsym_231(void *handle, const char *symbol)
 {
-  log_debug("%s:%d called", __FUNCTION__, __LINE__);
+  // log_debug("%s:%d called", __FUNCTION__, __LINE__);
+  // return (real_dlsym_231(handle, symbol));
 	if (strncmp(symbol, "cu", 2) != 0) {
 		return (real_dlsym_231(handle, symbol));
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemAlloc)) == 0) {
@@ -645,25 +650,26 @@ void *dlsym_231(void *handle, const char *symbol)
 		return (void *)(&cuGetProcAddress);
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuInit)) == 0) {
 		return (void *)(&cuInit);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
-		return (void *)(&cuLaunchKernel);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpy)) == 0) {
-		return (void *)(&cuMemcpy);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyAsync)) == 0) {
-		return (void *)(&cuMemcpyAsync);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoH)) == 0) {
-		return (void *)(&cuMemcpyDtoH);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoHAsync)) == 0) {
-		return (void *)(&cuMemcpyDtoHAsync);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoD)) == 0) {
-		return (void *)(&cuMemcpyHtoD);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoDAsync)) == 0) {
-		return (void *)(&cuMemcpyHtoDAsync);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoD)) == 0) {
-		return (void *)(&cuMemcpyDtoD);
-	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync)) == 0) {
-		return (void *)(&cuMemcpyDtoDAsync);
-	}
+  }
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
+	// 	return (void *)(&cuLaunchKernel);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpy)) == 0) {
+	// 	return (void *)(&cuMemcpy);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoH)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoH);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoHAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoHAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoD)) == 0) {
+	// 	return (void *)(&cuMemcpyHtoD);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyHtoDAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyHtoDAsync);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoD)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoD);
+	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync)) == 0) {
+	// 	return (void *)(&cuMemcpyDtoDAsync);
+	// }
 
 	return (real_dlsym_231(handle, symbol));
 }
@@ -696,6 +702,8 @@ CUresult cuGetProcAddress(const char *symbol, void **pfn, int cudaVersion,
 
 	if (strcmp(symbol, "cuMemAlloc") == 0) {
 		*pfn = (void *)(&cuMemAlloc);
+	} else if (strcmp(symbol, "cuMemAllocManaged") == 0) {
+		*pfn = (void *)(&cuMemFree);
 	} else if (strcmp(symbol, "cuMemFree") == 0) {
 		*pfn = (void *)(&cuMemFree);
 	} else if (strcmp(symbol, "cuMemGetInfo") == 0) {
@@ -704,27 +712,30 @@ CUresult cuGetProcAddress(const char *symbol, void **pfn, int cudaVersion,
 		*pfn = (void *)(&cuGetProcAddress);
 	} else if (strcmp(symbol, "cuInit") == 0) {
 		*pfn = (void *)(&cuInit);
-	} else if (strcmp(symbol, "cuLaunchKernel") == 0) {
-		*pfn = (void *)(&cuLaunchKernel);
-	} else if (strcmp(symbol, "cuMemcpy") == 0) {
-		*pfn = (void *)(&cuMemcpy);
-	} else if (strcmp(symbol, "cuMemcpyAsync") == 0) {
-		*pfn = (void *)(&cuMemcpyAsync);
-	} else if (strcmp(symbol, "cuMemcpyDtoH") == 0) {
-		*pfn = (void *)(&cuMemcpyDtoH);
-	} else if (strcmp(symbol, "cuMemcpyDtoHAsync") == 0) {
-		*pfn = (void *)(&cuMemcpyDtoHAsync);
-	} else if (strcmp(symbol, "cuMemcpyHtoD") == 0) {
-		*pfn = (void *)(&cuMemcpyHtoD);
-	} else if (strcmp(symbol, "cuMemcpyHtoDAsync") == 0) {
-		*pfn = (void *)(&cuMemcpyHtoDAsync);
-	} else if (strcmp(symbol, "cuMemcpyDtoD") == 0) {
-		*pfn = (void *)(&cuMemcpyDtoD);
-	} else if (strcmp(symbol, "cuMemcpyDtoDAsync") == 0) {
-		*pfn = (void *)(&cuMemcpyDtoDAsync);
+	// } else if (strcmp(symbol, "cuLaunchKernel") == 0) {
+	// 	*pfn = (void *)(&cuLaunchKernel);
 	} else {
 		result = real_cuGetProcAddress(symbol, pfn, cudaVersion, flags);
 	}
+  // else if (strcmp(symbol, "cuMemcpy") == 0) {
+	// 	*pfn = (void *)(&cuMemcpy);
+	// } else if (strcmp(symbol, "cuMemcpyAsync") == 0) {
+	// 	*pfn = (void *)(&cuMemcpyAsync);
+	// } else if (strcmp(symbol, "cuMemcpyDtoH") == 0) {
+	// 	*pfn = (void *)(&cuMemcpyDtoH);
+	// } else if (strcmp(symbol, "cuMemcpyDtoHAsync") == 0) {
+	// 	*pfn = (void *)(&cuMemcpyDtoHAsync);
+	// } else if (strcmp(symbol, "cuMemcpyHtoD") == 0) {
+	// 	*pfn = (void *)(&cuMemcpyHtoD);
+	// } else if (strcmp(symbol, "cuMemcpyHtoDAsync") == 0) {
+	// 	*pfn = (void *)(&cuMemcpyHtoDAsync);
+	// } else if (strcmp(symbol, "cuMemcpyDtoD") == 0) {
+	// 	*pfn = (void *)(&cuMemcpyDtoD);
+	// } else if (strcmp(symbol, "cuMemcpyDtoDAsync") == 0) {
+	// 	*pfn = (void *)(&cuMemcpyDtoDAsync);
+	// } else {
+	// 	result = real_cuGetProcAddress(symbol, pfn, cudaVersion, flags);
+	// }
 
 	return result;
 }
@@ -741,8 +752,8 @@ int prefetchStreamToHost() {
     CUDA_CHECK_ERR(real_cuStreamCreate(&asyncPrefetchStream, CU_STREAM_NON_BLOCKING), CUDA_SYMBOL_STRING(cuStreamCreate));
 
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
-      result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
-      CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+      // result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
+      // CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
       result = real_cuMemPrefetchAsync(a->ptr, a->size, CU_DEVICE_CPU, asyncPrefetchStream);
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
       async_prefetch_outstanding = true;
@@ -758,9 +769,10 @@ int prefetchStreamToDevice() {
   if (real_cuStreamCreate == NULL) return CUDA_ERROR_NOT_INITIALIZED;
   if (asyncPrefetchStream == NULL)
     CUDA_CHECK_ERR(real_cuStreamCreate(&asyncPrefetchStream, CU_STREAM_NON_BLOCKING), CUDA_SYMBOL_STRING(cuStreamCreate));
+
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
-    result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
-    CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+    // result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+    // CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
     result = real_cuMemPrefetchAsync(a->ptr, a->size, assignedDevice, asyncPrefetchStream);
     CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
     async_prefetch_outstanding = true;
@@ -777,8 +789,8 @@ int prefetchToHost() {
   if (real_cuMemAdvise == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
-      result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
-      CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+      // result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, CU_DEVICE_CPU);
+      // CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
       result = real_cuMemPrefetchAsync(a->ptr, a->size, CU_DEVICE_CPU, CU_STREAM_PER_THREAD);
       CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
       async_prefetch_outstanding = true;
@@ -794,8 +806,8 @@ int prefetchToDevice() {
 	struct cuda_mem_allocation *tmp, *a;
 
 	LL_FOREACH_SAFE(cuda_allocation_list, a, tmp) {
-    result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
-    CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+    // result = real_cuMemAdvise(a->ptr, a->size, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+    // CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemAdvise));
     result = real_cuMemPrefetchAsync(a->ptr, a->size, assignedDevice, CU_STREAM_PER_THREAD);
     CUDA_CHECK_ERR(result, CUDA_SYMBOL_STRING(cuMemPrefetchAsync));
     async_prefetch_outstanding = true;
@@ -841,10 +853,10 @@ CUresult cuMemAllocManaged(CUdeviceptr *dptr, size_t bytesize, enum CUmemAttach_
 	result = real_cuMemAllocManaged(dptr, bytesize, flags);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAllocManaged));
 	// log_debug("cuMemAllocManaged allocated %zu bytes at 0x%llx", bytesize, *dptr);
-	result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
-  result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_ACCESSED_BY, assignedDevice);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+	// result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+	// cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+  // result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_ACCESSED_BY, assignedDevice);
+	// cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
 	// log_debug("cuMemAllocManaged cuMemAdvise set advice");
   
 	if (result == CUDA_SUCCESS) {
@@ -865,10 +877,10 @@ CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize)
 	result = real_cuMemAllocManaged(dptr, bytesize, CU_MEM_ATTACH_GLOBAL);
 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAllocManaged));
 	// log_debug("cuMemAlloc allocated %zu bytes at 0x%llx", bytesize, *dptr);
-	result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
-  result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_ACCESSED_BY, assignedDevice);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+	// result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_PREFERRED_LOCATION, assignedDevice);
+	// cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
+  // result = real_cuMemAdvise(*dptr, bytesize, CU_MEM_ADVISE_SET_ACCESSED_BY, assignedDevice);
+	// cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemAdvise));
 	// log_debug("cuMemAlloc cuMemAdvise set advice");
   
 	if (result == CUDA_SUCCESS) {
@@ -970,160 +982,160 @@ CUresult cuInit(unsigned int flags)
   return result;
 }
 
-int outstanding_kernels = 0;
+// int outstanding_kernels = 0;
 
-CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
-	unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX,
-	unsigned int blockDimY, unsigned int blockDimZ,
-	unsigned int sharedMemBytes, CUstream hStream, void **kernelParams,
-	void **extra)
-{
-	CUresult result = CUDA_SUCCESS;
-  // unsigned int maxDim = 64;
-  // unsigned int maxBlock = 16;
+// CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
+// 	unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX,
+// 	unsigned int blockDimY, unsigned int blockDimZ,
+// 	unsigned int sharedMemBytes, CUstream hStream, void **kernelParams,
+// 	void **extra)
+// {
+// 	CUresult result = CUDA_SUCCESS;
+//   // unsigned int maxDim = 64;
+//   // unsigned int maxBlock = 16;
 
-  /* Return immediately if not initialized */
-  if (real_cuLaunchKernel == NULL)
-    return CUDA_ERROR_NOT_INITIALIZED;
+//   /* Return immediately if not initialized */
+//   if (real_cuLaunchKernel == NULL)
+//     return CUDA_ERROR_NOT_INITIALIZED;
 
-  // printf("out: %d Old Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n", outstanding_kernels,
-  //      blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
-  // gridDimX = min(gridDimX, maxDim);
-  // gridDimY = min(gridDimY, maxDim);
-  // gridDimZ = min(gridDimZ, maxDim);
-  // blockDimX = min(blockDimX, maxBlock);
-  // blockDimY = min(blockDimY, maxBlock);
-  // blockDimZ = min(blockDimZ, maxBlock);
-  ++outstanding_kernels;
-  // printf("New Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n",
-        //  blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
-  result = real_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX,
-                               blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra);
-  cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuLaunchKernel));
-  --outstanding_kernels;
-  return result;
-}
-
-
-/*
- * Memory copy functions can affect the resident pages on GPU, so we must
- * block them as well when the client doesn't have the GPU lock.
- */
-CUresult cuMemcpy(CUdeviceptr dst, CUdeviceptr src, size_t ByteCount)
-{
-	CUresult result = CUDA_SUCCESS;
+//   // printf("out: %d Old Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n", outstanding_kernels,
+//   //      blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
+//   // gridDimX = min(gridDimX, maxDim);
+//   // gridDimY = min(gridDimY, maxDim);
+//   // gridDimZ = min(gridDimZ, maxDim);
+//   // blockDimX = min(blockDimX, maxBlock);
+//   // blockDimY = min(blockDimY, maxBlock);
+//   // blockDimZ = min(blockDimZ, maxBlock);
+//   ++outstanding_kernels;
+//   // printf("New Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n",
+//         //  blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
+//   result = real_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX,
+//                                blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra);
+//   cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuLaunchKernel));
+//   --outstanding_kernels;
+//   return result;
+// }
 
 
-	if (real_cuMemcpy == NULL) return CUDA_ERROR_NOT_INITIALIZED;
-
-	result = real_cuMemcpy(dst, src, ByteCount);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpy));
-
-	return result;
-}
-
-CUresult cuMemcpyAsync(CUdeviceptr dst, CUdeviceptr src, size_t ByteCount,
-	CUstream hStream)
-{
-	CUresult result = CUDA_SUCCESS;
+// /*
+//  * Memory copy functions can affect the resident pages on GPU, so we must
+//  * block them as well when the client doesn't have the GPU lock.
+//  */
+// CUresult cuMemcpy(CUdeviceptr dst, CUdeviceptr src, size_t ByteCount)
+// {
+// 	CUresult result = CUDA_SUCCESS;
 
 
-	if (real_cuMemcpyAsync == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+// 	if (real_cuMemcpy == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
-	result = real_cuMemcpyAsync(dst, src, ByteCount, hStream);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyAsync));
+// 	result = real_cuMemcpy(dst, src, ByteCount);
+// 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpy));
 
-	return result;
-}
+// 	return result;
+// }
 
-CUresult cuMemcpyDtoH(void *dstHost, CUdeviceptr srcDevice, size_t ByteCount)
-{
-	CUresult result = CUDA_SUCCESS;
-
-
-	/* Return immediately if not initialized */
-	if (real_cuMemcpyDtoH == NULL) return CUDA_ERROR_NOT_INITIALIZED;
-
-	result = real_cuMemcpyDtoH(dstHost, srcDevice, ByteCount);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyDtoH));
-
-	return result;
-}
-
-CUresult cuMemcpyDtoHAsync(void* dstHost, CUdeviceptr srcDevice,
-	size_t ByteCount, CUstream hStream)
-{
-	CUresult result = CUDA_SUCCESS;
+// CUresult cuMemcpyAsync(CUdeviceptr dst, CUdeviceptr src, size_t ByteCount,
+// 	CUstream hStream)
+// {
+// 	CUresult result = CUDA_SUCCESS;
 
 
-	/* Return immediately if not initialized */
-	if (real_cuMemcpyDtoHAsync == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+// 	if (real_cuMemcpyAsync == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
-	result = real_cuMemcpyDtoHAsync(dstHost, srcDevice, ByteCount, hStream);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyDtoHAsync));
+// 	result = real_cuMemcpyAsync(dst, src, ByteCount, hStream);
+// 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyAsync));
 
-	return result;
-}
+// 	return result;
+// }
 
-CUresult cuMemcpyHtoD(CUdeviceptr dstDevice, const void* srcHost,
-	size_t ByteCount)
-{
-	CUresult result = CUDA_SUCCESS;
+// CUresult cuMemcpyDtoH(void *dstHost, CUdeviceptr srcDevice, size_t ByteCount)
+// {
+// 	CUresult result = CUDA_SUCCESS;
 
 
-	/* Return immediately if not initialized */
-	if (real_cuMemcpyHtoD == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+// 	/* Return immediately if not initialized */
+// 	if (real_cuMemcpyDtoH == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
-	result = real_cuMemcpyHtoD(dstDevice, srcHost, ByteCount);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyHtoD));
+// 	result = real_cuMemcpyDtoH(dstHost, srcDevice, ByteCount);
+// 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyDtoH));
 
-	return result;
-}
+// 	return result;
+// }
 
-CUresult cuMemcpyHtoDAsync(CUdeviceptr dstDevice, const void* srcHost,
-	size_t ByteCount, CUstream hStream)
-{
-	CUresult result = CUDA_SUCCESS;
-
-
-	/* Return immediately if not initialized */
-	if (real_cuMemcpyHtoDAsync == NULL) return CUDA_ERROR_NOT_INITIALIZED;
-
-	result = real_cuMemcpyHtoDAsync(dstDevice, srcHost, ByteCount, hStream);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyHtoDAsync));
-
-	return result;
-}
-
-CUresult cuMemcpyDtoD(CUdeviceptr dstDevice, CUdeviceptr srcDevice,
-	size_t ByteCount)
-{
-	CUresult result = CUDA_SUCCESS;
+// CUresult cuMemcpyDtoHAsync(void* dstHost, CUdeviceptr srcDevice,
+// 	size_t ByteCount, CUstream hStream)
+// {
+// 	CUresult result = CUDA_SUCCESS;
 
 
-	/* Return immediately if not initialized */
-	if (real_cuMemcpyDtoD == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+// 	/* Return immediately if not initialized */
+// 	if (real_cuMemcpyDtoHAsync == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
-	result = real_cuMemcpyDtoD(dstDevice, srcDevice, ByteCount);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyDtoD));
+// 	result = real_cuMemcpyDtoHAsync(dstHost, srcDevice, ByteCount, hStream);
+// 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyDtoHAsync));
 
-	return result;
-}
+// 	return result;
+// }
 
-CUresult cuMemcpyDtoDAsync(CUdeviceptr dstDevice, CUdeviceptr srcDevice,
-	size_t ByteCount, CUstream hStream)
-{
-	CUresult result = CUDA_SUCCESS;
+// CUresult cuMemcpyHtoD(CUdeviceptr dstDevice, const void* srcHost,
+// 	size_t ByteCount)
+// {
+// 	CUresult result = CUDA_SUCCESS;
 
 
-	/* Return immediately if not initialized */
-	if (real_cuMemcpyDtoDAsync == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+// 	/* Return immediately if not initialized */
+// 	if (real_cuMemcpyHtoD == NULL) return CUDA_ERROR_NOT_INITIALIZED;
 
-	result = real_cuMemcpyDtoDAsync(dstDevice, srcDevice, ByteCount, hStream);
-	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync));
+// 	result = real_cuMemcpyHtoD(dstDevice, srcHost, ByteCount);
+// 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyHtoD));
 
-	return result;
-}
+// 	return result;
+// }
+
+// CUresult cuMemcpyHtoDAsync(CUdeviceptr dstDevice, const void* srcHost,
+// 	size_t ByteCount, CUstream hStream)
+// {
+// 	CUresult result = CUDA_SUCCESS;
+
+
+// 	/* Return immediately if not initialized */
+// 	if (real_cuMemcpyHtoDAsync == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+
+// 	result = real_cuMemcpyHtoDAsync(dstDevice, srcHost, ByteCount, hStream);
+// 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyHtoDAsync));
+
+// 	return result;
+// }
+
+// CUresult cuMemcpyDtoD(CUdeviceptr dstDevice, CUdeviceptr srcDevice,
+// 	size_t ByteCount)
+// {
+// 	CUresult result = CUDA_SUCCESS;
+
+
+// 	/* Return immediately if not initialized */
+// 	if (real_cuMemcpyDtoD == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+
+// 	result = real_cuMemcpyDtoD(dstDevice, srcDevice, ByteCount);
+// 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyDtoD));
+
+// 	return result;
+// }
+
+// CUresult cuMemcpyDtoDAsync(CUdeviceptr dstDevice, CUdeviceptr srcDevice,
+// 	size_t ByteCount, CUstream hStream)
+// {
+// 	CUresult result = CUDA_SUCCESS;
+
+
+// 	/* Return immediately if not initialized */
+// 	if (real_cuMemcpyDtoDAsync == NULL) return CUDA_ERROR_NOT_INITIALIZED;
+
+// 	result = real_cuMemcpyDtoDAsync(dstDevice, srcDevice, ByteCount, hStream);
+// 	cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync));
+
+// 	return result;
+// }
 
 __asm__(".symver dlsym_225, dlsym@@GLIBC_2.2.5");
 __asm__(".symver dlsym_234, dlsym@GLIBC_2.34");

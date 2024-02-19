@@ -16,6 +16,7 @@ use time::{Duration, OffsetDateTime};
 fn build_gpu_env(overrun: f64) -> Vec<(String, String)> {
     vec![
         ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
+        ("invocation.queues.gpu".to_string(), "mqfq".to_string()),
         (
             "invocation.mqfq_config.allowed_overrun".to_string(),
             format!("{}", overrun),
@@ -54,7 +55,7 @@ mod flowq_tests {
 
     async fn build_q(overrun: f64) -> (Option<impl Drop>, Arc<ContainerManager>, FlowQ) {
         let env = build_gpu_env(overrun);
-        let (log, cfg, cm, _invoker, _reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (log, cfg, cm, _invoker, _reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
         let q = FlowQ::new(
             "test".to_string(),
             0.0,
@@ -65,6 +66,7 @@ mod flowq_tests {
                 .as_ref()
                 .expect("GPU config was missing"),
             cfg.invocation.mqfq_config.as_ref().expect("MQFQ config was missing"),
+            &cmap,
         );
         (log, cm, q)
     }

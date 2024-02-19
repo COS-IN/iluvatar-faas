@@ -96,8 +96,9 @@ mod gpu_tests {
         assert_eq!(gpu_svc.outstanding(), 0);
         let gpu = gpu_svc.acquire_gpu(&TEST_TID);
         assert!(gpu.is_some());
-        let token: tokio::sync::OwnedSemaphorePermit =
-            gpu_svc.try_acquire_resource(None).expect("Should get GPU token");
+        let token = gpu_svc
+            .try_acquire_resource(None, &TEST_TID)
+            .expect("Should get GPU token");
         assert_eq!(gpu_svc.outstanding(), 1);
         drop(token);
     }
@@ -121,10 +122,34 @@ mod gpu_tests {
         let gpu = gpu_svc.acquire_gpu(&TEST_TID);
         assert!(gpu.is_some());
         let token = gpu_svc
-            .try_acquire_resource(gpu.as_ref())
+            .try_acquire_resource(gpu.as_ref(), &TEST_TID)
             .expect("Should get GPU token");
         assert_eq!(gpu_svc.outstanding(), 1);
         drop(token);
         assert_eq!(gpu_svc.outstanding(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn alloc_least_loaded_gpu() {
+        let mut env = build_gpu_env(2, 1024);
+        env.push((
+            "container_resources.gpu_resource.funcs_per_device".to_string(),
+            "2".to_string(),
+        ));
+        env.push((
+            "container_resources.gpu_resource.use_driver_hook".to_string(),
+            "true".to_string(),
+        ));
+        let (_, _, _, _invoker, _reg, _cmap, gpu, _cpu) = full_sim_invoker(None, Some(env), None).await;
+        let gpu_svc = gpu.unwrap_or_else(|| panic!("GPU resource tracker should have been present"));
+        assert_eq!(gpu_svc.physical_gpus(), 2);
+        assert_eq!(gpu_svc.total_gpus(), 2 * 2);
+        assert_eq!(gpu_svc.outstanding(), 0);
+        let gpu1 = gpu_svc.acquire_gpu(&TEST_TID).expect("should return a valid GPU");
+        let gpu2 = gpu_svc.acquire_gpu(&TEST_TID).expect("should return a valid GPU");
+        let gpu3 = gpu_svc.acquire_gpu(&TEST_TID).expect("should return a valid GPU");
+        let gpu4 = gpu_svc.acquire_gpu(&TEST_TID).expect("should return a valid GPU");
+        assert_eq!(gpu1.gpu_uuid, gpu3.gpu_uuid);
+        assert_eq!(gpu2.gpu_uuid, gpu4.gpu_uuid);
     }
 }
