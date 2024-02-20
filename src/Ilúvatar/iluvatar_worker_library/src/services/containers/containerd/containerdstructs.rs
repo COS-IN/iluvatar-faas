@@ -245,7 +245,7 @@ impl ContainerT for ContainerdContainer {
 
 	let ctrid = self.container_id.clone();
 	
-	fn update_mem(ctrid:String) -> u64 {
+	fn update_mem(ctrid:String) -> f32 {
 	    let mem_raw =  fs::read_to_string(format!("/sys/fs/cgroup/memory/system.slice/containerd.service/{}/memory.usage_in_bytes",ctrid)).expect("0");
 	    let m2:Vec<&str> = mem_raw.split_whitespace().collect();
 	    let mem_bytes = match m2.len() {
@@ -253,11 +253,10 @@ impl ContainerT for ContainerdContainer {
 		1 => m2[0].parse::<u64>().unwrap(),
 		_ => 0
 	    };
-	    mem_bytes 
+	    mem_bytes  as f32 
 	}
 
 	let mem_bytes = update_mem(ctrid.clone());
-
 
 	fn update_disk(ctrid:String, old_r:CtrResources) -> CtrResources {
 	    let mem_raw =  fs::read_to_string(format!("/sys/fs/cgroup/blkio/system.slice/containerd.service/{}/blkio.throttle.io_service_bytes_recursive",ctrid)).expect("0");
@@ -279,7 +278,7 @@ impl ContainerT for ContainerdContainer {
 	let mut mlock = self.ctr_resources.write();
         mlock.cumul_net = net_r.cumul_net;
         mlock.net = net_r.net;
-	mlock.mem = mem_bytes as f32;
+	mlock.mem = mem_bytes;
 	mlock.disk = io_r.disk;
 	mlock.cumul_disk = io_r.cumul_disk;
 	
