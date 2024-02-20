@@ -28,8 +28,10 @@ use tracing::{debug, error, info, warn};
 
 use serde_json::{from_str, Error, Value};
 use std::collections::HashMap;
+use std::fs;
 
 type JsonMap = HashMap<String, serde_json::Value>;
+
 
 #[derive(Debug)]
 pub struct Task {
@@ -192,7 +194,7 @@ impl ContainerT for ContainerdContainer {
         // Networking:
         let vethname = self.net_iface_name.clone();
         let old_r = self.ctr_resources.read().clone();
-        let new_r = update_net(vethname, old_r);
+        let net_r = update_net(vethname, old_r);
         fn update_net(vethname:String, old_r:CtrResources) -> CtrResources {
             // just return the old stats if we cant access ip
             // ip -s -j link {}
@@ -235,10 +237,57 @@ impl ContainerT for ContainerdContainer {
             return new_r ;
         }
 
-        let mut mlock = self.ctr_resources.write();
-        mlock.cumul_net = new_r.cumul_net;
-        mlock.net = new_r.net;
+	// sysfs path is /sys/fs/cgroup/blkio/system.slice/containerd.service/mf1-1-81B9B443-C313-1DFB-5230-39EE3F70EBC9
+	// Interesting things to monitor: blkio: blkio.throttle.io_service_bytes_recursive - > Total 0
+	// memory: memory.usage_in_bytes
+	// cpu: cpuacct.usage
+	// cpu: cpuacct.usage_percpu 
 
+	let ctrid = self.container_id.clone();
+	
+	fn update_mem(ctrid:String) -> u64 {
+	    let mem_raw =  fs::read_to_string(format!("/sys/fs/cgroup/memory/system.slice/containerd.service/{}/memory.usage_in_bytes",ctrid)).expect("0");
+	    let m2:Vec<&str> = mem_raw.split_whitespace().collect();
+	    let mem_bytes = match m2.len() {
+		//just the bytes 
+		1 => m2[0].parse::<u64>().unwrap(),
+		_ => 0
+	    };
+	    mem_bytes 
+	}
+
+	let mem_bytes = update_mem(ctrid.clone());
+
+
+	fn update_disk(ctrid:String, old_r:CtrResources) -> CtrResources {
+	    let mem_raw =  fs::read_to_string(format!("/sys/fs/cgroup/blkio/system.slice/containerd.service/{}/blkio.throttle.io_service_bytes_recursive",ctrid)).expect("0");
+	    let m2:Vec<&str> = mem_raw.split_whitespace().collect();
+	    let io_bytes = match m2.len() {
+		//Total <num> 
+		2 => m2.last().unwrap().parse::<u64>().unwrap() as f32,
+		_ => 0.0 
+	    };
+	    let mut new_r = old_r.clone();
+            let delta_n = io_bytes - old_r.cumul_disk ;
+            new_r.net = delta_n ;
+            new_r.cumul_net = io_bytes; 
+	    return new_r ;
+	}
+
+	let io_r = update_disk(ctrid.clone(), old_r);
+
+	let mut mlock = self.ctr_resources.write();
+        mlock.cumul_net = net_r.cumul_net;
+        mlock.net = net_r.net;
+	mlock.mem = mem_bytes as f32;
+	mlock.disk = io_r.disk;
+	mlock.cumul_disk = io_r.cumul_disk;
+	
+	// fn update_disk(ctrid:String, old_r:CtrResources) -> CtrResources {
+
+	// }
+	
+	debug!("Updated ctr resources {:?}", mlock);
         return mlock.clone()
     }
 
