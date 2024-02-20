@@ -181,7 +181,8 @@ async fn invoke_on_container<'a>(
 	_ => "cold",
     };
     let ctr_resources = ctr_lock.container.update_ctr_resources();
-    info!(fname=&reg.fqdn, exec=data.duration_sec, network=ctr_resources.net,char=cold_or_warm, time=time, "Function completion");
+
+    info!(fname=&reg.fqdn, exec=data.duration_sec, network=ctr_resources.net,char=cold_or_warm, time=time, disk=ctr_resources.disk, cpu=ctr_resources.cpu, mem=ctr_resources.mem, "Function completion");
     
     // TODO: Also update the cmap? cmap.add(fn, net_bytes, container.ctr_resources.net_bytes) 
     
