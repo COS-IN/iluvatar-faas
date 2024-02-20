@@ -176,8 +176,12 @@ async fn invoke_on_container<'a>(
     let e2etime = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
     cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
 
+    let cold_or_warm = match char {
+	Characteristics::WarmTime => "warm",
+	_ => "cold",
+    };
     let ctr_resources = ctr_lock.container.update_ctr_resources();
-    info!(fname=&reg.fqdn, duration=data.duration_sec, network=ctr_resources.net, "Function completion");
+    info!(fname=&reg.fqdn, exec=data.duration_sec, network=ctr_resources.net,char=cold_or_warm, time=time, "Function completion");
     
     // TODO: Also update the cmap? cmap.add(fn, net_bytes, container.ctr_resources.net_bytes) 
     
