@@ -18,6 +18,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tracing::{debug, warn};
+use crate::services::containers::structs::CtrResources;
 
 #[derive(Debug)]
 #[allow(unused, dyn_drop)]
@@ -150,8 +151,15 @@ impl ContainerT for DockerContainer {
         &self.device
     }
 
-    fn update_ctr_resources(&self) {
-	todo!()
+    fn update_ctr_resources(&self) -> CtrResources {
+        CtrResources {
+            cpu: 0.0,
+            mem: 0.0,
+            disk: 0.0,
+            cumul_disk: 0.0,
+            net: 0.0,
+            cumul_net: 0.0,
+        }
     }
 
     

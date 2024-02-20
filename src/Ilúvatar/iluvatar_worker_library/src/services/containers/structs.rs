@@ -47,7 +47,7 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
     /// Update the memory usage of this container
     fn set_curr_mem_usage(&self, usage: MemSizeMb);
     /// Mostly called after function invocation
-    fn update_ctr_resources(&self);
+    fn update_ctr_resources(&self) -> CtrResources;
     /// the function this container serves
     fn function(&self) -> Arc<RegisteredFunction>;
     /// the fully qualified domain name of the function

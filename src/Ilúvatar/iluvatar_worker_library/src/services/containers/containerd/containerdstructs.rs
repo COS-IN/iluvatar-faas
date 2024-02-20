@@ -188,71 +188,58 @@ impl ContainerT for ContainerdContainer {
         &self.device
     }
 
-    fn update_ctr_resources(&self) {
+    fn update_ctr_resources(&self) -> CtrResources {
         // Networking:
         let vethname = self.net_iface_name.clone();
-        // ip -s -j link {}
-        // json output, filter stats64.rx.bytes and stats64.tx.bytes
-        let tid: TransactionId = String::from("Na");
-        let ipout = match execute_cmd_checked(
-            "/usr/sbin/ip",
-            vec!["-s", "-j", "link", "show", vethname.as_str()],
-            None,
-            &tid,
-        ) {
-            Ok(out) => out,
-            Err(e) => return,
-        };
+        let old_r = self.ctr_resources.read().clone();
+        let new_r = update_net(vethname, old_r);
+        fn update_net(vethname:String, old_r:CtrResources) -> CtrResources {
+            // just return the old stats if we cant access ip
+            // ip -s -j link {}
+            // json output, filter stats64.rx.bytes and stats64.tx.bytes
+            let tid: TransactionId = String::from("Na");
+            let ipout = match execute_cmd_checked(
+                "/usr/sbin/ip",
+                vec!["-s", "-j", "link", "show", vethname.as_str()],
+                None,
+                &tid,
+            ) {
+                Ok(out) => out,
+                Err(e) => return old_r,
+            };
+            let stdout = String::from_utf8_lossy(&ipout.stdout);
+            //debug!(?stdout, "Output from ip link");
+            let json_out = serde_json::from_str::<Vec<Value>>(&stdout).unwrap();
+            let j = &json_out[0];
+            //debug!(?j, "Parsed JSON");
+            let rx = &j["stats64"]["rx"];
+            let rb = &rx["bytes"];
+            //debug!(?rb, "Parsed RB");
+            let read_bytes = match rb.as_f64() {
+                Some(v) => v,
+                _ => 0.0,
+            };
+            //debug!(?read_bytes, "read bytes");
+            let wx = &j["stats64"]["wx"];
+            let wb = &wx["bytes"];
+            let write_bytes = match wb.as_f64() {
+                Some(v) => v,
+                _ => 0.0,
+            };
+            let total_bytes = (read_bytes + write_bytes) as f32;
+            let mut new_r = old_r.clone();
+            let delta_n = total_bytes - old_r.cumul_net;
+            new_r.net = delta_n ;
+            new_r.cumul_net = total_bytes;
+            debug!(vethname = vethname, bytes = total_bytes, "Read network bytes");
+            return new_r ;
+        }
 
-        let stdout = String::from_utf8_lossy(&ipout.stdout);
+        let mut mlock = self.ctr_resources.write();
+        mlock.cumul_net = new_r.cumul_net;
+        mlock.net = new_r.net;
 
-        debug!(?stdout, "Output from ip link");
-
-        let json_out = serde_json::from_str::<Vec<Value>>(&stdout).unwrap();
-
-        let j = &json_out[0];
-
-        debug!(?j, "Parsed JSON");
-
-        let rx = &j["stats64"]["rx"];
-        let rb = &rx["bytes"];
-
-        debug!(?rb, "Parsed RB");
-
-        let read_bytes = match rb.as_f64() {
-            Some(v) => v,
-            _ => 0.0,
-        };
-
-        debug!(?read_bytes, "read bytes");
-
-        let wx = &j["stats64"]["wx"];
-        let wb = &wx["bytes"];
-        let write_bytes = match wb.as_f64() {
-            Some(v) => v,
-            _ => 0.0,
-        };
-
-        let total_bytes = (read_bytes + write_bytes) as f32;
-
-        let old_r = self.ctr_resources.read().unwrap().clone();
-        let delta_n = total_bytes - old_r.cumul_net;
-        let mlock = self.ctr_resources.write();
-        *mlock.cumul_net = total_bytes;
-        *mlock.net = delta_n;
-
-        old_r.net = delta_n;
-        old_r.cumul_net = total_bytes;
-
-        // let old_c = self.ctr_resources.cumul_net.clone();
-        // let diff = total_bytes - old_c ;
-        // self.ctr_resources.cumul_net = total_bytes ;
-        // self.ctr_resources.net = diff ;
-
-        //self.ctr_resources.unwrap().cumul_net = total_bytes as f32;
-
-        debug!(vethname = vethname, bytes = total_bytes, "Read network bytes");
-        // return old_r
+        return mlock.clone()
     }
 
     fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
