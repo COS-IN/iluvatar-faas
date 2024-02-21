@@ -1,6 +1,0 @@
-name,image_name,compute,isolation,memory
-dd_2024,docker.io/aarehman/dd_2024-iluvatar-action:latest,CPU,CONTAINERD,3024
-dd_1712,docker.io/aarehman/dd_1512-iluvatar-action:latest,CPU,CONTAINERD,3024
-dd_1512,docker.io/aarehman/dd_1512-iluvatar-action:latest,CPU,CONTAINERD,3024
-dd_1012,docker.io/aarehman/dd_1012-iluvatar-action:latest,CPU,CONTAINERD,3024
-dd_506,docker.io/aarehman/dd_506-iluvatar-action:latest,CPU,CONTAINERD,3024
