@@ -1,20 +1,19 @@
 use super::{DeviceQueue, EnqueuedInvocation};
-use crate::rpc::ContainerState;
-use crate::services::containers::{containermanager::ContainerManager, structs::ParsedResult};
-use crate::services::invocation::completion_time_tracker::CompletionTimeTracker;
-use crate::services::invocation::invoke_on_container;
+use crate::services::containers::{
+    containermanager::ContainerManager,
+    structs::{Container, ParsedResult},
+};
+use crate::services::invocation::{completion_time_tracker::CompletionTimeTracker, invoke_on_container_2};
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
-use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::logging::LocalTime;
 use iluvatar_library::threading::{tokio_runtime, EventualItem};
-use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::utils::missing_default;
+use iluvatar_library::{characteristics_map::CharacteristicsMap, logging::LocalTime, transaction::TransactionId};
 use parking_lot::RwLock;
 use serde::Deserialize;
 use std::collections::VecDeque;
@@ -102,9 +101,10 @@ pub struct FlowQ {
     /// Virtual finish time. F = S + service_avg/Wt
     pub finish_time_virt: f64,
     /// Number concurrently executing, to enforce cap?
-    in_flight: i32,
+    pub in_flight: i32,
     /// Keep-alive. Seconds to wait for next arrival if queue is empty
     ttl_sec: f64,
+    /// The last time the flow was popped from or completed an invocation
     pub last_serviced: OffsetDateTime,
     /// avg function execution time in seconds
     service_avg: Option<f64>,
@@ -203,6 +203,10 @@ impl FlowQ {
     /// Remove oldest item. No other svc state update.
     pub fn pop_flow(&mut self, vitual_time: f64) -> Option<Arc<MQRequest>> {
         let r = self.queue.pop_front();
+        if r.is_some() {
+            self.in_flight += 1;
+            self.last_serviced = OffsetDateTime::now_utc();
+        }
         self.update_dispatched(vitual_time);
         // MQFQ should remove from the active list if not ready
         r
@@ -210,8 +214,6 @@ impl FlowQ {
 
     /// Check if the start time is ahead of global time by allowed overrun
     pub fn update_dispatched(&mut self, vitual_time: f64) {
-        self.last_serviced = OffsetDateTime::now_utc();
-        self.in_flight += 1;
         if let Some(next_item) = self.queue.front() {
             self.start_time_virt = next_item.start_time_virt;
             // start timer for grace period?
@@ -220,12 +222,16 @@ impl FlowQ {
             self.check_empty_q_grace_period();
         }
         let gap = self.start_time_virt - vitual_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
-        if gap >= self.allowed_overrun {
+        if gap > self.allowed_overrun {
             self.update_state(MQState::Throttled);
         }
     }
 
     fn check_empty_q_grace_period(&mut self) {
+        if self.in_flight > 0 {
+            // any in flight invokes keep flow active
+            return;
+        }
         if self.state == MQState::Active {
             let ttl_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
             if ttl_remaining > self.ttl_sec {
@@ -253,6 +259,12 @@ impl FlowQ {
             return;
         }
         self.update_state(MQState::Throttled);
+    }
+
+    pub fn mark_completed(&mut self) {
+        self.in_flight -= 1;
+        self.last_serviced = OffsetDateTime::now_utc();
+        self.check_empty_q_grace_period();
     }
 
     /// Estimated q wait time, assumes weight = 1
@@ -287,7 +299,7 @@ impl TokenBucket {
 
 pub struct MQFQ {
     /// Keyed by function name  (qid)
-    mqfq_set: DashMap<String, FlowQ>,
+    pub mqfq_set: DashMap<String, FlowQ>,
     /// System-wide logical clock for resources consumed
     vitual_time: RwLock<f64>,
 
@@ -392,7 +404,7 @@ impl MQFQ {
         let ct = OffsetDateTime::now_utc();
         self.ctrack.add_item(ct);
         if item.invok.lock() {
-            match self
+            let container = match self
                 .invoke(
                     &item.invok.registration,
                     &item.invok.json_args,
@@ -403,11 +415,26 @@ impl MQFQ {
                 )
                 .await
             {
-                Ok((result, duration, compute, container_state)) => {
-                    item.invok.mark_successful(result, duration, compute, container_state)
+                Ok((result, duration, container)) => {
+                    item.invok
+                        .mark_successful(result, duration, container.compute_type(), container.state());
+                    Some(container)
                 }
-                Err(cause) => self.handle_invocation_error(item.invok.clone(), cause),
+                Err(cause) => {
+                    self.handle_invocation_error(item.invok.clone(), cause);
+                    None
+                }
             };
+            if let Some(mut q) = self.mqfq_set.get_mut(&item.invok.registration.fqdn) {
+                q.mark_completed();
+                let state = q.state;
+                drop(q);
+                if state != MQState::Active {
+                    if let Some(ctr) = container {
+                        tokio::spawn(ContainerManager::move_off_device(ctr, item.invok.tid.clone()));
+                    }
+                }
+            }
         }
         self.signal.notify_waiters();
         self.ctrack.remove_item(ct);
@@ -440,7 +467,7 @@ impl MQFQ {
         queue_insert_time: OffsetDateTime,
         cpu_token: DroppableToken,
         gpu_token: DroppableToken,
-    ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
+    ) -> Result<(ParsedResult, Duration, Container)> {
         debug!(tid=%tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
@@ -458,7 +485,7 @@ impl MQFQ {
                 n
             }
         };
-        match invoke_on_container(
+        match invoke_on_container_2(
             reg,
             json_args,
             tid,
@@ -471,9 +498,9 @@ impl MQFQ {
         )
         .await
         {
-            Ok(c) => {
+            Ok((result, dur, container)) => {
                 drop(cpu_token);
-                Ok(c)
+                Ok((result, dur, container))
             }
             Err(e) => {
                 debug!(tid=%tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
@@ -537,6 +564,7 @@ impl MQFQ {
                 self.mqfq_set.insert(fname, qguard);
             }
         };
+        self.signal.notify_waiters();
     }
 
     /// Earliest eligible flow

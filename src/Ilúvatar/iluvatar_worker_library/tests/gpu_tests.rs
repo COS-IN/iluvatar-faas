@@ -114,7 +114,7 @@ mod gpu_tests {
             "container_resources.gpu_resource.use_driver_hook".to_string(),
             "true".to_string(),
         ));
-        let (_, _, _, _invoker, _reg, _cmap, gpu, _cpu) = full_sim_invoker(None, Some(env), Some(true)).await;
+        let (_, _, _, _invoker, _reg, _cmap, gpu, _cpu) = full_sim_invoker(None, Some(env), None).await;
         let gpu_svc = gpu.unwrap_or_else(|| panic!("GPU resource tracker should have been present"));
         assert_eq!(gpu_svc.physical_gpus(), 2);
         assert_eq!(gpu_svc.total_gpus(), 2 * 16);

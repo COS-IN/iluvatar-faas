@@ -476,6 +476,7 @@ mod gpu {
         cm.prewarm(&func, &TEST_TID, Compute::GPU)
             .await
             .unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let ctr = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
             EventualItem::Future(_) => panic!("Should have gotten prewarmed container"),
             EventualItem::Now(n) => n,

@@ -45,7 +45,7 @@ fn build_gpu_env(overrun: f64, num_gpus: u32) -> Vec<(String, String)> {
     ]
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 mod flowq_tests {
     use super::*;
     use crate::utils::{background_test_invoke, resolve_invoke};
@@ -118,7 +118,7 @@ mod flowq_tests {
     async fn two_funcs_invokes_split_2() {
         let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap();
         let env = build_gpu_env(20.0, 2);
-        let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), Some("info")).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
         let func1 = reg
             .register(gpu_reg(), &TEST_TID)
             .await
