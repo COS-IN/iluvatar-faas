@@ -60,16 +60,6 @@ pub enum MQState {
     Inactive,
 }
 
-#[allow(unused)]
-enum MQEvent {
-    GraceExpired,
-    RequestDispatched,
-    NewRequest,
-    RequestCancelled,
-}
-
-// TODO: Average completion time using little's law, and other estimates.
-
 pub struct MQRequest {
     pub invok: Arc<EnqueuedInvocation>,
     // Do we maintain a backward pointer to FlowQ? qid atleast?
@@ -273,30 +263,6 @@ impl FlowQ {
     }
 }
 
-/// TODO: Semaphore impl?
-struct TokenBucket {
-    capacity: i32,
-    current: i32,
-}
-#[allow(unused)]
-impl TokenBucket {
-    fn new(capacity: i32) -> Arc<Self> {
-        Arc::new(TokenBucket {
-            capacity: capacity,
-            current: 0,
-        })
-    }
-    fn get_tok(&self) -> bool {
-        //can return none if none available?
-        let b = self.capacity - self.current;
-        b > 0
-    }
-
-    fn add_tok(&mut self) {
-        self.current += 1;
-    }
-}
-
 pub struct MQFQ {
     /// Keyed by function name  (qid)
     pub mqfq_set: DashMap<String, FlowQ>,
@@ -431,7 +397,9 @@ impl MQFQ {
                 drop(q);
                 if state != MQState::Active {
                     if let Some(ctr) = container {
-                        tokio::spawn(ContainerManager::move_off_device(ctr, item.invok.tid.clone()));
+                        if self.gpu_config.send_driver_memory_hints() {
+                            tokio::spawn(ContainerManager::move_off_device(ctr, item.invok.tid.clone()));
+                        }
                     }
                 }
             }

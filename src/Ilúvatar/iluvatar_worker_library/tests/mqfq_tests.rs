@@ -15,10 +15,11 @@ use iluvatar_worker_library::services::{
 };
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
+use utils::sim_args;
 
-static TIMEOUT_SEC: u64 = 2;
+static TIMEOUT_SEC: f64 = 2.0;
 
-fn build_gpu_env(overrun: f64) -> Vec<(String, String)> {
+fn build_gpu_env(overrun: f64, timeout_sec: f64) -> Vec<(String, String)> {
     vec![
         ("container_resources.gpu_resource.count".to_string(), "1".to_string()),
         ("invocation.queues.gpu".to_string(), "mqfq".to_string()),
@@ -26,12 +27,12 @@ fn build_gpu_env(overrun: f64) -> Vec<(String, String)> {
             "invocation.mqfq_config.allowed_overrun".to_string(),
             format!("{}", overrun),
         ),
-        ("invocation.mqfq_config.ttl_sec".to_string(), TIMEOUT_SEC.to_string()),
+        ("invocation.mqfq_config.ttl_sec".to_string(), timeout_sec.to_string()),
     ]
 }
 
 async fn build_flowq(overrun: f64) -> (Option<impl Drop>, Arc<ContainerManager>, FlowQ) {
-    let env = build_gpu_env(overrun);
+    let env = build_gpu_env(overrun, TIMEOUT_SEC);
     let (log, cfg, cm, _invoker, _reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
     let q = FlowQ::new(
         "test".to_string(),
@@ -48,8 +49,8 @@ async fn build_flowq(overrun: f64) -> (Option<impl Drop>, Arc<ContainerManager>,
     (log, cm, q)
 }
 
-async fn build_mqfq(overrun: f64) -> (Option<impl Drop>, Arc<ContainerManager>, Arc<MQFQ>) {
-    let env = build_gpu_env(overrun);
+async fn build_mqfq(overrun: f64, timeout_sec: f64) -> (Option<impl Drop>, Arc<ContainerManager>, Arc<MQFQ>) {
+    let env = build_gpu_env(overrun, timeout_sec);
     let (log, cfg, cm, _invoker, _reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
     let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID).unwrap();
     let gpu = GpuResourceTracker::boxed(
@@ -86,12 +87,12 @@ fn item() -> Arc<EnqueuedInvocation> {
         cpus: 1,
         snapshot_base: "".to_string(),
         parallel_invokes: 1,
-        isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
-        supported_compute: iluvatar_library::types::Compute::CPU,
+        isolation_type: iluvatar_library::types::Isolation::DOCKER,
+        supported_compute: iluvatar_library::types::Compute::GPU,
     });
     Arc::new(EnqueuedInvocation::new(
         rf,
-        name.to_string(),
+        sim_args().unwrap(),
         name.to_string(),
         clock.now(),
     ))
@@ -146,7 +147,7 @@ mod flowq_tests {
         // mark our 'invocation' as done
         q.mark_completed();
         q.pop_flow(0.0);
-        tokio::time::sleep(std::time::Duration::from_secs(TIMEOUT_SEC + 1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(TIMEOUT_SEC as u64 + 1)).await;
         q.pop_flow(0.0);
         assert_eq!(
             q.state,
@@ -225,7 +226,7 @@ mod mqfq_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn mqfq_works() {
-        let env = build_gpu_env(20.0);
+        let env = build_gpu_env(20.0, TIMEOUT_SEC);
         let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
@@ -242,7 +243,7 @@ mod mqfq_tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn function_active_until_timeout() {
-        let (_log, _cm, mqfq) = build_mqfq(20.0).await;
+        let (_log, _cm, mqfq) = build_mqfq(20.0, TIMEOUT_SEC).await;
         let invoke1 = item();
         mqfq.enqueue_item(&invoke1).unwrap();
         let q = mqfq.mqfq_set.get(&invoke1.registration.fqdn).unwrap();
@@ -260,13 +261,38 @@ mod mqfq_tests {
         assert_eq!(q.state, MQState::Active, "inline queue should be active");
         drop(q);
 
-        tokio::time::sleep(std::time::Duration::from_secs(TIMEOUT_SEC + 1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(TIMEOUT_SEC as u64 + 1)).await;
         let invoke2 = item();
         mqfq.enqueue_item(&invoke2).unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
         let q = mqfq.mqfq_set.get(&invoke1.registration.fqdn).unwrap();
         assert_eq!(q.state, MQState::Inactive, "inline queue should be active");
+        drop(q);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn function_inactive_zero_timeout() {
+        let (_log, _cm, mqfq) = build_mqfq(20.0, 0.0).await;
+        let invoke1 = item();
+        mqfq.enqueue_item(&invoke1).unwrap();
+        let q = mqfq.mqfq_set.get(&invoke1.registration.fqdn).unwrap();
+        assert_eq!(q.state, MQState::Active, "inline queue should be active");
+        drop(q);
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        loop {
+            if invoke1.result_ptr.lock().completed {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+
+        let q = mqfq.mqfq_set.get(&invoke1.registration.fqdn).unwrap();
+        assert_eq!(
+            q.state,
+            MQState::Inactive,
+            "inline queue should be inactive after only invoke is done and 0 timeout"
+        );
         drop(q);
     }
 }
