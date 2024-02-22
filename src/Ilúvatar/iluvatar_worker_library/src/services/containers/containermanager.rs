@@ -303,7 +303,6 @@ impl ContainerManager {
             None => {
                 // no available container, cold start
                 let r = reg.clone();
-                // let tid = tid.clone();
                 EventualItem::Future(self.cold_start(r, tid, compute))
             }
         };

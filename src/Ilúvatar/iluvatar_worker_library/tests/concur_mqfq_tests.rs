@@ -125,7 +125,7 @@ mod flowq_tests {
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
         let args = sim_args().unwrap();
         let invoke1 = background_test_invoke(&invoker, &func1, args.as_str(), &"invoke1".to_string());
-        // tokio::time::sleep(std::time::Duration::from_millis(100)).await; // queue insertion can be kind of racy, sleep to ensure ordering
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await; // queue insertion can be kind of racy, sleep to ensure ordering
         let func2 = reg
             .register(gpu_reg(), &TEST_TID)
             .await

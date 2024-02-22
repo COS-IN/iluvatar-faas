@@ -166,6 +166,7 @@ impl QueueingDispatcher {
                         cmap.clone(),
                         cpu.clone(),
                         gpu.clone(),
+                        gpu_config,
                     )?))
                 } else if q == "mqfq" {
                     Ok(Some(MQFQ::new(
