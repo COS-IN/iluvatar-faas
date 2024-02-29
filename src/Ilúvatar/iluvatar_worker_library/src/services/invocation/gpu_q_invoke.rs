@@ -1,8 +1,8 @@
 use super::{
     completion_time_tracker::CompletionTimeTracker,
     queueing::{
-        fcfs_gpu::FcfsGpuQueue, oldest_gpu::BatchGpuQueue, DeviceQueue, EnqueuedInvocation, MinHeapEnqueuedInvocation,
-        MinHeapFloat,
+        fcfs_gpu::FcfsGpuQueue, oldest_gpu::BatchGpuQueue, sized_batches_gpu::SizedBatchGpuQueue, DeviceQueue,
+        EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat,
     },
 };
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
@@ -96,7 +96,6 @@ impl Iterator for GpuBatch {
     }
 }
 
-#[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
 pub trait GpuQueuePolicy: Send + Sync {
     /// The total number of items in the queue
@@ -196,6 +195,7 @@ impl GpuQueueingInvoker {
             Ok(match pol.as_str() {
                 "fcfs" => FcfsGpuQueue::new(cont_manager.clone(), cmap.clone())?,
                 "oldest_batch" => BatchGpuQueue::new(cmap.clone())?,
+                "sized_batch" => SizedBatchGpuQueue::new(cmap.clone())?,
                 unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
             })
         } else {
@@ -275,6 +275,8 @@ impl GpuQueueingInvoker {
     /// On failure, [Invoker::handle_invocation_error] is called
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, batch, permit), fields(fqdn=batch.peek().registration.fqdn)))]
     async fn invocation_worker_thread(&self, batch: GpuBatch, permit: DroppableToken) {
+        let tid: &TransactionId = &INVOKER_GPU_QUEUE_WORKER_TID;
+        info!(tid=%tid, fqdn=batch.item_registration().fqdn, batch_len=batch.len(), "Executing batch");
         let now = OffsetDateTime::now_utc();
         let est_finish_time = now + time::Duration::seconds_f64(batch.est_queue_time());
         self.completion_tracker.add_item(est_finish_time);

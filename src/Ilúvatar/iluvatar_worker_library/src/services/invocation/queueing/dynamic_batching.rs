@@ -60,7 +60,6 @@ impl DynBatchGpuQueue {
     }
 }
 
-#[tonic::async_trait]
 impl GpuQueuePolicy for DynBatchGpuQueue {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
