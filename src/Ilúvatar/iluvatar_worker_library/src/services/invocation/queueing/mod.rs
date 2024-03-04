@@ -93,7 +93,6 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
     }
 }
 
-#[tonic::async_trait]
 /// A trait for a device-specific queue
 /// The implementer is responsible for invoking functions it is directed to enqueue
 pub trait DeviceQueue: Send + Sync {

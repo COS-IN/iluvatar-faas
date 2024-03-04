@@ -29,7 +29,6 @@ impl BatchGpuQueue {
     }
 }
 
-#[tonic::async_trait]
 impl GpuQueuePolicy for BatchGpuQueue {
     fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
         if let Some(next) = self
