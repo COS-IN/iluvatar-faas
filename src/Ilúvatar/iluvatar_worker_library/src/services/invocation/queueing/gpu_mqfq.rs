@@ -18,6 +18,7 @@ use iluvatar_library::{
     threading::{tokio_runtime, tokio_thread, EventualItem},
 };
 use parking_lot::RwLock;
+use rand::seq::IteratorRandom;
 use serde::Deserialize;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -255,14 +256,14 @@ impl FlowQ {
         }
     }
 
-    /// The vitual_time may have advanced, so reset throttle. Call on dispatch
-    pub fn set_idle_throttled(&mut self, vitual_time: f64) {
+    /// The virtual_time may have advanced, so reset throttle. Call on dispatch
+    pub fn set_idle_throttled(&mut self, virtual_time: f64) {
         // check grace period
         if self.queue.is_empty() {
             return self.check_empty_q_grace_period();
         }
 
-        let gap = self.start_time_virt - vitual_time; // vitual_time is old start_time_virt, but is start_time_virt updated?
+        let gap = self.start_time_virt - virtual_time; // virtual_time is old start_time_virt, but is start_time_virt updated?
         if gap <= self.allowed_overrun {
             self.update_state(MQState::Active);
             return;
@@ -325,6 +326,8 @@ enum MqfqPolicy {
     QueueLen,
     LongestWait,
     Sticky,
+    Random,
+    FinishT,
 }
 impl TryFrom<Option<&String>> for MqfqPolicy {
     type Error = anyhow::Error;
@@ -336,6 +339,8 @@ impl TryFrom<Option<&String>> for MqfqPolicy {
                 "mqfq_longest" => MqfqPolicy::QueueLen,
                 "mqfq_wait" => MqfqPolicy::LongestWait,
                 "mqfq_sticky" => MqfqPolicy::Sticky,
+                "mqfq_random" => MqfqPolicy::Random,
+                "mqfq_finish" => MqfqPolicy::FinishT,
                 unknown => anyhow::bail!("Unknown MQFQ policy '{}'", unknown),
             };
             Ok(r)
@@ -756,6 +761,53 @@ impl MQFQ {
         chosen_q
     }
 
+    fn finish_vt_next_flow<'a>(
+        &'a self,
+        tid: &'a TransactionId,
+        _token: &GpuToken,
+        virtual_time: f64,
+    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+        let mut finish_vt = 0.0;
+        let mut chosen_q = None;
+        for mut q in self.mqfq_set.iter_mut() {
+            let val = q.value_mut();
+            val.set_idle_throttled(virtual_time);
+            if val.state == MQState::Active {
+                // Active, not throttled, and lowest start_time_virt
+                if val.queue.is_empty() {
+                    debug!(tid=%tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
+                    continue;
+                }
+                if chosen_q.is_none() {
+                    debug!(tid=%tid, qid=%val.fqdn, new_t=val.finish_time_virt, "first active Q");
+                    finish_vt = val.finish_time_virt;
+                    chosen_q = Some(q);
+                } else if val.finish_time_virt >= finish_vt {
+                    debug!(tid=%tid, qid=%val.fqdn, old_finish_vt=finish_vt, new_t=val.finish_time_virt, "new min Q");
+                    finish_vt = val.finish_time_virt;
+                    chosen_q = Some(q);
+                }
+            }
+        }
+        chosen_q
+    }
+
+    fn random_next_flow<'a>(
+        &'a self,
+        _tid: &'a TransactionId,
+        _token: &GpuToken,
+        virtual_time: f64,
+    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+        self.mqfq_set
+            .iter_mut()
+            .map(|mut f| {
+                f.set_idle_throttled(virtual_time);
+                f
+            })
+            .filter(|f| f.state == MQState::Active)
+            .choose(&mut rand::thread_rng())
+    }
+
     fn sticky_next_flow<'a>(
         &'a self,
         tid: &'a TransactionId,
@@ -807,6 +859,8 @@ impl MQFQ {
             MqfqPolicy::QueueLen => self.queue_len_next_flow(tid, token, virtual_time),
             MqfqPolicy::LongestWait => self.longest_wait_next_flow(tid, token, virtual_time),
             MqfqPolicy::Sticky => self.sticky_next_flow(tid, token, virtual_time),
+            MqfqPolicy::FinishT => self.finish_vt_next_flow(tid, token, virtual_time),
+            MqfqPolicy::Random => self.random_next_flow(tid, token, virtual_time),
         }
     }
 
