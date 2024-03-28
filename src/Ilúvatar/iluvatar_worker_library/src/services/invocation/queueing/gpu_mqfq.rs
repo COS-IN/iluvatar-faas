@@ -45,6 +45,7 @@ pub struct MqfqConfig {
     /// If [None] or 0.0, uses avg execution time for the function
     pub service_average: Option<f64>,
     /// TTL for active flow turning to inactive, default to 2.0 if [None]
+    /// if present and negative, TTL becomes a product of the absolute value of this and the flow's IAT
     pub ttl_sec: Option<f64>,
 }
 
@@ -98,6 +99,7 @@ pub struct FlowQ {
     /// Number concurrently executing, to enforce cap?
     pub in_flight: i32,
     /// Keep-alive. Seconds to wait for next arrival if queue is empty
+    /// if negative, TTL becomes a product of the absolute value of this and the flow's IAT
     ttl_sec: f64,
     /// The last time the flow was popped from or completed an invocation
     pub last_serviced: OffsetDateTime,
@@ -244,7 +246,12 @@ impl FlowQ {
         }
         if self.state == MQState::Active {
             let ttl_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
-            if ttl_remaining > self.ttl_sec {
+            let ttl = if self.ttl_sec < 0.0 {
+                self.cmap.get_iat(&self.fqdn) * f64::abs(self.ttl_sec)
+            } else {
+                self.ttl_sec
+            };
+            if ttl_remaining > ttl {
                 self.update_state(MQState::Inactive);
                 // Update the active period/eviction time
                 let active_t = (OffsetDateTime::now_utc() - self.active_start_t).as_seconds_f64();
@@ -328,6 +335,10 @@ enum MqfqPolicy {
     Sticky,
     Random,
     FinishT,
+    SelectDRandom,
+    SelectDOutstanding,
+    SelectDService,
+    SelectDLen,
 }
 impl TryFrom<Option<&String>> for MqfqPolicy {
     type Error = anyhow::Error;
@@ -341,6 +352,10 @@ impl TryFrom<Option<&String>> for MqfqPolicy {
                 "mqfq_sticky" => MqfqPolicy::Sticky,
                 "mqfq_random" => MqfqPolicy::Random,
                 "mqfq_finish" => MqfqPolicy::FinishT,
+                "mqfq_select_rand" => MqfqPolicy::SelectDRandom,
+                "mqfq_select_out" => MqfqPolicy::SelectDOutstanding,
+                "mqfq_select_service" => MqfqPolicy::SelectDService,
+                "mqfq_select_len" => MqfqPolicy::SelectDLen,
                 unknown => anyhow::bail!("Unknown MQFQ policy '{}'", unknown),
             };
             Ok(r)
@@ -792,6 +807,83 @@ impl MQFQ {
         chosen_q
     }
 
+    fn select_top_flows<'a>(
+        &'a self,
+        _tid: &'a TransactionId,
+        _token: &GpuToken,
+        virtual_time: f64,
+        cnt: usize,
+    ) -> Vec<RefMutMulti<'_, String, FlowQ>> {
+        let mut top = vec![];
+        for mut q in self.mqfq_set.iter_mut() {
+            q.set_idle_throttled(virtual_time);
+            if q.state == MQState::Active {
+                if top.is_empty() {
+                    top.push(q);
+                } else {
+                    for i in 0..top.len() {
+                        if top[i].finish_time_virt < q.finish_time_virt || top.len() < cnt {
+                            top.insert(i, q);
+                            if top.len() > cnt {
+                                top.pop();
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        top
+    }
+
+    fn select_d_outstanding_next_flow<'a>(
+        &'a self,
+        _tid: &'a TransactionId,
+        _token: &GpuToken,
+        virtual_time: f64,
+    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
+        let cnt = usize::max(2, top_len);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        top.into_iter().min_by(|q1, q2| q1.in_flight.cmp(&q2.in_flight))
+    }
+
+    fn select_d_len_next_flow<'a>(
+        &'a self,
+        _tid: &'a TransactionId,
+        _token: &GpuToken,
+        virtual_time: f64,
+    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
+        let cnt = usize::max(3, top_len);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        top.into_iter().max_by(|q1, q2| q1.queue.len().cmp(&q2.queue.len()))
+    }
+
+    fn select_d_service_next_flow<'a>(
+        &'a self,
+        _tid: &'a TransactionId,
+        _token: &GpuToken,
+        virtual_time: f64,
+    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
+        let cnt = usize::max(2, top_len);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        top.into_iter().min_by(|q1, q2| q1.last_serviced.cmp(&q2.last_serviced))
+    }
+
+    fn select_d_random_next_flow<'a>(
+        &'a self,
+        _tid: &'a TransactionId,
+        _token: &GpuToken,
+        virtual_time: f64,
+    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
+        let cnt = usize::max(2, top_len);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        top.into_iter().choose(&mut rand::thread_rng())
+    }
+
     fn random_next_flow<'a>(
         &'a self,
         _tid: &'a TransactionId,
@@ -861,6 +953,10 @@ impl MQFQ {
             MqfqPolicy::Sticky => self.sticky_next_flow(tid, token, virtual_time),
             MqfqPolicy::FinishT => self.finish_vt_next_flow(tid, token, virtual_time),
             MqfqPolicy::Random => self.random_next_flow(tid, token, virtual_time),
+            MqfqPolicy::SelectDRandom => self.select_d_random_next_flow(tid, token, virtual_time),
+            MqfqPolicy::SelectDOutstanding => self.select_d_outstanding_next_flow(tid, token, virtual_time),
+            MqfqPolicy::SelectDService => self.select_d_service_next_flow(tid, token, virtual_time),
+            MqfqPolicy::SelectDLen => self.select_d_len_next_flow(tid, token, virtual_time),
         }
     }
 

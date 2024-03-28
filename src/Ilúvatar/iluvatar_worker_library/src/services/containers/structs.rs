@@ -19,7 +19,7 @@ use tracing::debug;
 
 #[tonic::async_trait]
 #[allow(dyn_drop)]
-pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
+pub trait ContainerT: ToAny + Send + Sync {
     /// Invoke the function within the container, passing the json args to it
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)>;
 

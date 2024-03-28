@@ -127,7 +127,7 @@
     run_once: true
 
   - name: Kill running worker process distrib
-    shell: "kill {{ item }}"
+    shell: "kill -s INT {{ item }}"
     when: (ansible_host != "127.0.0.1" and ansible_host != "localhost") and mode == "clean"
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
