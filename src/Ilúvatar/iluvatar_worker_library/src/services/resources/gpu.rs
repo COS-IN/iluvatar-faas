@@ -525,7 +525,10 @@ impl GpuResourceTracker {
                 if limit == 0 {
                     return match self.gpu_metadata.get(&gpu_hardware_id) {
                         Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                            Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self)),
+                            Ok(p) => {
+                                self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
+                                Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
+                            }
                             Err(e) => Err(e),
                         },
                         None => {
@@ -548,6 +551,7 @@ impl GpuResourceTracker {
                                     } else {
                                         50.0
                                     };
+                                    stat.num_running += 1;
                                     Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
                                 }
                                 Err(e) => Err(e),
@@ -584,7 +588,10 @@ impl GpuResourceTracker {
             }
             return match self.gpu_metadata.get(&gpu_hardware_id) {
                 Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                    Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self)),
+                    Ok(p) => {
+                        self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
+                        Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
+                    }
                     Err(e) => Err(e),
                 },
                 None => Err(tokio::sync::TryAcquireError::NoPermits),
@@ -613,6 +620,7 @@ impl GpuResourceTracker {
                             } else {
                                 50.0
                             };
+                            stat.num_running += 1;
                             Ok(GpuToken::new(p, gpu_hardware_id as u32, tid.clone(), self))
                         }
                         Err(e) => Err(e),
@@ -634,6 +642,7 @@ impl GpuResourceTracker {
         let mut gpu_stat = self.status_info.write();
         let stat: &mut GpuStatus = &mut gpu_stat[gpu_id as usize];
         stat.est_utilization_gpu = if stat.num_running > 0 {
+            stat.num_running -= 1;
             (stat.est_utilization_gpu / (stat.num_running + 1) as f64) * stat.num_running as f64
         } else {
             0.0

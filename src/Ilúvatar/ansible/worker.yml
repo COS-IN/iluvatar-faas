@@ -82,10 +82,21 @@
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
       # MQFQ Config
       "ILUVATAR_WORKER__invocation__mqfq_config__allowed_overrun" : "{{ mqfq_allowed_overrun | default(0.0) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__in_flight" : "{{ mqfq_allowed_overrun | default(false) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__dynamic_weights" : "{{ mqfq_allowed_overrun | default(false) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__in_flight" : "{{ mqfq_in_flight | default(false) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__dynamic_weights" : "{{ mqfq_dynamic_weights | default(false) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__service_average" : "{{ mqfq_service_average | default(10.0) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__ttl_sec" : "{{ mqfq_ttl_sec | default(2.0) }}"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights" : "{{ mqfq_flow_weights | default({\"test\":1}) }}"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights__imagenet_0" : "1.0"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights__pyhpc_isoneural_0" : "1.0"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights__pyhpc_isoneural_2" : "1.0"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights__pyhpc_isoneural_3" : "1.0"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights__pyhpc_isoneural_1" : "1.0"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights__rodinia_srad_1" : "0.5"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights__torch_rnn_0" : "0.5"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights__torch_rnn_1" : "0.5"
+      # "ILUVATAR_WORKER__invocation__mqfq_config__flow_weights__rodinia_srad_0" : "0.5"
+
 
   vars_files:
     - group_vars/all.yml

@@ -47,6 +47,8 @@ pub struct MqfqConfig {
     /// TTL for active flow turning to inactive, default to 2.0 if [None]
     /// if present and negative, TTL becomes a product of the absolute value of this and the flow's IAT
     pub ttl_sec: Option<f64>,
+    /// Map of FQDN:weight for MQFQ
+    pub flow_weights: Option<std::collections::HashMap<String, f64>>,
 }
 
 /// Multi-Queue Fair Queueing.
@@ -633,18 +635,20 @@ impl MQFQ {
             Some(mut fq) => {
                 if fq.value_mut().push_flow(item, virtual_time) {
                     self.mindicator.insert(fq.flow_id, fq.start_time_virt).unwrap();
-                    // let mut lck = self.vitual_time.write();
-                    // *lck = f64::min(*lck, fq.start_time_virt);
                 }
             }
             None => {
                 let fname = item.registration.fqdn.clone();
                 let id = self.mindicator.add_procs(1) - 1;
+                let weight = match &self.q_config.flow_weights {
+                    Some(ws) => ws.get(&fname).unwrap_or(&1.0),
+                    None => &1.0,
+                };
                 let mut qguard = FlowQ::new(
                     fname.clone(),
                     id,
                     virtual_time,
-                    1.0,
+                    *weight,
                     &self.cont_manager,
                     &self.gpu_config,
                     &self.q_config,
@@ -653,8 +657,6 @@ impl MQFQ {
                 );
                 if qguard.push_flow(item, virtual_time) {
                     self.mindicator.insert(qguard.flow_id, qguard.start_time_virt).unwrap();
-                    //     let mut lck = self.vitual_time.write();
-                    //     *lck = f64::min(*lck, qguard.start_time_virt);
                 }
                 self.mqfq_set.insert(fname, qguard);
             }
@@ -817,7 +819,7 @@ impl MQFQ {
         let mut top = vec![];
         for mut q in self.mqfq_set.iter_mut() {
             q.set_idle_throttled(virtual_time);
-            if q.state == MQState::Active {
+            if q.state == MQState::Active && !q.queue.is_empty() {
                 if top.is_empty() {
                     top.push(q);
                 } else {
