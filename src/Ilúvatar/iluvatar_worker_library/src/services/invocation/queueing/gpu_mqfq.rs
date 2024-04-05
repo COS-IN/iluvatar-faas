@@ -341,6 +341,7 @@ enum MqfqPolicy {
     SelectDOutstanding,
     SelectDService,
     SelectDLen,
+    SelectDOutLen,
 }
 impl TryFrom<Option<&String>> for MqfqPolicy {
     type Error = anyhow::Error;
@@ -358,6 +359,7 @@ impl TryFrom<Option<&String>> for MqfqPolicy {
                 "mqfq_select_out" => MqfqPolicy::SelectDOutstanding,
                 "mqfq_select_service" => MqfqPolicy::SelectDService,
                 "mqfq_select_len" => MqfqPolicy::SelectDLen,
+                "mqfq_select_out_len" => MqfqPolicy::SelectDOutLen,
                 unknown => anyhow::bail!("Unknown MQFQ policy '{}'", unknown),
             };
             Ok(r)
@@ -845,8 +847,21 @@ impl MQFQ {
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
         let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
-        let cnt = usize::max(2, top_len);
+        let cnt = usize::max(3, top_len);
         let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        top.into_iter().min_by(|q1, q2| q1.in_flight.cmp(&q2.in_flight))
+    }
+
+    fn select_d_out_len_sorted_next_flow<'a>(
+        &'a self,
+        _tid: &'a TransactionId,
+        _token: &GpuToken,
+        virtual_time: f64,
+    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
+        let cnt = usize::max(3, top_len);
+        let mut top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        top.sort_by(|a, b| b.queue.len().cmp(&a.queue.len()));
         top.into_iter().min_by(|q1, q2| q1.in_flight.cmp(&q2.in_flight))
     }
 
@@ -869,7 +884,7 @@ impl MQFQ {
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
         let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
-        let cnt = usize::max(2, top_len);
+        let cnt = usize::max(3, top_len);
         let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().min_by(|q1, q2| q1.last_serviced.cmp(&q2.last_serviced))
     }
@@ -881,7 +896,7 @@ impl MQFQ {
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
         let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
-        let cnt = usize::max(2, top_len);
+        let cnt = usize::max(3, top_len);
         let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().choose(&mut rand::thread_rng())
     }
@@ -959,6 +974,7 @@ impl MQFQ {
             MqfqPolicy::SelectDOutstanding => self.select_d_outstanding_next_flow(tid, token, virtual_time),
             MqfqPolicy::SelectDService => self.select_d_service_next_flow(tid, token, virtual_time),
             MqfqPolicy::SelectDLen => self.select_d_len_next_flow(tid, token, virtual_time),
+            MqfqPolicy::SelectDOutLen => self.select_d_out_len_sorted_next_flow(tid, token, virtual_time),
         }
     }
 
