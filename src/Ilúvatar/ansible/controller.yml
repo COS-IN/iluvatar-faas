@@ -6,6 +6,19 @@
     exe_dest: "{{bin_dir}}/{{ controller.bin_name }}"
     config_dest: "{{bin_dir}}/{{ controller.config_name }}"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
+    coded_proxy_env:
+      "ILUVATAR_CONTROLLER__name": "{{ controller.host }}"
+      "ILUVATAR_CONTROLLER__port": "{{ controller.port }}"
+      "ILUVATAR_CONTROLLER__address": "{{ __worker_address | default('localhost') }}"
+      "ILUVATAR_CONTROLLER__logging__directory" : "{{ controller_log_dir | default('/tmp/iluvatar/logs') }}"
+      "ILUVATAR_CONTROLLER__logging__level" : "{{ controller_log_level | default('info') }}"
+      "ILUVATAR_CONTROLLER__load_balancer__algorithm" : "{{ controller.algorithm }}"
+      "ILUVATAR_CONTROLLER__load_balancer__load_metric" : "{{ controller.load_metric }}"
+      "ILUVATAR_CONTROLLER__influx__host" : "{{ influx.address }}"
+      "ILUVATAR_CONTROLLER__influx__org" : "{{ influx.organization }}"
+      "ILUVATAR_CONTROLLER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token }}"
+    proxy_env: "{{ coded_proxy_env | combine(controller.environment, recursive=True) }}"
+
   vars_files:
     - group_vars/all.yml
 
@@ -60,17 +73,7 @@
     async: 2592000               # 60*60*24*30 – 1 month
     poll: 0
     when: mode == "deploy"
-    environment:
-      "ILUVATAR_CONTROLLER__name": "{{ controller.host }}"
-      "ILUVATAR_CONTROLLER__port": "{{ controller.port }}"
-      "ILUVATAR_CONTROLLER__address": "{{ __worker_address | default('localhost') }}"
-      "ILUVATAR_CONTROLLER__logging__directory" : "{{ controller_log_dir | default('/tmp/iluvatar/logs') }}"
-      "ILUVATAR_CONTROLLER__logging__level" : "{{ controller_log_level | default('info') }}"
-      "ILUVATAR_CONTROLLER__load_balancer__algorithm" : "{{ controller.algorithm }}"
-      "ILUVATAR_CONTROLLER__load_balancer__load_metric" : "{{ controller.load_metric }}"
-      "ILUVATAR_CONTROLLER__influx__host" : "{{ influx.address }}"
-      "ILUVATAR_CONTROLLER__influx__org" : "{{ influx.organization }}"
-      "ILUVATAR_CONTROLLER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token }}"
+    environment: "{{ proxy_env }}"
     register: controller_output
 
   - name: debug print

@@ -12,6 +12,7 @@ controller:
   port: "{{ controller_port | default(8089) }}"
   algorithm: "{{ controller_algorithm | default('LeastLoaded') }}"
   load_metric: "{{ controller_load_metric | default('loadavg') }}"
+  environment: "{{ controller_environment | default({}) }}"
 
 worker:
   bin_name: "iluvatar_worker"
