@@ -14,8 +14,7 @@ use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
-use std::{sync::Arc, time::Duration};
-use time::Instant;
+use std::{sync::Arc, time::Duration, time::Instant};
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -164,7 +163,7 @@ async fn invoke_on_container(
     let (char, time) = match ctr_lock.container.state() {
         ContainerState::Warm => (Characteristics::WarmTime, data.duration_sec),
         ContainerState::Prewarm => (Characteristics::PreWarmTime, data.duration_sec),
-        _ => (Characteristics::ColdTime, cold_time_start.elapsed().as_seconds_f64()),
+        _ => (Characteristics::ColdTime, cold_time_start.elapsed().as_secs_f64()),
     };
     cmap.add(&reg.fqdn, char, Values::F64(time), true);
     cmap.add(
