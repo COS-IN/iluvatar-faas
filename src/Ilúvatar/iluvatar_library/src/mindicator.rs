@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 pub struct Mindicator {
     data: RwLock<Vec<f64>>,
+    last_min: RwLock<f64>,
 }
 impl Mindicator {
     /// Returns a new [Mindicator] with [num_procs] entries, zero based
@@ -11,6 +12,7 @@ impl Mindicator {
         let data = vec![f64::MAX; num_procs];
         Arc::new(Mindicator {
             data: RwLock::new(data),
+            last_min: RwLock::new(0.0),
         })
     }
 
@@ -21,22 +23,37 @@ impl Mindicator {
             anyhow::bail!("Value passed to mindicator was NaN!!")
         }
         self.data.write()[proc_id] = val;
-        Ok(())
-    }
-
-    /// Return the minimum value across all items, of [f64::MAX] if all are empty
-    pub fn min(&self) -> f64 {
-        *self
+        let data_min = *self
             .data
             .read()
             .iter()
             .min_by(|x1, x2| x1.partial_cmp(x2).unwrap())
-            .unwrap_or(&f64::MAX)
+            .unwrap_or(&f64::MAX);
+        if data_min != f64::MAX {
+            *self.last_min.write() = data_min;
+        }
+        Ok(())
+    }
+
+    /// Return the minimum value across all items
+    /// If all values are empty, the last valid minimum stored will be returned
+    /// Default this is set to 0.0
+    pub fn min(&self) -> f64 {
+        *self.last_min.read()
     }
 
     /// Unset the min value for the position
     pub fn remove(&self, proc_id: usize) {
         self.data.write()[proc_id] = f64::MAX;
+        let data_min = *self
+            .data
+            .read()
+            .iter()
+            .min_by(|x1, x2| x1.partial_cmp(x2).unwrap())
+            .unwrap_or(&f64::MAX);
+        if data_min != f64::MAX {
+            *self.last_min.write() = data_min;
+        }
     }
 
     /// Add additional slots to the mindicator
@@ -65,6 +82,7 @@ mod mindicator_tests {
         for val in m.data.read().iter() {
             assert_eq!(val, &f64::MAX);
         }
+        assert_eq!(m.min(), 0.0);
     }
 
     #[rstest]
@@ -110,9 +128,9 @@ mod mindicator_tests {
 
     #[rstest]
     #[case(132)]
-    fn default_min_is_max(#[case] size: usize) {
+    fn default_min_is_zero(#[case] size: usize) {
         let m = Mindicator::boxed(size);
-        assert_eq!(m.min(), f64::MAX);
+        assert_eq!(m.min(), 0.0);
     }
 
     #[rstest]
@@ -181,11 +199,13 @@ mod mindicator_tests {
             m.insert(i, i as f64).unwrap();
             assert_eq!(m.min(), i as f64);
         }
+        let mut last_min = 0.0;
         for i in 0..size {
             m.remove(i);
             if i == size - 1 {
-                assert_eq!(m.min(), f64::MAX);
+                assert_eq!(m.min(), last_min);
             } else {
+                last_min = m.min();
                 assert_eq!(m.min(), (i as f64) + 1.0);
             }
         }
