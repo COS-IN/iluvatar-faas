@@ -86,6 +86,8 @@
       "ILUVATAR_WORKER__invocation__mqfq_config__dynamic_weights" : "{{ mqfq_dynamic_weights | default(false) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__service_average" : "{{ mqfq_service_average | default(10.0) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__ttl_sec" : "{{ mqfq_ttl_sec | default(2.0) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__weight_logging_ms" : "{{ mqfq_weight_logging_ms | default(0) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__flow_select_cnt" : "{{ mqfq_flow_select_cnt | default(0) }}"
     proxy_env: "{{ coded_proxy_env | combine(worker.environment, recursive=True) }}"
 
   vars_files:

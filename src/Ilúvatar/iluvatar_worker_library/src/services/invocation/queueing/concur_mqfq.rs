@@ -279,7 +279,7 @@ impl FuncQueue {
             ttl_sec: 20.0,
             last_serviced: RwLock::new(OffsetDateTime::now_utc()),
             service_avg: 10.0,
-            allowed_overrun: missing_default(q_config.allowed_overrun, 10.0),
+            allowed_overrun: missing_default(&q_config.allowed_overrun, 10.0),
             registration: registration.clone(),
             weight,
             mindicator: mindicator.clone(),

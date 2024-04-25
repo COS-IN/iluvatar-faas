@@ -202,11 +202,11 @@ impl GPU {
         tid: &TransactionId,
     ) -> Result<(u32, MemSizeMb)> {
         if config.driver_hook_enabled() {
-            return Ok((missing_or_zero_default(config.funcs_per_device, 16), hardware_memory_mb));
+            return Ok((missing_or_zero_default(&config.funcs_per_device, 16), hardware_memory_mb));
         }
 
         let per_func_memory_mb = if config.use_standalone_mps.unwrap_or(false) {
-            missing_or_zero_default(config.per_func_memory_mb, hardware_memory_mb)
+            missing_or_zero_default(&config.per_func_memory_mb, hardware_memory_mb)
         } else if let Some(per_func_memory_mb) = config.per_func_memory_mb {
             per_func_memory_mb
         } else {
@@ -270,7 +270,7 @@ impl GpuResourceTracker {
                 Self::set_shared_exclusive(tid)?;
             }
             let (handle, tx) = tokio_thread(
-                missing_or_zero_default(config.status_update_freq_ms, status_config.report_freq_ms),
+                missing_or_zero_default(&config.status_update_freq_ms, status_config.report_freq_ms),
                 GPU_RESC_TID.to_owned(),
                 Self::gpu_utilization,
             );
@@ -307,7 +307,7 @@ impl GpuResourceTracker {
         _tid: &TransactionId,
     ) -> Result<Arc<Semaphore>> {
         let gpu_cnt = gpus.len();
-        let cnt = missing_or_zero_default(config.concurrent_running_funcs, gpu_cnt as u32);
+        let cnt = missing_or_zero_default(&config.concurrent_running_funcs, gpu_cnt as u32);
         if cnt > gpu_cnt as u32 {
             anyhow::bail!("Value set for the number of concurrently running functions on GPU {} is larger than the number of available GPUs structs", gpu_hardware_id);
         }
@@ -518,7 +518,7 @@ impl GpuResourceTracker {
         gpu: Option<&Arc<GPU>>,
         tid: &TransactionId,
     ) -> Result<GpuToken, tokio::sync::TryAcquireError> {
-        let limit = missing_or_zero_default(self.config.limit_on_utilization, 0);
+        let limit = missing_or_zero_default(&self.config.limit_on_utilization, 0);
         match gpu {
             Some(gpu) => {
                 let gpu_hardware_id = gpu.gpu_hardware_id;

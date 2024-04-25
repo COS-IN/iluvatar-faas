@@ -11,7 +11,7 @@ use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
 use iluvatar_library::types::{Compute, DroppableToken};
-use iluvatar_library::utils::missing_default;
+use iluvatar_library::utils::{missing_default,missing_or_zero_default};
 use iluvatar_library::{characteristics_map::CharacteristicsMap, logging::LocalTime, transaction::TransactionId};
 use iluvatar_library::{
     mindicator::Mindicator,
@@ -49,6 +49,11 @@ pub struct MqfqConfig {
     pub ttl_sec: Option<f64>,
     /// Map of FQDN:weight for MQFQ
     pub flow_weights: Option<std::collections::HashMap<String, f64>>,
+    /// Log flow weights every set milliseconds, if present and greater than 0
+    pub weight_logging_ms: Option<u64>,
+    /// Minimum number of flows to choose between for [MqfqPolicy]::Select* policies
+    /// Default is 3 if [None] or [Some(0)]
+    pub flow_select_cnt: Option<u32>,
 }
 
 /// Multi-Queue Fair Queueing.
@@ -139,10 +144,10 @@ impl FlowQ {
             start_time_virt,
             finish_time_virt: start_time_virt,
             in_flight: 0,
-            ttl_sec: missing_default(q_config.ttl_sec, 2.0),
+            ttl_sec: missing_default(&q_config.ttl_sec, 2.0),
             last_serviced: OffsetDateTime::now_utc(),
             service_avg: q_config.service_average,
-            allowed_overrun: missing_default(q_config.allowed_overrun, 10.0),
+            allowed_overrun: missing_default(&q_config.allowed_overrun, 10.0),
             active_start_t: OffsetDateTime::now_utc(),
             avg_active_t: 0.0,
             num_active_periods: 0,
@@ -305,7 +310,7 @@ pub struct MQFQ {
     signal: Notify,
     cpu: Arc<CpuResourceTracker>,
     _thread: std::thread::JoinHandle<()>,
-    _mon_thread: tokio::task::JoinHandle<()>,
+    _mon_thread: Option<tokio::task::JoinHandle<()>>,
     gpu: Arc<GpuResourceTracker>,
     gpu_config: Arc<GPUResourceConfig>,
     clock: LocalTime,
@@ -396,11 +401,17 @@ impl MQFQ {
             None,
         )?;
 
-        let (mon_handle, mon_tx) = tokio_thread(
-            invocation_config.queue_sleep_ms,
-            MQFQ_GPU_QUEUE_WORKER_TID.clone(),
-            Self::report_queue,
-        );
+        let (mon_handle, mon_tx) = match &q_config.weight_logging_ms {
+            Some(ms) => {
+                if *ms > 0 {
+                    let (mon_handle, mon_tx) = tokio_thread(*ms, MQFQ_GPU_QUEUE_WORKER_TID.clone(), Self::report_queue);
+                    (Some(mon_handle), Some(mon_tx))
+                } else {
+                    (None, None)
+                }
+            }
+            None => (None, None),
+        };
 
         let policy: MqfqPolicy = invocation_config
             .queue_policies
@@ -431,7 +442,9 @@ impl MQFQ {
             mindicator: Mindicator::boxed(0),
         });
         gpu_tx.send(svc.clone())?;
-        mon_tx.send(svc.clone())?;
+        if let Some(mon_tx) = mon_tx {
+            mon_tx.send(svc.clone())?;
+        }
         info!(tid=%tid, "Created MQFQ");
         Ok(svc)
     }
@@ -846,9 +859,9 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
-        let cnt = usize::max(3, top_len);
-        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
+        let cnt = u32::max(3, top_len);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
         top.into_iter().min_by(|q1, q2| q1.in_flight.cmp(&q2.in_flight))
     }
 
@@ -858,9 +871,9 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
-        let cnt = usize::max(3, top_len);
-        let mut top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
+        let cnt = u32::max(missing_or_zero_default(&self.q_config.flow_select_cnt, 3), top_len);
+        let mut top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
         top.sort_by(|a, b| b.queue.len().cmp(&a.queue.len()));
         top.into_iter().min_by(|q1, q2| q1.in_flight.cmp(&q2.in_flight))
     }
@@ -871,9 +884,9 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
-        let cnt = usize::max(3, top_len);
-        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
+        let cnt = u32::max(missing_or_zero_default(&self.q_config.flow_select_cnt, 3), top_len);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
         top.into_iter().max_by(|q1, q2| q1.queue.len().cmp(&q2.queue.len()))
     }
 
@@ -883,9 +896,9 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
-        let cnt = usize::max(3, top_len);
-        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
+        let cnt = u32::max(missing_or_zero_default(&self.q_config.flow_select_cnt, 3), top_len);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
         top.into_iter().min_by(|q1, q2| q1.last_serviced.cmp(&q2.last_serviced))
     }
 
@@ -895,9 +908,9 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1) as usize;
-        let cnt = usize::max(3, top_len);
-        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
+        let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
+        let cnt = u32::max(missing_or_zero_default(&self.q_config.flow_select_cnt, 3), top_len);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
         top.into_iter().choose(&mut rand::thread_rng())
     }
 
