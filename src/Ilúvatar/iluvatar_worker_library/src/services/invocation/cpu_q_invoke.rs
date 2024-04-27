@@ -11,9 +11,9 @@ use crate::services::containers::{
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::invoke_on_container;
 use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResourceTracker};
+use crate::utils::characteristics_map::CharacteristicsMap;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::{
     logging::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
 };
@@ -333,6 +333,8 @@ impl CpuQueueingInvoker {
             EventualItem::Now(n) => n?,
         };
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // since the acquire has been called - tid-cgroup id should be there
+        self.cmap.start_invoke(&reg.fqdn, tid);
         let (data, duration, compute_type, state) = invoke_on_container(
             reg,
             json_args,
@@ -345,6 +347,9 @@ impl CpuQueueingInvoker {
             &self.clock,
         )
         .await?;
+        // now the invoke is done
+        self.cmap.end_invoke(&reg.fqdn, tid);
+
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         drop(permit);
         self.signal.notify_waiters();

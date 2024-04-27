@@ -8,14 +8,24 @@ use crate::services::registration::RegistrationService;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::status::status_service::StatusService;
 use crate::services::worker_health::WorkerHealthService;
+use crate::utils::characteristics_map::{AgExponential, CharacteristicsMap, CharacteristicsPacket};
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
+use iluvatar_bpf_library::bpf::func_characs::*;
+use iluvatar_library::bail_error;
+use iluvatar_library::energy::energy_logging::EnergyLogger;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::types::{Compute, HealthStatus, Isolation, ResourceTimings};
-use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
-use iluvatar_library::{characteristics_map::AgExponential, energy::energy_logging::EnergyLogger};
+use iluvatar_library::utils::execute_cmd_nonblocking;
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, StatusResponse};
+use std::mem::MaybeUninit;
+
+use ipc_channel::ipc::{IpcOneShotServer, IpcSender};
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::path::Path;
+use std::sync::mpsc::channel;
 use std::sync::Arc;
 
 pub mod worker_config;
@@ -25,8 +35,112 @@ pub mod rpc;
 pub mod sim_worker;
 pub mod worker_comm;
 
+use crate::services::containers::containerd::PidsPacket;
+use crate::SCHED_CHANNELS;
+use std::io::prelude::*;
+use std::io::Read;
+use std::sync::RwLock;
+use std::thread;
+use tracing::debug;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Channels {
+    pub tx_chr: IpcSender<CharacteristicsPacket>,
+    pub tx_pids: IpcSender<PidsPacket>,
+}
+
+fn launch_scheduler(worker_config: &WorkerConfig) {
+    match &worker_config.finescheduling {
+        Some(fconfig) => {
+            let fconfig = fconfig.clone();
+
+            if Path::new(&fconfig.binary).exists() {
+                // create a oneshot IPC server
+                let (server, name) = IpcOneShotServer::new().unwrap();
+                debug!(name=%name, status="server waiting", "fine_scheduler");
+
+                let mut args = Vec::<String>::new();
+
+                // default args for all the policies
+                args.push("--server-name".to_string());
+                args.push(name.clone());
+
+                // construct args for different policies as needed
+                match fconfig.binary.as_str() {
+                    "/tmp/iluvatar/bin/fs_policy_constrained" => {
+                        if let Some(cores) = fconfig.cores.as_ref() {
+                            for c in cores {
+                                args.push("-c".to_string());
+                                args.push(c.to_string());
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
+                // launch the policy in a separate thread
+                let bname = fconfig.binary.clone();
+                thread::spawn(move || {
+                    let mut _child = execute_cmd_nonblocking(&bname, &args, None, &String::from("none")).unwrap();
+
+                    let mut buffer = [0; 1024];
+                    let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
+                    let mut elog = File::create("/tmp/iluvatar/bin/sched.elog").expect("failed to open log");
+
+                    loop {
+                        let read = _child.stdout.as_mut().unwrap().read(&mut buffer).unwrap_or(0);
+                        if read > 0 {
+                            log.write(&buffer[..read]);
+                            log.flush();
+                        }
+                        match _child.try_wait() {
+                            Ok(Some(status)) => {
+                                let read = _child.stderr.as_mut().unwrap().read(&mut buffer).unwrap_or(0);
+                                if read > 0 {
+                                    elog.write(&buffer[..read]);
+                                    elog.flush();
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(e) => {}
+                        }
+                    }
+                });
+
+                // wait for the channel to establish with a timeout
+                let (_, channels): (_, Channels) = server.accept().unwrap();
+                debug!(name=%name, status="channels established", "fine_scheduler");
+
+                // save it in the global variable
+                unsafe {
+                    SCHED_CHANNELS = Some(RwLock::new(channels));
+                }
+            }
+        }
+        None => (), // no binary config found
+    }; // end of config match
+}
+
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
+    // launch the fine grained scheduler
+    launch_scheduler(&worker_config);
+
+    // create a multi-producer and single consumer async channel
+    let (tx, rx) = channel::<(BPF_FMAP_KEY, CharVal)>();
+
+    // move the consumer end to a separate thread
+    // where data is pushed to the map
+    thread::spawn(move || {
+        // build the bpf characteristics map
+        let mut open_object = MaybeUninit::uninit();
+        let skel = build_and_load(&mut open_object).unwrap();
+        let mut fcmap = skel.maps.func_metadata;
+
+        // unbounded receiver waiting for all senders to complete.
+        while let Ok((key, val)) = rx.recv() {
+            update_map(&mut fcmap, &key, &val);
+        }
+    });
 
     let factory = IsolationFactory::new(worker_config.clone());
     let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, tid)
@@ -55,6 +169,14 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     .await
     .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make container manger"))?;
 
+    // charateristics map
+    // push the producer end of the channel to the characteristics map
+    let cmap = Arc::new(CharacteristicsMap::new(
+        AgExponential::new(0.6),
+        Some(tx),
+        Some(container_man.clone()),
+    ));
+
     let reg = RegistrationService::new(
         container_man.clone(),
         isos.clone(),
@@ -74,6 +196,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let invoker_fact = InvokerFactory::new(
         container_man.clone(),
         worker_config.limits.clone(),
+        worker_config.clone(),
         worker_config.invocation.clone(),
         cmap.clone(),
         cpu,

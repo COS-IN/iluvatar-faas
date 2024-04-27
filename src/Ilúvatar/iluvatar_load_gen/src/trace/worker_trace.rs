@@ -179,6 +179,14 @@ fn live_worker(args: TraceArgs) -> Result<()> {
             }
         }
 
+        // add progress code here!
+        print!(
+            "{}: Invoking function '{}'   '{:?}'             \r\n",
+            clock.now_str()?,
+            f_c,
+            func_args
+        );
+
         let clk_clone = clock.clone();
         let fct_cln = factory.clone();
         handles.push(threaded_rt.spawn(async move {

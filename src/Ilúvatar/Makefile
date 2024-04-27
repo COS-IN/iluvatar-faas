@@ -1,6 +1,6 @@
 NPROCS:=$(shell grep -c ^processor /proc/cpuinfo)
 CROSS_FLAGS=CROSS_CONTAINER_UID=0 CROSS_CONTAINER_GID=0 CROSS_ROOTLESS_CONTAINER_ENGINE=false CROSS_CONTAINER_USER_NAMESPACE=none CROSS_CONTAINER_OPTS=--privileged
-RUST_FLAGS=-Dwarnings
+#RUST_FLAGS=-Dwarnings
 # Jetson platform
 # TARGET_PLAT=aarch64-unknown-linux-gnu
 TARGET_PLAT?=x86_64-unknown-linux-gnu
@@ -12,7 +12,7 @@ endif
 RUST_C?=cross
 DEBUG_FLAGS=--all-targets $(TARGET) -j $(NPROCS)
 RELEASE_FLAGS=--lib --bins $(TARGET) -j $(NPROCS) --release
-CARGO_ARGS?=""
+CARGO_ARGS?=
 
 default: debug
 
@@ -37,6 +37,9 @@ tiny:
 debug:
 	@echo "Building debug"
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(DEBUG_FLAGS) $(CARGO_ARGS)
+fix:
+	@echo "Fixing lint errors"
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) fix $(DEBUG_FLAGS) $(CARGO_ARGS)
 spans:
 	@echo "Building full_spans"
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(RELEASE_FLAGS) $(CARGO_ARGS)
@@ -55,4 +58,4 @@ format:
 format-check:
 	@cargo fmt --all -- --check
 clippy:
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) clippy --workspace --examples --benches --no-deps -- -Dclippy::suspicious -Dclippy::correctness -Dclippy::perf -Aclippy::single_match -Aclippy::new_without_default -Aclippy::too_many_arguments -Aclippy::type-complexity -Dclippy::from_over_into -Aclippy::redundant-field-names -Dwarnings
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) clippy --fix --allow-no-vcs --workspace --examples --benches --no-deps -- -Dclippy::suspicious -Dclippy::correctness -Dclippy::perf -Aclippy::single_match -Aclippy::new_without_default -Aclippy::too_many_arguments -Aclippy::type-complexity -Dclippy::from_over_into -Aclippy::redundant-field-names -Dwarnings

@@ -14,13 +14,14 @@ use crate::services::{
     },
     invocation::invoke_on_container,
 };
+use crate::utils::characteristics_map::CharacteristicsMap;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::{
     services::{containers::structs::ContainerLock, registration::RegisteredFunction},
     worker_api::worker_config::GPUResourceConfig,
 };
 use anyhow::Result;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, types::DroppableToken};
+use iluvatar_library::types::DroppableToken;
 use iluvatar_library::{
     logging::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
 };
