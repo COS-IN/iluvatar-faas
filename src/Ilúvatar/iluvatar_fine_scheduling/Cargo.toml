@@ -1,0 +1,22 @@
+[package]
+name = "scx_rlfifo"
+version = "0.0.2"
+authors = ["Andrea Righi <andrea.righi@canonical.com>", "Canonical"]
+edition = "2021"
+description = "A simple FIFO scheduler in Rust that runs in user-space"
+license = "GPL-2.0-only"
+
+[dependencies]
+anyhow = "1.0.65"
+ctrlc = { version = "3.1", features = ["termination"] }
+libbpf-rs = "0.23"
+libc = "0.2.137"
+scx_utils = "0.7"
+scx_rustland_core = "0.2"
+
+[build-dependencies]
+scx_utils =  "0.7" 
+scx_rustland_core = "0.2" 
+
+[features]
+enable_backtrace = []
