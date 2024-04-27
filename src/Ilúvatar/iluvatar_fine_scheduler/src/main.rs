@@ -120,7 +120,7 @@ please open a GitHub issue.
     println!("{}", warning);
 }
 
-pub fn execute_scheduler() -> Result<()> {
+fn main() -> Result<()> {
     let mut sched = Scheduler::init()?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();

@@ -1,10 +1,13 @@
 [package]
-name = "scx_rlfifo"
-version = "0.0.2"
-authors = ["Andrea Righi <andrea.righi@canonical.com>", "Canonical"]
+name = "iluvatar_fine_scheduler"
+version = "0.0.1"
+authors = ["Abdul Rehman <abdulrehmanee010@gmail.com>", ""]
 edition = "2021"
-description = "A simple FIFO scheduler in Rust that runs in user-space"
+description = "Sched Ext based scheduler policy for fine grain scheduling"
 license = "GPL-2.0-only"
+
+#[lib]
+#crate-type = ["dylib"]
 
 [dependencies]
 anyhow = "1.0.65"
