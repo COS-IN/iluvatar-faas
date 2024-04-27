@@ -5,6 +5,7 @@ use crate::{
     services::{containers::structs::ContainerState, registration::RegisteredFunction},
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
 };
+use anyhow::bail;
 use anyhow::Result;
 use bollard::Docker;
 use bollard::{
@@ -20,14 +21,18 @@ use bollard::{
 use dashmap::DashSet;
 use futures::StreamExt;
 use guid_create::GUID;
+use iluvatar_bpf_library::bpf::func_characs::{build_bpf_key, BPF_FMAP_KEY};
 use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, ResultErrorVal};
 use iluvatar_library::{
     bail_error, bail_error_value, error_value,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
+    utils::execute_cmd_async,
     utils::port::free_local_port,
 };
+
+use iluvatar_library::utils::execute_cmd;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -114,7 +119,7 @@ impl DockerIsolation {
         ports: BollardPortBindings,
         host_config: Option<HostConfig>,
         entrypoint: Option<Vec<String>>,
-    ) -> Result<()> {
+    ) -> Result<BPF_FMAP_KEY> {
         let mut host_config = host_config.unwrap_or_default();
         host_config.cpu_shares = Some((cpus * 1024) as i64);
         host_config.memory = Some(mem_limit_mb * 1024 * 1024);
@@ -213,7 +218,22 @@ impl DockerIsolation {
             Err(e) => bail_error!(tid=%tid, error=%e, "Error starting container"),
         };
         debug!(tid=%tid, container_id=%container_id, "Container started");
-        Ok(())
+
+        let inspect_container = |cid: &str, field: &str| {
+            let pargs = vec!["inspect", "-f", field, cid];
+            // just an inspect cmd no need for env
+            if let Ok(output) = execute_cmd("/usr/bin/docker", pargs, None, tid) {
+                return String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .trim_matches('\'')
+                    .to_string();
+            }
+            "".to_string()
+        };
+        let cgroup_idoutput = inspect_container(container_id, "'{{.Id}}'");
+        let cgroup_id: BPF_FMAP_KEY = build_bpf_key(&cgroup_idoutput[0..15]);
+
+        Ok(cgroup_id)
     }
 
     /// Get the stdout and stderr of a container
@@ -252,6 +272,31 @@ impl DockerIsolation {
         let (out, _err) = self.get_logs(container.container_id(), tid).await?;
         Ok(out)
     }
+}
+
+async fn check_if_image_pulled(img: &str, tid: &TransactionId) -> Result<()> {
+    // img is docker.io/alfuerst/rodinia-iluvatar-gpu:latest
+    // remove docker.io/
+    let mut img = img.split("/");
+    img.next();
+    let img: Vec<_> = img.collect();
+    let img = img.join("/");
+
+    let output = execute_cmd_async("/usr/bin/docker", vec!["images", img.as_str()], None, tid).await?;
+    let outstr = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .trim_matches('\'')
+        .to_string();
+
+    if let Some(0) = output.status.code() {
+        let mut lines = outstr.split("\n");
+        lines.next();
+        if lines.next().is_some() {
+            return Ok(());
+        }
+    };
+
+    bail!("not present")
 }
 
 #[tonic::async_trait]
@@ -316,7 +361,7 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
-        if let Err(e) = self
+        let cgroup_id = match self
             .docker_run(
                 tid,
                 image_name,
@@ -331,8 +376,13 @@ impl ContainerIsolationService for DockerIsolation {
             )
             .await
         {
-            bail_error_value!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore", device_resource);
+            Ok(cgid) => cgid,
+            Err(e) => {
+                bail_error_value!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore", device_resource);
+            }
         };
+
+        println!("fqdn {} -> cgroup_id {:?}", fqdn, cgroup_id);
 
         drop(permit);
         unsafe {
@@ -348,6 +398,7 @@ impl ContainerIsolationService for DockerIsolation {
                 compute,
                 device_resource,
                 tid,
+                cgroup_id,
             ) {
                 Ok(c) => c,
                 Err((e, d)) => return err_val(e, d),
@@ -399,14 +450,18 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
-        let mut stream = self.docker_api.create_image(options, None, auth);
-        while let Some(res) = stream.next().await {
-            match res {
-                Ok(_) => (),
-                Err(e) => bail_error!(tid=%tid, error=%e, "Failed to pull image"),
+        if (check_if_image_pulled(&rf.image_name, tid).await).is_err() {
+            let mut stream = self.docker_api.create_image(options, None, auth);
+            while let Some(res) = stream.next().await {
+                match res {
+                    Ok(_) => (),
+                    Err(e) => bail_error!(tid=%tid, error=%e, "Failed to pull image"),
+                }
             }
+            info!(tid=%tid, name=%rf.image_name, "Docker image pulled successfully");
+        } else {
+            info!(tid=%tid, name=%rf.image_name, "Docker image not pulled as img is already there");
         }
-        info!(tid=%tid, name=%rf.image_name, "Docker image pulled successfully");
         self.pulled_images.insert(rf.image_name.clone());
         Ok(())
     }

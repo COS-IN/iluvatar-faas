@@ -9,9 +9,9 @@ use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::{containers::containermanager::ContainerManager, invocation::queueing::EnqueueingPolicy};
-use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
+use crate::utils::characteristics_map::CharacteristicsMap;
+use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig, WorkerConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{transaction::TransactionId, types::Compute};
@@ -20,6 +20,7 @@ use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{debug, info};
+//use crate::{SCHED_CHANNELS, get_pid_from_fqdn};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -65,6 +66,7 @@ impl PolymDispatchCtx {
 
 pub struct QueueingDispatcher {
     async_functions: AsyncHelper,
+    _worker_config: WorkerConfig,
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
     clock: Clock,
@@ -80,6 +82,7 @@ impl QueueingDispatcher {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
         function_config: Arc<FunctionLimits>,
+        worker_config: WorkerConfig,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
         cmap: Arc<CharacteristicsMap>,
@@ -111,6 +114,7 @@ impl QueueingDispatcher {
             )?,
             async_functions: AsyncHelper::new(),
             clock: get_global_clock(tid)?,
+            _worker_config: worker_config,
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
@@ -229,7 +233,6 @@ impl QueueingDispatcher {
             self.clock.now(),
         ));
         let mut enqueues = 0;
-
         if reg.supported_compute == Compute::CPU {
             self.enqueue_cpu_check(&enqueue)?;
             return Ok(enqueue);

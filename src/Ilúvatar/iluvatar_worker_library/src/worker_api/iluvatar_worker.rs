@@ -5,12 +5,11 @@ use crate::services::invocation::Invoker;
 use crate::services::resources::gpu::GpuResourceTracker;
 use crate::services::status::status_service::StatusService;
 use crate::services::{registration::RegistrationService, worker_health::WorkerHealthService};
+use crate::utils::characteristics_map::CharacteristicsMap;
 use crate::worker_api::config::WorkerConfig;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_library::{
-    characteristics_map::CharacteristicsMap, energy::energy_logging::EnergyLogger, utils::calculate_fqdn,
-};
+use iluvatar_library::{energy::energy_logging::EnergyLogger, utils::calculate_fqdn};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
     CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest,

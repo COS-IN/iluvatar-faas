@@ -27,6 +27,14 @@ pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
     Ok(clk)
 }
 
+/// Get the current timestamp in milliseconds based off global clock
+pub fn get_global_timestamp_ms() -> i64 {
+    match get_global_clock(&gen_tid()) {
+        Ok(clk) => (clk.now().unix_timestamp_nanos() / 1000000) as i64,
+        Err(_) => 0,
+    }
+}
+
 /// Get the current [Instance]
 #[inline(always)]
 pub fn now() -> Instant {

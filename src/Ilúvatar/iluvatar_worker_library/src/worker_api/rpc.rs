@@ -95,6 +95,7 @@ impl WorkerAPI for RPCWorkerAPI {
         args: String,
         tid: TransactionId,
     ) -> Result<InvokeResponse> {
+        println!("invoking {:?} {:?}", function_name, args);
         let request = Request::new(InvokeRequest {
             function_name,
             function_version: version,

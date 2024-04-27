@@ -8,7 +8,9 @@ members = [
   "iluvatar_library",
   "iluvatar_worker_library",
   "iluvatar_energy_mon",
-  "iluvatar_rpc"
+  "iluvatar_rpc",
+  "iluvatar_bpf_library",
+  "fs_policy_tsksz",
 ]
 resolver = "2"
 

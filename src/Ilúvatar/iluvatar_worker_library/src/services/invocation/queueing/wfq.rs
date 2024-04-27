@@ -1,6 +1,6 @@
 use crate::services::containers::containermanager::ContainerManager;
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use crate::utils::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
 use std::collections::BinaryHeap;
 use std::sync::Arc;

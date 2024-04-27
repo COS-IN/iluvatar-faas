@@ -3,9 +3,9 @@ use crate::services::{
     invocation::gpu_q_invoke::{GpuBatch, GpuQueuePolicy},
     registration::RegisteredFunction,
 };
+use crate::utils::characteristics_map::CharacteristicsMap;
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
 use std::sync::{atomic::AtomicUsize, Arc};
 
@@ -87,7 +87,7 @@ impl GpuQueuePolicy for BatchGpuQueue {
 #[cfg(test)]
 mod oldest_batch {
     use super::*;
-    use iluvatar_library::characteristics_map::{Characteristics, Values};
+    use crate::utils::characteristics_map::{Characteristics, Values};
     use iluvatar_library::clock::get_global_clock;
     use iluvatar_library::transaction::gen_tid;
     use std::collections::HashMap;
@@ -110,7 +110,7 @@ mod oldest_batch {
 
     #[test]
     fn single_item_cold() {
-        let m = CharacteristicsMap::new(iluvatar_library::characteristics_map::AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(crate::utils::characteristics_map::AgExponential::new(0.6), None, None);
         let name = "t1";
         let rf = reg(name);
 
@@ -135,7 +135,7 @@ mod oldest_batch {
 
     #[test]
     fn two_item_mix() {
-        let m = CharacteristicsMap::new(iluvatar_library::characteristics_map::AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(crate::utils::characteristics_map::AgExponential::new(0.6), None, None);
         let name = "t1";
         let rf = reg(name);
         let invoke = Arc::new(EnqueuedInvocation::new(
@@ -166,7 +166,7 @@ mod oldest_batch {
 
     #[test]
     fn two_func_mix() {
-        let m = CharacteristicsMap::new(iluvatar_library::characteristics_map::AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(crate::utils::characteristics_map::AgExponential::new(0.6), None, None);
         let name = "t1";
         let rf = reg(name);
         let invoke = Arc::new(EnqueuedInvocation::new(

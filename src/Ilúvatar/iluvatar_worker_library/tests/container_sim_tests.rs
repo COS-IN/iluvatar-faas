@@ -4,12 +4,12 @@ pub mod utils;
 use crate::utils::{
     background_test_invoke, full_sim_invoker, resolve_invoke, sim_args, sim_invoker_svc, wait_for_queue_len,
 };
-use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
 use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::structs::ContainerState;
+use iluvatar_worker_library::utils::characteristics_map::{Characteristics, Values};
 use rstest::rstest;
 
 fn cpu_reg() -> RegisterRequest {

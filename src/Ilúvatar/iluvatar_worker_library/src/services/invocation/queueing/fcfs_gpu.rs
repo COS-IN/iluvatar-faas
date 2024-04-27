@@ -4,8 +4,8 @@ use crate::services::{
     invocation::gpu_q_invoke::{GpuBatch, GpuQueuePolicy},
     registration::RegisteredFunction,
 };
+use crate::utils::characteristics_map::CharacteristicsMap;
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
 use std::{collections::VecDeque, sync::Arc};
 
