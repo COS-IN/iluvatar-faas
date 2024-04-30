@@ -21,3 +21,15 @@ tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "test-uti
 anyhow = "1.0.13"
 clap = { version = "4.1", features = ["derive"] }
 tracing = "0.1"
+memfd = "0.4.0"
+memmap2 = "0.5.8"
+# Zerocopy depends on proc-macro2 and syn, so having "thiserror" as a
+# dependency does not add too much compilation time.
+thiserror = "1"
+zerocopy = "0.3"
+libc = "0.2.85"
+byteorder = "1.4"
+shmem-ipc = "0.3.0"
+shared_memory = "0.12.5"
+
+

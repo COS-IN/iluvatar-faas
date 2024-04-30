@@ -12,6 +12,23 @@ use tokio::runtime::Runtime;
 use tonic::transport::Server;
 use tracing::{debug, info};
 use utils::Args;
+use std::thread::sleep;
+
+#[allow(unused_imports)]
+use std::sync::Mutex;
+#[allow(unused_imports)]
+use std::sync::Arc;
+#[allow(unused_imports)]
+use std::thread;
+#[allow(unused_imports)]
+use std::fs::File;
+#[allow(unused_imports)]
+use std::error::Error;
+#[allow(unused_imports)]
+use shmem_ipc::sharedring::Receiver;
+#[allow(unused_imports)]
+#[cfg(any(unix, target_os = "wasi"))]
+use std::os::fd::{AsRawFd, RawFd};
 
 pub mod utils;
 
@@ -71,12 +88,48 @@ fn launch_policy(){
                         &args, None, &String::from("none"));
 }
 
+const CAPACITY: usize = 80;
+
+#[allow(unreachable_code)]
 fn main() -> Result<()> {
     iluvatar_library::utils::file::ensure_temp_dir()?;
-    let tid: &TransactionId = &STARTUP_TID;
-    let cli = Args::parse();
+
+    // Create a receive in shared memory. 
+    let mut r = Receiver::<f64>::new(CAPACITY as usize)?;
+    let m = r.memfd().as_file().try_clone()?;
+    let e = r.empty_signal().try_clone()?;
+    let f = r.full_signal().try_clone()?;
+
+    thread::spawn(move || {
+        loop {
+            r.block_until_readable().unwrap();
+            let mut s = 0.0f64;
+            r.receive_raw(|ptr: *const f64, count| unsafe {
+                // We now have a slice of [f64; count], but due to the Rust aliasing rules
+                // and the untrusted process restrictions, we cannot convert them into a
+                // Rust slice, so we read the data from the raw pointer directly.
+                for i in 0..count {
+                    s += *ptr.offset(i as isize);
+                }
+                count
+            }).unwrap();
+            println!("sum: {}", s);
+        }
+    });
+
+    println!("fd: {:?}", m);
+    println!("es: {:?}", e);
+    println!("fs: {:?}", f);
+
+    sleep(Duration::from_secs(3));
 
     launch_policy();
+
+    return Ok(());
+
+
+    let tid: &TransactionId = &STARTUP_TID;
+    let cli = Args::parse();
 
     match cli.command {
         Some(c) => match c {

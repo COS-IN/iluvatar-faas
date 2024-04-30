@@ -13,9 +13,17 @@ license = "GPL-2.0-only"
 anyhow = "1.0.65"
 ctrlc = { version = "3.1", features = ["termination"] }
 libbpf-rs = "0.23"
-libc = "0.2.137"
+libc = "0.2.85"
 scx_utils = "0.7"
 scx_rustland_core = "0.2"
+memfd = "0.4.0"
+memmap2 = "0.5.8"
+# Zerocopy depends on proc-macro2 and syn, so having "thiserror" as a
+# dependency does not add too much compilation time.
+thiserror = "1"
+zerocopy = "0.3"
+byteorder = "1.4"
+shmem-ipc = "0.3.0"
 
 [build-dependencies]
 scx_utils =  "0.7" 

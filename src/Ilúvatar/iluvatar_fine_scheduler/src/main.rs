@@ -2,6 +2,7 @@
 
 // This software may be used and distributed according to the terms of the
 // GNU General Public License version 2.
+#[allow(unused_imports)]
 mod bpf_skel;
 pub use bpf_skel::*;
 pub mod bpf_intf;
@@ -14,10 +15,17 @@ use scx_utils::Topology;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::fs::File;
+#[cfg(any(unix, target_os = "wasi"))]
+use std::os::fd::{FromRawFd};
 
 use std::time::SystemTime;
 
 use anyhow::Result;
+
+use std::thread::sleep;
+use shmem_ipc::sharedring::Sender;
+use std::time::Duration;
 
 struct Scheduler<'a> {
     bpf: BpfScheduler<'a>,
@@ -120,17 +128,66 @@ please open a GitHub issue.
     println!("{}", warning);
 }
 
+#[allow(dead_code)]
+fn get_file( rawfd: i32 ) -> File {
+    let f = unsafe {
+        File::from_raw_fd( rawfd )
+    };
+    println!("File: {:?}", f);
+    f
+}
+
+fn get_file_s( path: &str ) -> File {
+    let f = File::
+        open( path )
+        .expect("Failed to open file");
+    println!("File: {:?}", f);
+    f
+}
+
+#[allow(unreachable_code)]
 fn main() -> Result<()> {
+    print_warning();
+    
+    // Setup the ring buffer 
+    let mut r = Sender::open(80 as usize, 
+                        get_file_s("/memfd:f64 (deleted)"), 
+                        get_file_s("anon_inode:[eventfd]"),
+                        get_file_s("anon_inode:[eventfd]")
+                )?;
+    let mut items = 100000;
+
+    loop {
+        let item = 1.0f64 / (items as f64);
+        r.send_raw( 
+            |p: *mut f64, mut count| unsafe {
+                if items < count { 
+                    count = items 
+                };
+                for i in 0..count {
+                    *p.offset( i as isize ) = item;
+                }
+                println!("Sending {} items of {}, in total {}", 
+                        count,
+                        item,
+                        (count as f64)*item
+                    );
+                count
+            }
+        ).unwrap();
+        items += 100000;
+        sleep( Duration::from_millis(1000) );
+    }
+
     let mut sched = Scheduler::init()?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
 
-    print_warning();
-
     ctrlc::set_handler(move || {
         shutdown_clone.store(true, Ordering::Relaxed);
     })?;
-
+    
+    // wait for the worker to start the scheduler 
     sched.run(shutdown)
 }
 
