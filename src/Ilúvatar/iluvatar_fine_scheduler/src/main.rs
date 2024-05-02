@@ -61,10 +61,22 @@ impl<'a> Scheduler<'a> {
             // Get queued taks and dispatch them in order (FIFO).
             match self.bpf.dequeue_task() {
                 Ok(Some(task)) => {
+
                     // task.cpu < 0 is used to to notify an exiting task, in this
                     // case we can simply ignore the task.
                     if task.cpu >= 0 {
-                        let _ = self.bpf.dispatch_task(&DispatchedTask::new(&task));
+                        let dtask = &mut DispatchedTask::new(&task);
+
+                        let mut lock = self.fdata.try_lock();
+                        if let Ok(ref mut fldata) = lock {
+                            if let Some( chr ) = fldata.pids.get( &task.pid ) {
+                                if let Some( chr ) = fldata.characteristics.get( chr ) {
+                                    dtask.set_cpu( chr.preferred_core );
+                                }
+                            }
+                        } 
+ 
+                        let _ = self.bpf.dispatch_task( dtask );
 
                         // Give the task a chance to run and prevent overflowing the dispatch queue.
                         std::thread::yield_now();
@@ -112,7 +124,10 @@ impl<'a> Scheduler<'a> {
             let curr_ts = Self::now();
             if curr_ts > prev_ts {
                 self.print_stats();
-                self.fdata.lock().unwrap().update();
+                let mut lock = self.fdata.try_lock();
+                if let Ok(ref mut fldata) = lock {
+                    fldata.update();
+                } 
                 prev_ts = curr_ts;
             }
         }
