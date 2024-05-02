@@ -112,6 +112,7 @@ impl<'a> Scheduler<'a> {
             let curr_ts = Self::now();
             if curr_ts > prev_ts {
                 self.print_stats();
+                self.fdata.lock().unwrap().update();
                 prev_ts = curr_ts;
             }
         }
@@ -216,33 +217,16 @@ impl FuncData {
 
 fn main() -> Result<()> {
 
-    let mut fdata = FuncData::new( 
+    let mut fdata = FuncData::new(
         "/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/characteristics.csv".to_string(),
         "/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/pids.log".to_string()
     );
     let mut fdata = Arc::new( Mutex::new(fdata) );
     fdata.lock().unwrap().update();
-    
-    {
-        let fdata = Arc::clone(&fdata);
-        // create a thread to launch reach function in a separate thread 
-        thread::spawn(move || {
-            loop {
-                println!("#### Reading in Thread ##########################");
-                fdata.lock().unwrap().update();
 
-                sleep(Duration::from_millis(1000));
-            }
-        });
-    }
-
-    sleep( Duration::from_millis(5000) );
-    
     print_warning();
-    let fcdata = Arc::clone(&fdata);
-    println!("{:?}", fcdata.lock().unwrap());
 
-    let mut sched = Scheduler::init( &fcdata )?;
+    let mut sched = Scheduler::init( &fdata )?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
 
