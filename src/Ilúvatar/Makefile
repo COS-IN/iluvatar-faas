@@ -1,5 +1,5 @@
 NPROCS:=$(shell grep -c ^processor /proc/cpuinfo)
-RUST_FLAGS=-Dwarnings
+RUST_FLAGS=-Awarnings
 BUILD_FLAGS=--all-targets
 
 default: debug

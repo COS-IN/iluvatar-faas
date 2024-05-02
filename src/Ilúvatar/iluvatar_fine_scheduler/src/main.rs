@@ -15,7 +15,9 @@ use scx_utils::Topology;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::fs::File;
+use std::fs::read_to_string;
 #[cfg(any(unix, target_os = "wasi"))]
 use std::os::fd::{FromRawFd};
 
@@ -26,6 +28,14 @@ use anyhow::Result;
 use std::thread::sleep;
 use shmem_ipc::sharedring::Sender;
 use std::time::Duration;
+
+use serde::Deserialize;
+use serde::de;
+use serde_json;
+use serde_json::{Value};
+
+use std::collections::HashMap;
+use std::thread;
 
 struct Scheduler<'a> {
     bpf: BpfScheduler<'a>,
@@ -128,27 +138,124 @@ please open a GitHub issue.
     println!("{}", warning);
 }
 
-#[allow(dead_code)]
-fn get_file( rawfd: i32 ) -> File {
-    let f = unsafe {
-        File::from_raw_fd( rawfd )
-    };
-    println!("File: {:?}", f);
-    f
-}
-
 fn get_file_s( path: &str ) -> File {
     let f = File::
         open( path )
         .expect("Failed to open file");
-    println!("File: {:?}", f);
     f
 }
 
-#[allow(unreachable_code)]
+fn vec_to_map_chr( data: Vec<RecordChr> ) -> HashMap<String, RecordChr> {
+    data.chunks_exact(1) // chunks_exact returns an iterator of slices
+    .map(|chunk| (chunk[0].func_name.clone(), chunk[0].clone())) // map slices to tuples
+    .collect::<HashMap<_, _>>() // collect into a hashmap
+}
+
+fn vec_to_map_pid( data: Vec<RecordPid> ) -> HashMap<i32, String> {
+    data.chunks_exact(1) // chunks_exact returns an iterator of slices
+    .map(|chunk| (chunk[0].pid.clone(), chunk[0].func_name.clone())) // map slices to tuples
+    .collect::<HashMap<_, _>>() // collect into a hashmap
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct RecordChr {
+    func_name: String,
+    e2e_time: f64,
+    preferred_core: i32,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct RecordPid {
+    pid: i32,
+    func_name: String,
+}
+
+fn read_csv<T: de::DeserializeOwned>( filename: &str ) -> Vec<T> {
+    let f = get_file_s( filename );
+    let mut rdr = csv::Reader::from_reader(f);
+    let mut data = Vec::new();
+    for result in rdr.deserialize() {
+        let record: T = result.unwrap();
+        data.push(record);
+    }
+    data
+}
+
+#[derive(Debug, Clone)]
+struct FuncData {
+    characteristics: HashMap<String, RecordChr>,
+    pids: HashMap<i32, String>,
+    cfile: String, 
+    pfile: String, 
+}
+
+impl FuncData {
+    fn new( cfile: String, pfile: String ) -> Self {
+        let data: Vec<RecordChr> =  read_csv( &cfile );
+        let data_pids: Vec<RecordPid> = read_csv( &pfile );
+        let chr = vec_to_map_chr( data );
+        let pids = vec_to_map_pid( data_pids );
+
+        Self {
+            characteristics: chr,
+            pids: pids,
+            cfile: cfile,
+            pfile: pfile,
+        }
+    }
+
+    fn update(&mut self){
+        let data: Vec<RecordChr> =  read_csv( &self.cfile );
+        self.characteristics = vec_to_map_chr( data );
+        
+        let data_pids: Vec<RecordPid> = read_csv( &self.pfile );
+        self.pids = vec_to_map_pid( data_pids );
+    }
+}
+
 fn main() -> Result<()> {
-    print_warning();
+
+    let mut fdata = FuncData::new( 
+        "/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/characteristics.csv".to_string(),
+        "/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/pids.log".to_string()
+    );
+    let mut fdata = Arc::new( Mutex::new(fdata) );
+    fdata.lock().unwrap().update();
     
+    println!("#############################################");
+    println!("Read first");
+    println!("{:?}", fdata);
+    
+    {
+        let fdata = Arc::clone(&fdata);
+        // create a thread to launch reach function in a separate thread 
+        thread::spawn(move || {
+            loop {
+                println!("#### Reading in Thread ##########################");
+                fdata.lock().unwrap().update();
+
+                sleep(Duration::from_millis(1000));
+            }
+        });
+    }
+
+    {
+        let fdata = Arc::clone(&fdata);
+        // create a thread to launch reach function in a separate thread 
+        thread::spawn(move || {
+            loop {
+                println!("#### Printing in Thread ##########################");
+                println!("{:?}", fdata.lock().unwrap());
+
+                sleep(Duration::from_millis(1000));
+            }
+        });
+    }
+
+    sleep( Duration::from_millis(5000) );
+    
+    print_warning();
+
     // Setup the ring buffer 
     let mut r = Sender::open(80 as usize, 
                         get_file_s("/memfd:f64 (deleted)"), 
@@ -189,5 +296,26 @@ fn main() -> Result<()> {
     
     // wait for the worker to start the scheduler 
     sched.run(shutdown)
+}
+
+
+#[cfg(test)]
+mod tests {
+    type RecordChr = super::RecordChr;
+    type RecordPid = super::RecordPid;
+
+    fn read_csvs() {
+        let data: Vec<RecordChr> = super::read_csv( &"/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/characteristics.csv".to_string() );
+        println!("{:?}", data);
+
+        let map = super::vec_to_map_chr(data);
+        println!("{:?}", map);
+
+        let data_pids: Vec<RecordPid> = super::read_csv( &"/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/pids.log".to_string() );
+        println!("{:?}", data_pids);
+
+        let map_pids = super::vec_to_map_pid(data_pids);
+        println!("{:?}", map_pids);
+    }
 }
 
