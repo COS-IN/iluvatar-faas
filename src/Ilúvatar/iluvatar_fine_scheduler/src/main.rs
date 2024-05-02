@@ -233,8 +233,8 @@ impl FuncData {
 fn main() -> Result<()> {
 
     let mut fdata = FuncData::new(
-        "/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/characteristics.csv".to_string(),
-        "/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/pids.log".to_string()
+        "/tmp/iluvatar/csvs/characteristics.csv".to_string(),
+        "/tmp/iluvatar/csvs//pids.log".to_string()
     );
     let mut fdata = Arc::new( Mutex::new(fdata) );
     fdata.lock().unwrap().update();
@@ -260,13 +260,13 @@ mod tests {
     type RecordPid = super::RecordPid;
 
     fn read_csvs() {
-        let data: Vec<RecordChr> = super::read_csv( &"/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/characteristics.csv".to_string() );
+        let data: Vec<RecordChr> = super::read_csv( &"/tmp/iluvatar/csvs/characteristics.csv".to_string() );
         println!("{:?}", data);
 
         let map = super::vec_to_map_chr(data);
         println!("{:?}", map);
 
-        let data_pids: Vec<RecordPid> = super::read_csv( &"/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/iluvatar_fine_scheduler/examples/pids.log".to_string() );
+        let data_pids: Vec<RecordPid> = super::read_csv( &"/tmp/iluvatar/csvs/pids.log".to_string() );
         println!("{:?}", data_pids);
 
         let map_pids = super::vec_to_map_pid(data_pids);
