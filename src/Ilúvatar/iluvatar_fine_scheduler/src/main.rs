@@ -39,13 +39,14 @@ use std::thread;
 
 struct Scheduler<'a> {
     bpf: BpfScheduler<'a>,
+    fdata: &'a Arc<Mutex<FuncData>>,
 }
 
 impl<'a> Scheduler<'a> {
-    fn init() -> Result<Self> {
+    fn init( fdata: &'a Arc<Mutex<FuncData>> ) -> Result<Self> {
         let topo = Topology::new().expect("Failed to build host topology");
         let bpf = BpfScheduler::init(5000, topo.nr_cpus_possible() as i32, false, 0, false, false)?;
-        Ok(Self { bpf })
+        Ok(Self { bpf, fdata })
     }
 
     fn now() -> u64 {
@@ -222,10 +223,6 @@ fn main() -> Result<()> {
     let mut fdata = Arc::new( Mutex::new(fdata) );
     fdata.lock().unwrap().update();
     
-    println!("#############################################");
-    println!("Read first");
-    println!("{:?}", fdata);
-    
     {
         let fdata = Arc::clone(&fdata);
         // create a thread to launch reach function in a separate thread 
@@ -239,54 +236,13 @@ fn main() -> Result<()> {
         });
     }
 
-    {
-        let fdata = Arc::clone(&fdata);
-        // create a thread to launch reach function in a separate thread 
-        thread::spawn(move || {
-            loop {
-                println!("#### Printing in Thread ##########################");
-                println!("{:?}", fdata.lock().unwrap());
-
-                sleep(Duration::from_millis(1000));
-            }
-        });
-    }
-
     sleep( Duration::from_millis(5000) );
     
     print_warning();
+    let fcdata = Arc::clone(&fdata);
+    println!("{:?}", fcdata.lock().unwrap());
 
-    // Setup the ring buffer 
-    let mut r = Sender::open(80 as usize, 
-                        get_file_s("/memfd:f64 (deleted)"), 
-                        get_file_s("anon_inode:[eventfd]"),
-                        get_file_s("anon_inode:[eventfd]")
-                )?;
-    let mut items = 100000;
-
-    loop {
-        let item = 1.0f64 / (items as f64);
-        r.send_raw( 
-            |p: *mut f64, mut count| unsafe {
-                if items < count { 
-                    count = items 
-                };
-                for i in 0..count {
-                    *p.offset( i as isize ) = item;
-                }
-                println!("Sending {} items of {}, in total {}", 
-                        count,
-                        item,
-                        (count as f64)*item
-                    );
-                count
-            }
-        ).unwrap();
-        items += 100000;
-        sleep( Duration::from_millis(1000) );
-    }
-
-    let mut sched = Scheduler::init()?;
+    let mut sched = Scheduler::init( &fcdata )?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
 
