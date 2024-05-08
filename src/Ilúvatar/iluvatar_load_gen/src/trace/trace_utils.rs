@@ -108,8 +108,8 @@ fn map_from_benchmark(
 
             for (name, avg_warm, avg_cold, image) in device_data.iter() {
                 if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
-                    chosen_name = name.clone();
-                    chosen_image = image.clone();
+                    chosen_name.clone_from(name);
+                    chosen_image.clone_from(image);
                     chosen_warm_time_ms = *avg_warm;
                     chosen_cold_time_ms = *avg_cold;
                 }

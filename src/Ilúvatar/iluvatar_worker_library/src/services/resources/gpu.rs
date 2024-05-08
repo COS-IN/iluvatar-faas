@@ -202,7 +202,10 @@ impl GPU {
         tid: &TransactionId,
     ) -> Result<(u32, MemSizeMb)> {
         if config.driver_hook_enabled() {
-            return Ok((missing_or_zero_default(&config.funcs_per_device, 16), hardware_memory_mb));
+            return Ok((
+                missing_or_zero_default(&config.funcs_per_device, 16),
+                hardware_memory_mb,
+            ));
         }
 
         let per_func_memory_mb = if config.use_standalone_mps.unwrap_or(false) {

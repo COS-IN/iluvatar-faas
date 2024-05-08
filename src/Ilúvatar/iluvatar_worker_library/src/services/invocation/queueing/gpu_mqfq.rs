@@ -319,7 +319,7 @@ pub struct MQFQ {
     sticky_queue: RwLock<String>,
     /// System-wide logical clock for resources consumed
     mindicator: Arc<Mindicator>,
-    active_flows: RwLock<u32>
+    active_flows: RwLock<u32>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -446,7 +446,7 @@ impl MQFQ {
             policy,
             sticky_queue: RwLock::new("".to_string()),
             mindicator: Mindicator::boxed(0),
-            active_flows: RwLock::new(0)
+            active_flows: RwLock::new(0),
         });
         gpu_tx.send(svc.clone())?;
         if let Some(mon_tx) = mon_tx {
@@ -476,10 +476,7 @@ impl MQFQ {
             };
             flows.push(info);
         }
-        let log = MqfqInfo {
-          flows,
-          active_flows
-        };
+        let log = MqfqInfo { flows, active_flows };
         match serde_json::to_string(&log) {
             Ok(to_write) => {
                 info!(tid=%tid, global_vitual_time=self.mindicator.min(), queue_info=%to_write, "FlowQ details")
@@ -869,16 +866,15 @@ impl MQFQ {
     }
 
     fn get_select_num(&self) -> usize {
-      let concurrency = self.gpu_config.concurrent_running_funcs.unwrap_or(1) * self.gpu_config.count;
-      let active = *self.active_flows.read();
-      let cnt = match &self.q_config.flow_select_cnt {
-          Some(cnt) if cnt <= &0.0 => concurrency as f64,
-          Some(cnt) if cnt <= &1.0 => f64::ceil(active as f64 * cnt),
-          Some(cnt) => f64::ceil(*cnt),
-          None => concurrency as f64,
-      };
-      // let cnt = u32::max(missing_or_zero_default(&self.q_config.flow_select_cnt, 3), top_len);
-      usize::max(concurrency as usize, cnt as usize)
+        let concurrency = self.gpu_config.concurrent_running_funcs.unwrap_or(1) * self.gpu_config.count;
+        let active = *self.active_flows.read();
+        let cnt = match &self.q_config.flow_select_cnt {
+            Some(cnt) if cnt <= &0.0 => concurrency as f64,
+            Some(cnt) if cnt <= &1.0 => f64::ceil(active as f64 * cnt),
+            Some(cnt) => f64::ceil(*cnt),
+            None => concurrency as f64,
+        };
+        usize::max(concurrency as usize, cnt as usize)
     }
 
     fn select_d_outstanding_next_flow<'a>(
@@ -887,10 +883,8 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        // let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
-        // let cnt = u32::max(3, top_len);
         let cnt = self.get_select_num();
-        let top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().min_by(|q1, q2| q1.in_flight.cmp(&q2.in_flight))
     }
 
@@ -900,10 +894,8 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        // let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
-        // let cnt = u32::max(missing_or_zero_default(&self.q_config.flow_select_cnt, 3), top_len);
         let cnt = self.get_select_num();
-        let mut top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
+        let mut top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.sort_by(|a, b| b.queue.len().cmp(&a.queue.len()));
         top.into_iter().min_by(|q1, q2| q1.in_flight.cmp(&q2.in_flight))
     }
@@ -914,10 +906,8 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        // let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
-        // let cnt = u32::max(missing_or_zero_default(&self.q_config.flow_select_cnt, 3), top_len);
         let cnt = self.get_select_num();
-        let top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().max_by(|q1, q2| q1.queue.len().cmp(&q2.queue.len()))
     }
 
@@ -927,10 +917,8 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        // let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
-        // let cnt = u32::max(missing_or_zero_default(&self.q_config.flow_select_cnt, 3), top_len);
         let cnt = self.get_select_num();
-        let top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().min_by(|q1, q2| q1.last_serviced.cmp(&q2.last_serviced))
     }
 
@@ -940,10 +928,8 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
     ) -> Option<RefMutMulti<'_, String, FlowQ>> {
-        // let top_len = self.gpu_config.concurrent_running_funcs.unwrap_or(1);
-        // let cnt = u32::max(missing_or_zero_default(&self.q_config.flow_select_cnt, 3), top_len);
         let cnt = self.get_select_num();
-        let top = self.select_top_flows(_tid, _token, virtual_time, cnt as usize);
+        let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().choose(&mut rand::thread_rng())
     }
 
@@ -997,7 +983,7 @@ impl MQFQ {
             }
         }
         if let Some(q) = &min_q {
-            *sticky_queue = q.fqdn.clone();
+            sticky_queue.clone_from(&q.fqdn);
         }
         min_q
     }
