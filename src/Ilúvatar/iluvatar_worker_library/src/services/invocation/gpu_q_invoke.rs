@@ -27,9 +27,9 @@ use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::{
     sync::{atomic::AtomicU32, Arc},
-    time::Duration,
+    time::{Duration, Instant},
 };
-use time::{Instant, OffsetDateTime};
+use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 

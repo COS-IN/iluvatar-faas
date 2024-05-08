@@ -20,7 +20,7 @@ use iluvatar_library::utils::missing_default;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use time::Instant;
+use std::time::Instant;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info};

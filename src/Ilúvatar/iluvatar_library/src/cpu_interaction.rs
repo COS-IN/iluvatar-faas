@@ -156,7 +156,7 @@ impl CpuFreqMonitor {
 
 /// The CPU usage metrics reported by /proc/stat
 pub struct CPUUtilInstant {
-    read_time: time::Instant,
+    read_time: std::time::Instant,
     cpu_user: f64,
     cpu_nice: f64,
     cpu_system: f64,
@@ -198,7 +198,7 @@ impl CPUUtilInstant {
         }
         let strs: Vec<&str> = line.split(' ').filter(|str| !str.is_empty()).collect();
         Ok(Self {
-            read_time: time::Instant::now(),
+            read_time: std::time::Instant::now(),
             cpu_user: Self::safe_get_val(&strs, 1, tid)?,
             cpu_nice: Self::safe_get_val(&strs, 2, tid)?,
             cpu_system: Self::safe_get_val(&strs, 3, tid)?,
@@ -226,7 +226,7 @@ impl CPUUtilInstant {
 }
 
 pub struct CPUUtilPcts {
-    pub read_diff: time::Duration,
+    pub read_diff: std::time::Duration,
     pub cpu_user: f64,
     pub cpu_nice: f64,
     pub cpu_system: f64,
