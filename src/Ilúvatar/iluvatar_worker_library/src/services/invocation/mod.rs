@@ -14,8 +14,8 @@ use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
-use std::{sync::Arc, time::Duration};
 use std::time::Instant;
+use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tracing::info;
 
