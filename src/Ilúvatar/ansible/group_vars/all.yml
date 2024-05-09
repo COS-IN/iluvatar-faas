@@ -12,12 +12,13 @@ controller:
   port: "{{ controller_port | default(8089) }}"
   algorithm: "{{ controller_algorithm | default('LeastLoaded') }}"
   load_metric: "{{ controller_load_metric | default('loadavg') }}"
+  environment: "{{ controller_environment | default({}) }}"
 
 worker:
   bin_name: "iluvatar_worker"
   config_name: "worker.json"
   port: "{{ worker_port | default(8070) }}"
-
+  environment: "{{ worker_environment | default({}) }}"
 
 __influx_api_port: 8086
 influx:

@@ -229,7 +229,7 @@ impl FunctionInvocationTimings {
 }
 
 #[allow(drop_bounds)]
-pub trait DroppableMovableTrait: Drop + Send + std::fmt::Debug {}
+pub trait DroppableMovableTrait: Drop + Send {}
 impl DroppableMovableTrait for tokio::sync::OwnedSemaphorePermit {}
 // impl DroppableMovableTrait for Option<tokio::sync::OwnedSemaphorePermit> {}
 #[allow(drop_bounds, dyn_drop)]

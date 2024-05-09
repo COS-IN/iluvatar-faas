@@ -72,7 +72,7 @@ pub struct RegisterArgs {
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     #[arg(long)]
-    ///
+    /// Hostname to target
     pub host: String,
     #[arg(short, long)]
     pub port: Port,

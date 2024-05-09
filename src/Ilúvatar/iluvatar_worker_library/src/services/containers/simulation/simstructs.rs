@@ -18,7 +18,6 @@ use std::{
 };
 use tracing::debug;
 
-#[derive(Debug)]
 #[allow(unused)]
 pub struct SimulatorContainer {
     pub container_id: String,

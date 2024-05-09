@@ -202,11 +202,14 @@ impl GPU {
         tid: &TransactionId,
     ) -> Result<(u32, MemSizeMb)> {
         if config.driver_hook_enabled() {
-            return Ok((missing_or_zero_default(config.funcs_per_device, 16), hardware_memory_mb));
+            return Ok((
+                missing_or_zero_default(&config.funcs_per_device, 16),
+                hardware_memory_mb,
+            ));
         }
 
         let per_func_memory_mb = if config.use_standalone_mps.unwrap_or(false) {
-            missing_or_zero_default(config.per_func_memory_mb, hardware_memory_mb)
+            missing_or_zero_default(&config.per_func_memory_mb, hardware_memory_mb)
         } else if let Some(per_func_memory_mb) = config.per_func_memory_mb {
             per_func_memory_mb
         } else {
@@ -270,7 +273,7 @@ impl GpuResourceTracker {
                 Self::set_shared_exclusive(tid)?;
             }
             let (handle, tx) = tokio_thread(
-                missing_or_zero_default(config.status_update_freq_ms, status_config.report_freq_ms),
+                missing_or_zero_default(&config.status_update_freq_ms, status_config.report_freq_ms),
                 GPU_RESC_TID.to_owned(),
                 Self::gpu_utilization,
             );
@@ -307,7 +310,7 @@ impl GpuResourceTracker {
         _tid: &TransactionId,
     ) -> Result<Arc<Semaphore>> {
         let gpu_cnt = gpus.len();
-        let cnt = missing_or_zero_default(config.concurrent_running_funcs, gpu_cnt as u32);
+        let cnt = missing_or_zero_default(&config.concurrent_running_funcs, gpu_cnt as u32);
         if cnt > gpu_cnt as u32 {
             anyhow::bail!("Value set for the number of concurrently running functions on GPU {} is larger than the number of available GPUs structs", gpu_hardware_id);
         }
@@ -514,18 +517,21 @@ impl GpuResourceTracker {
     /// If [gpu] is [None], then this will return a token for the least loaded GPU
     /// Returns an error if none are available for execution
     pub fn try_acquire_resource(
-        &self,
+        self: &Arc<Self>,
         gpu: Option<&Arc<GPU>>,
         tid: &TransactionId,
     ) -> Result<GpuToken, tokio::sync::TryAcquireError> {
-        let limit = missing_or_zero_default(self.config.limit_on_utilization, 0);
+        let limit = missing_or_zero_default(&self.config.limit_on_utilization, 0);
         match gpu {
             Some(gpu) => {
                 let gpu_hardware_id = gpu.gpu_hardware_id;
                 if limit == 0 {
                     return match self.gpu_metadata.get(&gpu_hardware_id) {
                         Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                            Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id, tid.clone())),
+                            Ok(p) => {
+                                self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
+                                Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
+                            }
                             Err(e) => Err(e),
                         },
                         None => {
@@ -548,7 +554,8 @@ impl GpuResourceTracker {
                                     } else {
                                         50.0
                                     };
-                                    Ok(GpuToken::new(p, gpu_hardware_id, tid.clone()))
+                                    stat.num_running += 1;
+                                    Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
                                 }
                                 Err(e) => Err(e),
                             },
@@ -568,7 +575,7 @@ impl GpuResourceTracker {
     }
 
     fn try_acquire_least_loaded_resource(
-        &self,
+        self: &Arc<Self>,
         tid: &TransactionId,
         limit: u32,
     ) -> Result<GpuToken, tokio::sync::TryAcquireError> {
@@ -584,7 +591,10 @@ impl GpuResourceTracker {
             }
             return match self.gpu_metadata.get(&gpu_hardware_id) {
                 Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                    Ok(p) => Ok(GpuToken::new(p, gpu_hardware_id, tid.clone())),
+                    Ok(p) => {
+                        self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
+                        Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
+                    }
                     Err(e) => Err(e),
                 },
                 None => Err(tokio::sync::TryAcquireError::NoPermits),
@@ -613,7 +623,8 @@ impl GpuResourceTracker {
                             } else {
                                 50.0
                             };
-                            Ok(GpuToken::new(p, gpu_hardware_id as u32, tid.clone()))
+                            stat.num_running += 1;
+                            Ok(GpuToken::new(p, gpu_hardware_id as u32, tid.clone(), self))
                         }
                         Err(e) => Err(e),
                     },
@@ -626,6 +637,19 @@ impl GpuResourceTracker {
                 Err(tokio::sync::TryAcquireError::NoPermits)
             }
         }
+    }
+
+    /// Call on dropping a GPU execute token
+    /// reduces the est_utilization_gpu for that GPU immediately (w/o querying which is slow) to make room for another function
+    fn drop_gpu_resource(&self, gpu_id: PrivateGpuId) {
+        let mut gpu_stat = self.status_info.write();
+        let stat: &mut GpuStatus = &mut gpu_stat[gpu_id as usize];
+        stat.est_utilization_gpu = if stat.num_running > 0 {
+            stat.num_running -= 1;
+            (stat.est_utilization_gpu / (stat.num_running + 1) as f64) * stat.num_running as f64
+        } else {
+            0.0
+        };
     }
 
     pub fn outstanding(&self) -> u32 {
@@ -829,23 +853,30 @@ impl Drop for GpuResourceTracker {
     }
 }
 
-#[derive(Debug)]
 pub struct GpuToken {
     _token: OwnedSemaphorePermit,
     pub gpu_id: PrivateGpuId,
     tid: TransactionId,
+    svc: Arc<GpuResourceTracker>,
 }
 impl GpuToken {
-    pub fn new(token: OwnedSemaphorePermit, gpu_id: PrivateGpuId, tid: TransactionId) -> Self {
+    pub fn new(
+        token: OwnedSemaphorePermit,
+        gpu_id: PrivateGpuId,
+        tid: TransactionId,
+        svc: &Arc<GpuResourceTracker>,
+    ) -> Self {
         Self {
             _token: token,
             gpu_id,
             tid,
+            svc: svc.clone(),
         }
     }
 }
 impl Drop for GpuToken {
     fn drop(&mut self) {
+        self.svc.drop_gpu_resource(self.gpu_id);
         debug!(tid=%self.tid, gpu=self.gpu_id, "Dropping GPU token");
     }
 }

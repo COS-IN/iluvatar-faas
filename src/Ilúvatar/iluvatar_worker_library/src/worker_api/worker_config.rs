@@ -133,11 +133,11 @@ impl GPUResourceConfig {
     pub fn mps_enabled(&self) -> bool {
         self.use_standalone_mps.unwrap_or(false)
     }
-    /// Returns true if MPS (of any sort) is enabled
+    /// Returns true if using driver hook is enabled
     pub fn driver_hook_enabled(&self) -> bool {
         self.use_driver_hook.unwrap_or(false)
     }
-    ///
+    /// Returns true if sending memory hints is enabled
     pub fn send_driver_memory_hints(&self) -> bool {
         self.driver_hook_enabled() && self.prefetch_memory.unwrap_or(false)
     }

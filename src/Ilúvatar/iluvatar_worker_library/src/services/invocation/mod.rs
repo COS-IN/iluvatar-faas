@@ -1,6 +1,6 @@
 use self::queueing_dispatcher::QueueingDispatcher;
 use super::containers::containermanager::ContainerManager;
-use super::containers::structs::ContainerLock;
+use super::containers::structs::{Container, ContainerLock};
 use super::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -14,8 +14,8 @@ use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
+use std::time::Instant;
 use std::{sync::Arc, time::Duration};
-use time::Instant;
 use time::OffsetDateTime;
 use tracing::info;
 
@@ -146,25 +146,56 @@ pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
 /// [Duration]: The E2E latency between the worker and the container
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
-#[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit, ctr_lock, remove_time,cold_time_start) fields(tid=%tid)))]
+#[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap) fields(tid=%tid)))]
 async fn invoke_on_container(
     reg: &Arc<RegisteredFunction>,
     json_args: &str,
     tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
-    // permit: Option<Box<dyn Drop + Send>>,
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
     cmap: &Arc<CharacteristicsMap>,
     clock: &LocalTime,
 ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
+    let (data, dur, ctr) = invoke_on_container_2(
+        reg,
+        json_args,
+        tid,
+        queue_insert_time,
+        ctr_lock,
+        remove_time,
+        cold_time_start,
+        cmap,
+        clock,
+    )
+    .await?;
+    Ok((data, dur, ctr.compute_type(), ctr.state()))
+}
+
+/// Returns
+/// [ParsedResult] A result representing the function output, the user result plus some platform tracking
+/// [Duration]: The E2E latency between the worker and the container
+/// [Compute]: Compute the invocation was run on
+/// [ContainerState]: State the container was in for the invocation
+#[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap) fields(tid=%tid)))]
+async fn invoke_on_container_2(
+    reg: &Arc<RegisteredFunction>,
+    json_args: &str,
+    tid: &TransactionId,
+    queue_insert_time: OffsetDateTime,
+    ctr_lock: &ContainerLock,
+    remove_time: String,
+    cold_time_start: Instant,
+    cmap: &Arc<CharacteristicsMap>,
+    clock: &LocalTime,
+) -> Result<(ParsedResult, Duration, Container)> {
     info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     let (char, time) = match ctr_lock.container.state() {
         ContainerState::Warm => (Characteristics::WarmTime, data.duration_sec),
         ContainerState::Prewarm => (Characteristics::PreWarmTime, data.duration_sec),
-        _ => (Characteristics::ColdTime, cold_time_start.elapsed().as_seconds_f64()),
+        _ => (Characteristics::ColdTime, cold_time_start.elapsed().as_secs_f64()),
     };
     cmap.add(&reg.fqdn, char, Values::F64(time), true);
     cmap.add(
@@ -175,10 +206,5 @@ async fn invoke_on_container(
     );
     let e2etime = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
     cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
-    Ok((
-        data,
-        duration,
-        ctr_lock.container.compute_type(),
-        ctr_lock.container.state(),
-    ))
+    Ok((data, duration, ctr_lock.container.clone()))
 }

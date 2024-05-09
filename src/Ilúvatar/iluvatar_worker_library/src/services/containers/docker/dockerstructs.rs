@@ -19,7 +19,6 @@ use std::{
 };
 use tracing::{debug, warn};
 
-#[derive(Debug)]
 #[allow(unused, dyn_drop)]
 pub struct DockerContainer {
     pub container_id: String,

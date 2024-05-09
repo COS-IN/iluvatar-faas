@@ -20,7 +20,7 @@ use iluvatar_library::utils::missing_default;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use time::Instant;
+use std::time::Instant;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info};
@@ -279,7 +279,7 @@ impl FuncQueue {
             ttl_sec: 20.0,
             last_serviced: RwLock::new(OffsetDateTime::now_utc()),
             service_avg: 10.0,
-            allowed_overrun: missing_default(q_config.allowed_overrun, 10.0),
+            allowed_overrun: missing_default(&q_config.allowed_overrun, 10.0),
             registration: registration.clone(),
             weight,
             mindicator: mindicator.clone(),

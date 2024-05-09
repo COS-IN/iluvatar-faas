@@ -248,21 +248,21 @@ fn try_create_signal(tid: &TransactionId, kind: SignalKind) -> Result<Signal> {
 
 /// Returns the default if the option is missing
 /// Otherwise returns the given
-pub fn missing_default<T>(opt: Option<T>, default: T) -> T {
+pub fn missing_default<T: Copy>(opt: &Option<T>, default: T) -> T {
     if let Some(i) = opt {
-        return i;
+        return *i;
     }
     default
 }
 
 /// Returns the default if the option is missing or is zero
 /// Otherwise returns the given
-pub fn missing_or_zero_default<T: num_traits::PrimInt>(opt: Option<T>, default: T) -> T {
+pub fn missing_or_zero_default<T: num_traits::PrimInt>(opt: &Option<T>, default: T) -> T {
     if let Some(i) = opt {
-        if i == T::zero() {
+        if i == &T::zero() {
             return default;
         }
-        return i;
+        return *i;
     }
     default
 }
@@ -346,7 +346,7 @@ mod default_tests {
     #[case(100)]
     #[case(98461)]
     fn returns_passed(#[case] v: u32) {
-        assert_eq!(missing_or_zero_default(Some(v), v), v);
+        assert_eq!(missing_or_zero_default(&Some(v), v), v);
     }
 
     #[rstest]
@@ -355,7 +355,7 @@ mod default_tests {
     #[case(100)]
     #[case(98461)]
     fn none_returns_default(#[case] v: u32) {
-        assert_eq!(missing_or_zero_default(None, v), v);
+        assert_eq!(missing_or_zero_default(&None, v), v);
     }
 
     #[rstest]
@@ -364,7 +364,7 @@ mod default_tests {
     #[case(100)]
     #[case(98461)]
     fn zero_returns_default(#[case] v: u32) {
-        assert_eq!(missing_or_zero_default(Some(0), v), v);
+        assert_eq!(missing_or_zero_default(&Some(0), v), v);
     }
 
     #[rstest]
@@ -373,7 +373,7 @@ mod default_tests {
     #[case(100)]
     #[case(98461)]
     fn def_returns_passed(#[case] v: u32) {
-        assert_eq!(missing_default(Some(v), v), v);
+        assert_eq!(missing_default(&Some(v), v), v);
     }
 
     #[rstest]
@@ -382,7 +382,7 @@ mod default_tests {
     #[case(100)]
     #[case(98461)]
     fn def_none_returns_default(#[case] v: u32) {
-        assert_eq!(missing_default(None, v), v);
+        assert_eq!(missing_default(&None, v), v);
     }
 
     #[rstest]
@@ -391,6 +391,6 @@ mod default_tests {
     #[case(100)]
     #[case(98461)]
     fn def_zero_returns_zero(#[case] v: u32) {
-        assert_eq!(missing_default(Some(0), v), 0);
+        assert_eq!(missing_default(&Some(0), v), 0);
     }
 }

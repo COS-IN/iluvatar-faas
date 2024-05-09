@@ -303,7 +303,6 @@ impl ContainerManager {
             None => {
                 // no available container, cold start
                 let r = reg.clone();
-                // let tid = tid.clone();
                 EventualItem::Future(self.cold_start(r, tid, compute))
             }
         };
@@ -355,10 +354,7 @@ impl ContainerManager {
         debug!(tid=%tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
         let container = self.launch_container_internal(&reg, tid, compute).await?;
         let rpool = self.get_resource_pool(compute)?;
-        if let Err(e) = rpool.add_running_container(container.clone(), tid) {
-            self.purge_container(container, tid).await?;
-            return Err(e);
-        };
+        rpool.add_running_container(container.clone(), tid);
         self.prioritiy_notify.notify_waiters();
         info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
         container.set_state(ContainerState::Cold);
@@ -582,7 +578,7 @@ impl ContainerManager {
         let container = self.launch_container_internal(reg, tid, compute).await?;
         container.set_state(ContainerState::Prewarm);
         let pool = self.get_resource_pool(compute)?;
-        pool.add_idle_container(container, tid)?;
+        pool.add_idle_container(container, tid);
         self.prioritiy_notify.notify_waiters();
         // self.add_container_to_pool(&pool.idle_containers, container, tid)?;
         info!(tid=%tid, fqdn=%reg.fqdn, "function was successfully prewarmed");
@@ -592,10 +588,6 @@ impl ContainerManager {
     /// Registers a function using the given request
     pub fn register(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
         debug!(tid=%tid, function_name=%reg.function_name, function_version=%reg.function_version, fqdn=%reg.fqdn, "Adding new registration to active_containers map");
-        self.cpu_containers.register_fqdn(reg.fqdn.clone());
-        // self.cpu_containers.idle_containers.register_fqdn(reg.fqdn.clone());
-        self.gpu_containers.register_fqdn(reg.fqdn.clone());
-        // self.gpu_containers.idle_containers.register_fqdn(reg.fqdn.clone());
         self.outstanding_containers.insert(reg.fqdn.clone(), AtomicU32::new(0));
         Ok(())
     }

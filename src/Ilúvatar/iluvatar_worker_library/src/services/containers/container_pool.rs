@@ -6,7 +6,7 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc,
 };
-use tracing::{debug, error};
+use tracing::debug;
 
 pub type Subpool = Vec<Container>;
 type Pool = DashMap<String, Subpool>;
@@ -35,11 +35,6 @@ impl ContainerPool {
         }
     }
 
-    /// Used to register a new fqdn with the pool
-    pub fn register_fqdn(&self, fqdn: String) {
-        self.idle_pool.insert(fqdn.clone(), Vec::new());
-        self.running_pool.insert(fqdn, Vec::new());
-    }
     pub fn pool_name(&self) -> &str {
         &self.pool_name
     }
@@ -98,17 +93,13 @@ impl ContainerPool {
 
     /// Add the container to the pool
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
-    fn add_container(&self, container: Container, pool: &Pool, tid: &TransactionId, pool_type: PoolType) -> Result<()> {
+    fn add_container(&self, container: Container, pool: &Pool, tid: &TransactionId, pool_type: PoolType) {
+        debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, pool_type=?pool_type, "Inserting container into pool");
         match pool.get_mut(container.fqdn()) {
-            Some(mut pool_list) => {
-                debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, pool_type=?pool_type, "Inserting container into pool");
-                (*pool_list).push(container);
-                Ok(())
+            Some(mut pool_list) => (*pool_list).push(container),
+            None => {
+                pool.insert(container.fqdn().clone(), vec![container]);
             }
-            None => anyhow::bail!(
-                "Function '{}' was supposed to be readable in pool but could not be found",
-                container.fqdn()
-            ),
         }
     }
 
@@ -119,14 +110,8 @@ impl ContainerPool {
             Some(mut pool_list) => match (*pool_list).pop() {
                 Some(c) => {
                     debug!(tid=%tid, container_id=%c.container_id(), name=%self.pool_name, pool_type=?PoolType::Idle, "Removing random container from pool");
-                    match self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running) {
-                        Ok(_) => Some(c),
-                        Err(e) => {
-                            println!("{:?}", e);
-                            error!(tid=%tid, error=%e, "Failed trying to move container to running pool");
-                            None
-                        }
-                    }
+                    self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running);
+                    Some(c)
                 }
                 None => None,
             },
@@ -137,7 +122,10 @@ impl ContainerPool {
     /// Move the container from the running pool to idle
     pub fn move_to_idle(&self, container: &Container, tid: &TransactionId) -> Result<()> {
         match self.remove_container_pool(container, &self.running_pool, tid, PoolType::Running) {
-            Some(c) => self.add_container(c, &self.idle_pool, tid, PoolType::Idle),
+            Some(c) => {
+                self.add_container(c, &self.idle_pool, tid, PoolType::Idle);
+                Ok(())
+            }
             None => {
                 bail_error!(tid=%tid, container_id=%container.container_id(), "Supposedly running container was not found in running pool")
             }
@@ -193,7 +181,7 @@ impl ContainerPool {
     /// Add the container to the idle pool
     /// If an error occurs, the container will not be placed in the pool
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
-    pub fn add_idle_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
+    pub fn add_idle_container(&self, container: Container, tid: &TransactionId) {
         self.len.fetch_add(1, LEN_ORDERING);
         self.add_container(container, &self.idle_pool, tid, PoolType::Idle)
     }
@@ -201,7 +189,7 @@ impl ContainerPool {
     /// Add the container to the running pool
     /// If an error occurs, the container will not be placed in the pool
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
-    pub fn add_running_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
+    pub fn add_running_container(&self, container: Container, tid: &TransactionId) {
         self.len.fetch_add(1, LEN_ORDERING);
         self.add_container(container, &self.running_pool, tid, PoolType::Running)
     }
@@ -281,7 +269,6 @@ mod tests {
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
         });
-        cp.register_fqdn(fqdn.clone());
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
             &fqdn,
@@ -291,39 +278,9 @@ mod tests {
             Compute::CPU,
             None,
         ));
-        cp.add_idle_container(ctr, &"test".to_string())
-            .expect("add should not error");
+        cp.add_idle_container(ctr, &"test".to_string());
     }
-    #[test]
-    fn no_reg_fails() {
-        let cp = ContainerPool::new(Compute::CPU);
-        let fqdn = calculate_fqdn("name", "vesr");
-        let reg = Arc::new(RegisteredFunction {
-            function_name: "name".to_string(),
-            function_version: "vesr".to_string(),
-            image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
-            parallel_invokes: 1,
-            isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-        });
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        ));
-        match cp.add_idle_container(ctr, &"test".to_string()) {
-            Ok(_) => panic!("Should not get Ok with no registration"),
-            Err(_) => (),
-        };
-    }
+
     #[test]
     fn get() {
         let tid = "test".to_string();
@@ -341,7 +298,6 @@ mod tests {
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
         });
-        cp.register_fqdn(fqdn.clone());
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
             &fqdn,
@@ -351,7 +307,7 @@ mod tests {
             Compute::CPU,
             None,
         ));
-        cp.add_idle_container(ctr.clone(), &tid).expect("add should not error");
+        cp.add_idle_container(ctr.clone(), &tid);
         let ctr2 = cp
             .activate_random_container(&fqdn, &tid)
             .expect("should return a container");
@@ -375,7 +331,6 @@ mod tests {
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
         });
-        cp.register_fqdn(fqdn.clone());
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
             &fqdn,
@@ -385,7 +340,7 @@ mod tests {
             Compute::CPU,
             None,
         )) as Container;
-        cp.add_idle_container(ctr.clone(), &tid).expect("add should not error");
+        cp.add_idle_container(ctr.clone(), &tid);
         let removed = cp.remove_container(&ctr, &tid).expect("should remove a container");
         assert_eq!(ctr.container_id(), removed.container_id(), "Container IDs should match");
     }
@@ -406,7 +361,6 @@ mod tests {
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
         });
-        cp.register_fqdn(fqdn.clone());
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
             &fqdn,
@@ -416,7 +370,7 @@ mod tests {
             Compute::CPU,
             None,
         )) as Container;
-        cp.add_idle_container(ctr.clone(), &tid).expect("add should not error");
+        cp.add_idle_container(ctr.clone(), &tid);
         let removed = cp.remove_container(&ctr, &tid).expect("should remove a container");
         assert_eq!(ctr.container_id(), removed.container_id(), "Container IDs should match");
 
@@ -454,8 +408,6 @@ mod tests {
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
         });
-        cp.register_fqdn(fqdn.clone());
-        cp.register_fqdn(fqdn2.clone());
         let ctr = Arc::new(SimulatorContainer::new(
             "cid1".to_string(),
             &fqdn,
@@ -465,8 +417,7 @@ mod tests {
             Compute::CPU,
             None,
         ));
-        cp.add_idle_container(ctr, &"test".to_string())
-            .expect("add should not error");
+        cp.add_idle_container(ctr, &"test".to_string());
         assert_eq!(cp.len(), 1);
         let ctr = Arc::new(SimulatorContainer::new(
             "cid2".to_string(),
@@ -477,8 +428,7 @@ mod tests {
             Compute::CPU,
             None,
         ));
-        cp.add_idle_container(ctr, &"test".to_string())
-            .expect("add should not error");
+        cp.add_idle_container(ctr, &"test".to_string());
         assert_eq!(cp.len(), 2);
         let ctr = Arc::new(SimulatorContainer::new(
             "cid3".to_string(),
@@ -489,8 +439,7 @@ mod tests {
             Compute::CPU,
             None,
         ));
-        cp.add_idle_container(ctr, &"test".to_string())
-            .expect("add should not error");
+        cp.add_idle_container(ctr, &"test".to_string());
         assert_eq!(cp.len(), 3);
         let ctr = Arc::new(SimulatorContainer::new(
             "cid3".to_string(),
@@ -501,8 +450,7 @@ mod tests {
             Compute::CPU,
             None,
         ));
-        cp.add_idle_container(ctr, &"test".to_string())
-            .expect("add should not error");
+        cp.add_idle_container(ctr, &"test".to_string());
         assert_eq!(cp.len(), 4);
 
         let c = cp
@@ -539,7 +487,6 @@ mod tests {
                     supported_compute: iluvatar_library::types::Compute::CPU,
                     fqdn: "".to_string(),
                 });
-                cp_c.register_fqdn(fqdn.clone());
                 b_c.wait().await;
                 for i in 0..creates {
                     let ctr = Arc::new(SimulatorContainer::new(
@@ -551,7 +498,7 @@ mod tests {
                         Compute::CPU,
                         None,
                     ));
-                    cp_c.add_idle_container(ctr, &"test".to_string())?;
+                    cp_c.add_idle_container(ctr, &"test".to_string());
                 }
                 Ok(())
             }));
@@ -579,7 +526,6 @@ mod tests {
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
         });
-        cp.register_fqdn(fqdn.clone());
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
             &fqdn,
@@ -589,8 +535,7 @@ mod tests {
             Compute::CPU,
             None,
         )) as Container;
-        cp.add_running_container(ctr.clone(), &tid)
-            .expect("add should not error");
+        cp.add_running_container(ctr.clone(), &tid);
         assert_eq!(cp.running_pool.get(&fqdn).unwrap().len(), 1);
         cp.move_to_idle(&ctr, &tid).expect("move_to_idle should succeed");
         assert_eq!(cp.running_pool.get(&fqdn).unwrap().len(), 0);
@@ -614,7 +559,6 @@ mod tests {
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
         });
-        cp.register_fqdn(fqdn.clone());
         assert_eq!(cp.has_idle_container(&fqdn), ContainerState::Cold);
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
@@ -625,7 +569,7 @@ mod tests {
             Compute::CPU,
             None,
         )) as Container;
-        cp.add_idle_container(ctr, &tid).expect("add should not error");
+        cp.add_idle_container(ctr, &tid);
         assert_eq!(cp.has_idle_container(&fqdn), ContainerState::Prewarm);
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
@@ -636,7 +580,7 @@ mod tests {
             Compute::CPU,
             None,
         )) as Container;
-        cp.add_idle_container(ctr, &tid).expect("add should not error");
+        cp.add_idle_container(ctr, &tid);
         assert_eq!(cp.has_idle_container(&fqdn), ContainerState::Warm);
     }
 
@@ -657,7 +601,6 @@ mod tests {
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
         });
-        cp.register_fqdn(fqdn.clone());
         assert_eq!(cp.has_container(&fqdn), ContainerState::Cold);
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
@@ -668,7 +611,7 @@ mod tests {
             Compute::CPU,
             None,
         )) as Container;
-        cp.add_running_container(ctr, &tid).expect("add should not error");
+        cp.add_running_container(ctr, &tid);
         assert_eq!(cp.has_container(&fqdn), ContainerState::Prewarm);
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
@@ -679,7 +622,7 @@ mod tests {
             Compute::CPU,
             None,
         )) as Container;
-        cp.add_idle_container(ctr, &tid).expect("add should not error");
+        cp.add_idle_container(ctr, &tid);
         assert_eq!(cp.has_container(&fqdn), ContainerState::Warm);
     }
 }

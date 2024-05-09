@@ -10,7 +10,7 @@
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     __hardware_interface: "{{ hardware_interface | default(servers[ansible_host].hardware_interface) }}"
     SIGINT: 2
-    proxy_env:
+    coded_proxy_env:
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
       "ILUVATAR_WORKER__address" : "{{ __worker_address }}"
@@ -74,18 +74,21 @@
       "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
       "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(100) }}"
       "ILUVATAR_WORKER__invocation__queue_policies__cpu" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
-      "ILUVATAR_WORKER__invocation__queue_policies__gpu" : "{{ worker_gpu_queue_policy | default('fcfs') }}"
+      "ILUVATAR_WORKER__invocation__queue_policies__gpu" : "{{ worker_gpu_queue_policy | default('mqfq') }}"
       "ILUVATAR_WORKER__invocation__queues__gpu" : "{{ worker_gpu_queue | default('serial') }}"
-      "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('serial') }}"
+      "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('mqfq_select_out_len') }}"
       "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
       # MQFQ Config
       "ILUVATAR_WORKER__invocation__mqfq_config__allowed_overrun" : "{{ mqfq_allowed_overrun | default(0.0) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__in_flight" : "{{ mqfq_allowed_overrun | default(false) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__dynamic_weights" : "{{ mqfq_allowed_overrun | default(false) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__in_flight" : "{{ mqfq_in_flight | default(false) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__dynamic_weights" : "{{ mqfq_dynamic_weights | default(false) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__service_average" : "{{ mqfq_service_average | default(10.0) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__ttl_sec" : "{{ mqfq_ttl_sec | default(2.0) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__weight_logging_ms" : "{{ mqfq_weight_logging_ms | default(0) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__flow_select_cnt" : "{{ mqfq_flow_select_cnt | default(0) }}"
+    proxy_env: "{{ coded_proxy_env | combine(worker.environment, recursive=True) }}"
 
   vars_files:
     - group_vars/all.yml
@@ -127,7 +130,7 @@
     run_once: true
 
   - name: Kill running worker process distrib
-    shell: "kill {{ item }}"
+    shell: "kill -s INT {{ item }}"
     when: (ansible_host != "127.0.0.1" and ansible_host != "localhost") and mode == "clean"
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes

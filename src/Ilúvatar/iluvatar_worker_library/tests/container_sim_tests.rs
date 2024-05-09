@@ -5,6 +5,7 @@ use crate::utils::{
     background_test_invoke, full_sim_invoker, resolve_invoke, sim_args, sim_invoker_svc, wait_for_queue_len,
 };
 use iluvatar_library::characteristics_map::{Characteristics, Values};
+use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
 use iluvatar_worker_library::rpc::{LanguageRuntime, RegisterRequest};
@@ -13,7 +14,7 @@ use rstest::rstest;
 
 fn cpu_reg() -> RegisterRequest {
     RegisterRequest {
-        function_name: "test".to_string(),
+        function_name: gen_tid(),
         function_version: "test".to_string(),
         cpus: 1,
         memory: 128,
@@ -29,7 +30,7 @@ fn cpu_reg() -> RegisterRequest {
 
 fn gpu_reg() -> RegisterRequest {
     RegisterRequest {
-        function_name: "test".to_string(),
+        function_name: gen_tid(),
         function_version: "test".to_string(),
         cpus: 1,
         memory: 128,
@@ -476,6 +477,7 @@ mod gpu {
         cm.prewarm(&func, &TEST_TID, Compute::GPU)
             .await
             .unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let ctr = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
             EventualItem::Future(_) => panic!("Should have gotten prewarmed container"),
             EventualItem::Now(n) => n,
@@ -483,7 +485,7 @@ mod gpu {
         .unwrap_or_else(|e| panic!("Creating container should have succeeded: {}", e));
         assert_eq!(
             ctr.container.function().function_name,
-            "test",
+            func.function_name,
             "Got incorrect container"
         );
         drop(ctr);
@@ -517,9 +519,9 @@ mod gpu {
         let args = sim_args().unwrap();
 
         let invoke1 = background_test_invoke(&invoker, &func, args.as_str(), &"invoke1".to_string());
-        tokio::time::sleep(std::time::Duration::from_micros(10)).await; // queue insertion can be kind of racy, sleep to ensure ordering
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await; // queue insertion can be kind of racy, sleep to ensure ordering
         let invoke2 = background_test_invoke(&invoker, &func, args.as_str(), &"invoke2".to_string());
-        tokio::time::sleep(std::time::Duration::from_micros(10)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let invoke3 = background_test_invoke(&invoker, &func, args.as_str(), &"invoke3".to_string());
         let r1 = resolve_invoke(invoke1)
             .await
@@ -629,9 +631,9 @@ mod gpu {
         let args = sim_args().unwrap();
 
         let invoke1 = background_test_invoke(&invoker, &func1, args.as_str(), &"invoke1".to_string());
-        tokio::time::sleep(std::time::Duration::from_micros(10)).await; // queue insertion can be kind of racy, sleep to ensure ordering
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await; // queue insertion can be kind of racy, sleep to ensure ordering
         let invoke2 = background_test_invoke(&invoker, &func2, args.as_str(), &"invoke2".to_string());
-        tokio::time::sleep(std::time::Duration::from_micros(10)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         let invoke3 = background_test_invoke(&invoker, &func1, args.as_str(), &"invoke3".to_string());
         let r1 = resolve_invoke(invoke1)
             .await

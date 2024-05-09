@@ -7,50 +7,65 @@ use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::{
+    collections::VecDeque,
+    sync::{atomic::AtomicUsize, Arc},
+};
 
 /// Combines invocations into batches, and returned the batch with the oldest item in front
-pub struct BatchGpuQueue {
-    invoke_batches: DashMap<String, GpuBatch>,
+pub struct SizedBatchGpuQueue {
+    invoke_batches: DashMap<String, VecDeque<GpuBatch>>,
     est_time: Mutex<f64>,
     num_queued: AtomicUsize,
     cmap: Arc<CharacteristicsMap>,
+    max_batch_size: usize,
 }
 
-impl BatchGpuQueue {
+impl SizedBatchGpuQueue {
     pub fn new(cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
-        let svc = Arc::new(BatchGpuQueue {
+        let svc = Arc::new(Self {
             invoke_batches: DashMap::new(),
             est_time: Mutex::new(0.0),
             num_queued: AtomicUsize::new(0),
             cmap,
+            max_batch_size: 10,
         });
         Ok(svc)
     }
 }
 
-impl GpuQueuePolicy for BatchGpuQueue {
+#[tonic::async_trait]
+impl GpuQueuePolicy for SizedBatchGpuQueue {
     fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
-        if let Some(next) = self
-            .invoke_batches
-            .iter()
-            .min_by_key(|x| x.value().peek().queue_insert_time)
-        {
-            return Some(next.value().item_registration().clone());
+        let mut ret_min = time::PrimitiveDateTime::MAX.assume_utc();
+        let mut ret = None;
+        for batch in self.invoke_batches.iter() {
+            if !batch.value().is_empty() {
+                if let Some(b) = batch.value().front() {
+                    if b.peek().queue_insert_time < ret_min {
+                        ret_min = b.peek().queue_insert_time;
+                        ret = Some(b.item_registration().clone());
+                    }
+                }
+            }
         }
-        None
+        ret
     }
 
     fn pop_queue(&self) -> Option<GpuBatch> {
-        let batch_key = self
-            .invoke_batches
-            .iter()
-            .min_by_key(|x| x.value().peek().queue_insert_time)
-            .unwrap()
-            .key()
-            .clone();
-        let (_fqdn, batch) = self.invoke_batches.remove(&batch_key).unwrap();
-
+        let mut ret_min = time::PrimitiveDateTime::MAX.assume_utc();
+        let mut ret = None;
+        for batch in self.invoke_batches.iter_mut() {
+            if !batch.value().is_empty() {
+                if let Some(b) = batch.value().front() {
+                    if b.peek().queue_insert_time < ret_min {
+                        ret_min = b.peek().queue_insert_time;
+                        ret = Some(batch);
+                    }
+                }
+            }
+        }
+        let batch = ret?.value_mut().pop_front()?;
         self.num_queued
             .fetch_sub(batch.len(), std::sync::atomic::Ordering::Relaxed);
 
@@ -72,11 +87,22 @@ impl GpuQueuePolicy for BatchGpuQueue {
         match self.invoke_batches.entry(item.registration.fqdn.clone()) {
             dashmap::mapref::entry::Entry::Occupied(mut v) => {
                 est_time = self.cmap.get_gpu_exec_time(&item.registration.fqdn);
-                v.get_mut().add(item.clone(), est_time);
+                let q = v.get_mut();
+                if let Some(b) = q.back_mut() {
+                    if b.len() >= self.max_batch_size {
+                        q.push_back(GpuBatch::new(item.clone(), est_time));
+                    } else {
+                        b.add(item.clone(), est_time);
+                    }
+                } else {
+                    q.push_back(GpuBatch::new(item.clone(), est_time));
+                }
             }
             dashmap::mapref::entry::Entry::Vacant(e) => {
                 est_time = self.cmap.get_gpu_cold_time(&item.registration.fqdn);
-                e.insert(GpuBatch::new(item.clone(), est_time));
+                let mut q = VecDeque::new();
+                q.push_back(GpuBatch::new(item.clone(), est_time));
+                e.insert(q);
             }
         }
         *self.est_time.lock() += est_time;
@@ -124,7 +150,7 @@ mod oldest_batch {
             true,
         );
 
-        let b = BatchGpuQueue::new(Arc::new(m)).unwrap();
+        let b = SizedBatchGpuQueue::new(Arc::new(m)).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
 
         assert_eq!(b.est_queue_time(), 1.5);
@@ -154,7 +180,7 @@ mod oldest_batch {
             true,
         );
 
-        let b = BatchGpuQueue::new(Arc::new(m)).unwrap();
+        let b = SizedBatchGpuQueue::new(Arc::new(m)).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
 
@@ -206,7 +232,7 @@ mod oldest_batch {
             true,
         );
 
-        let b = BatchGpuQueue::new(Arc::new(m)).unwrap();
+        let b = SizedBatchGpuQueue::new(Arc::new(m)).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
 

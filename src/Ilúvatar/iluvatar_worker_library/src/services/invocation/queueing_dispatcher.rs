@@ -1,5 +1,4 @@
-use super::queueing::concur_mqfq::ConcurMqfq;
-use super::queueing::gpu_mqfq::MQFQ;
+use super::queueing::{concur_mqfq::ConcurMqfq, gpu_mqfq::MQFQ};
 use super::queueing::{DeviceQueue, EnqueuedInvocation};
 use super::{
     async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
@@ -17,8 +16,7 @@ use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{logging::LocalTime, transaction::TransactionId, types::Compute};
 use parking_lot::RwLock;
 use rand::Rng;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{debug, info};
 
@@ -166,6 +164,7 @@ impl QueueingDispatcher {
                         cmap.clone(),
                         cpu.clone(),
                         gpu.clone(),
+                        gpu_config,
                     )?))
                 } else if q == "mqfq" {
                     Ok(Some(MQFQ::new(
