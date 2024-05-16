@@ -45,7 +45,7 @@ struct Scheduler<'a> {
 impl<'a> Scheduler<'a> {
     fn init( fdata: &'a Arc<Mutex<FuncData>> ) -> Result<Self> {
         let topo = Topology::new().expect("Failed to build host topology");
-        let bpf = BpfScheduler::init(5000, topo.nr_cpus_possible() as i32, false, 0, false, false)?;
+        let bpf = BpfScheduler::init(5000, topo.nr_cpus_possible() as i32, false, 0, false, true)?;
         Ok(Self { bpf, fdata })
     }
 
@@ -69,6 +69,15 @@ impl<'a> Scheduler<'a> {
 
                         let mut lock = self.fdata.try_lock();
                         if let Ok(ref mut fldata) = lock {
+                            fn printpid( p: i32, task: &QueuedTask ){
+                                if ( task.pid == p ){
+                                    println!("found {:?}", task);
+                                }
+                            }
+                            printpid( 1441167, &task );
+                            printpid( 1441187, &task );
+                            printpid( 1441256, &task );
+
                             if let Some( chr ) = fldata.pids.get( &task.pid ) {
                                 if let Some( chr ) = fldata.characteristics.get( chr ) {
                                     dtask.set_cpu( chr.preferred_core );
@@ -221,7 +230,7 @@ impl FuncData {
         }
     }
 
-    fn update(&mut self){
+    fn update(&mut self) {
         let data: Vec<RecordChr> =  read_csv( &self.cfile );
         self.characteristics = vec_to_map_chr( data );
         

@@ -74,7 +74,7 @@ fn launch_policy(){
 fn main() -> Result<()> {
     iluvatar_library::utils::file::ensure_temp_dir()?;
 
-    launch_policy();
+    //launch_policy();
 
     let tid: &TransactionId = &STARTUP_TID;
     let cli = Args::parse();

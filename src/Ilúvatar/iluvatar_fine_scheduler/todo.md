@@ -24,7 +24,6 @@
   Sched_ext policy should build with iluvatar 
   and should execute if configured. 
 
-
 ### Next Actions (Planning)
   
   * [x] build simple sched_ext policy with iluvatar 
@@ -40,14 +39,11 @@
         * [x] use https://docs.rs/shmem-ipc/latest/shmem_ipc/mem/mmap/struct.MmapRaw.html
         * [x] https://docs.rs/shmem-ipc/latest/shmem_ipc/mem/index.html
         * [x] raw mapping of the memory
-      
     * use socket to share the fd with worker 
     * use shared memory to communicate 
     * measure latency of shared memory communication 
   
-  
   * [x] understand thread structure of container function 
- 
 
   * implement specific functions on specific core policy 
     * [x] design 
@@ -69,9 +65,32 @@
         * [x] structure of threads 
         * [x] csvs 
       * [x] explain how policy works 
-    * showcase using worker and containers  
-      * doesn't work
-        * probably because the dispatch is not called - need to find an another way 
+    * [x] showcase using worker and containers  
+      * [x] doesn't work
+        * [x] probably because the dispatch is not called - need to find an another way 
+  
+  * Understand scx_layered (it handles control groups)
+    * [x] read main.rs code  
+    * read bpf.c code 
+
+  * solve the function threads not moving issue 
+    * understand 
+      * Does control group threads go through the dispatch call? 
+        * no! - verified using printpid in dispatch callback 
+      * Why not? 
+        * dispatch is only called when there are no tasks to run in the local dsq and global dsq 
+      * Does this task exist in the local dsq? 
+        * ?     
+      * How does layered scheduler handle control group tasks? 
+        * ? 
+
+  * add new callback to the fifo scheduler  
+    * [x] see if I can just use the existing scheduler 
+      * [x] select cpu is already there in main.bpf.c 
+    * [x] Can I evict local dsqs? 
+      * [x] I couldn't find any such api in kernel/sched/ext.c  
+    * add main.bpf.c to the scheduler 
+      * update it to print pid and task name of all the dispatched tasks 
 
   * update worker 
     * to spit out function map characteristics
@@ -94,6 +113,14 @@
 
 ### Worklog (Doing) 
 
+
+  Thu 16 May 2024 10:46:56 AM EDT
+    * 
+
+  Thu 09 May 2024 02:33:15 PM EDT
+    * 2 hrs   
+      * looked into why cgroup thread isn't moving 
+      * never called into dispatch
 
   Thu 02 May 2024 09:09:02 AM EDT
     * 1.4 hrs 

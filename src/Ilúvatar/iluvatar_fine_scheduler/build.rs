@@ -2,8 +2,15 @@
 // GNU General Public License version 2.
 
 fn main() {
-    scx_rustland_core::RustLandBuilder::new()
+    //scx_rustland_core::RustLandBuilder::new()
+    //    .unwrap()
+    //    .build()
+    //    .unwrap();
+    scx_utils::BpfBuilder::new()
         .unwrap()
+        .enable_intf("src/bpf/intf.h", "bpf_intf.rs")
+        .enable_skel("src/bpf/main.bpf.c", "bpf")
         .build()
         .unwrap();
 }
+
