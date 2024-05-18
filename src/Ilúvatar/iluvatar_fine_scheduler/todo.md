@@ -84,13 +84,27 @@
       * How does layered scheduler handle control group tasks? 
         * ? 
 
-  * add new callback to the fifo scheduler  
+  * [x] add new callback to the fifo scheduler  
     * [x] see if I can just use the existing scheduler 
       * [x] select cpu is already there in main.bpf.c 
     * [x] Can I evict local dsqs? 
       * [x] I couldn't find any such api in kernel/sched/ext.c  
-    * add main.bpf.c to the scheduler 
-      * update it to print pid and task name of all the dispatched tasks 
+    * [x] add main.bpf.c to the scheduler 
+      * [x] update it to print pid and task name of all the dispatched tasks 
+    * [x] pid is being printed for the last threads in start/stop calls 
+    * [x] prints in the running / stopping callbacks indicate that the threads are being dispatched
+
+  * [x] Why isn't it going through the dispatch func? 
+    * How do items go through the dispatch func? 
+      * bpf code, submits tasks to a ring buffer in enqueue and exit callback  
+      * dispatch func when called, reads from the ring buffer and dispatches the task 
+    
+  * What should be the criteria to submit to ring buffer from running callback? 
+    * if a task has been running for 1 second - submit it to the ring buffer
+
+
+
+
 
   * update worker 
     * to spit out function map characteristics
@@ -114,8 +128,16 @@
 ### Worklog (Doing) 
 
 
-  Thu 16 May 2024 10:46:56 AM EDT
+  Fri 17 May 2024 01:18:59 PM EDT
     * 
+
+  Thu 16 May 2024 10:46:56 AM EDT
+    * 3 hrs 
+      * updated bpf.c to be built and print pid and task names 
+      * verified that 
+        * gunicorn thread is not being going through the dispatch function of the main.rs   
+        * but it appears in the running and stopping callbacks of the bpf 
+      * next: find a way to make it go through the dispatch function
 
   Thu 09 May 2024 02:33:15 PM EDT
     * 2 hrs   

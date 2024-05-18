@@ -67,28 +67,28 @@ impl<'a> Scheduler<'a> {
                     if task.cpu >= 0 {
                         let dtask = &mut DispatchedTask::new(&task);
 
+                        fn printpid( p: i32, task: &QueuedTask ){
+                            if ( task.pid == p ){
+                                println!("found {:?}", task);
+                            }
+                        }
+                        printpid( 1441256, &task );
+
                         let mut lock = self.fdata.try_lock();
                         if let Ok(ref mut fldata) = lock {
-                            fn printpid( p: i32, task: &QueuedTask ){
-                                if ( task.pid == p ){
-                                    println!("found {:?}", task);
-                                }
-                            }
-                            printpid( 1441167, &task );
-                            printpid( 1441187, &task );
-                            printpid( 1441256, &task );
+
 
                             if let Some( chr ) = fldata.pids.get( &task.pid ) {
                                 if let Some( chr ) = fldata.characteristics.get( chr ) {
                                     dtask.set_cpu( chr.preferred_core );
                                 }
                             }
-                        } 
- 
-                        let _ = self.bpf.dispatch_task( dtask );
 
-                        // Give the task a chance to run and prevent overflowing the dispatch queue.
-                        std::thread::yield_now();
+                            let _ = self.bpf.dispatch_task( dtask );
+
+                            // Give the task a chance to run and prevent overflowing the dispatch queue.
+                            std::thread::yield_now();
+                        } 
                     }
                 }
                 Ok(None) => {
