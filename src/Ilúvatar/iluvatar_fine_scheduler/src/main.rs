@@ -72,15 +72,15 @@ impl<'a> Scheduler<'a> {
                                 println!("found {:?}", task);
                             }
                         }
-                        printpid( 1441256, &task );
 
                         let mut lock = self.fdata.try_lock();
                         if let Ok(ref mut fldata) = lock {
 
-
                             if let Some( chr ) = fldata.pids.get( &task.pid ) {
                                 if let Some( chr ) = fldata.characteristics.get( chr ) {
                                     dtask.set_cpu( chr.preferred_core );
+                                    printpid( 1441256, &task );
+                                    println!("preferred_core {:?}", chr.preferred_core);
                                 }
                             }
 
@@ -136,6 +136,11 @@ impl<'a> Scheduler<'a> {
                 let mut lock = self.fdata.try_lock();
                 if let Ok(ref mut fldata) = lock {
                     fldata.update();
+
+                    for (k, v) in &fldata.pids {
+                        let pid = *k as u32; 
+                        self.bpf.monitor_pid(&pid);
+                    }
                 } 
                 prev_ts = curr_ts;
             }
@@ -282,4 +287,5 @@ mod tests {
         println!("{:?}", map_pids);
     }
 }
+
 

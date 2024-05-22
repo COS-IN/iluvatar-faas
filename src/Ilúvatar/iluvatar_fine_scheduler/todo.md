@@ -3,6 +3,7 @@
 
 <!-- vim-markdown-toc Marked -->
 
+* [Important Design Considerations](#important-design-considerations)
 * [Sched_Ext in Iluvatar](#sched_ext-in-iluvatar)
   * [End goal / Deliverable (Reason)](#end-goal-/-deliverable-(reason))
   * [Next Actions (Planning)](#next-actions-(planning))
@@ -14,8 +15,24 @@
   * [What are the fundamentals? (reason)](#what-are-the-fundamentals?-(reason))
   * [What level of understanding do I have?](#what-level-of-understanding-do-i-have?)
 * [Designing](#designing)
+  * [CSV Reading](#csv-reading)
+    * [Components](#components)
+    * [Flows](#flows)
+  * [Running / Stopping Eviction](#running-/-stopping-eviction)
+    * [What are we designing for?](#what-are-we-designing-for?)
+    * [Components](#components)
+    * [Flows](#flows)
+  * [Questions](#questions)
+* [Description](#description)
 
 <!-- vim-markdown-toc -->
+
+## Important Design Considerations 
+
+  * user space component must not trigger page faults 
+    * all structures should be static 
+      * shared memory 
+
 
 ## Sched_Ext in Iluvatar  
 
@@ -95,10 +112,39 @@
     * [x] prints in the running / stopping callbacks indicate that the threads are being dispatched
 
   * [x] Why isn't it going through the dispatch func? 
-    * How do items go through the dispatch func? 
-      * bpf code, submits tasks to a ring buffer in enqueue and exit callback  
-      * dispatch func when called, reads from the ring buffer and dispatches the task 
-    
+    * [x] How do items go through the dispatch func? 
+      * [x] bpf code, submits tasks to a ring buffer in enqueue and exit callback  
+      * [x] dispatch func when called, reads from the ring buffer and dispatches the task 
+  
+  * Why is the task only going through running and stopping callbacks? 
+    * because the enqueue callback is not called for this task 
+
+  * [x] summarize the design of fifo scheduler 
+    * [x] bpf side 
+    * [x] user space side 
+   
+  * [x] design mechanism - to schedule out a task 
+    * [x] submitting pid to bpf code from user space 
+    * [x] push a given pid to user queue - from stopping callback  
+
+  * implementation - 
+    * [x] link list in bpf 
+      * static array of node struct pids 
+      * static array of indices 
+      * head points to index in next,indice array - which points to actual index in pids array 
+    * ringbuffer to submit pids to bpf
+      * [x] build in bpf 
+      * user side - submit pids to ring buffer 
+      * bpf side - read from ring buffer and add to link list
+      * bpf side - on stopping callback - check if pid is in the link list 
+        * if so - push to dispatch ring buffer 
+        * remove from the link list
+
+  * update the writeup 
+
+
+
+
   * What should be the criteria to submit to ring buffer from running callback? 
     * if a task has been running for 1 second - submit it to the ring buffer
 
@@ -127,9 +173,21 @@
 
 ### Worklog (Doing) 
 
+  Wed 22 May 2024 11:41:38 AM EDT
+    * 
+
+  Tue 21 May 2024 11:41:38 AM EDT
+    * 1 hrs 
+      * completed the reading 
+      
+  Mon 20 May 2024 11:41:38 AM EDT
+    * 4 hrs 
+      * read fifo sched code 
 
   Fri 17 May 2024 01:18:59 PM EDT
-    * 
+    * 4 hrs  
+      * debugged why cgroup task was not moving 
+      * emailed 
 
   Thu 16 May 2024 10:46:56 AM EDT
     * 3 hrs 
@@ -270,19 +328,21 @@
 
 ## Designing 
 
+### CSV Reading 
+
 What are we designing for? 
   
   scheduler that can schedule container functions 
 
-Components: 
+#### Components 
 
   * scheduler 
   * csv of function characteristics  
   * pids of functions
 
-Scheduler 
+#### Flows 
 
-  reads the json of characteristics 
+  reads the csv of characteristics 
 
   whenever requests for scheduling a task comes in 
 
@@ -295,22 +355,81 @@ CSV function characteristics - # sort of a slowly changing thing
   e2e time 
   preferred core 
 
-JSON of pids - # very dynamic thing 
+CSV of pids - # very dynamic thing 
   function_name: array of pids  
-
   
 ```
-   # CSV 
+   # Characteristics CSV 
 
-   func_name                                      , e2e_time , preferred_core
-   hello-0.2-B0A185DE-E2D8-D928-8DC4-02BB316EF728 , 0.1      , 1
-  
-   # JSON 
+      func_name,e2e_time,preferred_core
+      hello-0.1-08F7F119-9BEE-D709-4DD9-89BA20C70254,0.1,1
+      hello-0.1-08F7F119-9BEE-D709-4DD9-89BA20C70254,0.1,2
+      hello-0.1-1BCB4DAB-0DF4-5549-D5A4-973D6D7F7249,0.1,3
+      stress-ng-matri,0.1,12
 
-   {"hello-0.2-B0A185DE-E2D8-D928-8DC4-02BB316EF728": [343157, 343158, 343159]}
+   # PIDs CSV 
 
+      pid,func_name
+      3012,"stress-ng-matri"
+      19020,"hello-0.2-DF1ADCCF-84F9-B80E-3C26-FDE0833B7082"
+      19041,"hello-0.2-DF1ADCCF-84F9-B80E-3C26-FDE0833B7082"
+      19114,"hello-0.2-DF1ADCCF-84F9-B80E-3C26-FDE0833B7082"
+      18938,"hello-0.1-08F7F119-9BEE-D709-4DD9-89BA20C70254"
+      18958,"hello-0.1-08F7F119-9BEE-D709-4DD9-89BA20C70254"
+      19011,"hello-0.1-08F7F119-9BEE-D709-4DD9-89BA20C70254"
 ```
 
+### Running / Stopping Eviction
+
+#### What are we designing for? 
+  
+  To ensure, pids that belong function cgroups are scheduled exactly the way 
+  we want them to be. 
+
+  Why?
+    to ensure that effect from csv is trickeled down to the actual running tasks 
+
+#### Components 
+  
+  user - single thread process  
+
+  bpf - per cpu callbacks to make scheduling decisions 
+    link list for pids
+
+  user-bpf 
+    ring buffer to push pids to bpf
+
+#### Flows 
+
+  csv reading 
+    as read - push each pid for eviction 
+
+  user -> ringbuffer 
+    pid to evict 
+
+  ringbuffer -> bpf 
+    fetch and push to a link list 
+
+  bpf 
+    stop call back 
+      parse the link list to check pids to evict 
+      if a match - push to dispatch ring buffer 
+      remove from the link list 
+
+
+### Questions 
+
+  Do we need to maintain all the pids that should be evicted in bpf? 
+    
+    no it should be command / act mechanisim 
+  
+  Does reading of csvs trigger page faults? 
+    
+    What happens in the case the csv files grow? 
+ 
+
+
+## Description
 
 
 
