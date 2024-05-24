@@ -14,6 +14,8 @@
   * [What is the summary of what I just read? (read)](#what-is-the-summary-of-what-i-just-read?-(read))
   * [What are the fundamentals? (reason)](#what-are-the-fundamentals?-(reason))
   * [What level of understanding do I have?](#what-level-of-understanding-do-i-have?)
+* [Overall Design](#overall-design)
+  * [Flow of events](#flow-of-events)
 * [Designing](#designing)
   * [CSV Reading](#csv-reading)
     * [Components](#components)
@@ -23,6 +25,13 @@
     * [Components](#components)
     * [Flows](#flows)
   * [Questions](#questions)
+  * [Selective CPU Policy](#selective-cpu-policy)
+    * [Flow of Events](#flow-of-events)
+    * [Components](#components)
+    * [Questions](#questions)
+* [Investigations](#investigations)
+  * [CPU not changing after going through dispatch call](#cpu-not-changing-after-going-through-dispatch-call)
+    * [What is the root cause?](#what-is-the-root-cause?)
 * [Description](#description)
 
 <!-- vim-markdown-toc -->
@@ -132,13 +141,35 @@
       * static array of node struct pids 
       * static array of indices 
       * head points to index in next,indice array - which points to actual index in pids array 
-    * ringbuffer to submit pids to bpf
+    * [x] ringbuffer to submit pids to bpf
       * [x] build in bpf 
-      * user side - submit pids to ring buffer 
-      * bpf side - read from ring buffer and add to link list
-      * bpf side - on stopping callback - check if pid is in the link list 
-        * if so - push to dispatch ring buffer 
-        * remove from the link list
+      * [x] user side - submit pids to ring buffer 
+      * [x] bpf side - read from ring buffer and add to link list
+      * [x] bpf side - on stopping callback - check if pid is in the link list 
+        * [x] if so - push to dispatch ring buffer 
+        * [x] remove from the link list
+    * [x] But doesn't work! 
+
+  * Why isn't CPU of hello task changed when set in dispatch func? 
+    * because the select cpu callback would win instead  
+ 
+Fri 24 May 2024 12:37:29 PM EDT
+
+  * refine implementation 
+    * redesign policy to pin specific tasks to specific cpus 
+      * previous implementation doesn't take case of select cpu callback 
+      * update it so that, select cpu also respects the decision 
+    * verify that the implementation works 
+  * further implementation 
+    * dump the csvs from the control plane 
+
+  * bpf program 
+    * add two arrays 
+    * active index 
+    * use active array in select_cpu 
+  * user space  
+    * write the inactive array  
+    * switch the active array index atomically - how? 
 
   * update the writeup 
 
@@ -173,16 +204,32 @@
 
 ### Worklog (Doing) 
 
+  Thu 23 May 2024 11:47:33 AM EDT
+    * 4 hrs  
+      * debugged why dispatch was not called in the first place 
+      * through prints in bpf code and reviewing ext.c and bpf.c code 
+      * determined the root cause to be the select_cpu callback - which was immediately pushing stuff to local dsq
+    * next: need to refine submission of epids to skip
+
+
   Wed 22 May 2024 11:41:38 AM EDT
-    * 
+    * 4 hrs  
+      * designed and implemented the mechanism to schedule out a task
+        * bpf queues to jump around the pids to be evicted 
+        * ring buffer to submit pids from user space to bpf 
+      * but task does not migrate to the target cpu  
+        * cpumask_cnt is not updated  
+
 
   Tue 21 May 2024 11:41:38 AM EDT
     * 1 hrs 
       * completed the reading 
-      
+     
+
   Mon 20 May 2024 11:41:38 AM EDT
     * 4 hrs 
       * read fifo sched code 
+
 
   Fri 17 May 2024 01:18:59 PM EDT
     * 4 hrs  
@@ -326,6 +373,34 @@
   rudimentary  
 
 
+## Overall Design 
+
+### Flow of events 
+
+```
+       Kernel                   │              BPF Program                     │       User Space
+────────────────────────────────┼──────────────────────────────────────────────┼───────────────────────────────────────
+                                │ (Called on each core)                        │
+    task started ───────────────┼─► select_cpu ────────────► enqueued called─► │
+                                │      ▲                                     │ │
+                                │      │                                     │ │
+                                │      │                                     │ │
+        ┌───────────────────────┼──────┘                                     └─┼────► dispatch called
+        │                       │                                              │             │
+        │                       │                                              │             │
+        │                       │                                              │             ▼
+        │                       │                         ┌───dispatch called ◄├───── properties updated
+     slice expires              │                         │                    │
+        ▲                       │                         │                    │
+        │                       │                         │                    │
+        │                       │                         │                    │
+        └─────────  run queue ◄─┼─────────────local dsq ◄─┘                    │
+                                │                                              │
+                                │                                              │
+                                │                                              │
+```
+
+
 ## Designing 
 
 ### CSV Reading 
@@ -426,8 +501,111 @@ CSV of pids - # very dynamic thing
   Does reading of csvs trigger page faults? 
     
     What happens in the case the csv files grow? 
+
+
+### Selective CPU Policy 
+  
+  A policy that
+    * fixes the cpu based on preferred core in csv 
+      * enforced in following callbacks 
+        * select_cpu
+        * dispatch
+
+#### Flow of Events 
+  
+  policy periodically reads the csv 
+
+  communicates to the bpf program the pids which must be excluded from optimizations  
+    
+    whenever csv is read 
+      it writes the whole list of pids to inactive array 
+      after the write is complete 
+      atomically switch the active array 
+
+  whenever dispatch is called 
+    update the stuff about the task
+      currently it's only setting the CPU of the task
+
+#### Components 
+  
+  communication channel to indicate the pids to exclude
+    
+    two arrays 
+
+      one active 
+      one inactive
+
+    index to the active array
+
+#### Questions 
+
+  Why do we need two arrays? 
+
+    the bpf select is called on each core separately 
+    so the array must not change in the middle of the call
+
+    reading is done in user space in a single thread 
  
 
+  Why do we need to atomically switch? 
+
+    so that no race condition occurs
+
+
+
+
+## Investigations   
+```
+            ┌─────────────────────────────┐
+            │                             ▼
+   Capture Observations              Ask Questions
+            ▲                             │
+            └─────────────────────────────┘
+
+                Until Root Cause is Found
+```
+### CPU not changing after going through dispatch call
+  
+  Observation 0
+
+    * task goes to dispatch call 
+      * where local dsq should be changed 
+    * without explicitly pushing to dispatch from stop 
+      * task doesn't go through the rustland_enqueue callback which actually submits to the dispatch ring buffer 
+      
+  Questions 0 
+
+    * Is local dsq being changed?  
+    * Can I print out local dsq from bpf code? 
+    * Why is enqueued callback not called?  
+      * ? 
+      *
+    * Is p->scx.dsq set for this task? 
+      * no! 
+      * [mydebugs]: pid=1441256 (gunicorn) dsq=0000000000000000
+    * Does bpf try to assign it a local dsq? 
+      * yes it does 
+      *
+  Observation 1 
+
+    * Dispatch call happens with dsq_id=2 - that is local dsq and with specified dsq=10
+    
+          [mydebugs] dispatch: dsq_id=2 pid=1441256
+          [mydebugs] dispatch: dsq_id=10 pid=1441256
+
+  Questions 1 
+    
+    * Where is local dispatch coming from? 
+      * rustland_select_cpu
+     
+  Observation x 
+  Questions x 
+
+#### What is the root cause? 
+  
+  select cpu callback was directly pushing the task to local dsq  
+  
+  after using the epid mechanisim to skip that it works fine 
 
 ## Description
 

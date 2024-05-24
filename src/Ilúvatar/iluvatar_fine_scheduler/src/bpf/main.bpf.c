@@ -108,7 +108,7 @@ const volatile bool full_user;
  * between the BPF part and the user-space part.
  */
 #define MAX_ENQUEUED_TASKS 8192
-#define MAX_EPIDS 8192
+#define MAX_EPIDS 120 
 
 /*
  * The map containing tasks that are queued to user space from the kernel.
@@ -140,6 +140,7 @@ struct {
 	__uint(max_entries, MAX_ENQUEUED_TASKS);
 } dispatched SEC(".maps");
 
+#if 0
 /*
     Evict list are two queues. 
     new elements are pushed to a non-empty queue  
@@ -155,110 +156,151 @@ struct {
         __uint(max_entries, MAX_EPIDS);
 } evict_list0 SEC(".maps");
 volatile u32 evict_list0_count = 0;
-
 struct {
         __uint(type, BPF_MAP_TYPE_QUEUE);
         __type(value, __u32);
         __uint(max_entries, MAX_EPIDS);
 } evict_list1 SEC(".maps");
 volatile u32 evict_list1_count = 0;
-
 volatile u32 evict_idx = 0;
 
 // pushes the pid to evict_idx queue 
 void push_epid(u32 pid){
-  if ( evict_idx == 0 ){
-    bpf_map_push_elem(&evict_list0, &pid, BPF_ANY );
-    evict_list0_count++;
-  } else {
-    bpf_map_push_elem(&evict_list1, &pid, BPF_ANY );
-    evict_list1_count++;
-  }
+    dbg_msg("[mydebugs] swing push_epid: pid=%d ",
+            pid
+          );
+    if ( evict_idx == 0 ){
+        bpf_map_push_elem(&evict_list0, &pid, BPF_ANY );
+        evict_list0_count++;
+    } else {
+        bpf_map_push_elem(&evict_list1, &pid, BPF_ANY );
+        evict_list1_count++;
+    }
+}
+
+void push_epid_other(u32 pid){
+    if ( evict_idx == 1 ){
+        bpf_map_push_elem(&evict_list0, &pid, BPF_ANY );
+        evict_list0_count++;
+    } else {
+        bpf_map_push_elem(&evict_list1, &pid, BPF_ANY );
+        evict_list1_count++;
+    }
 }
 
 // pops from the other queue 
 u32 pop_epid(){
-  u32 pid = -1;
-  if ( evict_idx == 0 ){
-    if ( evict_list1_count > 0 && bpf_map_pop_elem(&evict_list1, &pid) == 0 ){
-      evict_list1_count--;
-    } else {
-      evict_idx = 1;
+    u32 pid = -1;
+    if ( evict_idx == 0 ){
+        if ( bpf_map_pop_elem(&evict_list0, &pid) == 0 ){
+            evict_list0_count--;
+        } else {
+            evict_idx = 1;
+        }
+    }else{
+        if ( bpf_map_pop_elem(&evict_list1, &pid) == 0 ){
+            evict_list1_count--;
+        } else {
+            evict_idx = 0;
+        }
     }
-  }else{
-    if ( evict_list0_count > 0 && bpf_map_pop_elem(&evict_list0, &pid) == 0 ){
-      evict_list0_count--;
-    } else {
-      evict_idx = 0;
-    }
-  }
-  return pid;
+
+    dbg_msg("[mydebugs] swing pop_epid: pid=%d ",
+            pid
+          );
+
+    return pid;
 }
 
-#if 0
-/*
- *  Node of a static linked list.
- */
-struct linknode {
-  u32 pid;
-  u32 next;
-  u32 prev;
-};
-
-struct {
-        __uint(type, BPF_MAP_TYPE_ARRAY);
-        __type(key, u32);
-        __type(value, struct linknode);
-        __uint(max_entries, MAX_EPIDS);
-} evict_list SEC(".maps");
-u32 evict_head = MAX_EPIDS;
-u32 evict_tail = MAX_EPIDS;
-u32 evict_count = 0;
-
-int push_evict_pid( u32 pid ){
-
-  struct linknode *node0;
-  struct linknode *node1;
-  u32 idx;
-
-
-  if ( evict_count == MAX_EPIDS ){
-    return -1;
-  }
-
-  if ( evict_head == MAX_EPIDS && evict_tail == MAX_EPIDS ){
-    // empty evict_list 
-    evict_head = 0;
-    evict_tail = 0;
-
-    node0 = bpf_map_lookup_elem(&evict_list, &evict_head);
-    if (node0){
-      node0->pid = pid;
-      node0->next = MAX_EPIDS;
-      node0->prev = MAX_EPIDS;
-    }
-  } else {
-    // non-empty evict_list
-    idx = (evict_tail + 1) % MAX_EPIDS;
-    node0 = bpf_map_lookup_elem(&evict_list, &evict_tail);
-    node1 = bpf_map_lookup_elem(&evict_list, &idx);
+bool epid_present( u32 pid ){
+    u32 mpid;
+    bool found = false;
+    bool dprint = pid == 1441256;
     
-    dbg_msg("evict: pid=%d idx=%d evict_tail=%d", pid, idx, evict_tail);
-    if ( node0 ){
-      node0->next = idx;
-    }
-    if ( node1 ){
-      node1->prev = evict_tail;
-      node1->next = MAX_EPIDS;
-      node1->pid = pid;
-    }
-    evict_tail = idx;
-  }
+    if ( dprint )
+      dbg_msg( "[mydebugs] epid_present: pid=%d evict_list0_count=%d evict_list1_count=%d evict_idx=%d found=%d",
+              pid,
+              evict_list0_count,
+              evict_list1_count,
+              evict_idx,
+              found
+            );
 
-  evict_count++;
-  return 0;
+    bpf_repeat(MAX_EPIDS){
+        if ( (mpid = pop_epid()) != -1 ){
+            if ( dprint )
+              dbg_msg( "[mydebugs] epid_present: mpid=%d ",
+                      mpid
+                  );
+
+            if ( pid == mpid ){
+                found = true;
+            }
+            push_epid_other( mpid );
+        }else{
+            break;
+        }
+    }
+
+    if ( dprint )
+      dbg_msg( "[mydebugs] epid_present: pid=%d evict_list0_count=%d evict_list1_count=%d evict_idx=%d found=%d",
+              pid,
+              evict_list0_count,
+              evict_list1_count,
+              evict_idx,
+              found
+            );
+
+    return found;
+}
+
+bool epid_remove( u32 pid ){
+    u32 mpid;
+    bool found = false;
+
+    bpf_repeat(MAX_EPIDS){
+        if ( (mpid = pop_epid()) != -1 ){
+            if ( pid == mpid ){
+                found = true;
+            }else{
+                push_epid_other( mpid );
+            }
+        }else{
+            break;
+        }
+    }
+    return found;
 }
 #endif
+
+volatile u32 epids[MAX_EPIDS] = {0};
+bool epid_present( u32 pid ){
+    for ( int i = 0; i < MAX_EPIDS; i++ ){
+        if ( epids[i] == pid ){
+            return true;
+        }
+    }
+    return false;
+}
+
+bool epid_remove( u32 pid ){
+    for ( int i = 0; i < MAX_EPIDS; i++ ){
+        if ( epids[i] == pid ){
+            epids[i] = 0;
+            return true;
+        }
+    }
+    return false;
+}
+
+void push_epid( u32 pid ){
+    for ( int i = 0; i < MAX_EPIDS; i++ ){
+        if ( epids[i] == 0 ){
+            epids[i] = pid;
+            return;
+        }
+    }
+}
 
 /*
  * Per-task local storage.
@@ -455,6 +497,13 @@ dispatch_task(struct task_struct *p, u64 dsq_id,
 	case SCX_DSQ_LOCAL:
 	case SHARED_DSQ:
 		scx_bpf_dispatch(p, dsq_id, slice, enq_flags);
+        if ( p->pid == 1441256 ){
+          dbg_msg("[mydebugs] dispatch: dsq_id=%d pid=%d (%s) dsq=%llu on_cpu=%d recent_used_cpu=%d wake_cpu=%d",
+              dsq_id,
+              p->pid, p->comm, dsq_id,
+              p->on_cpu, p->recent_used_cpu, p->wake_cpu);
+        }
+
 		dbg_msg("dispatch: pid=%d (%s) dsq=%llu on_cpu=%d recent_used_cpu=%d wake_cpu=%d",
 			p->pid, p->comm, dsq_id,
             p->on_cpu, p->recent_used_cpu, p->wake_cpu);
@@ -477,6 +526,12 @@ dispatch_task(struct task_struct *p, u64 dsq_id,
 		 * and a different cpumask.
 		 */
 		scx_bpf_dispatch(p, dsq_id, slice, enq_flags);
+        if ( p->pid == 1441256 ) {
+          dbg_msg("[mydebugs] dispatch: dsq_id=%d pid=%d (%s) dsq=%llu on_cpu=%d recent_used_cpu=%d wake_cpu=%d",
+              dsq_id,
+              p->pid, p->comm, dsq_id,
+              p->on_cpu, p->recent_used_cpu, p->wake_cpu);
+        }
 
 		tctx = lookup_task_ctx(p);
 		if (!tctx)
@@ -565,9 +620,28 @@ s32 BPF_STRUCT_OPS(rustland_select_cpu, struct task_struct *p, s32 prev_cpu,
 {
 	bool is_idle = false;
 	s32 cpu;
+    u32 mpid;
+    bool skip = false;
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
-	if (is_idle && cpu < num_possible_cpus && !full_user) {
+   
+    if( bpf_map_pop_elem(&monitored, &mpid) == 0 ){
+        if ( !epid_present( mpid ) ){
+          push_epid( mpid );
+          dbg_msg("[mydebugs] pushed to queue mpid=%d",
+                 mpid
+               );       
+        }
+    }
+
+    if( epid_remove( p->pid ) ){
+        skip = true;
+        dbg_msg("[mydebugs] skipping pid=%d",
+                 p->pid
+               );       
+    }
+
+	if (!skip && is_idle && cpu < num_possible_cpus && !full_user) {
 		/*
 		 * Using SCX_DSQ_LOCAL ensures that the task will be executed
 		 * directly on the CPU returned by this function.
@@ -642,6 +716,11 @@ void BPF_STRUCT_OPS(rustland_enqueue, struct task_struct *p, u64 enq_flags)
 	 * long (i.e., ksoftirqd/N, rcuop/N, etc.).
 	 */
 	if (is_kthread(p) && p->nr_cpus_allowed == 1) {
+        if ( p->pid == 1441256 ){
+          dbg_msg("[mydebugs] rustland_enqueue: pid=%d (%s) on_cpu=%d recent_used_cpu=%d wake_cpu=%d",
+                      p->pid, p->comm, 
+                      p->on_cpu, p->recent_used_cpu, p->wake_cpu);
+        }
 		dispatch_task(p, SCX_DSQ_LOCAL, 0, 0, enq_flags);
 		__sync_fetch_and_add(&nr_kernel_dispatches, 1);
 		return;
@@ -710,8 +789,11 @@ void BPF_STRUCT_OPS(rustland_dispatch, s32 cpu, struct task_struct *prev)
 		if (!p)
 			continue;
 
-		dbg_msg("usersched: pid=%d cpu=%d cpumask_cnt=%llu slice_ns=%llu flags=%llx",
-			task.pid, task.cpu, task.cpumask_cnt, task.slice_ns, task.flags);
+        if ( p->pid == 1441256 ){
+          dbg_msg("[mydebugs] usersched: pid=%d cpu=%d cpumask_cnt=%llu slice_ns=%llu flags=%llx",
+              task.pid, task.cpu, task.cpumask_cnt, task.slice_ns, task.flags);
+        }
+
 		/*
 		 * Map RL_PREEMPT_CPU to SCX_ENQ_PREEMPT and allow this task to
 		 * preempt others.
@@ -726,11 +808,15 @@ void BPF_STRUCT_OPS(rustland_dispatch, s32 cpu, struct task_struct *prev)
 		 * dispatch it to the shared DSQ and run it on the first CPU
 		 * available.
 		 */
-		if (task.flags & RL_CPU_ANY)
+		if (task.flags & RL_CPU_ANY){
 			dispatch_task(p, SHARED_DSQ, 0, task.slice_ns, enq_flags);
-		else
+        } else {
 			dispatch_task(p, cpu_to_dsq(task.cpu),
 				      task.cpumask_cnt, task.slice_ns, enq_flags);
+            if ( p->pid == 1441256 ){
+              dbg_msg("[mydebugs]: tried dispatching pid=%d (%s) dsq=%p ", p->pid, p->comm, p->scx.dsq);
+            }
+        }
 		bpf_task_release(p);
 		__sync_fetch_and_add(&nr_user_dispatches, 1);
 	}
@@ -788,23 +874,6 @@ void BPF_STRUCT_OPS(rustland_stopping, struct task_struct *p, bool runnable)
             p->scx.holding_cpu
     );
 
-    if( bpf_map_pop_elem(&monitored, &mpid) == 0 ){
-        push_epid( mpid );
-    }
-    
-    if ( (mpid = pop_epid()) != -1 ){
-        if ( p->pid == mpid ){
-            struct queued_task_ctx *task;
-            task = bpf_ringbuf_reserve(&queued, sizeof(*task), 0);
-            if (task) {
-              get_task_info(task, p, false);
-              dbg_msg("enqueue: pid=%d (%s)", p->pid, p->comm);
-              bpf_ringbuf_submit(task, 0);
-            }
-        }else{
-            push_epid( mpid );
-        }
-    }
 
 	/*
 	 * Mark the CPU as idle by setting the owner to 0.
