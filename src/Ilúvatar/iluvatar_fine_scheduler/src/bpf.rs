@@ -160,25 +160,6 @@ impl DispatchedMessage {
     }
 }
 
-// Message sent to monitor the pid
-struct MonitorededMessage {
-    inner: u32,
-}
-
-impl MonitorededMessage {
-    fn from_pid(pid: &u32) -> Self {
-        MonitorededMessage {
-            inner: *pid,
-        }
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        let size = std::mem::size_of::<u32>();
-        let ptr = &self.inner as *const _ as *const u8;
-        unsafe { std::slice::from_raw_parts(ptr, size) }
-    }
-}
-
 pub struct BpfScheduler<'cb> {
     pub skel: BpfSkel<'cb>,              // Low-level BPF connector
     queued: libbpf_rs::RingBuffer<'cb>,  // Ring buffer of queued tasks
@@ -397,6 +378,31 @@ impl<'cb> BpfScheduler<'cb> {
         unsafe { *cpu_map_ptr.offset(cpu as isize) }
     }
 
+    // Set the pid on inactive array
+    #[allow(dead_code)]
+    pub fn set_epid(&self, epid: u32, idx: u32) {
+        let eidx = self.skel.bss().active_epids_idx;
+        let epid_ptr;
+        if eidx == 0 {
+            epid_ptr = self.skel.bss().epids_1.as_ptr() as *mut u32;
+        } else {
+            epid_ptr = self.skel.bss().epids_0.as_ptr() as *mut u32;
+        }
+        unsafe { *epid_ptr.offset(idx as isize) = epid };
+    }
+
+    // switch active epid array 
+    #[allow(dead_code)]
+    pub fn switch_active_epid(&mut self) {
+        let mut eidx = self.skel.bss().active_epids_idx;
+        if eidx == 0 {
+            eidx = 1;
+        } else {
+            eidx = 0;
+        }
+        self.skel.bss_mut().active_epids_idx = eidx;
+    }
+
     // Receive a task to be scheduled from the BPF dispatcher.
     //
     // NOTE: if task.cpu is negative the task is exiting and it does not require to be scheduled.
@@ -420,15 +426,6 @@ impl<'cb> BpfScheduler<'cb> {
         let msg = DispatchedMessage::from_dispatched_task(&task);
 
         dispatched.update(&[], msg.as_bytes(), libbpf_rs::MapFlags::ANY)
-    }
-
-    // Send pid to be monitored.
-    pub fn monitor_pid(&mut self, pid: &u32) -> Result<(), libbpf_rs::Error> {
-        let maps = self.skel.maps();
-        let monitored = maps.monitored();
-        let msg = MonitorededMessage::from_pid(pid);
-        
-        monitored.update(&[], msg.as_bytes(), libbpf_rs::MapFlags::ANY)
     }
 
     // Read exit code from the BPF part.

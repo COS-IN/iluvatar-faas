@@ -108,7 +108,6 @@ const volatile bool full_user;
  * between the BPF part and the user-space part.
  */
 #define MAX_ENQUEUED_TASKS 8192
-#define MAX_EPIDS 120 
 
 /*
  * The map containing tasks that are queued to user space from the kernel.
@@ -121,15 +120,6 @@ struct {
 } queued SEC(".maps");
 
 /*
- * The map containing pids that are to be monitored in stopping callback.
- */
-struct {
-	__uint(type, BPF_MAP_TYPE_QUEUE);
-	__type(value, __u32);
-	__uint(max_entries, MAX_ENQUEUED_TASKS);
-} monitored SEC(".maps");
-
-/*
  * The map containing pids that are dispatched from user space to the kernel.
  *
  * Drained by the kernel in .dispatch().
@@ -140,166 +130,21 @@ struct {
 	__uint(max_entries, MAX_ENQUEUED_TASKS);
 } dispatched SEC(".maps");
 
-#if 0
-/*
-    Evict list are two queues. 
-    new elements are pushed to a non-empty queue  
+volatile u32 epids_0[MAX_ENQUEUED_TASKS] = {0};
+volatile u32 epids_1[MAX_ENQUEUED_TASKS] = {0};
+volatile u32 active_epids_idx = 0;
 
-    in the stop callback 
-      non-empty queue is drained into the empty queue
-      while draining, elements are monitored
-        if a pid is matched it's skipped 
- */
-struct {
-        __uint(type, BPF_MAP_TYPE_QUEUE);
-        __type(value, __u32);
-        __uint(max_entries, MAX_EPIDS);
-} evict_list0 SEC(".maps");
-volatile u32 evict_list0_count = 0;
-struct {
-        __uint(type, BPF_MAP_TYPE_QUEUE);
-        __type(value, __u32);
-        __uint(max_entries, MAX_EPIDS);
-} evict_list1 SEC(".maps");
-volatile u32 evict_list1_count = 0;
-volatile u32 evict_idx = 0;
-
-// pushes the pid to evict_idx queue 
-void push_epid(u32 pid){
-    dbg_msg("[mydebugs] swing push_epid: pid=%d ",
-            pid
-          );
-    if ( evict_idx == 0 ){
-        bpf_map_push_elem(&evict_list0, &pid, BPF_ANY );
-        evict_list0_count++;
-    } else {
-        bpf_map_push_elem(&evict_list1, &pid, BPF_ANY );
-        evict_list1_count++;
-    }
+u32 * get_active_epids(){
+    return active_epids_idx == 0 ? epids_0 : epids_1;
 }
-
-void push_epid_other(u32 pid){
-    if ( evict_idx == 1 ){
-        bpf_map_push_elem(&evict_list0, &pid, BPF_ANY );
-        evict_list0_count++;
-    } else {
-        bpf_map_push_elem(&evict_list1, &pid, BPF_ANY );
-        evict_list1_count++;
-    }
-}
-
-// pops from the other queue 
-u32 pop_epid(){
-    u32 pid = -1;
-    if ( evict_idx == 0 ){
-        if ( bpf_map_pop_elem(&evict_list0, &pid) == 0 ){
-            evict_list0_count--;
-        } else {
-            evict_idx = 1;
-        }
-    }else{
-        if ( bpf_map_pop_elem(&evict_list1, &pid) == 0 ){
-            evict_list1_count--;
-        } else {
-            evict_idx = 0;
-        }
-    }
-
-    dbg_msg("[mydebugs] swing pop_epid: pid=%d ",
-            pid
-          );
-
-    return pid;
-}
-
 bool epid_present( u32 pid ){
-    u32 mpid;
-    bool found = false;
-    bool dprint = pid == 1441256;
-    
-    if ( dprint )
-      dbg_msg( "[mydebugs] epid_present: pid=%d evict_list0_count=%d evict_list1_count=%d evict_idx=%d found=%d",
-              pid,
-              evict_list0_count,
-              evict_list1_count,
-              evict_idx,
-              found
-            );
-
-    bpf_repeat(MAX_EPIDS){
-        if ( (mpid = pop_epid()) != -1 ){
-            if ( dprint )
-              dbg_msg( "[mydebugs] epid_present: mpid=%d ",
-                      mpid
-                  );
-
-            if ( pid == mpid ){
-                found = true;
-            }
-            push_epid_other( mpid );
-        }else{
-            break;
-        }
-    }
-
-    if ( dprint )
-      dbg_msg( "[mydebugs] epid_present: pid=%d evict_list0_count=%d evict_list1_count=%d evict_idx=%d found=%d",
-              pid,
-              evict_list0_count,
-              evict_list1_count,
-              evict_idx,
-              found
-            );
-
-    return found;
-}
-
-bool epid_remove( u32 pid ){
-    u32 mpid;
-    bool found = false;
-
-    bpf_repeat(MAX_EPIDS){
-        if ( (mpid = pop_epid()) != -1 ){
-            if ( pid == mpid ){
-                found = true;
-            }else{
-                push_epid_other( mpid );
-            }
-        }else{
-            break;
-        }
-    }
-    return found;
-}
-#endif
-
-volatile u32 epids[MAX_EPIDS] = {0};
-bool epid_present( u32 pid ){
-    for ( int i = 0; i < MAX_EPIDS; i++ ){
+    u32 *epids = get_active_epids();
+    for ( int i = 0; i < MAX_ENQUEUED_TASKS; i++ ){
         if ( epids[i] == pid ){
             return true;
         }
     }
     return false;
-}
-
-bool epid_remove( u32 pid ){
-    for ( int i = 0; i < MAX_EPIDS; i++ ){
-        if ( epids[i] == pid ){
-            epids[i] = 0;
-            return true;
-        }
-    }
-    return false;
-}
-
-void push_epid( u32 pid ){
-    for ( int i = 0; i < MAX_EPIDS; i++ ){
-        if ( epids[i] == 0 ){
-            epids[i] = pid;
-            return;
-        }
-    }
 }
 
 /*
@@ -625,16 +470,7 @@ s32 BPF_STRUCT_OPS(rustland_select_cpu, struct task_struct *p, s32 prev_cpu,
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
    
-    if( bpf_map_pop_elem(&monitored, &mpid) == 0 ){
-        if ( !epid_present( mpid ) ){
-          push_epid( mpid );
-          dbg_msg("[mydebugs] pushed to queue mpid=%d",
-                 mpid
-               );       
-        }
-    }
-
-    if( epid_remove( p->pid ) ){
+    if( epid_present( p->pid ) ){
         skip = true;
         dbg_msg("[mydebugs] skipping pid=%d",
                  p->pid

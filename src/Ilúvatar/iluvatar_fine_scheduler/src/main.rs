@@ -136,11 +136,13 @@ impl<'a> Scheduler<'a> {
                 let mut lock = self.fdata.try_lock();
                 if let Ok(ref mut fldata) = lock {
                     fldata.update();
-
+                    let mut i = 0;
                     for (k, v) in &fldata.pids {
-                        let pid = *k as u32; 
-                        self.bpf.monitor_pid(&pid);
+                        let pid = *k as u32;
+                        self.bpf.set_epid(pid, i);
+                        i += 1;
                     }
+                    self.bpf.switch_active_epid();
                 } 
                 prev_ts = curr_ts;
             }

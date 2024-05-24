@@ -163,13 +163,13 @@ Fri 24 May 2024 12:37:29 PM EDT
   * further implementation 
     * dump the csvs from the control plane 
 
-  * bpf program 
-    * add two arrays 
-    * active index 
-    * use active array in select_cpu 
-  * user space  
-    * write the inactive array  
-    * switch the active array index atomically - how? 
+  * [x] bpf program 
+    * [x] add two arrays 
+    * [x] active index 
+    * [x] use active array in select_cpu 
+  * [x] user space  
+    * [x] write the inactive array  
+    * [x] switch the active array index atomically - how? 
 
   * update the writeup 
 
