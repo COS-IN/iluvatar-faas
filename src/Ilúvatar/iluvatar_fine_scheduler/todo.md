@@ -155,11 +155,11 @@
  
 Fri 24 May 2024 12:37:29 PM EDT
 
-  * refine implementation 
-    * redesign policy to pin specific tasks to specific cpus 
-      * previous implementation doesn't take case of select cpu callback 
-      * update it so that, select cpu also respects the decision 
-    * verify that the implementation works 
+  * [x] refine implementation 
+    * [x] redesign policy to pin specific tasks to specific cpus 
+      * [x] previous implementation doesn't take case of select cpu callback 
+      * [x] update it so that, select cpu also respects the decision 
+    * [x] verify that the implementation works 
   * further implementation 
     * dump the csvs from the control plane 
 
@@ -380,7 +380,7 @@ Fri 24 May 2024 12:37:29 PM EDT
 ```
        Kernel                   │              BPF Program                     │       User Space
 ────────────────────────────────┼──────────────────────────────────────────────┼───────────────────────────────────────
-                                │ (Called on each core)                        │
+                                │ (called on each core)                        │
     task started ───────────────┼─► select_cpu ────────────► enqueued called─► │
                                 │      ▲                                     │ │
                                 │      │                                     │ │
