@@ -42,6 +42,7 @@ pub struct Configuration {
     pub energy_cap: Option<Arc<crate::services::invocation::energy_limiter::EnergyCapConfig>>,
     pub status: Arc<StatusConfig>,
     pub influx: Option<Arc<InfluxConfig>>,
+    pub finescheduling: Arc<FineSchedConfig>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -202,6 +203,12 @@ pub struct NetworkingConfig {
 /// Config related to status monitoring of the worker system & host
 pub struct StatusConfig {
     pub report_freq_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+/// Config related to status monitoring of the worker system & host
+pub struct FineSchedConfig {
+    pub binary: String 
 }
 
 /// A wrapper type for the loaded global worker configuration

@@ -107,6 +107,14 @@
       remote_src: "{{__remote_bin_src}}"
     become: yes
 
+  - name: copy fine scheduler 
+    ansible.builtin.copy:
+      src: "{{__bin_src}}/iluvatar_fine_scheduler"
+      dest: "{{bin_dir}}/iluvatar_fine_scheduler"
+      mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
+    become: yes
+
   - name: copy worker config
     ansible.builtin.copy:
       src: "{{iluvatar_home}}/target/{{target}}/{{worker.config_name}}"
