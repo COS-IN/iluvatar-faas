@@ -20,7 +20,12 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     
     if std::path::Path::new(&server_config.finescheduling.binary).exists() {
         // launch a process 
-        let args = vec![""];
+        let args = vec![
+            "--characteristics-file", 
+            &server_config.finescheduling.characteristics_file,
+            "--pids-file",
+            &server_config.finescheduling.pids_file,
+        ];
         let mut _child = execute_cmd_nonblocking(&server_config.finescheduling.binary, 
                             &args, None, &String::from("none"));
     }    
@@ -72,16 +77,8 @@ fn build_runtime(server_config: WorkerConfig, tid: &TransactionId) -> Result<Run
     }
 }
 
-fn launch_policy(){
-    let args = vec![""];
-    let mut _child = execute_cmd_nonblocking("/data2/ar/workspace/finescheduling/iluvatar-faas/src/Ilúvatar/target/debug/iluvatar_fine_scheduler", 
-                        &args, None, &String::from("none"));
-}
-
 fn main() -> Result<()> {
     iluvatar_library::utils::file::ensure_temp_dir()?;
-
-    //launch_policy();
 
     let tid: &TransactionId = &STARTUP_TID;
     let cli = Args::parse();

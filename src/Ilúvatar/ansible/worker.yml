@@ -115,6 +115,22 @@
       remote_src: "{{__remote_bin_src}}"
     become: yes
 
+  - name: copy csv characteristics 
+    ansible.builtin.copy:
+      src: "{{__bin_src}}/characteristics.csv"
+      dest: "{{bin_dir}}/characteristics.csv"
+      mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
+    become: yes
+
+  - name: copy csv pids 
+    ansible.builtin.copy:
+      src: "{{__bin_src}}/pids.csv"
+      dest: "{{bin_dir}}/pids.csv"
+      mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
+    become: yes
+
   - name: copy worker config
     ansible.builtin.copy:
       src: "{{iluvatar_home}}/target/{{target}}/{{worker.config_name}}"

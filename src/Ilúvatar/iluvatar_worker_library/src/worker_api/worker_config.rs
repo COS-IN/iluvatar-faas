@@ -208,7 +208,9 @@ pub struct StatusConfig {
 #[derive(Debug, Deserialize)]
 /// Config related to status monitoring of the worker system & host
 pub struct FineSchedConfig {
-    pub binary: String 
+    pub binary: String,
+    pub characteristics_file: String,
+    pub pids_file: String,
 }
 
 /// A wrapper type for the loaded global worker configuration

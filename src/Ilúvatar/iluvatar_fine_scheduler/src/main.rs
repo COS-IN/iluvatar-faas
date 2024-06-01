@@ -3,6 +3,7 @@
 // This software may be used and distributed according to the terms of the
 // GNU General Public License version 2.
 #[allow(unused_imports)]
+use clap::Parser;
 mod bpf_skel;
 pub use bpf_skel::*;
 pub mod bpf_intf;
@@ -246,11 +247,26 @@ impl FuncData {
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short, long)]
+    characteristics_file: String,
+
+    #[arg(short, long)]
+    pids_file: String,
+}
+
 fn main() -> Result<()> {
 
+    let args = Args::parse();
+
+    println!("Characterics would be read from {}!", args.characteristics_file);
+    println!("Pids would be read from {}!", args.pids_file);
+
     let mut fdata = FuncData::new(
-        "/tmp/iluvatar/csvs/characteristics.csv".to_string(),
-        "/tmp/iluvatar/csvs//pids.log".to_string()
+        args.characteristics_file,
+        args.pids_file
     );
     let mut fdata = Arc::new( Mutex::new(fdata) );
     fdata.lock().unwrap().update();
