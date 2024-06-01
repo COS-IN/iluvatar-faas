@@ -71,7 +71,7 @@
   
   * [x] understand thread structure of container function 
 
-  * implement specific functions on specific core policy 
+  * [x] implement specific functions on specific core policy 
     * [x] design 
       * [x] csv
       * [x] scheduler actions 
@@ -95,12 +95,12 @@
       * [x] doesn't work
         * [x] probably because the dispatch is not called - need to find an another way 
   
-  * Understand scx_layered (it handles control groups)
+  * [x] Understand scx_layered (it handles control groups)
     * [x] read main.rs code  
     * read bpf.c code 
 
-  * solve the function threads not moving issue 
-    * understand 
+  * [x] solve the function threads not moving issue 
+    * [x] understand 
       * Does control group threads go through the dispatch call? 
         * no! - verified using printpid in dispatch callback 
       * Why not? 
@@ -171,17 +171,71 @@ Fri 24 May 2024 12:37:29 PM EDT
     * [x] write the inactive array  
     * [x] switch the active array index atomically - how? 
 
-  * update the writeup 
+Tue 28 May 2024 05:30:09 PM EDT
+
+  * [x] update the writeup 
+    * [x] research plan to writeup 
+
+Wed 29 May 2024 01:17:19 PM EDT
+
+  * experimentation harness 
+    * [x] setup scripts (3hrs)
+      * [x] cleanup 
+      * [x] worker 
+      * [x] benchmarking 
+
+Thu 30 May 2024 12:15:03 PM EDT
+
+  * experimentation harness 
+      * [x] running trace
+        * [x] generating traces 
+           
+    * [x] post processing trace results  
+      * [x] collect stuff 
+      * [x] tail latency 
+
+Fri 31 May 2024 03:33:20 PM EDT
+
+  * [x] experimentation harness 
+    * [x] collect ipmi as well 
+
+Sat 01 Jun 2024 02:27:41 PM EDT
+
+  * experimentation harness 
+  
+    * [x] plot 
+      * [x] tail latency
+
+    * update ilu 
+      * config to run fine policy  
+      * generate csvs 
+      * run the policy 
+
+    * policy that uses preferred cores for given functions 
+      * compare plots for the two cases 
 
 
 
+
+    * determine total energy 
+    * plot 
+      * total energy utilization 
+    
+    * email update  
+
+    * capture cpu traces  
+    * plot 
+      * system status 
+
+
+```
+  client_latency_us -> e2e 
+  function_output(end - start) -> code_duration_sec
+  duration sent by the worker -> worker_duration_us
+```
 
   * What should be the criteria to submit to ring buffer from running callback? 
     * if a task has been running for 1 second - submit it to the ring buffer
-
-
-
-
 
   * update worker 
     * to spit out function map characteristics
@@ -204,6 +258,14 @@ Fri 24 May 2024 12:37:29 PM EDT
 
 ### Worklog (Doing) 
 
+
+
+  Wed 29 May 2024 01:17:19 PM EDT
+    * 3 hrs 
+      * organized scripts for experimentation harness 
+      * ran benchmarking 
+
+  
   Thu 23 May 2024 11:47:33 AM EDT
     * 4 hrs  
       * debugged why dispatch was not called in the first place 
