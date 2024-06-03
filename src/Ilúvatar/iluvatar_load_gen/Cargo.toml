@@ -24,7 +24,7 @@ tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "test-uti
 anyhow = "1.0.13"
 futures = "0.3.21"
 csv = "1.1"
-reqwest = { version = "0.11.11", features = ["json"] }
+reqwest = { version = "0.11.11", default-features = false, features = ["json", "rustls-tls"] }
 lazy_static = "1.4.0"
 actix-web = "4"
 rand = "0.8"

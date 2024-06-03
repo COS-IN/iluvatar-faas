@@ -270,27 +270,49 @@ impl GpuResourceTracker {
                     bail_error!("MPS is enabled, but docker service not present");
                 }
             } else if !config.is_tegra.unwrap_or(false) {
-                Self::set_shared_exclusive(tid)?;
+                Self::set_gpus_shared(tid)?;
             }
+
+            let nvml = match Nvml::init() {
+                Ok(n) => Some(n),
+                Err(e) => {
+                    if !config.is_tegra.unwrap_or(false) {
+                        error!(tid=%tid, error=%e, "Error loading NVML");
+                    }
+                    None
+                }
+            };
             let (handle, tx) = tokio_thread(
                 missing_or_zero_default(&config.status_update_freq_ms, status_config.report_freq_ms),
                 GPU_RESC_TID.to_owned(),
                 Self::gpu_utilization,
             );
-
-            let nvml = match Nvml::init() {
-                Ok(n) => Some(n),
-                Err(e) => {
-                    error!(tid=%tid, error=%e, "Error loading NVML");
-                    None
-                }
-            };
+            let mut stat_vec = vec![];
+            for struc in gpu_structs.iter() {
+                let first = struc
+                    .value()
+                    .first()
+                    .ok_or_else(|| anyhow::format_err!("No GPU structs exist to make beginning status vector"))?;
+                stat_vec.push(GpuStatus {
+                    gpu_uuid: first.gpu_uuid.clone(),
+                    pstate: Pstate::P0,
+                    memory_total: first.hardware_memory_mb as u32,
+                    memory_used: 0,
+                    instant_utilization_gpu: 0.0,
+                    utilization_gpu: 0.0,
+                    utilization_memory: 0.0,
+                    power_draw: 0.0,
+                    power_limit: 0.0,
+                    num_running: 0,
+                    est_utilization_gpu: 0.0,
+                });
+            }
 
             let svc = Arc::new(GpuResourceTracker {
                 total_gpu_structs: gpu_structs.iter().map(|v| v.len()).sum::<usize>() as u32,
                 docker: docker.cloned(),
                 _handle: handle,
-                status_info: RwLock::new(vec![]),
+                status_info: RwLock::new(stat_vec),
                 _container_config: container_config.clone(),
                 gpus: gpu_structs,
                 gpu_metadata: metadata,
@@ -344,7 +366,7 @@ impl GpuResourceTracker {
             .await
     }
 
-    fn set_shared_exclusive(tid: &TransactionId) -> Result<()> {
+    fn set_gpus_shared(tid: &TransactionId) -> Result<()> {
         if !iluvatar_library::utils::is_simulation() {
             let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
             let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);

@@ -3,6 +3,12 @@
 A list of possible improvements and changes to the base platform.
 In no particular order.
 
+## Monitor GPU utilization on Jetson platform
+
+Jetson requires using `tegrastats` to get utilization numbers.
+The [GPU monitor](iluvatar_worker_library/src/services/resources/gpu.rs) needs updated information for ideal usage.
+Can cause dispatches to be blocked or broken on Jetson.
+
 ## Time-skipping simulation
 
 Can we enable time-skipping when running in a simulation context?

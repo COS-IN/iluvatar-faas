@@ -140,7 +140,7 @@ mod flowq_tests {
         assert_eq!(q.state, MQState::Active, "queue should be set active");
         let item2 = q.pop_flow();
         assert!(item2.is_some(), "must get item from queue");
-        assert_eq!(item.queue_insert_time, item2.unwrap().invok.queue_insert_time);
+        assert_eq!(item.queue_insert_time, item2.unwrap().invoke.queue_insert_time);
         assert_eq!(q.start_time_virt, 5.0, "Queue start_time_virt was wrong");
         assert_eq!(q.state, MQState::Active, "inline queue should be active");
     }
@@ -155,7 +155,7 @@ mod flowq_tests {
         assert_eq!(q.state, MQState::Active, "queue should be set active");
         let item2 = q.pop_flow();
         assert!(item2.is_some(), "must get item from queue");
-        assert_eq!(item.queue_insert_time, item2.unwrap().invok.queue_insert_time);
+        assert_eq!(item.queue_insert_time, item2.unwrap().invoke.queue_insert_time);
         assert_eq!(
             q.state,
             MQState::Active,
@@ -189,7 +189,7 @@ mod flowq_tests {
         assert_eq!(q.state, MQState::Active, "queue should be set active");
         let item2 = q.pop_flow();
         assert!(item2.is_some(), "must get item from queue");
-        assert_eq!(item.queue_insert_time, item2.unwrap().invok.queue_insert_time);
+        assert_eq!(item.queue_insert_time, item2.unwrap().invoke.queue_insert_time);
         assert_eq!(q.state, MQState::Throttled, "advanced queue should be throttled");
     }
 
