@@ -113,6 +113,7 @@ pub async fn full_sim_invoker(
     let invoker_fact = InvokerFactory::new(
         cm.clone(),
         cfg.limits.clone(),
+        cfg.clone(),
         cfg.invocation.clone(),
         cmap.clone(),
         cpu.clone(),
@@ -200,6 +201,7 @@ pub async fn sim_invoker_svc(
     let invoker_fact = InvokerFactory::new(
         cm.clone(),
         cfg.limits.clone(),
+        cfg.clone(),
         cfg.invocation.clone(),
         cmap.clone(),
         cpu,
@@ -285,6 +287,7 @@ pub async fn test_invoker_svc(
     let invoker_fact = InvokerFactory::new(
         cm.clone(),
         cfg.limits.clone(),
+        cfg.clone(),
         cfg.invocation.clone(),
         cmap,
         cpu,

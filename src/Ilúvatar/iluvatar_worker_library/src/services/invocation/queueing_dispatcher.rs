@@ -10,7 +10,7 @@ use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::{containers::containermanager::ContainerManager, invocation::queueing::EnqueueingPolicy};
-use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
+use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig, WorkerConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::types::ComputeEnum;
@@ -66,6 +66,7 @@ impl PolymDispatchCtx {
 
 pub struct QueueingDispatcher {
     async_functions: AsyncHelper,
+    worker_config: WorkerConfig,
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
     clock: LocalTime,
@@ -81,6 +82,7 @@ impl QueueingDispatcher {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
         function_config: Arc<FunctionLimits>,
+        worker_config: WorkerConfig,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
         cmap: Arc<CharacteristicsMap>,
@@ -112,6 +114,7 @@ impl QueueingDispatcher {
             )?,
             async_functions: AsyncHelper::new(),
             clock: LocalTime::new(tid)?,
+            worker_config,
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
@@ -229,6 +232,10 @@ impl QueueingDispatcher {
             self.clock.now(),
         ));
         let mut enqueues = 0;
+        
+        if std::path::Path::new(&self.worker_config.finescheduling.characteristics_file).exists() {
+            self.cmap.write_csv( &self.worker_config.finescheduling.characteristics_file );
+        }
 
         if reg.supported_compute == Compute::CPU {
             self.enqueue_cpu_check(&enqueue)?;

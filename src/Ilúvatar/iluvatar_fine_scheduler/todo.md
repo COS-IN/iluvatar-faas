@@ -206,10 +206,10 @@ Sat 01 Jun 2024 02:27:41 PM EDT
     * [x] plot 
       * [x] tail latency
 
-    * update ilu 
-      * config to run fine policy  
-      * generate csvs 
-      * run the policy 
+    * [x] update ilu 
+      * [x] config to run fine policy  
+      * [x] generate csvs 
+      * [x] run the policy 
 
     * policy that uses preferred cores for given functions 
       * compare plots for the two cases 
@@ -259,6 +259,7 @@ Sat 01 Jun 2024 02:27:41 PM EDT
 ### Worklog (Doing) 
 
 
+  Mon 03 Jun 2024 01:12:30 PM EDT
 
   Wed 29 May 2024 01:17:19 PM EDT
     * 3 hrs 

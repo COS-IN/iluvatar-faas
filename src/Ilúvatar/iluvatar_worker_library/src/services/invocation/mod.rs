@@ -8,7 +8,7 @@ use crate::services::{
     containers::structs::{ContainerState, ParsedResult},
     registration::RegisteredFunction,
 };
-use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
+use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig, WorkerConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
@@ -56,6 +56,7 @@ pub trait Invoker: Send + Sync {
 pub struct InvokerFactory {
     cont_manager: Arc<ContainerManager>,
     function_config: Arc<FunctionLimits>,
+    worker_config: WorkerConfig,
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
     cpu: Arc<CpuResourceTracker>,
@@ -69,6 +70,7 @@ impl InvokerFactory {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
         function_config: Arc<FunctionLimits>,
+        worker_config: WorkerConfig,
         invocation_config: Arc<InvocationConfig>,
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
@@ -79,6 +81,7 @@ impl InvokerFactory {
         InvokerFactory {
             cont_manager,
             function_config,
+            worker_config,
             invocation_config,
             cmap,
             cpu,
@@ -93,6 +96,7 @@ impl InvokerFactory {
         let invoker = QueueingDispatcher::new(
             self.cont_manager.clone(),
             self.function_config.clone(),
+            self.worker_config.clone(),
             self.invocation_config.clone(),
             tid,
             self.cmap.clone(),

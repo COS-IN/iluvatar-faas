@@ -73,6 +73,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let invoker_fact = InvokerFactory::new(
         container_man.clone(),
         worker_config.limits.clone(),
+        worker_config.clone(),
         worker_config.invocation.clone(),
         cmap.clone(),
         cpu,

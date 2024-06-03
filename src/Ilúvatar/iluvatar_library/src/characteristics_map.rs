@@ -4,6 +4,7 @@ use std::cmp::{min, Ordering};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error};
+use csv::Writer;
 
 #[derive(Debug, Clone)]
 pub enum Values {
@@ -484,6 +485,18 @@ impl CharacteristicsMap {
                 debug!(component = "CharacteristicsMap", "{} -- {:?},{:?}", fqdn, chr, value);
             }
         }
+    }
+
+    pub fn write_csv(&self, _filename: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let mut wtr = Writer::from_path(_filename)?;
+        wtr.write_record(&["func_name","e2e_time"])?;
+        for e0 in self.map.iter() {
+            let fqdn = e0.key();
+            let exec_time = self.get_exec_time(&fqdn); 
+            wtr.write_record(&[fqdn, &exec_time.to_string()])?;
+        }
+        wtr.flush()?;
+        Ok(())
     }
 }
 
