@@ -22,6 +22,24 @@ use std::{str, thread, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, info};
 
+pub fn get_all_children(ppid: u32) -> Result<Vec<u32>, ParseIntError> {
+
+    let cmd = ["pstree -Aclpn ",&ppid.to_string()," | sed 's/(\\([0-9][0-9]*\\))/\\1\\n/gi' | sed 's/^.*[^0-9]\\([0-9]*\\)/\\1/gi' | grep -v '^$'"].join("");
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .expect("failed to execute process");
+
+    let output_str = str::from_utf8(&output.stdout).unwrap().trim();
+    let mut children = Vec::new();
+    for line in output_str.lines() {
+        children.push(line.parse::<u32>()?);
+    }
+
+    Ok(children)
+}
+
 pub fn get_child_pid(ppid: u32) -> Result<u32, ParseIntError> {
     let output = Command::new("pgrep")
         .arg("-P")

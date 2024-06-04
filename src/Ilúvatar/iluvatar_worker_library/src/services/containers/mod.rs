@@ -110,6 +110,7 @@ impl IsolationFactory {
                     let netm = NamespaceManager::boxed(networking.clone(), tid, ensure_bridge)?;
                     let mut lifecycle = ContainerdIsolation::new(
                         netm,
+                        self.worker_config.clone(),
                         self.worker_config.container_resources.clone(),
                         self.worker_config.limits.clone(),
                     );

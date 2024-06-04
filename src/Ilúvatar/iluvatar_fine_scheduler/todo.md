@@ -209,12 +209,17 @@ Sat 01 Jun 2024 02:27:41 PM EDT
     * [x] update ilu 
       * [x] config to run fine policy  
       * [x] generate csvs 
-      * [x] run the policy 
+        * [x] characteristics
+        * [x] pids
 
-    * policy that uses preferred cores for given functions 
+
+    * update ilu 
+      * [x] debug why pids are not being read with pidtree command 
+      * remove the pids from the map for containers that die 
+
+
+    * policy that divides the tasks into buckets based on e2e from characteristics 
       * compare plots for the two cases 
-
-
 
 
     * determine total energy 
@@ -258,8 +263,17 @@ Sat 01 Jun 2024 02:27:41 PM EDT
 
 ### Worklog (Doing) 
 
+Tue 04 Jun 2024 02:09:22 PM EDT
+  
+  * 
 
-  Mon 03 Jun 2024 01:12:30 PM EDT
+Mon 03 Jun 2024 01:12:30 PM EDT
+    * 1 hrs 
+      * identified and tested place to gather pid map 
+    * 0.5 hrs 
+      * gather pid map in containerd.rs in bg_workqueue
+      * use pstree command 
+      * write to csv
 
   Wed 29 May 2024 01:17:19 PM EDT
     * 3 hrs 

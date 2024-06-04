@@ -3,7 +3,7 @@ use crate::services::containers::containerd::containerdstructs::{ContainerdConta
 use crate::services::containers::structs::{Container, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
 use crate::services::registration::RegisteredFunction;
-use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
+use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits, WorkerConfig};
 use anyhow::Result;
 use client::services::v1::container::Runtime;
 use client::services::v1::snapshots::{snapshots_client::SnapshotsClient, PrepareSnapshotRequest};
@@ -28,6 +28,7 @@ use iluvatar_library::utils::{
     file::{temp_file_pth, touch, try_remove_pth},
     port::Port,
     try_get_child_pid,
+    get_all_children,
 };
 use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb};
 use inotify::{Inotify, WatchMask};
@@ -42,6 +43,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
 use tracing::{debug, error, info, warn};
+use csv::Writer;
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
@@ -54,11 +56,25 @@ pub struct BGPacket {
     tid: TransactionId,
 }
 
+fn write_pid_csv( _filename: &str, map: &DashMap<u32,String> ) -> Result<(), Box<dyn std::error::Error>> {
+    let mut wtr = Writer::from_path(_filename)?;
+    wtr.write_record(&["pid","func_name"])?;
+    for e0 in map.iter() {
+        let pid = e0.key();
+        let fname = e0.value(); 
+        wtr.write_record(&[&pid.to_string(), fname])?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct ContainerdIsolation {
     channel: Option<Channel>,
     namespace_manager: Arc<NamespaceManager>,
+    worker_config: WorkerConfig,
     config: Arc<ContainerResourceConfig>,
     limits_config: Arc<FunctionLimits>,
     downloaded_images: Arc<DashMap<String, bool>>,
@@ -100,6 +116,7 @@ impl ContainerdIsolation {
 
     pub fn new(
         ns_man: Arc<NamespaceManager>,
+        worker_config: WorkerConfig,
         config: Arc<ContainerResourceConfig>,
         limits_config: Arc<FunctionLimits>,
     ) -> ContainerdIsolation {
@@ -107,14 +124,17 @@ impl ContainerdIsolation {
             0 => None,
             i => Some(tokio::sync::Semaphore::new(i as usize)),
         };
-
+        
+        let pidmap = DashMap::new();
         let (send, recv) = sync_channel(30);
+        let fname = worker_config.finescheduling.pids_file.clone();
 
         ContainerdIsolation {
             // this is threadsafe if we clone channel
             // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
             channel: None,
             namespace_manager: ns_man,
+            worker_config,
             config,
             limits_config,
             downloaded_images: Arc::new(DashMap::new()),
@@ -123,14 +143,29 @@ impl ContainerdIsolation {
             bg_workqueue: thread::spawn(move || loop {
                 match recv.recv() {
                     Ok(x) => {
+                        let all_children = get_all_children( x.pid ).unwrap();
+                        info!(
+                            tid=%x.tid,
+                            fqdn=%x.fqdn,
+                            container_id=%x.container_id,
+                            pid=%x.pid,
+                            allc=%all_children[0],
+                            "mydebugs"
+                        );
+
+                        for cpid in all_children {
+                            pidmap.insert(cpid, x.fqdn.clone());
+                        }
+                        write_pid_csv( &fname, &pidmap );
+
                         let ccpid = try_get_child_pid(x.pid, 1, 500);
                         info!(
-                                  tid=%x.tid,
-                                  fqdn=%x.fqdn,
-                                  container_id=%x.container_id,
-                                  pid=%x.pid,
-                                  cpid=%ccpid,
-                                  "tag_pid_mapping"
+                            tid=%x.tid,
+                            fqdn=%x.fqdn,
+                            container_id=%x.container_id,
+                            pid=%x.pid,
+                            cpid=%ccpid,
+                            "tag_pid_mapping"
                         );
                     }
                     Err(e) => {
