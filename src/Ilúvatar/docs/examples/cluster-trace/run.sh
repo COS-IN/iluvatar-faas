@@ -53,7 +53,7 @@ sshpass -p $passphrase ansible-playbook --private-key=$ssh_key --ask-pass -i $ho
   -e worker_status_ms=5000 -e worker_memory_buffer=512 -e worker_queue_policy="fcfs" -e worker_snapshotter='overlayfs' \
   -e influx_enabled=true -e worker_log_dir=$worker_log_dir -e controller_port=$PORT >> $log_file &&
 sleep 15 &&
-$ILU_HOME/target/release/iluvatar_load_gen trace --out-folder $results_dir --port $PORT --host $host --target 'controller' --setup 'live' \
+$ILU_HOME/target/x86_64-unknown-linux-gnu/release/iluvatar_load_gen trace --out-folder $results_dir --port $PORT --host $host --target 'controller' --setup 'live' \
   --load-type functions --input-csv ./four-functions.csv --metadata-csv ./four-functions-metadata.csv --prewarms 1 --function-data ../benchmark/worker_function_benchmarks.json &>> $log_file
 
 sleep 30
