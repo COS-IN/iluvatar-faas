@@ -129,7 +129,10 @@ impl ContainerdIsolation {
         let pidmap = DashMap::new();
         let (send, recv) = sync_channel(30);
         let (dsend, drecv) = sync_channel(30);
-        let fname = worker_config.finescheduling.pids_file.clone();
+        let fname = match &worker_config.finescheduling {
+            Some(fconfig) => fconfig.pids_file.clone(),
+            None => "pids.csv".to_string(),
+        };
 
         ContainerdIsolation {
             // this is threadsafe if we clone channel

@@ -233,8 +233,13 @@ impl QueueingDispatcher {
         ));
         let mut enqueues = 0;
         
-        if std::path::Path::new(&self.worker_config.finescheduling.characteristics_file).exists() {
-            self.cmap.write_csv( &self.worker_config.finescheduling.characteristics_file );
+        let cfile = match &self.worker_config.finescheduling {
+            Some(fconfig) => fconfig.characteristics_file.clone(),
+            None => "none.csv".to_string(),
+        };
+
+        if std::path::Path::new(&cfile).exists() {
+            self.cmap.write_csv( &cfile );
         }
 
         if reg.supported_compute == Compute::CPU {

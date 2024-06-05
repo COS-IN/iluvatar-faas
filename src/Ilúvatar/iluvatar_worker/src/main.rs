@@ -17,18 +17,23 @@ pub mod utils;
 
 async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
-    
-    if std::path::Path::new(&server_config.finescheduling.binary).exists() {
-        // launch a process 
-        let args = vec![
-            "--characteristics-file", 
-            &server_config.finescheduling.characteristics_file,
-            "--pids-file",
-            &server_config.finescheduling.pids_file,
-        ];
-        let mut _child = execute_cmd_nonblocking(&server_config.finescheduling.binary, 
-                            &args, None, &String::from("none"));
-    }    
+    match &server_config.finescheduling {
+        Some(fconfig) => {
+            let bname = fconfig.binary.clone();
+            if std::path::Path::new(&bname).exists() {
+                // launch a process 
+                let args = vec![
+                    "--characteristics-file", 
+                    &fconfig.characteristics_file,
+                    "--pids-file",
+                    &fconfig.pids_file,
+                ];
+                let mut _child = execute_cmd_nonblocking(&fconfig.binary, 
+                    &args, None, &String::from("none"));
+            }
+        }
+        None => (),
+    };
 
     let worker = match create_worker(server_config.clone(), tid).await {
         Ok(w) => w,

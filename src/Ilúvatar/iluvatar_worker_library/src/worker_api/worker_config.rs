@@ -42,7 +42,7 @@ pub struct Configuration {
     pub energy_cap: Option<Arc<crate::services::invocation::energy_limiter::EnergyCapConfig>>,
     pub status: Arc<StatusConfig>,
     pub influx: Option<Arc<InfluxConfig>>,
-    pub finescheduling: Arc<FineSchedConfig>,
+    pub finescheduling: Option<Arc<FineSchedConfig>>,
 }
 
 #[derive(Debug, Deserialize, Default)]
