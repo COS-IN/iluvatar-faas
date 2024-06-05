@@ -80,6 +80,7 @@ pub struct ContainerdIsolation {
     downloaded_images: Arc<DashMap<String, bool>>,
     creation_sem: Option<tokio::sync::Semaphore>,
     tx: Arc<mpsc::SyncSender<BGPacket>>,
+    dtx: Arc<mpsc::SyncSender<String>>,
     bg_workqueue: thread::JoinHandle<Result<()>>,
 }
 
@@ -127,6 +128,7 @@ impl ContainerdIsolation {
         
         let pidmap = DashMap::new();
         let (send, recv) = sync_channel(30);
+        let (dsend, drecv) = sync_channel(30);
         let fname = worker_config.finescheduling.pids_file.clone();
 
         ContainerdIsolation {
@@ -140,6 +142,7 @@ impl ContainerdIsolation {
             downloaded_images: Arc::new(DashMap::new()),
             creation_sem: sem,
             tx: Arc::new(send),
+            dtx: Arc::new(dsend),
             bg_workqueue: thread::spawn(move || loop {
                 match recv.recv() {
                     Ok(x) => {
@@ -156,6 +159,27 @@ impl ContainerdIsolation {
                         for cpid in all_children {
                             pidmap.insert(cpid, x.fqdn.clone());
                         }
+                        
+                        loop {
+                            match drecv.try_recv() {
+                                Ok(dfqdn) => {
+                                    let mut to_remove = vec![];
+                                    for node in pidmap.iter() {
+                                        let k = node.key();
+                                        let v = node.value();
+                                        if v == &dfqdn {
+                                            to_remove.push(k.clone());
+                                        }
+                                    }
+                                    for k in to_remove {
+                                        info!(pid=%k, "Removing pid");
+                                        pidmap.remove(&k);
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+
                         write_pid_csv( &fname, &pidmap );
 
                         let ccpid = try_get_child_pid(x.pid, 1, 500);
@@ -400,8 +424,12 @@ impl ContainerdIsolation {
         ctd_namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
-        info!(tid=%tid, container_id=%container_id, "Removing container");
         let mut client = TasksClient::new(self.channel());
+        // container_id is of the form rodinia-needle-0.0.1-2DA0B908-D363-B1BD-34A3-C5F6B264FEFE
+        // we only need rodinia-needle-0.0.1
+        let fqdn = container_id.split('-').take(3).collect::<Vec<&str>>().join("-");
+        info!(tid=%tid, container_id=%container_id, fqdn=%fqdn, "Removing container");
+        //self.dtx.send( fqdn );
         self.kill_task(&mut client, container_id, ctd_namespace, tid).await?;
         self.delete_task(&mut client, container_id, ctd_namespace, tid).await?;
 
@@ -807,7 +835,9 @@ impl ContainerIsolationService for ContainerdIsolation {
         let mut handles = vec![];
         for container in resp.into_inner().containers {
             let container_id = container.id.clone();
-            info!(tid=%tid, container_id=%container_id, "Removing container");
+            let fqdn = container_id.split('-').take(3).collect::<Vec<&str>>().join("-");
+            info!(tid=%tid, container_id=%container_id, fqdn=%fqdn, "Removing container");
+            //self.dtx.send( fqdn );
 
             let svc_clone = self_src.clone();
             let ns_clone = ctd_namespace.to_string();
