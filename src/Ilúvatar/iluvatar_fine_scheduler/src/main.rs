@@ -25,6 +25,7 @@ use std::os::fd::{FromRawFd};
 use std::time::SystemTime;
 
 use anyhow::Result;
+use anyhow::Error;
 
 use std::thread::sleep;
 use shmem_ipc::sharedring::Sender;
@@ -41,13 +42,15 @@ use std::thread;
 struct Scheduler<'a> {
     bpf: BpfScheduler<'a>,
     fdata: &'a Arc<Mutex<FuncData>>,
+    score: i32,
+    lcore: i32,
 }
 
 impl<'a> Scheduler<'a> {
     fn init( fdata: &'a Arc<Mutex<FuncData>> ) -> Result<Self> {
         let topo = Topology::new().expect("Failed to build host topology");
         let bpf = BpfScheduler::init(5000, topo.nr_cpus_possible() as i32, false, 0, false, true)?;
-        Ok(Self { bpf, fdata })
+        Ok(Self { bpf, fdata, score:0, lcore:24 })
     }
 
     fn now() -> u64 {
@@ -79,9 +82,19 @@ impl<'a> Scheduler<'a> {
 
                             if let Some( chr ) = fldata.pids.get( &task.pid ) {
                                 if let Some( chr ) = fldata.characteristics.get( chr ) {
-                                    dtask.set_cpu( chr.preferred_core );
-                                    printpid( 1441256, &task );
-                                    println!("preferred_core {:?}", chr.preferred_core);
+                                    if chr.e2e_time < 1.0 {
+                                        dtask.set_cpu( self.score );
+                                        self.score += 1;
+                                        if self.score > 23 {
+                                            self.score = 0;
+                                        }
+                                    } else {
+                                        dtask.set_cpu( self.lcore );
+                                        self.lcore += 1;
+                                        if self.lcore > 47 {
+                                            self.lcore = 24;
+                                        }
+                                    }
                                 }
                             }
 
@@ -172,11 +185,14 @@ please open a GitHub issue.
     println!("{}", warning);
 }
 
-fn get_file_s( path: &str ) -> File {
-    let f = File::
-        open( path )
-        .expect("Failed to open file");
-    f
+fn get_file_s( path: &str ) -> Result<File,()> {
+    if std::path::Path::new(&path).exists() {
+        let f = File::
+            open( path )
+            .expect("Failed to open file");
+        return Ok(f);
+    } 
+    Err(()) 
 }
 
 fn vec_to_map_chr( data: Vec<RecordChr> ) -> HashMap<String, RecordChr> {
@@ -195,7 +211,6 @@ fn vec_to_map_pid( data: Vec<RecordPid> ) -> HashMap<i32, String> {
 struct RecordChr {
     func_name: String,
     e2e_time: f64,
-    preferred_core: i32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -206,13 +221,18 @@ struct RecordPid {
 
 fn read_csv<T: de::DeserializeOwned>( filename: &str ) -> Vec<T> {
     let f = get_file_s( filename );
-    let mut rdr = csv::Reader::from_reader(f);
     let mut data = Vec::new();
-    for result in rdr.deserialize() {
-        let record: T = result.unwrap();
-        data.push(record);
+    match f {
+        Ok(f) => { 
+            let mut rdr = csv::Reader::from_reader(f);
+            for result in rdr.deserialize() {
+                let record: T = result.unwrap();
+                data.push(record);
+            }
+            return data;
+        }
+        Err(_) => return data,
     }
-    data
 }
 
 #[derive(Debug, Clone)]
