@@ -16,7 +16,7 @@ use iluvatar_library::{
 use std::collections::HashMap;
 use std::{sync::Arc, time::SystemTime};
 use tracing::{debug, error, info, trace, warn};
-
+use std::env;
 pub mod dockerstructs;
 
 #[derive(Debug)]
@@ -32,8 +32,19 @@ impl DockerIsolation {
     pub fn supported(tid: &TransactionId) -> bool {
         let args = vec!["ps"];
         match execute_cmd("/usr/bin/docker", args, None, tid) {
-            Ok(out) => out.status.success(),
-            Err(_) => false,
+            Ok(out) => {
+              match out.status.success() {
+                true => true,
+                false => {
+                  warn!(tid=%tid, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), user=?env::var("USER"), "Failed to connect to docker");
+                  false
+                },
+              }
+            },
+            Err(e) => {
+              warn!(tid=%tid, error=%e, "Failed to connect to docker");
+              false
+            },
         }
     }
 

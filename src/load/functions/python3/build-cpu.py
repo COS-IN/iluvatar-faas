@@ -11,7 +11,7 @@ argparser.add_argument("--skip-push", '-s', help="Don't push images to remote.",
 args = argparser.parse_args()
 
 def image_name(func_name):
-  return f"{args.repo}/{func_name}-iluvatar-gpu:{args.version}"
+  return f"{args.repo}/{func_name}-iluvatar-action:{args.version}"
 
 def base_image_name(func_name):
   return f"{args.repo}/{func_name}:{args.version}"

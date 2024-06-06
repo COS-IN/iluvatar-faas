@@ -24,7 +24,6 @@ fn copy_file(infile: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-  println!("RUNNING BUILD");
     copy_file(Path::new("controller.json")).unwrap();
     Ok(())
 }
