@@ -1,6 +1,19 @@
+[build.env]
+passthrough = ["ARCH=amd64", "GO_VERSION=1.22.0", "CNI_VERSION=v1.1.1", "GOPATH=/usr/local/go",
+              "CTRD_VER=1.6.4", "CROSS_CONTAINER_IN_CONTAINER=true", "CROSS_ROOTLESS_CONTAINER_ENGINE=0",
+              "CROSS_CONTAINER_UID=1000", "CROSS_CONTAINER_GID=1000", "CROSS_CONTAINER_USER_NAMESPACE=none"]
+volumes = ["/etc/timezone=/etc/timezone", "/usr/bin/runc=/usr/bin/runc", "/run/netns=/run/netns", "/proc:/proc",
+          "/var/run/docker.sock=/var/run/docker.sock", "/usr/bin/docker=/usr/bin/docker",
+          "/run/containerd/containerd.sock=/run/containerd/containerd.sock", "/usr/bin/ctr=/usr/bin/ctr"]
+
 [build]
 default-target = "x86_64-unknown-linux-gnu"    # use this target if none is explicitly provided
 pre-build = [                                  # additional commands to run prior to building the package
     "dpkg --add-architecture $CROSS_DEB_ARCH", 
-    "apt-get update && apt-get --assume-yes install protobuf-compiler"
-]   
+    "apt-get update && apt-get --assume-yes install protobuf-compiler iproute2 wget curl runc bridge-utils iptables net-tools sysstat",
+    "wget https://go.dev/dl/go1.22.0.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.22.0.linux-amd64.tar.gz",
+    "/usr/local/go/bin/go install github.com/containernetworking/cni/cnitool@latest",
+    "mkdir -p /opt/cni/bin",
+    "mv $HOME/go/bin/cnitool /opt/cni/bin",
+    "curl -sSL https://github.com/containernetworking/plugins/releases/download/v1.1.1/cni-plugins-linux-amd64-v1.1.1.tgz | tar -xz -C /opt/cni/bin",
+]

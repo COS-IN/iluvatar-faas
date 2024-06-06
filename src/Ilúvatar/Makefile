@@ -1,4 +1,5 @@
 NPROCS:=$(shell grep -c ^processor /proc/cpuinfo)
+CROSS_FLAGS=CROSS_CONTAINER_UID=0 CROSS_CONTAINER_GID=0 CROSS_ROOTLESS_CONTAINER_ENGINE=false CROSS_CONTAINER_USER_NAMESPACE=none CROSS_CONTAINER_OPTS=--privileged
 RUST_FLAGS=-Dwarnings
 # Jetson platform
 # TARGET_PLAT=aarch64-unknown-linux-gnu
@@ -6,6 +7,7 @@ TARGET_PLAT?=x86_64-unknown-linux-gnu
 RUST_C?=cross
 DEBUG_FLAGS=--all-targets --target $(TARGET_PLAT) -j $(NPROCS)
 RELEASE_FLAGS=--lib --bins --target $(TARGET_PLAT) -j $(NPROCS) --release
+CARGO_ARGS?=""
 
 default: debug
 
@@ -16,10 +18,10 @@ clean:
 	@$(RUST_C) clean
 check:
 	@echo "Checking"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) check $(DEBUG_FLAGS) $(cargo_args)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) check $(DEBUG_FLAGS) $(CARGO_ARGS)
 release:
 	@echo "Building release"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(RELEASE_FLAGS) $(cargo_args)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(RELEASE_FLAGS) $(CARGO_ARGS)
 tiny:
 # https://github.com/johnthagen/min-sized-rust
 	@echo "Building tiny version"
@@ -29,20 +31,20 @@ tiny:
 	@upx --best --lzma ./target/$(TARGET_PLAT)/tiny/iluvatar_*
 debug:
 	@echo "Building debug"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(DEBUG_FLAGS) $(cargo_args)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(DEBUG_FLAGS) $(CARGO_ARGS)
 spans:
 	@echo "Building full_spans"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(RELEASE_FLAGS) $(cargo_args)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(RELEASE_FLAGS) $(CARGO_ARGS)
 spansd:
 	@echo "Building debug full_spans"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(DEBUG_FLAGS) $(cargo_args)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(DEBUG_FLAGS) $(CARGO_ARGS)
 flame:
 	@echo "TODO: implement running flame"
 test:
 	@echo "Running unit tests"
 # TODO: this is probably broken, Docker-in-Docker etc.
 # https://github.com/cross-rs/cross?tab=readme-ov-file#docker-in-docker
-	@$(RUST_C) test $(cargo_args)
+	$(CROSS_FLAGS) RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) test $(CARGO_ARGS)
 format:
 	@$(RUST_C) fmt --all
 format-check:
