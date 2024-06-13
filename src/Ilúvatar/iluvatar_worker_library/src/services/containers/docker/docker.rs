@@ -4,6 +4,9 @@ use crate::{
     services::{containers::structs::ContainerState, registration::RegisteredFunction},
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
 };
+use bollard::Docker;
+use bollard::{image::CreateImageOptions, container::{ListContainersOptions,RemoveContainerOptions,StatsOptions}};
+use futures::StreamExt;
 use anyhow::Result;
 use dashmap::DashSet;
 use guid_create::GUID;
@@ -11,13 +14,14 @@ use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
-    utils::{execute_cmd, execute_cmd_async, port::free_local_port},
+    utils::{execute_cmd_async, port::free_local_port},
 };
 use std::collections::HashMap;
 use std::{sync::Arc, time::SystemTime};
-use tracing::{debug, error, info, trace, warn};
-use std::env;
+use tracing::{debug, error, info, warn};
 pub mod dockerstructs;
+
+const OWNER_TAG: &str = "owner=iluvatar_worker";
 
 #[derive(Debug)]
 #[allow(unused)]
@@ -26,24 +30,23 @@ pub struct DockerIsolation {
     limits_config: Arc<FunctionLimits>,
     creation_sem: Option<tokio::sync::Semaphore>,
     pulled_images: DashSet<String>,
+    docker_api: Docker,
 }
 
 impl DockerIsolation {
-    pub fn supported(tid: &TransactionId) -> bool {
-        let args = vec!["ps"];
-        match execute_cmd("/usr/bin/docker", args, None, tid) {
-            Ok(out) => {
-              match out.status.success() {
-                true => true,
-                false => {
-                  warn!(tid=%tid, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), user=?env::var("USER"), "Failed to connect to docker");
-                  false
-                },
-              }
-            },
+    pub async fn supported(tid: &TransactionId) -> bool {
+        let docker = match Docker::connect_with_socket_defaults() {
+            Ok(d) => d,
             Err(e) => {
               warn!(tid=%tid, error=%e, "Failed to connect to docker");
-              false
+              return false;
+            },
+        };
+        match docker.version().await {
+            Ok(_) => true,
+            Err(e) => {
+                warn!(tid=%tid, error=%e, "Failed to query docker version");
+                false
             },
         }
     }
@@ -51,8 +54,12 @@ impl DockerIsolation {
     pub fn new(
         config: Arc<ContainerResourceConfig>,
         limits_config: Arc<FunctionLimits>,
-        _tid: &TransactionId,
+        tid: &TransactionId,
     ) -> Result<Self> {
+        let docker = match Docker::connect_with_socket_defaults() {
+            Ok(d) => d,
+            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to connect to docker"),
+        };
         let sem = match config.concurrent_creation {
             0 => None,
             i => Some(tokio::sync::Semaphore::new(i as usize)),
@@ -62,6 +69,7 @@ impl DockerIsolation {
             limits_config,
             creation_sem: sem,
             pulled_images: DashSet::new(),
+            docker_api: docker,
         })
     }
 
@@ -75,7 +83,7 @@ impl DockerIsolation {
         env: Option<&HashMap<String, String>>,
     ) -> Result<()> {
         run_args.insert(0, "run");
-        run_args.extend(["--label", "owner=iluvatar_worker", "--detach", image_name]);
+        run_args.extend(["--label", OWNER_TAG, "--detach", image_name]);
         if let Some(a) = proc_args {
             run_args.extend(a);
         }
@@ -119,46 +127,6 @@ impl DockerIsolation {
     async fn get_stdout(&self, container: &Container, tid: &TransactionId) -> Result<String> {
         let (out, _err) = self.get_logs(container.container_id(), tid).await?;
         Ok(out)
-    }
-
-    /// example input: "1.366GiB / 2.5GiB"
-    /// returns Ok(1398)
-    fn parse_mem(input: std::borrow::Cow<str>) -> Result<MemSizeMb> {
-        let mut end_of_num: usize = 0;
-        let mut end_of_scale: usize = 0;
-        for (i, c) in input.chars().enumerate() {
-            if c.is_ascii_digit() || c == '.' {
-                end_of_num = i + c.len_utf8();
-            }
-            if c == ' ' {
-                end_of_scale = i;
-                break;
-            }
-        }
-        if end_of_num > input.len() {
-            anyhow::bail!("End of number {} is somehow greater that input '{}'", end_of_num, input)
-        }
-        if end_of_num > input.len() {
-            anyhow::bail!(
-                "End of scale {} is somehow greater that input '{}'",
-                end_of_scale,
-                input
-            )
-        }
-        let number = &input[..end_of_num];
-        let scale = &input[end_of_num..end_of_scale];
-        let parsed = match number.parse::<f64>() {
-            Ok(p) => p,
-            Err(_) => anyhow::bail!("Unable to parse '{}'", number),
-        };
-        let scale = match scale {
-            "GiB" => 1024.0,
-            "MiB" => 1.0,
-            "KiB" => 1.0 / 1024.0,
-            "B" => 1.0 / (1024.0 * 1024.0),
-            unknown => anyhow::bail!("Memory scale '{}' had an unsupported size format", unknown),
-        };
-        Ok(f64::ceil(parsed * scale) as MemSizeMb)
     }
 }
 
@@ -285,22 +253,11 @@ impl ContainerIsolationService for DockerIsolation {
 
     /// Removed the specified container in the containerd namespace
     async fn remove_container(&self, container: Container, _ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
-        let output = execute_cmd_async(
-            "/usr/bin/docker",
-            vec!["rm", "--force", container.container_id().as_str()],
-            None,
-            tid,
-        )
-        .await?;
-        match output.status.code() {
-            Some(0) => Ok(()),
-            Some(error_stat) => {
-                bail_error!(tid=%tid, container_id=%container.container_id(), status=error_stat, output=?output, "Failed to remove docker container with exit code")
-            }
-            None => {
-                bail_error!(tid=%tid, container_id=%container.container_id(), output=?output, "Failed to remove docker container with no exit code")
-            }
-        }
+      let options = RemoveContainerOptions{force:true, v:true, link:false};
+      match self.docker_api.remove_container(container.container_id().as_str(), Some(options)).await {
+          Ok(_) => Ok(()),
+          Err(e) => bail_error!(tid=%tid, error=%e, "Failed to remove Docker container"),
+      }
     }
 
     async fn prepare_function_registration(
@@ -313,15 +270,17 @@ impl ContainerIsolationService for DockerIsolation {
             return Ok(());
         }
 
-        let output = execute_cmd_async("/usr/bin/docker", vec!["pull", rf.image_name.as_str()], None, tid).await?;
-        match output.status.code() {
-            Some(0) => (),
-            Some(error_stat) => {
-                bail_error!(tid=%tid, status=error_stat, output=?output, "Failed to pull docker image with exit code")
+        let options = Some(CreateImageOptions{
+          from_image: rf.image_name.as_str(),
+          ..Default::default()
+        });
+        let mut stream = self.docker_api.create_image(options, None, None);
+        while let Some(res) = stream.next().await {
+            match res {
+                Ok(_) => (),
+                Err(e) => bail_error!(tid=%tid, error=%e, "Failed to pull image"),
             }
-            None => bail_error!(tid=%tid, output=?output, "Failed to pull docker image with no exit code"),
-        };
-        trace!(tid=%tid, name=%rf.image_name, output=?output, "Docker image pulled successfully");
+        }
         info!(tid=%tid, name=%rf.image_name, "Docker image pulled successfully");
         self.pulled_images.insert(rf.image_name.clone());
         Ok(())
@@ -333,33 +292,20 @@ impl ContainerIsolationService for DockerIsolation {
         _self_src: Arc<dyn ContainerIsolationService>,
         tid: &TransactionId,
     ) -> Result<()> {
-        let output = execute_cmd_async(
-            "/usr/bin/docker",
-            vec!["ps", "--filter", "label=owner=iluvatar_worker", "-aq"],
-            None,
-            tid,
-        )
-        .await?;
-        match output.status.code() {
-            Some(0) => (),
-            Some(error_stat) => {
-                bail_error!(tid=%tid, status=error_stat, output=?output, "Failed to run 'docker ps' with exit code")
-            }
-            None => bail_error!(tid=%tid, output=?output, "Failed to run 'docker ps' with no exit code"),
+        let options = ListContainersOptions { all: true, limit: None, size: false, filters: HashMap::from_iter(vec![("label", vec![OWNER_TAG])]) };
+        let list = match self.docker_api.list_containers(Some(options)).await {
+            Ok(l) => l,
+            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to list Docker containers"),
         };
-        let cow = String::from_utf8_lossy(&output.stdout);
-        let stdout: Vec<&str> = cow.split('\n').filter(|str| !str.is_empty()).collect();
-        for docker_id in stdout {
-            let output = execute_cmd_async("/usr/bin/docker", vec!["rm", "--force", docker_id], None, tid).await?;
-            if let Some(status) = output.status.code() {
-                if status != 0 {
-                    bail_error!(tid=%tid, docker_id=%docker_id, status=status, output=?output, "Failed to remove docker container with exit code");
-                }
-            } else {
-                bail_error!(tid=%tid, docker_id=%docker_id, output=?output, "Failed to remove docker container with no exit code");
-            }
+        for container in list {
+            if let Some(id) = container.id {
+                  let options = RemoveContainerOptions{force:true, v:true, link:false};
+                  match self.docker_api.remove_container(&id, Some(options)).await {
+                      Ok(_) => (),
+                      Err(e) => error!(tid=%tid, error=%e, "Failed to remove Docker container"),
+                  }
+            };
         }
-
         Ok(())
     }
 
@@ -403,49 +349,29 @@ impl ContainerIsolationService for DockerIsolation {
                 return container.get_curr_mem_usage();
             }
         };
-        let output = match execute_cmd_async(
-            "/usr/bin/docker",
-            vec![
-                "stats",
-                "--no-stream",
-                "--format",
-                "{{.MemUsage}}",
-                cast_container.container_id.as_str(),
-            ],
-            None,
-            tid,
-        )
-        .await
-        {
-            Ok(o) => o,
-            Err(e) => {
-                error!(tid=%tid, error=%e, "Failed to run 'docker stats' with error");
-                container.mark_unhealthy();
-                return container.get_curr_mem_usage();
-            }
+        let options = StatsOptions {
+          stream: false,
+          one_shot: false
         };
-        if let Some(status) = output.status.code() {
-            if status != 0 {
-                error!(tid=%tid, status=status, output=?output, "Failed to run 'docker stats' with exit code");
+        let mut stream = self.docker_api.stats(cast_container.container_id.as_str(), Some(options));
+        while let Some(res) = stream.next().await {
+          match res {
+              Ok(stats) => {
+                if let Some(usage_bytes) = stats.memory_stats.usage {
+                  let usage_mb: MemSizeMb = (usage_bytes / (1024*1024)) as MemSizeMb;
+                  container.set_curr_mem_usage(usage_mb);
+                  return usage_mb;
+                }
+              },
+              Err(e) => {
+                error!(tid=%tid, error=%e, "Failed to query stats");
                 container.mark_unhealthy();
                 return container.get_curr_mem_usage();
-            }
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            match Self::parse_mem(stdout) {
-                Ok(m) => {
-                    container.set_curr_mem_usage(m);
-                    m
-                }
-                Err(e) => {
-                    error!(tid=%tid, error=%e, "Failed to parse memory value");
-                    container.mark_unhealthy();
-                    container.get_curr_mem_usage()
-                }
-            }
-        } else {
-            error!(tid=%tid, output=?output, "Failed to run 'docker stats' with no exit code");
-            container.get_curr_mem_usage()
+              },
+          }
         }
+        warn!(tid=%tid, "Fell out of bottom of stats stream loop");
+        container.get_curr_mem_usage()
     }
 
     async fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
@@ -464,38 +390,5 @@ impl ContainerIsolationService for DockerIsolation {
 impl crate::services::containers::structs::ToAny for DockerIsolation {
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-}
-
-#[cfg(test)]
-mod docker_tests {
-    use super::*;
-    use rstest::rstest;
-
-    #[rstest]
-    #[case("131.9MiB / 3.023GiB\n", 132)]
-    #[case("131MiB / 3.023GiB\n", 131)]
-    #[case("131.MiB / 3.023GiB\n", 131)]
-    #[case("1.862GiB / 2GiB\n", 1907)]
-    #[case("100KiB / 2GiB\n", 1)]
-    #[case("1025KiB / 2GiB\n", 2)]
-    #[case("1GiB / 2GiB\n", 1024)]
-    #[case("0.5GiB / 2GiB\n", 512)]
-    fn parse_mem_works(#[case] input: &str, #[case] expected: MemSizeMb) {
-        assert_eq!(
-            DockerIsolation::parse_mem(std::borrow::Cow::Borrowed(input)).unwrap(),
-            expected
-        );
-    }
-
-    #[rstest]
-    #[case("131.9Mi / 3.023GiB\n")]
-    #[case("131iB / 3.023GiB\n")]
-    #[case("MiB / 3.023GiB\n")]
-    fn parse_mem_errors(#[case] input: &str) {
-        match DockerIsolation::parse_mem(std::borrow::Cow::Borrowed(input)) {
-            Ok(r) => panic!("Case should fail but got '{}'", r),
-            Err(_) => (),
-        }
     }
 }

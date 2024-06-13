@@ -119,7 +119,7 @@ impl IsolationFactory {
                     warn!("Containerd is supported but a networking config is not found");
                 }
             }
-            if DockerIsolation::supported(tid) {
+            if DockerIsolation::supported(tid).await {
                 info!(tid=%tid, "Creating 'docker' backend");
                 let d = Arc::new(DockerIsolation::new(
                     self.worker_config.container_resources.clone(),
