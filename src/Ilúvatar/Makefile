@@ -1,5 +1,4 @@
 NPROCS:=$(shell grep -c ^processor /proc/cpuinfo)
-CROSS_FLAGS=CROSS_CONTAINER_UID=0 CROSS_CONTAINER_GID=0 CROSS_ROOTLESS_CONTAINER_ENGINE=false CROSS_CONTAINER_USER_NAMESPACE=none CROSS_CONTAINER_OPTS=--privileged
 RUST_FLAGS=-Dwarnings
 # Jetson platform
 # TARGET_PLAT=aarch64-unknown-linux-gnu
@@ -44,7 +43,7 @@ test:
 	@echo "Running unit tests"
 # TODO: this is probably broken, Docker-in-Docker etc.
 # https://github.com/cross-rs/cross?tab=readme-ov-file#docker-in-docker
-	$(CROSS_FLAGS) RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) test $(CARGO_ARGS)
+	RUSTFLAGS=$(RUST_FLAGS) cargo test $(CARGO_ARGS)
 format:
 	@$(RUST_C) fmt --all
 format-check:
