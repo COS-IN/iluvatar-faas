@@ -361,6 +361,7 @@ impl GpuResourceTracker {
             "/tmp/nvidia-mps:/tmp/nvidia-mps",
         ];
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
+        // docker.bollard_docker_run(tid, img_name, MPS_CONTAINER_NAME, vec![], 1024, 1, )
         docker
             .docker_run(args, img_name, "iluvatar_mps_control", Some(vec!["-f"]), tid, None)
             .await
