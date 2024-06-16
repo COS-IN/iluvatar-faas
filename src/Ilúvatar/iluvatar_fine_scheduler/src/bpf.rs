@@ -23,6 +23,8 @@ use scx_utils::uei_report;
 
 use scx_rustland_core::ALLOCATOR;
 
+use std::collections::HashMap;
+
 // Defined in UAPI
 const SCHED_EXT: i32 = 7;
 
@@ -54,6 +56,42 @@ pub const NO_CPU: i32 = -1;
 /// Finally the methods exited() and shutdown_and_report() can be used respectively to test
 /// whether the BPF component exited, and to shutdown and report the exit message.
 /// whether the BPF component exited, and to shutdown and report exit message.
+
+/* 
+Want to enforce following mapping 
+                         func_name,Preferred Core 
+                       hello-0.0.1, 0 
+             float_operation-0.0.1, 2 
+    cnn_image_classification-0.0.1, 4 
+                   chameleon-0.0.1, 8 
+                          dd-0.0.1, 10 
+                    lin_pack-0.0.1, 12 
+            gzip_compression-0.0.1, 14 
+                       pyaes-0.0.1, 16 
+              rodinia-lavamd-0.0.1, 18 
+             rodinia-myocyte-0.0.1, 20
+                rodinia-srad-0.0.1, 22
+          rodinia-pathfinder-0.0.1, 24
+              rodinia-needle-0.0.1, 26
+*/
+pub fn get_func_to_cpu_map() -> HashMap<String, i32> {
+    let mut cmap = HashMap::new();
+    cmap.insert("hello-0.0.1".to_string(), 0);
+    cmap.insert("float_operation-0.0.1".to_string(), 2);
+    cmap.insert("cnn_image_classification-0.0.1".to_string(), 4);
+    cmap.insert("chameleon-0.0.1".to_string(), 8);
+    cmap.insert("dd-0.0.1".to_string(), 10);
+    cmap.insert("lin_pack-0.0.1".to_string(), 12);
+    cmap.insert("gzip_compression-0.0.1".to_string(), 14);
+    cmap.insert("pyaes-0.0.1".to_string(), 16);
+    cmap.insert("rodinia-lavamd-0.0.1".to_string(), 18);
+    cmap.insert("rodinia-myocyte-0.0.1".to_string(), 20);
+    cmap.insert("rodinia-srad-0.0.1".to_string(), 22);
+    cmap.insert("rodinia-pathfinder-0.0.1".to_string(), 24);
+    cmap.insert("rodinia-needle-0.0.1".to_string(), 26);
+
+    cmap
+}
 
 // Task queued for scheduling from the BPF component (see bpf_intf::queued_task_ctx).
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]

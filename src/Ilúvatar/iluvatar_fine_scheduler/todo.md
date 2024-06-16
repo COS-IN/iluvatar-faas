@@ -212,11 +212,9 @@ Sat 01 Jun 2024 02:27:41 PM EDT
         * [x] characteristics
         * [x] pids
 
-
     * update ilu 
       * [x] debug why pids are not being read with pidtree command 
       * remove the pids from the map for containers that die 
-
 
     * policy that divides the tasks into buckets based on e2e from characteristics 
       * compare plots for the two cases 
@@ -263,9 +261,16 @@ Sat 01 Jun 2024 02:27:41 PM EDT
 
 ### Worklog (Doing) 
 
+
+Wed 05 Jun 2024 03:52:11 PM EDT
+  * 1 hrs 
+    * plots comparing latencies 
+
 Tue 04 Jun 2024 02:09:22 PM EDT
   
-  * 
+  * 5 hrs 
+    * implemented basic division of tasks based on e2e time
+    * bug-fixed generation of pid csv  
 
 Mon 03 Jun 2024 01:12:30 PM EDT
     * 1 hrs 

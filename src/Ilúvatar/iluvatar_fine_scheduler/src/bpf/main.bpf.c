@@ -132,20 +132,38 @@ struct {
 
 volatile u32 epids_0[MAX_ENQUEUED_TASKS] = {0};
 volatile u32 epids_1[MAX_ENQUEUED_TASKS] = {0};
+
+volatile u32 ecores_0[MAX_ENQUEUED_TASKS] = {0};
+volatile u32 ecores_1[MAX_ENQUEUED_TASKS] = {0};
+
 volatile u32 active_epids_idx = 0;
 
 u32 * get_active_epids(){
     return active_epids_idx == 0 ? epids_0 : epids_1;
 }
+
 bool epid_present( u32 pid ){
     u32 *epids = get_active_epids();
+    dbg_msg("mydebugs: checking=%d ", pid );
     for ( int i = 0; i < MAX_ENQUEUED_TASKS; i++ ){
+        //if ( epids[i] != 0 ){
+        //  dbg_msg("mydebugs: epid=%d ", epids[i]);
+        //}
         if ( epids[i] == pid ){
             return true;
         }
     }
     return false;
 }
+
+#if 0
+u32 get_active_ecore( u32 idx ){
+    if ( idx < MAX_ENQUEUED_TASKS ){
+      return active_epids_idx == 0 ? ecores_0[idx] : ecores_1[idx];
+    }
+    return 0;
+}
+#endif
 
 /*
  * Per-task local storage.
@@ -338,6 +356,10 @@ dispatch_task(struct task_struct *p, u64 dsq_id,
 	bool force_shared = false;
 	s32 cpu;
 
+    dbg_msg("[mydebugs] slice=%llu",
+            slice
+           );
+
 	switch (dsq_id) {
 	case SCX_DSQ_LOCAL:
 	case SHARED_DSQ:
@@ -470,7 +492,7 @@ s32 BPF_STRUCT_OPS(rustland_select_cpu, struct task_struct *p, s32 prev_cpu,
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
    
-    if( epid_present( p->pid ) ){
+    if( epid_present( p->pid )  ){
         skip = true;
         dbg_msg("[mydebugs] skipping pid=%d",
                  p->pid

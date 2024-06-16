@@ -42,15 +42,15 @@ use std::thread;
 struct Scheduler<'a> {
     bpf: BpfScheduler<'a>,
     fdata: &'a Arc<Mutex<FuncData>>,
-    score: i32,
-    lcore: i32,
+    func_to_cpu: HashMap<String, i32>,
 }
 
 impl<'a> Scheduler<'a> {
     fn init( fdata: &'a Arc<Mutex<FuncData>> ) -> Result<Self> {
         let topo = Topology::new().expect("Failed to build host topology");
         let bpf = BpfScheduler::init(5000, topo.nr_cpus_possible() as i32, false, 0, false, true)?;
-        Ok(Self { bpf, fdata, score:0, lcore:24 })
+        let fcmap = get_func_to_cpu_map();
+        Ok(Self { bpf, fdata, func_to_cpu: fcmap } ) 
     }
 
     fn now() -> u64 {
@@ -62,7 +62,7 @@ impl<'a> Scheduler<'a> {
 
     fn dispatch_tasks(&mut self) {
         loop {
-            // Get queued taks and dispatch them in order (FIFO).
+            // Get queued task and dispatch them in order (FIFO).
             match self.bpf.dequeue_task() {
                 Ok(Some(task)) => {
 
@@ -71,30 +71,13 @@ impl<'a> Scheduler<'a> {
                     if task.cpu >= 0 {
                         let dtask = &mut DispatchedTask::new(&task);
 
-                        fn printpid( p: i32, task: &QueuedTask ){
-                            if ( task.pid == p ){
-                                println!("found {:?}", task);
-                            }
-                        }
-
                         let mut lock = self.fdata.try_lock();
                         if let Ok(ref mut fldata) = lock {
 
                             if let Some( chr ) = fldata.pids.get( &task.pid ) {
-                                if let Some( chr ) = fldata.characteristics.get( chr ) {
-                                    if chr.e2e_time < 1.0 {
-                                        dtask.set_cpu( self.score );
-                                        self.score += 1;
-                                        if self.score > 23 {
-                                            self.score = 0;
-                                        }
-                                    } else {
-                                        dtask.set_cpu( self.lcore );
-                                        self.lcore += 1;
-                                        if self.lcore > 47 {
-                                            self.lcore = 24;
-                                        }
-                                    }
+                                if let Some( cpu ) = self.func_to_cpu.get( chr ) {
+                                    // println!("Dispatching task {} to CPU {}", task.pid, cpu);
+                                    dtask.set_cpu( *cpu );
                                 }
                             }
 
