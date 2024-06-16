@@ -142,7 +142,7 @@ u32 * get_active_epids(){
     return active_epids_idx == 0 ? epids_0 : epids_1;
 }
 
-u32 epid_present( u32 pid ){
+bool epid_present( u32 pid ){
     u32 i = 0;
     u32 *epids = get_active_epids();
     dbg_msg("mydebugs: checking=%d ", pid );
@@ -151,10 +151,10 @@ u32 epid_present( u32 pid ){
         //  dbg_msg("mydebugs: epid=%d ", epids[i]);
         //}
         if ( epids[i] == pid ){
-            return i;
+            return true;
         }
     }
-    return i;
+    return false;
 }
 
 #if 0
@@ -493,7 +493,7 @@ s32 BPF_STRUCT_OPS(rustland_select_cpu, struct task_struct *p, s32 prev_cpu,
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
    
-    if( epid_present( p->pid ) != MAX_ENQUEUED_TASKS  ){
+    if( epid_present( p->pid ) ){
         skip = true;
         dbg_msg("[mydebugs] skipping pid=%d",
                  p->pid
