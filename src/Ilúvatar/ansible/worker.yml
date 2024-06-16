@@ -21,6 +21,7 @@
       "ILUVATAR_WORKER__timeout_sec" : "{{ worker_timeout_sec | default(6000) }}"
       "ILUVATAR_WORKER__tokio_event_interval" : "{{ worker_tokio_event_interval | default(20) }}"
       "ILUVATAR_WORKER__tokio_queue_interval" : "{{ worker_tokio_queue_interval | default(20) }}"
+
       # Limits
       "ILUVATAR_WORKER__limits__mem_max_mb" : "{{ worker_mem_max | default(5000) }}"
 

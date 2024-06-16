@@ -150,19 +150,21 @@ impl ContainerdIsolation {
                 match recv.recv() {
                     Ok(x) => {
                         let all_children = get_all_children( x.pid ).unwrap();
+
+                        for cpid in &all_children {
+                            pidmap.insert(*cpid, x.fqdn.clone());
+                        }
+
                         info!(
                             tid=%x.tid,
                             fqdn=%x.fqdn,
                             container_id=%x.container_id,
                             pid=%x.pid,
                             allc=%all_children[0],
-                            "mydebugs"
-                        );
+                            "mydebugs {:?}",
+                            pidmap
+                        );                       
 
-                        for cpid in all_children {
-                            pidmap.insert(cpid, x.fqdn.clone());
-                        }
-                        
                         loop {
                             match drecv.try_recv() {
                                 Ok(dfqdn) => {

@@ -234,7 +234,7 @@ impl QueueingDispatcher {
         let mut enqueues = 0;
         
         let cfile = match &self.worker_config.finescheduling {
-            Some(fconfig) => fconfig.characteristics_file.clone(),
+            Some( fconfig ) => fconfig.characteristics_file.clone(),
             None => "none.csv".to_string(),
         };
 

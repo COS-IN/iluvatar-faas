@@ -20,6 +20,12 @@
 
 # Removing a function container 
 
+  remove_container
+    remove_container_internal
+      kill_task
+      delete_task
+      delete_containerd_container
+      delete_container_resources
 
 
 
