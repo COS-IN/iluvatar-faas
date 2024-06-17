@@ -5,6 +5,10 @@
     bin_dir: "/tmp/iluvatar/bin"
     exe_dest: "{{bin_dir}}/{{ controller.bin_name }}"
     config_dest: "{{bin_dir}}/{{ controller.config_name }}"
+    __architecture: "{{ servers[ansible_host].architecture | default('x86_64-unknown-linux-gnu') }}"
+    def_bin_src: "{{iluvatar_home}}/target/{{__architecture}}/{{target}}"
+    __bin_src: "{{ worker_bin_src | default(def_bin_src) }}"
+    __remote_bin_src: "{{ remote_bin_src | default(false) }}"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     coded_proxy_env:
       "ILUVATAR_CONTROLLER__name": "{{ controller.host }}"
@@ -49,17 +53,19 @@
 
   - name: copy controller executable
     ansible.builtin.copy:
-      src: "{{iluvatar_home}}/target/{{target}}/{{controller.bin_name}}"
+      src: "{{__bin_src}}/{{controller.bin_name}}"
       dest: "{{exe_dest}}"
       mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
     when: mode == "deploy"
     become: yes
 
   - name: copy controller config
     ansible.builtin.copy:
-      src: "{{iluvatar_home}}/target/{{target}}/{{controller.config_name}}"
+      src: "{{__bin_src}}/{{controller.config_name}}"
       dest: "{{config_dest}}"
       mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
     when: mode == "deploy"
     become: yes
 

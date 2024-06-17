@@ -90,7 +90,7 @@ impl InfluxClient {
         match e {
             RequestError::ReqwestProcessing { source } => anyhow::bail!(source.to_string()),
             RequestError::Http { status, text } => match status {
-                reqwest::StatusCode::UNPROCESSABLE_ENTITY => {
+                http::StatusCode::UNPROCESSABLE_ENTITY => {
                     match serde_json::from_str::<HashMap<String, String>>(&text) {
                         Ok(m) => {
                             self.has_k_v(&m, "code", "conflict")?;

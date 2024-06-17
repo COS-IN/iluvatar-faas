@@ -2,11 +2,14 @@
   vars:
     expected: "Connection failure: [Errno 104] Connection reset by peer"
     host_group: "{{ groups['workers'] }}"
-    worker_index_base: 0
     assigned_port: "{{ (worker.port | int + host_group.index(inventory_hostname)) }}"
     bin_dir: "/tmp/iluvatar/bin"
     exe_dest: "{{bin_dir}}/{{ worker.bin_name }}"
     config_dest: "{{bin_dir}}/{{ inventory_hostname }}.json"
+    __architecture: "{{ servers[ansible_host].architecture | default('x86_64-unknown-linux-gnu') }}"
+    def_bin_src: "{{iluvatar_home}}/target/{{__architecture}}/{{target}}"
+    __bin_src: "{{ worker_bin_src | default(def_bin_src) }}"
+    __remote_bin_src: "{{ remote_bin_src | default(false) }}"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     __hardware_interface: "{{ hardware_interface | default(servers[ansible_host].hardware_interface) }}"
     SIGINT: 2
@@ -34,6 +37,7 @@
       "ILUVATAR_WORKER__container_resources__snapshotter" : "{{ worker_snapshotter | default('zfs') }}"
       "ILUVATAR_WORKER__container_resources__cpu_resource__count" : "{{ worker_cores | default(4) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__count" : "{{ worker_gpus | default(0) }}"
+      "ILUVATAR_WORKER__container_resources__gpu_resource__is_tegra" : "{{ worker_is_tegra | default(false) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__use_standalone_mps" : "{{ standalone_mps | default(false) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__per_func_memory_mb" : "{{ per_func_memory_mb | default(2048) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__mps_limit_active_threads" : "{{ mps_limit_threads | default(false) }}"
@@ -74,9 +78,9 @@
       "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
       "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(100) }}"
       "ILUVATAR_WORKER__invocation__queue_policies__cpu" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
-      "ILUVATAR_WORKER__invocation__queue_policies__gpu" : "{{ worker_gpu_queue_policy | default('mqfq') }}"
-      "ILUVATAR_WORKER__invocation__queues__gpu" : "{{ worker_gpu_queue | default('serial') }}"
-      "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('mqfq_select_out_len') }}"
+      "ILUVATAR_WORKER__invocation__queue_policies__gpu" : "{{ worker_gpu_queue_policy | default('mqfq_select_out_len') }}"
+      "ILUVATAR_WORKER__invocation__queues__gpu" : "{{ worker_gpu_queue | default('mqfq') }}"
+      "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('serial') }}"
       "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"

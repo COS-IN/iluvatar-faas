@@ -1,9 +1,6 @@
 iluvatar_home: "{{ lookup('env', 'ILU_HOME') | default(playbook_dir ~ '/..', true) }}"
 mode: deploy
 target: release
-def_bin_src: "{{iluvatar_home}}/target/{{target}}"
-__bin_src: "{{ bin_src | default(def_bin_src) }}"
-__remote_bin_src: "{{ remote_bin_src | default(false) }}"
 
 controller:
   bin_name: "iluvatar_controller"

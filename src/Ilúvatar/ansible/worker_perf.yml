@@ -2,11 +2,14 @@
   vars:
     expected: "Connection failure: [Errno 104] Connection reset by peer"
     host_group: "{{ groups['workers'] }}"
-    worker_index_base: 0
     assigned_port: "{{ (worker.port | int + host_group.index(inventory_hostname)) }}"
     bin_dir: "/tmp/iluvatar/bin"
     exe_dest: "{{bin_dir}}/{{ worker.bin_name }}"
     config_dest: "{{bin_dir}}/{{ inventory_hostname }}.json"
+    __architecture: "{{ servers[ansible_host].architecture | default('x86_64-unknown-linux-gnu') }}"
+    def_bin_src: "{{iluvatar_home}}/target/{{__architecture}}/{{target}}"
+    __bin_src: "{{ worker_bin_src | default(def_bin_src) }}"
+    __remote_bin_src: "{{ remote_bin_src | default(false) }}"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     __hardware_interface: "{{ hardware_interface | default(servers[ansible_host].hardware_interface) }}"
   vars_files:

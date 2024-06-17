@@ -50,7 +50,9 @@
       "count": 4
     },
     "gpu_resource": {
-        "count": 0 
+        "count": 0,
+        "memory_mb": 1024,
+        "funcs_per_device": 1
     }
   },
   "networking": {
@@ -61,7 +63,7 @@
     "use_pool": true,
     "pool_size": 1,
     "pool_freq_ms": 1000,
-    "hardware_interface": "enp4s0"
+    "hardware_interface": "eth0"
   },
   "load_balancer_url": "http://localhost:8078",
   "energy": {

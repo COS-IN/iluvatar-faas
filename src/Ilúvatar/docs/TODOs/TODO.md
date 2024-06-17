@@ -3,6 +3,12 @@
 A list of possible improvements and changes to the base platform.
 In no particular order.
 
+## Monitor GPU utilization on Jetson platform
+
+Jetson requires using `tegrastats` to get utilization numbers.
+The [GPU monitor](iluvatar_worker_library/src/services/resources/gpu.rs) needs updated information for ideal usage.
+Can cause dispatches to be blocked or broken on Jetson.
+
 ## Time-skipping simulation
 
 Can we enable time-skipping when running in a simulation context?
@@ -37,11 +43,6 @@ A few solutions exist, with the first probably being the best one.
 Container memory usage _should_ only change during/immediately after it runs an invocation.
 There is no need to check a container if it hasn't been used.
 Only review a container's memory usage after/during an invocation.
-
-## Retry on prewarm
-
-If a prewarm request comes in, sometimes container startup can fail due to a transient issue inside containerd.
-Retry it once or twice (configurable?) to gain stability.
 
 ## Reload/clean state on reboot
 
@@ -112,9 +113,15 @@ Can on-build, the ansible mappings of Iluvatar environment variables to config s
 Something like `iluvatar_worker` can reference `iluvatar_worker_library` in it's `build.rs`, giving it access to the types.
 Can it then generate the ansible vars and put them somewhere?
 
+## Cluster Simulation include worker node name
+
+Logs for workers in a cluster simulation scenario are put into one file.
+These become impossible to separate without any identifying factor.
+Either split up the logs into separate files on worker name, or include the name in each log message so it can be split in post-processing.
+
 ## CI Testing
 
-Run automated tests in github actions CI.
+Run automated tests in Github actions CI.
 
 ## Optional Memory capping
 

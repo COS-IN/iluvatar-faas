@@ -73,7 +73,7 @@ pub enum MQState {
 }
 
 pub struct MQRequest {
-    pub invok: Arc<EnqueuedInvocation>,
+    pub invoke: Arc<EnqueuedInvocation>,
     // Do we maintain a backward pointer to FlowQ? qid atleast?
     pub start_time_virt: f64,
     pub finish_time_virt: f64,
@@ -82,7 +82,7 @@ pub struct MQRequest {
 impl MQRequest {
     pub fn new(invok: Arc<EnqueuedInvocation>, start_t_virt: f64, finish_t_virt: f64) -> Arc<Self> {
         Arc::new(Self {
-            invok: invok,
+            invoke: invok,
             start_time_virt: start_t_virt,
             finish_time_virt: finish_t_virt,
         })
@@ -228,7 +228,7 @@ impl FlowQ {
     fn update_dispatched(&mut self) {
         if let Some(next_item) = self.queue.front() {
             if self.start_time_virt > next_item.start_time_virt {
-                error!(tid=%next_item.invok.tid, old_start=self.start_time_virt, new_start=next_item.start_time_virt, "curr start VT was somehow >= than next's start_time_virt");
+                error!(tid=%next_item.invoke.tid, old_start=self.start_time_virt, new_start=next_item.start_time_virt, "curr start VT was somehow >= than next's start_time_virt");
             }
             self.start_time_virt = next_item.start_time_virt;
             self.mindicator.insert(self.flow_id, self.start_time_virt).unwrap();
@@ -495,13 +495,13 @@ impl MQFQ {
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some((next_item, gpu_token)) = self.dispatch(&tid) {
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
-            if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invok.registration, &tid) {
+            if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, &tid) {
                 let svc = self.clone();
                 tokio::spawn(async move {
                     svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;
                 });
             } else {
-                warn!(tid=%tid, fqdn=%next_item.invok.registration.fqdn, "Insufficient resources to run item");
+                warn!(tid=%tid, fqdn=%next_item.invoke.registration.fqdn, "Insufficient resources to run item");
                 break;
             }
         }
@@ -519,36 +519,36 @@ impl MQFQ {
     ) {
         let ct = OffsetDateTime::now_utc();
         self.ctrack.add_item(ct);
-        if item.invok.lock() {
+        if item.invoke.lock() {
             let container = match self
                 .invoke(
-                    &item.invok.registration,
-                    &item.invok.json_args,
-                    &item.invok.tid,
-                    item.invok.queue_insert_time,
+                    &item.invoke.registration,
+                    &item.invoke.json_args,
+                    &item.invoke.tid,
+                    item.invoke.queue_insert_time,
                     cpu_token,
                     gpu_token,
                 )
                 .await
             {
                 Ok((result, duration, container)) => {
-                    item.invok
+                    item.invoke
                         .mark_successful(result, duration, container.compute_type(), container.state());
                     Some(container)
                 }
                 Err(cause) => {
-                    self.handle_invocation_error(item.invok.clone(), cause);
+                    self.handle_invocation_error(item.invoke.clone(), cause);
                     None
                 }
             };
-            if let Some(mut q) = self.mqfq_set.get_mut(&item.invok.registration.fqdn) {
+            if let Some(mut q) = self.mqfq_set.get_mut(&item.invoke.registration.fqdn) {
                 q.mark_completed();
                 let state = q.state;
                 drop(q);
                 if state != MQState::Active {
                     if let Some(ctr) = container {
                         if self.gpu_config.send_driver_memory_hints() {
-                            tokio::spawn(ContainerManager::move_off_device(ctr, item.invok.tid.clone()));
+                            tokio::spawn(ContainerManager::move_off_device(ctr, item.invoke.tid.clone()));
                         }
                     }
                 }

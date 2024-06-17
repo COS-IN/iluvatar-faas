@@ -29,7 +29,7 @@ oci-spec = "0.5.1"
 sha2="0.10.2"
 hex = "0.4.3"
 clap = { version = "4.1", features = ["derive"] }
-reqwest = { version = "0.11.11", features = ["json"] }
+reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
 dashmap = "5.3.4"
 tracing = "0.1"
 actix-web = "4"
@@ -38,7 +38,7 @@ time = "0.3.36"
 ordered-float = "3.4.0"
 tzdb = "0.4"
 csv = "1.1"
-influxdb2 = "0.4"
+influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 num-traits = "0.2"
 influxdb2-structmap = "0.2"
 rand = "0.8"
@@ -52,7 +52,7 @@ prost-build = "0.11"
 rstest = "0.13.0"
 async-std = { version = "1.5", features = ["attributes"] }
 anyhow = { version = "1.0.13", features = ["backtrace"] }
-reqwest = { version = "0.11.11", features = ["json"] }
+reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
 more-asserts = "0.3"
 rand = "0.8"
 

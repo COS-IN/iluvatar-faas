@@ -152,14 +152,14 @@ impl Flow {
         tid: TransactionId,
     ) {
         let start = Instant::now();
-        if item.invok.lock() {
+        if item.invoke.lock() {
             let ct = OffsetDateTime::now_utc();
             self.ctrack.add_item(ct);
             match invoke_on_container(
                 &self.registration,
-                &item.invok.json_args,
-                &item.invok.tid,
-                item.invok.queue_insert_time,
+                &item.invoke.json_args,
+                &item.invoke.tid,
+                item.invoke.queue_insert_time,
                 &ctr_lck,
                 self.clock.format_time(remove_time).unwrap_or_else(|_| "".to_string()),
                 start,
@@ -170,15 +170,15 @@ impl Flow {
             {
                 Ok((result, duration, compute, container_state)) => {
                     info!(tid=%tid, "!!invoke done!!");
-                    item.invok.mark_successful(result, duration, compute, container_state);
+                    item.invoke.mark_successful(result, duration, compute, container_state);
                 }
                 Err(cause) => {
-                    debug!(tid=%item.invok.tid, error=%cause, container_id=%ctr_lck.container.container_id(), "Error on container invoke");
-                    self.handle_invocation_error(item.invok.clone(), cause);
+                    debug!(tid=%item.invoke.tid, error=%cause, container_id=%ctr_lck.container.container_id(), "Error on container invoke");
+                    self.handle_invocation_error(item.invoke.clone(), cause);
                     if !ctr_lck.container.is_healthy() {
-                        debug!(tid=%item.invok.tid, container_id=%ctr_lck.container.container_id(), "Adding gpu token to drop_on_remove for container");
+                        debug!(tid=%item.invoke.tid, container_id=%ctr_lck.container.container_id(), "Adding gpu token to drop_on_remove for container");
                         // container will be removed, but holds onto GPU until deleted
-                        ctr_lck.container.add_drop_on_remove(tokens, &item.invok.tid);
+                        ctr_lck.container.add_drop_on_remove(tokens, &item.invoke.tid);
                     }
                 }
             }

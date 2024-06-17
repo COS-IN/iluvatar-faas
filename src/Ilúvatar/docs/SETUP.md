@@ -163,9 +163,14 @@ nvidia-smi --format=csv,noheader --query-gpu=uuid,persistence_mode
 These steps are required on a system that is going to *build and orchestrate* a worker or cluster.
 
 Install the build dependencies.
+`cross-rs` requires `Docker` or `Podman`, see [here for more](https://github.com/cross-rs/cross?tab=readme-ov-file#dependencies).
+<!---
+These depencendies are no longer necessary when using cross-rs to build. Only docker is needed
+sudo apt-get install -y cmake gcc g++ libssl-dev pkg-config libprotobuf-dev
+-->
 
 ```bash
-sudo apt-get install -y cmake gcc g++ libssl-dev pkg-config libprotobuf-dev
+cargo install cross --git https://github.com/cross-rs/cross
 python3 -m pip install ansible
 ```
 
