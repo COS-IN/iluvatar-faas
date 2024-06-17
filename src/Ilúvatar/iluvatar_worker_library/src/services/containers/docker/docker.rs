@@ -20,7 +20,7 @@ use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
-    utils::{execute_cmd_async, port::free_local_port},
+    utils::port::free_local_port,
 };
 use std::collections::HashMap;
 use std::{sync::Arc, time::SystemTime};
@@ -79,7 +79,7 @@ impl DockerIsolation {
         })
     }
 
-    async fn bollard_docker_run(
+    pub async fn docker_run(
         &self,
         tid: &TransactionId,
         image_name: &str,
@@ -89,7 +89,15 @@ impl DockerIsolation {
         cpus: u32,
         device_resource: &Option<Arc<crate::services::resources::gpu::GPU>>,
         ports: BollardPortBindings,
+        host_config: Option<HostConfig>,
+        entrypoint: Option<Vec<String>>,
     ) -> Result<()> {
+        let mut host_config = match host_config {
+            Some(h) => h,
+            None => HostConfig::default(),
+        };
+        host_config.cpu_shares = Some((cpus * 1024) as i64);
+        host_config.memory = Some(mem_limit_mb * 1024 * 1024);
         let exposed_ports: Option<HashMap<String, HashMap<(), ()>>> = match ports.as_ref() {
             Some(p) => {
                 let mut exposed = HashMap::new();
@@ -102,16 +110,10 @@ impl DockerIsolation {
         };
         let mut volumes = vec![];
         let mut devices = vec![];
-        let mut host_config = HostConfig {
-            cpu_shares: Some((cpus * 1024) as i64),
-            memory: Some(mem_limit_mb * 1024 * 1024),
-            ..Default::default()
-        };
 
         let mps_thread;
         if let Some(device) = device_resource.as_ref() {
             let gpu = format!("/dev/nvidia{}", device.gpu_hardware_id);
-            // args.push("--gpus");
             devices.push(DeviceMapping {
                 path_on_host: Some(gpu),
                 path_in_container: Some("/dev/nvidia0".to_owned()),
@@ -131,19 +133,13 @@ impl DockerIsolation {
             if let Some(gpu_config) = self.config.gpu_resource.as_ref() {
                 if gpu_config.is_tegra.unwrap_or(false) {
                     host_config.runtime = Some("nvidia".to_owned());
-                    // args.push("--runtime");
-                    // args.push("nvidia");
                 }
             }
 
             if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
                 host_config.runtime = Some("host".to_owned());
-                // args.push("--ipc=host");
-                // args.push("-e");
                 mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
                 env.push(mps_thread.as_str());
-                // args.push(mps_thread.as_str());
-                // args.push("-v");
                 volumes.push("/tmp/nvidia-mps:/tmp/nvidia-mps".to_owned());
             }
             if self
@@ -152,13 +148,25 @@ impl DockerIsolation {
                 .as_ref()
                 .map_or(false, |c| c.driver_hook_enabled())
             {
-                // args.push("-e");
                 env.push("LD_PRELOAD=/app/libgpushare.so");
             }
         }
-        host_config.binds = Some(volumes);
-        host_config.devices = Some(devices);
-        host_config.port_bindings = ports;
+        match host_config.binds.as_mut() {
+            Some(binds) => binds.extend(volumes),
+            None => host_config.binds = Some(volumes),
+        };
+        match host_config.devices.as_mut() {
+            Some(cfg_devices) => cfg_devices.extend(devices),
+            None => host_config.devices = Some(devices),
+        };
+        match host_config.port_bindings.as_mut() {
+            Some(port_bindings) => {
+                if let Some(ports) = ports {
+                    port_bindings.extend(ports)
+                }
+            }
+            None => host_config.port_bindings = ports,
+        };
         let options = CreateContainerOptions {
             name: container_id,
             platform: None,
@@ -174,6 +182,7 @@ impl DockerIsolation {
             host_config: Some(host_config),
             env: Some(owned_env),
             exposed_ports: exposed_ports,
+            entrypoint: entrypoint,
             ..Default::default()
         };
         debug!(tid=%tid, container_id=%container_id, config=?config, "Creating container");
@@ -183,34 +192,6 @@ impl DockerIsolation {
         self.docker_api.start_container::<String>(container_id, None).await?;
         debug!(tid=%tid, container_id=%container_id, "Container started");
         Ok(())
-    }
-
-    pub async fn docker_run<'a>(
-        &self,
-        mut run_args: Vec<&'a str>,
-        image_name: &'a str,
-        container_id: &str,
-        proc_args: Option<Vec<&'a str>>,
-        tid: &TransactionId,
-        env: Option<&HashMap<String, String>>,
-    ) -> Result<()> {
-        run_args.insert(0, "run");
-        run_args.extend(["--label", OWNER_TAG, "--detach", image_name]);
-        if let Some(a) = proc_args {
-            run_args.extend(a);
-        }
-        let output = execute_cmd_async("/usr/bin/docker", run_args, env, tid).await?;
-        match output.status.code() {
-            Some(0) => {
-                debug!(tid=%tid, name=%image_name, containerid=%container_id, output=?output, "Docker container started successfully");
-                info!(tid=%tid, name=%image_name, containerid=%container_id, "Docker container started successfully");
-                Ok(())
-            }
-            Some(error_stat) => {
-                bail_error!(tid=%tid, status=error_stat, output=?output, "Failed to create docker container with exit code")
-            }
-            None => bail_error!(tid=%tid, output=?output, "Failed to create docker container with no exit code"),
-        }
     }
 
     /// Get the stdout and stderr of a container
@@ -294,55 +275,6 @@ impl ContainerIsolationService for DockerIsolation {
         let il_port = format!("__IL_PORT={}", port);
         env.push(il_port.as_str());
 
-        // let mut args = vec![
-        //     "--name",
-        //     &cid,
-        //     "-e",
-        //     &gunicorn_args,
-        //     "-e",
-        //     &il_port,
-        //     "--cpus",
-        //     cpu_arg.as_str(),
-        //     "--memory",
-        //     &memory_arg,
-        //     "-e",
-        //     "__IL_HOST=0.0.0.0",
-        //     "-p",
-        //     &port_args,
-        // ];
-        // let gpu;
-        // let mps_thread;
-        // if let Some(device) = device_resource.as_ref() {
-        //     gpu = format!("device={}", device.gpu_uuid);
-        //     args.push("--gpus");
-        //     args.push(gpu.as_str());
-
-        //     if let Some(gpu_config) = self.config.gpu_resource.as_ref() {
-        //         if gpu_config.is_tegra.unwrap_or(false) {
-        //             args.push("--runtime");
-        //             args.push("nvidia");
-        //         }
-        //     }
-
-        //     if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
-        //         args.push("--ipc=host");
-        //         args.push("-e");
-        //         mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
-        //         args.push(mps_thread.as_str());
-        //         args.push("-v");
-        //         args.push("/tmp/nvidia-mps:/tmp/nvidia-mps");
-        //     }
-        //     if self
-        //         .config
-        //         .gpu_resource
-        //         .as_ref()
-        //         .map_or(false, |c| c.driver_hook_enabled())
-        //     {
-        //         args.push("-e");
-        //         args.push("LD_PRELOAD=/app/libgpushare.so");
-        //     }
-        // }
-
         let permit = match &self.creation_sem {
             Some(sem) => match sem.acquire().await {
                 Ok(p) => {
@@ -356,7 +288,7 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
-        self.bollard_docker_run(
+        self.docker_run(
             tid,
             image_name,
             cid.as_str(),
@@ -365,14 +297,11 @@ impl ContainerIsolationService for DockerIsolation {
             cpus,
             &device_resource,
             Some(ports),
+            None,
+            None,
         )
         .await?;
 
-        // let time = format!("{}", self.limits_config.timeout_sec);
-        // let proc_args = vec!["server:app", "-w", "1", "--timeout", time.as_str()];
-        // let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
-        // self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None)
-        // .await?;
         drop(permit);
         unsafe {
             let c = DockerContainer::new(
@@ -393,21 +322,20 @@ impl ContainerIsolationService for DockerIsolation {
     }
 
     /// Removed the specified container in the containerd namespace
-    async fn remove_container(&self, _container: Container, _ctd_namespace: &str, _tid: &TransactionId) -> Result<()> {
-        return Ok(());
-        // let options = RemoveContainerOptions {
-        //     force: true,
-        //     v: true,
-        //     link: false,
-        // };
-        // match self
-        //     .docker_api
-        //     .remove_container(container.container_id().as_str(), Some(options))
-        //     .await
-        // {
-        //     Ok(_) => Ok(()),
-        //     Err(e) => bail_error!(tid=%tid, error=%e, "Failed to remove Docker container"),
-        // }
+    async fn remove_container(&self, container: Container, _ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
+        let options = RemoveContainerOptions {
+            force: true,
+            v: true,
+            link: false,
+        };
+        match self
+            .docker_api
+            .remove_container(container.container_id().as_str(), Some(options))
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to remove Docker container"),
+        }
     }
 
     async fn prepare_function_registration(
