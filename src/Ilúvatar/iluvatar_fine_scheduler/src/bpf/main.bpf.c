@@ -147,10 +147,9 @@ bool epid_present( u32 pid ){
     u32 *epids = get_active_epids();
     dbg_msg("mydebugs: checking=%d ", pid );
     for ( i = 0; i < MAX_ENQUEUED_TASKS; i++ ){
-        //if ( epids[i] != 0 ){
-        //  dbg_msg("mydebugs: epid=%d ", epids[i]);
-        //}
+        dbg_msg(" mydebugs: epid=%d ", epids[i]);
         if ( epids[i] == pid ){
+            dbg_msg("mydebugs: found=%d ", pid );
             return true;
         }
     }
@@ -822,6 +821,9 @@ void BPF_STRUCT_OPS(rustland_cpu_release, s32 cpu,
 s32 BPF_STRUCT_OPS(rustland_init_task, struct task_struct *p,
 		   struct scx_init_task_args *args)
 {
+
+    dbg_msg("mydebugs: rustland_init_task pid=%d", p->pid );
+
 	/* Allocate task's local storage */
 	if (bpf_task_storage_get(&task_ctx_stor, p, 0,
 				 BPF_LOCAL_STORAGE_GET_F_CREATE))
@@ -951,6 +953,8 @@ static int dsq_init(void)
 s32 BPF_STRUCT_OPS_SLEEPABLE(rustland_init)
 {
 	int err;
+  
+    dbg_msg("mydebugs: rustland_init called " );
 
 	/* Compile-time checks */
 	BUILD_BUG_ON((MAX_CPUS % 2));
