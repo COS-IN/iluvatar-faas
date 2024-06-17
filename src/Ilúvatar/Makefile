@@ -44,10 +44,10 @@ test:
 	@echo "Running unit tests"
 # TODO: this is probably broken, Docker-in-Docker etc.
 # https://github.com/cross-rs/cross?tab=readme-ov-file#docker-in-docker
-	$(CROSS_FLAGS) RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) test $(CARGO_ARGS)
+	RUSTFLAGS=$(RUST_FLAGS) cargo test $(CARGO_ARGS)
 format:
-	@$(RUST_C) fmt --all
+	@cargo fmt --all
 format-check:
-	@$(RUST_C) fmt --all -- --check
+	@cargo fmt --all -- --check
 clippy:
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) clippy --workspace --examples --benches --no-deps -- -Dclippy::suspicious -Dclippy::correctness -Dclippy::perf -Aclippy::single_match -Aclippy::new_without_default -Aclippy::too_many_arguments -Aclippy::type-complexity -Dclippy::from_over_into -Aclippy::redundant-field-names -Dwarnings
