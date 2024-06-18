@@ -26,6 +26,7 @@ shmem-ipc = "0.3.0"
 dbus = "0.9.2"
 dbus-crossroads = "0.3"
 criterion = { version = "0.3", features = ["html_reports"] }
+ipc-channel = { version = "0.18.1", features = ["memfd"] }
 
 [build-dependencies]
 scx_utils =  "0.7" 
