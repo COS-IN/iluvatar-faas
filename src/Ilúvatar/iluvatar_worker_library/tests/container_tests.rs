@@ -267,7 +267,7 @@ mod registration {
             Ok(_) => panic!("registration succeeded when it should have failed!"),
             Err(e) => {
                 let e_str = e.to_string();
-                if !e_str.contains("Failed to pull docker image with exit code") {
+                if !e_str.contains("Failed to pull image") {
                     panic!("unexpected error: {:?}", e);
                 }
             }

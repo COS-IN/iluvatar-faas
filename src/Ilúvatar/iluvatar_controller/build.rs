@@ -8,12 +8,11 @@ fn get_output_path() -> PathBuf {
     let manifest_dir_string = env::var("CARGO_MANIFEST_DIR").unwrap();
     let build_type = env::var("PROFILE").unwrap();
     let build_target = env::var("TARGET").unwrap();
-    let path = Path::new(&manifest_dir_string)
+    Path::new(&manifest_dir_string)
         .join("..")
         .join("target")
         .join(build_target)
-        .join(build_type);
-    path
+        .join(build_type)
 }
 
 fn copy_file(infile: &Path) -> Result<(), Box<dyn Error>> {

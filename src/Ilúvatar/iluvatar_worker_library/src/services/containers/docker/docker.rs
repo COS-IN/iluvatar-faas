@@ -92,10 +92,7 @@ impl DockerIsolation {
         host_config: Option<HostConfig>,
         entrypoint: Option<Vec<String>>,
     ) -> Result<()> {
-        let mut host_config = match host_config {
-            Some(h) => h,
-            None => HostConfig::default(),
-        };
+        let mut host_config = host_config.unwrap_or_default();
         host_config.cpu_shares = Some((cpus * 1024) as i64);
         host_config.memory = Some(mem_limit_mb * 1024 * 1024);
         let exposed_ports: Option<HashMap<String, HashMap<(), ()>>> = match ports.as_ref() {
