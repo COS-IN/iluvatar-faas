@@ -41,19 +41,17 @@ struct Scheduler<'a> {
     bpf: BpfScheduler<'a>,
     fdata: &'a Arc<Mutex<FuncData>>,
     func_to_cpu: HashMap<String, i32>,
-    c_rx: IpcReceiver<String>,
 }
 
 impl<'a> Scheduler<'a> {
     fn init( 
             fdata: &'a Arc<Mutex<FuncData>>, 
-            c_rx: IpcReceiver<String>,
         ) -> Result<Self> {
 
         let topo = Topology::new().expect("Failed to build host topology");
         let bpf = BpfScheduler::init(5000, topo.nr_cpus_possible() as i32, false, 0, false, true)?;
         let fcmap = get_func_to_cpu_map();
-        Ok(Self { bpf, fdata, func_to_cpu: fcmap, c_rx } ) 
+        Ok(Self { bpf, fdata, func_to_cpu: fcmap } ) 
     }
 
     fn now() -> u64 {
@@ -122,9 +120,6 @@ impl<'a> Scheduler<'a> {
             nr_failed_dispatches,
             nr_sched_congested,
         );
-
-        let data = self.c_rx.recv().unwrap();
-        println!("Received: {}", data);
     }
 
     fn run(&mut self, shutdown: Arc<AtomicBool>) -> Result<()> {
@@ -269,8 +264,6 @@ struct Args {
     pids_file: String,
 }
 
-use ipc_channel::ipc::{self, IpcOneShotServer, IpcSender, IpcReceiver};
-
 fn main() -> Result<()> {
 
     let args = Args::parse();
@@ -278,10 +271,6 @@ fn main() -> Result<()> {
     println!("Characterics would be read from {}!", args.characteristics_file);
     println!("Pids would be read from {}!", args.pids_file);
 
-    let (c_tx, c_rx): (IpcSender<String>, IpcReceiver<String>) = ipc::channel().unwrap();
-    let tx0 = IpcSender::connect(args.server_name).unwrap();
-    tx0.send( c_tx ).unwrap();
-    
     let mut fdata = FuncData::new(
         args.characteristics_file,
         args.pids_file
@@ -291,7 +280,7 @@ fn main() -> Result<()> {
 
     print_warning();
 
-    let mut sched = Scheduler::init( &fdata, c_rx )?;
+    let mut sched = Scheduler::init( &fdata )?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
 
