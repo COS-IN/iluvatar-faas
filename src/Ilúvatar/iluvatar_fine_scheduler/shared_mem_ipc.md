@@ -19,12 +19,28 @@
   control plane 
     client - sends data to the server
 
+  messages 
+    characteristics packets 
+      a structure with 
+        func_name
+        e2e 
+    pid packets
+      a structure with 
+        pid 
+        func_name
+
 ## Description
+  
+  Control plane puts the packets on respective channels.  
+  Scheduler reads the packets from the channels and updates the map.
 
 ## Questions 
 
+  How many items can the control plane put on the channel? 
+    ? 
+  
   Does scheduler allow use of shared memory library given it's allocator limitation? 
-    ??? 
+    yes  
 
   Why does server fail to start with root access? 
     
@@ -41,10 +57,16 @@
     ??? 
 
   Is it possible to use ipc_channel in scheduler to receive data? 
+    yes string is being received fine using server 
 
 
-
-
+## Next Actions 
+  
+  * create oneshot server in control plane 
+    * establish two channels between the scheduler and the cp 
+  * push stuff to the scheduler 
+    * characteristics
+    * pids
 
 
 
