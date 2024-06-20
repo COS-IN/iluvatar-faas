@@ -132,22 +132,27 @@ impl<'a> Scheduler<'a> {
             nr_failed_dispatches,
             nr_sched_congested,
         );
-
-        match self.crecvs.rx_chr.try_recv() {
-            Ok(chr) => {
-                // Do something interesting with your result
-                println!("Received characteristics");
-                println!("{:?}", chr);
-            },
-            Err(_) => {},
+        
+        loop {
+            match self.crecvs.rx_chr.try_recv() {
+                Ok(chr) => {
+                    // Do something interesting with your result
+                    println!("Received characteristics");
+                    println!("{:?}", chr);
+                },
+                Err(_) => break,
+            }
         }
-        match self.crecvs.rx_pids.try_recv() {
-            Ok(pids) => {
-                // Do something interesting with your result
-                println!("Received pids");
-                println!("{:?}", pids);
-            },
-            Err(_) => {},
+        
+        loop {
+            match self.crecvs.rx_pids.try_recv() {
+                Ok(pids) => {
+                    // Do something interesting with your result
+                    println!("Received pids");
+                    println!("{:?}", pids);
+                },
+                Err(_) => break,
+            }
         }
     }
 

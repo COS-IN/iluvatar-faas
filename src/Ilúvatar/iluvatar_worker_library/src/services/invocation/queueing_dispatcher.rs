@@ -21,6 +21,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::{debug, info};
+use crate::SCHED_CHANNELS;
+use iluvatar_library::characteristics_map::CharacteristicsPacket;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -237,6 +239,21 @@ impl QueueingDispatcher {
             Some( fconfig ) => fconfig.characteristics_file.clone(),
             None => "none.csv".to_string(),
         };
+            
+        unsafe {
+            if let Some(c) = &SCHED_CHANNELS {
+                let cmap = &self.cmap;
+                for e0 in cmap.map.iter() {
+                    let fqdn = e0.key();
+                    let exec_time = cmap.get_exec_time(&fqdn); 
+                    c.tx_chr.send( 
+                        CharacteristicsPacket { 
+                            fqdn: fqdn.clone(), 
+                            e2e: exec_time 
+                    }).unwrap();
+                }
+            }
+        }
 
         if std::path::Path::new(&cfile).exists() {
             self.cmap.write_csv( &cfile );

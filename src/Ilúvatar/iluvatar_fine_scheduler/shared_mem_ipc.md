@@ -34,6 +34,17 @@
   Control plane puts the packets on respective channels.  
   Scheduler reads the packets from the channels and updates the map.
 
+  characteristics are to produced from 
+    in iluvatar_worker_library
+      queueing_dispatcher.rs:242
+        every time a new invocation is enqueued 
+
+  pids are to be produced from
+    in iluvatar_worker_library
+      containerd.rs:164
+        every time a new container is created for containerd only 
+        
+
 ## Questions 
 
   How many items can the control plane put on the channel? 
@@ -90,15 +101,22 @@
       * use static mut to make it available to all threads.
 
 
+
+
 ## Next Actions 
   
   * create oneshot server in control plane 
     * establish two channels between the scheduler and the cp 
       * control plane creates server and is waiting for the client  ✓ 
-      * scheduler creates a connection and send channels structure
+      * scheduler creates a connection and send channels structure  ✓
+      
   * push stuff to the scheduler 
-    * characteristics
+    * create a mut static instance to save channels   ✓
+    * characteristics   ✓
     * pids
+
+  * build a map in the scheduler 
+    * 
 
 
 

@@ -136,7 +136,7 @@ pub enum Characteristics {
 #[derive(Debug)]
 pub struct CharacteristicsMap {
     /// Most recent fn->{char->value}
-    map: DashMap<String, DashMap<Characteristics, Values>>,
+    pub map: DashMap<String, DashMap<Characteristics, Values>>,
     /// Moving average values
     agmap: DashMap<String, DashMap<Characteristics, Values>>,
     /// Minimum of the values

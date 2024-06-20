@@ -10,6 +10,7 @@ use iluvatar_worker_library::{services::containers::IsolationFactory, worker_api
 use iluvatar_worker_library::worker_api::Channels;
 use iluvatar_library::characteristics_map::CharacteristicsPacket;
 use iluvatar_worker_library::services::containers::containerd::PidsPacket;
+use iluvatar_worker_library::SCHED_CHANNELS;
 
 use std::time::Duration;
 use std::thread;
@@ -50,11 +51,16 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                 // wait for the channel to establish with a timeout 
                 let (_, channels): (_, Channels) = server.accept().unwrap();
                 debug!(tid=tid.as_str(), name=%name, status="channels established", "ipc debugs");
+
                 channels.tx_chr.send( 
                     CharacteristicsPacket{ 
                         fqdn: "func_name".to_string(),
                         e2e: 2.5_f64,
-                    }).unwrap();
+                    }).unwrap();               
+
+                unsafe {
+                    SCHED_CHANNELS = Some(channels);
+                }
             }
         }
         None => (),
