@@ -349,20 +349,47 @@ impl GpuResourceTracker {
             Self::set_gpu_exclusive(tid)?;
         }
         debug!(tid=%tid, "Launching MPS container");
-        let args = vec![
-            "--name",
-            MPS_CONTAINER_NAME,
-            "--gpus",
-            "all",
-            "--ipc=host",
-            "--entrypoint",
-            "/usr/bin/nvidia-cuda-mps-control",
-            "-v",
-            "/tmp/nvidia-mps:/tmp/nvidia-mps",
-        ];
+        let mut devices: Vec<_> = vec![];
+        for gpu_id in 0..gpu_config.count {
+            let path = format!("/dev/nvidia{}", gpu_id);
+            devices.push(bollard::secret::DeviceMapping {
+                path_on_host: Some(path.clone()),
+                path_in_container: Some(path),
+                cgroup_permissions: None,
+            });
+        }
+        devices.push(bollard::secret::DeviceMapping {
+            path_on_host: Some("/dev/nvidia-uvm".to_owned()),
+            path_in_container: Some("/dev/nvidia-uvm".to_owned()),
+            cgroup_permissions: None,
+        });
+        devices.push(bollard::secret::DeviceMapping {
+            path_on_host: Some("/dev/nvidiactl".to_owned()),
+            path_in_container: Some("/dev/nvidiactl".to_owned()),
+            cgroup_permissions: None,
+        });
+        let cfg = bollard::models::HostConfig {
+            ipc_mode: Some("host".to_owned()),
+            binds: Some(vec!["/tmp/nvidia-mps:/tmp/nvidia-mps".to_owned()]),
+            runtime: Some("nvidia".to_owned()),
+            devices: Some(devices),
+            ..Default::default()
+        };
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
+        let entrypoint = vec!["/usr/bin/nvidia-cuda-mps-control".to_owned()];
         docker
-            .docker_run(args, img_name, "iluvatar_mps_control", Some(vec!["-f"]), tid, None)
+            .docker_run(
+                tid,
+                img_name,
+                MPS_CONTAINER_NAME,
+                vec![],
+                1024,
+                1,
+                &None,
+                None,
+                Some(cfg),
+                Some(entrypoint),
+            )
             .await
     }
 

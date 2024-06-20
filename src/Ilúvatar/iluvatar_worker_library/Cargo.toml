@@ -43,6 +43,7 @@ num-traits = "0.2"
 influxdb2-structmap = "0.2"
 rand = "0.8"
 nvml-wrapper = "0.9"
+bollard = "0.16"
 
 [build-dependencies]
 tonic-build = "0.7.2"
