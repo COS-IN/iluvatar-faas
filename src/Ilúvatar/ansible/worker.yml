@@ -116,7 +116,7 @@
 
   - name: copy worker config
     ansible.builtin.copy:
-      src: "{{iluvatar_home}}/target/{{target}}/{{worker.config_name}}"
+      src: "{{__bin_src}}/{{worker.config_name}}"
       dest: "{{config_dest}}"
       mode: "preserve"
     become: yes

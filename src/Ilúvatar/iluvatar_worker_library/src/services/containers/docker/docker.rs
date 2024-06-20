@@ -5,11 +5,11 @@ use crate::{
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
 };
 use anyhow::Result;
-use bollard::models::{DeviceMapping, HostConfig, PortBinding};
+use bollard::models::{DeviceRequest, HostConfig, PortBinding};
 use bollard::Docker;
 use bollard::{
     container::{
-        Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions, StatsOptions,
+        Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions, StatsOptions
     },
     image::CreateImageOptions,
 };
@@ -106,25 +106,16 @@ impl DockerIsolation {
             None => None,
         };
         let mut volumes = vec![];
-        let mut devices = vec![];
+        let mut device_requests = vec![];
 
         let mps_thread;
         if let Some(device) = device_resource.as_ref() {
-            let gpu = format!("/dev/nvidia{}", device.gpu_hardware_id);
-            devices.push(DeviceMapping {
-                path_on_host: Some(gpu),
-                path_in_container: Some("/dev/nvidia0".to_owned()),
-                cgroup_permissions: None,
-            });
-            devices.push(DeviceMapping {
-                path_on_host: Some("/dev/nvidia-uvm".to_owned()),
-                path_in_container: Some("/dev/nvidia-uvm".to_owned()),
-                cgroup_permissions: None,
-            });
-            devices.push(DeviceMapping {
-                path_on_host: Some("/dev/nvidiactl".to_owned()),
-                path_in_container: Some("/dev/nvidiactl".to_owned()),
-                cgroup_permissions: None,
+            device_requests.push(DeviceRequest {
+                driver: Some("".into()),
+                count: None,
+                device_ids: Some(vec![device.gpu_uuid.clone()]),
+                capabilities: Some(vec![vec!["gpu".into()]]),
+                options: Some(HashMap::new()),
             });
 
             if let Some(gpu_config) = self.config.gpu_resource.as_ref() {
@@ -152,9 +143,9 @@ impl DockerIsolation {
             Some(binds) => binds.extend(volumes),
             None => host_config.binds = Some(volumes),
         };
-        match host_config.devices.as_mut() {
-            Some(cfg_devices) => cfg_devices.extend(devices),
-            None => host_config.devices = Some(devices),
+        match host_config.device_requests.as_mut() {
+          Some(cfg_device_requests) => cfg_device_requests.extend(device_requests),
+          None => host_config.device_requests = Some(device_requests),
         };
         match host_config.port_bindings.as_mut() {
             Some(port_bindings) => {
@@ -183,10 +174,16 @@ impl DockerIsolation {
             ..Default::default()
         };
         debug!(tid=%tid, container_id=%container_id, config=?config, "Creating container");
-        self.docker_api.create_container(Some(options), config).await?;
+        match self.docker_api.create_container(Some(options), config).await {
+            Ok(_) => (),
+            Err(e) => bail_error!(tid=%tid, error=%e, "Error creating container"),
+        };
         debug!(tid=%tid, container_id=%container_id, "Container created");
 
-        self.docker_api.start_container::<String>(container_id, None).await?;
+        match self.docker_api.start_container::<String>(container_id, None).await  {
+            Ok(_) => (),
+            Err(e) => bail_error!(tid=%tid, error=%e, "Error starting container"),
+        };
         debug!(tid=%tid, container_id=%container_id, "Container started");
         Ok(())
     }

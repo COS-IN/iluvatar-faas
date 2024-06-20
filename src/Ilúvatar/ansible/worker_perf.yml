@@ -57,14 +57,14 @@
       
   - name: copy worker executable
     ansible.builtin.copy:
-      src: "{{iluvatar_home}}/target/debug/{{worker.bin_name}}"
+      src: "{{__bin_src}}/{{worker.bin_name}}"
       dest: "{{exe_dest}}"
       mode: "preserve"
     become: yes
 
   - name: copy worker config
     ansible.builtin.copy:
-      src: "{{iluvatar_home}}/target/debug/{{worker.config_name}}"
+      src: "{{__bin_src}}/{{worker.config_name}}"
       dest: "{{config_dest}}"
       mode: "preserve"
     become: yes
