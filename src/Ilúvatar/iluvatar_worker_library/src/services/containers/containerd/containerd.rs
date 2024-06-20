@@ -44,6 +44,7 @@ use std::time::{Duration, SystemTime};
 use tracing::{debug, error, info, warn};
 use csv::Writer;
 use serde::{Serialize, Deserialize};
+use crate::SCHED_CHANNELS;
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
@@ -159,6 +160,18 @@ impl ContainerdIsolation {
 
                         for cpid in &all_children {
                             pidmap.insert(*cpid, x.fqdn.clone());
+                        }
+
+                        unsafe {
+                            if let Some(c) = &SCHED_CHANNELS {
+                                for cpid in &all_children {
+                                    c.tx_pids.send(
+                                        PidsPacket{
+                                            pid: *cpid,
+                                            fqdn: x.fqdn.clone()
+                                        });
+                                }
+                            }
                         }
 
                         info!(
