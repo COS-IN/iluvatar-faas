@@ -29,7 +29,7 @@ use anyhow::Result;
 use std::thread::sleep;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize,Serialize};
 use serde::de;
 use serde_json;
 use serde_json::{Value};
@@ -37,23 +37,33 @@ use serde_json::{Value};
 use std::collections::HashMap;
 use std::thread;
 
+use iluvatar_worker_library::worker_api::Channels;
+use iluvatar_library::characteristics_map::CharacteristicsPacket;
+use iluvatar_worker_library::services::containers::containerd::PidsPacket;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ChannelsR {
+    pub rx_chr: IpcReceiver<CharacteristicsPacket>,
+    pub rx_pids: IpcReceiver<PidsPacket>,
+}
+
 struct Scheduler<'a> {
     bpf: BpfScheduler<'a>,
     fdata: &'a Arc<Mutex<FuncData>>,
     func_to_cpu: HashMap<String, i32>,
-    c_rx: IpcReceiver<String>,
+    crecvs: ChannelsR,
 }
 
 impl<'a> Scheduler<'a> {
     fn init( 
             fdata: &'a Arc<Mutex<FuncData>>, 
-            c_rx: IpcReceiver<String>,
+            crecvs: ChannelsR,
         ) -> Result<Self> {
 
         let topo = Topology::new().expect("Failed to build host topology");
         let bpf = BpfScheduler::init(5000, topo.nr_cpus_possible() as i32, false, 0, false, true)?;
         let fcmap = get_func_to_cpu_map();
-        Ok(Self { bpf, fdata, func_to_cpu: fcmap, c_rx } ) 
+        Ok(Self { bpf, fdata, func_to_cpu: fcmap, crecvs } ) 
     }
 
     fn now() -> u64 {
@@ -123,8 +133,22 @@ impl<'a> Scheduler<'a> {
             nr_sched_congested,
         );
 
-        let data = self.c_rx.recv().unwrap();
-        println!("Received: {}", data);
+        match self.crecvs.rx_chr.try_recv() {
+            Ok(chr) => {
+                // Do something interesting with your result
+                println!("Received characteristics");
+                println!("{:?}", chr);
+            },
+            Err(_) => {},
+        }
+        match self.crecvs.rx_pids.try_recv() {
+            Ok(pids) => {
+                // Do something interesting with your result
+                println!("Received pids");
+                println!("{:?}", pids);
+            },
+            Err(_) => {},
+        }
     }
 
     fn run(&mut self, shutdown: Arc<AtomicBool>) -> Result<()> {
@@ -278,9 +302,11 @@ fn main() -> Result<()> {
     println!("Characterics would be read from {}!", args.characteristics_file);
     println!("Pids would be read from {}!", args.pids_file);
 
-    let (c_tx, c_rx): (IpcSender<String>, IpcReceiver<String>) = ipc::channel().unwrap();
-    let tx0 = IpcSender::connect(args.server_name).unwrap();
-    tx0.send( c_tx ).unwrap();
+    let (c_tx, c_rx): (IpcSender<CharacteristicsPacket>, IpcReceiver<CharacteristicsPacket>) = ipc::channel().unwrap();
+    let (p_tx, p_rx): (IpcSender<PidsPacket>, IpcReceiver<PidsPacket>) = ipc::channel().unwrap();
+    let server_tx = IpcSender::connect(args.server_name).unwrap();
+    server_tx.send( Channels{ tx_chr: c_tx, tx_pids: p_tx } ).unwrap();
+    let crecvs = ChannelsR{ rx_chr: c_rx, rx_pids: p_rx };
     
     let mut fdata = FuncData::new(
         args.characteristics_file,
@@ -291,7 +317,7 @@ fn main() -> Result<()> {
 
     print_warning();
 
-    let mut sched = Scheduler::init( &fdata, c_rx )?;
+    let mut sched = Scheduler::init( &fdata, crecvs )?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
 
