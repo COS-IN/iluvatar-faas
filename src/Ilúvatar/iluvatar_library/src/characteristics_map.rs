@@ -5,6 +5,13 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, error};
 use csv::Writer;
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacteristicsPacket {
+    pub fqdn: String,
+    pub e2e: f64,
+}
 
 #[derive(Debug, Clone)]
 pub enum Values {

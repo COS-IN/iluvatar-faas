@@ -7,13 +7,22 @@ use iluvatar_worker_library::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_worker_library::worker_api::config::Configuration;
 use iluvatar_worker_library::worker_api::create_worker;
 use iluvatar_worker_library::{services::containers::IsolationFactory, worker_api::config::WorkerConfig};
+use iluvatar_worker_library::worker_api::Channels;
+use iluvatar_library::characteristics_map::CharacteristicsPacket;
+use iluvatar_worker_library::services::containers::containerd::PidsPacket;
+
 use std::time::Duration;
+use std::thread;
+use std::io::Read;
 use tokio::runtime::Runtime;
 use tonic::transport::Server;
 use tracing::{debug, info};
 use utils::Args;
+use ipc_channel::ipc::{IpcOneShotServer, IpcSender, IpcReceiver};
 
 pub mod utils;
+
+// static mut channels: Option<Channels> = None;
 
 async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
@@ -21,15 +30,31 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
         Some(fconfig) => {
             let bname = fconfig.binary.clone();
             if std::path::Path::new(&bname).exists() {
+
+                // create a oneshot server 
+                let (server, name) = IpcOneShotServer::new().unwrap();
+                debug!(tid=tid.as_str(), name=%name, status="server waiting", "ipc debugs");
+
                 // launch a process 
                 let args = vec![
+                    "--server-name",
+                    &name,
                     "--characteristics-file", 
                     &fconfig.characteristics_file,
                     "--pids-file",
                     &fconfig.pids_file,
                 ];
                 let mut _child = execute_cmd_nonblocking(&fconfig.binary, 
-                    &args, None, &String::from("none"));
+                    &args, None, &String::from("none")).unwrap();
+
+                // wait for the channel to establish with a timeout 
+                let (_, channels): (_, Channels) = server.accept().unwrap();
+                debug!(tid=tid.as_str(), name=%name, status="channels established", "ipc debugs");
+                channels.tx_chr.send( 
+                    CharacteristicsPacket{ 
+                        fqdn: "func_name".to_string(),
+                        e2e: 2.5_f64,
+                    }).unwrap();
             }
         }
         None => (),

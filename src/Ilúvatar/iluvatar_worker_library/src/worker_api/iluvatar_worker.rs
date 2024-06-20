@@ -14,6 +14,7 @@ use iluvatar_library::{
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::{error, info};
+use super::Channels;
 
 #[allow(unused)]
 pub struct IluvatarWorkerImpl {

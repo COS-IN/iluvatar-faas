@@ -33,7 +33,6 @@ use iluvatar_library::utils::{
 use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb};
 use inotify::{Inotify, WatchMask};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::process::Command;
@@ -44,9 +43,16 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 use tracing::{debug, error, info, warn};
 use csv::Writer;
+use serde::{Serialize, Deserialize};
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PidsPacket {
+    pid: u32,
+    fqdn: String,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct BGPacket {

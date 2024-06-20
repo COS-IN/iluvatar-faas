@@ -23,4 +23,5 @@ clap = { version = "4.1", features = ["derive"] }
 tracing = "0.1"
 memfd = "0.4.0"
 memmap2 = "0.5.8"
+ipc-channel = { version = "0.18.1", features = ["memfd"] }
 

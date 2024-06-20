@@ -16,13 +16,23 @@ use iluvatar_library::types::{Compute, Isolation, ResourceTimings};
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{characteristics_map::AgExponential, energy::energy_logging::EnergyLogger};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
+use iluvatar_library::characteristics_map::CharacteristicsPacket;
+use super::services::containers::containerd::PidsPacket;
 use std::sync::Arc;
+use ipc_channel::ipc::IpcSender;
+use serde::{Deserialize, Serialize};
 
 pub mod worker_config;
 pub use worker_config as config;
 pub mod iluvatar_worker;
 pub mod sim_worker;
 pub mod worker_comm;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Channels {
+    pub tx_chr: IpcSender<CharacteristicsPacket>,
+    pub tx_pids: IpcSender<PidsPacket>,
+}
 
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
