@@ -52,6 +52,7 @@ struct Scheduler<'a> {
     characteristics: HashMap<String, CharacteristicsPacket>,
     pids: HashMap<u32, PidsPacket>,
     crecvs: ChannelsR,
+    fcmap: HashMap<String, i32>,
 }
 
 impl<'a> Scheduler<'a> {
@@ -66,7 +67,8 @@ impl<'a> Scheduler<'a> {
             bpf, 
             characteristics: HashMap::new(), 
             pids: HashMap::new(),
-            crecvs 
+            crecvs,
+            fcmap,
         } ) 
     }
 
@@ -87,22 +89,15 @@ impl<'a> Scheduler<'a> {
                     // case we can simply ignore the task.
                     if task.cpu >= 0 {
                         let dtask = &mut DispatchedTask::new(&task);
+                        
+                        if let Some(pidp) = self.pids.get( &(task.pid as u32)  ) {
+                            if let Some( chr ) = self.characteristics.get( &pidp.fqdn ) {
+                                if let Some( cpu ) = self.fcmap.get( &chr.fqdn ) {
+                                    dtask.set_cpu( *cpu );
+                                }
+                            }
+                        }
 
-                        //let mut lock = self.fdata.try_lock();
-                        //if let Ok(ref mut fldata) = lock {
-
-                        //    if let Some( chr ) = fldata.pids.get( &task.pid ) {
-                        //        if let Some( cpu ) = self.func_to_cpu.get( chr ) {
-                        //            // println!("Dispatching task {} to CPU {}", task.pid, cpu);
-                        //            dtask.set_cpu( *cpu );
-                        //        }
-                        //    }
-
-                        //    let _ = self.bpf.dispatch_task( dtask );
-
-                        //    // Give the task a chance to run and prevent overflowing the dispatch queue.
-                        //    std::thread::yield_now();
-                        //} 
                         let _ = self.bpf.dispatch_task( dtask );
 
                         // Give the task a chance to run and prevent overflowing the dispatch queue.
@@ -238,6 +233,7 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
     
+    println!("###################################");
     println!("Characterics would be read from {}!", args.characteristics_file);
     println!("Pids would be read from {}!", args.pids_file);
 
@@ -246,8 +242,6 @@ fn main() -> Result<()> {
     let server_tx = IpcSender::connect(args.server_name).unwrap();
     server_tx.send( Channels{ tx_chr: c_tx, tx_pids: p_tx } ).unwrap();
     let crecvs = ChannelsR{ rx_chr: c_rx, rx_pids: p_rx };
-    
-    print_warning();
 
     let mut sched = Scheduler::init( crecvs )?;
     let shutdown = Arc::new(AtomicBool::new(false));

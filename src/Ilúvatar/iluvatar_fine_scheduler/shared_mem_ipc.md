@@ -124,7 +124,8 @@
 
   * update the scheduler to map the pids to the cpu 
     * 
-
+  
+  * cleanup the code to remove csv files stuff 
 
 
 

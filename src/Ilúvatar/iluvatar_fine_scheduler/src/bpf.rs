@@ -76,14 +76,18 @@ Want to enforce following mapping
 */
 pub fn get_func_to_cpu_map() -> HashMap<String, i32> {
     let mut cmap = HashMap::new();
+
+    cmap.insert("pyaes-0.0.1".to_string(), 0);
+    cmap.insert("chameleon-0.0.1".to_string(), 8);
+    cmap.insert("lin_pack-0.0.1".to_string(), 16);
+
     cmap.insert("hello-0.0.1".to_string(), 0);
     cmap.insert("float_operation-0.0.1".to_string(), 2);
     cmap.insert("cnn_image_classification-0.0.1".to_string(), 4);
-    cmap.insert("chameleon-0.0.1".to_string(), 8);
     cmap.insert("dd-0.0.1".to_string(), 10);
-    cmap.insert("lin_pack-0.0.1".to_string(), 12);
     cmap.insert("gzip_compression-0.0.1".to_string(), 14);
-    cmap.insert("pyaes-0.0.1".to_string(), 16);
+    cmap.insert("pyaes-0.1".to_string(), 0);
+    cmap.insert("pyaes-0.2".to_string(), 4);
     cmap.insert("rodinia-lavamd-0.0.1".to_string(), 18);
     cmap.insert("rodinia-myocyte-0.0.1".to_string(), 20);
     cmap.insert("rodinia-srad-0.0.1".to_string(), 22);
