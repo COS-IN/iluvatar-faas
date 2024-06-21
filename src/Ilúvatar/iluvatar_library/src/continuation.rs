@@ -1,9 +1,9 @@
+use parking_lot::RwLock;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
 use tokio::sync::Notify;
-use parking_lot::RwLock;
 use tracing::{debug, info};
 
 use crate::transaction::TransactionId;

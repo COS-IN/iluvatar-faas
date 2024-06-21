@@ -9,7 +9,7 @@ use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
 use dashmap::DashMap;
 use futures::Future;
-use iluvatar_library::threading::{tokio_runtime, EventualItem, tokio_notify_thread, tokio_sender_thread};
+use iluvatar_library::threading::{tokio_notify_thread, tokio_runtime, tokio_sender_thread, EventualItem};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
 use parking_lot::RwLock;
@@ -88,9 +88,14 @@ impl ContainerManager {
             None,
         )?;
         // let (health_handle, health_tx, del_ctr_tx) = Self::deletion_thread();
-        let (health_handle, health_tx, del_ctr_tx) = tokio_sender_thread(CTR_MGR_REMOVER_TID.clone(), Arc::new(Self::cull_unhealthy));
+        let (health_handle, health_tx, del_ctr_tx) =
+            tokio_sender_thread(CTR_MGR_REMOVER_TID.clone(), Arc::new(Self::cull_unhealthy));
         let pri_notif = Arc::new(Notify::new());
-        let (pri_handle, pri_tx) = tokio_notify_thread(CTR_MGR_PRI_TID.clone(), pri_notif.clone(), Arc::new(Self::recompute_eviction_priorities));
+        let (pri_handle, pri_tx) = tokio_notify_thread(
+            CTR_MGR_PRI_TID.clone(),
+            pri_notif.clone(),
+            Arc::new(Self::recompute_eviction_priorities),
+        );
         let cm = Arc::new(ContainerManager {
             resources,
             cont_isolations,
@@ -450,7 +455,7 @@ impl ContainerManager {
         let cont = match cont {
             Ok(cont) => cont,
             Err(e) => {
-                *self.used_mem_mb.write() = i64::max(curr_mem-reg.memory, 0);
+                *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
                 self.return_gpu(counter, tid);
                 return Err(e);
             }
@@ -462,7 +467,7 @@ impl ContainerManager {
         {
             Ok(_) => (),
             Err(e) => {
-              *self.used_mem_mb.write() = i64::max(curr_mem-reg.memory, 0);
+                *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
                 self.return_gpu(counter, tid);
                 match cont_lifecycle.remove_container(cont, "default", tid).await {
                     Ok(_) => {

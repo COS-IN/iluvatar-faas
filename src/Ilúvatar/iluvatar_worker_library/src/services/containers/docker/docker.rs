@@ -5,11 +5,11 @@ use crate::{
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
 };
 use anyhow::Result;
-use bollard::models::{DeviceRequest, HostConfig, PortBinding};
+use bollard::{auth::DockerCredentials, models::{DeviceRequest, HostConfig, PortBinding}};
 use bollard::Docker;
 use bollard::{
     container::{
-        Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions, StatsOptions
+        Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions, StatsOptions,
     },
     image::CreateImageOptions,
 };
@@ -29,6 +29,19 @@ pub mod dockerstructs;
 
 const OWNER_TAG: &str = "owner=iluvatar_worker";
 
+#[derive(Clone, Debug, serde::Deserialize, Default)]
+/// Authentication for a specific Docker repository
+pub struct DockerAuth {
+  pub username: String,
+  pub password: String,
+  pub repository: String,
+}
+#[derive(Clone, Debug, serde::Deserialize, Default)]
+/// Optional configuration to modify or pass through to Docker
+pub struct DockerConfig {
+    pub auth: Option<DockerAuth>,
+}
+
 #[derive(Debug)]
 #[allow(unused)]
 pub struct DockerIsolation {
@@ -37,6 +50,7 @@ pub struct DockerIsolation {
     creation_sem: Option<tokio::sync::Semaphore>,
     pulled_images: DashSet<String>,
     docker_api: Docker,
+    docker_config: Option<DockerConfig>,
 }
 pub type BollardPortBindings = Option<HashMap<String, Option<Vec<PortBinding>>>>;
 impl DockerIsolation {
@@ -60,6 +74,7 @@ impl DockerIsolation {
     pub fn new(
         config: Arc<ContainerResourceConfig>,
         limits_config: Arc<FunctionLimits>,
+        docker_config: Option<DockerConfig>,
         tid: &TransactionId,
     ) -> Result<Self> {
         let docker = match Docker::connect_with_socket_defaults() {
@@ -73,6 +88,7 @@ impl DockerIsolation {
         Ok(DockerIsolation {
             config,
             limits_config,
+            docker_config,
             creation_sem: sem,
             pulled_images: DashSet::new(),
             docker_api: docker,
@@ -144,8 +160,8 @@ impl DockerIsolation {
             None => host_config.binds = Some(volumes),
         };
         match host_config.device_requests.as_mut() {
-          Some(cfg_device_requests) => cfg_device_requests.extend(device_requests),
-          None => host_config.device_requests = Some(device_requests),
+            Some(cfg_device_requests) => cfg_device_requests.extend(device_requests),
+            None => host_config.device_requests = Some(device_requests),
         };
         match host_config.port_bindings.as_mut() {
             Some(port_bindings) => {
@@ -180,7 +196,7 @@ impl DockerIsolation {
         };
         debug!(tid=%tid, container_id=%container_id, "Container created");
 
-        match self.docker_api.start_container::<String>(container_id, None).await  {
+        match self.docker_api.start_container::<String>(container_id, None).await {
             Ok(_) => (),
             Err(e) => bail_error!(tid=%tid, error=%e, "Error starting container"),
         };
@@ -346,7 +362,23 @@ impl ContainerIsolationService for DockerIsolation {
             from_image: rf.image_name.as_str(),
             ..Default::default()
         });
-        let mut stream = self.docker_api.create_image(options, None, None);
+        let auth = match &self.docker_config {
+            Some(cfg) => match &cfg.auth {
+                Some(a) if rf.image_name.starts_with(a.repository.as_str()) => Some(DockerCredentials {
+                  username: Some(a.username.clone()),
+                  password: Some(a.password.clone()),
+                  ..Default::default()
+                }),
+                _ => None,
+            },
+            None => None,
+        };
+
+        let mut stream = self.docker_api.create_image(
+            options,
+            None,
+            auth,
+        );
         while let Some(res) = stream.next().await {
             match res {
                 Ok(_) => (),
