@@ -51,8 +51,8 @@ const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PidsPacket {
-    pid: u32,
-    fqdn: String,
+    pub pid: u32,
+    pub fqdn: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,7 +156,17 @@ impl ContainerdIsolation {
             bg_workqueue: thread::spawn(move || loop {
                 match recv.recv() {
                     Ok(x) => {
-                        let all_children = get_all_children( x.pid ).unwrap();
+                        let mut retries = 3;
+                        let all_children = loop {
+                            let c = get_all_children( x.pid ).unwrap();
+                            if c.len() > 1 {
+                                break c;
+                            }
+                            retries -= 1;
+                            if retries == 0 {
+                                break c;
+                            }
+                        };
 
                         for cpid in &all_children {
                             pidmap.insert(*cpid, x.fqdn.clone());

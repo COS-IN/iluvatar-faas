@@ -34,16 +34,15 @@
   Control plane puts the packets on respective channels.  
   Scheduler reads the packets from the channels and updates the map.
 
-  characteristics are to produced from 
-    in iluvatar_worker_library
+  characteristics are produced from 
+    iluvatar_worker_library
       queueing_dispatcher.rs:242
         every time a new invocation is enqueued 
 
-  pids are to be produced from
-    in iluvatar_worker_library
+  pids are produced from
+    iluvatar_worker_library
       containerd.rs:164
         every time a new container is created for containerd only 
-        
 
 ## Questions 
 
@@ -63,6 +62,8 @@
 
     but it causes the finescheduler to unable to find sched_ext_ops
       Error: type "sched_ext_ops" doesn't exist, ret=-2
+
+      it means kernel doesn't support sched_ext_ops
 
   Can we share the shared memory configurations over a socket instead of using dbus? 
     ??? 
@@ -113,13 +114,16 @@
   * push stuff to the scheduler 
     * create a mut static instance to save channels   ✓
     * characteristics   ✓
-    * pids
+    * pids   ✓
 
-  * build a map in the scheduler 
+  * build a map in the scheduler    ✓
+  
+  * find a way to invoke pstree again or make sure all the threads for a function are created before it
+    is invoked 
+      * doing retries work     ✓
+
+  * update the scheduler to map the pids to the cpu 
     * 
-
-
-
 
 
 
