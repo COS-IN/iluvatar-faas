@@ -197,7 +197,6 @@ impl DispatchedMessage {
     fn as_bytes(&self) -> &[u8] {
         let size = std::mem::size_of::<bpf_intf::dispatched_task_ctx>();
         let ptr = &self.inner as *const _ as *const u8;
-
         unsafe { std::slice::from_raw_parts(ptr, size) }
     }
 }
@@ -420,31 +419,6 @@ impl<'cb> BpfScheduler<'cb> {
         unsafe { *cpu_map_ptr.offset(cpu as isize) }
     }
 
-    // Set the pid on inactive array
-    #[allow(dead_code)]
-    pub fn set_epid(&self, epid: u32, idx: u32) {
-        let eidx = self.skel.bss().active_epids_idx;
-        let epid_ptr;
-        if eidx == 0 {
-            epid_ptr = self.skel.bss().epids_1.as_ptr() as *mut u32;
-        } else {
-            epid_ptr = self.skel.bss().epids_0.as_ptr() as *mut u32;
-        }
-        unsafe { *epid_ptr.offset(idx as isize) = epid };
-    }
-
-    // switch active epid array 
-    #[allow(dead_code)]
-    pub fn switch_active_epid(&mut self) {
-        let mut eidx = self.skel.bss().active_epids_idx;
-        if eidx == 0 {
-            eidx = 1;
-        } else {
-            eidx = 0;
-        }
-        self.skel.bss_mut().active_epids_idx = eidx;
-    }
-
     // Receive a task to be scheduled from the BPF dispatcher.
     //
     // NOTE: if task.cpu is negative the task is exiting and it does not require to be scheduled.
@@ -458,6 +432,18 @@ impl<'cb> BpfScheduler<'cb> {
             }
             res if res < 0 => Err(res),
             res => panic!("Unexpected return value from libbpf-rs::consume_raw(): {}", res),
+        }
+    }
+    
+    pub fn set_epid_core( &self, epid: u32, core: u32 ) {
+        let maps = self.skel.maps();
+        let epids_map = maps.epids_map();
+        fn as_bytes( id: &u32 ) -> &[u8] {
+            unsafe { std::slice::from_raw_parts( id as *const _ as *const u8, std::mem::size_of::<u32>() ) }
+        }
+        match epids_map.update( as_bytes(&epid), as_bytes(&core), libbpf_rs::MapFlags::ANY ){
+            Ok(_) => println!("Success to update epids_map: {}-{}", epid, core),
+            Err(e) => println!("Failed to update epids_map: {}", e),
         }
     }
 

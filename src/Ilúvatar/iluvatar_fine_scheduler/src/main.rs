@@ -163,13 +163,24 @@ impl<'a> Scheduler<'a> {
         for (k, v) in &self.characteristics {
             println!("{}: {:?}", k, v);
         }
-        let mut i = 0;
+
+        // let mut i = 0;
+        // for (k, v) in &self.pids {
+        //     println!("{}: {:?}", k, v);
+        //     self.bpf.set_epid(*k, i);
+        //     i += 1;
+        // }
+        // self.bpf.switch_active_epid();
+
         for (k, v) in &self.pids {
-            println!("{}: {:?}", k, v);
-            self.bpf.set_epid(*k, i);
-            i += 1;
+            if let Some( chr ) = self.characteristics.get( &v.fqdn ) {
+                if let Some( cpu ) = self.fcmap.get( &chr.fqdn ) {
+                    println!("pid {}: func: {:?} core: {} ", k, v, *cpu);
+                    self.bpf.set_epid_core( *k as u32, *cpu as u32 );
+                }
+            }
         }
-        self.bpf.switch_active_epid();
+
     }
 
     fn run(&mut self, shutdown: Arc<AtomicBool>) -> Result<()> {

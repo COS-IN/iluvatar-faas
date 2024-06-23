@@ -130,40 +130,12 @@ struct {
 	__uint(max_entries, MAX_ENQUEUED_TASKS);
 } dispatched SEC(".maps");
 
-volatile u32 epids_0[MAX_ENQUEUED_TASKS] = {0};
-volatile u32 epids_1[MAX_ENQUEUED_TASKS] = {0};
-
-volatile u32 ecores_0[MAX_ENQUEUED_TASKS] = {0};
-volatile u32 ecores_1[MAX_ENQUEUED_TASKS] = {0};
-
-volatile u32 active_epids_idx = 0;
-
-u32 * get_active_epids(){
-    return active_epids_idx == 0 ? epids_0 : epids_1;
-}
-
-bool epid_present( u32 pid ){
-    u32 i = 0;
-    u32 *epids = get_active_epids();
-    dbg_msg("mydebugs: checking=%d ", pid );
-    for ( i = 0; i < MAX_ENQUEUED_TASKS; i++ ){
-        dbg_msg(" mydebugs: epid=%d ", epids[i]);
-        if ( epids[i] == pid ){
-            dbg_msg("mydebugs: found=%d ", pid );
-            return true;
-        }
-    }
-    return false;
-}
-
-#if 0
-u32 get_active_ecore( u32 idx ){
-    if ( idx < MAX_ENQUEUED_TASKS ){
-      return active_epids_idx == 0 ? ecores_0[idx] : ecores_1[idx];
-    }
-    return 0;
-}
-#endif
+struct {
+        __uint(type, BPF_MAP_TYPE_LRU_HASH);
+        __uint(max_entries, MAX_ENQUEUED_TASKS);
+        __type(key, u32);
+        __type(value, u32);
+} epids_map SEC(".maps");
 
 /*
  * Per-task local storage.
@@ -489,17 +461,25 @@ s32 BPF_STRUCT_OPS(rustland_select_cpu, struct task_struct *p, s32 prev_cpu,
 	s32 cpu;
     u32 mpid;
     bool skip = false;
+    u32 *mcpu = NULL;
+    u32 key = p->pid;
 
 	cpu = scx_bpf_select_cpu_dfl(p, prev_cpu, wake_flags, &is_idle);
-   
-    if( epid_present( p->pid ) ){
-        skip = true;
-        dbg_msg("[mydebugs] skipping pid=%d",
-                 p->pid
-               );       
-    }
+    
+    // do a map lookup for epids_map  
+	mcpu = bpf_map_lookup_elem(&epids_map, &key);
+    if( mcpu ){
 
-	if (!skip && is_idle && cpu < num_possible_cpus && !full_user) {
+        dbg_msg("[mydebugs] select_cpu pid=%d to cpu=%d",
+                 p->pid,
+                 *mcpu
+               );       
+
+        cpu = *mcpu;
+		dispatch_task(p, SCX_DSQ_LOCAL, 0, 0, 0);
+		__sync_fetch_and_add(&nr_kernel_dispatches, 1);
+
+    } else if ( is_idle && cpu < num_possible_cpus && !full_user) {
 		/*
 		 * Using SCX_DSQ_LOCAL ensures that the task will be executed
 		 * directly on the CPU returned by this function.
