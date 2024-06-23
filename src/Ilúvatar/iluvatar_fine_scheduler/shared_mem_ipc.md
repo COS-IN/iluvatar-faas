@@ -122,9 +122,16 @@
     is invoked 
       * doing retries work     ✓
 
-  * update the scheduler to map the pids to the cpu 
-    * 
-  
+  * update the scheduler to map the pids to the cpu  ~ 1.5 hrs  ✓
+    * works for single_func experiment 
+    * doesn't work for trace in complete setup 
+ 
+  * investigate why it doesn't work with the trace setup 
+    * save the scheduler stdout to a file from worker 
+      * example of writing stdout to a file ~ 0.5 hrs  ✓
+
+
+
   * cleanup the code to remove csv files stuff 
 
 

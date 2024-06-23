@@ -14,6 +14,8 @@ use iluvatar_worker_library::SCHED_CHANNELS;
 
 use std::time::Duration;
 use std::thread;
+use std::fs::File;
+use std::io::prelude::*;
 use std::io::Read;
 use tokio::runtime::Runtime;
 use tonic::transport::Server;
@@ -36,17 +38,37 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                 let (server, name) = IpcOneShotServer::new().unwrap();
                 debug!(tid=tid.as_str(), name=%name, status="server waiting", "ipc debugs");
 
-                // launch a process 
-                let args = vec![
-                    "--server-name",
-                    &name,
-                    "--characteristics-file", 
-                    &fconfig.characteristics_file,
-                    "--pids-file",
-                    &fconfig.pids_file,
-                ];
-                let mut _child = execute_cmd_nonblocking(&fconfig.binary, 
-                    &args, None, &String::from("none")).unwrap();
+                let oname = name.clone();
+                let cfile = fconfig.characteristics_file.clone();
+                let pfile = fconfig.pids_file.clone();
+                let bname = fconfig.binary.clone();
+
+                thread::spawn( move || {
+                    // launch a process 
+                    let args = vec![
+                        "--server-name",
+                        &oname,
+                        "--characteristics-file", 
+                        &cfile,
+                        "--pids-file",
+                        &pfile,
+                    ];
+
+                    let mut _child = execute_cmd_nonblocking(&bname, 
+                        &args, None, &String::from("none")).unwrap();
+                    let mut buffer = [0; 1024];
+                    let cstdout = & mut _child.stdout.unwrap();
+                    let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
+
+                    loop {
+                        let read = cstdout.read(&mut buffer).unwrap_or(0);
+                        if read > 0 {
+                            log.write(&buffer[..read]);
+                            log.flush();
+                            // println!{"{}", String::from_utf8_lossy(&buffer[..read])};
+                        }
+                    }
+                });
 
                 // wait for the channel to establish with a timeout 
                 let (_, channels): (_, Channels) = server.accept().unwrap();

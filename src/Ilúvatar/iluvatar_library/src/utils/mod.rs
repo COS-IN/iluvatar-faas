@@ -16,7 +16,7 @@ use anyhow::Result;
 use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
 use std::num::ParseIntError;
-use std::process::{Child, Command, Output};
+use std::process::{Child, Command, Output, Stdio};
 //, Stdio
 use std::{str, thread, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
@@ -235,7 +235,7 @@ where
     debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
     let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
     //cmd.stdout(Stdio::null()).stdin(Stdio::null()).stderr(Stdio::null());
-
+    cmd.stdout(Stdio::piped());
     match cmd.spawn() {
         Ok(out) => Ok(out),
         Err(e) => {

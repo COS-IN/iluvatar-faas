@@ -162,8 +162,15 @@ impl<'a> Scheduler<'a> {
         for (k, v) in &self.characteristics {
             println!("{}: {:?}", k, v);
         }
+        let mut i = 0;
         for (k, v) in &self.pids {
             println!("{}: {:?}", k, v);
+                //    let mut i = 0;
+                //    for (k, v) in &fldata.pids {
+                //        let pid = *k as u32;
+                //        self.bpf.set_epid(pid, i);
+                //        i += 1;
+                //    }
         }
     }
 
