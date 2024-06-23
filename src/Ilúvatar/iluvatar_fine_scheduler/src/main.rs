@@ -93,6 +93,7 @@ impl<'a> Scheduler<'a> {
                         if let Some(pidp) = self.pids.get( &(task.pid as u32)  ) {
                             if let Some( chr ) = self.characteristics.get( &pidp.fqdn ) {
                                 if let Some( cpu ) = self.fcmap.get( &chr.fqdn ) {
+                                    println!("Dispatching task {} to cpu {}", task.pid, cpu);
                                     dtask.set_cpu( *cpu );
                                 }
                             }
@@ -165,13 +166,10 @@ impl<'a> Scheduler<'a> {
         let mut i = 0;
         for (k, v) in &self.pids {
             println!("{}: {:?}", k, v);
-                //    let mut i = 0;
-                //    for (k, v) in &fldata.pids {
-                //        let pid = *k as u32;
-                //        self.bpf.set_epid(pid, i);
-                //        i += 1;
-                //    }
+            self.bpf.set_epid(*k, i);
+            i += 1;
         }
+        self.bpf.switch_active_epid();
     }
 
     fn run(&mut self, shutdown: Arc<AtomicBool>) -> Result<()> {
