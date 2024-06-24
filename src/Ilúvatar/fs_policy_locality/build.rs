@@ -19,6 +19,7 @@ fn get_output_path() -> PathBuf {
 
 fn copy_file(infile: &Path) -> Result<(), Box<dyn Error>> {
     let output_path = get_output_path().join(infile.file_name().unwrap());
+    println!("Copying {:?} to {:?}", infile, output_path);
     let infile = Path::new("examples").join(infile);
     std::fs::copy(infile, output_path).unwrap();
     Ok(())

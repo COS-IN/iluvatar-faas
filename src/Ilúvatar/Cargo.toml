@@ -8,7 +8,8 @@ members = [
   "iluvatar_library",
   "iluvatar_worker_library",
   "iluvatar_energy_mon",
-  "fine_policies/iluvatar_fine_scheduler",
+  "fs_policy_locality",
+  "fs_policy_fifo",
 ]
 resolver = "2"
 

@@ -33,56 +33,78 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
         Some(fconfig) => {
             let bname = fconfig.binary.clone();
             if std::path::Path::new(&bname).exists() {
+                match bname.as_str() {
+                    "/tmp/iluvatar/bin/fs_policy_locality" =>  {               // create a oneshot server 
+                        let (server, name) = IpcOneShotServer::new().unwrap();
+                        debug!(tid=tid.as_str(), name=%name, status="server waiting", "ipc debugs");
 
-                // create a oneshot server 
-                let (server, name) = IpcOneShotServer::new().unwrap();
-                debug!(tid=tid.as_str(), name=%name, status="server waiting", "ipc debugs");
+                        let oname = name.clone();
+                        let cfile = fconfig.characteristics_file.clone();
+                        let pfile = fconfig.pids_file.clone();
+                        let bname = fconfig.binary.clone();
 
-                let oname = name.clone();
-                let cfile = fconfig.characteristics_file.clone();
-                let pfile = fconfig.pids_file.clone();
-                let bname = fconfig.binary.clone();
+                        thread::spawn( move || {
+                            // launch a process 
+                            let args = vec![
+                                "--server-name",
+                                &oname,
+                                "--characteristics-file", 
+                                &cfile,
+                                "--pids-file",
+                                &pfile,
+                            ];
 
-                thread::spawn( move || {
-                    // launch a process 
-                    let args = vec![
-                        "--server-name",
-                        &oname,
-                        "--characteristics-file", 
-                        &cfile,
-                        "--pids-file",
-                        &pfile,
-                    ];
+                            let mut _child = execute_cmd_nonblocking(&bname, 
+                                &args, None, &String::from("none")).unwrap();
+                            let mut buffer = [0; 1024];
+                            let cstdout = & mut _child.stdout.unwrap();
+                            let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
 
-                    let mut _child = execute_cmd_nonblocking(&bname, 
-                        &args, None, &String::from("none")).unwrap();
-                    let mut buffer = [0; 1024];
-                    let cstdout = & mut _child.stdout.unwrap();
-                    let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
+                            loop {
+                                let read = cstdout.read(&mut buffer).unwrap_or(0);
+                                if read > 0 {
+                                    log.write(&buffer[..read]);
+                                    log.flush();
+                                    // println!{"{}", String::from_utf8_lossy(&buffer[..read])};
+                                }
+                            }
+                        });
 
-                    loop {
-                        let read = cstdout.read(&mut buffer).unwrap_or(0);
-                        if read > 0 {
-                            log.write(&buffer[..read]);
-                            log.flush();
-                            // println!{"{}", String::from_utf8_lossy(&buffer[..read])};
+                        // wait for the channel to establish with a timeout 
+                        let (_, channels): (_, Channels) = server.accept().unwrap();
+                        debug!(tid=tid.as_str(), name=%name, status="channels established", "ipc debugs");
+
+                        unsafe {
+                            SCHED_CHANNELS = Some(channels);
                         }
-                    }
-                });
+                    },
+                    "/tmp/iluvatar/bin/fs_policy_fifo" => {
+                        let bname = fconfig.binary.clone();
 
-                // wait for the channel to establish with a timeout 
-                let (_, channels): (_, Channels) = server.accept().unwrap();
-                debug!(tid=tid.as_str(), name=%name, status="channels established", "ipc debugs");
+                        thread::spawn( move || {
+                            // launch a process 
+                            let args: Vec<String> = vec![];
 
-                channels.tx_chr.send( 
-                    CharacteristicsPacket{ 
-                        fqdn: "func_name".to_string(),
-                        e2e: 2.5_f64,
-                    }).unwrap();               
+                            let mut _child = execute_cmd_nonblocking(&bname, 
+                                &args, None, &String::from("none")).unwrap();
+                            let mut buffer = [0; 1024];
+                            let cstdout = & mut _child.stdout.unwrap();
+                            let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
 
-                unsafe {
-                    SCHED_CHANNELS = Some(channels);
+                            loop {
+                                let read = cstdout.read(&mut buffer).unwrap_or(0);
+                                if read > 0 {
+                                    log.write(&buffer[..read]);
+                                    log.flush();
+                                    // println!{"{}", String::from_utf8_lossy(&buffer[..read])};
+                                }
+                            }
+                        });
+
+                    },
+                    _ => {},
                 }
+
             }
         }
         None => (),

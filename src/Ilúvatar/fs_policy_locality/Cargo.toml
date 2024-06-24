@@ -1,5 +1,5 @@
 [package]
-name = "iluvatar_fine_scheduler"
+name = "fs_policy_locality"
 version = "0.0.1"
 authors = ["Abdul Rehman <abdulrehmanee010@gmail.com>", ""]
 edition = "2021"

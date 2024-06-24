@@ -108,10 +108,18 @@
       remote_src: "{{__remote_bin_src}}"
     become: yes
 
-  - name: copy fine scheduler 
+  - name: copy fs_policy_fifo 
     ansible.builtin.copy:
-      src: "{{__bin_src}}/iluvatar_fine_scheduler"
-      dest: "{{bin_dir}}/iluvatar_fine_scheduler"
+      src: "{{__bin_src}}/fs_policy_fifo"
+      dest: "{{bin_dir}}/"
+      mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
+    become: yes
+
+  - name: copy fs_policy_locality 
+    ansible.builtin.copy:
+      src: "{{__bin_src}}/fs_policy_locality"
+      dest: "{{bin_dir}}/"
       mode: "preserve"
       remote_src: "{{__remote_bin_src}}"
     become: yes
