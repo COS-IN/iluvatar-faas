@@ -44,6 +44,14 @@
       containerd.rs:164
         every time a new container is created for containerd only 
 
+  producing pids from queueing_dispatcher.rs
+    maintain a map of fqdn to base pid - as captured at 
+      queueing_dispatcher.rs:242
+
+    use that map to get the base pid for the fqdn 
+      spawn a thread to invoke pstree command 
+        and send them over the channel 
+
 ## Questions 
 
   How many items can the control plane put on the channel? 

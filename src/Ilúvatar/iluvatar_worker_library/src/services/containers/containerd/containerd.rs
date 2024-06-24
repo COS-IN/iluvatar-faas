@@ -44,7 +44,7 @@ use std::time::{Duration, SystemTime};
 use tracing::{debug, error, info, warn};
 use csv::Writer;
 use serde::{Serialize, Deserialize};
-use crate::SCHED_CHANNELS;
+use crate::{SCHED_CHANNELS, FQDN_PID_MAP};
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
@@ -156,6 +156,15 @@ impl ContainerdIsolation {
             bg_workqueue: thread::spawn(move || loop {
                 match recv.recv() {
                     Ok(x) => {
+
+                        // create the map if it doesn't exist
+                        unsafe {
+                            let mut fpmap = FQDN_PID_MAP.get_or_insert(DashMap::new());
+                            let pid = x.pid.clone();
+                            let fqdn = x.fqdn.clone();
+                            fpmap.insert(fqdn, pid);
+                        }
+
                         let mut retries = 3;
                         let all_children = loop {
                             let c = get_all_children( x.pid ).unwrap();

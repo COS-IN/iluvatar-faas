@@ -19,10 +19,13 @@ use parking_lot::RwLock;
 use rand::Rng;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::thread;
 use time::OffsetDateTime;
 use tracing::{debug, info};
-use crate::SCHED_CHANNELS;
+use crate::{SCHED_CHANNELS, FQDN_PID_MAP};
+use crate::services::containers::containerd::PidsPacket;
 use iluvatar_library::characteristics_map::CharacteristicsPacket;
+use iluvatar_library::utils::get_all_children;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -234,30 +237,44 @@ impl QueueingDispatcher {
             self.clock.now(),
         ));
         let mut enqueues = 0;
-        
-        let cfile = match &self.worker_config.finescheduling {
-            Some( fconfig ) => fconfig.characteristics_file.clone(),
-            None => "none.csv".to_string(),
-        };
-            
-        unsafe {
-            if let Some(c) = &SCHED_CHANNELS {
-                let cmap = &self.cmap;
-                for e0 in cmap.map.iter() {
-                    let fqdn = e0.key();
-                    let exec_time = cmap.get_exec_time(&fqdn); 
-                    c.tx_chr.send( 
-                        CharacteristicsPacket { 
-                            fqdn: fqdn.clone(), 
-                            e2e: exec_time 
-                    }).unwrap();
+       
+        let fqdn = reg.fqdn.clone();
+        let cmap = self.cmap.clone();
+
+        thread::spawn(move || {
+            unsafe {
+                if let Some(fpmap) = &FQDN_PID_MAP {
+                    if let Some(xpid) = fpmap.get( &fqdn ) {
+                        let c = get_all_children( xpid.clone() ).unwrap();
+                        if let Some(cchannel) = &SCHED_CHANNELS {
+                            for cpid in &c {
+                                // println!("Sending PID: {:?} for {:?}", cpid, fqdn);
+                                cchannel.tx_pids.send(
+                                    PidsPacket{
+                                        pid: *cpid,
+                                        fqdn: fqdn.clone()
+                                    });
+                            }
+                        }
+                    }
+
                 }
             }
-        }
 
-        if std::path::Path::new(&cfile).exists() {
-            self.cmap.write_csv( &cfile );
-        }
+            unsafe {
+                if let Some(c) = &SCHED_CHANNELS {
+                    for e0 in cmap.map.iter() {
+                        let fqdn = e0.key();
+                        let exec_time = cmap.get_exec_time(&fqdn); 
+                        c.tx_chr.send( 
+                            CharacteristicsPacket { 
+                                fqdn: fqdn.clone(), 
+                                e2e: exec_time 
+                        }).unwrap();
+                    }
+                }
+            }
+        });
 
         if reg.supported_compute == Compute::CPU {
             self.enqueue_cpu_check(&enqueue)?;
