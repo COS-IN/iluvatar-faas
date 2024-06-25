@@ -5,8 +5,11 @@ use crate::{
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
 };
 use anyhow::Result;
-use bollard::{auth::DockerCredentials, models::{DeviceRequest, HostConfig, PortBinding}};
 use bollard::Docker;
+use bollard::{
+    auth::DockerCredentials,
+    models::{DeviceRequest, HostConfig, PortBinding},
+};
 use bollard::{
     container::{
         Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions, StatsOptions,
@@ -32,9 +35,9 @@ const OWNER_TAG: &str = "owner=iluvatar_worker";
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 /// Authentication for a specific Docker repository
 pub struct DockerAuth {
-  pub username: String,
-  pub password: String,
-  pub repository: String,
+    pub username: String,
+    pub password: String,
+    pub repository: String,
 }
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 /// Optional configuration to modify or pass through to Docker
@@ -365,20 +368,16 @@ impl ContainerIsolationService for DockerIsolation {
         let auth = match &self.docker_config {
             Some(cfg) => match &cfg.auth {
                 Some(a) if rf.image_name.starts_with(a.repository.as_str()) => Some(DockerCredentials {
-                  username: Some(a.username.clone()),
-                  password: Some(a.password.clone()),
-                  ..Default::default()
+                    username: Some(a.username.clone()),
+                    password: Some(a.password.clone()),
+                    ..Default::default()
                 }),
                 _ => None,
             },
             None => None,
         };
 
-        let mut stream = self.docker_api.create_image(
-            options,
-            None,
-            auth,
-        );
+        let mut stream = self.docker_api.create_image(options, None, auth);
         while let Some(res) = stream.next().await {
             match res {
                 Ok(_) => (),

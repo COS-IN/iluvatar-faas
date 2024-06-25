@@ -477,9 +477,9 @@ impl ContainerdIsolation {
         if let Some(docker) = &self.docker_config {
             if let Some(auth) = &docker.auth {
                 if image_name.starts_with(auth.repository.as_str()) {
-                  args.push("--user");
-                  auth_str = format!("{}:{}", auth.username, auth.password);
-                  args.push(auth_str.as_str());
+                    args.push("--user");
+                    auth_str = format!("{}:{}", auth.username, auth.password);
+                    args.push(auth_str.as_str());
                 }
             }
         }
