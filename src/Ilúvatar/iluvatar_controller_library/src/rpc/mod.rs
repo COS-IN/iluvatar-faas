@@ -1,9 +1,6 @@
 #![allow(clippy::derive_partial_eq_without_eq)]
 tonic::include_proto!("iluvatar_controller");
-use crate::{
-    rpc::iluvatar_controller_client::IluvatarControllerClient,
-    services::ControllerAPI
-};
+use crate::{rpc::iluvatar_controller_client::IluvatarControllerClient, services::ControllerAPI};
 use anyhow::{bail, Result};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};

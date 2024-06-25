@@ -567,6 +567,7 @@ impl ContainerdIsolation {
             spec: Some(spec),
             created_at: None,
             updated_at: None,
+            sandbox: "".to_owned(),
             extensions: HashMap::new(),
             labels,
             snapshot_key: "".to_string(),
@@ -614,6 +615,7 @@ impl ContainerdIsolation {
             stdout,
             stderr,
             terminal: false,
+            runtime_path: "".to_owned(),
         };
         let req = with_namespace!(req, namespace);
         match client.create(req).await {
