@@ -244,22 +244,25 @@ impl QueueingDispatcher {
         println!("Going to spawn for {:?}", fqdn.clone());
 
         thread::spawn(move || {
-            if let Some(xpid) = get_pid_from_fqdn( fqdn.clone() ) {
-                let c = get_all_children( xpid.clone() ).unwrap();
-                unsafe {
-                    if let Some(cchannel) = &SCHED_CHANNELS {
-                        let cchannel = cchannel.write().unwrap();
-                        for cpid in &c {
-                            // println!("Sending PID: {:?} for {:?}", cpid, fqdn);
-                            cchannel.tx_pids.send(
-                                PidsPacket{
-                                    pid: *cpid,
-                                    fqdn: fqdn.clone()
-                                }).unwrap();
-                        }
-                    }
-                }
-            }
+            //if let Some(xpid) = get_pid_from_fqdn( fqdn.clone() ) {
+            //    let c = get_all_children( xpid.clone() ).unwrap();
+            //    unsafe {
+            //        if let Some(cchannel) = &SCHED_CHANNELS {
+            //            let cchannel = cchannel.write().unwrap();
+            //            for cpid in &c {
+            //                println!("Sending PID: {:?} for {:?}", cpid, fqdn);
+            //                match cchannel.tx_pids.send(
+            //                    PidsPacket{
+            //                        pid: *cpid,
+            //                        fqdn: fqdn.clone()
+            //                    }) {
+            //                    Ok(_) => (),
+            //                    Err(e) => println!("Error sending PID: {:?}", e),
+            //                }
+            //            }
+            //        }
+            //    }
+            //}
 
             unsafe {
                 if let Some(c) = &SCHED_CHANNELS {
@@ -267,6 +270,7 @@ impl QueueingDispatcher {
                     for e0 in cmap.map.iter() {
                         let fqdn = e0.key();
                         let exec_time = cmap.get_exec_time(&fqdn); 
+                        println!("Sending CharacteristicsPacket: {:?} for {:?}", fqdn, exec_time);
                         c.tx_chr.send( 
                             CharacteristicsPacket { 
                                 fqdn: fqdn.clone(), 

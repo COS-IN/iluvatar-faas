@@ -18,6 +18,7 @@ use std::thread;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::Read;
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tonic::transport::Server;
 use tracing::{debug, info};
@@ -58,23 +59,25 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                             let mut _child = execute_cmd_nonblocking(&bname, 
                                 &args, None, &String::from("none")).unwrap();
                             let mut buffer = [0; 1024];
-                            let cstdout = & mut _child.stdout.unwrap();
-                            let cstderr = & mut _child.stderr.unwrap();
                             let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
                             let mut elog = File::create("/tmp/iluvatar/bin/sched.elog").expect("failed to open log");
 
                             loop {
-                                let read = cstdout.read(&mut buffer).unwrap_or(0);
+                                let read = _child.stdout.as_mut().unwrap().read(&mut buffer).unwrap_or(0);
                                 if read > 0 {
-                                    log.write(&buffer[..read]).unwrap();
-                                    log.flush().unwrap();
-                                    // println!{"{}", String::from_utf8_lossy(&buffer[..read])};
+                                    log.write(&buffer[..read]);
+                                    log.flush();
                                 }
-                                let read = cstderr.read(&mut buffer).unwrap_or(0);
-                                if read > 0 {
-                                    elog.write(&buffer[..read]).unwrap();
-                                    elog.flush().unwrap();
-                                    // println!{"{}", String::from_utf8_lossy(&buffer[..read])};
+                                match _child.try_wait() {
+                                    Ok(Some(status)) => {
+                                        let read = _child.stderr.as_mut().unwrap().read(&mut buffer).unwrap_or(0);
+                                        if read > 0 {
+                                            elog.write(&buffer[..read]);
+                                            elog.flush();
+                                        }
+                                    },
+                                    Ok(None) => {},
+                                    Err(e) => {},
                                 }
                             }
                         });
