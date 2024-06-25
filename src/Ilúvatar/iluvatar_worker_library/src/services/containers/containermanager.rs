@@ -52,28 +52,6 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-    // fn deletion_thread() -> (
-    //     tokio::task::JoinHandle<()>,
-    //     std::sync::mpsc::Sender<Arc<Self>>,
-    //     UnboundedSender<Container>,
-    // ) {
-    //     let (tx, rx) = std::sync::mpsc::channel();
-    //     let (del_tx, del_rx) = tokio::sync::mpsc::unbounded_channel::<Container>();
-    //     let handle = tokio::spawn(async move {
-    //         let tid: &TransactionId = &CTR_MGR_REMOVER_TID;
-    //         let service: Arc<Self> = match rx.recv() {
-    //             Ok(cm) => cm,
-    //             Err(e) => {
-    //                 error!(tid=%tid, error=%e, "Tokio service thread failed to receive service from channel!");
-    //                 return;
-    //             }
-    //         };
-    //         service.cull_unhealthy(tid, del_rx).await;
-    //     });
-
-    //     (handle, tx, del_tx)
-    // }
-
     pub async fn boxed(
         resources: Arc<ContainerResourceConfig>,
         cont_isolations: ContainerIsolationCollection,
@@ -87,7 +65,6 @@ impl ContainerManager {
             None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>,
             None,
         )?;
-        // let (health_handle, health_tx, del_ctr_tx) = Self::deletion_thread();
         let (health_handle, health_tx, del_ctr_tx) =
             tokio_sender_thread(CTR_MGR_REMOVER_TID.clone(), Arc::new(Self::cull_unhealthy));
         let pri_notif = Arc::new(Notify::new());
