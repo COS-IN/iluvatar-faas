@@ -157,7 +157,8 @@ impl ContainerdIsolation {
             bg_workqueue: thread::spawn(move || loop {
                 match recv.recv() {
                     Ok(x) => {
-
+                        
+                        println!("Inserting from bg thread {:?} {:?}", x.fqdn, x.pid);
                         insert_to_fqdn_pid_map( x.fqdn.clone(), x.pid );
 
                         let mut retries = 3;

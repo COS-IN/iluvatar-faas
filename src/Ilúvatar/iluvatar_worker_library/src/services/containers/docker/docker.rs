@@ -75,14 +75,16 @@ impl DockerIsolation {
             Some(0) => {
                 let pargs = vec![ "inspect", "-f", "'{{.State.Pid}}'", container_id.clone() ];
                 let pidoutput = execute_cmd_async( "/usr/bin/docker", pargs, env, tid ).await?;
-                let pidoutput = String::from_utf8_lossy(&pidoutput.stdout).trim().to_string();
+                let pidoutput = String::from_utf8_lossy(&pidoutput.stdout).trim().trim_matches('\'').to_string();
                 let pid = match pidoutput.parse::<u32>() {
                     Ok(p) => p,
                     Err(_) => 0,
                 };
                 let fqdn = fqdn.unwrap_or("unknown");
-
-                insert_to_fqdn_pid_map( fqdn.to_string(), pid );
+                
+                if pid != 0 && fqdn != "unknown"{
+                    insert_to_fqdn_pid_map( fqdn.to_string(), pid );
+                }
 
                 debug!(tid=%tid, name=%image_name, containerid=%container_id, fqdn=%fqdn, pidoutput=%pidoutput, output=?output, "Docker container started successfully");
                 info!(tid=%tid, name=%image_name, containerid=%container_id, "Docker container started successfully");
