@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::thread;
 use time::OffsetDateTime;
 use tracing::{debug, info};
-use crate::{SCHED_CHANNELS, FQDN_PID_MAP};
+use crate::{SCHED_CHANNELS, get_pid_from_fqdn};
 use crate::services::containers::containerd::PidsPacket;
 use iluvatar_library::characteristics_map::CharacteristicsPacket;
 use iluvatar_library::utils::get_all_children;
@@ -241,28 +241,29 @@ impl QueueingDispatcher {
         let fqdn = reg.fqdn.clone();
         let cmap = self.cmap.clone();
 
+        println!("Going to spawn for {:?}", fqdn.clone());
+
         thread::spawn(move || {
-            unsafe {
-                if let Some(fpmap) = &FQDN_PID_MAP {
-                    if let Some(xpid) = fpmap.get( &fqdn ) {
-                        let c = get_all_children( xpid.clone() ).unwrap();
-                        if let Some(cchannel) = &SCHED_CHANNELS {
-                            for cpid in &c {
-                                // println!("Sending PID: {:?} for {:?}", cpid, fqdn);
-                                cchannel.tx_pids.send(
-                                    PidsPacket{
-                                        pid: *cpid,
-                                        fqdn: fqdn.clone()
-                                    });
-                            }
+            if let Some(xpid) = get_pid_from_fqdn( fqdn.clone() ) {
+                let c = get_all_children( xpid.clone() ).unwrap();
+                unsafe {
+                    if let Some(cchannel) = &SCHED_CHANNELS {
+                        let cchannel = cchannel.write().unwrap();
+                        for cpid in &c {
+                            // println!("Sending PID: {:?} for {:?}", cpid, fqdn);
+                            cchannel.tx_pids.send(
+                                PidsPacket{
+                                    pid: *cpid,
+                                    fqdn: fqdn.clone()
+                                }).unwrap();
                         }
                     }
-
                 }
             }
 
             unsafe {
                 if let Some(c) = &SCHED_CHANNELS {
+                    let c = c.write().unwrap();
                     for e0 in cmap.map.iter() {
                         let fqdn = e0.key();
                         let exec_time = cmap.get_exec_time(&fqdn); 

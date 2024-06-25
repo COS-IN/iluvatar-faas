@@ -480,6 +480,10 @@ s32 BPF_STRUCT_OPS(rustland_select_cpu, struct task_struct *p, s32 prev_cpu,
 		__sync_fetch_and_add(&nr_kernel_dispatches, 1);
 
     } else if ( is_idle && cpu < num_possible_cpus && !full_user) {
+        dbg_msg("[mydebugs] select_cpu pid=%d to mcpu=%p not in epids_map",
+                 p->pid,
+                 mcpu
+               );
 		/*
 		 * Using SCX_DSQ_LOCAL ensures that the task will be executed
 		 * directly on the CPU returned by this function.

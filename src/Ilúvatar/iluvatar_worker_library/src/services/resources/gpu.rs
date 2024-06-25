@@ -337,7 +337,7 @@ impl GpuResourceTracker {
         ];
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
         docker
-            .docker_run(args, img_name, "iluvatar_mps_control", Some(vec!["-f"]), tid, None)
+            .docker_run( args, img_name, "iluvatar_mps_control", Some(vec!["-f"]), tid, None, None )
             .await
     }
 

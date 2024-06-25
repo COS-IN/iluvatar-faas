@@ -5,7 +5,8 @@ use crate::{
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
 };
 use anyhow::Result;
-use dashmap::DashSet;
+use dashmap::{DashSet, DashMap};
+use crate::{insert_to_fqdn_pid_map};
 use guid_create::GUID;
 use iluvatar_library::{
     bail_error,
@@ -62,6 +63,7 @@ impl DockerIsolation {
         proc_args: Option<Vec<&'a str>>,
         tid: &TransactionId,
         env: Option<&HashMap<String, String>>,
+        fqdn: Option<&str>,
     ) -> Result<()> {
         run_args.insert(0, "run");
         run_args.extend(["--label", "owner=iluvatar_worker", "--detach", image_name]);
@@ -71,7 +73,18 @@ impl DockerIsolation {
         let output = execute_cmd_async("/usr/bin/docker", run_args, env, tid).await?;
         match output.status.code() {
             Some(0) => {
-                debug!(tid=%tid, name=%image_name, containerid=%container_id, output=?output, "Docker container started successfully");
+                let pargs = vec![ "inspect", "-f", "'{{.State.Pid}}'", container_id.clone() ];
+                let pidoutput = execute_cmd_async( "/usr/bin/docker", pargs, env, tid ).await?;
+                let pidoutput = String::from_utf8_lossy(&pidoutput.stdout).trim().to_string();
+                let pid = match pidoutput.parse::<u32>() {
+                    Ok(p) => p,
+                    Err(_) => 0,
+                };
+                let fqdn = fqdn.unwrap_or("unknown");
+
+                insert_to_fqdn_pid_map( fqdn.to_string(), pid );
+
+                debug!(tid=%tid, name=%image_name, containerid=%container_id, fqdn=%fqdn, pidoutput=%pidoutput, output=?output, "Docker container started successfully");
                 info!(tid=%tid, name=%image_name, containerid=%container_id, "Docker container started successfully");
                 Ok(())
             }
@@ -251,7 +264,7 @@ impl ContainerIsolationService for DockerIsolation {
         let time = format!("{}", self.limits_config.timeout_sec);
         let proc_args = vec!["server:app", "-w", "1", "--timeout", time.as_str()];
         // let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
-        self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None)
+        self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None, Some(fqdn.clone()))
             .await?;
         drop(permit);
         unsafe {

@@ -21,6 +21,7 @@ use client::with_namespace;
 use containerd_client as client;
 use containerd_client::tonic::{transport::Channel, Request};
 use dashmap::DashMap;
+use std::sync::RwLock;
 use guid_create::GUID;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::utils::{
@@ -44,7 +45,7 @@ use std::time::{Duration, SystemTime};
 use tracing::{debug, error, info, warn};
 use csv::Writer;
 use serde::{Serialize, Deserialize};
-use crate::{SCHED_CHANNELS, FQDN_PID_MAP};
+use crate::{SCHED_CHANNELS, insert_to_fqdn_pid_map};
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
@@ -157,13 +158,7 @@ impl ContainerdIsolation {
                 match recv.recv() {
                     Ok(x) => {
 
-                        // create the map if it doesn't exist
-                        unsafe {
-                            let mut fpmap = FQDN_PID_MAP.get_or_insert(DashMap::new());
-                            let pid = x.pid.clone();
-                            let fqdn = x.fqdn.clone();
-                            fpmap.insert(fqdn, pid);
-                        }
+                        insert_to_fqdn_pid_map( x.fqdn.clone(), x.pid );
 
                         let mut retries = 3;
                         let all_children = loop {
@@ -183,6 +178,7 @@ impl ContainerdIsolation {
 
                         unsafe {
                             if let Some(c) = &SCHED_CHANNELS {
+                                let mut c = c.write().unwrap();
                                 for cpid in &all_children {
                                     c.tx_pids.send(
                                         PidsPacket{

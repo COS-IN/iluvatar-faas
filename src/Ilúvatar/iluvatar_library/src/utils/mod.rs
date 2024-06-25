@@ -236,6 +236,7 @@ where
     let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
     //cmd.stdout(Stdio::null()).stdin(Stdio::null()).stderr(Stdio::null());
     cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
     match cmd.spawn() {
         Ok(out) => Ok(out),
         Err(e) => {

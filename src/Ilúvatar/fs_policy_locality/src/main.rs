@@ -93,7 +93,7 @@ impl<'a> Scheduler<'a> {
                         if let Some(pidp) = self.pids.get( &(task.pid as u32)  ) {
                             if let Some( chr ) = self.characteristics.get( &pidp.fqdn ) {
                                 if let Some( cpu ) = self.fcmap.get( &chr.fqdn ) {
-                                    println!("Dispatching task {} to cpu {}", task.pid, cpu);
+                                    // println!("Dispatching task {} to cpu {}", task.pid, cpu);
                                     dtask.set_cpu( *cpu );
                                 }
                             }

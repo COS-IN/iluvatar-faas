@@ -11,6 +11,7 @@ use iluvatar_worker_library::worker_api::Channels;
 use iluvatar_library::characteristics_map::CharacteristicsPacket;
 use iluvatar_worker_library::services::containers::containerd::PidsPacket;
 use iluvatar_worker_library::SCHED_CHANNELS;
+use std::sync::RwLock;
 
 use std::time::Duration;
 use std::thread;
@@ -58,13 +59,21 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                                 &args, None, &String::from("none")).unwrap();
                             let mut buffer = [0; 1024];
                             let cstdout = & mut _child.stdout.unwrap();
+                            let cstderr = & mut _child.stderr.unwrap();
                             let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
+                            let mut elog = File::create("/tmp/iluvatar/bin/sched.elog").expect("failed to open log");
 
                             loop {
                                 let read = cstdout.read(&mut buffer).unwrap_or(0);
                                 if read > 0 {
-                                    log.write(&buffer[..read]);
-                                    log.flush();
+                                    log.write(&buffer[..read]).unwrap();
+                                    log.flush().unwrap();
+                                    // println!{"{}", String::from_utf8_lossy(&buffer[..read])};
+                                }
+                                let read = cstderr.read(&mut buffer).unwrap_or(0);
+                                if read > 0 {
+                                    elog.write(&buffer[..read]).unwrap();
+                                    elog.flush().unwrap();
                                     // println!{"{}", String::from_utf8_lossy(&buffer[..read])};
                                 }
                             }
@@ -75,7 +84,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                         debug!(tid=tid.as_str(), name=%name, status="channels established", "ipc debugs");
 
                         unsafe {
-                            SCHED_CHANNELS = Some(channels);
+                            SCHED_CHANNELS = Some(RwLock::new(channels));
                         }
                     },
                     "/tmp/iluvatar/bin/fs_policy_fifo" => {
