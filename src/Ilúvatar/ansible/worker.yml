@@ -48,6 +48,11 @@
       "ILUVATAR_WORKER__container_resources__gpu_resource__prefetch_memory" : "{{ gpu_prefetch_memory | default(false) }}"
       "ILUVATAR_WORKER__container_resources__gpu_resource__status_update_freq_ms" : "{{ gpu_status_update | default(0) }}"
 
+      # Docker
+      "ILUVATAR_WORKER__container_resources__docker_config__auth__username" : "{{ docker_username | default('') }}"
+      "ILUVATAR_WORKER__container_resources__docker_config__auth__password" : "{{ docker_password | default('') }}"
+      "ILUVATAR_WORKER__container_resources__docker_config__auth__repository" : "{{ docker_repository | default('') }}"
+
       # Networking
       "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
       "ILUVATAR_WORKER__networking__use_pool" : "{{ worker_use_pool | default(true) }}"
@@ -116,7 +121,7 @@
 
   - name: copy worker config
     ansible.builtin.copy:
-      src: "{{iluvatar_home}}/target/{{target}}/{{worker.config_name}}"
+      src: "{{__bin_src}}/{{worker.config_name}}"
       dest: "{{config_dest}}"
       mode: "preserve"
     become: yes
@@ -200,12 +205,6 @@
     when: mode == "perf"
     environment: "{{proxy_env}}"
     register: worker_output
-
-  - name: debug print
-    # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
-    # run_once: true
-    debug:
-      msg: "{{ worker_output }}"
 
   - name: wait until the worker on this host is up and running
     ansible.builtin.uri:

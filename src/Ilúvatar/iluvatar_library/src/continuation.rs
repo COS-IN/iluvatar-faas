@@ -1,9 +1,9 @@
+use parking_lot::RwLock;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-
-use parking_lot::RwLock;
+use tokio::sync::Notify;
 use tracing::{debug, info};
 
 use crate::transaction::TransactionId;
@@ -11,6 +11,7 @@ use crate::transaction::TransactionId;
 lazy_static::lazy_static! {
   /// A global static [Continuation] struct to enable proper exiting by informing background threads of an exit signal
   pub static ref GLOB_CONT_CHECK: Continuation = Continuation::new();
+  pub static ref GLOB_NOTIFIER: Arc<Notify> = Arc::new(Notify::new());
 }
 
 /// A struct to track background threads and notify them of application exit
@@ -33,9 +34,11 @@ impl Continuation {
     /// return after all are complete, or after a timeout
     pub fn signal_application_exit(&self, tid: &TransactionId) {
         *self.signal.write() = false;
+        GLOB_NOTIFIER.notify_waiters();
         info!(tid=%tid, "Signalling worker exit");
         let start = SystemTime::now();
         while *self.outstanding_threads.read() > 0 {
+            GLOB_NOTIFIER.notify_one();
             let t = match start.elapsed() {
                 Ok(t) => t,
                 Err(_) => continue,

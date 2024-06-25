@@ -1,3 +1,4 @@
+use super::docker::DockerConfig;
 use super::ContainerIsolationService;
 use crate::services::containers::containerd::containerdstructs::{ContainerdContainer, Task};
 use crate::services::containers::structs::{Container, ContainerState};
@@ -61,6 +62,7 @@ pub struct ContainerdIsolation {
     namespace_manager: Arc<NamespaceManager>,
     config: Arc<ContainerResourceConfig>,
     limits_config: Arc<FunctionLimits>,
+    docker_config: Option<DockerConfig>,
     downloaded_images: Arc<DashMap<String, bool>>,
     creation_sem: Option<tokio::sync::Semaphore>,
     tx: Arc<mpsc::SyncSender<BGPacket>>,
@@ -102,6 +104,7 @@ impl ContainerdIsolation {
         ns_man: Arc<NamespaceManager>,
         config: Arc<ContainerResourceConfig>,
         limits_config: Arc<FunctionLimits>,
+        docker_config: Option<DockerConfig>,
     ) -> ContainerdIsolation {
         let sem = match config.concurrent_creation {
             0 => None,
@@ -117,6 +120,7 @@ impl ContainerdIsolation {
             namespace_manager: ns_man,
             config,
             limits_config,
+            docker_config,
             downloaded_images: Arc::new(DashMap::new()),
             creation_sem: sem,
             tx: Arc::new(send),
@@ -468,15 +472,19 @@ impl ContainerdIsolation {
         if self.downloaded_images.contains_key(image_name) {
             return Ok(());
         }
-        let output = Command::new("ctr")
-            .args([
-                "images",
-                "pull",
-                "--snapshotter",
-                self.config.snapshotter.as_str(),
-                image_name,
-            ])
-            .output();
+        let mut args = vec!["images", "pull", "--snapshotter", self.config.snapshotter.as_str()];
+        let auth_str;
+        if let Some(docker) = &self.docker_config {
+            if let Some(auth) = &docker.auth {
+                if image_name.starts_with(auth.repository.as_str()) {
+                    args.push("--user");
+                    auth_str = format!("{}:{}", auth.username, auth.password);
+                    args.push(auth_str.as_str());
+                }
+            }
+        }
+        args.push(image_name);
+        let output = Command::new("ctr").args(args).output();
         match output {
             Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
             Ok(output) => {

@@ -9,13 +9,13 @@ use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
 use dashmap::DashMap;
 use futures::Future;
-use iluvatar_library::threading::{tokio_runtime, EventualItem};
+use iluvatar_library::threading::{tokio_notify_thread, tokio_runtime, tokio_sender_thread, EventualItem};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
 use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::sync::{atomic::AtomicU32, Arc};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 
@@ -52,54 +52,6 @@ pub struct ContainerManager {
 }
 
 impl ContainerManager {
-    fn deletion_thread() -> (
-        tokio::task::JoinHandle<()>,
-        std::sync::mpsc::Sender<Arc<Self>>,
-        UnboundedSender<Container>,
-    ) {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let (del_tx, del_rx) = tokio::sync::mpsc::unbounded_channel::<Container>();
-        let handle = tokio::spawn(async move {
-            let tid: &TransactionId = &CTR_MGR_REMOVER_TID;
-            let service: Arc<Self> = match rx.recv() {
-                Ok(cm) => cm,
-                Err(e) => {
-                    error!(tid=%tid, error=%e, "Tokio service thread failed to receive service from channel!");
-                    return;
-                }
-            };
-            service.cull_unhealthy(tid, del_rx).await;
-        });
-
-        (handle, tx, del_tx)
-    }
-
-    fn priorities_thread() -> (
-        tokio::task::JoinHandle<()>,
-        std::sync::mpsc::Sender<Arc<Self>>,
-        Arc<Notify>,
-    ) {
-        let n = Arc::new(Notify::new());
-        let n_c = n.clone();
-        let (tx, rx) = std::sync::mpsc::channel();
-        let handle = tokio::spawn(async move {
-            let tid: &TransactionId = &CTR_MGR_PRI_TID;
-            let service: Arc<Self> = match rx.recv() {
-                Ok(cm) => cm,
-                Err(e) => {
-                    error!(tid=%tid, error=%e, "Tokio service thread failed to receive service from channel!");
-                    return;
-                }
-            };
-            loop {
-                n_c.notified().await;
-                service.recompute_eviction_priorities(tid);
-            }
-        });
-
-        (handle, tx, n)
-    }
-
     pub async fn boxed(
         resources: Arc<ContainerResourceConfig>,
         cont_isolations: ContainerIsolationCollection,
@@ -113,8 +65,14 @@ impl ContainerManager {
             None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>,
             None,
         )?;
-        let (health_handle, health_tx, del_ctr_tx) = Self::deletion_thread();
-        let (pri_handle, pri_tx, pri_notif) = Self::priorities_thread();
+        let (health_handle, health_tx, del_ctr_tx) =
+            tokio_sender_thread(CTR_MGR_REMOVER_TID.clone(), Arc::new(Self::cull_unhealthy));
+        let pri_notif = Arc::new(Notify::new());
+        let (pri_handle, pri_tx) = tokio_notify_thread(
+            CTR_MGR_PRI_TID.clone(),
+            pri_notif.clone(),
+            Arc::new(Self::recompute_eviction_priorities),
+        );
         let cm = Arc::new(ContainerManager {
             resources,
             cont_isolations,
@@ -160,40 +118,30 @@ impl ContainerManager {
         }
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, rx), fields(tid=%tid)))]
-    async fn cull_unhealthy(&self, tid: &TransactionId, mut rx: UnboundedReceiver<Container>) {
-        loop {
-            let to_remove = match rx.recv().await {
-                Some(c) => c,
-                None => {
-                    error!(tid=%tid, "failed to get service");
-                    return;
-                }
-            };
-            if let Ok(pool) = self.get_resource_pool(to_remove.compute_type()) {
-                if pool.remove_container(&to_remove, tid).is_none() {
-                    warn!(tid=%tid, container_id=%to_remove.container_id(), compute=%to_remove.compute_type(),
-                          "Failed to remove container from container pool before cull");
-                    // continue;
-                }
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, to_remove), fields(tid=%tid)))]
+    async fn cull_unhealthy(self: Arc<Self>, tid: TransactionId, to_remove: Container) {
+        if let Ok(pool) = self.get_resource_pool(to_remove.compute_type()) {
+            if pool.remove_container(&to_remove, &tid).is_none() {
+                warn!(tid=%tid, container_id=%to_remove.container_id(), compute=%to_remove.compute_type(),
+                      "Failed to remove container from container pool before cull");
             }
-            let cont_lifecycle = match self.cont_isolations.get(&to_remove.container_type()) {
-                Some(c) => c,
-                None => {
-                    error!(tid=%tid, iso=?to_remove.container_type(), "Lifecycle for container not supported");
-                    continue;
-                }
-            };
-            let stdout = cont_lifecycle.read_stdout(&to_remove, tid).await;
-            let stderr = cont_lifecycle.read_stderr(&to_remove, tid).await;
-            warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
-            match self.purge_container(to_remove, tid).await {
-                Ok(_) => (),
-                Err(cause) => {
-                    error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container")
-                }
-            };
         }
+        let cont_lifecycle = match self.cont_isolations.get(&to_remove.container_type()) {
+            Some(c) => c,
+            None => {
+                error!(tid=%tid, iso=?to_remove.container_type(), "Lifecycle for container not supported");
+                return;
+            }
+        };
+        let stdout = cont_lifecycle.read_stdout(&to_remove, &tid).await;
+        let stderr = cont_lifecycle.read_stderr(&to_remove, &tid).await;
+        warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
+        match self.purge_container(to_remove, &tid).await {
+            Ok(_) => (),
+            Err(cause) => {
+                error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container")
+            }
+        };
     }
 
     pub fn free_memory(&self) -> MemSizeMb {
@@ -263,6 +211,7 @@ impl ContainerManager {
     async fn update_container_pool_memory_usages(&self, pool: &ContainerPool, tid: &TransactionId) {
         debug!(tid=%tid, pool=%pool.pool_name(), "updating container memory usages");
         let old_total_mem = *self.used_mem_mb.read();
+        let mut new_total_mem = 0;
         for container in pool.iter().iter().filter(|c| c.is_healthy()) {
             let old_usage = container.get_curr_mem_usage();
             let new_usage = match self.cont_isolations.get(&container.container_type()) {
@@ -272,12 +221,10 @@ impl ContainerManager {
                     continue;
                 }
             };
-            let diff = new_usage - old_usage;
-            debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, diff=diff, "updated container memory usage");
-            *self.used_mem_mb.write() += diff;
+            new_total_mem += new_usage;
+            debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, "updated container memory usage");
         }
-
-        let new_total_mem = *self.used_mem_mb.read();
+        *self.used_mem_mb.write() += new_total_mem;
         debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, pool=%pool.pool_name(), "Total container memory usage");
         if new_total_mem < 0 {
             error!(tid=%tid, old_total=old_total_mem, total=new_total_mem, pool=%pool.pool_name(), "Container memory usage has gone negative");
@@ -485,7 +432,7 @@ impl ContainerManager {
         let cont = match cont {
             Ok(cont) => cont,
             Err(e) => {
-                *self.used_mem_mb.write() -= reg.memory;
+                *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
                 self.return_gpu(counter, tid);
                 return Err(e);
             }
@@ -497,7 +444,7 @@ impl ContainerManager {
         {
             Ok(_) => (),
             Err(e) => {
-                *self.used_mem_mb.write() -= reg.memory;
+                *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
                 self.return_gpu(counter, tid);
                 match cont_lifecycle.remove_container(cont, "default", tid).await {
                     Ok(_) => {

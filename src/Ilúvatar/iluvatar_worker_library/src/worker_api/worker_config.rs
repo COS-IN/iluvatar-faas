@@ -1,4 +1,7 @@
-use crate::services::invocation::queueing::{gpu_mqfq::MqfqConfig, EnqueueingPolicy};
+use crate::services::{
+    containers::docker::DockerConfig,
+    invocation::queueing::{gpu_mqfq::MqfqConfig, EnqueueingPolicy},
+};
 use config::{Config, File};
 use iluvatar_library::{
     energy::EnergyConfig,
@@ -66,6 +69,9 @@ pub struct ContainerResourceConfig {
     ///   If 0 then the concurrency is unlimited
     pub concurrent_creation: u32,
 
+    /// Configuration to be passed to Docker
+    /// Currently this is also passed to Containerd for repository autentication
+    pub docker_config: Option<DockerConfig>,
     /// Settings for the CPU compute resources the worker can use
     pub cpu_resource: Arc<CPUResourceConfig>,
     /// Settings for the CPU compute resources the worker can use

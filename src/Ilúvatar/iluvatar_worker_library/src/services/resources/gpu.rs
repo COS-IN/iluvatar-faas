@@ -349,30 +349,18 @@ impl GpuResourceTracker {
             Self::set_gpu_exclusive(tid)?;
         }
         debug!(tid=%tid, "Launching MPS container");
-        let mut devices: Vec<_> = vec![];
-        for gpu_id in 0..gpu_config.count {
-            let path = format!("/dev/nvidia{}", gpu_id);
-            devices.push(bollard::secret::DeviceMapping {
-                path_on_host: Some(path.clone()),
-                path_in_container: Some(path),
-                cgroup_permissions: None,
-            });
-        }
-        devices.push(bollard::secret::DeviceMapping {
-            path_on_host: Some("/dev/nvidia-uvm".to_owned()),
-            path_in_container: Some("/dev/nvidia-uvm".to_owned()),
-            cgroup_permissions: None,
-        });
-        devices.push(bollard::secret::DeviceMapping {
-            path_on_host: Some("/dev/nvidiactl".to_owned()),
-            path_in_container: Some("/dev/nvidiactl".to_owned()),
-            cgroup_permissions: None,
-        });
+        let devices = vec![bollard::models::DeviceRequest {
+            driver: Some("".into()),
+            count: Some(-1),
+            device_ids: None,
+            capabilities: Some(vec![vec!["gpu".into()]]),
+            options: Some(HashMap::new()),
+        }];
         let cfg = bollard::models::HostConfig {
             ipc_mode: Some("host".to_owned()),
             binds: Some(vec!["/tmp/nvidia-mps:/tmp/nvidia-mps".to_owned()]),
             runtime: Some("nvidia".to_owned()),
-            devices: Some(devices),
+            device_requests: Some(devices),
             ..Default::default()
         };
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";

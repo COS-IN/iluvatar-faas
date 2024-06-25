@@ -112,6 +112,7 @@ impl IsolationFactory {
                         netm,
                         self.worker_config.container_resources.clone(),
                         self.worker_config.limits.clone(),
+                        self.worker_config.container_resources.docker_config.clone(),
                     );
                     lifecycle.connect().await?;
                     self.insert_cycle(&mut ret, Arc::new(lifecycle))?;
@@ -124,6 +125,7 @@ impl IsolationFactory {
                 let d = Arc::new(DockerIsolation::new(
                     self.worker_config.container_resources.clone(),
                     self.worker_config.limits.clone(),
+                    self.worker_config.container_resources.docker_config.clone(),
                     tid,
                 )?);
                 self.insert_cycle(&mut ret, d)?;

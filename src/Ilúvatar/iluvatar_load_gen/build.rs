@@ -1,6 +1,5 @@
 use std::env;
 use std::error::Error;
-use std::fs::create_dir_all;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -16,18 +15,28 @@ fn get_output_path() -> PathBuf {
         .join(build_type)
 }
 
-fn copy_file(infile: &Path) -> Result<(), Box<dyn Error>> {
-    let output_path = get_output_path();
-    let output_file = output_path.join(infile.file_name().unwrap());
-    let infile = Path::new("src").join("resources").join(infile);
-    create_dir_all(&output_path)?;
-    std::fs::copy(infile, output_file).unwrap();
+fn copy_folder(folder: &Path) -> Result<(), Box<dyn Error>> {
+    let output_path = get_output_path().join(folder);
+    std::fs::create_dir_all(&output_path).unwrap();
+
+    for path in std::fs::read_dir(Path::new("src").join(folder)).unwrap() {
+        let path = path.unwrap();
+        let pth_type = path.file_type().unwrap();
+        if pth_type.is_dir() {
+            copy_folder(Path::new(&folder).join(path.file_name()).as_path()).unwrap();
+        } else if pth_type.is_file() {
+            let input_path = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap())
+                .join("src")
+                .join(folder)
+                .join(path.file_name());
+            let output_path = Path::new(&output_path).join(path.file_name());
+            std::fs::copy(input_path, output_path).unwrap();
+        }
+    }
     Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    copy_file(Path::new("packaged-benchmark.csv")).unwrap();
-    copy_file(Path::new("gpu-benchmark.csv")).unwrap();
-    copy_file(Path::new("cpu-benchmark.csv")).unwrap();
+    copy_folder(Path::new("resources")).unwrap();
     Ok(())
 }

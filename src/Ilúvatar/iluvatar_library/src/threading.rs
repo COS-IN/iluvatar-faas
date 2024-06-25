@@ -4,6 +4,8 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle as OsHandle;
 use std::time::{Duration, SystemTime};
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::Notify;
 use tokio::task::JoinHandle as TokioHandle;
 use tracing::{debug, error, warn};
 
@@ -85,6 +87,77 @@ where
     });
 
     (handle, tx)
+}
+
+/// Start an async function inside of a Tokio worker
+/// It will be awakened on each notification
+pub fn tokio_notify_thread<S>(
+    tid: TransactionId,
+    notifier: Arc<Notify>,
+    function: Arc<dyn Fn(&S, &TransactionId) + Send + Sync + 'static>,
+) -> (TokioHandle<()>, Sender<Arc<S>>)
+where
+    S: Send + Sync + 'static,
+{
+    let (tx, rx) = channel();
+    let handle = tokio::spawn(async move {
+        let service: Arc<S> = match rx.recv() {
+            Ok(cm) => cm,
+            Err(_) => {
+                error!(tid=%tid, typename=%std::any::type_name::<S>(), "Tokio service thread failed to receive service from channel!");
+                return;
+            }
+        };
+        crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
+        loop {
+            tokio::select! {
+              _ = crate::continuation::GLOB_NOTIFIER.notified() => break,
+              _ = notifier.notified() => function(&service, &tid),
+            }
+        }
+        crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
+    });
+
+    (handle, tx)
+}
+
+/// Start an async function inside of a Tokio worker
+/// It will be executed on each sent item sent via [sender]
+pub fn tokio_sender_thread<'a, S, T, R, F>(
+    tid: TransactionId,
+    function: Arc<F>,
+) -> (TokioHandle<()>, Sender<Arc<S>>, UnboundedSender<T>)
+where
+    S: Send + Sync + 'static,
+    T: Send + Sync + 'static,
+    R: Future<Output = ()> + Send,
+    F: Fn(Arc<S>, TransactionId, T) -> R + 'a + Sync + Send + 'static,
+{
+    let (service_tx, service_rx) = channel();
+    let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel::<T>();
+    let handle = tokio::spawn(async move {
+        let tid = tid;
+        let service: Arc<S> = match service_rx.recv() {
+            Ok(cm) => cm,
+            Err(_) => {
+                error!(tid=%tid, typename=%std::any::type_name::<S>(), "Tokio service thread failed to receive service from channel!");
+                return;
+            }
+        };
+        crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
+        loop {
+            tokio::select! {
+              _ = crate::continuation::GLOB_NOTIFIER.notified() => break,
+              item = item_rx.recv() => match item {
+                  Some(item) => function(service.clone(), tid.clone(), item).await,
+                  None => break,
+              },
+            }
+        }
+        crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
+    });
+
+    (handle, service_tx, item_tx)
 }
 
 /// Start an async function on a new OS thread inside of a private Tokio runtime
