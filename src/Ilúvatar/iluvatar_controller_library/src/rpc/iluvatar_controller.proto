@@ -1,0 +1,148 @@
+syntax = "proto3";
+
+package iluvatar_controller;
+
+message PingRequest {
+  string message = 1;
+  string transaction_id = 2;
+}
+
+message PingResponse {
+  string message = 1;
+}
+
+message InvokeRequest {
+  string function_name = 1;
+  string function_version = 2;
+  string json_args = 3;
+  string transaction_id = 4;
+}
+
+message InvokeResponse {
+  string json_result = 1;
+  bool success = 2;
+  // The E2E latency between the worker and the container
+  uint64 duration_us = 3;
+  // The compute resource the invocation was run on
+  uint32 compute = 4;
+  // The state of the container the invocation was run on
+  ContainerState container_state = 5;
+}
+// Possible states of a container
+enum ContainerState {
+  // An error occured elsewhere
+  ERROR = 0;
+  // The container is unhealthy and should not be used
+  Unhealthy = 1;
+  // The container was started on-demand for an invocation and nothing has run on it yet
+  COLD = 2;
+  // The container was pre-warmed by a request and as not run anything yet
+  PREWARM = 3;
+  // The container has completed at least one invocation
+  WARM = 4;
+}
+
+message InvokeAsyncRequest {
+  string function_name = 1;
+  string function_version = 2;
+  string json_args = 3;
+  string transaction_id = 4;
+}
+message InvokeAsyncResponse {
+  string lookup_cookie = 1;
+  bool success = 2;
+}
+message InvokeAsyncLookupRequest {
+  string lookup_cookie = 1;
+  string transaction_id = 2;
+}
+
+message PrewarmRequest {
+  string function_name = 1;
+  string function_version = 2;
+  string transaction_id = 3;
+  // The compute platforms that the function can run on. Optional
+  uint32 compute = 4;
+}
+message PrewarmResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message RegisterRequest {
+  string function_name = 1;
+  string function_version = 2;
+  string image_name = 3;
+  int64 memory = 4;
+  uint32 cpus = 5;
+  uint32 parallel_invokes = 6;
+  string transaction_id = 7;
+  LanguageRuntime language = 8;
+  // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
+  uint32 compute = 9;
+  // The compute platforms that the function can run on. Passing multiple means the function can optionall run on any of them, and the platform will choose at execution time.
+  uint32 isolate = 10;
+  // Optional. A serialized string of the iluvatar_library::types::ResourceTimings struct to pre-populate the worker with information
+  string resource_timings_json = 11;
+}
+
+message RegisterResponse {
+  bool success = 1;
+  string function_json_result = 2;
+}
+
+message StatusRequest {
+  string transaction_id = 1;
+}
+
+message StatusResponse {
+  bool success = 1;
+  int64 queue_len = 2;
+  int64 used_mem = 3;
+  int64 total_mem = 4;
+  double cpu_us = 5;
+  double cpu_sy = 6;
+  double cpu_id = 7;
+  double cpu_wa = 8;
+  double load_avg_1minute = 9;
+  uint32 num_system_cores = 10;
+  uint32 num_running_funcs = 11;
+}
+
+message HealthRequest {
+  string transaction_id = 1;
+}
+
+enum RpcHealthStatus {
+  HEALTHY = 0;
+  UNHEALTHY = 1;
+}
+message HealthResponse {
+  RpcHealthStatus status = 1;
+}
+
+message CleanRequest {
+  string transaction_id = 1;
+}
+message CleanResponse {
+}
+
+// The language a function's code uses
+enum LanguageRuntime {
+  // Use when the the function being created is registered with an image, not code. As we don't need to know the language.
+  NOLANG = 0;
+  PYTHON3 = 1;
+}
+  
+service IluvatarController {
+  rpc ping(PingRequest) returns (PingResponse) {}
+  rpc prewarm(PrewarmRequest) returns (PrewarmResponse) {}
+  rpc invoke(InvokeRequest) returns (InvokeResponse) {}
+  rpc invoke_async(InvokeAsyncRequest) returns (InvokeAsyncResponse) {}
+  rpc invoke_async_check(InvokeAsyncLookupRequest) returns (InvokeResponse) {}
+  rpc register(RegisterRequest) returns (RegisterResponse) {}
+  rpc health(HealthRequest) returns (HealthResponse) {}
+  rpc status(StatusRequest) returns (StatusResponse) {}
+  // Instruct the worker to remove all containers it has created
+  rpc clean(CleanRequest) returns (CleanResponse) {}
+}
