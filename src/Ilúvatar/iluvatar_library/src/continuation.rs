@@ -34,9 +34,11 @@ impl Continuation {
     /// return after all are complete, or after a timeout
     pub fn signal_application_exit(&self, tid: &TransactionId) {
         *self.signal.write() = false;
+        GLOB_NOTIFIER.notify_waiters();
         info!(tid=%tid, "Signalling worker exit");
         let start = SystemTime::now();
         while *self.outstanding_threads.read() > 0 {
+            GLOB_NOTIFIER.notify_one();
             let t = match start.elapsed() {
                 Ok(t) => t,
                 Err(_) => continue,
