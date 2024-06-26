@@ -1,5 +1,4 @@
 use self::worker_config::WorkerConfig;
-use crate::rpc::{CleanResponse, InvokeResponse, StatusResponse};
 use crate::services::containers::{containermanager::ContainerManager, IsolationFactory};
 use crate::services::influx_updater::InfluxUpdater;
 #[cfg(feature = "power_cap")]
@@ -12,15 +11,17 @@ use crate::services::worker_health::WorkerHealthService;
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
 use iluvatar_library::influx::InfluxClient;
-use iluvatar_library::types::{Compute, Isolation, ResourceTimings};
+use iluvatar_library::types::{Compute, HealthStatus, Isolation, ResourceTimings};
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{characteristics_map::AgExponential, energy::energy_logging::EnergyLogger};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
+use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, StatusResponse};
 use std::sync::Arc;
 
 pub mod worker_config;
 pub use worker_config as config;
 pub mod iluvatar_worker;
+pub mod rpc;
 pub mod sim_worker;
 pub mod worker_comm;
 
@@ -125,12 +126,6 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         reg,
         influx_updater,
     ))
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum HealthStatus {
-    HEALTHY,
-    UNHEALTHY,
 }
 
 #[tonic::async_trait]

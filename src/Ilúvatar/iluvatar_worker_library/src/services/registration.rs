@@ -1,6 +1,5 @@
 use super::containers::{containermanager::ContainerManager, ContainerIsolationCollection};
-use crate::worker_api::worker_config::FunctionLimits;
-use crate::{rpc::RegisterRequest, worker_api::worker_config::ContainerResourceConfig};
+use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
 use iluvatar_library::{
     characteristics_map::{Characteristics, CharacteristicsMap, Values},
@@ -8,6 +7,7 @@ use iluvatar_library::{
     types::{Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::calculate_fqdn,
 };
+use iluvatar_rpc::rpc::RegisterRequest;
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info};

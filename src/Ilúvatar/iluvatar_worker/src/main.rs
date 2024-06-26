@@ -3,7 +3,7 @@ use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_library::{bail_error, logging::start_tracing, nproc, utils::wait_for_exit_signal};
-use iluvatar_worker_library::rpc::iluvatar_worker_server::IluvatarWorkerServer;
+use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_worker_library::worker_api::config::Configuration;
 use iluvatar_worker_library::worker_api::create_worker;
 use iluvatar_worker_library::{services::containers::IsolationFactory, worker_api::config::WorkerConfig};

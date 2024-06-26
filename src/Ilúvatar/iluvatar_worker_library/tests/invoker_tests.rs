@@ -3,9 +3,7 @@ pub mod utils;
 
 use iluvatar_library::transaction::TEST_TID;
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_worker_library::rpc::{
-    ContainerState, InvokeAsyncRequest, InvokeRequest, LanguageRuntime, RegisterRequest,
-};
+use iluvatar_rpc::rpc::{ContainerState, InvokeAsyncRequest, InvokeRequest, LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
 use rstest::rstest;
 use std::time::{Duration, SystemTime};

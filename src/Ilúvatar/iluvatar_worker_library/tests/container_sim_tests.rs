@@ -8,7 +8,7 @@ use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
-use iluvatar_worker_library::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::structs::{ContainerState, ContainerTimeFormatter};
 use rstest::rstest;
 

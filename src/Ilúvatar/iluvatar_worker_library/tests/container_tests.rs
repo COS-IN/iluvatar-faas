@@ -6,8 +6,7 @@ use iluvatar_library::threading::EventualItem;
 use iluvatar_library::transaction::TEST_TID;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::utils::calculate_base_uri;
-use iluvatar_worker_library::rpc::LanguageRuntime;
-use iluvatar_worker_library::rpc::RegisterRequest;
+use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer;
 use iluvatar_worker_library::services::containers::structs::{cast, ContainerState};
 

@@ -5,7 +5,7 @@ use crate::utils::{sim_args, sim_invoker_svc};
 use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::Compute;
 use iluvatar_library::types::Isolation;
-use iluvatar_worker_library::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 
 fn gpu_reg() -> RegisterRequest {
     RegisterRequest {

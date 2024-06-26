@@ -236,6 +236,12 @@ impl DroppableMovableTrait for tokio::sync::OwnedSemaphorePermit {}
 pub type DroppableToken = Box<dyn DroppableMovableTrait>;
 impl DroppableMovableTrait for Vec<DroppableToken> {}
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum HealthStatus {
+    HEALTHY,
+    UNHEALTHY,
+}
+
 #[cfg(test)]
 mod types_tests {
     use super::*;

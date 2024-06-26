@@ -8,10 +8,8 @@ use iluvatar_library::{
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::{port::Port, timing::TimedExt},
 };
-use iluvatar_worker_library::{
-    rpc::{CleanResponse, ContainerState, InvokeResponse},
-    worker_api::worker_comm::WorkerAPIFactory,
-};
+use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeResponse};
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc, time::Duration};

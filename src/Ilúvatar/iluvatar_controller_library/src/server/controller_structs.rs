@@ -3,8 +3,7 @@ use iluvatar_library::utils::port_utils::Port;
 use serde::{Deserialize, Serialize};
 
 pub mod json {
-
-    use iluvatar_worker_library::rpc::InvokeResponse;
+    use iluvatar_rpc::rpc::InvokeResponse;
 
     use super::*;
     #[allow(unused)]

@@ -4,7 +4,7 @@ use crate::services::load_balance::LoadBalancerTrait;
 use crate::{prewarm, send_async_invocation, send_invocation};
 use anyhow::Result;
 use iluvatar_library::{transaction::TransactionId, utils::timing::TimedExt};
-use iluvatar_worker_library::rpc::InvokeResponse;
+use iluvatar_rpc::rpc::InvokeResponse;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;

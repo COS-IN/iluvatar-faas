@@ -10,10 +10,18 @@ use iluvatar_library::api_register::RegisterWorker;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::utils::{calculate_fqdn, config::args_to_json};
 use iluvatar_library::{bail_error, transaction::TransactionId};
-use iluvatar_worker_library::rpc::InvokeResponse;
+use iluvatar_rpc::rpc::iluvatar_controller_server::IluvatarController;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
+use tonic::{Request, Response, Status};
 use std::{sync::Arc, time::Duration};
 use tracing::{debug, error, info};
+use iluvatar_rpc::rpc::{
+  InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest,
+  RegisterRequest, RegisterWorkerRequest, RegisterWorkerResponse
+};
+use iluvatar_rpc::rpc::{
+  InvokeAsyncResponse, InvokeResponse, PingResponse, RegisterResponse
+};
 
 #[allow(unused)]
 pub struct Controller {
@@ -132,4 +140,51 @@ impl Controller {
     pub async fn check_async_invocation(&self, cookie: String, tid: &TransactionId) -> Result<Option<String>> {
         self.async_svc.check_async_invocation(cookie, tid).await
     }
+}
+
+#[tonic::async_trait]
+impl IluvatarController for Controller {
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+  async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
+      println!("Got a request: {:?}", request);
+      let reply = PingResponse { message: "Pong".into() };
+      info!("in ping");
+      Ok(Response::new(reply))
+  }
+
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id, function_name=%request.get_ref().function_name, function_version=%request.get_ref().function_version))]
+  async fn invoke(&self, request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
+      let _r = request.into_inner();
+      todo!()
+  }
+
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+  async fn invoke_async(
+      &self,
+      request: Request<InvokeAsyncRequest>,
+  ) -> Result<Response<InvokeAsyncResponse>, Status> {
+    let _r = request.into_inner();
+    todo!()
+  }
+
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+  async fn invoke_async_check(
+      &self,
+      request: Request<InvokeAsyncLookupRequest>,
+  ) -> Result<Response<InvokeResponse>, Status> {
+    let _r = request.into_inner();
+    todo!()
+  }
+
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+  async fn register(&self, request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
+    let _r = request.into_inner();
+    todo!()
+  }
+
+  #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().name))]
+  async fn register_worker(&self, request: Request<RegisterWorkerRequest>) -> Result<Response<RegisterWorkerResponse>, Status> {
+    let _r = request.into_inner();
+    todo!()
+  }
 }

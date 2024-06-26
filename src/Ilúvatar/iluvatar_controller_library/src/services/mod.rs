@@ -4,11 +4,10 @@ pub mod load_balance;
 pub mod load_reporting;
 pub mod registration;
 
-use crate::rpc::{CleanResponse, InvokeResponse, StatusResponse};
 use anyhow::Result;
-use iluvatar_library::types::{Compute, Isolation, ResourceTimings};
+use iluvatar_library::types::{Compute, HealthStatus, Isolation, ResourceTimings};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
-use iluvatar_worker_library::worker_api::HealthStatus;
+use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, StatusResponse};
 
 #[tonic::async_trait]
 pub trait ControllerAPI {

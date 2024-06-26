@@ -10,7 +10,8 @@ use iluvatar_library::utils::timing::TimedExt;
 use iluvatar_library::{
     bail_error, threading::tokio_thread, transaction::TransactionId, transaction::LEAST_LOADED_TID,
 };
-use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
+use iluvatar_rpc::rpc::InvokeResponse;
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;

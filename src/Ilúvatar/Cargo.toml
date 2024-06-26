@@ -7,7 +7,8 @@ members = [
   "iluvatar_controller",
   "iluvatar_library",
   "iluvatar_worker_library",
-  "iluvatar_energy_mon"
+  "iluvatar_energy_mon",
+  "iluvatar_rpc"
 ]
 resolver = "2"
 

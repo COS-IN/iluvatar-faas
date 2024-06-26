@@ -12,6 +12,7 @@ categories.workspace = true
 
 [dependencies]
 iluvatar_library = { path = "../iluvatar_library" }
+iluvatar_rpc = { path = "../iluvatar_rpc" }
 iluvatar_controller_library = { path = "../iluvatar_controller_library" }
 iluvatar_worker_library = { path = "../iluvatar_worker_library" }
 config = "0.13"

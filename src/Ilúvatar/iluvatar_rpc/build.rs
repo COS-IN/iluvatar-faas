@@ -3,41 +3,43 @@ use std::error::Error;
 fn main() -> Result<(), Box<dyn Error>> {
     tonic_build::configure()
         .type_attribute(
-            "iluvatar_controller.LanguageRuntime",
+            "iluvatar_rpc.LanguageRuntime",
             "#[derive(serde::Serialize,serde::Deserialize,clap::ValueEnum)]",
         )
         .type_attribute(
-            "iluvatar_controller.SupportedIsolation",
+            "iluvatar_rpc.SupportedIsolation",
             "#[derive(serde::Serialize,serde::Deserialize,clap::ValueEnum)]",
         )
         .type_attribute(
-            "iluvatar_controller.SupportedCompute",
+            "iluvatar_rpc.SupportedCompute",
             "#[derive(serde::Serialize,serde::Deserialize,clap::ValueEnum)]",
         )
         .type_attribute(
-            "iluvatar_controller.InvokeResponse",
+            "iluvatar_rpc.InvokeResponse",
             "#[derive(serde::Serialize,serde::Deserialize)]",
         )
         .type_attribute(
-            "iluvatar_controller.InvokeAsyncResponse",
+            "iluvatar_rpc.InvokeAsyncResponse",
             "#[derive(serde::Serialize,serde::Deserialize)]",
         )
         .type_attribute(
-            "iluvatar_controller.PrewarmResponse",
+            "iluvatar_rpc.PrewarmResponse",
             "#[derive(serde::Serialize,serde::Deserialize)]",
         )
         .type_attribute(
-            "iluvatar_controller.RegisterResponse",
+            "iluvatar_rpc.RegisterResponse",
             "#[derive(serde::Serialize,serde::Deserialize)]",
         )
         .type_attribute(
-            "iluvatar_controller.StatusResponse",
+            "iluvatar_rpc.StatusResponse",
             "#[derive(serde::Serialize,serde::Deserialize)]",
         )
         .type_attribute(
-            "iluvatar_controller.ContainerState",
+            "iluvatar_rpc.ContainerState",
             "#[derive(serde::Serialize,serde::Deserialize)]",
         )
-        .compile(&["src/rpc/iluvatar_controller.proto"], &["src"])?;
+        // .include_file("rpc_includes.rs")
+        // &["src/worker", "src/controller"]
+        .compile(&["src/rpc/iluvatar_rpc.proto"], &["src"])?;
     Ok(())
 }

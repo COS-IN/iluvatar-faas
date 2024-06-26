@@ -1,9 +1,9 @@
 use super::{queueing::EnqueuedInvocation, InvocationResultPtr};
-use crate::rpc::{ContainerState, InvokeResponse};
 use anyhow::Result;
 use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::transaction::TransactionId;
+use iluvatar_rpc::rpc::{ContainerState, InvokeResponse};
 use std::sync::Arc;
 
 pub struct AsyncHelper {

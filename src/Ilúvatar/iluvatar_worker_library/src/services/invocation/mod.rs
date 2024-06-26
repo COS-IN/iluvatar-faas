@@ -45,7 +45,7 @@ pub trait Invoker: Send + Sync {
     fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String>;
 
     /// Check the status of the result, if found is returned destructively
-    fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse>;
+    fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<iluvatar_rpc::rpc::InvokeResponse>;
     /// Number of invocations enqueued on each compute
     fn queue_len(&self) -> std::collections::HashMap<Compute, usize>;
     /// Number of running invocations
