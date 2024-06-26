@@ -28,7 +28,6 @@ async fn main() -> anyhow::Result<()> {
     let _guard = start_tracing(config.logging.clone(), &config.name, tid).unwrap();
 
     let controller = Controller::new(config.clone(), tid).await?;
-    // let server_data = Data::new(server);
 
     info!(tid=%tid, "Controller started!");
     debug!(config=?config, "Controller configuration");
@@ -39,22 +38,6 @@ async fn main() -> anyhow::Result<()> {
             .add_service(IluvatarControllerServer::new(controller))
             .serve(addr),
     );
-
-    // let _handle = tokio::spawn(
-    //     HttpServer::new(move || {
-    //         App::new()
-    //             .app_data(server_data.clone())
-    //             .service(ping)
-    //             .service(invoke_api)
-    //             .service(invoke_async_api)
-    //             .service(invoke_async_check_api)
-    //             .service(prewarm_api)
-    //             .service(register_function_api)
-    //             .service(register_worker_api)
-    //     })
-    //     .bind((config.address.clone(), config.port))?
-    //     .run(),
-    // );
 
     wait_for_exit_signal(tid).await?;
     Ok(())

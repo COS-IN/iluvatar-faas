@@ -1,20 +1,19 @@
 use crate::server::controller_config::ControllerConfig;
-use crate::server::structs::json::{Invoke, Prewarm, RegisterFunction};
 use crate::services::async_invoke::AsyncService;
 use crate::services::controller_health::{ControllerHealthService, HealthService, SimHealthService};
 use crate::services::load_balance::{get_balancer, LoadBalancer};
 use crate::services::load_reporting::LoadService;
 use crate::services::registration::RegistrationService;
 use anyhow::Result;
-use iluvatar_library::api_register::RegisterWorker;
 use iluvatar_library::influx::InfluxClient;
-use iluvatar_library::utils::{calculate_fqdn, config::args_to_json};
+use iluvatar_library::transaction::gen_tid;
+use iluvatar_library::utils::calculate_fqdn;
 use iluvatar_library::{bail_error, transaction::TransactionId};
 use iluvatar_rpc::rpc::iluvatar_controller_server::IluvatarController;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use tonic::{Request, Response, Status};
 use std::{sync::Arc, time::Duration};
-use tracing::{debug, error, info};
+use tracing::{warn, error, info};
 use iluvatar_rpc::rpc::{
   InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest,
   RegisterRequest, RegisterWorkerRequest, RegisterWorkerResponse
@@ -66,80 +65,6 @@ impl Controller {
             registration_svc: reg_svc,
         })
     }
-
-    pub async fn register_function(&self, function: RegisterFunction, tid: &TransactionId) -> Result<()> {
-        self.registration_svc.register_function(function, tid).await?;
-        Ok(())
-    }
-
-    pub async fn register_worker(&self, worker: RegisterWorker, tid: &TransactionId) -> Result<()> {
-        let worker = self.registration_svc.register_worker(worker, tid).await?;
-        self.health_svc
-            .schedule_health_check(self.health_svc.clone(), worker, tid, Some(Duration::from_secs(5)));
-        Ok(())
-    }
-
-    pub async fn prewarm(&self, request: Prewarm, tid: &TransactionId) -> Result<Duration> {
-        let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
-        match self.registration_svc.get_function(&fqdn) {
-            Some(func) => {
-                debug!(tid=%tid, fqdn=%fqdn, "found function for prewarm");
-                self.lb.prewarm(func, tid).await
-            }
-            None => {
-                bail_error!(tid=%tid, fqdn=%fqdn, "Function was not registered; could not prewarm")
-            }
-        }
-    }
-
-    /// Returns the invocation result and the E2E duration of the invocation recorded by the load balancer  
-    ///   Thus including both the time spent on the worker and the invocation time, plus networking
-    pub async fn invoke(&self, request: Invoke, tid: &TransactionId) -> Result<(InvokeResponse, Duration)> {
-        let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
-        match self.registration_svc.get_function(&fqdn) {
-            Some(func) => {
-                info!(tid=%tid, fqdn=%fqdn, "Sending function to load balancer for invocation");
-                let args = match request.args {
-                    Some(args_vec) => args_to_json(&args_vec)?,
-                    None => "{}".to_string(),
-                };
-                self.lb.send_invocation(func, args, tid).await
-            }
-            None => {
-                bail_error!(tid=%tid, fqdn=%fqdn, "Function was not registered; could not invoke")
-            }
-        }
-    }
-
-    pub async fn invoke_async(&self, request: Invoke, tid: &TransactionId) -> Result<(String, Duration)> {
-        let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
-        match self.registration_svc.get_function(&fqdn) {
-            Some(func) => {
-                info!(tid=%tid, fqdn=%fqdn, "Sending function to load balancer for async invocation");
-                let args = match request.args {
-                    Some(args_vec) => args_to_json(&args_vec)?,
-                    None => "{}".to_string(),
-                };
-                match self.lb.send_async_invocation(func, args, tid).await {
-                    Ok((cookie, worker, duration)) => {
-                        self.async_svc.register_async_invocation(cookie.clone(), worker, tid);
-                        Ok((cookie, duration))
-                    }
-                    Err(e) => {
-                        error!(tid=%tid, error=%e, "async invocation failed");
-                        Err(e)
-                    }
-                }
-            }
-            None => {
-                bail_error!(tid=%tid, fqdn=%fqdn, "Function was not registered; could not invoke async")
-            }
-        }
-    }
-
-    pub async fn check_async_invocation(&self, cookie: String, tid: &TransactionId) -> Result<Option<String>> {
-        self.async_svc.check_async_invocation(cookie, tid).await
-    }
 }
 
 #[tonic::async_trait]
@@ -154,8 +79,22 @@ impl IluvatarController for Controller {
 
   #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id, function_name=%request.get_ref().function_name, function_version=%request.get_ref().function_version))]
   async fn invoke(&self, request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
-      let _r = request.into_inner();
-      todo!()
+      let request = request.into_inner();
+      let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
+      match self.registration_svc.get_function(&fqdn) {
+          Some(func) => {
+              info!(tid=%request.transaction_id, fqdn=%fqdn, "Sending function to load balancer for invocation");
+              match self.lb.send_invocation(func, request.json_args, &request.transaction_id).await {
+                  Ok((result, _dur)) => Ok(Response::new(result)),
+                  Err(e) => Err(Status::internal(e.to_string())),
+              }
+          }
+          None => {
+              let msg = "Function was not registered; could not invoke";
+              warn!(tid=%request.transaction_id, fqdn=%fqdn, msg);
+              Err(Status::failed_precondition(msg))
+          }
+      }
   }
 
   #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
@@ -163,8 +102,28 @@ impl IluvatarController for Controller {
       &self,
       request: Request<InvokeAsyncRequest>,
   ) -> Result<Response<InvokeAsyncResponse>, Status> {
-    let _r = request.into_inner();
-    todo!()
+    let request = request.into_inner();
+    let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
+    match self.registration_svc.get_function(&fqdn) {
+        Some(func) => {
+            info!(tid=%request.transaction_id, fqdn=%fqdn, "Sending function to load balancer for async invocation");
+            match self.lb.send_async_invocation(func, request.json_args, &request.transaction_id).await {
+                Ok((cookie, worker, _duration)) => {
+                    self.async_svc.register_async_invocation(cookie.clone(), worker, &request.transaction_id);
+                    Ok(Response::new(InvokeAsyncResponse { success: true, lookup_cookie:cookie }))
+                }
+                Err(e) => {
+                    error!(tid=%request.transaction_id, error=%e, "async invocation failed");
+                    Err(Status::internal(e.to_string()))
+                }
+            }
+        }
+        None => {
+            let msg = "Function was not registered; could not invoke async";
+            warn!(tid=%request.transaction_id, fqdn=%fqdn, msg);
+            Err(Status::failed_precondition(msg))
+        }
+    }
   }
 
   #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
@@ -172,19 +131,36 @@ impl IluvatarController for Controller {
       &self,
       request: Request<InvokeAsyncLookupRequest>,
   ) -> Result<Response<InvokeResponse>, Status> {
-    let _r = request.into_inner();
-    todo!()
+    let request = request.into_inner();
+    match self.async_svc.check_async_invocation(request.lookup_cookie, &request.transaction_id).await {
+        Ok(r) => match r {
+            Some(r) => Ok(Response::new(r)),
+            None => Err(Status::unavailable("NOT READY")),
+        },
+        Err(e) => Err(Status::internal(e.to_string())),
+    }
   }
 
   #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
   async fn register(&self, request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
-    let _r = request.into_inner();
-    todo!()
+      let request = request.into_inner();
+      let tid = request.transaction_id.clone();
+      match self.registration_svc.register_function(request, &tid).await {
+          Ok(_) => Ok(Response::new(RegisterResponse { success: true, function_json_result: "{}".to_owned()})),
+          Err(e) => Err(Status::internal(e.to_string())),
+      }
   }
 
   #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().name))]
   async fn register_worker(&self, request: Request<RegisterWorkerRequest>) -> Result<Response<RegisterWorkerResponse>, Status> {
-    let _r = request.into_inner();
-    todo!()
+    let request = request.into_inner();
+    let tid = gen_tid();
+    let worker = match self.registration_svc.register_worker(request, &tid).await {
+        Ok(w) => w,
+        Err(e) => return Err(Status::internal(e.to_string())),
+    };
+    self.health_svc
+        .schedule_health_check(self.health_svc.clone(), worker, &tid, Some(Duration::from_secs(5)));
+      Ok(Response::new(RegisterWorkerResponse {}))
   }
 }

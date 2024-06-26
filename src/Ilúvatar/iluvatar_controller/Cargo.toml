@@ -11,7 +11,6 @@ repository.workspace = true
 categories.workspace = true
 
 [dependencies]
-actix-web = "4"
 iluvatar_library = { path = "../iluvatar_library" }
 iluvatar_rpc = { path = "../iluvatar_rpc" }
 iluvatar_controller_library = { path = "../iluvatar_controller_library" }

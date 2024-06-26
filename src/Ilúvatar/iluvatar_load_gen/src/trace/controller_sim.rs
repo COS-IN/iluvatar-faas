@@ -4,16 +4,10 @@ use crate::{
     trace::{trace_utils::map_functions_to_prep, CsvInvocation},
     utils::{load_benchmark_data, resolve_handles, CompletedControllerInvocation, FunctionExecOutput, VERSION},
 };
-use actix_web::{
-    body::MessageBody,
-    web::{Data, Json},
-};
 use anyhow::Result;
-use iluvatar_controller_library::server::structs::json::Invoke;
 use iluvatar_controller_library::server::web_server::{invoke, register_worker};
 use iluvatar_controller_library::server::{
     controller::Controller,
-    controller_structs::json::{ControllerInvokeResult, Prewarm, RegisterFunction},
     web_server::{prewarm, register_function},
 };
 use iluvatar_library::{
@@ -21,7 +15,6 @@ use iluvatar_library::{
     logging::LocalTime,
     transaction::{gen_tid, TransactionId, SIMULATION_START_TID},
     types::{CommunicationMethod, Compute, Isolation},
-    utils::timing::TimedExt,
 };
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 use std::{

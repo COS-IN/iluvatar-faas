@@ -3,6 +3,7 @@ use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::bail_error;
 use iluvatar_library::transaction::TransactionId;
+use iluvatar_rpc::rpc::InvokeResponse;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, warn};
@@ -30,7 +31,7 @@ impl AsyncService {
     /// Checks the worker for the status of the async invocation
     /// Returns Some(string) if it is complete, None if waiting, and an error if something went wrong
     /// Assumes that [this function](iluvatar_worker_library::services::invocation::async_tracker::AsyncHelper::invoke_async_check) will return a dictionary with known keys
-    pub async fn check_async_invocation(&self, cookie: String, tid: &TransactionId) -> Result<Option<String>> {
+    pub async fn check_async_invocation(&self, cookie: String, tid: &TransactionId) -> Result<Option<InvokeResponse>> {
         debug!(tid=%tid, cookie=%cookie, "Checking async invocation");
         if let Some(worker) = self.async_invokes.get(&cookie) {
             let worker = worker.value();
@@ -47,7 +48,7 @@ impl AsyncService {
             let result = api.invoke_async_check(&cookie, tid.clone()).await?;
             if result.success {
                 self.async_invokes.remove(&cookie);
-                Ok(Some(result.json_result))
+                Ok(Some(result))
             } else {
                 let json: HashMap<String, String> = match serde_json::from_str(&result.json_result) {
                     Ok(r) => r,
