@@ -73,15 +73,15 @@ async fn prewarm_funcs(funcs: &HashMap<String, Function>, host: &str, port: Port
 pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
-    let client = match reqwest::Client::builder()
-        .pool_max_idle_per_host(0)
-        .pool_idle_timeout(None)
-        .connect_timeout(Duration::from_secs(60))
-        .build()
-    {
-        Ok(c) => Arc::new(c),
-        Err(e) => panic!("Unable to build reqwest HTTP client: {:?}", e),
-    };
+    // let client = match reqwest::Client::builder()
+    //     .pool_max_idle_per_host(0)
+    //     .pool_idle_timeout(None)
+    //     .connect_timeout(Duration::from_secs(60))
+    //     .build()
+    // {
+    //     Ok(c) => Arc::new(c),
+    //     Err(e) => panic!("Unable to build reqwest HTTP client: {:?}", e),
+    // };
     map_functions_to_prep(
         crate::utils::RunType::Live,
         args.load_type,

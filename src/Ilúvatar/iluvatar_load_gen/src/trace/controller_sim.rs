@@ -5,35 +5,33 @@ use crate::{
     utils::{load_benchmark_data, resolve_handles, CompletedControllerInvocation, FunctionExecOutput, VERSION},
 };
 use anyhow::Result;
-use iluvatar_controller_library::server::web_server::{invoke, register_worker};
-use iluvatar_controller_library::server::{
-    controller::Controller,
-    web_server::{prewarm, register_function},
-};
+use iluvatar_controller_library::server::controller::Controller;
 use iluvatar_library::{
-    api_register::RegisterWorker,
     logging::LocalTime,
     transaction::{gen_tid, TransactionId, SIMULATION_START_TID},
-    types::{CommunicationMethod, Compute, Isolation},
+    types::{CommunicationMethod, Compute, Isolation}, utils::config::args_to_json,
 };
+use iluvatar_rpc::rpc::{iluvatar_controller_server::IluvatarController, LanguageRuntime};
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 use std::{
     collections::HashMap,
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 use tokio::{runtime::Builder, task::JoinHandle};
+use tonic::Request;
+use iluvatar_rpc::rpc::{InvokeRequest, RegisterRequest, RegisterWorkerRequest};
 
 async fn controller_sim_register_workers(
     num_workers: usize,
-    server_data: &Data<Controller>,
+    server: &Arc<dyn IluvatarController>,
     worker_config_pth: &str,
     worker_config: &Arc<WorkerConfig>,
 ) -> Result<()> {
     for i in 0..num_workers {
-        let r = RegisterWorker {
+        let r = RegisterWorkerRequest {
             name: format!("worker_{}", i),
-            communication_method: CommunicationMethod::SIMULATION,
+            communication_method: CommunicationMethod::SIMULATION as u32,
             host: worker_config_pth.to_owned(),
             port: 0,
             memory: worker_config.container_resources.memory_mb,
@@ -43,17 +41,13 @@ async fn controller_sim_register_workers(
                 .gpu_resource
                 .as_ref()
                 .map_or(0, |c| c.count),
-            compute: Compute::CPU,
-            isolation: Isolation::CONTAINERD,
+            compute: Compute::CPU.bits(),
+            isolation: Isolation::CONTAINERD.bits(),
         };
-        let response = register_worker(server_data.clone(), Json(r)).await;
-        if !response.status().is_success() {
-            let text = response.body();
-            anyhow::bail!(
-                "Registering simulated worker failed with '{:?}' '{:?}",
-                response.headers(),
-                text
-            )
+        let response = server.register_worker(Request::new(r)).await;
+        match response {
+            Ok(_) => (),
+            Err(e) => anyhow::bail!("Registering simulated worker failed with '{:?}'", e),
         }
     }
     Ok(())
@@ -61,61 +55,40 @@ async fn controller_sim_register_workers(
 
 async fn controller_sim_register_functions(
     metadata: &HashMap<String, Function>,
-    server_data: &Data<Controller>,
+    server: &Arc<dyn IluvatarController>,
     benchmark: Option<&BenchmarkStore>,
 ) -> Result<()> {
     for (_, func) in metadata.iter() {
         let func_timings = match &func.chosen_name {
             Some(chosen_name) => match benchmark.as_ref() {
                 Some(t) => match t.data.get(chosen_name) {
-                    Some(d) => Some(d.resource_data.clone()),
+                    Some(d) => serde_json::to_string(&d.resource_data)?,
                     None => anyhow::bail!(format!(
                         "Benchmark was passed but function '{}' was not present",
                         chosen_name
                     )),
                 },
-                None => None,
+                None => "".to_owned(),
             },
-            None => None,
+            None => "".to_owned(),
         };
-        let r = RegisterFunction {
+        let r = RegisterRequest {
             function_name: func.func_name.to_string(),
             function_version: VERSION.clone(),
             image_name: "".to_string(),
             memory: func.mem_mb,
             cpus: 1,
             parallel_invokes: 1,
-            timings: func_timings,
+            resource_timings_json: func_timings,
+            transaction_id: format!("reg-{}", func.func_name),
+            compute: Compute::CPU.bits(),
+            isolate: Isolation::CONTAINERD.bits(),
+            language: LanguageRuntime::Python3.into(),
         };
-        let response = register_function(server_data.clone(), Json(r)).await;
-        if !response.status().is_success() {
-            let text = response.body();
-            anyhow::bail!("Registration failed with '{:?}' '{:?}", response.headers(), text)
-        }
-    }
-    Ok(())
-}
-
-async fn controller_sim_prewarm_functions(
-    metadata: &HashMap<String, Function>,
-    server_data: &Data<Controller>,
-) -> Result<()> {
-    for (_, func) in metadata.iter() {
-        for _ in 0..func.prewarms.ok_or_else(|| {
-            anyhow::anyhow!(
-                "Function '{:?}' did not have a prewarm value, supply one or pass a benchmark file",
-                func
-            )
-        })? {
-            let r = Prewarm {
-                function_name: func.func_name.to_string(),
-                function_version: VERSION.clone(),
-            };
-            let response = prewarm(server_data.clone(), Json(r)).await;
-            if !response.status().is_success() {
-                let text = response.body();
-                anyhow::bail!("Prewarm failed with '{:?}' '{:?}", response.headers(), text)
-            }
+        let response = server.register(Request::new(r)).await;
+        match response {
+            Ok(_) => (),
+            Err(e) => anyhow::bail!("Registering function failed with '{:?}'", e),
         }
     }
     Ok(())
@@ -123,76 +96,57 @@ async fn controller_sim_prewarm_functions(
 
 async fn controller_sim_invoke(
     func_name: String,
-    server_data: Data<Controller>,
+    server: Arc<dyn IluvatarController>,
     warm_dur_ms: u64,
     cold_dur_ms: u64,
     clock: Arc<LocalTime>,
 ) -> Result<CompletedControllerInvocation> {
-    let i = Invoke {
+  let tid = gen_tid();
+    let i = InvokeRequest {
         function_name: func_name.clone(),
         function_version: VERSION.clone(),
-        args: Some(vec![
+        json_args: args_to_json(&vec![
             format!("warm_dur_ms={}", warm_dur_ms),
             format!("cold_dur_ms={}", cold_dur_ms),
-        ]),
+        ])?,
+        transaction_id: tid.clone(),
     };
 
+    let start = Instant::now();
     let invoke_start = clock.now_str()?;
-    let (response, invok_lat) = invoke(server_data, Json(i)).timed().await;
-    if !response.status().is_success() {
-        let text = response.body();
-        return Ok(CompletedControllerInvocation::error(
-            format!("Invocation error: {:?}", text),
-            &func_name,
-            &VERSION,
-            None,
-            invoke_start,
-        ));
-    }
-    let b = response.into_body();
-    let bytes = match b.try_into_bytes() {
-        Ok(b) => b,
-        Err(e) => {
-            return Ok(CompletedControllerInvocation::error(
-                format!("Error converting body into bytes: {:?}", e),
-                &func_name,
-                &VERSION,
-                None,
-                invoke_start,
-            ))
-        }
+    let response = server.invoke(Request::new(i)).await;
+    let invok_lat = start.elapsed();
+    let response = match response {
+        Ok(r) => r.into_inner(),
+        Err(e) => return Ok(CompletedControllerInvocation::error(
+          format!("Invocation error: {:?}", e),
+          &func_name,
+          &VERSION,
+          None,
+          invoke_start,
+      )),
     };
 
-    let r = match serde_json::from_slice::<ControllerInvokeResult>(&bytes) {
-        Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.result.json_result) {
-            Ok(feo) => CompletedControllerInvocation {
-                controller_response: r,
-                function_output: feo,
-                client_latency_us: invok_lat.as_micros(),
-                function_name: func_name.clone(),
-                function_version: VERSION.clone(),
-                invoke_start,
-            },
-            Err(e) => CompletedControllerInvocation::error(
-                format!(
-                    "FunctionExecOutput Deserialization error: {}; {}",
-                    e, &r.result.json_result
-                ),
-                &func_name,
-                &VERSION,
-                Some(&r.tid),
-                invoke_start,
-            ),
-        },
-        Err(e) => CompletedControllerInvocation::error(
-            format!("Invocation error: {}", e),
-            &func_name,
-            &VERSION,
-            None,
-            invoke_start,
+    match serde_json::from_str::<FunctionExecOutput>(&response.json_result) {
+        Ok(feo) => Ok(CompletedControllerInvocation {
+          controller_response: response,
+          function_output: feo,
+          client_latency_us: invok_lat.as_micros(),
+          function_name: func_name.clone(),
+          function_version: VERSION.clone(),
+          invoke_start,
+       }),
+      Err(e) => Ok(CompletedControllerInvocation::error(
+        format!(
+            "FunctionExecOutput Deserialization error: {}; {}",
+            e, &response.json_result
         ),
-    };
-    Ok(r)
+        &func_name,
+        &VERSION,
+        Some(&tid),
+        invoke_start,
+          ))
+    }
 }
 
 pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
@@ -218,7 +172,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         iluvatar_library::logging::start_tracing(controller_config.logging.clone(), &controller_config.name, tid)?;
 
     let server = threaded_rt.block_on(async { Controller::new(controller_config.clone(), tid).await })?;
-    let server_data = actix_web::web::Data::new(server);
+    let server_data: Arc<dyn IluvatarController> = Arc::new(server);
 
     threaded_rt.block_on(controller_sim_register_workers(
         args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize,
@@ -242,7 +196,6 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         &server_data,
         bench_data.as_ref(),
     ))?;
-    threaded_rt.block_on(controller_sim_prewarm_functions(&metadata, &server_data))?;
 
     let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
     let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();

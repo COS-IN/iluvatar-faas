@@ -37,7 +37,11 @@ impl RegistrationService {
     /// Register a new worker
     /// Prepare it with all registered functions too
     /// Send to load balancer
-    pub async fn register_worker(&self, worker: RegisterWorkerRequest, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {
+    pub async fn register_worker(
+        &self,
+        worker: RegisterWorkerRequest,
+        tid: &TransactionId,
+    ) -> Result<Arc<RegisteredWorker>> {
         if self.worker_registered(&worker.name) {
             bail_error!(tid=%tid, worker=%worker.name, "Worker was already registered");
         }
@@ -124,7 +128,7 @@ impl RegistrationService {
                         Isolation::CONTAINERD,
                         Compute::CPU,
                         // function.timings.as_ref(),
-                        None
+                        None,
                     )
                     .await
                 {

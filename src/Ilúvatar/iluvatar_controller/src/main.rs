@@ -6,9 +6,9 @@ use iluvatar_controller_library::server::{config::Configuration, controller::Con
 use iluvatar_library::logging::start_tracing;
 use iluvatar_library::transaction::{TransactionId, LOAD_BALANCER_TID};
 use iluvatar_library::utils::wait_for_exit_signal;
-use tracing::{info, debug};
-use tonic::transport::Server;
 use iluvatar_rpc::rpc::iluvatar_controller_server::IluvatarControllerServer;
+use tonic::transport::Server;
+use tracing::{debug, info};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

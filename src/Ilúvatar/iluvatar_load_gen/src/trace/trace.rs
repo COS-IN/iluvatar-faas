@@ -1,7 +1,8 @@
 use crate::utils::{LoadType, RunType, Target};
 use anyhow::Result;
 use clap::Parser;
-use iluvatar_library::{types::MemSizeMb, utils::port::Port};
+use iluvatar_library::{transaction::TransactionId, types::MemSizeMb, utils::port::Port};
+use iluvatar_rpc::rpc::InvokeResponse;
 use std::collections::HashMap;
 
 mod controller_live;
@@ -56,6 +57,19 @@ pub struct TraceArgs {
     #[arg(short, long)]
     /// Folder to output results to
     out_folder: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
+pub struct ControllerInvokeResult {
+    /// E2E latency of the invocation between the controller and the worker
+    pub worker_duration_us: u128,
+    /// false if there was no platform error
+    ///   could still have an internal error in the function
+    pub success: bool,
+    /// The response from the worker
+    pub result: InvokeResponse,
+    /// The TransactionId the request was run under
+    pub tid: TransactionId,
 }
 
 pub fn run_trace(args: TraceArgs) -> Result<()> {

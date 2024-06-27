@@ -5,49 +5,26 @@ pub mod load_reporting;
 pub mod registration;
 
 use anyhow::Result;
-use iluvatar_library::types::{Compute, HealthStatus, Isolation, ResourceTimings};
-use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
-use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, StatusResponse};
+use iluvatar_rpc::rpc::{InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, InvokeResponse, PingRequest, RegisterRequest, RegisterWorkerRequest};
 
 #[tonic::async_trait]
 pub trait ControllerAPI {
-    async fn ping(&mut self, tid: TransactionId) -> Result<String>;
+    async fn ping(&self, msg: PingRequest) -> Result<String>;
     async fn invoke(
-        &mut self,
-        function_name: String,
-        version: String,
-        args: String,
-        tid: TransactionId,
+        &self,
+        invoke: InvokeRequest,
     ) -> Result<InvokeResponse>;
     async fn invoke_async(
-        &mut self,
-        function_name: String,
-        version: String,
-        args: String,
-        tid: TransactionId,
+        &self,
+        invoke: InvokeAsyncRequest,
     ) -> Result<String>;
-    async fn invoke_async_check(&mut self, cookie: &str, tid: TransactionId) -> Result<InvokeResponse>;
-    async fn prewarm(
-        &mut self,
-        function_name: String,
-        version: String,
-        tid: TransactionId,
-        compute: Compute,
-    ) -> Result<String>;
+    async fn invoke_async_check(&self, check: InvokeAsyncLookupRequest) -> Result<Option<InvokeResponse>>;
     async fn register(
-        &mut self,
-        function_name: String,
-        version: String,
-        image_name: String,
-        memory: MemSizeMb,
-        cpus: u32,
-        parallels: u32,
-        tid: TransactionId,
-        isolate: Isolation,
-        compute: Compute,
-        timings: Option<&ResourceTimings>,
+        &self,
+        request: RegisterRequest,
     ) -> Result<String>;
-    async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse>;
-    async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus>;
-    async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse>;
+    async fn register_worker(
+        &self,
+        request: RegisterWorkerRequest,
+    ) -> Result<()>;
 }

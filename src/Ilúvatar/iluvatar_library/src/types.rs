@@ -16,9 +16,9 @@ impl TryInto<CommunicationMethod> for u32 {
 
     fn try_into(self) -> Result<CommunicationMethod, Self::Error> {
         match self {
-          0 => Ok(CommunicationMethod::RPC),
-          1 => Ok(CommunicationMethod::SIMULATION),
-          _ => anyhow::bail!("Cannot parse {:?} for CommunicationMethod", self),
+            0 => Ok(CommunicationMethod::RPC),
+            1 => Ok(CommunicationMethod::SIMULATION),
+            _ => anyhow::bail!("Cannot parse {:?} for CommunicationMethod", self),
         }
     }
 }

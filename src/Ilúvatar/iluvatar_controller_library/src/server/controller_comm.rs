@@ -1,0 +1,81 @@
+use anyhow::Result;
+use dashmap::DashMap;
+use iluvatar_library::{bail_error, transaction::TransactionId, types::CommunicationMethod, utils::port::Port};
+use std::sync::Arc;
+use crate::services::ControllerAPI;
+use super::{controller::Controller, rpc::RpcControllerAPI};
+
+pub struct ControllerAPIFactory {
+    /// cache of RPC connections to controllers
+    /// We can clone them for faster connection
+    /// better than opening a new one
+    rpc_apis: DashMap<String, RpcControllerAPI>,
+    sim_apis: DashMap<String, Arc<Controller>>,
+}
+
+impl ControllerAPIFactory {
+    pub fn boxed() -> Arc<ControllerAPIFactory> {
+        Arc::new(ControllerAPIFactory {
+            rpc_apis: DashMap::new(),
+            sim_apis: DashMap::new(),
+        })
+    }
+}
+
+impl ControllerAPIFactory {
+    fn try_get_rpcapi(&self, controller: &str) -> Option<RpcControllerAPI> {
+        self.rpc_apis.get(controller).map(|r| r.to_owned())
+    }
+
+    fn try_get_simapi(&self, controller: &str) -> Option<Arc<Controller>> {
+        self.sim_apis.get(controller).map(|r| r.to_owned())
+    }
+
+    /// Get the controller API that matches it's implemented communication method
+    pub async fn get_controller_api(
+        &self,
+        controller: &str,
+        host: &str,
+        port: Port,
+        communication_method: CommunicationMethod,
+        tid: &TransactionId,
+    ) -> Result<Arc<dyn ControllerAPI + Send>> {
+        match communication_method {
+            CommunicationMethod::RPC => match self.try_get_rpcapi(controller) {
+                Some(r) => Ok(Arc::new(r) as Arc<dyn ControllerAPI + Send>),
+                None => {
+                    let api = match RpcControllerAPI::new(host, port, tid).await {
+                        Ok(api) => api,
+                        Err(e) => {
+                            bail_error!(tid=%tid, controller=%controller, error=%e, "Unable to create API for controller")
+                        }
+                    };
+                    self.rpc_apis.insert(controller.to_owned(), api.clone());
+                    Ok(Arc::new(api) as Arc<dyn ControllerAPI + Send>)
+                }
+            },
+            CommunicationMethod::SIMULATION => {
+                let api = match self.try_get_simapi(controller) {
+                    Some(api) => api,
+                    None => match self.sim_apis.entry(controller.to_owned()) {
+                        dashmap::mapref::entry::Entry::Occupied(entry) => entry.get().clone(),
+                        dashmap::mapref::entry::Entry::Vacant(vacant) => {
+                            let controller_config =
+                                match super::controller_config::Configuration::boxed(&host) {
+                                    Ok(w) => w,
+                                    Err(e) => {
+                                        anyhow::bail!("Failed to load config because '{:?}'", e)
+                                    }
+                                };
+                            let api = Controller::new(controller_config, tid).await?;
+                            let api = Arc::new(api);
+                            vacant.insert(api.clone());
+                            api
+                        }
+                    },
+                };
+                Ok(api as Arc<dyn ControllerAPI + Send>)
+            }
+        }
+    }
+}

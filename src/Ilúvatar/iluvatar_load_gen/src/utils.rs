@@ -1,21 +1,18 @@
 use anyhow::{Context, Result};
-use iluvatar_controller_library::server::controller_structs::json::{
-    ControllerInvokeResult, Invoke, Prewarm, RegisterFunction,
-};
 use iluvatar_library::{
     logging::LocalTime,
-    transaction::TransactionId,
+    transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
-    utils::{port::Port, timing::TimedExt},
+    utils::{config::args_to_json, port::Port, timing::TimedExt},
 };
-use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeResponse};
+use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResponse};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc, time::Duration};
 use tokio::{runtime::Runtime, task::JoinHandle};
 
-use crate::benchmark::BenchmarkStore;
+use crate::{benchmark::BenchmarkStore, trace::ControllerInvokeResult};
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
@@ -227,11 +224,20 @@ pub async fn controller_invoke(
     clock: Arc<LocalTime>,
     client: Arc<Client>,
 ) -> Result<CompletedControllerInvocation> {
-    let req = Invoke {
+    let req = InvokeRequest {
         function_name: name.to_owned(),
         function_version: version.to_owned(),
-        args,
+        json_args: match args {
+            Some(args) => args_to_json(&args)?,
+            None => "{}".to_owned(),
+        },
+        transaction_id: gen_tid(),
     };
+    // let req = Invoke {
+    //     function_name: name.to_owned(),
+    //     function_version: version.to_owned(),
+    //     args,
+    // };
     let invoke_start = clock.now_str()?;
     let (invok_out, invok_lat) = client
         .post(format!("http://{}:{}/invoke", &host, port))

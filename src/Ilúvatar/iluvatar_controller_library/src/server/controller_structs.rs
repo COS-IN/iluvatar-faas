@@ -1,7 +1,7 @@
 // use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::types::ResourceTimings;
 use iluvatar_library::utils::port_utils::Port;
 use serde::{Deserialize, Serialize};
-use iluvatar_library::types::ResourceTimings;
 
 // pub mod json {
 //     use iluvatar_rpc::rpc::InvokeResponse;
@@ -124,11 +124,11 @@ pub mod internal {
                 cpus: req.cpus,
                 parallel_invokes: req.parallel_invokes,
                 timings: match req.resource_timings_json.is_empty() {
-                  true => None,
-                  _ => match serde_json::from_str::<ResourceTimings>(&req.resource_timings_json) {
+                    true => None,
+                    _ => match serde_json::from_str::<ResourceTimings>(&req.resource_timings_json) {
                         Ok(t) => Some(t),
                         Err(_) => None,
-                    }
+                    },
                 },
             }
         }
