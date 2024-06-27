@@ -9,9 +9,11 @@ use iluvatar_controller_library::server::controller::Controller;
 use iluvatar_library::{
     logging::LocalTime,
     transaction::{gen_tid, TransactionId, SIMULATION_START_TID},
-    types::{CommunicationMethod, Compute, Isolation}, utils::config::args_to_json,
+    types::{CommunicationMethod, Compute, Isolation},
+    utils::config::args_to_json,
 };
 use iluvatar_rpc::rpc::{iluvatar_controller_server::IluvatarController, LanguageRuntime};
+use iluvatar_rpc::rpc::{InvokeRequest, RegisterRequest, RegisterWorkerRequest};
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 use std::{
     collections::HashMap,
@@ -20,7 +22,6 @@ use std::{
 };
 use tokio::{runtime::Builder, task::JoinHandle};
 use tonic::Request;
-use iluvatar_rpc::rpc::{InvokeRequest, RegisterRequest, RegisterWorkerRequest};
 
 async fn controller_sim_register_workers(
     num_workers: usize,
@@ -101,7 +102,7 @@ async fn controller_sim_invoke(
     cold_dur_ms: u64,
     clock: Arc<LocalTime>,
 ) -> Result<CompletedControllerInvocation> {
-  let tid = gen_tid();
+    let tid = gen_tid();
     let i = InvokeRequest {
         function_name: func_name.clone(),
         function_version: VERSION.clone(),
@@ -118,34 +119,37 @@ async fn controller_sim_invoke(
     let invok_lat = start.elapsed();
     let response = match response {
         Ok(r) => r.into_inner(),
-        Err(e) => return Ok(CompletedControllerInvocation::error(
-          format!("Invocation error: {:?}", e),
-          &func_name,
-          &VERSION,
-          None,
-          invoke_start,
-      )),
+        Err(e) => {
+            return Ok(CompletedControllerInvocation::error(
+                format!("Invocation error: {:?}", e),
+                &func_name,
+                &VERSION,
+                &tid,
+                invoke_start,
+            ))
+        }
     };
 
     match serde_json::from_str::<FunctionExecOutput>(&response.json_result) {
         Ok(feo) => Ok(CompletedControllerInvocation {
-          controller_response: response,
-          function_output: feo,
-          client_latency_us: invok_lat.as_micros(),
-          function_name: func_name.clone(),
-          function_version: VERSION.clone(),
-          invoke_start,
-       }),
-      Err(e) => Ok(CompletedControllerInvocation::error(
-        format!(
-            "FunctionExecOutput Deserialization error: {}; {}",
-            e, &response.json_result
-        ),
-        &func_name,
-        &VERSION,
-        Some(&tid),
-        invoke_start,
-          ))
+            controller_response: response,
+            function_output: feo,
+            client_latency_us: invok_lat.as_micros(),
+            function_name: func_name.clone(),
+            function_version: VERSION.clone(),
+            invoke_start,
+            transaction_id: tid,
+        }),
+        Err(e) => Ok(CompletedControllerInvocation::error(
+            format!(
+                "FunctionExecOutput Deserialization error: {}; {}",
+                e, &response.json_result
+            ),
+            &func_name,
+            &VERSION,
+            &tid,
+            invoke_start,
+        )),
     }
 }
 

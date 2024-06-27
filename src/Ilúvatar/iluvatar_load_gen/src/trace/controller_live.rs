@@ -9,6 +9,8 @@ use crate::{
     },
 };
 use anyhow::Result;
+use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_library::types::CommunicationMethod;
 use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port::Port};
 use std::{
     collections::HashMap,
@@ -22,6 +24,7 @@ async fn controller_live_register_functions(
     host: &str,
     port: Port,
     benchmark: Option<&BenchmarkStore>,
+    factory: Arc<ControllerAPIFactory>,
 ) -> Result<()> {
     for (fid, func) in funcs.iter() {
         let image = func
@@ -42,29 +45,33 @@ async fn controller_live_register_functions(
             },
             None => None,
         };
-        let _reg_dur = controller_register(
-            &func.func_name,
-            &VERSION,
-            image,
-            func.mem_mb + 50,
-            host,
-            port,
-            func_timings,
-        )
-        .await?;
+        let api = factory
+            .get_controller_api(host, port, CommunicationMethod::RPC, &gen_tid())
+            .await?;
+        let _reg_dur =
+            controller_register(&func.func_name, &VERSION, image, func.mem_mb + 50, func_timings, api).await?;
     }
     Ok(())
 }
 
-async fn prewarm_funcs(funcs: &HashMap<String, Function>, host: &str, port: Port) -> Result<()> {
+async fn prewarm_funcs(
+    funcs: &HashMap<String, Function>,
+    host: &str,
+    port: Port,
+    factory: Arc<ControllerAPIFactory>,
+) -> Result<()> {
     for (fid, func) in funcs.iter() {
-        for _ in 0..func.prewarms.ok_or_else(|| {
+        for i in 0..func.prewarms.ok_or_else(|| {
             anyhow::anyhow!(
                 "Function '{}' did not have a prewarm value, supply one or pass a benchmark file",
                 fid
             )
         })? {
-            let _reg_dur = controller_prewarm(&func.func_name, &VERSION, host, port).await?;
+            let tid = format!("{}-prewarm-{}", fid, i);
+            let api = factory
+                .get_controller_api(host, port, CommunicationMethod::RPC, &tid)
+                .await?;
+            let _reg_dur = controller_prewarm(&func.func_name, &VERSION, api, &tid).await?;
         }
     }
     Ok(())
@@ -73,15 +80,8 @@ async fn prewarm_funcs(funcs: &HashMap<String, Function>, host: &str, port: Port
 pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
-    // let client = match reqwest::Client::builder()
-    //     .pool_max_idle_per_host(0)
-    //     .pool_idle_timeout(None)
-    //     .connect_timeout(Duration::from_secs(60))
-    //     .build()
-    // {
-    //     Ok(c) => Arc::new(c),
-    //     Err(e) => panic!("Unable to build reqwest HTTP client: {:?}", e),
-    // };
+    let factory = ControllerAPIFactory::boxed();
+
     map_functions_to_prep(
         crate::utils::RunType::Live,
         args.load_type,
@@ -97,8 +97,15 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
         &args.host,
         args.port,
         bench_data.as_ref(),
+        factory.clone(),
     ))?;
-    threaded_rt.block_on(prewarm_funcs(&metadata, &args.host, args.port))?;
+    threaded_rt.block_on(prewarm_funcs(&metadata, &args.host, args.port, factory.clone()))?;
+    let api = threaded_rt.block_on(factory.get_controller_api(
+        &args.host,
+        args.port,
+        CommunicationMethod::RPC,
+        &gen_tid(),
+    ))?;
 
     let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
     let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();
@@ -115,10 +122,11 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
                 invocation.func_name
             )
         })?;
-        let h_c = args.host.clone();
-        let f_c = func.func_name.clone();
         let func_args = prepare_function_args(func, args.load_type);
 
+        let clk_cln = clock.clone();
+        let api_cln = api.clone();
+        let f_c = func.func_name.clone();
         loop {
             match start.elapsed() {
                 Ok(t) => {
@@ -131,11 +139,10 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
                 Err(_) => (),
             }
         }
-        let clk_cln = clock.clone();
-        let http_c = client.clone();
-        handles.push(threaded_rt.spawn(async move {
-            controller_invoke(&f_c, &VERSION, &h_c, args.port, Some(func_args), clk_cln, http_c).await
-        }));
+        handles.push(
+            threaded_rt
+                .spawn(async move { controller_invoke(&f_c, &VERSION, Some(func_args), clk_cln, api_cln).await }),
+        );
     }
     let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
     save_controller_results(results, &args)

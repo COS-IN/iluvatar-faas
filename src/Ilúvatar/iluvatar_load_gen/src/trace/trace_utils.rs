@@ -421,8 +421,8 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             r.controller_response.success,
             r.function_name,
             r.function_output.body.cold,
-            r.controller_response.worker_duration_us,
-            r.controller_response.result.duration_us,
+            r.controller_response.duration_us,
+            r.controller_response.duration_us, // TODO: parse correct value here
             r.function_output.body.latency,
             r.client_latency_us
         );

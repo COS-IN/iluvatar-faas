@@ -1,13 +1,16 @@
+use crate::services::ControllerAPITrait;
 use anyhow::{bail, Result};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::utils::port_utils::Port;
 use iluvatar_rpc::rpc::iluvatar_controller_client::IluvatarControllerClient;
-use iluvatar_rpc::rpc::{InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, InvokeResponse, PingRequest, RegisterRequest, RegisterWorkerRequest};
+use iluvatar_rpc::rpc::{
+    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, InvokeResponse, PingRequest, RegisterRequest,
+    RegisterWorkerRequest,
+};
 use iluvatar_rpc::RPCError;
 use tonic::transport::Channel;
 use tonic::{Code, Request, Status};
 use tracing::warn;
-use crate::services::ControllerAPI;
 
 #[allow(unused)]
 pub struct RpcControllerAPI {
@@ -69,7 +72,7 @@ impl Clone for RpcControllerAPI {
 
 /// An implementation of the controller API that communicates with controllers via RPC
 #[tonic::async_trait]
-impl ControllerAPI for RpcControllerAPI {
+impl ControllerAPITrait for RpcControllerAPI {
     async fn ping(&self, msg: PingRequest) -> Result<String> {
         let request = Request::new(msg);
         match self.client.clone().ping(request).await {
@@ -78,10 +81,7 @@ impl ControllerAPI for RpcControllerAPI {
         }
     }
 
-    async fn invoke(
-        &self,
-        request: InvokeRequest,
-    ) -> Result<InvokeResponse> {
+    async fn invoke(&self, request: InvokeRequest) -> Result<InvokeResponse> {
         let request = Request::new(request);
         match self.client.clone().invoke(request).await {
             Ok(response) => Ok(response.into_inner()),
@@ -89,10 +89,7 @@ impl ControllerAPI for RpcControllerAPI {
         }
     }
 
-    async fn invoke_async(
-        &self,
-        invoke: InvokeAsyncRequest,
-    ) -> Result<String> {
+    async fn invoke_async(&self, invoke: InvokeAsyncRequest) -> Result<String> {
         let request = Request::new(invoke);
         match self.client.clone().invoke_async(request).await {
             Ok(response) => {
@@ -115,10 +112,7 @@ impl ControllerAPI for RpcControllerAPI {
         }
     }
 
-    async fn register(
-        &self,
-        request: RegisterRequest,
-    ) -> Result<String> {
+    async fn register(&self, request: RegisterRequest) -> Result<String> {
         let request = Request::new(request);
         match self.client.clone().register(request).await {
             Ok(response) => Ok(response.into_inner().function_json_result),
@@ -126,13 +120,10 @@ impl ControllerAPI for RpcControllerAPI {
         }
     }
 
-    async fn register_worker(
-        &self,
-        request: RegisterWorkerRequest,
-    ) -> Result<()> {
-      match self.client.clone().register_worker(Request::new(request)).await {
-          Ok(_) => Ok(()),
-          Err(e) => bail!(RPCError::new(e, "[RCPcontrollerAPI:register_worker]".to_string())),
-      }
+    async fn register_worker(&self, request: RegisterWorkerRequest) -> Result<()> {
+        match self.client.clone().register_worker(Request::new(request)).await {
+            Ok(_) => Ok(()),
+            Err(e) => bail!(RPCError::new(e, "[RCPcontrollerAPI:register_worker]".to_string())),
+        }
     }
 }
