@@ -12,7 +12,8 @@ use iluvatar_library::utils::calculate_fqdn;
 use iluvatar_library::{bail_error, transaction::TransactionId};
 use iluvatar_rpc::rpc::iluvatar_controller_server::IluvatarController;
 use iluvatar_rpc::rpc::{
-    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest, PrewarmRequest, PrewarmResponse, RegisterRequest, RegisterWorkerRequest, RegisterWorkerResponse
+    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest, PrewarmRequest, PrewarmResponse,
+    RegisterRequest, RegisterWorkerRequest, RegisterWorkerResponse,
 };
 use iluvatar_rpc::rpc::{InvokeAsyncResponse, InvokeResponse, PingResponse, RegisterResponse};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
@@ -77,10 +78,10 @@ impl IluvatarController for Controller {
 
     #[tracing::instrument(skip(self, prewarm), fields(tid=%prewarm.get_ref().transaction_id))]
     async fn prewarm(&self, prewarm: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
-      match ControllerAPITrait::prewarm(self, prewarm.into_inner()).await {
-        Ok(r) => Ok(Response::new(r)),
-        Err(e) => Err(Status::from_error(e.into())),
-      }
+        match ControllerAPITrait::prewarm(self, prewarm.into_inner()).await {
+            Ok(r) => Ok(Response::new(r)),
+            Err(e) => Err(Status::from_error(e.into())),
+        }
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id, function_name=%request.get_ref().function_name, function_version=%request.get_ref().function_version))]
@@ -152,25 +153,24 @@ impl ControllerAPITrait for Controller {
 
     #[tracing::instrument(skip(self, prewarm), fields(tid=%prewarm.transaction_id))]
     async fn prewarm(&self, prewarm: PrewarmRequest) -> Result<PrewarmResponse> {
-      let fqdn = calculate_fqdn(&prewarm.function_name, &prewarm.function_version);
-      match self.registration_svc.get_function(&fqdn) {
-          Some(func) => {
-              info!(tid=%prewarm.transaction_id, fqdn=%fqdn, "Sending function to load balancer for invocation");
-              match self
-                  .lb
-                  .prewarm(func, &prewarm.transaction_id)
-                  .await
-              {
-                  Ok(_dur) => Ok(PrewarmResponse{success:true, message: "".to_owned()}),
-                  Err(e) => Err(e),
-              }
-          }
-          None => {
-              let msg = "Function was not registered; could not prewarm";
-              warn!(tid=%prewarm.transaction_id, fqdn=%fqdn, msg);
-              anyhow::bail!(msg)
-          }
-      }
+        let fqdn = calculate_fqdn(&prewarm.function_name, &prewarm.function_version);
+        match self.registration_svc.get_function(&fqdn) {
+            Some(func) => {
+                info!(tid=%prewarm.transaction_id, fqdn=%fqdn, "Sending function to load balancer for invocation");
+                match self.lb.prewarm(func, &prewarm.transaction_id).await {
+                    Ok(_dur) => Ok(PrewarmResponse {
+                        success: true,
+                        message: "".to_owned(),
+                    }),
+                    Err(e) => Err(e),
+                }
+            }
+            None => {
+                let msg = "Function was not registered; could not prewarm";
+                warn!(tid=%prewarm.transaction_id, fqdn=%fqdn, msg);
+                anyhow::bail!(msg)
+            }
+        }
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version))]

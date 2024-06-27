@@ -59,7 +59,7 @@ impl ControllerAPIFactory {
                     None => match self.sim_apis.entry(host.to_owned()) {
                         dashmap::mapref::entry::Entry::Occupied(entry) => entry.get().clone(),
                         dashmap::mapref::entry::Entry::Vacant(vacant) => {
-                            let controller_config = match super::controller_config::Configuration::boxed(&host) {
+                            let controller_config = match super::controller_config::Configuration::boxed(host) {
                                 Ok(w) => w,
                                 Err(e) => {
                                     anyhow::bail!("Failed to load config because '{:?}'", e)

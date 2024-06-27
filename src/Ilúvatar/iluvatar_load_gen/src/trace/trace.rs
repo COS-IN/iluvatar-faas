@@ -1,11 +1,11 @@
 use crate::utils::{LoadType, RunType, Target};
 use anyhow::Result;
 use clap::Parser;
+use controller_trace::{controller_trace_live, controller_trace_sim};
 use iluvatar_library::{types::MemSizeMb, utils::port::Port};
 use std::collections::HashMap;
 
-mod controller_live;
-mod controller_sim;
+mod controller_trace;
 mod trace_utils;
 mod worker_trace;
 
@@ -62,8 +62,8 @@ pub fn run_trace(args: TraceArgs) -> Result<()> {
     match args.target {
         Target::Worker => worker_trace::trace_worker(args),
         Target::Controller => match args.setup {
-            RunType::Live => controller_live::controller_trace_live(args),
-            RunType::Simulation => controller_sim::controller_trace_sim(args),
+            RunType::Live => controller_trace_live(args),
+            RunType::Simulation => controller_trace_sim(args),
         },
     }
 }

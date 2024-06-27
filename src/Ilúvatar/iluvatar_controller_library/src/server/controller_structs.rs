@@ -25,7 +25,7 @@ pub mod internal {
         pub fn from(req: RegisterWorkerRequest) -> anyhow::Result<Self> {
             Ok(RegisteredWorker {
                 name: req.name,
-                isolation: Isolation::try_from(req.isolation)?,
+                isolation: Isolation::from(req.isolation),
                 communication_method: u32::try_into(req.communication_method)?,
                 host: req.host,
                 port: req.port as Port,

@@ -6,8 +6,8 @@ pub mod registration;
 
 use anyhow::Result;
 use iluvatar_rpc::rpc::{
-    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, InvokeResponse, PingRequest, RegisterRequest,
-    RegisterWorkerRequest, PrewarmRequest, PrewarmResponse
+    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, InvokeResponse, PingRequest, PrewarmRequest,
+    PrewarmResponse, RegisterRequest, RegisterWorkerRequest,
 };
 
 #[tonic::async_trait]
