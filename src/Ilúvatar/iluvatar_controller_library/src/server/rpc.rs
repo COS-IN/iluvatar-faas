@@ -4,8 +4,7 @@ use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::utils::port_utils::Port;
 use iluvatar_rpc::rpc::iluvatar_controller_client::IluvatarControllerClient;
 use iluvatar_rpc::rpc::{
-    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, InvokeResponse, PingRequest, RegisterRequest,
-    RegisterWorkerRequest,
+    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, InvokeResponse, PingRequest, PrewarmRequest, PrewarmResponse, RegisterRequest, RegisterWorkerRequest
 };
 use iluvatar_rpc::RPCError;
 use tonic::transport::Channel;
@@ -78,6 +77,15 @@ impl ControllerAPITrait for RpcControllerAPI {
         match self.client.clone().ping(request).await {
             Ok(response) => Ok(response.into_inner().message),
             Err(e) => bail!(RPCError::new(e, "[RCPcontrollerAPI:ping]".to_string())),
+        }
+    }
+
+    #[tracing::instrument(skip(self, prewarm), fields(tid=%prewarm.transaction_id))]
+    async fn prewarm(&self, prewarm: PrewarmRequest) -> Result<PrewarmResponse> {
+        let request = Request::new(prewarm);
+        match self.client.clone().prewarm(request).await {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => bail!(RPCError::new(e, "[RCPcontrollerAPI:prewarm]".to_string())),
         }
     }
 

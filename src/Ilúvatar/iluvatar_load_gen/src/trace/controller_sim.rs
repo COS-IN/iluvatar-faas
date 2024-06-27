@@ -30,6 +30,15 @@ async fn controller_sim_register_workers(
     worker_config: &Arc<WorkerConfig>,
 ) -> Result<()> {
     for i in 0..num_workers {
+        let gpus = worker_config
+            .container_resources
+            .gpu_resource
+            .as_ref()
+            .map_or(0, |c| c.count);
+        let compute = match gpus {
+          0 => Compute::CPU.bits(),
+          _ => (Compute::CPU|Compute::GPU).bits(),
+        };
         let r = RegisterWorkerRequest {
             name: format!("worker_{}", i),
             communication_method: CommunicationMethod::SIMULATION as u32,
@@ -37,13 +46,9 @@ async fn controller_sim_register_workers(
             port: 0,
             memory: worker_config.container_resources.memory_mb,
             cpus: worker_config.container_resources.cpu_resource.count,
-            gpus: worker_config
-                .container_resources
-                .gpu_resource
-                .as_ref()
-                .map_or(0, |c| c.count),
-            compute: Compute::CPU.bits(),
-            isolation: Isolation::CONTAINERD.bits(),
+            gpus: gpus,
+            compute: compute,
+            isolation: (Isolation::CONTAINERD | Isolation::DOCKER).bits(),
         };
         let response = server.register_worker(Request::new(r)).await;
         match response {

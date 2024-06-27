@@ -163,6 +163,7 @@ message RegisterWorkerResponse {
 
 service IluvatarController {
   rpc ping(PingRequest) returns (PingResponse) {}
+  rpc prewarm(PrewarmRequest) returns (PrewarmResponse) {}
   rpc invoke(InvokeRequest) returns (InvokeResponse) {}
   rpc invoke_async(InvokeAsyncRequest) returns (InvokeAsyncResponse) {}
   rpc invoke_async_check(InvokeAsyncLookupRequest) returns (InvokeResponse) {}

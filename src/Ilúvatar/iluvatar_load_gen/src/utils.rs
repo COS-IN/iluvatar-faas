@@ -7,7 +7,7 @@ use iluvatar_library::{
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::{config::args_to_json, port::Port, timing::TimedExt},
 };
-use iluvatar_rpc::rpc::LanguageRuntime;
+use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
 use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResponse, RegisterRequest};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
@@ -292,12 +292,22 @@ pub async fn controller_register(
 }
 
 pub async fn controller_prewarm(
-    _name: &str,
-    _version: &str,
-    _api: ControllerAPI,
-    _tid: &TransactionId,
+    name: &str,
+    version: &str,
+    api: ControllerAPI,
+    tid: &TransactionId,
 ) -> Result<Duration> {
-    todo!();
+  let start = Instant::now();
+  let req = PrewarmRequest {
+      function_name: name.to_owned(),
+      function_version: version.to_owned(),
+      transaction_id: tid.to_owned(),
+      compute: Compute::CPU.bits(),
+  };
+  match api.prewarm(req).await {
+      Ok(_) => Ok(start.elapsed()),
+      Err(e) => Err(e),
+  }
 }
 
 pub async fn worker_register(

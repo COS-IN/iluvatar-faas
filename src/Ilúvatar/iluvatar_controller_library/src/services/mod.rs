@@ -7,12 +7,13 @@ pub mod registration;
 use anyhow::Result;
 use iluvatar_rpc::rpc::{
     InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, InvokeResponse, PingRequest, RegisterRequest,
-    RegisterWorkerRequest,
+    RegisterWorkerRequest, PrewarmRequest, PrewarmResponse
 };
 
 #[tonic::async_trait]
 pub trait ControllerAPITrait {
     async fn ping(&self, msg: PingRequest) -> Result<String>;
+    async fn prewarm(&self, prewarm: PrewarmRequest) -> Result<PrewarmResponse>;
     async fn invoke(&self, invoke: InvokeRequest) -> Result<InvokeResponse>;
     async fn invoke_async(&self, invoke: InvokeAsyncRequest) -> Result<String>;
     async fn invoke_async_check(&self, check: InvokeAsyncLookupRequest) -> Result<Option<InvokeResponse>>;
