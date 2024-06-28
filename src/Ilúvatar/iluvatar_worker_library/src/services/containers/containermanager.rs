@@ -202,20 +202,17 @@ impl ContainerManager {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn update_memory_usages(&self, tid: &TransactionId) {
-      let old_total_mem = *self.used_mem_mb.read();
-
-      let cpu_mem = self.calc_container_pool_memory_usages(&self.cpu_containers, tid)
-            .await;
-      let gpu_mem = self.calc_container_pool_memory_usages(&self.gpu_containers, tid)
-            .await;
-      let new_total_mem = cpu_mem+gpu_mem;
-      *self.used_mem_mb.write() = new_total_mem;
-      debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, cpu_pool=cpu_mem, gpu_pool=gpu_mem, "Total container memory usage");
-      if new_total_mem < 0 {
-          error!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Container memory usage has gone negative");
-      }
+        let old_total_mem = *self.used_mem_mb.read();
+        let cpu_mem = self.calc_container_pool_memory_usages(&self.cpu_containers, tid).await;
+        let gpu_mem = self.calc_container_pool_memory_usages(&self.gpu_containers, tid).await;
+        let new_total_mem = cpu_mem + gpu_mem;
+        *self.used_mem_mb.write() = new_total_mem;
+        debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, cpu_pool=cpu_mem, gpu_pool=gpu_mem, "Total container memory usage");
+        if new_total_mem < 0 {
+            error!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Container memory usage has gone negative");
+        }
     }
-  
+
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, pool), fields(tid=%tid)))]
     async fn calc_container_pool_memory_usages(&self, pool: &ContainerPool, tid: &TransactionId) -> MemSizeMb {
         debug!(tid=%tid, pool=%pool.pool_name(), "updating container memory usages");
@@ -765,7 +762,10 @@ mod tests {
         drop(c1);
         cm.remove_idle_containers(&TEST_TID).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        let state = cm.container_exists(&calculate_fqdn(&func.function_name, &func.function_version), Compute::CPU);
+        let state = cm.container_exists(
+            &calculate_fqdn(&func.function_name, &func.function_version),
+            Compute::CPU,
+        );
         assert_eq!(state, ContainerState::Cold, "After purging container, should be cold");
         assert_eq!(cm.cpu_containers.len(), 0, "Purged container should be gone");
         assert_eq!(cm.gpu_containers.len(), 0, "Purged container should be gone");
