@@ -1,4 +1,4 @@
-use crate::server::{controller_errors::MissingAsyncCookieError, structs::internal::RegisteredWorker};
+use crate::server::{controller_errors::MissingAsyncCookieError, structs::RegisteredWorker};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::bail_error;
@@ -8,7 +8,6 @@ use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, warn};
 
-#[allow(unused)]
 pub struct AsyncService {
     async_invokes: Arc<DashMap<String, Arc<RegisteredWorker>>>,
     worker_fact: Arc<WorkerAPIFactory>,

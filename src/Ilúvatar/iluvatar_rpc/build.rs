@@ -38,8 +38,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             "iluvatar_rpc.ContainerState",
             "#[derive(serde::Serialize,serde::Deserialize)]",
         )
-        // .include_file("rpc_includes.rs")
-        // &["src/worker", "src/controller"]
         .compile(&["src/rpc/iluvatar_rpc.proto"], &["src"])?;
     Ok(())
 }

@@ -12,7 +12,6 @@ use tonic::transport::Channel;
 use tonic::{Code, Request, Status};
 use tracing::warn;
 
-#[allow(unused)]
 pub struct RpcControllerAPI {
     client: IluvatarControllerClient<Channel>,
 }

@@ -247,10 +247,11 @@ impl DroppableMovableTrait for tokio::sync::OwnedSemaphorePermit {}
 pub type DroppableToken = Box<dyn DroppableMovableTrait>;
 impl DroppableMovableTrait for Vec<DroppableToken> {}
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HealthStatus {
     HEALTHY,
     UNHEALTHY,
+    OFFLINE,
 }
 
 #[cfg(test)]

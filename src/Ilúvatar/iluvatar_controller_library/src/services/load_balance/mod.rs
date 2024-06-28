@@ -1,5 +1,5 @@
 use crate::server::controller_config::ControllerConfig;
-use crate::server::structs::internal::{RegisteredFunction, RegisteredWorker};
+use crate::server::structs::{RegisteredFunction, RegisteredWorker};
 use anyhow::Result;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_rpc::rpc::InvokeResponse;

@@ -100,6 +100,7 @@ pub async fn health(host: String, port: Port) -> Result<()> {
     match ret {
         HealthStatus::HEALTHY => println!("Worker is healthy"),
         HealthStatus::UNHEALTHY => println!("Worker is unhealthy"),
+        HealthStatus::OFFLINE => println!("Worker is unresponsive"),
     };
     Ok(())
 }

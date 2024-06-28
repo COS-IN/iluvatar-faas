@@ -1,4 +1,4 @@
-use crate::server::structs::internal::{RegisteredFunction, RegisteredWorker};
+use crate::server::structs::{RegisteredFunction, RegisteredWorker};
 // use crate::server::structs::json::RegisterFunction;
 use crate::services::load_balance::LoadBalancer;
 use anyhow::Result;
