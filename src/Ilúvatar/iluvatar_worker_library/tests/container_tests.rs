@@ -465,12 +465,12 @@ mod get_container {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn mem_limit() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
         let request = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
             cpus: 1,
-            memory: 2048,
+            memory: cfg.container_resources.memory_mb,
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
