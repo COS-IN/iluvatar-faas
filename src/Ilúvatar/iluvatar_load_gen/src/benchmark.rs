@@ -169,7 +169,7 @@ pub async fn benchmark_controller(
                         if invoke_result.controller_response.success {
                             let func_exec_us = invoke_result.function_output.body.latency * 1000000.0;
                             let invoke_lat = invoke_result.client_latency_us as f64;
-                            let compute = Compute::CPU; // TODO: update when controller returns more details
+                            let compute = Compute::from_bits_truncate(invoke_result.controller_response.compute);
                             let resource_entry = match func_data.resource_data.get_mut(&compute.try_into()?) {
                                 Some(r) => r,
                                 None => func_data.resource_data.entry(compute.try_into()?).or_default(),
@@ -181,11 +181,10 @@ pub async fn benchmark_controller(
                                 resource_entry.cold_over_results_us.push(invoke_lat - func_exec_us);
                                 resource_entry
                                     .cold_worker_duration_us
-                                    .push(invoke_result.controller_response.duration_us as u128);
+                                    .push(invoke_result.client_latency_us);
                                 resource_entry
                                     .cold_invoke_duration_us
                                     .push(invoke_result.controller_response.duration_us as u128);
-                            // TODO: fix with correctly parsed data
                             } else {
                                 resource_entry
                                     .warm_results_sec
@@ -193,11 +192,10 @@ pub async fn benchmark_controller(
                                 resource_entry.warm_over_results_us.push(invoke_lat - func_exec_us);
                                 resource_entry
                                     .warm_worker_duration_us
-                                    .push(invoke_result.controller_response.duration_us as u128);
+                                    .push(invoke_result.client_latency_us);
                                 resource_entry
                                     .warm_invoke_duration_us
                                     .push(invoke_result.controller_response.duration_us as u128);
-                                // TODO: fix with correctly parsed data
                             }
                         }
                     }
