@@ -406,9 +406,7 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             anyhow::bail!("Failed to create output file because {}", e);
         }
     };
-    let to_write =
-        "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us\n"
-            .to_string();
+    let to_write = "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us\n";
     match f.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
