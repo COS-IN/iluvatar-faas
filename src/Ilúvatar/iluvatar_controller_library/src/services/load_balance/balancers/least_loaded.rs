@@ -1,4 +1,4 @@
-use crate::server::structs::internal::{RegisteredFunction, RegisteredWorker};
+use crate::server::structs::{RegisteredFunction, RegisteredWorker};
 use crate::services::load_balance::LoadBalancerTrait;
 use crate::{
     prewarm, send_async_invocation, send_invocation,
@@ -10,7 +10,8 @@ use iluvatar_library::utils::timing::TimedExt;
 use iluvatar_library::{
     bail_error, threading::tokio_thread, transaction::TransactionId, transaction::LEAST_LOADED_TID,
 };
-use iluvatar_worker_library::{rpc::InvokeResponse, worker_api::worker_comm::WorkerAPIFactory};
+use iluvatar_rpc::rpc::InvokeResponse;
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
@@ -104,10 +105,10 @@ impl LoadBalancerTrait for LeastLoadedBalancer {
     fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
         info!(tid=%tid, worker=%worker.name, "Registering new worker in LeastLoaded load balancer");
         if self.assigned_worker.read().is_none() {
+            info!(tid=%tid, worker=%worker.name, "Assigning new worker in LeastLoaded load balancer");
             *self.assigned_worker.write() = Some(worker.clone());
         }
-        let mut workers = self.workers.write();
-        workers.insert(worker.name.clone(), worker);
+        self.workers.write().insert(worker.name.clone(), worker);
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=%tid)))]

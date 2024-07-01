@@ -4,7 +4,7 @@ pub mod utils;
 use crate::utils::{short_sim_args, sim_args, sim_invoker_svc, test_invoke};
 use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_worker_library::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::structs::ContainerState;
 use std::time::Duration;
 

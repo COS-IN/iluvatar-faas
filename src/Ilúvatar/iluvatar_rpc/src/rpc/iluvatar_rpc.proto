@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package iluvatar_worker;
+package iluvatar_rpc;
 
 message PingRequest {
   string message = 1;
@@ -133,7 +133,7 @@ enum LanguageRuntime {
   NOLANG = 0;
   PYTHON3 = 1;
 }
-  
+
 service IluvatarWorker {
   rpc ping(PingRequest) returns (PingResponse) {}
   rpc prewarm(PrewarmRequest) returns (PrewarmResponse) {}
@@ -145,4 +145,28 @@ service IluvatarWorker {
   rpc status(StatusRequest) returns (StatusResponse) {}
   // Instruct the worker to remove all containers it has created
   rpc clean(CleanRequest) returns (CleanResponse) {}
+}
+
+message RegisterWorkerRequest {
+  string name = 1;
+  uint32 communication_method = 2;
+  string host = 3;
+  uint32 port = 4;
+  int64 memory = 5;
+  uint32 cpus = 6;
+  uint32 compute = 7;
+  uint32 isolation = 8;
+  uint32 gpus = 9;
+}
+message RegisterWorkerResponse {
+}
+
+service IluvatarController {
+  rpc ping(PingRequest) returns (PingResponse) {}
+  rpc prewarm(PrewarmRequest) returns (PrewarmResponse) {}
+  rpc invoke(InvokeRequest) returns (InvokeResponse) {}
+  rpc invoke_async(InvokeAsyncRequest) returns (InvokeAsyncResponse) {}
+  rpc invoke_async_check(InvokeAsyncLookupRequest) returns (InvokeResponse) {}
+  rpc register(RegisterRequest) returns (RegisterResponse) {}
+  rpc register_worker(RegisterWorkerRequest) returns (RegisterWorkerResponse) {}
 }

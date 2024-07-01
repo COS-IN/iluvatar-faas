@@ -1,15 +1,17 @@
-#![allow(clippy::derive_partial_eq_without_eq)]
-tonic::include_proto!("iluvatar_worker");
-use crate::{
-    rpc::iluvatar_worker_client::IluvatarWorkerClient,
-    worker_api::{HealthStatus, WorkerAPI},
-};
+// use iluvatar_rpc::worker::RPCWorkerAPI;
+use super::WorkerAPI;
 use anyhow::{bail, Result};
+use iluvatar_library::bail_error;
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
-use iluvatar_library::utils::port_utils::Port;
-use iluvatar_library::{bail_error, types::ResourceTimings};
-use std::error::Error;
+use iluvatar_library::types::{Compute, HealthStatus, Isolation, MemSizeMb, ResourceTimings};
+use iluvatar_library::utils::port::Port;
+use iluvatar_rpc::rpc::iluvatar_worker_client::IluvatarWorkerClient;
+use iluvatar_rpc::rpc::{
+    CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest,
+    PrewarmRequest, RegisterRequest, StatusRequest,
+};
+use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, LanguageRuntime, StatusResponse};
+use iluvatar_rpc::RPCError;
 use tonic::transport::Channel;
 use tonic::{Code, Request, Status};
 use tracing::{debug, error, warn};
@@ -68,36 +70,6 @@ impl Clone for RPCWorkerAPI {
     fn clone(&self) -> Self {
         RPCWorkerAPI {
             client: self.client.clone(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct RPCError {
-    message: Status,
-    source: String,
-}
-impl RPCError {
-    pub fn new(message: Status, source: String) -> Self {
-        RPCError { message, source }
-    }
-}
-impl std::fmt::Display for RPCError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{} RPC connection failed because: {:?}", self.source, self.message)?;
-        Ok(())
-    }
-}
-impl Error for RPCError {}
-
-impl InvokeResponse {
-    pub fn error(message: &str) -> Self {
-        InvokeResponse {
-            json_result: format!("{{ \"Error\": \"{}\" }}", message),
-            success: false,
-            duration_us: 0,
-            compute: Compute::empty().bits(),
-            container_state: ContainerState::Error.into(),
         }
     }
 }

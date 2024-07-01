@@ -11,10 +11,11 @@ repository.workspace = true
 categories.workspace = true
 
 [dependencies]
-actix-web = "4"
 iluvatar_library = { path = "../iluvatar_library" }
+iluvatar_rpc = { path = "../iluvatar_rpc" }
 iluvatar_controller_library = { path = "../iluvatar_controller_library" }
 clap = { version = "4.1", features = ["derive"] }
 tracing = "0.1"
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "test-util", "parking_lot"] }
 anyhow = "1.0.13"
+tonic = "0.11"

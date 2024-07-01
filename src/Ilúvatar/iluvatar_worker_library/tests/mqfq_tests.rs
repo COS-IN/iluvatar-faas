@@ -8,7 +8,9 @@ use iluvatar_library::{
     logging::LocalTime,
     transaction::{gen_tid, TEST_TID},
 };
+use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
+use iluvatar_worker_library::services::invocation::queueing::DeviceQueue;
 use iluvatar_worker_library::services::{
     invocation::queueing::{
         gpu_mqfq::{FlowQ, MQState, MQFQ},
@@ -16,10 +18,6 @@ use iluvatar_worker_library::services::{
     },
     registration::RegisteredFunction,
     resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
-};
-use iluvatar_worker_library::{
-    rpc::{LanguageRuntime, RegisterRequest},
-    services::invocation::queueing::DeviceQueue,
 };
 use rstest::rstest;
 use std::sync::Arc;

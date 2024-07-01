@@ -1,23 +1,25 @@
+use crate::benchmark::BenchmarkStore;
 use anyhow::{Context, Result};
-use iluvatar_controller_library::server::controller_structs::json::{
-    ControllerInvokeResult, Invoke, Prewarm, RegisterFunction,
-};
+use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::{
     logging::LocalTime,
-    transaction::TransactionId,
+    transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::{port::Port, timing::TimedExt},
 };
-use iluvatar_worker_library::{
-    rpc::{CleanResponse, ContainerState, InvokeResponse},
-    worker_api::worker_comm::WorkerAPIFactory,
-};
-use reqwest::Client;
+use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResponse, RegisterRequest};
+use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::Write,
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::{runtime::Runtime, task::JoinHandle};
-
-use crate::benchmark::BenchmarkStore;
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
@@ -141,7 +143,7 @@ impl PartialEq for CompletedWorkerInvocation {
 #[derive(Serialize, Deserialize)]
 pub struct CompletedControllerInvocation {
     /// The RPC result returned by the worker
-    pub controller_response: ControllerInvokeResult,
+    pub controller_response: InvokeResponse,
     /// The deserialized result of the function's execution
     pub function_output: FunctionExecOutput,
     /// The latency experienced by the client, in microseconds
@@ -149,25 +151,17 @@ pub struct CompletedControllerInvocation {
     pub function_name: String,
     pub function_version: String,
     pub invoke_start: String,
+    pub transaction_id: TransactionId,
 }
 impl CompletedControllerInvocation {
-    pub fn error(msg: String, name: &str, version: &str, tid: Option<&TransactionId>, invoke_start: String) -> Self {
-        let r_tid = match tid {
-            Some(t) => t.clone(),
-            None => "ERROR_TID".to_string(),
-        };
+    pub fn error(msg: String, name: &str, version: &str, tid: &TransactionId, invoke_start: String) -> Self {
         CompletedControllerInvocation {
-            controller_response: ControllerInvokeResult {
-                worker_duration_us: 0,
+            controller_response: InvokeResponse {
+                json_result: msg,
                 success: false,
-                tid: r_tid,
-                result: InvokeResponse {
-                    json_result: msg,
-                    success: false,
-                    duration_us: 0,
-                    compute: Compute::empty().bits(),
-                    container_state: ContainerState::Error.into(),
-                },
+                duration_us: 0,
+                compute: Compute::empty().bits(),
+                container_state: ContainerState::Error.into(),
             },
             function_output: FunctionExecOutput {
                 body: Body {
@@ -181,6 +175,7 @@ impl CompletedControllerInvocation {
             function_name: name.to_owned(),
             function_version: version.to_owned(),
             invoke_start,
+            transaction_id: tid.clone(),
         }
     }
 }
@@ -223,68 +218,46 @@ pub fn load_benchmark_data(path: &Option<String>) -> Result<Option<BenchmarkStor
 pub async fn controller_invoke(
     name: &str,
     version: &str,
-    host: &str,
-    port: Port,
-    args: Option<Vec<String>>,
+    json_args: Option<String>,
     clock: Arc<LocalTime>,
-    client: Arc<Client>,
+    api: ControllerAPI,
 ) -> Result<CompletedControllerInvocation> {
-    let req = Invoke {
+    let tid = gen_tid();
+    let req = InvokeRequest {
         function_name: name.to_owned(),
         function_version: version.to_owned(),
-        args,
+        json_args: match json_args {
+            Some(json_args) => json_args,
+            None => "{}".to_owned(),
+        },
+        transaction_id: tid.clone(),
     };
     let invoke_start = clock.now_str()?;
-    let (invok_out, invok_lat) = client
-        .post(format!("http://{}:{}/invoke", &host, port))
-        .json(&req)
-        .header("Content-Type", "application/json")
-        .send()
-        .timed()
-        .await;
-    let r = match invok_out {
-        Ok(r) => {
-            let txt = match r.text().await {
-                Ok(t) => t,
-                Err(e) => {
-                    return Ok(CompletedControllerInvocation::error(
-                        format!("Get text error: {};", e),
-                        name,
-                        version,
-                        None,
-                        invoke_start,
-                    ))
-                }
-            };
-            match serde_json::from_str::<ControllerInvokeResult>(&txt) {
-                Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.result.json_result) {
-                    Ok(feo) => CompletedControllerInvocation {
-                        controller_response: r,
-                        function_output: feo,
-                        client_latency_us: invok_lat.as_micros(),
-                        function_name: name.to_owned(),
-                        function_version: version.to_owned(),
-                        invoke_start,
-                    },
-                    Err(e) => CompletedControllerInvocation::error(
-                        format!("FunctionExecOutput Deserialization error: {}; {}", e, &txt),
-                        name,
-                        version,
-                        Some(&r.tid),
-                        invoke_start,
-                    ),
-                },
-                Err(e) => CompletedControllerInvocation::error(
-                    format!("ControllerInvokeResult Deserialization error: {}; {}", e, &txt),
-                    name,
-                    version,
-                    None,
-                    invoke_start,
+    let (r, invoke_lat) = api.invoke(req).timed().await;
+    let r = match r {
+        Ok(response) => match serde_json::from_str::<FunctionExecOutput>(&response.json_result) {
+            Ok(feo) => CompletedControllerInvocation {
+                controller_response: response,
+                function_output: feo,
+                client_latency_us: invoke_lat.as_micros(),
+                function_name: name.to_owned(),
+                function_version: version.to_owned(),
+                invoke_start,
+                transaction_id: tid,
+            },
+            Err(e) => CompletedControllerInvocation::error(
+                format!(
+                    "FunctionExecOutput Deserialization error: {}; {}",
+                    e, &response.json_result
                 ),
-            }
-        }
+                name,
+                version,
+                &tid,
+                invoke_start,
+            ),
+        },
         Err(e) => {
-            CompletedControllerInvocation::error(format!("Invocation error: {}", e), name, version, None, invoke_start)
+            CompletedControllerInvocation::error(format!("Invocation error: {}", e), name, version, &tid, invoke_start)
         }
     };
     Ok(r)
@@ -295,81 +268,45 @@ pub async fn controller_register(
     version: &str,
     image: &str,
     memory: MemSizeMb,
-    host: &str,
-    port: Port,
     timings: Option<&ResourceTimings>,
+    api: ControllerAPI,
 ) -> Result<Duration> {
-    let req = RegisterFunction {
-        function_name: name.to_owned(),
-        function_version: version.to_owned(),
-        image_name: image.to_owned(),
+    let start = Instant::now();
+    let tid = format!("{}-{}-reg", name, version);
+    let req = RegisterRequest::new(
+        name,
+        version,
+        image,
+        1,
         memory,
-        cpus: 1,
-        parallel_invokes: 1,
-        timings: timings.cloned(),
-    };
-    let client = reqwest::Client::new();
-    let (reg_out, reg_dur) = client
-        .post(format!("http://{}:{}/register_function", &host, port))
-        .json(&req)
-        .header("Content-Type", "application/json")
-        .send()
-        .timed()
-        .await;
-    match reg_out {
-        Ok(r) => {
-            let status = r.status();
-            if status == reqwest::StatusCode::OK {
-                Ok(reg_dur)
-            } else {
-                let text = r.text().await?;
-                anyhow::bail!(
-                    "Got unexpected HTTP status when registering function with the controller '{}'; text: {}",
-                    status,
-                    text
-                );
-            }
-        }
-        Err(e) => {
-            anyhow::bail!(
-                "HTTP error when trying to register function with the controller '{}'",
-                e
-            );
-        }
+        timings,
+        LanguageRuntime::Python3,
+        Compute::CPU,
+        Isolation::CONTAINERD,
+        &tid,
+    )?;
+    match api.register(req).await {
+        Ok(_) => Ok(start.elapsed()),
+        Err(e) => Err(e),
     }
 }
 
-pub async fn controller_prewarm(name: &str, version: &str, host: &str, port: Port) -> Result<Duration> {
-    let req = Prewarm {
+pub async fn controller_prewarm(
+    name: &str,
+    version: &str,
+    api: ControllerAPI,
+    tid: &TransactionId,
+) -> Result<Duration> {
+    let start = Instant::now();
+    let req = PrewarmRequest {
         function_name: name.to_owned(),
         function_version: version.to_owned(),
+        transaction_id: tid.to_owned(),
+        compute: Compute::CPU.bits(),
     };
-    let client = reqwest::Client::new();
-    let (reg_out, reg_dur) = client
-        .post(format!("http://{}:{}/prewarm", &host, port))
-        .json(&req)
-        .header("Content-Type", "application/json")
-        .send()
-        .timed()
-        .await;
-    match reg_out {
-        Ok(r) => {
-            let status = r.status();
-            if status == reqwest::StatusCode::ACCEPTED {
-                Ok(reg_dur)
-            } else {
-                let text = r.text().await?;
-                anyhow::bail!(
-                    "Got unexpected HTTP status when prewarming function with the controller '{}'; text: {}",
-                    status,
-                    text
-                );
-            }
-        }
-        Err(e) => anyhow::bail!(
-            "HTTP error when trying to prewarming function with the controller '{}'",
-            e
-        ),
+    match api.prewarm(req).await {
+        Ok(_) => Ok(start.elapsed()),
+        Err(e) => Err(e),
     }
 }
 

@@ -1,4 +1,3 @@
-pub use crate::rpc::ContainerState;
 use crate::services::{containers::containermanager::ContainerManager, registration::RegisteredFunction};
 use anyhow::Result;
 use iluvatar_library::{
@@ -7,6 +6,7 @@ use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
+pub use iluvatar_rpc::rpc::ContainerState;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime},

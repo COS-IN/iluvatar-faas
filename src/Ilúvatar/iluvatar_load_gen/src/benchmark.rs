@@ -2,7 +2,8 @@ use crate::trace::prepare_function_args;
 use crate::utils::*;
 use anyhow::Result;
 use clap::Parser;
-use iluvatar_library::types::{Compute, Isolation, MemSizeMb, ResourceTimings};
+use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_library::types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
@@ -138,25 +139,21 @@ pub async fn benchmark_controller(
     cold_repeats: u32,
     warm_repeats: u32,
 ) -> Result<()> {
+    let factory = ControllerAPIFactory::boxed();
     let mut full_data = BenchmarkStore::new();
-    let client = match reqwest::Client::builder()
-        .pool_max_idle_per_host(0)
-        .pool_idle_timeout(None)
-        .connect_timeout(Duration::from_secs(60))
-        .build()
-    {
-        Ok(c) => Arc::new(c),
-        Err(e) => panic!("Unable to build reqwest HTTP client: {:?}", e),
-    };
     for function in &functions {
         let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
         println!("{}", function.name);
         let clock = Arc::new(LocalTime::new(&gen_tid())?);
+        let reg_tid = gen_tid();
+        let api = factory
+            .get_controller_api(&host, port, CommunicationMethod::RPC, &reg_tid)
+            .await?;
         for iter in 0..cold_repeats {
             let name = format!("{}-bench-{}", function.name, iter);
             let version = format!("0.0.{}", iter);
             let _reg_dur =
-                match crate::utils::controller_register(&name, &version, &function.image_name, 512, &host, port, None)
+                match crate::utils::controller_register(&name, &version, &function.image_name, 512, None, api.clone())
                     .await
                 {
                     Ok(d) => d,
@@ -167,14 +164,12 @@ pub async fn benchmark_controller(
                 };
 
             'inner: for _ in 0..warm_repeats {
-                match crate::utils::controller_invoke(&name, &version, &host, port, None, clock.clone(), client.clone())
-                    .await
-                {
+                match crate::utils::controller_invoke(&name, &version, None, clock.clone(), api.clone()).await {
                     Ok(invoke_result) => {
                         if invoke_result.controller_response.success {
                             let func_exec_us = invoke_result.function_output.body.latency * 1000000.0;
                             let invoke_lat = invoke_result.client_latency_us as f64;
-                            let compute = Compute::CPU; // TODO: update when controller returns more details
+                            let compute = Compute::from_bits_truncate(invoke_result.controller_response.compute);
                             let resource_entry = match func_data.resource_data.get_mut(&compute.try_into()?) {
                                 Some(r) => r,
                                 None => func_data.resource_data.entry(compute.try_into()?).or_default(),
@@ -186,10 +181,10 @@ pub async fn benchmark_controller(
                                 resource_entry.cold_over_results_us.push(invoke_lat - func_exec_us);
                                 resource_entry
                                     .cold_worker_duration_us
-                                    .push(invoke_result.controller_response.worker_duration_us);
+                                    .push(invoke_result.client_latency_us);
                                 resource_entry
                                     .cold_invoke_duration_us
-                                    .push(invoke_result.controller_response.result.duration_us.into());
+                                    .push(invoke_result.controller_response.duration_us as u128);
                             } else {
                                 resource_entry
                                     .warm_results_sec
@@ -197,10 +192,10 @@ pub async fn benchmark_controller(
                                 resource_entry.warm_over_results_us.push(invoke_lat - func_exec_us);
                                 resource_entry
                                     .warm_worker_duration_us
-                                    .push(invoke_result.controller_response.worker_duration_us);
+                                    .push(invoke_result.client_latency_us);
                                 resource_entry
                                     .warm_invoke_duration_us
-                                    .push(invoke_result.controller_response.result.duration_us.into());
+                                    .push(invoke_result.controller_response.duration_us as u128);
                             }
                         }
                     }
@@ -220,27 +215,13 @@ pub async fn benchmark_controller(
 }
 
 pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunction>, args: BenchmarkArgs) -> Result<()> {
-    // let barrier = Arc::new(Barrier::new(args.thread_count as usize));
-    // let mut handles = Vec::new();
     let mut full_data = BenchmarkStore::new();
     for f in &functions {
         full_data
             .data
             .insert(f.name.clone(), FunctionStore::new(f.image_name.clone(), f.name.clone()));
     }
-
-    // for thread_id in 0..args.thread_count as usize {
-    //   let h_c = args.host.clone();
-    //   let f_c = functions.clone();
-    //   let b_c = barrier.clone();
-    //   handles.push(threaded_rt.spawn(async move { benchmark_worker_thread(h_c, args.port, f_c, args.cold_iters, args.warm_iters, args.runtime, thread_id, b_c).await }));
-    // }
-
-    // let mut results = resolve_handles(threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
     let mut invokes = vec![];
-    // for thread_result in results.iter_mut() {
-    //   combined.append(thread_result);
-    // }
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
     let clock = Arc::new(LocalTime::new(&gen_tid())?);
     let mut cold_repeats = args.cold_iters;

@@ -12,8 +12,8 @@ categories.workspace = true
 
 [dependencies]
 iluvatar_library = { path = "../iluvatar_library" }
-tonic = "0.7.2"
-prost = "0.10"
+iluvatar_rpc = { path = "../iluvatar_rpc" }
+tonic = "0.11"
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot"] }
 lazy_static = "1.4.0"
 anyhow = "1.0.13"
@@ -23,8 +23,7 @@ serde_json = "1.0.81"
 parking_lot = "0.12.1"
 config = "0.13"
 inotify = "0.10.2"
-containerd-client = "0.2.0"
-prost-types = "0.9.0"
+containerd-client = "0.5.0"
 oci-spec = "0.5.1"
 sha2="0.10.2"
 hex = "0.4.3"
@@ -44,10 +43,7 @@ influxdb2-structmap = "0.2"
 rand = "0.8"
 nvml-wrapper = "0.9"
 bollard = "0.16"
-
-[build-dependencies]
-tonic-build = "0.7.2"
-prost-build = "0.11"
+prost-types = "0.12"
 
 [dev-dependencies]
 rstest = "0.13.0"

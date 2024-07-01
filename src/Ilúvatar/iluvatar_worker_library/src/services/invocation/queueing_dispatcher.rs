@@ -621,7 +621,7 @@ impl Invoker for QueueingDispatcher {
         let invoke = self.enqueue_new_invocation(&reg, json_args, tid)?;
         self.async_functions.insert_async_invoke(invoke)
     }
-    fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<crate::rpc::InvokeResponse> {
+    fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<iluvatar_rpc::rpc::InvokeResponse> {
         self.async_functions.invoke_async_check(cookie, tid)
     }
 

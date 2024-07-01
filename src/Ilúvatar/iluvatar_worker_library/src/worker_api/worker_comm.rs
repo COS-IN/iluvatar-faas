@@ -1,7 +1,5 @@
-use crate::{
-    rpc::RPCWorkerAPI,
-    worker_api::{create_worker, iluvatar_worker::IluvatarWorkerImpl, sim_worker::SimWorkerAPI, WorkerAPI},
-};
+use super::rpc::RPCWorkerAPI;
+use crate::worker_api::{create_worker, iluvatar_worker::IluvatarWorkerImpl, sim_worker::SimWorkerAPI, WorkerAPI};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::CommunicationMethod, utils::port::Port};

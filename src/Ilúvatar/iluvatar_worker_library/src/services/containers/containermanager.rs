@@ -202,15 +202,20 @@ impl ContainerManager {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn update_memory_usages(&self, tid: &TransactionId) {
-        self.update_container_pool_memory_usages(&self.cpu_containers, tid)
-            .await;
-        self.update_container_pool_memory_usages(&self.gpu_containers, tid)
-            .await;
-    }
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, pool), fields(tid=%tid)))]
-    async fn update_container_pool_memory_usages(&self, pool: &ContainerPool, tid: &TransactionId) {
-        debug!(tid=%tid, pool=%pool.pool_name(), "updating container memory usages");
         let old_total_mem = *self.used_mem_mb.read();
+        let cpu_mem = self.calc_container_pool_memory_usages(&self.cpu_containers, tid).await;
+        let gpu_mem = self.calc_container_pool_memory_usages(&self.gpu_containers, tid).await;
+        let new_total_mem = cpu_mem + gpu_mem;
+        *self.used_mem_mb.write() = new_total_mem;
+        debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, cpu_pool=cpu_mem, gpu_pool=gpu_mem, "Total container memory usage");
+        if new_total_mem < 0 {
+            error!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Container memory usage has gone negative");
+        }
+    }
+
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, pool), fields(tid=%tid)))]
+    async fn calc_container_pool_memory_usages(&self, pool: &ContainerPool, tid: &TransactionId) -> MemSizeMb {
+        debug!(tid=%tid, pool=%pool.pool_name(), "updating container memory usages");
         let mut new_total_mem = 0;
         for container in pool.iter().iter().filter(|c| c.is_healthy()) {
             let old_usage = container.get_curr_mem_usage();
@@ -224,11 +229,7 @@ impl ContainerManager {
             new_total_mem += new_usage;
             debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, "updated container memory usage");
         }
-        *self.used_mem_mb.write() += new_total_mem;
-        debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, pool=%pool.pool_name(), "Total container memory usage");
-        if new_total_mem < 0 {
-            error!(tid=%tid, old_total=old_total_mem, total=new_total_mem, pool=%pool.pool_name(), "Container memory usage has gone negative");
-        }
+        new_total_mem
     }
 
     /// acquire_container
@@ -757,14 +758,18 @@ mod tests {
         }
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
         assert_eq!(*cm.used_mem_mb.read(), func.memory);
-        let c1_cont = c1.container.clone();
+        assert_eq!(cm.cpu_containers.len(), 1, "Container should exist");
         drop(c1);
-        cm.purge_container(c1_cont, &TEST_TID)
-            .await
-            .unwrap_or_else(|e| panic!("purge_container failed: {:?}", e));
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        cm.remove_idle_containers(&TEST_TID).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let state = cm.container_exists(
+            &calculate_fqdn(&func.function_name, &func.function_version),
+            Compute::CPU,
+        );
+        assert_eq!(state, ContainerState::Cold, "After purging container, should be cold");
+        assert_eq!(cm.cpu_containers.len(), 0, "Purged container should be gone");
         assert_eq!(cm.gpu_containers.len(), 0, "Purged container should be gone");
-        assert_eq!(*cm.used_mem_mb.read(), 0);
+        assert_eq!(*cm.used_mem_mb.read(), 0, "Used memory should be reset to zero");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

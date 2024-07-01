@@ -1,11 +1,9 @@
 use crate::args::{AsyncCheck, InvokeArgs, PrewarmArgs, RegisterArgs};
 use anyhow::Result;
 use iluvatar_library::transaction::gen_tid;
+use iluvatar_library::types::HealthStatus;
 use iluvatar_library::utils::{config::args_to_json, port::Port};
-use iluvatar_worker_library::{
-    rpc::RPCWorkerAPI,
-    worker_api::{HealthStatus, WorkerAPI},
-};
+use iluvatar_worker_library::worker_api::{rpc::RPCWorkerAPI, WorkerAPI};
 
 pub async fn ping(host: String, port: Port) -> Result<()> {
     let mut api = RPCWorkerAPI::new(&host, port, &gen_tid()).await?;
@@ -102,6 +100,7 @@ pub async fn health(host: String, port: Port) -> Result<()> {
     match ret {
         HealthStatus::HEALTHY => println!("Worker is healthy"),
         HealthStatus::UNHEALTHY => println!("Worker is unhealthy"),
+        HealthStatus::OFFLINE => println!("Worker is unresponsive"),
     };
     Ok(())
 }

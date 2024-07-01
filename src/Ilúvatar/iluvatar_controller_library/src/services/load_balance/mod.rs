@@ -1,8 +1,8 @@
 use crate::server::controller_config::ControllerConfig;
-use crate::server::structs::internal::{RegisteredFunction, RegisteredWorker};
+use crate::server::structs::{RegisteredFunction, RegisteredWorker};
 use anyhow::Result;
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_worker_library::rpc::InvokeResponse;
+use iluvatar_rpc::rpc::InvokeResponse;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::sync::Arc;
 use std::time::Duration;

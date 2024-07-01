@@ -1,10 +1,14 @@
-use actix_web::{web::Data, App, HttpServer};
+use std::time::Duration;
+
+// use actix_web::{web::Data, App, HttpServer};
 use clap::{command, Parser};
-use iluvatar_controller_library::server::{config::Configuration, controller::Controller, web_server::*};
+use iluvatar_controller_library::server::{config::Configuration, controller::Controller};
 use iluvatar_library::logging::start_tracing;
 use iluvatar_library::transaction::{TransactionId, LOAD_BALANCER_TID};
 use iluvatar_library::utils::wait_for_exit_signal;
-use tracing::info;
+use iluvatar_rpc::rpc::iluvatar_controller_server::IluvatarControllerServer;
+use tonic::transport::Server;
+use tracing::{debug, info};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -23,25 +27,16 @@ async fn main() -> anyhow::Result<()> {
     let config = Configuration::boxed(&args.config).unwrap();
     let _guard = start_tracing(config.logging.clone(), &config.name, tid).unwrap();
 
-    let server = Controller::new(config.clone(), tid).await?;
-    let server_data = Data::new(server);
+    let controller = Controller::new(config.clone(), tid).await?;
 
     info!(tid=%tid, "Controller started!");
-
-    let _handle = tokio::spawn(
-        HttpServer::new(move || {
-            App::new()
-                .app_data(server_data.clone())
-                .service(ping)
-                .service(invoke_api)
-                .service(invoke_async_api)
-                .service(invoke_async_check_api)
-                .service(prewarm_api)
-                .service(register_function_api)
-                .service(register_worker_api)
-        })
-        .bind((config.address.clone(), config.port))?
-        .run(),
+    debug!(config=?config, "Controller configuration");
+    let addr = std::net::SocketAddr::new(config.address.clone().parse()?, config.port);
+    let _j = tokio::spawn(
+        Server::builder()
+            .timeout(Duration::from_secs(config.timeout_sec))
+            .add_service(IluvatarControllerServer::new(controller))
+            .serve(addr),
     );
 
     wait_for_exit_signal(tid).await?;

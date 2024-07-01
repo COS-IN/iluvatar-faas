@@ -2,13 +2,13 @@ use super::{
     invocation::Invoker,
     registration::{RegisteredFunction, RegistrationService},
 };
-use crate::rpc::{HealthResponse, LanguageRuntime, RegisterRequest};
 use crate::worker_api::worker_config::WorkerConfig;
 use anyhow::Result;
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation},
 };
+use iluvatar_rpc::rpc::{HealthResponse, LanguageRuntime, RegisterRequest};
 use std::sync::Arc;
 use tracing::warn;
 

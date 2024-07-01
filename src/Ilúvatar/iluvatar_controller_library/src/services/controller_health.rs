@@ -1,7 +1,7 @@
-use crate::server::structs::internal::{RegisteredWorker, WorkerStatus};
+use crate::server::structs::RegisteredWorker;
 use dashmap::DashMap;
-use iluvatar_library::transaction::TransactionId;
-use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, HealthStatus};
+use iluvatar_library::{transaction::TransactionId, types::HealthStatus};
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, warn};
@@ -25,7 +25,7 @@ pub trait ControllerHealthService: Send + Sync {
 
 pub struct HealthService {
     worker_fact: Arc<WorkerAPIFactory>,
-    worker_statuses: Arc<DashMap<String, WorkerStatus>>,
+    worker_statuses: Arc<DashMap<String, HealthStatus>>,
 }
 
 impl HealthService {
@@ -37,7 +37,7 @@ impl HealthService {
     }
 
     /// returns true if the status is changed, or the worker was not seen before
-    fn status_changed(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &WorkerStatus) -> bool {
+    fn status_changed(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &HealthStatus) -> bool {
         match self.worker_statuses.get(&worker.name) {
             Some(stat) => {
                 info!(tid=%tid, worker=%worker.name, status=?status, "worker changed status to");
@@ -48,14 +48,14 @@ impl HealthService {
     }
 
     /// updates the stored status of the worker
-    fn update_status(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &WorkerStatus) {
+    fn update_status(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &HealthStatus) {
         debug!(tid=%tid, name=%worker.name, status=?status, "updating worker status");
-        self.worker_statuses.insert(worker.name.clone(), status.clone());
+        self.worker_statuses.insert(worker.name.clone(), *status);
     }
 
     /// get the health status for a specific worker
-    /// returns [WorkerStatus::OFFLINE] or [WorkerStatus::UNHEALTHY] if an error occurs
-    async fn get_worker_health(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> WorkerStatus {
+    /// returns [HealthStatus::OFFLINE] or [HealthStatus::UNHEALTHY] if an error occurs
+    async fn get_worker_health(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> HealthStatus {
         let mut api = match self
             .worker_fact
             .get_worker_api(
@@ -70,17 +70,14 @@ impl HealthService {
             Ok(api) => api,
             Err(e) => {
                 warn!(tid=%tid, worker=%worker.name, error=%e, "Couldn't connect to worker for health check");
-                return WorkerStatus::OFFLINE;
+                return HealthStatus::OFFLINE;
             }
         };
         match api.health(tid.clone()).await {
-            Ok(h) => match h {
-                HealthStatus::HEALTHY => WorkerStatus::HEALTHY,
-                HealthStatus::UNHEALTHY => WorkerStatus::UNHEALTHY,
-            },
+            Ok(h) => h,
             Err(e) => {
                 warn!(tid=%tid, worker=%worker.name, error=%e, "Error when checking worker health");
-                WorkerStatus::UNHEALTHY
+                HealthStatus::UNHEALTHY
             }
         }
     }
@@ -90,7 +87,7 @@ impl HealthService {
 impl ControllerHealthService for HealthService {
     fn is_healthy(&self, worker: &Arc<RegisteredWorker>) -> bool {
         match self.worker_statuses.get(&worker.name) {
-            Some(stat) => stat.value() == &WorkerStatus::HEALTHY,
+            Some(stat) => stat.value() == &HealthStatus::HEALTHY,
             None => false,
         }
     }
@@ -100,7 +97,7 @@ impl ControllerHealthService for HealthService {
         if self.status_changed(worker, tid, &new_status) {
             self.update_status(worker, tid, &new_status)
         }
-        new_status != WorkerStatus::HEALTHY
+        new_status != HealthStatus::HEALTHY
     }
 
     fn schedule_health_check(

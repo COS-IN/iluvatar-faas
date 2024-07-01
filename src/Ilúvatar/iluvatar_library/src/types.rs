@@ -8,8 +8,19 @@ pub type MemSizeMb = i64;
 /// How to communicate with a worker.
 /// Generally not needed to know, but live = RPC, otherwise simulation
 pub enum CommunicationMethod {
-    RPC,
-    SIMULATION,
+    RPC = 0,
+    SIMULATION = 1,
+}
+impl TryInto<CommunicationMethod> for u32 {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<CommunicationMethod, Self::Error> {
+        match self {
+            0 => Ok(CommunicationMethod::RPC),
+            1 => Ok(CommunicationMethod::SIMULATION),
+            _ => anyhow::bail!("Cannot parse {:?} for CommunicationMethod", self),
+        }
+    }
 }
 
 bitflags! {
@@ -235,6 +246,13 @@ impl DroppableMovableTrait for tokio::sync::OwnedSemaphorePermit {}
 #[allow(drop_bounds, dyn_drop)]
 pub type DroppableToken = Box<dyn DroppableMovableTrait>;
 impl DroppableMovableTrait for Vec<DroppableToken> {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthStatus {
+    HEALTHY,
+    UNHEALTHY,
+    OFFLINE,
+}
 
 #[cfg(test)]
 mod types_tests {

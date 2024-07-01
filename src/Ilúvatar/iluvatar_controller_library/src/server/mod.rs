@@ -5,4 +5,5 @@ pub use controller_structs as structs;
 pub mod controller_errors;
 pub use controller_errors as errors;
 pub mod controller;
-pub mod web_server;
+pub mod controller_comm;
+pub mod rpc;

@@ -1,11 +1,12 @@
-use crate::server::structs::internal::{RegisteredFunction, RegisteredWorker};
-use crate::server::structs::json::RegisterFunction;
+use crate::server::structs::{RegisteredFunction, RegisteredWorker};
+// use crate::server::structs::json::RegisterFunction;
 use crate::services::load_balance::LoadBalancer;
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_library::api_register::RegisterWorker;
+// use iluvatar_library::api_register::RegisterWorker;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
+use iluvatar_rpc::rpc::{RegisterRequest, RegisterWorkerRequest};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::sync::Arc;
 use tracing::{error, info};
@@ -36,12 +37,16 @@ impl RegistrationService {
     /// Register a new worker
     /// Prepare it with all registered functions too
     /// Send to load balancer
-    pub async fn register_worker(&self, worker: RegisterWorker, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {
+    pub async fn register_worker(
+        &self,
+        worker: RegisterWorkerRequest,
+        tid: &TransactionId,
+    ) -> Result<Arc<RegisteredWorker>> {
         if self.worker_registered(&worker.name) {
             bail_error!(tid=%tid, worker=%worker.name, "Worker was already registered");
         }
 
-        let reg_worker = Arc::new(RegisteredWorker::from(worker));
+        let reg_worker = Arc::new(RegisteredWorker::from(worker)?);
 
         let mut api = self
             .worker_fact
@@ -93,11 +98,12 @@ impl RegistrationService {
     }
 
     /// Register a new function with workers
-    pub async fn register_function(&self, function: RegisterFunction, tid: &TransactionId) -> Result<()> {
+    pub async fn register_function(&self, function: RegisterRequest, tid: &TransactionId) -> Result<()> {
         let fqdn = calculate_fqdn(&function.function_name, &function.function_version);
         if self.function_registered(&fqdn) {
             bail_error!(tid=%tid, fqdn=%fqdn, "Function was already registered");
         } else {
+            let function = Arc::new(RegisteredFunction::from(function));
             for item in self.workers.iter() {
                 let worker = item.value();
                 let mut api = self
@@ -121,7 +127,8 @@ impl RegistrationService {
                         tid.clone(),
                         Isolation::CONTAINERD,
                         Compute::CPU,
-                        function.timings.as_ref(),
+                        // function.timings.as_ref(),
+                        None,
                     )
                     .await
                 {
@@ -131,7 +138,7 @@ impl RegistrationService {
                     }
                 };
             }
-            let function = Arc::new(RegisteredFunction::from(function));
+            // let function = Arc::new(function);
             self.functions.insert(fqdn.clone(), function);
         }
 

@@ -37,9 +37,9 @@ pub type ControllerConfig = Arc<Configuration>;
 impl Configuration {
     pub fn new(config_fpath: &str) -> anyhow::Result<Self> {
         let sources = [
-            "load_balancer/src/load_balancer.json",
+            "iluvatar_controller/src/controller.json",
             config_fpath,
-            "load_balancer/src/load_balancer.dev.json",
+            "iluvatar_controller/src/controller.dev.json",
         ];
         let s = Config::builder()
             .add_source(
@@ -57,9 +57,9 @@ impl Configuration {
         match s.build() {
             Ok(s) => match s.try_deserialize() {
                 Ok(cfg) => Ok(cfg),
-                Err(e) => anyhow::bail!("Failed to deserialize configuration because '{}'", e),
+                Err(e) => anyhow::bail!("Failed to deserialize controller configuration because '{}'", e),
             },
-            Err(e) => anyhow::bail!("Failed to build configuration because '{}'", e),
+            Err(e) => anyhow::bail!("Failed to build controller configuration because '{}'", e),
         }
     }
 

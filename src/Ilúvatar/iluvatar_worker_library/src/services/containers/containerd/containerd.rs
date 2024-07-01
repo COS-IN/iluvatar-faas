@@ -24,6 +24,7 @@ use containerd_client::tonic::{transport::Channel, Request};
 use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::types::{Compute, Isolation};
+use iluvatar_library::utils::execute_cmd;
 use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
     file::{temp_file_pth, touch, try_remove_pth},
@@ -36,7 +37,6 @@ use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::process::Command;
 use std::sync::mpsc;
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
@@ -468,7 +468,7 @@ impl ContainerdIsolation {
     }
 
     /// Ensures that the specified image is available on the machine
-    async fn ensure_image(&self, image_name: &str, _tid: &TransactionId) -> Result<()> {
+    async fn ensure_image(&self, image_name: &str, tid: &TransactionId) -> Result<()> {
         if self.downloaded_images.contains_key(image_name) {
             return Ok(());
         }
@@ -476,7 +476,7 @@ impl ContainerdIsolation {
         let auth_str;
         if let Some(docker) = &self.docker_config {
             if let Some(auth) = &docker.auth {
-                if image_name.starts_with(auth.repository.as_str()) {
+                if !auth.repository.is_empty() && image_name.starts_with(auth.repository.as_str()) {
                     args.push("--user");
                     auth_str = format!("{}:{}", auth.username, auth.password);
                     args.push(auth_str.as_str());
@@ -484,7 +484,7 @@ impl ContainerdIsolation {
             }
         }
         args.push(image_name);
-        let output = Command::new("ctr").args(args).output();
+        let output = execute_cmd("/usr/bin/ctr", args, None, tid);
         match output {
             Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
             Ok(output) => {
@@ -567,6 +567,7 @@ impl ContainerdIsolation {
             spec: Some(spec),
             created_at: None,
             updated_at: None,
+            sandbox: "".to_owned(),
             extensions: HashMap::new(),
             labels,
             snapshot_key: "".to_string(),
@@ -614,6 +615,7 @@ impl ContainerdIsolation {
             stdout,
             stderr,
             terminal: false,
+            runtime_path: "".to_owned(),
         };
         let req = with_namespace!(req, namespace);
         match client.create(req).await {
