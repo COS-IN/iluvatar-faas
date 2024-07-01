@@ -58,5 +58,5 @@ EOT
 ILU_HOME="../.."
 ret=$(pwd)
 cd $ILU_HOME
-make
+make release
 cd $ret

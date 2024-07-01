@@ -61,9 +61,7 @@ impl ControllerAPIFactory {
                         dashmap::mapref::entry::Entry::Vacant(vacant) => {
                             let controller_config = match super::controller_config::Configuration::boxed(host) {
                                 Ok(w) => w,
-                                Err(e) => {
-                                    anyhow::bail!("Failed to load config because '{:?}'", e)
-                                }
+                                Err(e) => anyhow::bail!("Failed to load config because '{:?}'", e),
                             };
                             let api = Controller::new(controller_config, tid).await?;
                             let api = Arc::new(api);

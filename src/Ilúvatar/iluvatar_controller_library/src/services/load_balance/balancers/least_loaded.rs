@@ -105,10 +105,10 @@ impl LoadBalancerTrait for LeastLoadedBalancer {
     fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
         info!(tid=%tid, worker=%worker.name, "Registering new worker in LeastLoaded load balancer");
         if self.assigned_worker.read().is_none() {
+            info!(tid=%tid, worker=%worker.name, "Assigning new worker in LeastLoaded load balancer");
             *self.assigned_worker.write() = Some(worker.clone());
         }
-        let mut workers = self.workers.write();
-        workers.insert(worker.name.clone(), worker);
+        self.workers.write().insert(worker.name.clone(), worker);
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=%tid)))]

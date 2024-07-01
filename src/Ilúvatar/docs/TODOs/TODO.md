@@ -119,6 +119,8 @@ Logs for workers in a cluster simulation scenario are put into one file.
 These become impossible to separate without any identifying factor.
 Either split up the logs into separate files on worker name, or include the name in each log message so it can be split in post-processing.
 
+Probably use a filter in `tracing-subscriber`, see [here](https://stackoverflow.com/questions/76939805/tracing-how-to-filter-logs-under-specified-levels-for-layer) and [here](https://docs.rs/tracing-subscriber/0.3.16/tracing_subscriber/layer/index.html#filtering-with-layers).
+
 ## CI Testing
 
 Run automated tests in Github actions CI.

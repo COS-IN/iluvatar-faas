@@ -1,30 +1,32 @@
 use super::{Function, TraceArgs};
-use crate::trace::{prepare_function_args, trace_utils::map_functions_to_prep, CsvInvocation};
+use crate::trace::{prepare_function_args, CsvInvocation};
 use crate::{
     benchmark::BenchmarkStore,
-    trace::trace_utils::save_controller_results,
+    trace::trace_utils::{map_functions_to_prep, save_controller_results},
     utils::{
         controller_invoke, controller_prewarm, controller_register, load_benchmark_data, resolve_handles,
         CompletedControllerInvocation, VERSION,
     },
 };
 use anyhow::Result;
-use iluvatar_controller_library::server::controller::Controller;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::transaction::{TransactionId, SIMULATION_START_TID};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation};
+use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port::Port};
-use iluvatar_rpc::rpc::iluvatar_controller_server::IluvatarController;
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
+use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 use std::{
     collections::HashMap,
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tokio::runtime::Runtime;
-use tokio::{runtime::Builder, task::JoinHandle};
-use tonic::Request;
+use tokio::{
+    runtime::{Builder, Runtime},
+    task::JoinHandle,
+};
 
 async fn controller_register_functions(
     funcs: &HashMap<String, Function>,
@@ -90,7 +92,7 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
 
 async fn controller_sim_register_workers(
     num_workers: usize,
-    server: &Arc<dyn IluvatarController>,
+    server: &ControllerAPI,
     worker_config_pth: &str,
     worker_config: &Arc<WorkerConfig>,
 ) -> Result<()> {
@@ -115,7 +117,7 @@ async fn controller_sim_register_workers(
             compute: compute,
             isolation: (Isolation::CONTAINERD | Isolation::DOCKER).bits(),
         };
-        let response = server.register_worker(Request::new(r)).await;
+        let response = server.register_worker(r).await;
         match response {
             Ok(_) => (),
             Err(e) => anyhow::bail!("Registering simulated worker failed with '{:?}'", e),
@@ -156,7 +158,7 @@ fn run_invokes(
         host,
         args.port,
         api_factory.clone(),
-        CommunicationMethod::RPC,
+        comm,
     ))?;
 
     let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
@@ -173,7 +175,13 @@ fn run_invokes(
             )
         })?;
         let api_cln = api.clone();
-        let func_args = prepare_function_args(func, args.load_type);
+        let func_args = match comm {
+            CommunicationMethod::RPC => args_to_json(&prepare_function_args(func, args.load_type))?,
+            CommunicationMethod::SIMULATION => serde_json::to_string(&SimulationInvocation {
+                warm_dur_ms: func.warm_dur_ms,
+                cold_dur_ms: func.cold_dur_ms,
+            })?,
+        };
         let clk = clock.clone();
         let f_c = func.func_name.clone();
         loop {
@@ -218,13 +226,15 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth).unwrap();
     let _guard =
         iluvatar_library::logging::start_tracing(controller_config.logging.clone(), &controller_config.name, tid)?;
-
-    let server = threaded_rt.block_on(async { Controller::new(controller_config.clone(), tid).await })?;
-    let server_data: Arc<dyn IluvatarController> = Arc::new(server);
+    let controller = threaded_rt.block_on(async {
+        api_factory
+            .get_controller_api(&controller_config_pth, 0, CommunicationMethod::SIMULATION, tid)
+            .await
+    })?;
 
     threaded_rt.block_on(controller_sim_register_workers(
         args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize,
-        &server_data,
+        &controller,
         &worker_config_pth,
         &worker_config,
     ))?;
@@ -232,7 +242,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         args,
         api_factory,
         threaded_rt,
-        &worker_config_pth,
+        &controller_config_pth,
         CommunicationMethod::SIMULATION,
     )
 }

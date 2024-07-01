@@ -5,7 +5,7 @@ use iluvatar_library::{
     logging::LocalTime,
     transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
-    utils::{config::args_to_json, port::Port, timing::TimedExt},
+    utils::{port::Port, timing::TimedExt},
 };
 use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResponse, RegisterRequest};
 use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
@@ -218,7 +218,7 @@ pub fn load_benchmark_data(path: &Option<String>) -> Result<Option<BenchmarkStor
 pub async fn controller_invoke(
     name: &str,
     version: &str,
-    args: Option<Vec<String>>,
+    json_args: Option<String>,
     clock: Arc<LocalTime>,
     api: ControllerAPI,
 ) -> Result<CompletedControllerInvocation> {
@@ -226,8 +226,8 @@ pub async fn controller_invoke(
     let req = InvokeRequest {
         function_name: name.to_owned(),
         function_version: version.to_owned(),
-        json_args: match args {
-            Some(args) => args_to_json(&args)?,
+        json_args: match json_args {
+            Some(json_args) => json_args,
             None => "{}".to_owned(),
         },
         transaction_id: tid.clone(),
