@@ -37,9 +37,13 @@ use serde_json::{Value};
 use std::collections::HashMap;
 use std::thread;
 
+use libc::{sched_param, sched_setscheduler};
+
 use iluvatar_worker_library::worker_api::Channels;
 use iluvatar_library::characteristics_map::CharacteristicsPacket;
 use iluvatar_worker_library::services::containers::containerd::PidsPacket;
+
+const SCHED_EXT: i32 = 7;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ChannelsR {
@@ -61,7 +65,14 @@ impl<'a> Scheduler<'a> {
         ) -> Result<Self> {
 
         let topo = Topology::new().expect("Failed to build host topology");
-        let bpf = BpfScheduler::init(5000, topo.nr_cpus_possible() as i32, false, 0, false, true)?;
+        let bpf = BpfScheduler::init(
+                     5000, // slice us 
+                     topo.nr_cpus_possible() as i32, // number of online cpus 
+                     true, // partial 
+                     0,     // exit_dump_len 
+                     false, // full_user 
+                     true   // debug 
+                 )?;
         let fcmap = get_func_to_cpu_map();
         Ok( Self { 
             bpf, 
@@ -148,6 +159,8 @@ impl<'a> Scheduler<'a> {
                 Err(_) => break,
             }
         }
+
+        let param: sched_param = sched_param { sched_priority: 0 };
         
         loop {
             match self.crecvs.rx_pids.try_recv() {
@@ -155,6 +168,7 @@ impl<'a> Scheduler<'a> {
                     // Do something interesting with your result
                     //println!("Received pids");
                     //println!("{:?}", pids);
+                    unsafe { sched_setscheduler(pids.pid as i32, SCHED_EXT, &param as *const sched_param) };
                     self.pids.insert( pids.pid, pids );
                 },
                 Err(_) => break,
