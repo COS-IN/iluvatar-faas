@@ -1,5 +1,5 @@
 [package]
-name = "fs_policy_locality"
+name = "fs_policy_fifo"
 version = "0.0.1"
 authors = ["Abdul Rehman <abdulrehmanee010@gmail.com>", ""]
 edition = "2021"

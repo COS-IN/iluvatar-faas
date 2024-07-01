@@ -101,15 +101,6 @@ impl<'a> Scheduler<'a> {
                     if task.cpu >= 0 {
                         let dtask = &mut DispatchedTask::new(&task);
                         
-                        if let Some(pidp) = self.pids.get( &(task.pid as u32)  ) {
-                            if let Some( chr ) = self.characteristics.get( &pidp.fqdn ) {
-                                if let Some( cpu ) = self.fcmap.get( &chr.fqdn ) {
-                                    // println!("Dispatching task {} to cpu {}", task.pid, cpu);
-                                    dtask.set_cpu( *cpu );
-                                }
-                            }
-                        }
-
                         let _ = self.bpf.dispatch_task( dtask );
 
                         // Give the task a chance to run and prevent overflowing the dispatch queue.
@@ -174,27 +165,10 @@ impl<'a> Scheduler<'a> {
                 Err(_) => break,
             }
         }
+
         for (k, v) in &self.characteristics {
             println!("{}: {:?}", k, v);
         }
-
-        // let mut i = 0;
-        // for (k, v) in &self.pids {
-        //     println!("{}: {:?}", k, v);
-        //     self.bpf.set_epid(*k, i);
-        //     i += 1;
-        // }
-        // self.bpf.switch_active_epid();
-
-        for (k, v) in &self.pids {
-            if let Some( chr ) = self.characteristics.get( &v.fqdn ) {
-                if let Some( cpu ) = self.fcmap.get( &chr.fqdn ) {
-                    println!("pid {}: func: {:?} core: {} ", k, v, *cpu);
-                    self.bpf.set_epid_core( *k as u32, *cpu as u32 );
-                }
-            }
-        }
-
     }
 
     fn run(&mut self, shutdown: Arc<AtomicBool>) -> Result<()> {
@@ -206,17 +180,6 @@ impl<'a> Scheduler<'a> {
             let curr_ts = Self::now();
             if curr_ts > prev_ts {
                 self.print_stats();
-                //let mut lock = self.fdata.try_lock();
-                //if let Ok(ref mut fldata) = lock {
-                //    fldata.update();
-                //    let mut i = 0;
-                //    for (k, v) in &fldata.pids {
-                //        let pid = *k as u32;
-                //        self.bpf.set_epid(pid, i);
-                //        i += 1;
-                //    }
-                //    self.bpf.switch_active_epid();
-                //} 
                 prev_ts = curr_ts;
             }
         }

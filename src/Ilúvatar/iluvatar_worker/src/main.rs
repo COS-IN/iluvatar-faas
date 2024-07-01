@@ -36,7 +36,10 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
             let bname = fconfig.binary.clone();
             if std::path::Path::new(&bname).exists() {
                 match bname.as_str() {
-                    "/tmp/iluvatar/bin/fs_policy_locality" =>  {               // create a oneshot server 
+                    "/tmp/iluvatar/bin/fs_policy_locality" |
+                    "/tmp/iluvatar/bin/fs_policy_fifo"
+                        =>  {               // create a oneshot server 
+                                            //
                         let (server, name) = IpcOneShotServer::new().unwrap();
                         debug!(tid=tid.as_str(), name=%name, status="server waiting", "ipc debugs");
 
