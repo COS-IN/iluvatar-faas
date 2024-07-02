@@ -1,0 +1,36 @@
+[package]
+name = "fs_policy_lavd"
+version = "0.1.1"
+authors = ["Changwoo Min <changwoo@igalia.com>", "Igalia"]
+edition = "2021"
+description = "A Latency-criticality Aware Virtual Deadline (LAVD) scheduler based on sched_ext, which is a Linux kernel feature which enables implementing kernel thread schedulers in BPF and dynamically loading them. https://github.com/sched-ext/scx/tree/main"
+license = "GPL-2.0-only"
+
+[dependencies]
+iluvatar_library = { path = "../iluvatar_library" }
+iluvatar_worker_library = { path = "../iluvatar_worker_library" }
+anyhow = "1.0.65"
+bitvec = { version = "1.0", features = ["serde"] }
+clap = { version = "4.1", features = ["derive", "env", "unicode", "wrap_help"] }
+ctrlc = { version = "3.1", features = ["termination"] }
+fb_procfs = "0.7.0"
+hex = "0.4.3"
+libbpf-rs = "0.23"
+libc = "0.2.137"
+log = "0.4.17"
+ordered-float = "3.4.0"
+scx_utils = "0.7"
+scx_rustland_core = "0.2"
+simplelog = "0.12.0"
+static_assertions = "1.1.0"
+rlimit = "0.10.1"
+plain = "0.2.3"
+nix = "0.28.0"
+ipc-channel = { version = "0.18.1", features = ["memfd"] }
+
+[build-dependencies]
+scx_utils =  "0.7" 
+scx_rustland_core = "0.2" 
+
+[features]
+enable_backtrace = []

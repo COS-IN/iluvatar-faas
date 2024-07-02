@@ -10,6 +10,7 @@ members = [
   "iluvatar_energy_mon",
   "fs_policy_locality",
   "fs_policy_fifo",
+  "fs_policy_lavd",
 ]
 resolver = "2"
 
