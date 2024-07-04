@@ -30,10 +30,28 @@ use scx_utils::scx_ops_load;
 use scx_utils::uei_exited;
 use scx_utils::uei_report;
 use scx_utils::Topology;
+use scx_utils::compat;
 
 use nix::sys::signal;
 use plain::Plain;
 use rlimit::{getrlimit, setrlimit, Resource};
+
+use iluvatar_worker_library::worker_api::Channels;
+use iluvatar_library::characteristics_map::CharacteristicsPacket;
+use iluvatar_worker_library::services::containers::containerd::PidsPacket;
+
+use serde::{Deserialize,Serialize};
+use ipc_channel::ipc::{self, IpcOneShotServer, IpcSender, IpcReceiver};
+use libc::{sched_param, sched_setscheduler};
+use std::collections::HashMap;
+
+const SCHED_EXT: i32 = 7;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ChannelsR {
+    pub rx_chr: IpcReceiver<CharacteristicsPacket>,
+    pub rx_pids: IpcReceiver<PidsPacket>,
+}
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -60,6 +78,15 @@ struct Opts {
     /// times to increase verbosity.
     #[clap(short = 'v', long, action = clap::ArgAction::Count)]
     verbose: u8,
+
+    #[arg(long)]
+    server_name: Option<String>,
+
+    #[arg(long)]
+    characteristics_file: Option<String>,
+
+    #[arg(long)]
+    pids_file: Option<String>,
 }
 
 unsafe impl Plain for msg_task_ctx {}
@@ -98,10 +125,25 @@ struct Scheduler<'a> {
     nr_cpus_onln: u64,
     rb_mgr: libbpf_rs::RingBuffer<'static>,
     intrspc: introspec,
+    characteristics: HashMap<String, CharacteristicsPacket>,
+    pids: HashMap<u32, PidsPacket>,
+    crecvs: Option<ChannelsR>,
 }
 
 impl<'a> Scheduler<'a> {
     fn init(opts: &'a Opts) -> Result<Self> {
+
+        let crecvs;
+        if let Some(server_name) = &opts.server_name {
+            let (c_tx, c_rx): (IpcSender<CharacteristicsPacket>, IpcReceiver<CharacteristicsPacket>) = ipc::channel().unwrap();
+            let (p_tx, p_rx): (IpcSender<PidsPacket>, IpcReceiver<PidsPacket>) = ipc::channel().unwrap();
+            let server_tx = IpcSender::connect(server_name.clone()).unwrap();
+            server_tx.send( Channels{ tx_chr: c_tx, tx_pids: p_tx } ).unwrap();
+            crecvs = Some(ChannelsR{ rx_chr: c_rx, rx_pids: p_rx });
+        } else {
+            crecvs = None;
+        }
+
         // Increase MEMLOCK size since the BPF scheduler might use
         // more than the current limit
         let (soft_limit, _) = getrlimit(Resource::MEMLOCK).unwrap();
@@ -120,6 +162,8 @@ impl<'a> Scheduler<'a> {
         skel.rodata_mut().verbose = opts.verbose;
         let intrspc = introspec::init(opts);
 
+        skel.struct_ops.lavd_ops_mut().flags |= *compat::SCX_OPS_SWITCH_PARTIAL;
+
         // Attach.
         let mut skel = scx_ops_load!(skel, lavd_ops, uei)?;
         let struct_ops = Some(scx_ops_attach!(skel, lavd_ops)?);
@@ -137,6 +181,9 @@ impl<'a> Scheduler<'a> {
             nr_cpus_onln,
             rb_mgr,
             intrspc,
+            characteristics: HashMap::new(), 
+            pids: HashMap::new(),
+            crecvs,
         })
     }
 
@@ -277,7 +324,38 @@ impl<'a> Scheduler<'a> {
             std::thread::sleep(Duration::from_millis(interval_ms));
             self.rb_mgr.poll(Duration::from_millis(100)).unwrap();
             self.cleanup_introspec();
+
+            if let Some(crecvs) = &self.crecvs {
+                loop {
+                    match crecvs.rx_chr.try_recv() {
+                        Ok(chr) => {
+                            // Do something interesting with your result
+                            //println!("Received characteristics");
+                            //println!("{:?}", chr);
+                            self.characteristics.insert( chr.fqdn.clone(), chr );
+                        },
+                        Err(_) => break,
+                    }
+                }
+                let param: sched_param = sched_param { sched_priority: 0 };
+                loop {
+                    match crecvs.rx_pids.try_recv() {
+                        Ok(pids) => {
+                            // Do something interesting with your result
+                            //println!("Received pids");
+                            //println!("{:?}", pids);
+                            unsafe { sched_setscheduler(pids.pid as i32, SCHED_EXT, &param as *const sched_param) };
+                            self.pids.insert( pids.pid, pids );
+                        },
+                        Err(_) => break,
+                    }
+                }
+                for (k, v) in &self.characteristics {
+                    println!("{}: {:?}", k, v);
+                }
+            }
         }
+
         self.rb_mgr.consume().unwrap();
 
         self.struct_ops.take();
@@ -333,6 +411,8 @@ fn main() -> Result<()> {
     let opts = Opts::parse();
 
     init_log(&opts);
+
+
 
     let mut sched = Scheduler::init(&opts)?;
     info!("scx_lavd scheduler is initialized");

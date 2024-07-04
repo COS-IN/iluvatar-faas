@@ -55,13 +55,13 @@ struct Scheduler<'a> {
     bpf: BpfScheduler<'a>,
     characteristics: HashMap<String, CharacteristicsPacket>,
     pids: HashMap<u32, PidsPacket>,
-    crecvs: ChannelsR,
+    crecvs: Option<ChannelsR>,
     fcmap: HashMap<String, i32>,
 }
 
 impl<'a> Scheduler<'a> {
     fn init( 
-            crecvs: ChannelsR,
+            crecvs: Option<ChannelsR>,
         ) -> Result<Self> {
 
         let topo = Topology::new().expect("Failed to build host topology");
@@ -139,35 +139,34 @@ impl<'a> Scheduler<'a> {
             nr_sched_congested,
         );
         
-        loop {
-            match self.crecvs.rx_chr.try_recv() {
-                Ok(chr) => {
-                    // Do something interesting with your result
-                    //println!("Received characteristics");
-                    //println!("{:?}", chr);
-                    self.characteristics.insert( chr.fqdn.clone(), chr );
-                },
-                Err(_) => break,
+        if let Some(crecvs) = &self.crecvs {
+            loop {
+                match crecvs.rx_chr.try_recv() {
+                    Ok(chr) => {
+                        // Do something interesting with your result
+                        //println!("Received characteristics");
+                        //println!("{:?}", chr);
+                        self.characteristics.insert( chr.fqdn.clone(), chr );
+                    },
+                    Err(_) => break,
+                }
             }
-        }
-
-        let param: sched_param = sched_param { sched_priority: 0 };
-        
-        loop {
-            match self.crecvs.rx_pids.try_recv() {
-                Ok(pids) => {
-                    // Do something interesting with your result
-                    //println!("Received pids");
-                    //println!("{:?}", pids);
-                    unsafe { sched_setscheduler(pids.pid as i32, SCHED_EXT, &param as *const sched_param) };
-                    self.pids.insert( pids.pid, pids );
-                },
-                Err(_) => break,
+            let param: sched_param = sched_param { sched_priority: 0 };
+            loop {
+                match crecvs.rx_pids.try_recv() {
+                    Ok(pids) => {
+                        // Do something interesting with your result
+                        //println!("Received pids");
+                        //println!("{:?}", pids);
+                        unsafe { sched_setscheduler(pids.pid as i32, SCHED_EXT, &param as *const sched_param) };
+                        self.pids.insert( pids.pid, pids );
+                    },
+                    Err(_) => break,
+                }
             }
-        }
-
-        for (k, v) in &self.characteristics {
-            println!("{}: {:?}", k, v);
+            for (k, v) in &self.characteristics {
+                println!("{}: {:?}", k, v);
+            }
         }
     }
 
@@ -211,13 +210,13 @@ please open a GitHub issue.
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
-    server_name: String,
+    server_name: Option<String>,
 
     #[arg(short, long)]
-    characteristics_file: String,
+    characteristics_file: Option<String>,
 
     #[arg(short, long)]
-    pids_file: String,
+    pids_file: Option<String>,
 }
 
 use ipc_channel::ipc::{self, IpcOneShotServer, IpcSender, IpcReceiver};
@@ -225,16 +224,16 @@ use ipc_channel::ipc::{self, IpcOneShotServer, IpcSender, IpcReceiver};
 fn main() -> Result<()> {
 
     let args = Args::parse();
-    
-    println!("###################################");
-    println!("Characterics would be read from {}!", args.characteristics_file);
-    println!("Pids would be read from {}!", args.pids_file);
-
-    let (c_tx, c_rx): (IpcSender<CharacteristicsPacket>, IpcReceiver<CharacteristicsPacket>) = ipc::channel().unwrap();
-    let (p_tx, p_rx): (IpcSender<PidsPacket>, IpcReceiver<PidsPacket>) = ipc::channel().unwrap();
-    let server_tx = IpcSender::connect(args.server_name).unwrap();
-    server_tx.send( Channels{ tx_chr: c_tx, tx_pids: p_tx } ).unwrap();
-    let crecvs = ChannelsR{ rx_chr: c_rx, rx_pids: p_rx };
+    let crecvs;
+    if let Some(server_name) = args.server_name {
+        let (c_tx, c_rx): (IpcSender<CharacteristicsPacket>, IpcReceiver<CharacteristicsPacket>) = ipc::channel().unwrap();
+        let (p_tx, p_rx): (IpcSender<PidsPacket>, IpcReceiver<PidsPacket>) = ipc::channel().unwrap();
+        let server_tx = IpcSender::connect(server_name).unwrap();
+        server_tx.send( Channels{ tx_chr: c_tx, tx_pids: p_tx } ).unwrap();
+        crecvs = Some(ChannelsR{ rx_chr: c_rx, rx_pids: p_rx });
+    } else {
+        crecvs = None;
+    }
 
     let mut sched = Scheduler::init( crecvs )?;
     let shutdown = Arc::new(AtomicBool::new(false));

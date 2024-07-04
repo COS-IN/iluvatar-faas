@@ -108,6 +108,14 @@
       remote_src: "{{__remote_bin_src}}"
     become: yes
 
+  - name: copy fs_policy_lavd 
+    ansible.builtin.copy:
+      src: "{{__bin_src}}/fs_policy_lavd"
+      dest: "{{bin_dir}}/"
+      mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
+    become: yes
+
   - name: copy fs_policy_fifo 
     ansible.builtin.copy:
       src: "{{__bin_src}}/fs_policy_fifo"

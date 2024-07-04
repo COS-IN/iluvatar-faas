@@ -2132,7 +2132,7 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(lavd_init)
 	/*
 	 * Switch all tasks to scx tasks.
 	 */
-	__COMPAT_scx_bpf_switch_all();
+	//__COMPAT_scx_bpf_switch_all();
 
 	return err;
 }

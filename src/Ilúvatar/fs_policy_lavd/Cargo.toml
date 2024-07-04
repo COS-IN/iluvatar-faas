@@ -27,6 +27,7 @@ rlimit = "0.10.1"
 plain = "0.2.3"
 nix = "0.28.0"
 ipc-channel = { version = "0.18.1", features = ["memfd"] }
+serde = { version = "1.0" }
 
 [build-dependencies]
 scx_utils =  "0.7" 
