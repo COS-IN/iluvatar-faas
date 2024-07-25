@@ -1,6 +1,7 @@
 #[macro_use]
 pub mod utils;
 
+use std::collections::HashMap;
 use crate::utils::{short_sim_args, sim_args, sim_invoker_svc};
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::types::{Compute, Isolation};
@@ -104,6 +105,7 @@ fn item() -> Arc<EnqueuedInvocation> {
         parallel_invokes: 1,
         isolation_type: iluvatar_library::types::Isolation::DOCKER,
         supported_compute: iluvatar_library::types::Compute::GPU,
+        historical_runtime_data_sec: HashMap::new(),
     });
     Arc::new(EnqueuedInvocation::new(
         rf,

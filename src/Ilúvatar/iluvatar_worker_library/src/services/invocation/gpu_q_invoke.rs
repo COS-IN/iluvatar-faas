@@ -473,6 +473,7 @@ impl DeviceQueue for GpuQueueingInvoker {
 
 #[cfg(test)]
 mod gpu_batch_tests {
+    use std::collections::HashMap;
     use super::*;
     use iluvatar_library::logging::LocalTime;
 
@@ -489,6 +490,7 @@ mod gpu_batch_tests {
             parallel_invokes: 1,
             isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
             supported_compute: iluvatar_library::types::Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         });
         Arc::new(EnqueuedInvocation::new(
             rf,

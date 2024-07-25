@@ -266,7 +266,7 @@ impl<T: Ord> PartialEq for MinHeapEnqueuedInvocation<T> {
 mod heapstructs {
     use super::*;
     use iluvatar_library::logging::LocalTime;
-    use std::collections::BinaryHeap;
+    use std::collections::{BinaryHeap, HashMap};
 
     fn min_item(name: &str, priority: f64, clock: &LocalTime) -> MinHeapFloat {
         let rf = Arc::new(RegisteredFunction {
@@ -280,6 +280,7 @@ mod heapstructs {
             parallel_invokes: 1,
             isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
             supported_compute: iluvatar_library::types::Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         });
         MinHeapEnqueuedInvocation::new_f(
             Arc::new(EnqueuedInvocation::new(
@@ -341,6 +342,7 @@ mod heapstructs {
             parallel_invokes: 1,
             isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
             supported_compute: iluvatar_library::types::Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         });
         MinHeapEnqueuedInvocation::new(
             Arc::new(EnqueuedInvocation::new(
@@ -401,6 +403,7 @@ mod heapstructs {
             parallel_invokes: 1,
             isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
             supported_compute: iluvatar_library::types::Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         });
         MinHeapEnqueuedInvocation::new(
             Arc::new(EnqueuedInvocation::new(rf, name.to_string(), name.to_string(), t)),

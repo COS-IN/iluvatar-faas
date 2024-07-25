@@ -17,7 +17,10 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+use std::ops::DerefMut;
 use tracing::debug;
+use statrs::distribution::Empirical;
+use rand::{SeedableRng, distributions::Distribution};
 
 #[allow(unused)]
 pub struct SimulatorContainer {
@@ -34,6 +37,8 @@ pub struct SimulatorContainer {
     iso: Isolation,
     device: Option<Arc<GPU>>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
+    ecdf_sec: Option<Empirical>,
+    rng: Mutex<rand::rngs::StdRng>,
 }
 impl SimulatorContainer {
     pub fn new(
@@ -53,6 +58,8 @@ impl SimulatorContainer {
             invocations: Mutex::new(0),
             state: Mutex::new(state),
             current_memory: Mutex::new(reg.memory),
+            ecdf_sec: reg.historical_runtime_data_sec.get(&compute).map(|data| Empirical::from_vec(data.clone())),
+            rng: Mutex::new(rand::rngs::StdRng::from_entropy()),
             compute,
             iso,
             device,
@@ -127,15 +134,19 @@ impl ContainerT for SimulatorContainer {
             }
         };
 
-        let (duration_us, was_cold) = match data.get(&self.compute) {
+        let was_cold = self.state() == ContainerState::Cold;
+        let duration_sec = match data.get(&self.compute) {
             None => anyhow::bail!(
-                "No matching compute in passed simulation invocation data for container with type '{}'",
-                self.compute
-            ),
-            Some(data) => match self.state() {
-                ContainerState::Cold => (data.cold_dur_ms * 1000, true),
-                _ => (data.warm_dur_ms * 1000, false),
-            },
+                    "No matching compute in passed simulation invocation data for container with type '{}'",
+                    self.compute
+                ),
+            Some(data) => match was_cold {
+                true => data.cold_dur_ms as f64 / 1000.0 * 1.2,
+                _ =>  match &self.ecdf_sec {
+                    Some(e) => e.sample(self.rng.lock().deref_mut()),
+                    None => data.warm_dur_ms as f64 / 1000.0 * 1.2
+                },
+            }, // 1.2 multplication from concurrency degredation on CPU
         };
         *self.invocations.lock() += 1;
         let timer = ContainerTimeFormatter::new(tid)?;
@@ -145,8 +156,7 @@ impl ContainerT for SimulatorContainer {
 
         let start = timer.now();
         let start_f64 = start.unix_timestamp_nanos() as f64 / 1_000_000_000.0;
-        // 0.3 multplication from concurrency degredation on CPU
-        let code_dur = Duration::from_micros(duration_us).mul_f64(1.2);
+        let code_dur = Duration::from_secs_f64(duration_sec);
         tokio::time::sleep(code_dur).await;
         let end = timer.now();
         let end_f64 = end.unix_timestamp_nanos() as f64 / 1_000_000_000.0;
@@ -159,7 +169,6 @@ impl ContainerT for SimulatorContainer {
                 latency,
             },
         };
-        let d = code_dur;
         let user_result = serde_json::to_string(&ret)?;
         let result = ParsedResult {
             user_result: Some(user_result),
@@ -170,7 +179,7 @@ impl ContainerT for SimulatorContainer {
             duration_sec: code_dur.as_secs_f64(),
             gpu_allocation_mb: None,
         };
-        Ok((result, d))
+        Ok((result, code_dur))
     }
 
     fn touch(&self) {
@@ -244,5 +253,104 @@ impl ContainerT for SimulatorContainer {
 impl crate::services::containers::structs::ToAny for SimulatorContainer {
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod sim_struct_tests {
+    use more_asserts::assert_ge;
+    use super::*;
+
+    fn reg(data: Option<Vec<f64>>) -> Arc<RegisteredFunction> {
+        let mut map = HashMap::new();
+        if let Some(data) = data {
+            map.insert(Compute::CPU, data);
+        }
+        Arc::new(RegisteredFunction {
+            function_name: "fq".to_string(),
+            function_version: "dn".to_string(),
+            fqdn: "fqdn".to_string(),
+            image_name: "none".to_string(),
+            memory: 1024,
+            cpus: 1,
+            snapshot_base: "".to_string(),
+            parallel_invokes: 1,
+            isolation_type: Isolation::CONTAINERD,
+            supported_compute: Compute::CPU,
+            historical_runtime_data_sec: map,
+        })
+    }
+
+    fn invoke_data(compute: Compute, cold: u64, warm: u64) -> Result<String> {
+        Ok(serde_json::to_string(&SimulationInvocation::from([(compute, SimInvokeData {
+            warm_dur_ms: warm,
+            cold_dur_ms: cold,
+        })]))?)
+    }
+
+    #[test]
+    fn no_data_empty_ecdf() {
+        let reg = reg(None);
+        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
+        assert_eq!(cont.ecdf_sec, None);
+    }
+
+    #[test]
+    fn data_filled_ecdf() {
+        let reg = reg(Some(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
+        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
+        assert_ne!(cont.ecdf_sec, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn no_args_fails() {
+        let reg = reg(None);
+        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
+        cont.invoke("", &"tid".to_owned()).await.expect_err("No simulation args should error");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cold_no_data_uses_passed_info() {
+        let reg = reg(None);
+        let cold_time = 100;
+        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
+        let data = invoke_data(Compute::CPU, cold_time, 10).unwrap();
+        let start = std::time::Instant::now();
+        let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();
+        let dur = start.elapsed();
+        assert_ge!(dur, Duration::from_millis(cold_time));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn warm_no_data_uses_passed_info() {
+        let reg = reg(None);
+        let warm_time = 10;
+        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Warm, Isolation::CONTAINERD, Compute::CPU, None);
+        let data = invoke_data(Compute::CPU, 100, warm_time).unwrap();
+        let start = std::time::Instant::now();
+        let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();
+        let dur = start.elapsed();
+        assert_ge!(dur, Duration::from_millis(warm_time));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn warm_data_uses_sample() {
+        let reg = reg(Some(vec![1.0, 1.1, 1.2, 1.5, 2.0]));
+        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Warm, Isolation::CONTAINERD, Compute::CPU, None);
+        let data = invoke_data(Compute::CPU, 100, 5).unwrap();
+        let start = std::time::Instant::now();
+        let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();
+        let dur = start.elapsed();
+        println!("{:?}", dur);
+        assert_ge!(dur, Duration::from_secs_f64(1.0));
+    }
+
+    #[test]
+    fn stats() {
+        let emp = Empirical::from_vec(vec![1.0, 1.1, 1.2, 1.5, 2.0]);
+        let mut rng = rand::rngs::StdRng::from_entropy();
+        for _ in 0..20 {
+            println!("{}", emp.sample(&mut rng));
+        }
     }
 }

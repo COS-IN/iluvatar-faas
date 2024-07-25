@@ -57,11 +57,11 @@ pub struct MqfqConfig {
 }
 
 /// Multi-Queue Fair Queueing.
-/// Refer to ATC '19 paper by Hedayati et.al.
-/// Key modifications:
-///   1. Concurrency with D tokens.
-///   2. Grace period for anticipatory batching.
+/// Refer to ATC '19 paper by Hedayati et al.
 /// Each function is its own flow.
+/// Key modifications:
+///   1. Dynamic concurrency with D tokens.
+///   2. Grace period for anticipatory batching.
 #[derive(PartialEq, Debug, Copy, Clone, serde::Serialize)]
 pub enum MQState {
     /// Non-empty queues are active

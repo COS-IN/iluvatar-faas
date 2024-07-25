@@ -86,6 +86,7 @@ impl GpuQueuePolicy for BatchGpuQueue {
 
 #[cfg(test)]
 mod oldest_batch {
+    use std::collections::HashMap;
     use super::*;
     use iluvatar_library::characteristics_map::{Characteristics, Values};
     use time::OffsetDateTime;
@@ -102,6 +103,7 @@ mod oldest_batch {
             parallel_invokes: 1,
             isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
             supported_compute: iluvatar_library::types::Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         })
     }
 

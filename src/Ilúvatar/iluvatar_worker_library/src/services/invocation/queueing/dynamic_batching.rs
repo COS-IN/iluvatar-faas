@@ -68,7 +68,7 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
         Ok(())
     }
 
-    /// XXX: This will be dependent on the current GPU state (which functions are running etc)   
+    /// This will be dependent on the current GPU state (which functions are running etc)
     fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
         if let Some(next) = self
             .invoke_batches
@@ -80,21 +80,7 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
         None
     }
 
-    /// Compress the front of the queue to batch invocations of the same function together. This could be async. Or done at key points:
-    /// 1. When a batch is popped/executed.
-    /// 2. When a new item is inserted, and we are under compress_window limit.
-    /// Function insertion times will be important for stable sorting?
-    // fn queue_compress(&self) {
-    //     // New items at head of invocation queue. Read the first compress_window batches (of 1) and create the batched list.
-    //     let mut queue = self.incoming_queue.lock();
-    //     for _ in [..self.compress_window] {
-    //         if let Some(hitem) = queue.pop_front() {
-    //             self.add_item_to_batches(&hitem);
-    //         }
-    //     }
-    // }
-
-    /// XXX: The GPU may already be running functions and we may want to run a single invocation for more fine-grained scheduling.
+    /// The GPU may already be running functions and we may want to run a single invocation for more fine-grained scheduling.
     /// Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained.
     /// Need approx snapshot of GPU state and capacity. What functions may be resident, memory, etc.
 

@@ -23,8 +23,8 @@ pub mod threading;
 pub mod types;
 
 /// The number of logical processors on the system
-/// * `all` - returns all the processors on the system when true
-/// When false, only those the process is allowed to use
+/// * `all` - returns all the processors on the system when true.
+///     When false, only those the process is allowed to use
 pub fn nproc(tid: &TransactionId, all: bool) -> anyhow::Result<u32> {
     let args = match all {
         true => vec!["--all"],

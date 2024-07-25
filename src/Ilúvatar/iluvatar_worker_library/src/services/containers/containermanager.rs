@@ -696,6 +696,7 @@ impl ContainerManager {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use super::*;
     use crate::{services::containers::IsolationFactory, worker_api::worker_config::Configuration};
     use iluvatar_library::transaction::TEST_TID;
@@ -712,6 +713,7 @@ mod tests {
             snapshot_base: "test-test".into(),
             isolation_type: Isolation::DOCKER,
             supported_compute: Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         })
     }
 

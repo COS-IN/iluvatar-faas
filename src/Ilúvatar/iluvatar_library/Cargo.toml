@@ -27,7 +27,7 @@ tracing-subscriber = { version = "0.3", features = ["json", "tracing-log", "park
 tracing-appender = "0.2.2"
 tracing-flame="0.2"
 pin-project = "1"
-dashmap = "5.3.4"
+dashmap = "6.0"
 parking_lot = "0.12.1"
 tokio = { version = "1.19", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot", "signal"] }
 ordered-float = "3.4.0"
