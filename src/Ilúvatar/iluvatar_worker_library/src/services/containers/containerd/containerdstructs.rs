@@ -19,16 +19,14 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
-#[derive(Debug)]
 pub struct Task {
     pub pid: u32,
     pub container_id: Option<String>,
     pub running: bool,
 }
 
-#[derive(Debug)]
 #[allow(unused)]
 pub struct ContainerdContainer {
     pub container_id: String,
@@ -50,6 +48,7 @@ pub struct ContainerdContainer {
     client: HttpContainerClient,
     compute: Compute,
     device: Option<Arc<GPU>>,
+    drop_on_remove: Mutex<Vec<DroppableToken>>,
 }
 
 impl ContainerdContainer {
@@ -84,6 +83,7 @@ impl ContainerdContainer {
             mem_usage: RwLock::new(function.memory),
             state: Mutex::new(state),
             device,
+            drop_on_remove: Mutex::new(vec![]),
         })
     }
 
@@ -163,10 +163,18 @@ impl ContainerT for ContainerdContainer {
     fn device_resource(&self) -> &Option<Arc<GPU>> {
         &self.device
     }
-    fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
-        todo!("Containerd containers are CPU-only and shouldn't be given anything to drop on remove!");
+    fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
+        debug!(tid=%tid, container_id=%self.container_id(), "Adding token to drop on remove");
+        self.drop_on_remove.lock().push(item);
     }
-    fn remove_drop(&self, _tid: &TransactionId) {}
+    fn remove_drop(&self, tid: &TransactionId) {
+        let mut lck = self.drop_on_remove.lock();
+        let to_drop = std::mem::take(&mut *lck);
+        debug!(tid=%tid, container_id=%self.container_id(), num_tokens=to_drop.len(), "Dropping tokens");
+        for i in to_drop.into_iter() {
+            drop(i);
+        }
+    }
 }
 
 impl crate::services::containers::structs::ToAny for ContainerdContainer {

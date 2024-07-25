@@ -364,7 +364,7 @@ impl GpuResourceTracker {
             ..Default::default()
         };
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
-        let entrypoint = vec!["/usr/bin/nvidia-cuda-mps-control".to_owned()];
+        let entrypoint = vec!["/usr/bin/nvidia-cuda-mps-control".to_owned(), "-f".to_owned()];
         docker
             .docker_run(
                 tid,

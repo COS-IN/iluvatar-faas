@@ -3,6 +3,7 @@ use anyhow::Result;
 use clap::Parser;
 use controller_trace::{controller_trace_live, controller_trace_sim};
 use iluvatar_library::{types::MemSizeMb, utils::port::Port};
+use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use std::collections::HashMap;
 
 mod controller_trace;
@@ -115,6 +116,7 @@ pub struct Function {
     pub parsed_isolation: Option<iluvatar_library::types::Isolation>,
     /// Used internally, The code name the function was mapped to
     pub chosen_name: Option<String>,
+    pub sim_invoke_data: Option<SimulationInvocation>,
     /// Arguments to pass to each invocation of the function
     pub args: Option<String>,
 }

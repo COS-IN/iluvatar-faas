@@ -25,6 +25,7 @@ impl TryInto<CommunicationMethod> for u32 {
 
 bitflags! {
   #[derive(serde::Deserialize, serde::Serialize)]
+  #[serde(transparent)]
   /// The compute methods that a function supports. XXX Rename this ComputeDevice
   /// Having each one of these means it can run on each compute independently.
   /// e.g. having `CPU|GPU` will run fine in a CPU-only container, or one with an attached GPU
@@ -34,8 +35,9 @@ bitflags! {
     const FPGA = 0b00000100;
   }
   #[derive(serde::Deserialize, serde::Serialize)]
+  #[serde(transparent)]
   /// The isolation mechanism the function supports.
-  /// e.g. our Docker images are OSI-compliant and can be run by Docker or Containerd, so could specify `CONTAINERD|DOCKER` or `CONTAINERD`
+  /// e.g. our Docker images are OCI-compliant and can be run by Docker or Containerd, so could specify `CONTAINERD|DOCKER` or `CONTAINERD`
   pub struct Isolation: u32 {
     const CONTAINERD = 0b00000001;
     const DOCKER = 0b00000010;

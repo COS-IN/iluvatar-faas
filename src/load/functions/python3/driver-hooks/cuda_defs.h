@@ -204,11 +204,11 @@ extern CUresult cuMemAlloc(CUdeviceptr *dptr, size_t bytesize);
 extern CUresult cuMemAllocManaged(CUdeviceptr *dptr, size_t bytesize, enum CUmemAttach_flags_enum flags);
 extern CUresult cuMemFree(CUdeviceptr dptr);
 extern CUresult cuInit(unsigned int flags);
-// extern CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
-// 	unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX,
-// 	unsigned int blockDimY, unsigned int blockDimZ,
-// 	unsigned int sharedMemBytes, CUstream hStream, void **kernelParams,
-// 	void **extra);
+extern CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
+	unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX,
+	unsigned int blockDimY, unsigned int blockDimZ,
+	unsigned int sharedMemBytes, CUstream hStream, void **kernelParams,
+	void **extra);
 // extern CUresult cuMemcpy(CUdeviceptr dst, CUdeviceptr src,
 // 	size_t ByteCount);
 // extern CUresult cuMemcpyAsync(CUdeviceptr dst, CUdeviceptr src,

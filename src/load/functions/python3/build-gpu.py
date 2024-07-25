@@ -28,9 +28,9 @@ def push(func_name, log_file):
   docker_cmd(["push", image_name(func_name)], log_file)
 
 def build(path, function_name, dockerfile_base, basename):
-  shutil.copy(os.path.join(hooks_dir, "libgpushare.so"), path)
   shutil.copy("server.py", path)
   shutil.copy(dockerfile_base, path)
+  shutil.copytree(os.path.abspath(hooks_dir), os.path.join(path, hooks_dir), dirs_exist_ok=True)
   log_file = open(os.path.join(path, "build.log"), 'w')
 
   try:
@@ -48,16 +48,11 @@ def build(path, function_name, dockerfile_base, basename):
     if not args.skip_push:
       push(function_name, log_file)
   finally:
-    os.remove(os.path.join(path, "libgpushare.so"))
     os.remove(os.path.join(path, "server.py"))
     os.remove(os.path.join(path, dockerfile_base))
+    shutil.rmtree(os.path.join(path, hooks_dir))
 
 if __name__ == "__main__":
-  completed = subprocess.run(args=["make"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=hooks_dir)
-  if completed.returncode != 0:
-    print(completed.stdout)
-    completed.check_returncode()
-
   funcs_dir = "./gpu-functions"
   for func_name in os.listdir(funcs_dir):
     if os.path.isdir(os.path.join(funcs_dir, func_name)):

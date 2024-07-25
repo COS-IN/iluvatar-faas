@@ -184,6 +184,12 @@
     environment: "{{proxy_env}}"
     register: worker_output
 
+  - name: debug print
+    # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+    run_once: true
+    debug:
+      msg: "{{ worker_output }}"
+      
   - name: run worker executable through perf
     ansible.builtin.command: 
       argv: 
@@ -205,6 +211,12 @@
     when: mode == "perf"
     environment: "{{proxy_env}}"
     register: worker_output
+
+  - name: debug print
+    # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+    run_once: true
+    debug:
+      msg: "{{ worker_output }}"
 
   - name: wait until the worker on this host is up and running
     ansible.builtin.uri:

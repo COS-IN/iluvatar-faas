@@ -11,6 +11,7 @@ use iluvatar_library::{
 };
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 use std::{
     sync::Arc,
@@ -61,14 +62,16 @@ impl SimulatorContainer {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[allow(unused)]
 /// struct used to control "invocation" pattern of simulated function
-pub struct SimulationInvocation {
+pub struct SimInvokeData {
     #[serde(deserialize_with = "deserialize_u64")]
     pub warm_dur_ms: u64,
     #[serde(deserialize_with = "deserialize_u64")]
     pub cold_dur_ms: u64,
 }
+/// struct used to control "invocation" pattern of simulated function
+pub type SimulationInvocation = HashMap<Compute, SimInvokeData>;
+
 struct DeserializeFromU64OrString;
 impl<'de> serde::de::Visitor<'de> for DeserializeFromU64OrString {
     type Value = u64;
@@ -124,9 +127,15 @@ impl ContainerT for SimulatorContainer {
             }
         };
 
-        let (duration_us, was_cold) = match self.state() {
-            ContainerState::Cold => (data.cold_dur_ms * 1000, true),
-            _ => (data.warm_dur_ms * 1000, false),
+        let (duration_us, was_cold) = match data.get(&self.compute) {
+            None => anyhow::bail!(
+                "No matching compute in passed simulation invocation data for container with type '{}'",
+                self.compute
+            ),
+            Some(data) => match self.state() {
+                ContainerState::Cold => (data.cold_dur_ms * 1000, true),
+                _ => (data.warm_dur_ms * 1000, false),
+            },
         };
         *self.invocations.lock() += 1;
         let timer = ContainerTimeFormatter::new(tid)?;

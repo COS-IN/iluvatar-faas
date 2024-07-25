@@ -144,7 +144,7 @@ impl DockerIsolation {
             }
 
             if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
-                host_config.runtime = Some("host".to_owned());
+                host_config.ipc_mode = Some("host".to_owned());
                 mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
                 env.push(mps_thread.as_str());
                 volumes.push("/tmp/nvidia-mps:/tmp/nvidia-mps".to_owned());

@@ -16,7 +16,6 @@ use iluvatar_library::types::{CommunicationMethod, Compute, Isolation};
 use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port::Port};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
-use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 use std::{
     collections::HashMap,
@@ -177,10 +176,7 @@ fn run_invokes(
         let api_cln = api.clone();
         let func_args = match comm {
             CommunicationMethod::RPC => args_to_json(&prepare_function_args(func, args.load_type))?,
-            CommunicationMethod::SIMULATION => serde_json::to_string(&SimulationInvocation {
-                warm_dur_ms: func.warm_dur_ms,
-                cold_dur_ms: func.cold_dur_ms,
-            })?,
+            CommunicationMethod::SIMULATION => serde_json::to_string(func.sim_invoke_data.as_ref().unwrap())?,
         };
         let clk = clock.clone();
         let f_c = func.func_name.clone();

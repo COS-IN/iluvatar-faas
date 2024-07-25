@@ -171,7 +171,7 @@ impl GpuQueueingInvoker {
             clock: LocalTime::new(tid)?,
             running: AtomicU32::new(0),
             last_memory_warning: Mutex::new(Instant::now()),
-            queue: q.unwrap(),
+            queue: q?,
             last_gpu_warning: Mutex::new(Instant::now()),
             completion_tracker: Arc::new(CompletionTimeTracker::new()),
             gpu_config: gpu_config

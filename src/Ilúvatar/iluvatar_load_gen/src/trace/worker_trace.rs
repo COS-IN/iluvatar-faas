@@ -14,7 +14,6 @@ use iluvatar_library::{
     types::CommunicationMethod,
     utils::config::args_to_json,
 };
-use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_config::Configuration};
 use std::time::SystemTime;
 use std::{path::Path, sync::Arc};
@@ -71,10 +70,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
             )
         })?;
 
-        let func_args = SimulationInvocation {
-            warm_dur_ms: func.warm_dur_ms,
-            cold_dur_ms: func.cold_dur_ms,
-        };
+        let func_args = serde_json::to_string(&func.sim_invoke_data.as_ref().unwrap()).unwrap();
         let clock = Arc::new(LocalTime::new(tid)?);
 
         loop {
@@ -98,7 +94,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
                 &h_c,
                 args.port,
                 &gen_tid(),
-                Some(serde_json::to_string(&func_args)?),
+                Some(func_args),
                 clk_clone,
                 &fct_cln,
                 Some(CommunicationMethod::SIMULATION),
