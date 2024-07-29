@@ -17,10 +17,8 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use std::ops::DerefMut;
 use tracing::debug;
-use statrs::distribution::Empirical;
-use rand::{SeedableRng, distributions::Distribution};
+use rand::{thread_rng, seq::index::sample};
 
 #[allow(unused)]
 pub struct SimulatorContainer {
@@ -37,8 +35,7 @@ pub struct SimulatorContainer {
     iso: Isolation,
     device: Option<Arc<GPU>>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
-    ecdf_sec: Option<Empirical>,
-    rng: Mutex<rand::rngs::StdRng>,
+    history_data: Option<Vec<f64>>,
 }
 impl SimulatorContainer {
     pub fn new(
@@ -58,8 +55,7 @@ impl SimulatorContainer {
             invocations: Mutex::new(0),
             state: Mutex::new(state),
             current_memory: Mutex::new(reg.memory),
-            ecdf_sec: reg.historical_runtime_data_sec.get(&compute).map(|data| Empirical::from_vec(data.clone())),
-            rng: Mutex::new(rand::rngs::StdRng::from_entropy()),
+            history_data: reg.historical_runtime_data_sec.get(&compute).cloned(),
             compute,
             iso,
             device,
@@ -142,8 +138,11 @@ impl ContainerT for SimulatorContainer {
                 ),
             Some(data) => match was_cold {
                 true => data.cold_dur_ms as f64 / 1000.0 * 1.2,
-                _ =>  match &self.ecdf_sec {
-                    Some(e) => e.sample(self.rng.lock().deref_mut()),
+                _ =>  match &self.history_data {
+                    Some(history_data) => {
+                        let idx = sample(&mut thread_rng(), history_data.len(), 1);
+                        history_data[idx.index(0)]
+                    },
                     None => data.warm_dur_ms as f64 / 1000.0 * 1.2
                 },
             }, // 1.2 multplication from concurrency degredation on CPU
@@ -292,14 +291,14 @@ mod sim_struct_tests {
     fn no_data_empty_ecdf() {
         let reg = reg(None);
         let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
-        assert_eq!(cont.ecdf_sec, None);
+        assert_eq!(cont.history_data, None);
     }
 
     #[test]
     fn data_filled_ecdf() {
         let reg = reg(Some(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
         let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
-        assert_ne!(cont.ecdf_sec, None);
+        assert_ne!(cont.history_data, None);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -341,16 +340,6 @@ mod sim_struct_tests {
         let start = std::time::Instant::now();
         let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();
         let dur = start.elapsed();
-        println!("{:?}", dur);
         assert_ge!(dur, Duration::from_secs_f64(1.0));
-    }
-
-    #[test]
-    fn stats() {
-        let emp = Empirical::from_vec(vec![1.0, 1.1, 1.2, 1.5, 2.0]);
-        let mut rng = rand::rngs::StdRng::from_entropy();
-        for _ in 0..20 {
-            println!("{}", emp.sample(&mut rng));
-        }
     }
 }

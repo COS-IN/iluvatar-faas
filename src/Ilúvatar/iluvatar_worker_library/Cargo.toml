@@ -44,7 +44,6 @@ rand = "0.8"
 nvml-wrapper = "0.9"
 bollard = "0.16"
 prost-types = "0.12"
-statrs = "0.17"
 
 [dev-dependencies]
 rstest = "0.13.0"
