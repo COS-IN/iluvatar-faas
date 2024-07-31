@@ -1,7 +1,6 @@
 #[macro_use]
 pub mod utils;
 
-use std::collections::HashMap;
 use crate::utils::{short_sim_args, sim_args, sim_invoker_svc};
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::types::{Compute, Isolation};
@@ -21,6 +20,7 @@ use iluvatar_worker_library::services::{
     resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
 };
 use rstest::rstest;
+use std::collections::HashMap;
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
 

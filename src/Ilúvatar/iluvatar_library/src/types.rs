@@ -239,7 +239,7 @@ impl FunctionInvocationTimings {
             cold_worker_duration_us: Vec::new(),
             warm_invoke_duration_us: Vec::new(),
             cold_invoke_duration_us: Vec::new(),
-            live_warm_invoke_duration_sec: None
+            live_warm_invoke_duration_sec: None,
         }
     }
 }

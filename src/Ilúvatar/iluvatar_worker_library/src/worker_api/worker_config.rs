@@ -35,8 +35,10 @@ pub struct Configuration {
     /// Optional because not all isolation backends require it
     pub networking: Option<Arc<NetworkingConfig>>,
     pub container_resources: Arc<ContainerResourceConfig>,
-    /// full URL to access the controller/load balancer, required for worker registration
-    pub load_balancer_url: String,
+    /// full URL to access the controller/load balancer, required for worker registration.
+    /// If missing or empty, the worker will not try and register with the controller.
+    /// If registration fails, the worker will exit.
+    pub load_balancer_url: Option<String>,
     /// Optional because energy monitoring is not required
     pub energy: Option<Arc<EnergyConfig>>,
     pub invocation: Arc<InvocationConfig>,

@@ -10,6 +10,7 @@ use iluvatar_library::{
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
 use parking_lot::{Mutex, RwLock};
+use rand::{seq::index::sample, thread_rng};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -18,7 +19,6 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tracing::debug;
-use rand::{thread_rng, seq::index::sample};
 
 #[allow(unused)]
 pub struct SimulatorContainer {
@@ -133,17 +133,17 @@ impl ContainerT for SimulatorContainer {
         let was_cold = self.state() == ContainerState::Cold;
         let duration_sec = match data.get(&self.compute) {
             None => anyhow::bail!(
-                    "No matching compute in passed simulation invocation data for container with type '{}'",
-                    self.compute
-                ),
+                "No matching compute in passed simulation invocation data for container with type '{}'",
+                self.compute
+            ),
             Some(data) => match was_cold {
                 true => data.cold_dur_ms as f64 / 1000.0 * 1.2,
-                _ =>  match &self.history_data {
+                _ => match &self.history_data {
                     Some(history_data) => {
                         let idx = sample(&mut thread_rng(), history_data.len(), 1);
                         history_data[idx.index(0)]
-                    },
-                    None => data.warm_dur_ms as f64 / 1000.0 * 1.2
+                    }
+                    None => data.warm_dur_ms as f64 / 1000.0 * 1.2,
                 },
             }, // 1.2 multplication from concurrency degredation on CPU
         };
@@ -257,8 +257,8 @@ impl crate::services::containers::structs::ToAny for SimulatorContainer {
 
 #[cfg(test)]
 mod sim_struct_tests {
-    use more_asserts::assert_ge;
     use super::*;
+    use more_asserts::assert_ge;
 
     fn reg(data: Option<Vec<f64>>) -> Arc<RegisteredFunction> {
         let mut map = HashMap::new();
@@ -281,38 +281,75 @@ mod sim_struct_tests {
     }
 
     fn invoke_data(compute: Compute, cold: u64, warm: u64) -> Result<String> {
-        Ok(serde_json::to_string(&SimulationInvocation::from([(compute, SimInvokeData {
-            warm_dur_ms: warm,
-            cold_dur_ms: cold,
-        })]))?)
+        Ok(serde_json::to_string(&SimulationInvocation::from([(
+            compute,
+            SimInvokeData {
+                warm_dur_ms: warm,
+                cold_dur_ms: cold,
+            },
+        )]))?)
     }
 
     #[test]
     fn no_data_empty_ecdf() {
         let reg = reg(None);
-        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
+        let cont = SimulatorContainer::new(
+            "cid".to_owned(),
+            "fqdn",
+            &reg,
+            ContainerState::Cold,
+            Isolation::CONTAINERD,
+            Compute::CPU,
+            None,
+        );
         assert_eq!(cont.history_data, None);
     }
 
     #[test]
     fn data_filled_ecdf() {
         let reg = reg(Some(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
-        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
+        let cont = SimulatorContainer::new(
+            "cid".to_owned(),
+            "fqdn",
+            &reg,
+            ContainerState::Cold,
+            Isolation::CONTAINERD,
+            Compute::CPU,
+            None,
+        );
         assert_ne!(cont.history_data, None);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn no_args_fails() {
         let reg = reg(None);
-        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
-        cont.invoke("", &"tid".to_owned()).await.expect_err("No simulation args should error");
+        let cont = SimulatorContainer::new(
+            "cid".to_owned(),
+            "fqdn",
+            &reg,
+            ContainerState::Cold,
+            Isolation::CONTAINERD,
+            Compute::CPU,
+            None,
+        );
+        cont.invoke("", &"tid".to_owned())
+            .await
+            .expect_err("No simulation args should error");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_no_data_uses_passed_info() {
         let reg = reg(None);
         let cold_time = 100;
-        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Cold, Isolation::CONTAINERD, Compute::CPU, None);
+        let cont = SimulatorContainer::new(
+            "cid".to_owned(),
+            "fqdn",
+            &reg,
+            ContainerState::Cold,
+            Isolation::CONTAINERD,
+            Compute::CPU,
+            None,
+        );
         let data = invoke_data(Compute::CPU, cold_time, 10).unwrap();
         let start = std::time::Instant::now();
         let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();
@@ -324,7 +361,15 @@ mod sim_struct_tests {
     async fn warm_no_data_uses_passed_info() {
         let reg = reg(None);
         let warm_time = 10;
-        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Warm, Isolation::CONTAINERD, Compute::CPU, None);
+        let cont = SimulatorContainer::new(
+            "cid".to_owned(),
+            "fqdn",
+            &reg,
+            ContainerState::Warm,
+            Isolation::CONTAINERD,
+            Compute::CPU,
+            None,
+        );
         let data = invoke_data(Compute::CPU, 100, warm_time).unwrap();
         let start = std::time::Instant::now();
         let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();
@@ -335,7 +380,15 @@ mod sim_struct_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn warm_data_uses_sample() {
         let reg = reg(Some(vec![1.0, 1.1, 1.2, 1.5, 2.0]));
-        let cont = SimulatorContainer::new("cid".to_owned(), "fqdn", &reg, ContainerState::Warm, Isolation::CONTAINERD, Compute::CPU, None);
+        let cont = SimulatorContainer::new(
+            "cid".to_owned(),
+            "fqdn",
+            &reg,
+            ContainerState::Warm,
+            Isolation::CONTAINERD,
+            Compute::CPU,
+            None,
+        );
         let data = invoke_data(Compute::CPU, 100, 5).unwrap();
         let start = std::time::Instant::now();
         let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();

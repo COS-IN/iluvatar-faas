@@ -248,10 +248,10 @@ impl ContainerPool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use super::*;
     use crate::services::{containers::simulator::simstructs::SimulatorContainer, registration::RegisteredFunction};
     use iluvatar_library::{types::Isolation, utils::calculate_fqdn};
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     #[test]

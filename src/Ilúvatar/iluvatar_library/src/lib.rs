@@ -11,7 +11,6 @@ pub mod transaction;
 pub mod utils;
 #[macro_use]
 pub mod macros;
-pub mod api_register;
 pub mod characteristics_map;
 pub mod continuation;
 pub mod cpu_interaction;

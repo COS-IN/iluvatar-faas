@@ -1,11 +1,13 @@
 use crate::services::containers::containermanager::ContainerManager;
+use crate::services::containers::ContainerIsolationCollection;
 use crate::services::influx_updater::InfluxUpdater;
 use crate::services::invocation::Invoker;
+use crate::services::resources::gpu::GpuResourceTracker;
 use crate::services::status::status_service::StatusService;
 use crate::services::{registration::RegistrationService, worker_health::WorkerHealthService};
 use crate::worker_api::config::WorkerConfig;
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::Compute;
+use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{
     characteristics_map::CharacteristicsMap, energy::energy_logging::EnergyLogger, utils::calculate_fqdn,
 };
@@ -33,6 +35,8 @@ pub struct IluvatarWorkerImpl {
     cmap: Arc<CharacteristicsMap>,
     reg: Arc<RegistrationService>,
     updater: Option<Arc<InfluxUpdater>>,
+    gpu: Option<Arc<GpuResourceTracker>>,
+    isolations: ContainerIsolationCollection,
 }
 
 impl IluvatarWorkerImpl {
@@ -46,6 +50,8 @@ impl IluvatarWorkerImpl {
         cmap: Arc<CharacteristicsMap>,
         reg: Arc<RegistrationService>,
         updater: Option<Arc<InfluxUpdater>>,
+        gpu: Option<Arc<GpuResourceTracker>>,
+        isolations: ContainerIsolationCollection,
     ) -> IluvatarWorkerImpl {
         IluvatarWorkerImpl {
             container_manager,
@@ -57,7 +63,23 @@ impl IluvatarWorkerImpl {
             cmap,
             reg,
             updater,
+            gpu,
+            isolations,
         }
+    }
+
+    pub fn supported_compute(&self) -> Compute {
+        Compute::CPU
+            | match self.gpu {
+                Some(_) => Compute::GPU,
+                _ => Compute::empty(),
+            }
+    }
+    pub fn supported_isolation(&self) -> Isolation {
+        self.isolations
+            .iter()
+            .map(|(iso, _svc)| iso)
+            .fold(Isolation::empty(), |acc, item| acc | *item)
     }
 }
 

@@ -7,7 +7,7 @@ if ! [ -x "$(command -v go)" ];
 then
   echo "go not found, installing"
   ARCH=amd64
-  GO_VERSION=1.18.3
+  GO_VERSION=1.22.5
   tar="go${GO_VERSION}.linux-${ARCH}.tar.gz"
 
   wget https://go.dev/dl/${tar}
@@ -27,9 +27,13 @@ CNI_VERSION=v1.1.1
 
 curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz | sudo tar -xz -C /opt/cni/bin
 
+sudo apt install -y jq ensurepip
+python3 -m pip install virtualenv
 python3 -m venv --clear examples-venv
-examples-venv/bin/python3 -m pip install --upgrade pip --no-warn-script-location
-examples-venv/bin/python3 -m pip install ansible numpy pandas matplotlib --no-warn-script-location
+source ./examples-venv/bin/activate
+python3 -m pip install --upgrade pip --no-warn-script-location
+python3 -m pip install ansible numpy pandas matplotlib --no-warn-script-location
+deactivate
 
 name=$(ip route get 8.8.8.8 | awk '{ print $5; exit }')
 

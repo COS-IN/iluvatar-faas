@@ -158,19 +158,23 @@ impl RegistrationService {
                                 self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
                             }
                             for v in timings.cold_worker_duration_us.iter() {
-                                self.characteristics_map.add(&fqdn, cold, Values::F64(*v as f64 / 1_000_000.0), true);
-                                self.characteristics_map.add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
+                                self.characteristics_map
+                                    .add(&fqdn, cold, Values::F64(*v as f64 / 1_000_000.0), true);
+                                self.characteristics_map
+                                    .add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
                             }
                             for v in timings.warm_worker_duration_us.iter() {
-                                self.characteristics_map.add(&fqdn, warm, Values::F64(*v as f64 / 1_000_000.0), true);
-                                self.characteristics_map.add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
+                                self.characteristics_map
+                                    .add(&fqdn, warm, Values::F64(*v as f64 / 1_000_000.0), true);
+                                self.characteristics_map
+                                    .add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
                             }
                             if let Some(hist) = &timings.live_warm_invoke_duration_sec {
                                 rf.historical_runtime_data_sec.insert(dev_compute, hist.clone());
                             }
                         }
                     }
-                },
+                }
                 Err(e) => anyhow::bail!("Failed to parse resource timings because {:?}", e),
             };
         }

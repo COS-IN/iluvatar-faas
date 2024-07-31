@@ -473,9 +473,9 @@ impl DeviceQueue for GpuQueueingInvoker {
 
 #[cfg(test)]
 mod gpu_batch_tests {
-    use std::collections::HashMap;
     use super::*;
     use iluvatar_library::logging::LocalTime;
+    use std::collections::HashMap;
 
     fn item(clock: &LocalTime) -> Arc<EnqueuedInvocation> {
         let name = "test";

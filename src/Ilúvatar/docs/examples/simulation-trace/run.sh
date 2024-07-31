@@ -8,7 +8,7 @@ MEMORY=4096
 host="127.0.0.1"
 PORT=8080
 
-results_dir="."
+results_dir=$(pwd)
 log_file="$results_dir/orchestration.log"
 
 ret=$(pwd)

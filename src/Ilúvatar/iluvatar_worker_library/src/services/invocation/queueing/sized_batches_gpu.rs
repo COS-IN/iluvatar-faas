@@ -112,9 +112,9 @@ impl GpuQueuePolicy for SizedBatchGpuQueue {
 
 #[cfg(test)]
 mod oldest_batch {
-    use std::collections::HashMap;
     use super::*;
     use iluvatar_library::characteristics_map::{Characteristics, Values};
+    use std::collections::HashMap;
     use time::OffsetDateTime;
 
     fn reg(name: &str) -> Arc<RegisteredFunction> {
