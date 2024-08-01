@@ -11,7 +11,7 @@ controller:
   algorithm: "{{ controller_algorithm | default('LeastLoaded') }}"
   load_metric: "{{ controller_load_metric | default('loadavg') }}"
   environment: "{{ controller_environment | default({}) }}"
-  address: "http://{{ host }}:{{ port }}"
+  # address: "http://{{ host }}:{{ port }}"
 
 worker:
   bin_name: "iluvatar_worker"

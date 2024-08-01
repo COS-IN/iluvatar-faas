@@ -196,7 +196,7 @@ impl EnqueuedInvocation {
         debug!(tid=%self.tid, "queued invocation completed successfully");
     }
 
-    pub fn mark_error(&self, error: anyhow::Error) {
+    pub fn mark_error(&self, error: &anyhow::Error) {
         let mut result_ptr = self.result_ptr.lock();
         error!(tid=%self.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after error");
         result_ptr.duration = Duration::from_micros(0);
@@ -207,7 +207,7 @@ impl EnqueuedInvocation {
 
     /// Increment the attempts counter on the function
     /// If the number of errors has exceeded the retries, mark it as complete and return `false` to indicate no re-trying
-    pub fn increment_error_retry(&self, error: anyhow::Error, retries: u32) -> bool {
+    pub fn increment_error_retry(&self, error: &anyhow::Error, retries: u32) -> bool {
         if self.result_ptr.lock().attempts >= retries {
             self.mark_error(error);
             false

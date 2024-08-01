@@ -528,7 +528,6 @@ impl ContainerManager {
         let pool = self.get_resource_pool(compute)?;
         pool.add_idle_container(container, tid);
         self.prioritiy_notify.notify_waiters();
-        // self.add_container_to_pool(&pool.idle_containers, container, tid)?;
         info!(tid=%tid, fqdn=%reg.fqdn, "function was successfully prewarmed");
         Ok(())
     }

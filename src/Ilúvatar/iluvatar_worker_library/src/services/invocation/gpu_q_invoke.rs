@@ -270,9 +270,8 @@ impl GpuQueueingInvoker {
         });
     }
 
-    /// Handle executing an invocation, plus account for its success or failure
-    /// On success, the results are moved to the pointer and it is signaled
-    /// On failure, [Invoker::handle_invocation_error] is called
+    /// Handle executing an invocation, plus account for its success or failure.
+    /// On success, the results are moved to the pointer and it is signaled.
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, batch, permit), fields(fqdn=batch.peek().registration.fqdn)))]
     async fn invocation_worker_thread(&self, batch: GpuBatch, permit: DroppableToken) {
         let tid: &TransactionId = &INVOKER_GPU_QUEUE_WORKER_TID;
@@ -296,10 +295,11 @@ impl GpuQueueingInvoker {
                         EventualItem::Future(f) => (f.await, true),
                         EventualItem::Now(n) => (n, false),
                     };
-                ctr_lock = match lck {
-                    Ok(c) => Some(c),
+                match lck {
+                    Ok(c) => ctr_lock = Some(c),
                     Err(e) => {
                         error!(tid=%item.tid, error=%e, "Failed to get a container to run item");
+                        self.handle_invocation_error(&item, &e);
                         continue;
                     }
                 };
@@ -324,8 +324,17 @@ impl GpuQueueingInvoker {
             {
                 Ok((result, duration, compute, container_state)) => {
                     item.mark_successful(result, duration, compute, container_state)
+                },
+                Err(cause) => {
+                    error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+                    if item.increment_error_retry(&cause, self.invocation_config.retries) {
+                        item.unlock();
+                        match self.queue.add_item_to_queue(&item) {
+                            Ok(_) => self.signal.notify_waiters(),
+                            Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt"),
+                        };
+                    }
                 }
-                Err(cause) => self.handle_invocation_error(item, cause),
             };
             // update the container state because the container manager can't do it for us
             ctr_lock.as_ref().unwrap().container.set_state(ContainerState::Warm);
@@ -348,7 +357,7 @@ impl GpuQueueingInvoker {
     ///   Calls [Self::add_item_to_queue] to do this
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
-    fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
+    fn handle_invocation_error(&self, item: &Arc<EnqueuedInvocation>, cause: &anyhow::Error) {
         if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
             let mut warn_time = self.last_memory_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
@@ -356,10 +365,11 @@ impl GpuQueueingInvoker {
                 *warn_time = Instant::now();
             }
             item.unlock();
-            match self.queue.add_item_to_queue(&item) {
+            match self.queue.add_item_to_queue(item) {
                 Ok(_) => self.signal.notify_waiters(),
                 Err(e) => {
-                    error!(tid=item.tid, error=%e, "Failed to re-queue item in GPU queue after memory exhaustion")
+                    error!(tid=item.tid, error=%e, "Failed to re-queue item in GPU queue after memory exhaustion");
+                    item.mark_error(cause);
                 }
             };
         } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
@@ -369,22 +379,16 @@ impl GpuQueueingInvoker {
                 *warn_time = Instant::now();
             }
             item.unlock();
-            match self.queue.add_item_to_queue(&item) {
+            match self.queue.add_item_to_queue(item) {
                 Ok(_) => self.signal.notify_waiters(),
                 Err(e) => {
-                    error!(tid=item.tid, error=%e, "Failed to re-queue item after GPU exhaustion")
+                    error!(tid=item.tid, error=%e, "Failed to re-queue item after GPU exhaustion");
+                    item.mark_error(cause);
                 }
             };
         } else {
             error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
-            if item.increment_error_retry(cause, self.invocation_config.retries) {
-                match self.queue.add_item_to_queue(&item) {
-                    Ok(_) => self.signal.notify_waiters(),
-                    Err(e) => {
-                        error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt")
-                    }
-                };
-            }
+            item.mark_error(cause);
         }
     }
 

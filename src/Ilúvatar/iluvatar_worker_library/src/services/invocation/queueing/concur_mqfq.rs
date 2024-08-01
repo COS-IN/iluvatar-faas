@@ -75,7 +75,7 @@ impl Flow {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
     fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
         debug!(tid=%item.tid, error=%cause, "Marking invocation as error");
-        item.mark_error(cause);
+        item.mark_error(&cause);
     }
 
     /// Returns an owned permit if there are sufficient resources to run a function

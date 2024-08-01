@@ -259,29 +259,32 @@ impl GpuResourceTracker {
                 return Ok(None);
             }
             let (gpu_structs, metadata) = Self::prepare_structs(&config, tid)?;
-            if config.mps_enabled() {
-                if docker.is_some() {
-                    if let Some(docker) = docker.as_ref().unwrap().as_any().downcast_ref::<DockerIsolation>() {
-                        Self::start_mps(&config, docker, tid).await?;
+            let mut nvml = None;
+            if !iluvatar_library::utils::is_simulation() {
+                if config.mps_enabled() {
+                    if docker.is_some() {
+                        if let Some(docker) = docker.as_ref().unwrap().as_any().downcast_ref::<DockerIsolation>() {
+                            Self::start_mps(&config, docker, tid).await?;
+                        } else {
+                            bail_error!("MPS is enabled, but isolation service passed was not `docker`");
+                        }
                     } else {
-                        bail_error!("MPS is enabled, but isolation service passed was not `docker`");
+                        bail_error!("MPS is enabled, but docker service not present");
                     }
-                } else {
-                    bail_error!("MPS is enabled, but docker service not present");
+                } else if !config.is_tegra.unwrap_or(false) {
+                    Self::set_gpus_shared(tid)?;
                 }
-            } else if !config.is_tegra.unwrap_or(false) {
-                Self::set_gpus_shared(tid)?;
-            }
 
-            let nvml = match Nvml::init() {
-                Ok(n) => Some(n),
-                Err(e) => {
-                    if !config.is_tegra.unwrap_or(false) {
-                        error!(tid=%tid, error=%e, "Error loading NVML");
+                nvml = match Nvml::init() {
+                    Ok(n) => Some(n),
+                    Err(e) => {
+                        if !config.is_tegra.unwrap_or(false) {
+                            error!(tid=%tid, error=%e, "Error loading NVML");
+                        }
+                        None
                     }
-                    None
-                }
-            };
+                };
+            }
             let (handle, tx) = tokio_thread(
                 missing_or_zero_default(&config.status_update_freq_ms, status_config.report_freq_ms),
                 GPU_RESC_TID.to_owned(),
@@ -382,22 +385,20 @@ impl GpuResourceTracker {
     }
 
     fn set_gpus_shared(tid: &TransactionId) -> Result<()> {
-        if !iluvatar_library::utils::is_simulation() {
-            let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
-            let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
-            let gpu_cnt = cow
-                .split('\n')
-                .filter(|str| !str.is_empty())
-                .collect::<Vec<&str>>()
-                .len();
-            for i in 0..gpu_cnt {
-                execute_cmd_checked(
-                    "/usr/bin/nvidia-smi",
-                    vec!["-i", i.to_string().as_str(), "-c", "DEFAULT"],
-                    None,
-                    tid,
-                )?;
-            }
+        let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
+        let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
+        let gpu_cnt = cow
+            .split('\n')
+            .filter(|str| !str.is_empty())
+            .collect::<Vec<&str>>()
+            .len();
+        for i in 0..gpu_cnt {
+            execute_cmd_checked(
+                "/usr/bin/nvidia-smi",
+                vec!["-i", i.to_string().as_str(), "-c", "DEFAULT"],
+                None,
+                tid,
+            )?;
         }
         Ok(())
     }
@@ -856,9 +857,33 @@ impl GpuResourceTracker {
         Ok(())
     }
 
+    async fn simulation_gpu_util(svc: &Arc<Self>, _tid: &TransactionId) {
+        let mut status: Vec<GpuStatus> = vec![];
+        // TODO: proper GPU utilization
+        for (_gpu_id, metadata) in svc.gpu_metadata.iter() {
+            let stat = GpuStatus {
+                gpu_uuid: metadata.gpu_uuid.clone(),
+                memory_total: metadata.hardware_memory_mb as u32,
+                memory_used: 0,
+                power_draw: 0.0,
+                power_limit: 0.0,
+                pstate: Pstate::P0,
+                utilization_gpu: 0.0,
+                utilization_memory: 0.0,
+                instant_utilization_gpu: 0.0,
+                est_utilization_gpu: 0.0,
+                num_running: metadata.max_runnig - metadata.sem.available_permits() as u32,
+            };
+            status.push(stat);
+        }
+        *svc.status_info.write() = status;
+    }
+
     /// get the utilization of GPUs on the system
     async fn gpu_utilization(svc: Arc<Self>, tid: TransactionId) {
-        if let Some(nvml) = &svc.nvml {
+        if iluvatar_library::utils::is_simulation() {
+            Self::simulation_gpu_util(&svc, &tid).await
+        } else if let Some(nvml) = &svc.nvml {
             if let Err(e) = Self::nvml_gpu_utilization(nvml, &svc, &tid).await {
                 error!(tid=%tid, error=%e, "Error using NVML to query device utilization");
                 Self::smi_gpu_utilization(svc, tid).await
