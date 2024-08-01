@@ -1,0 +1,5 @@
+src/bpf/.output
+Cargo.lock
+target
+**.swp
+**.swo
