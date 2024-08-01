@@ -13,7 +13,6 @@
 ### Observation 0 
   
   * skipping trace is not appearing from the bpf program 
-  *
 
 ### Questions 0 
 
