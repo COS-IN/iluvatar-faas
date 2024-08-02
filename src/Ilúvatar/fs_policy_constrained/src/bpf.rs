@@ -92,6 +92,12 @@ impl<'cb> BpfScheduler<'cb> {
         & self.skel.bss().nr_tasks
     }
 
+    // Counter of number of tasks.
+    #[allow(dead_code)]
+    pub fn nr_eq_tasks(& self) -> & u64 {
+        & self.skel.bss().nr_eq_tasks
+    }
+
     // Set scheduling class for the scheduler itself to SCHED_EXT
     fn use_sched_ext() -> i32 {
         let pid = std::process::id();

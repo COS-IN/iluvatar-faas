@@ -91,10 +91,12 @@ impl<'a> Scheduler<'a> {
 
     fn print_stats(&mut self) {
         let nr_tasks = *self.bpf.nr_tasks();
+        let nr_eq_tasks = *self.bpf.nr_eq_tasks();
 
         println!(
-            "bpf_scheduler tasks count: {}",
+            "total tasks init: {} enqueued in shared queue: {}",
             nr_tasks,
+            nr_eq_tasks,
         );
         
         if let Some(crecvs) = &self.crecvs {

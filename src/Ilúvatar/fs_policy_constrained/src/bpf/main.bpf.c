@@ -32,6 +32,7 @@ volatile u64 effective_slice_ns;
 
 // Number of tasks being handled by the bpf scheduler  
 volatile u64 nr_tasks = 0;
+volatile u64 nr_eq_tasks = 0;
 
 // info msg with a specific tag 
 #define info_msg(_fmt, ...) do {						\
@@ -189,6 +190,7 @@ dispatch_task(struct task_struct *p, s32 cpu, u64 task_slice_ns, u64 enq_flags)
   
     // we only dispatch to a single global dsq
     scx_bpf_dispatch(p, SHARED_DSQ, slice, enq_flags);
+	__sync_fetch_and_add(&nr_eq_tasks, 1);
 
     // let's wakeup the target cpu if it's idle - otherwise it would be noop 
     scx_bpf_kick_cpu(cpu, __COMPAT_SCX_KICK_IDLE);
@@ -226,18 +228,25 @@ static void dispatch_user_scheduler(void)
 s32 BPF_STRUCT_OPS(constrained_select_cpu, struct task_struct *p, s32 prev_cpu,
 		   u64 wake_flags)
 {
-	//s32 cpu;
+	s32 cpu;
+    struct cpumask_map_value *v;
+    s32 key = CMASK_GLOBAL_KEY;
     
     // dispatch the task to first idle cpu among constrained cpus 
-    // if ( constrained_cpumask ) {
-    //   cpu = scx_bpf_pick_any_cpu( (const struct cpumask *)constrained_cpumask, 
-    //                               SCX_PICK_IDLE_CORE
-    //                               );
-    //   return cpu;
-    // } 
+    v = bpf_map_lookup_elem(&constrained_cpumask_map, &key);
+    if (v) {
+      if ( v->cpumask ){
+        cpu = scx_bpf_pick_any_cpu( v->cpumask, 
+                                    SCX_PICK_IDLE_CORE
+                                    );
+        if ( 0 <= cpu && cpu < MAX_CPUS )
+          return cpu;
+      }
+    }
     
     // otherwise put it in the global dsq 
     scx_bpf_dispatch(p, SHARED_DSQ, effective_slice_ns, 0);
+	__sync_fetch_and_add(&nr_eq_tasks, 1);
 
 	return prev_cpu;
 }
@@ -276,6 +285,7 @@ void BPF_STRUCT_OPS(constrained_enqueue, struct task_struct *p, u64 enq_flags)
 
     // otherwise we just put the task in shared dsq 
     scx_bpf_dispatch(p, SHARED_DSQ, effective_slice_ns, enq_flags);
+	__sync_fetch_and_add(&nr_eq_tasks, 1);
 }
 
 /*
@@ -295,7 +305,9 @@ void BPF_STRUCT_OPS(constrained_dispatch, s32 cpu, struct task_struct *prev)
     dispatch_user_scheduler();
 
     // consume a task from the shared dsq	
-    scx_bpf_consume(SHARED_DSQ);
+    if ( scx_bpf_consume(SHARED_DSQ) ) {
+      __sync_fetch_and_sub(&nr_eq_tasks, 1);
+    } 
 }
 
 /*
@@ -362,11 +374,10 @@ void BPF_STRUCT_OPS(constrained_cpu_release, s32 cpu,
 	 * If the interrupted task is the user-space scheduler make sure to
 	 * re-schedule it immediately.
 	 */
-	info_msg("[updated] cpu preemption: pid=%d (%s)", p->pid, p->comm);
+	//info_msg("[updated] cpu preemption: pid=%d (%s)", p->pid, p->comm);
 	if (is_usersched_task(p))
 		set_usersched_needed();
 }
-
 
 /*
  * A new task @p is being created.
@@ -532,6 +543,6 @@ SCX_OPS_DEFINE(constrained,
 	       .exit_task		= (void *)constrained_exit_task,
 	       .init			= (void *)constrained_init,
 	       .exit			= (void *)constrained_exit,
-	       .flags			= SCX_OPS_ENQ_LAST | SCX_OPS_KEEP_BUILTIN_IDLE,
+	       .flags			= SCX_OPS_ENQ_LAST | SCX_OPS_KEEP_BUILTIN_IDLE | SCX_OPS_SWITCH_PARTIAL,
 	       .timeout_ms		= 5000,
 	       .name			= "constrained");
