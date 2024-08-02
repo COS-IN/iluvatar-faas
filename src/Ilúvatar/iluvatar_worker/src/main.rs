@@ -38,7 +38,8 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                 match bname.as_str() {
                     "/tmp/iluvatar/bin/fs_policy_locality" |
                     "/tmp/iluvatar/bin/fs_policy_fifo" |
-                    "/tmp/iluvatar/bin/fs_policy_lavd" 
+                    "/tmp/iluvatar/bin/fs_policy_lavd" | 
+                    "/tmp/iluvatar/bin/fs_policy_constrained" 
                         =>  {               // create a oneshot server 
                                             
                         let (server, name) = IpcOneShotServer::new().unwrap();

@@ -11,6 +11,7 @@ use anyhow::Result;
 
 use libbpf_rs::skel::OpenSkel as _;
 use libbpf_rs::skel::SkelBuilder as _;
+use libbpf_rs::PrintLevel;
 
 use libc::{sched_param, sched_setscheduler};
 
@@ -45,8 +46,9 @@ impl<'cb> BpfScheduler<'cb> {
         exit_dump_len: u32,
     ) -> Result<Self> {
         // Open the BPF prog first for verification.
-        let skel_builder = BpfSkelBuilder::default();
-        init_libbpf_logging(None);
+        let mut skel_builder = BpfSkelBuilder::default();
+        skel_builder.obj_builder.debug(true);
+        // init_libbpf_logging(Some(PrintLevel::Debug));
         let mut skel = skel_builder.open().context("Failed to open BPF program")?;
 
         // Lock all the memory to prevent page faults that could trigger potential deadlocks during

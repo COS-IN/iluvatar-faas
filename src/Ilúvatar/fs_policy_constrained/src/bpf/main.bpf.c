@@ -47,7 +47,44 @@ const volatile s32 constrained_cores[MAX_CPUS];
 
 // it is filled in during init from the constrained core array filled by
 // userland 
-struct bpf_cpumask *constrained_cpumask;
+#define CMASK_GLOBAL_KEY 0x0
+
+struct cpumask_map_value {
+        struct bpf_cpumask __kptr * cpumask;
+};
+
+struct array_map {
+        __uint(type, BPF_MAP_TYPE_ARRAY);
+        __type(key, int);
+        __type(value, struct cpumask_map_value);
+        __uint(max_entries, 1);
+} constrained_cpumask_map SEC(".maps");
+
+static int constrained_cpumask_map_insert(struct bpf_cpumask *mask, u32 key)
+{
+        struct cpumask_map_value local, *v;
+        long status;
+        struct bpf_cpumask *old;
+
+        local.cpumask = NULL;
+        status = bpf_map_update_elem(&constrained_cpumask_map, &key, &local, 0);
+        if (status) {
+                bpf_cpumask_release(mask);
+                return status;
+        }
+
+        v = bpf_map_lookup_elem(&constrained_cpumask_map, &key);
+        if (!v) {
+                bpf_cpumask_release(mask);
+                return -ENOENT;
+        }
+
+        old = bpf_kptr_xchg(&v->cpumask, mask);
+        if (old)
+                bpf_cpumask_release(old);
+
+        return 0;
+}
 
 /*
  * Heartbeat timer used to periodically trigger the check to run the user-space
@@ -83,7 +120,7 @@ static void set_cpu_owner(u32 cpu, u32 pid)
 		scx_bpf_error("Invalid cpu: %d", cpu);
 		return;
 	}
-	cpu_map[cpu] = pid;
+    cpu_map[cpu] = pid;
 }
 
 /*
@@ -189,13 +226,15 @@ static void dispatch_user_scheduler(void)
 s32 BPF_STRUCT_OPS(constrained_select_cpu, struct task_struct *p, s32 prev_cpu,
 		   u64 wake_flags)
 {
-	s32 cpu;
+	//s32 cpu;
     
     // dispatch the task to first idle cpu among constrained cpus 
-    if (!constrained_cpumask) {
-      cpu = scx_bpf_pick_any_cpu((const struct cpumask *)constrained_cpumask, SCX_PICK_IDLE_CORE);
-      return cpu;
-    } 
+    // if ( constrained_cpumask ) {
+    //   cpu = scx_bpf_pick_any_cpu( (const struct cpumask *)constrained_cpumask, 
+    //                               SCX_PICK_IDLE_CORE
+    //                               );
+    //   return cpu;
+    // } 
     
     // otherwise put it in the global dsq 
     scx_bpf_dispatch(p, SHARED_DSQ, effective_slice_ns, 0);
@@ -227,13 +266,13 @@ void BPF_STRUCT_OPS(constrained_enqueue, struct task_struct *p, u64 enq_flags)
 		return;
  
     // dispatch the task to first idle cpu among constrained cpus 
-    if (!constrained_cpumask) {
-      cpu = scx_bpf_pick_idle_cpu( (const struct cpumask *)constrained_cpumask, SCX_PICK_IDLE_CORE);
-      if ( cpu > 0 ){
-        dispatch_task( p, cpu, 0, 0 );
-        return;
-      }
-    } 
+    // if (constrained_cpumask) {
+    //   cpu = scx_bpf_pick_idle_cpu( (const struct cpumask *)constrained_cpumask, SCX_PICK_IDLE_CORE);
+    //   if ( cpu > 0 ){
+    //     dispatch_task( p, cpu, 0, 0 );
+    //     return;
+    //   }
+    // } 
 
     // otherwise we just put the task in shared dsq 
     scx_bpf_dispatch(p, SHARED_DSQ, effective_slice_ns, enq_flags);
@@ -270,8 +309,8 @@ void BPF_STRUCT_OPS(constrained_running, struct task_struct *p)
 	 * Mark the CPU as busy by setting the pid as owner (ignoring the
 	 * user-space scheduler).
 	 */
-	if (!is_usersched_task(p))
-		set_cpu_owner(cpu, p->pid);
+	//if (!is_usersched_task(p))
+    //		set_cpu_owner(cpu, p->pid);
     
     info_msg("running on %d - %s", cpu, p->comm);
 }
@@ -286,9 +325,9 @@ void BPF_STRUCT_OPS(constrained_stopping, struct task_struct *p, bool runnable)
 	/*
 	 * Mark the CPU as idle by setting the owner to 0.
 	 */
-	if (!is_usersched_task(p)) {
-		set_cpu_owner(scx_bpf_task_cpu(p), 0);
-	}
+	// if (!is_usersched_task(p)) {
+	// 	set_cpu_owner(scx_bpf_task_cpu(p), 0);
+	// }
 
     info_msg("stopping on %d - %s", cpu, p->comm);
 }
@@ -340,6 +379,8 @@ s32 BPF_STRUCT_OPS(constrained_init_task, struct task_struct *p,
 {
     info_msg( "creating task %d - %s", p->pid, p->comm );
 	__sync_fetch_and_add(&nr_tasks, 1);
+
+    return 0;
 }
 
 /*
@@ -429,7 +470,10 @@ static int dsq_init(void)
 s32 BPF_STRUCT_OPS_SLEEPABLE(constrained_init)
 {
 	int err;
-    
+    struct bpf_cpumask *mask;
+    long status;
+    s32 cpu; 
+
     info_msg("initializing the constrained scheduler");
 
 	/* Compile-time checks */
@@ -442,6 +486,23 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(constrained_init)
 	err = usersched_timer_init();
 	if (err)
 		return err;
+  
+    // initialize the element in the array map to null 
+    mask = bpf_cpumask_create();
+    if (!mask)
+      return -ENOMEM;
+
+    // set the cpumask based on constrained cores 
+    bpf_for( cpu, 0, MAX_CPUS ){
+        if ( constrained_cores[cpu] != 0 ) {
+            bpf_cpumask_set_cpu( cpu, mask);
+            bpf_printk("setting CPU %d as usable", cpu);
+        }
+    }
+    
+    if ( (status = constrained_cpumask_map_insert( mask, CMASK_GLOBAL_KEY )) ){
+        return status;
+    }
 
 	return 0;
 }
@@ -452,6 +513,7 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(constrained_init)
 void BPF_STRUCT_OPS(constrained_exit, struct scx_exit_info *ei)
 {
     info_msg("exiting the constrained scheduler");
+
 	UEI_RECORD(uei, ei);
 }
 
