@@ -124,6 +124,14 @@
       remote_src: "{{__remote_bin_src}}"
     become: yes
 
+  - name: copy fs_policy_constrained 
+    ansible.builtin.copy:
+      src: "{{__bin_src}}/fs_policy_constrained"
+      dest: "{{bin_dir}}/"
+      mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
+    become: yes
+
   - name: copy fs_policy_locality 
     ansible.builtin.copy:
       src: "{{__bin_src}}/fs_policy_locality"
