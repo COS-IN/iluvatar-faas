@@ -17,6 +17,8 @@ UEI_DEFINE(uei);
 
 // global dsq id 
 #define SHARED_DSQ MAX_CPUS
+#define USCHED_DSQ SHARED_DSQ+1
+#define USCHED_CORE 12  
 
 /*
  * Scheduler attributes and statistics.
@@ -192,14 +194,16 @@ static bool test_and_clear_usersched_needed(void)
  * Wakeup the target CPU. 
  */
 static void
-dispatch_task(struct task_struct *p, s32 cpu, u64 task_slice_ns, u64 enq_flags)
+dispatch_task(struct task_struct *p, s32 cpu, u64 task_slice_ns, u64 enq_flags, u64 dsq_id)
 {
 	u64 slice = task_slice_ns ? :
 		__sync_fetch_and_add(&effective_slice_ns, 0) ? : slice_ns;
   
     // we only dispatch to a single global dsq
-    scx_bpf_dispatch(p, SHARED_DSQ, slice, enq_flags);
-	__sync_fetch_and_add(&nr_eq_tasks, 1);
+    scx_bpf_dispatch(p, dsq_id, slice, enq_flags);
+    if( dsq_id == SHARED_DSQ ){
+      __sync_fetch_and_add(&nr_eq_tasks, 1);
+    }
 
     // let's wakeup the target cpu if it's idle - otherwise it would be noop 
     scx_bpf_kick_cpu(cpu, __COMPAT_SCX_KICK_IDLE);
@@ -224,7 +228,7 @@ static void dispatch_user_scheduler(void)
 	 * Dispatch the scheduler on the first CPU available, likely the
 	 * current one.
 	 */
-	dispatch_task(p, 0, 0, 0);
+    dispatch_task( p, USCHED_CORE, 0, 0, USCHED_DSQ);
 	bpf_task_release(p);
 }
 
@@ -251,6 +255,10 @@ bool get_best_cpu( s32 *rcpu) {
     }
 
     return false;
+}
+
+bool is_usersched_cpu( s32 cpu ){
+    return cpu == USCHED_CORE;
 }
 
 bool is_constrained( s32 cpu ){
@@ -314,7 +322,7 @@ void BPF_STRUCT_OPS(constrained_enqueue, struct task_struct *p, u64 enq_flags)
 
     // dispatch the task to first idle cpu among constrained cpus 
     if ( get_best_cpu(&cpu) ){
-        dispatch_task( p, cpu, 0, 0 );
+        dispatch_task( p, cpu, 0, 0, SHARED_DSQ);
         return;
     }
 
@@ -339,6 +347,10 @@ void BPF_STRUCT_OPS(constrained_dispatch, s32 cpu, struct task_struct *prev)
     // has set the need flag - it's set every second 
     dispatch_user_scheduler();
     
+    if ( is_usersched_cpu( cpu ) ){
+       scx_bpf_consume(USCHED_DSQ);
+    }
+
     if ( is_constrained(cpu) ){
       // consume a task from the shared dsq	
       if ( scx_bpf_consume(SHARED_DSQ) ) {
@@ -500,6 +512,12 @@ static int dsq_init(void)
 
 	/* Create the global shared DSQ */
 	err = scx_bpf_create_dsq(SHARED_DSQ, -1);
+	if (err) {
+		scx_bpf_error("failed to create shared DSQ: %d", err);
+		return err;
+	}
+
+	err = scx_bpf_create_dsq(USCHED_DSQ, -1);
 	if (err) {
 		scx_bpf_error("failed to create shared DSQ: %d", err);
 		return err;
