@@ -64,19 +64,6 @@ pub struct BGPacket {
     tid: TransactionId,
 }
 
-fn write_pid_csv( _filename: &str, map: &DashMap<u32,String> ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut wtr = Writer::from_path(_filename)?;
-    wtr.write_record(&["pid","func_name"])?;
-    for e0 in map.iter() {
-        let pid = e0.key();
-        let fname = e0.value(); 
-        wtr.write_record(&[&pid.to_string(), fname])?;
-    }
-    wtr.flush()?;
-    Ok(())
-}
-
-
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct ContainerdIsolation {
@@ -137,10 +124,6 @@ impl ContainerdIsolation {
         let pidmap = DashMap::new();
         let (send, recv) = sync_channel(30);
         let (dsend, drecv) = sync_channel(30);
-        let fname = match &worker_config.finescheduling {
-            Some(fconfig) => fconfig.pids_file.clone(),
-            None => "pids.csv".to_string(),
-        };
 
         ContainerdIsolation {
             // this is threadsafe if we clone channel
@@ -219,8 +202,6 @@ impl ContainerdIsolation {
                                 Err(_) => break,
                             }
                         }
-
-                        write_pid_csv( &fname, &pidmap );
 
                         let ccpid = try_get_child_pid(x.pid, 1, 500);
                         info!(

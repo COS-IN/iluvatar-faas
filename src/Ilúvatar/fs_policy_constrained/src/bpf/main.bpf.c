@@ -579,10 +579,30 @@ void BPF_STRUCT_OPS(constrained_exit, struct scx_exit_info *ei)
 	UEI_RECORD(uei, ei);
 }
 
+
+s32 BPF_STRUCT_OPS(constrained_cgroup_init, struct cgroup *cgrp, struct scx_cgroup_init_args *args)
+{
+    info_msg(
+            "[%s] -- %d -- %s", 
+             __func__, 
+            cgrp->kn->id, 
+            cgrp->kn->name );
+	return 0;
+}
+
+void BPF_STRUCT_OPS(constrained_cgroup_exit, struct cgroup *cgrp)
+{
+    info_msg(
+            "[%s] -- %d -- %s", 
+             __func__, 
+            cgrp->kn->id, 
+            cgrp->kn->name );
+}
+
 /*
  * Scheduling class declaration.
  */
-SCX_OPS_DEFINE(constrained,
+SCX_OPS_DEFINE( constrained,
 	       .select_cpu		= (void *)constrained_select_cpu,
 	       .enqueue			= (void *)constrained_enqueue,
 	       .dispatch		= (void *)constrained_dispatch,
@@ -592,8 +612,11 @@ SCX_OPS_DEFINE(constrained,
 	       .cpu_release		= (void *)constrained_cpu_release,
 	       .init_task		= (void *)constrained_init_task,
 	       .exit_task		= (void *)constrained_exit_task,
+	       .cgroup_init		= (void *)constrained_cgroup_init,
+	       .cgroup_exit		= (void *)constrained_cgroup_exit,
 	       .init			= (void *)constrained_init,
 	       .exit			= (void *)constrained_exit,
 	       .flags			= SCX_OPS_ENQ_LAST | SCX_OPS_KEEP_BUILTIN_IDLE | SCX_OPS_SWITCH_PARTIAL,
 	       .timeout_ms		= 5000,
-	       .name			= "constrained");
+	       .name			= "constrained" );
+

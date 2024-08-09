@@ -33,9 +33,9 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
     match &server_config.finescheduling {
         Some(fconfig) => {
-            let bname = fconfig.binary.clone();
-            if std::path::Path::new(&bname).exists() {
-                match bname.as_str() {
+            let fconfig = fconfig.clone();
+            if std::path::Path::new(&fconfig.binary).exists() {
+                match (&fconfig.binary).as_str() {
                     "/tmp/iluvatar/bin/fs_policy_locality" |
                     "/tmp/iluvatar/bin/fs_policy_fifo" |
                     "/tmp/iluvatar/bin/fs_policy_lavd" | 
@@ -46,23 +46,29 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                         debug!(tid=tid.as_str(), name=%name, status="server waiting", "ipc debugs");
 
                         let oname = name.clone();
-                        let cfile = fconfig.characteristics_file.clone();
-                        let pfile = fconfig.pids_file.clone();
                         let bname = fconfig.binary.clone();
 
                         thread::spawn( move || {
                             // launch a process 
-                            let args = vec![
-                                "--server-name",
-                                &oname,
-                                "--characteristics-file", 
-                                &cfile,
-                                "--pids-file",
-                                &pfile,
-                            ];
+                            let mut args = Vec::<String>::new(); 
 
-                            let mut _child = execute_cmd_nonblocking(&bname, 
-                                &args, None, &String::from("none")).unwrap();
+                            args.push( "--server-name".to_string() );
+                            args.push( oname );
+
+                            if let Some(&ref cores) = fconfig.cores.as_ref() {
+                                for c in cores {
+                                    args.push( "-c".to_string() );
+                                    args.push( c.to_string() );
+                                }
+                            } 
+
+                            let mut _child = execute_cmd_nonblocking(
+                                                &bname, 
+                                                &args, 
+                                                None, 
+                                                &String::from("none") 
+                                            ).unwrap();
+
                             let mut buffer = [0; 1024];
                             let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
                             let mut elog = File::create("/tmp/iluvatar/bin/sched.elog").expect("failed to open log");
@@ -94,30 +100,6 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                         unsafe {
                             SCHED_CHANNELS = Some(RwLock::new(channels));
                         }
-                    },
-                    "/tmp/iluvatar/bin/fs_policy_fifo" => {
-                        let bname = fconfig.binary.clone();
-
-                        thread::spawn( move || {
-                            // launch a process 
-                            let args: Vec<String> = vec![];
-
-                            let mut _child = execute_cmd_nonblocking(&bname, 
-                                &args, None, &String::from("none")).unwrap();
-                            let mut buffer = [0; 1024];
-                            let cstdout = & mut _child.stdout.unwrap();
-                            let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
-
-                            loop {
-                                let read = cstdout.read(&mut buffer).unwrap_or(0);
-                                if read > 0 {
-                                    log.write(&buffer[..read]);
-                                    log.flush();
-                                    // println!{"{}", String::from_utf8_lossy(&buffer[..read])};
-                                }
-                            }
-                        });
-
                     },
                     _ => {},
                 }

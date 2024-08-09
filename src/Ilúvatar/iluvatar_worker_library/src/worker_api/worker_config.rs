@@ -209,8 +209,7 @@ pub struct StatusConfig {
 /// Config related to status monitoring of the worker system & host
 pub struct FineSchedConfig {
     pub binary: String,
-    pub characteristics_file: String,
-    pub pids_file: String,
+    pub cores: Option<Vec<i32>>,
 }
 
 /// A wrapper type for the loaded global worker configuration
