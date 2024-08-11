@@ -9,7 +9,15 @@
  * GNU General Public License version 2.
  */
 #include <scx/common.bpf.h>
+#include <scx/ravg_impl.bpf.h>
 #include "intf.h"
+
+#include <errno.h>
+#include <stdbool.h>
+#include <string.h>
+#include <bpf/bpf_core_read.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
 
 char _license[] SEC("license") = "GPL";
 
@@ -71,6 +79,27 @@ struct array_map {
         __type(value, struct cpumask_map_value);
         __uint(max_entries, 1);
 } constrained_cpumask_map SEC(".maps");
+
+static inline bool match_prefix(const char *prefix, const char *str, u32 max_len)
+{
+	int c;
+	bpf_for(c, 0, max_len) {
+		if (prefix[c] == '\0')
+			return true;
+		if (str[c] != prefix[c])
+			return false;
+	}
+	return false;
+}
+
+static __always_inline  int cus_strlen(const char *cs){
+    int len = 0;
+    while( cs != NULL && *cs != '\0' ){
+        cs++;
+        len++;
+    }
+    return len;
+}
 
 static int constrained_cpumask_map_insert(struct bpf_cpumask *mask, u32 key)
 {
@@ -587,6 +616,21 @@ s32 BPF_STRUCT_OPS(constrained_cgroup_init, struct cgroup *cgrp, struct scx_cgro
              __func__, 
             cgrp->kn->id, 
             cgrp->kn->name );
+   
+#define MAX_NAME_LEN 10
+    const char *t = "pyaes";
+    char name[MAX_NAME_LEN];
+    int n  = bpf_probe_read_kernel_str(name, MAX_NAME_LEN, cgrp->kn->name );
+    n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n;
+
+    if( match_prefix(  t, name, n ) ){
+      info_msg(
+              "[%s] -- %d -OK- %s", 
+               __func__, 
+              cgrp->kn->id, 
+              cgrp->kn->name );
+    }
+
 	return 0;
 }
 

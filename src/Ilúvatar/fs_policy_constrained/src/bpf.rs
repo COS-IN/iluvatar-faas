@@ -12,6 +12,7 @@ use anyhow::Result;
 use libbpf_rs::skel::OpenSkel as _;
 use libbpf_rs::skel::SkelBuilder as _;
 use libbpf_rs::PrintLevel;
+use libbpf_rs::skel::Skel;
 
 use libc::{sched_param, sched_setscheduler};
 

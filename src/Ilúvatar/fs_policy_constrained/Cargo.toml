@@ -16,7 +16,7 @@ anyhow = "1.0.65"
 ctrlc = { version = "3.1", features = ["termination"] }
 libbpf-rs = "0.23"
 libc = "0.2.85"
-scx_utils = "0.7"
+scx_utils = "0.8.1"
 scx_rustland_core = "0.2"
 
 csv = "1.3.0"
@@ -31,7 +31,7 @@ criterion = { version = "0.3", features = ["html_reports"] }
 ipc-channel = { version = "0.18.1", features = ["memfd"] }
 
 [build-dependencies]
-scx_utils =  "0.7" 
+scx_utils =  "0.8.1" 
 scx_rustland_core = "0.2" 
 
 [features]
