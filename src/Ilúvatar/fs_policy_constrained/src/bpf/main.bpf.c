@@ -24,6 +24,18 @@ char _license[] SEC("license") = "GPL";
 
 UEI_DEFINE(uei);
 
+/* 
+   Important references from Linux Kernel 
+
+     struct kernfs_node
+       /data2/ar/finescheduling/sched_ext/sched_ext-sched_ext/debian/linux-headers-6.9.0/usr/src/linux-headers-6.9.0/include/linux/kernfs.h:203
+
+     struct cgroup
+       linux-headers-6.9.0/include/linux/cgroup-defs.h
+
+*/
+
+
 // global dsq id 
 #define SHARED_DSQ MAX_CPUS
 #define USCHED_DSQ SHARED_DSQ+1
@@ -92,25 +104,36 @@ struct {
         __uint(type, BPF_MAP_TYPE_LRU_HASH);
         __uint(max_entries, 32);
         __type(key, __u64);
-        __type(value, struct cgroupvalue);
+        __type(value, Cgroupvalue);
 } CgroupsHashMap SEC(".maps");
 
-static void chashmap_insert (__u64 cid, char *name, int n)
+static void chashmap_insert (__u64 cid, char *name)
 {
   Cgroupvalue *cvalue = bpf_map_lookup_elem( &CgroupsHashMap, &cid );
 
   if (cvalue) {
-      memcpy( cvalue->name, name, n);
+      __builtin_memcpy_inline( cvalue->name, name, MAX_NAME_LEN);
   } else {
       Cgroupvalue new_cvalue; 
-      memcpy( new_cvalue.name, name, n);
+      __builtin_memcpy_inline( new_cvalue.name, name, MAX_NAME_LEN);
       bpf_map_update_elem(&CgroupsHashMap, &cid, &new_cvalue, BPF_NOEXIST);
+      info_msg(
+               "[%s] -- %d -OK-inserted- %s", 
+               __func__, 
+               cid, 
+               name );
   }
 }
 
 static bool chashmap_present (__u64 cid)
 {
   Cgroupvalue *cvalue = bpf_map_lookup_elem( &CgroupsHashMap, &cid );
+  info_msg(
+           "[%s] -- %d -Called- %p", 
+           __func__, 
+           cid, 
+           cvalue );
+
   if (cvalue) {
       return true;
   } 
@@ -167,11 +190,14 @@ static inline bool match_prefix(const char *prefix, const char *str, u32 max_len
 	return false;
 }
 
+#define FETCH_KERNEL_STR( x ) \
+    char name[MAX_NAME_LEN]; \
+    int n  = bpf_probe_read_kernel_str(name, MAX_NAME_LEN, x ); \
+    n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n; \
+
 static inline bool match_prefix_kernel_str(const char *prefix, const char *kstr)
 {
-    char name[MAX_NAME_LEN];
-    int n  = bpf_probe_read_kernel_str(name, MAX_NAME_LEN, kstr );
-    n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n;
+    FETCH_KERNEL_STR( kstr )
 
     if ( n >= 0 && 
          match_prefix(  prefix, name, n )
@@ -426,7 +452,25 @@ s32 BPF_STRUCT_OPS(constrained_select_cpu, struct task_struct *p, s32 prev_cpu,
 void BPF_STRUCT_OPS(constrained_enqueue, struct task_struct *p, u64 enq_flags)
 {
     s32 cpu; 
-    
+   
+	// struct cgroup *cgrp;
+    // cgrp = scx_bpf_task_cgroup( p );
+    // info_msg(
+    //          "[%s] -- pid %d belongs to cgroup %d - %s", 
+    //          __func__, 
+    //          p->pid, 
+    //          cgrp->kn->id,
+    //          cgrp->kn->name );
+    // if( chashmap_present( cgrp->kn->id ) ){
+    //     info_msg(
+    //              "[%s] -OK- pid %d belongs to cgroup %d - %s", 
+    //              __func__, 
+    //              p->pid, 
+    //              cgrp->kn->id,
+    //              cgrp->kn->name );
+    // }
+	// bpf_cgroup_release(cgrp);
+
     // this callback shouldn't be called since we dispatch to the shared 
     // dsq in the select_cpu callback 
     callback_msg( "%s", __func__ );
@@ -551,8 +595,28 @@ void BPF_STRUCT_OPS(constrained_cpu_release, s32 cpu,
 s32 BPF_STRUCT_OPS(constrained_init_task, struct task_struct *p,
 		   struct scx_init_task_args *args)
 {
+
     callback_msg( "%s", __func__ );
 	__sync_fetch_and_add(&nr_tasks, 1);
+
+	struct task_group *tg = p->sched_task_group;
+	if (tg && tg->css.cgroup){
+      struct cgroup *cgrp = tg->css.cgroup;
+      info_msg(
+               "[%s] -- pid %d belongs to cgroup %d - %s", 
+               __func__, 
+               p->pid, 
+               cgrp->kn->id,
+               cgrp->kn->name );
+      if( chashmap_present( cgrp->kn->id ) ){
+          info_msg(
+                   "[%s] -OK- pid %d belongs to cgroup %d - %s", 
+                   __func__, 
+                   p->pid, 
+                   cgrp->kn->id,
+                   cgrp->kn->name );
+      }
+    }
 
     return 0;
 }
@@ -718,8 +782,10 @@ s32 BPF_STRUCT_OPS(constrained_cgroup_init, struct cgroup *cgrp, struct scx_cgro
   s32 i;
   bpf_for( i, 0, MAXFUNCS ){
       if( match_prefix_kernel_str( funcs_list_get(i), cgrp->kn->name ) ){
+          FETCH_KERNEL_STR( cgrp->kn->name )
+          chashmap_insert( cgrp->kn->id, name );
           info_msg(
-                   "[%s] -- %d -OK- %s", 
+                   "[%s] -- %d -OK-inserted- %s", 
                    __func__, 
                    cgrp->kn->id, 
                    cgrp->kn->name );

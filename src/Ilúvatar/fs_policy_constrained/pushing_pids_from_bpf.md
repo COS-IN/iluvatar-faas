@@ -42,17 +42,17 @@
                                                      ┌─────┐                                                  ▼   User Space                  
                             ─────────────────────────│─────│────────────────────────────────────────────────────────────────────────────      
                                                      └──▲──┘                                                                                  
-   ┌────────────┐                                       └────────────┐                                            BPF Scheduler               
+   ┌────────────┐ ✓                                     └────────────┐                                            BPF Scheduler               
    │Static list │                                                    │     User Space                                                         
    │of funcs    │                                                    │                                                                        
    │            │                                  Call Backs        │      Thread                                                            
-   │pyaes       │                                                    │      ┌───────┐        ┌──────────────┐                                 
+   │pyaes       │                                              ✓     │      ┌───────┐        ┌──────────────┐                                 
    │            │    ─────────────────────────────►  cgroup_init ◄┐  │      │       ▼        ▼              │                                 
    │rodina*     │             ┌──────────────────────             │  │      │      ┌─┐      ┌─┐             │                                 
    │            │             │                                   │  │      │      │ │      │ │             │                                 
-   └────────────┘             │                  ┌─► init_task ───┼──┘      │      │ │      │ │  Func       │                                 
+   └────────────┘             │                  ┌─► constrained_enqueue    │      │ │      │ │  Func       │                                 
    ┌──────────────────┐       │                  │      ▲         │         │      │ │      │ │             │                                 
-   │ HashMap          │  ◄────┘                  │      │         │         │      │ │      │ │  Tasks      │                                 
+   │ HashMap ✓        │  ◄────┘                  │      │         │         │      │ │      │ │  Tasks      │                                 
    │                  │                          │      │         │         │      └┬┘      └┬┘             │                                 
    │   groupid, name  │                          │      │         │         │       │        ┼─────┬────┐   │                                 
    │                  │   ───────────────────────┼──────┘         │         │       ▼        ▼     ▼    ▼   │                                 
@@ -70,6 +70,39 @@
                                                  │     task structure                                                                         
                                                                                                                                               
 ```
+
+                ✓
+
+
+
+# Investigation: tasks policy changing to schedext by constrained without sched syscall   
+```
+            ┌─────────────────────────────┐
+            │                             ▼
+   Capture Observations              Ask Questions
+            ▲                             │
+            └─────────────────────────────┘
+                Until Root Cause is Found
+```
+## Process 
+### Observation 0 
+  
+  * enqueue is seeing gunicorn tasks for gzip and their policy is changed to #7 
+    * even though no sched syscall has been made 
+  * but the last thread policy is still TS ( SCHED_OTHER )
+
+### Questions 0 
+
+  Does last thread show up in init_task? 
+    yes it does! 
+
+### Observation 1 
+### Questions 1 
+### Observation 2 
+### Questions 2 
+## What is the root cause of the problem? 
+## How to fix it? 
+
 
 
 
