@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <string.h>
+#include <assert.h>
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
@@ -59,6 +60,9 @@ volatile u64 nr_eq_tasks = 0;
              p->comm ); \
 } while(0)
 
+// Maximum length of name (struct kernfs_node -> name)
+#define MAX_NAME_LEN 10
+
 // maximum number of tasks that can be handled 
 #define MAX_ENQUEUED_TASKS 8192
 
@@ -80,9 +84,80 @@ struct array_map {
         __uint(max_entries, 1);
 } constrained_cpumask_map SEC(".maps");
 
+typedef struct cgroupvalue {
+    char name[MAX_NAME_LEN];
+} Cgroupvalue;
+
+struct {
+        __uint(type, BPF_MAP_TYPE_LRU_HASH);
+        __uint(max_entries, 32);
+        __type(key, __u64);
+        __type(value, struct cgroupvalue);
+} CgroupsHashMap SEC(".maps");
+
+static void chashmap_insert (__u64 cid, char *name, int n)
+{
+  Cgroupvalue *cvalue = bpf_map_lookup_elem( &CgroupsHashMap, &cid );
+
+  if (cvalue) {
+      memcpy( cvalue->name, name, n);
+  } else {
+      Cgroupvalue new_cvalue; 
+      memcpy( new_cvalue.name, name, n);
+      bpf_map_update_elem(&CgroupsHashMap, &cid, &new_cvalue, BPF_NOEXIST);
+  }
+}
+
+static bool chashmap_present (__u64 cid)
+{
+  Cgroupvalue *cvalue = bpf_map_lookup_elem( &CgroupsHashMap, &cid );
+  if (cvalue) {
+      return true;
+  } 
+  return false;
+}
+
+// For static list of func names 
+#define MAXFUNCS 3 
+struct func_data {
+    char name[MAX_NAME_LEN];
+};
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, MAXFUNCS);
+	__type(key, u32);
+	__type(value, struct func_data);
+} funcs_list SEC(".maps");
+
+static void funcs_list_insert (u32 idx, char *name, int n)
+{
+  struct func_data *fvalue = bpf_map_lookup_elem( &funcs_list, &idx );
+
+  if (fvalue) {
+      memcpy( fvalue->name, name, n );
+  } else {
+      struct func_data new_fvalue; 
+      memcpy( new_fvalue.name, name, n );
+      bpf_map_update_elem(&funcs_list, &idx, &new_fvalue, BPF_NOEXIST);
+  }
+}
+
+static inline char * funcs_list_get (__u64 cid)
+{
+  struct func_data *fvalue = bpf_map_lookup_elem( &funcs_list, &cid );
+  if (fvalue) {
+      return fvalue->name;
+  } 
+  return NULL;
+}
+
 static inline bool match_prefix(const char *prefix, const char *str, u32 max_len)
 {
 	int c;
+    if( !prefix  || !str ){
+        return false;
+    }
+
 	bpf_for(c, 0, max_len) {
 		if (prefix[c] == '\0')
 			return true;
@@ -90,6 +165,20 @@ static inline bool match_prefix(const char *prefix, const char *str, u32 max_len
 			return false;
 	}
 	return false;
+}
+
+static inline bool match_prefix_kernel_str(const char *prefix, const char *kstr)
+{
+    char name[MAX_NAME_LEN];
+    int n  = bpf_probe_read_kernel_str(name, MAX_NAME_LEN, kstr );
+    n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n;
+
+    if ( n >= 0 && 
+         match_prefix(  prefix, name, n )
+        ){
+        return true;
+    }
+    return false;
 }
 
 static __always_inline  int cus_strlen(const char *cs){
@@ -595,6 +684,15 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(constrained_init)
         return status;
     }
 
+#define call_funcs_list_insert( i, s ) do { \
+      funcs_list_insert( i, s, strlen(s) ); \
+}while(false)
+    s32 i = 0;
+    call_funcs_list_insert( i++, "pyaes" );
+    call_funcs_list_insert( i++, "rodina" );
+    call_funcs_list_insert( i++, "gzip" );
+    assert( i == MAXFUNCS );
+
 	return 0;
 }
 
@@ -611,27 +709,24 @@ void BPF_STRUCT_OPS(constrained_exit, struct scx_exit_info *ei)
 
 s32 BPF_STRUCT_OPS(constrained_cgroup_init, struct cgroup *cgrp, struct scx_cgroup_init_args *args)
 {
-    info_msg(
-            "[%s] -- %d -- %s", 
-             __func__, 
-            cgrp->kn->id, 
-            cgrp->kn->name );
-   
-#define MAX_NAME_LEN 10
-    const char *t = "pyaes";
-    char name[MAX_NAME_LEN];
-    int n  = bpf_probe_read_kernel_str(name, MAX_NAME_LEN, cgrp->kn->name );
-    n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n;
+  info_msg(
+           "[%s] -- %d -- %s", 
+           __func__, 
+           cgrp->kn->id,  // u64
+           cgrp->kn->name ); // char * 
+  
+  s32 i;
+  bpf_for( i, 0, MAXFUNCS ){
+      if( match_prefix_kernel_str( funcs_list_get(i), cgrp->kn->name ) ){
+          info_msg(
+                   "[%s] -- %d -OK- %s", 
+                   __func__, 
+                   cgrp->kn->id, 
+                   cgrp->kn->name );
+      }
+  }
 
-    if( match_prefix(  t, name, n ) ){
-      info_msg(
-              "[%s] -- %d -OK- %s", 
-               __func__, 
-              cgrp->kn->id, 
-              cgrp->kn->name );
-    }
-
-	return 0;
+  return 0;
 }
 
 void BPF_STRUCT_OPS(constrained_cgroup_exit, struct cgroup *cgrp)

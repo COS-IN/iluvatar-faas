@@ -173,15 +173,17 @@ impl ContainerdIsolation {
                             }
                         }
 
-                        info!(
-                            tid=%x.tid,
-                            fqdn=%x.fqdn,
-                            container_id=%x.container_id,
-                            pid=%x.pid,
-                            allc=%all_children[0],
-                            "mydebugs {:?}",
-                            pidmap
-                        );                       
+                        for cpid in &all_children {
+                            info!(
+                                tid=%x.tid,
+                                fqdn=%x.fqdn,
+                                container_id=%x.container_id,
+                                pid=%x.pid,
+                                allc=%cpid,
+                                "mydebugs {:?}",
+                                pidmap
+                            );                       
+                        }
 
                         loop {
                             match drecv.try_recv() {
