@@ -136,6 +136,7 @@ impl<'a> Scheduler<'a> {
             // Get queued task and dispatch them in order (FIFO).
             match self.bpf.dequeue_pid() {
                 Ok(Some(pid)) => {
+                    println!("calling setscheduler syscall on {:?}", pid);
                     unsafe { sched_setscheduler(pid as i32, SCHED_EXT, &param as *const sched_param) };
                 }
                 Ok(None) | Err(_) => {

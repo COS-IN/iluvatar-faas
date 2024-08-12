@@ -38,7 +38,8 @@ const BUFSIZE: usize = std::mem::size_of::<i32>();
 struct AlignedBuffer([u8; BUFSIZE]);
 static mut BUF: AlignedBuffer = AlignedBuffer([0; BUFSIZE]);
 fn fetch_pid( bytes: &[u8] ) -> i32 {
-    unsafe { *(bytes.as_ptr() as *const i32) }
+    let ps = unsafe { *(bytes.as_ptr() as *const bpf_intf::packet_pid) };
+    ps.pid
 }
 
 // Special negative error code for libbpf to stop after consuming just one item from a BPF

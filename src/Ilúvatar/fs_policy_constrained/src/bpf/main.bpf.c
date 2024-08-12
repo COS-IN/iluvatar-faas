@@ -51,7 +51,7 @@ const volatile u64 slice_ns = SCX_SLICE_DFL; /* Base time slice duration */
  * Effective time slice: allow the scheduler to override the default time slice
  * (slice_ns) if this one is set.
  */
-volatile u64 effective_slice_ns;
+volatile u64 effective_slice_ns = SCX_SLICE_DFL;
 
 // Number of tasks being handled by the bpf scheduler  
 volatile u64 nr_tasks = 0;
@@ -85,6 +85,8 @@ const volatile s32 constrained_cores[MAX_CPUS];
 // userland 
 #define CMASK_GLOBAL_KEY 0x0
 
+
+
 // The map containing pids of tasks that are to be switched to SchedEXT policy.
 // it is drained by the user space thread 
 struct {
@@ -93,9 +95,12 @@ struct {
 } queued_pids SEC(".maps");
 
 void queued_pids_push( int pid ){
-    int *p = bpf_ringbuf_reserve( &queued_pids, sizeof(int), 0 );
+    int *p = bpf_ringbuf_reserve( &queued_pids, sizeof(packet_pid_t), 0 );
     if( p ){
-      bpf_ringbuf_submit(p, 0);
+      packet_pid_t *ps = (packet_pid_t *)p;
+      ps->pid = pid;
+      bpf_ringbuf_submit(ps, 0);
+      info_msg("pushed %d", pid);
     }
 }
 
@@ -195,9 +200,23 @@ static inline bool match_prefix(const char *prefix, const char *str, u32 max_len
         return false;
     }
 
+    if( max_len == 0 ){
+        return false;
+    }
+
+    if ( max_len == 1 ){
+        if ( prefix[0] == '\0' )
+          return false;
+        if ( str[0] == '\0' )
+          return false;
+    }
+
 	bpf_for(c, 0, max_len) {
 		if (prefix[c] == '\0')
 			return true;
+        if ( c == (max_len -1) ){
+            return true;
+        }
 		if (str[c] != prefix[c])
 			return false;
 	}
@@ -357,6 +376,12 @@ dispatch_task(struct task_struct *p, s32 cpu, u64 task_slice_ns, u64 enq_flags, 
 	u64 slice = task_slice_ns ? :
 		__sync_fetch_and_add(&effective_slice_ns, 0) ? : slice_ns;
   
+    info_msg(
+        "[%s] -- %d -- %llu ns", 
+         __func__, 
+        p->pid, 
+        slice );
+
     // we only dispatch to a single global dsq
     scx_bpf_dispatch(p, dsq_id, slice, enq_flags);
     if( dsq_id == SHARED_DSQ ){
@@ -625,11 +650,47 @@ s32 BPF_STRUCT_OPS(constrained_init_task, struct task_struct *p,
       if( chashmap_present( cgrp->kn->id ) ){
           queued_pids_push( p->pid );
           info_msg(
-                   "[%s] -OK- pid %d belongs to cgroup %d - %s", 
+                   "[%s][%s] -OK- pid %d belongs to cgroup %d - %s", 
                    __func__, 
+                   p->comm,
                    p->pid, 
                    cgrp->kn->id,
                    cgrp->kn->name );
+      }else{
+          FETCH_KERNEL_STR( p->comm )
+          const char *other = "gunicorn";
+          int no = cus_strlen( other );
+          n = n < no ? n : no;
+
+          info_msg(
+                   "[%s][%s][%s][%d] -NO- pid %d belongs to cgroup %d - %s", 
+                   __func__, 
+                   p->comm,
+                   name,
+                   n,
+                   p->pid, 
+                   cgrp->kn->id,
+                   cgrp->kn->name );
+
+          if ( match_prefix( other, name, n ) ){
+            // task name is gunicorn - so we are assuming it belongs to a
+            // function 
+
+            info_msg(
+                     "[%s][%s] -RG- pid %d belongs to cgroup %d - %s", 
+                     __func__, 
+                     p->comm,
+                     p->pid, 
+                     cgrp->kn->id,
+                     cgrp->kn->name );
+
+            // put on ring buffer 
+            queued_pids_push( p->pid );
+
+            // and insert the cgroup id for future reference 
+            FETCH_KERNEL_STR( cgrp->kn->name )
+            chashmap_insert( cgrp->kn->id, name );
+          }
       }
     }
 

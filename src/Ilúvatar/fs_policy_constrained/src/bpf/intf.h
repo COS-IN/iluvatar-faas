@@ -83,4 +83,8 @@ struct dispatched_task_ctx {
 	u64 slice_ns; /* time slice assigned to the task (0=default) */
 };
 
+typedef struct packet_pid {
+    int pid;
+} packet_pid_t;
+
 #endif /* __INTF_H */
