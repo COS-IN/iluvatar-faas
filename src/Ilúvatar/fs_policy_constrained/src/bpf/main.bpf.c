@@ -85,6 +85,20 @@ const volatile s32 constrained_cores[MAX_CPUS];
 // userland 
 #define CMASK_GLOBAL_KEY 0x0
 
+// The map containing pids of tasks that are to be switched to SchedEXT policy.
+// it is drained by the user space thread 
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, MAX_ENQUEUED_TASKS);
+} queued_pids SEC(".maps");
+
+void queued_pids_push( int pid ){
+    int *p = bpf_ringbuf_reserve( &queued_pids, sizeof(int), 0 );
+    if( p ){
+      bpf_ringbuf_submit(p, 0);
+    }
+}
+
 struct cpumask_map_value {
         struct bpf_cpumask __kptr * cpumask;
 };
@@ -609,6 +623,7 @@ s32 BPF_STRUCT_OPS(constrained_init_task, struct task_struct *p,
                cgrp->kn->id,
                cgrp->kn->name );
       if( chashmap_present( cgrp->kn->id ) ){
+          queued_pids_push( p->pid );
           info_msg(
                    "[%s] -OK- pid %d belongs to cgroup %d - %s", 
                    __func__, 
