@@ -30,14 +30,27 @@ use std::collections::HashMap;
 // Defined in UAPI
 const SCHED_EXT: i32 = 7;
 
-pub struct BpfScheduler<'cb> {
-    pub skel: BpfSkel<'cb>,              // Low-level BPF connector
-    struct_ops: Option<libbpf_rs::Link>, // Low-level BPF methods
+// Buffer to store pids from the bpf scheduler 
+// NOTE: make the buffer aligned to 64-bits to prevent misaligned dereferences when accessing the
+// buffer using a pointer.
+const BUFSIZE: usize = std::mem::size_of::<i32>();
+#[repr(align(8))]
+struct AlignedBuffer([u8; BUFSIZE]);
+static mut BUF: AlignedBuffer = AlignedBuffer([0; BUFSIZE]);
+fn fetch_pid( bytes: &[u8] ) -> i32 {
+    unsafe { *(bytes.as_ptr() as *const i32) }
 }
 
 // Special negative error code for libbpf to stop after consuming just one item from a BPF
 // ring buffer.
 const LIBBPF_STOP: i32 = -255;
+
+pub struct BpfScheduler<'cb> {
+    pub skel: BpfSkel<'cb>,              // Low-level BPF connector
+    struct_ops: Option<libbpf_rs::Link>, // Low-level BPF methods
+    queued_pids: libbpf_rs::RingBuffer<'cb>,  // ring buffer of tasks pids to be switched to schedext
+                                         // policy 
+}
 
 impl<'cb> BpfScheduler<'cb> {
     pub fn init(
@@ -73,17 +86,47 @@ impl<'cb> BpfScheduler<'cb> {
         // Attach BPF scheduler.
         let mut skel = scx_ops_load!(skel, constrained, uei)?;
         let struct_ops = Some(scx_ops_attach!(skel, constrained)?);
+        
+        // see fifo policy for why it's safe - summary: user space thread is just one thread  
+        fn callback(data: &[u8]) -> i32 {
+            unsafe {
+                BUF.0.copy_from_slice(data);
+            }
+            LIBBPF_STOP
+        }
+        // Build the ring buffer of queued tasks.
+        let binding = skel.maps();
+        let queued_ring_buffer = binding.queued_pids();
+        let mut rbb = libbpf_rs::RingBufferBuilder::new();
+        rbb.add(queued_ring_buffer, callback)
+            .expect("failed to add ringbuf callback");
+        let queued_pids = rbb.build().expect("failed to build ringbuf");
 
         // Make sure to use the SCHED_EXT class at least for the scheduler itself.
         match Self::use_sched_ext() {
             0 => Ok(Self {
                 skel,
                 struct_ops,
+                queued_pids,
             }),
             err => Err(anyhow::Error::msg(format!(
                 "sched_setscheduler error: {}",
                 err
             ))),
+        }
+    }
+
+    // Receive a task pid from the BPF scheduler to switch to schedext policy.
+    pub fn dequeue_pid(&mut self) -> Result<Option<i32>, i32> {
+        match self.queued_pids.consume_raw() {
+            0 => Ok(None),
+            LIBBPF_STOP => {
+                // A valid pid is received, convert data to a proper pid.
+                let pid = unsafe { fetch_pid(&BUF.0) };
+                Ok(Some(pid))
+            }
+            res if res < 0 => Err(res),
+            res => panic!("Unexpected return value from libbpf-rs::consume_raw(): {}", res),
         }
     }
 

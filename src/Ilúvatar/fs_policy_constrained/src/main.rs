@@ -130,6 +130,21 @@ impl<'a> Scheduler<'a> {
         }
     }
 
+    fn drain_queued_pids(&mut self){
+        let param: sched_param = sched_param { sched_priority: 0 };
+        loop {
+            // Get queued task and dispatch them in order (FIFO).
+            match self.bpf.dequeue_pid() {
+                Ok(Some(pid)) => {
+                    unsafe { sched_setscheduler(pid as i32, SCHED_EXT, &param as *const sched_param) };
+                }
+                Ok(None) | Err(_) => {
+                    break;
+                }
+            }
+        }
+    }
+
     fn run(&mut self, shutdown: Arc<AtomicBool>) -> Result<()> {
         let mut prev_ts = Self::now();
 
@@ -137,6 +152,7 @@ impl<'a> Scheduler<'a> {
             let curr_ts = Self::now();
             if curr_ts > prev_ts {
                 self.print_stats();
+                self.drain_queued_pids();
                 prev_ts = curr_ts;
             }
         }
