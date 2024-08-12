@@ -184,7 +184,11 @@ fn live_worker(args: TraceArgs) -> Result<()> {
         }
 
         // add progress code here!  
-        print!("{}: Invoking function '{}'                \r", clock.now_str()?, f_c);
+        print!("{}: Invoking function '{}'   '{:?}'             \r\n", 
+                    clock.now_str()?, 
+                    f_c,
+                    func_args
+                );
 
         let clk_clone = clock.clone();
         let fct_cln = factory.clone();

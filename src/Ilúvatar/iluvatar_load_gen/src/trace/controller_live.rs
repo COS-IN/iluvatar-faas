@@ -124,9 +124,12 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
                 Ok(t) => {
                     let ms = t.as_millis() as u64;
                     if ms >= invocation.invoke_time_ms {
+                        println!("{:?} invoking {:?} \r\n", t, f_c);
                         break;
                     }
-                    std::thread::sleep(Duration::from_millis(ms / 2));
+                    // std::thread::sleep(Duration::from_millis(ms / 2)); // doesn't the sleep
+                    // increase along the trace? - making the timing on invocations bad! 
+                    std::thread::sleep(Duration::from_millis( 50 ));
                 }
                 Err(_) => (),
             }
