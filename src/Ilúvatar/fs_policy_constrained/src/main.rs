@@ -145,6 +145,22 @@ impl<'a> Scheduler<'a> {
         }
     }
 
+    fn fetch_over_channel(&mut self){
+        if let Some(crecvs) = &self.crecvs {
+            loop {
+                match crecvs.rx_chr.try_recv() {
+                    Ok(chr) => {
+                        // Do something interesting with your result
+                        //println!("Received characteristics");
+                        println!("received over channel {:?}", chr);
+                        self.characteristics.insert( chr.fqdn.clone(), chr );
+                    },
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+
     fn run(&mut self, shutdown: Arc<AtomicBool>) -> Result<()> {
         let mut prev_ts = Self::now();
 
@@ -153,6 +169,7 @@ impl<'a> Scheduler<'a> {
             if curr_ts > prev_ts {
                 self.print_stats();
                 self.drain_queued_pids();
+                self.fetch_over_channel();
                 prev_ts = curr_ts;
             }
         }
