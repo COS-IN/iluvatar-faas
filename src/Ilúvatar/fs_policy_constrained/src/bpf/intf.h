@@ -8,6 +8,7 @@
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 #define NSEC_PER_SEC	1000000000L
+#define MSEC_PER_SEC 1000000
 #define CLOCK_BOOTTIME	7
 
 #include <stdbool.h>

@@ -51,7 +51,7 @@ const volatile u64 slice_ns = SCX_SLICE_DFL; /* Base time slice duration */
  * Effective time slice: allow the scheduler to override the default time slice
  * (slice_ns) if this one is set.
  */
-volatile u64 effective_slice_ns = SCX_SLICE_DFL;
+volatile u64 effective_slice_ns = 1*MSEC_PER_SEC;
 
 // Number of tasks being handled by the bpf scheduler  
 volatile u64 nr_tasks = 0;
@@ -60,6 +60,12 @@ volatile u64 nr_eq_tasks = 0;
 // info msg with a specific tag 
 #define info_msg(_fmt, ...) do {						\
     bpf_printk( "[info-constrained] " _fmt ,	\
+    ##__VA_ARGS__);		\
+} while(0)
+
+// warn msg with a specific tag 
+#define warn_msg(_fmt, ...) do {						\
+    bpf_printk( "[warn-constrained] " _fmt ,	\
     ##__VA_ARGS__);		\
 } while(0)
 
@@ -376,11 +382,6 @@ dispatch_task(struct task_struct *p, s32 cpu, u64 task_slice_ns, u64 enq_flags, 
 	u64 slice = task_slice_ns ? :
 		__sync_fetch_and_add(&effective_slice_ns, 0) ? : slice_ns;
   
-    info_msg(
-        "[%s] -- %d -- %llu ns", 
-         __func__, 
-        p->pid, 
-        slice );
 
     // we only dispatch to a single global dsq
     scx_bpf_dispatch(p, dsq_id, slice, enq_flags);
@@ -388,8 +389,15 @@ dispatch_task(struct task_struct *p, s32 cpu, u64 task_slice_ns, u64 enq_flags, 
       __sync_fetch_and_add(&nr_eq_tasks, 1);
     }
 
+    info_msg(
+        "[%s] -- %d -- %llu ns kicking cpu %d", 
+         __func__, 
+        p->pid, 
+        slice,
+        cpu);
+
     // let's wakeup the target cpu if it's idle - otherwise it would be noop 
-    scx_bpf_kick_cpu(cpu, __COMPAT_SCX_KICK_IDLE);
+    scx_bpf_kick_cpu(cpu, SCX_KICK_IDLE);
 }
 
 /*
@@ -440,6 +448,31 @@ bool get_best_cpu( s32 *rcpu) {
     return false;
 }
 
+/*
+   Find the idle cpu to schedule the task on. 
+   Currently it just tries to fetch first idle cpu. 
+*/
+bool get_idle_cpu( s32 *rcpu) {
+	s32 cpu;
+    s32 key = CMASK_GLOBAL_KEY;
+    const struct cpumask_map_value *v;
+
+    v = bpf_map_lookup_elem(&constrained_cpumask_map, &key);
+    if (v) {
+      if ( v->cpumask ){
+        cpu = scx_bpf_pick_idle_cpu( (const struct cpumask *)v->cpumask, 
+                                    SCX_PICK_IDLE_CORE
+                                    );
+        if ( 0 <= cpu && cpu < MAX_CPUS ){
+          *rcpu = cpu;
+          return true;
+        }
+      }
+    }
+
+    return false;
+}
+
 bool is_usersched_cpu( s32 cpu ){
     return cpu == USCHED_CORE;
 }
@@ -467,20 +500,55 @@ s32 BPF_STRUCT_OPS(constrained_select_cpu, struct task_struct *p, s32 prev_cpu,
 		   u64 wake_flags)
 {
 	s32 cpu;
-
     callback_msg( "%s", __func__ );
     
     // dispatch the task to first idle cpu among constrained cpus 
-    if ( get_best_cpu(&cpu) ){
+    if ( get_idle_cpu(&cpu) ){
         info_msg( "%s selected cpu %d", __func__, cpu );
+        scx_bpf_dispatch(p, SCX_DSQ_LOCAL, effective_slice_ns, 0);
         return cpu;
     }
-    
-    // otherwise put it in the global dsq 
-    scx_bpf_dispatch(p, SHARED_DSQ, effective_slice_ns, 0);
-	__sync_fetch_and_add(&nr_eq_tasks, 1);
 
+    // it will never come here since get_best_cpu always return some cpu 
+    warn_msg( "[%s] get_best_cpu returned false", __func__);
 	return prev_cpu;
+}
+
+
+/*
+    Print out the cpumask belonging to a task. 
+ */
+static void print_cpumasks(struct task_struct *ptask)
+{
+	const cpumask_t	*mask = ptask->cpus_ptr;
+	char buf[128] = "";
+    char *p; 
+    s32 cpu; 
+    int idx;
+    
+    idx = 0;
+    bpf_for(cpu, 0, scx_bpf_nr_cpu_ids()) {
+        if (!(p = MEMBER_VPTR(buf, [idx++])))
+        break;
+        if (bpf_cpumask_test_cpu(cpu, mask))
+        *p++ = 'O';
+        else 
+        *p++ = '-';
+        if ((cpu & 7) == 7) {
+            if (!(p = MEMBER_VPTR(buf, [idx++])))
+            break;
+            *p++ = '|';
+        }
+    }
+    
+    if( (p = MEMBER_VPTR(buf, [idx++])) ){
+        *p++ = '\0';
+    }
+	bpf_printk("[%d][%s]   cpus_ptr: %s ", 
+               ptask->pid,
+               ptask->comm,
+               buf 
+    );
 }
 
 /*
@@ -490,29 +558,9 @@ s32 BPF_STRUCT_OPS(constrained_select_cpu, struct task_struct *p, s32 prev_cpu,
  */
 void BPF_STRUCT_OPS(constrained_enqueue, struct task_struct *p, u64 enq_flags)
 {
-    s32 cpu; 
-   
-	// struct cgroup *cgrp;
-    // cgrp = scx_bpf_task_cgroup( p );
-    // info_msg(
-    //          "[%s] -- pid %d belongs to cgroup %d - %s", 
-    //          __func__, 
-    //          p->pid, 
-    //          cgrp->kn->id,
-    //          cgrp->kn->name );
-    // if( chashmap_present( cgrp->kn->id ) ){
-    //     info_msg(
-    //              "[%s] -OK- pid %d belongs to cgroup %d - %s", 
-    //              __func__, 
-    //              p->pid, 
-    //              cgrp->kn->id,
-    //              cgrp->kn->name );
-    // }
-	// bpf_cgroup_release(cgrp);
-
-    // this callback shouldn't be called since we dispatch to the shared 
-    // dsq in the select_cpu callback 
     callback_msg( "%s", __func__ );
+
+    print_cpumasks( p );
 
 	/*
 	 * Scheduler is dispatched directly in .dispatch() when needed, so
@@ -521,16 +569,22 @@ void BPF_STRUCT_OPS(constrained_enqueue, struct task_struct *p, u64 enq_flags)
     if (is_usersched_task(p))
         return;
 
-    // dispatch the task to first idle cpu among constrained cpus 
-    if ( get_best_cpu(&cpu) ){
-        dispatch_task( p, cpu, 0, 0, SHARED_DSQ);
-        return;
-    }
+    info_msg(
+             "[%s] -- %d-%s to shared dsq with slice %llu ns with flags 0x%llx", 
+             __func__, 
+             p->pid,
+             p->comm,  
+             effective_slice_ns,
+             enq_flags
+    );  
 
     // otherwise we just put the task in shared dsq 
-    scx_bpf_dispatch(p, SHARED_DSQ, effective_slice_ns, enq_flags);
-	__sync_fetch_and_add(&nr_eq_tasks, 1);
+    scx_bpf_dispatch(p, SHARED_DSQ, effective_slice_ns, 0);
+    __sync_fetch_and_add(&nr_eq_tasks, 1);
 }
+
+
+
 
 /*
  * Dispatch tasks that are ready to run.
@@ -544,85 +598,38 @@ void BPF_STRUCT_OPS(constrained_enqueue, struct task_struct *p, u64 enq_flags)
  */
 void BPF_STRUCT_OPS(constrained_dispatch, s32 cpu, struct task_struct *prev)
 {
+    info_msg(
+             "[%s] on cpu -%d-", 
+             __func__, 
+             cpu ); // char * 
+
     // Enqueue the scheduler task if the timer callback 
     // has set the need flag - it's set every second 
     dispatch_user_scheduler();
+
+    // ping all the target constrained cpus for a wakeup - they might be
+    // sitting idle 
+    // bpf_for( cpu, 0, MAX_CPUS ){
+    //     if ( constrained_cores[cpu] != 0 ) {
+    //         // only works if the target is idle otherwise it's a noop
+    //         scx_bpf_kick_cpu(cpu, SCX_KICK_IDLE);
+    //         bpf_printk("pinging CPU %d", cpu);
+    //     }
+    // }
     
     if ( is_usersched_cpu( cpu ) ){
        scx_bpf_consume(USCHED_DSQ);
     }
 
-    if ( is_constrained(cpu) ){
-      // consume a task from the shared dsq	
-      if ( scx_bpf_consume(SHARED_DSQ) ) {
-        info_msg( "%s consumed on cpu: %d", __func__ , cpu );
-        __sync_fetch_and_sub(&nr_eq_tasks, 1);
-      } 
+    if ( is_constrained( cpu ) ){
+        info_msg( "%s items on shared-dsq: %d", __func__ , scx_bpf_dsq_nr_queued( SHARED_DSQ ) );
+        if ( scx_bpf_consume(SHARED_DSQ) ) {
+            info_msg( "%s consumed on cpu: %d", __func__ , cpu );
+            __sync_fetch_and_sub(&nr_eq_tasks, 1);
+        }else{
+            info_msg( "%s consume failed on cpu: %d", __func__ , cpu );
+        }
     }
-}
-
-/*
- * Task @p starts on its selected CPU (update CPU ownership map).
- */
-void BPF_STRUCT_OPS(constrained_running, struct task_struct *p)
-{
-    callback_msg( "%s", __func__ );
-
-	/*
-	 * Mark the CPU as busy by setting the pid as owner (ignoring the
-	 * user-space scheduler).
-	 */
-	//if (!is_usersched_task(p))
-    //		set_cpu_owner(cpu, p->pid);
-    
-}
-
-/*
- * Task @p stops running on its associated CPU (update CPU ownership map).
- */
-void BPF_STRUCT_OPS(constrained_stopping, struct task_struct *p, bool runnable)
-{
-    callback_msg( "%s", __func__ );
-
-	/*
-	 * Mark the CPU as idle by setting the owner to 0.
-	 */
-	// if (!is_usersched_task(p)) {
-	// 	set_cpu_owner(scx_bpf_task_cpu(p), 0);
-	// }
-}
-
-/*
- * Task @p changes cpumask: update its local cpumask generation counter.
- */
-void BPF_STRUCT_OPS(constrained_set_cpumask, struct task_struct *p,
-                    const struct cpumask *cpumask)
-{
-  s32 cpu;
-  callback_msg( "%s", __func__ );
-
-  bpf_for( cpu, 0, MAX_CPUS ){
-      if (bpf_cpumask_test_cpu(cpu, cpumask)){
-        bpf_printk("task %s should be able to use CPU %d", p->comm, cpu);
-      }
-  }
-}
-
-/*
- * A CPU is taken away from the scheduler, preempting the current task by
- * another one running in a higher priority sched_class.
- */
-void BPF_STRUCT_OPS(constrained_cpu_release, s32 cpu,
-				struct scx_cpu_release_args *args)
-{
-	struct task_struct *p = args->task;
-
-	/*
-	 * If the interrupted task is the user-space scheduler make sure to
-	 * re-schedule it immediately.
-	 */
-	if (is_usersched_task(p))
-		set_usersched_needed();
 }
 
 /*
@@ -815,7 +822,7 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(constrained_init)
     // set the cpumask based on constrained cores 
     bpf_for( cpu, 0, MAX_CPUS ){
         if ( constrained_cores[cpu] != 0 ) {
-            bpf_cpumask_set_cpu( cpu, mask);
+            bpf_cpumask_set_cpu( cpu, mask );
             bpf_printk("setting CPU %d as usable", cpu);
         }
     }
@@ -847,6 +854,7 @@ void BPF_STRUCT_OPS(constrained_exit, struct scx_exit_info *ei)
 }
 
 
+#if 0
 s32 BPF_STRUCT_OPS(constrained_cgroup_init, struct cgroup *cgrp, struct scx_cgroup_init_args *args)
 {
   info_msg(
@@ -879,6 +887,7 @@ void BPF_STRUCT_OPS(constrained_cgroup_exit, struct cgroup *cgrp)
             cgrp->kn->id, 
             cgrp->kn->name );
 }
+#endif
 
 /*
  * Scheduling class declaration.
@@ -887,14 +896,10 @@ SCX_OPS_DEFINE( constrained,
 	       .select_cpu		= (void *)constrained_select_cpu,
 	       .enqueue			= (void *)constrained_enqueue,
 	       .dispatch		= (void *)constrained_dispatch,
-	       .running			= (void *)constrained_running,
-	       .stopping		= (void *)constrained_stopping,
-	       .set_cpumask		= (void *)constrained_set_cpumask,
-	       .cpu_release		= (void *)constrained_cpu_release,
 	       .init_task		= (void *)constrained_init_task,
 	       .exit_task		= (void *)constrained_exit_task,
-	       .cgroup_init		= (void *)constrained_cgroup_init,
-	       .cgroup_exit		= (void *)constrained_cgroup_exit,
+	       //.cgroup_init		= (void *)constrained_cgroup_init,
+	       //.cgroup_exit		= (void *)constrained_cgroup_exit,
 	       .init			= (void *)constrained_init,
 	       .exit			= (void *)constrained_exit,
 	       .flags			= SCX_OPS_ENQ_LAST | SCX_OPS_KEEP_BUILTIN_IDLE | SCX_OPS_SWITCH_PARTIAL,
