@@ -5,6 +5,7 @@ use crate::{
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
 };
 use anyhow::Result;
+use anyhow::bail;
 use dashmap::{DashSet, DashMap};
 use crate::{insert_to_fqdn_pid_map};
 use guid_create::GUID;
@@ -166,6 +167,32 @@ impl DockerIsolation {
     }
 }
 
+async fn check_if_image_pulled(
+    img: &String,
+    tid: &TransactionId,
+) -> Result<()> {
+
+    // img is docker.io/alfuerst/rodinia-iluvatar-gpu:latest
+    // remove docker.io/
+    let mut img = img.split("/");
+    img.next();
+    let img: Vec<_> = img.collect();
+    let img = img.join("/");
+
+    let output = execute_cmd_async("/usr/bin/docker", vec!["images", img.as_str()], None, tid).await?;
+    let outstr = String::from_utf8_lossy(&output.stdout).trim().trim_matches('\'').to_string();
+
+    if let Some(0) = output.status.code() {
+        let mut lines = outstr.split("\n");
+        lines.next();
+        if let Some(_) = lines.next() {
+            return Ok(())
+        }
+    };
+
+    bail!("not present")
+}
+
 #[tonic::async_trait]
 impl ContainerIsolationService for DockerIsolation {
     fn backend(&self) -> Vec<Isolation> {
@@ -307,28 +334,35 @@ impl ContainerIsolationService for DockerIsolation {
         }
     }
 
+
+
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
         _fqdn: &str,
         tid: &TransactionId,
     ) -> Result<()> {
+
+
         if self.pulled_images.contains(&rf.image_name) {
             return Ok(());
         }
 
-        // add logic to avoid making the pull call if image is already there 
+        if let Err(_) = check_if_image_pulled( &rf.image_name, tid ).await{
+            let output = execute_cmd_async("/usr/bin/docker", vec!["pull", rf.image_name.as_str()], None, tid).await?;
+            match output.status.code() {
+                Some(0) => (),
+                Some(error_stat) => {
+                    bail_error!(tid=%tid, status=error_stat, output=?output, "Failed to pull docker image with exit code")
+                }
+                None => bail_error!(tid=%tid, output=?output, "Failed to pull docker image with no exit code"),
+            };
+            trace!(tid=%tid, name=%rf.image_name, output=?output, "Docker image pulled successfully");
+            info!(tid=%tid, name=%rf.image_name, "Docker image pulled successfully");
+        }else{
+            info!(tid=%tid, name=%rf.image_name, "Docker image not pulled as img is already there");
+        }
 
-        let output = execute_cmd_async("/usr/bin/docker", vec!["pull", rf.image_name.as_str()], None, tid).await?;
-        match output.status.code() {
-            Some(0) => (),
-            Some(error_stat) => {
-                bail_error!(tid=%tid, status=error_stat, output=?output, "Failed to pull docker image with exit code")
-            }
-            None => bail_error!(tid=%tid, output=?output, "Failed to pull docker image with no exit code"),
-        };
-        trace!(tid=%tid, name=%rf.image_name, output=?output, "Docker image pulled successfully");
-        info!(tid=%tid, name=%rf.image_name, "Docker image pulled successfully");
         self.pulled_images.insert(rf.image_name.clone());
         Ok(())
     }

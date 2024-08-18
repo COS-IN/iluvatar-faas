@@ -188,7 +188,7 @@ where
     S2: AsRef<std::ffi::OsStr> + std::fmt::Debug + std::fmt::Display,
     S: AsRef<std::ffi::OsStr> + std::fmt::Display + ?Sized,
 {
-    let mut cmd: AsyncCommand = prepare_cmd(cmd_pth, args, env, tid)?.into();
+    let mut cmd: AsyncCommand = prepare_cmd( cmd_pth, args, env, tid )?.into();
     match cmd.output().await {
         Ok(out) => Ok(out),
         Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Running command failed"),
