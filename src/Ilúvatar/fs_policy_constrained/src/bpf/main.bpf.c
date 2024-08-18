@@ -232,7 +232,7 @@ static inline bool match_prefix(const char *prefix, const char *str, u32 max_len
 #define FETCH_KERNEL_STR( x ) \
     char name[MAX_NAME_LEN]; \
     int n  = bpf_probe_read_kernel_str(name, MAX_NAME_LEN, x ); \
-    n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n; \
+    n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n; 
 
 static inline bool match_prefix_kernel_str(const char *prefix, const char *kstr)
 {

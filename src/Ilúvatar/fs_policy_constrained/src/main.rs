@@ -111,19 +111,6 @@ impl<'a> Scheduler<'a> {
                     Err(_) => break,
                 }
             }
-            let param: sched_param = sched_param { sched_priority: 0 };
-            loop {
-                match crecvs.rx_pids.try_recv() {
-                    Ok(pids) => {
-                        // Do something interesting with your result
-                        //println!("Received pids");
-                        //println!("{:?}", pids);
-                        unsafe { sched_setscheduler(pids.pid as i32, SCHED_EXT, &param as *const sched_param) };
-                        self.pids.insert( pids.pid, pids );
-                    },
-                    Err(_) => break,
-                }
-            }
             for (k, v) in &self.characteristics {
                 println!("{}: {:?}", k, v);
             }
