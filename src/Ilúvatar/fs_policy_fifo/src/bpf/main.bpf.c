@@ -100,6 +100,139 @@ const volatile bool full_user;
 		##__VA_ARGS__, nr_queued, nr_scheduled);		\
 } while(0)
 
+// info msg with a specific tag 
+#define info_msg(_fmt, ...) do {						\
+    bpf_printk( "[info-constrained] " _fmt ,	\
+    ##__VA_ARGS__);		\
+} while(0)
+
+// warn msg with a specific tag 
+#define warn_msg(_fmt, ...) do {						\
+    bpf_printk( "[warn-constrained] " _fmt ,	\
+    ##__VA_ARGS__);		\
+} while(0)
+
+#define callback_msg(_fmt, ...) do {						\
+	s32 cpu = scx_bpf_task_cpu(p); \
+    info_msg( _fmt " cpu: %d -- %d - %s", \
+             ##__VA_ARGS__, \
+             cpu, \
+             p->pid, \
+             p->comm ); \
+} while(0)
+
+#define FETCH_KERNEL_STR( x ) \
+    char name[MAX_NAME_LEN]; \
+    int n  = bpf_probe_read_kernel_str(name, MAX_NAME_LEN, x ); \
+    n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n; 
+
+static __always_inline  int cus_strlen(const char *cs){
+    int len = 0;
+    while( cs != NULL && *cs != '\0' ){
+        cs++;
+        len++;
+    }
+    return len;
+}
+
+static inline bool match_prefix(const char *prefix, const char *str, u32 max_len)
+{
+	int c;
+    if( !prefix  || !str ){
+        return false;
+    }
+
+    if( max_len == 0 ){
+        return false;
+    }
+
+    if ( max_len == 1 ){
+        if ( prefix[0] == '\0' )
+          return false;
+        if ( str[0] == '\0' )
+          return false;
+    }
+
+	bpf_for(c, 0, max_len) {
+		if (prefix[c] == '\0')
+			return true;
+        if ( c == (max_len -1) ){
+            return true;
+        }
+		if (str[c] != prefix[c])
+			return false;
+	}
+	return false;
+}
+
+// Maximum length of name (struct kernfs_node -> name)
+#define MAX_NAME_LEN 10
+
+#define MAX_ENQUEUED_TASKS 8192
+
+// The map containing pids of tasks that are to be switched to SchedEXT policy.
+// it is drained by the user space thread 
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, MAX_ENQUEUED_TASKS);
+} queued_pids SEC(".maps");
+
+void queued_pids_push( int pid ){
+    int *p = bpf_ringbuf_reserve( &queued_pids, sizeof(packet_pid_t), 0 );
+    if( p ){
+      packet_pid_t *ps = (packet_pid_t *)p;
+      ps->pid = pid;
+      bpf_ringbuf_submit(ps, 0);
+      info_msg("pushed %d", pid);
+    }
+}
+
+typedef struct cgroupvalue {
+    char name[MAX_NAME_LEN];
+} Cgroupvalue;
+
+struct {
+        __uint(type, BPF_MAP_TYPE_LRU_HASH);
+        __uint(max_entries, 32);
+        __type(key, __u64);
+        __type(value, Cgroupvalue);
+} CgroupsHashMap SEC(".maps");
+
+static void chashmap_insert (__u64 cid, char *name)
+{
+  Cgroupvalue *cvalue = bpf_map_lookup_elem( &CgroupsHashMap, &cid );
+
+  if (cvalue) {
+      __builtin_memcpy_inline( cvalue->name, name, MAX_NAME_LEN);
+  } else {
+      Cgroupvalue new_cvalue; 
+      __builtin_memcpy_inline( new_cvalue.name, name, MAX_NAME_LEN);
+      bpf_map_update_elem(&CgroupsHashMap, &cid, &new_cvalue, BPF_NOEXIST);
+      info_msg(
+               "[%s] -- %d -OK-inserted- %s", 
+               __func__, 
+               cid, 
+               name );
+  }
+}
+
+static bool chashmap_present (__u64 cid)
+{
+  Cgroupvalue *cvalue = bpf_map_lookup_elem( &CgroupsHashMap, &cid );
+  info_msg(
+           "[%s] -- %d -Called- %p", 
+           __func__, 
+           cid, 
+           cvalue );
+
+  if (cvalue) {
+      return true;
+  } 
+  return false;
+}
+
+
+
 /*
  * Maximum amount of tasks queued between kernel and user-space at a certain
  * time.
@@ -795,7 +928,6 @@ void BPF_STRUCT_OPS(rustland_cpu_release, s32 cpu,
 		set_usersched_needed();
 }
 
-
 /*
  * A new task @p is being created.
  *
@@ -807,6 +939,62 @@ s32 BPF_STRUCT_OPS(rustland_init_task, struct task_struct *p,
 {
 
     dbg_msg("mydebugs: rustland_init_task pid=%d", p->pid );
+
+	struct task_group *tg = p->sched_task_group;
+	if (tg && tg->css.cgroup){
+      struct cgroup *cgrp = tg->css.cgroup;
+      info_msg(
+               "[%s] -- pid %d belongs to cgroup %d - %s", 
+               __func__, 
+               p->pid, 
+               cgrp->kn->id,
+               cgrp->kn->name );
+      if( chashmap_present( cgrp->kn->id ) ){
+          queued_pids_push( p->pid );
+          info_msg(
+                   "[%s][%s] -OK- pid %d belongs to cgroup %d - %s", 
+                   __func__, 
+                   p->comm,
+                   p->pid, 
+                   cgrp->kn->id,
+                   cgrp->kn->name );
+      }else{
+          FETCH_KERNEL_STR( p->comm )
+          const char *other = "gunicorn";
+          int no = cus_strlen( other );
+          n = n < no ? n : no;
+
+          info_msg(
+                   "[%s][%s][%s][%d] -NO- pid %d belongs to cgroup %d - %s", 
+                   __func__, 
+                   p->comm,
+                   name,
+                   n,
+                   p->pid, 
+                   cgrp->kn->id,
+                   cgrp->kn->name );
+
+          if ( match_prefix( other, name, n ) ){
+            // task name is gunicorn - so we are assuming it belongs to a
+            // function 
+
+            info_msg(
+                     "[%s][%s] -RG- pid %d belongs to cgroup %d - %s", 
+                     __func__, 
+                     p->comm,
+                     p->pid, 
+                     cgrp->kn->id,
+                     cgrp->kn->name );
+
+            // put on ring buffer 
+            queued_pids_push( p->pid );
+
+            // and insert the cgroup id for future reference 
+            FETCH_KERNEL_STR( cgrp->kn->name )
+            chashmap_insert( cgrp->kn->id, name );
+          }
+      }
+    }
 
 	/* Allocate task's local storage */
 	if (bpf_task_storage_get(&task_ctx_stor, p, 0,

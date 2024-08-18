@@ -151,21 +151,24 @@ impl<'a> Scheduler<'a> {
                     Err(_) => break,
                 }
             }
-            let param: sched_param = sched_param { sched_priority: 0 };
-            loop {
-                match crecvs.rx_pids.try_recv() {
-                    Ok(pids) => {
-                        // Do something interesting with your result
-                        //println!("Received pids");
-                        //println!("{:?}", pids);
-                        unsafe { sched_setscheduler(pids.pid as i32, SCHED_EXT, &param as *const sched_param) };
-                        self.pids.insert( pids.pid, pids );
-                    },
-                    Err(_) => break,
-                }
-            }
             for (k, v) in &self.characteristics {
                 println!("{}: {:?}", k, v);
+            }
+        }
+    }
+
+    fn drain_queued_pids(&mut self){
+        let param: sched_param = sched_param { sched_priority: 0 };
+        loop {
+            // Get queued task and dispatch them in order (FIFO).
+            match self.bpf.dequeue_pid() {
+                Ok(Some(pid)) => {
+                    println!("calling setscheduler syscall on {:?}", pid);
+                    unsafe { sched_setscheduler(pid as i32, SCHED_EXT, &param as *const sched_param) };
+                }
+                Ok(None) | Err(_) => {
+                    break;
+                }
             }
         }
     }
@@ -179,6 +182,7 @@ impl<'a> Scheduler<'a> {
             let curr_ts = Self::now();
             if curr_ts > prev_ts {
                 self.print_stats();
+                self.drain_queued_pids();
                 prev_ts = curr_ts;
             }
         }
