@@ -24,6 +24,7 @@ use anyhow::Result;
 use clap::Parser;
 use libbpf_rs::skel::OpenSkel as _;
 use libbpf_rs::skel::SkelBuilder as _;
+use libbpf_rs::RingBuffer;
 use log::info;
 use scx_utils::scx_ops_attach;
 use scx_utils::scx_ops_load;
@@ -119,6 +120,16 @@ impl introspec {
     }
 }
 
+const LIBBPF_STOP: i32 = -255;
+const BUFSIZE_pid: usize = std::mem::size_of::<i32>();
+#[repr(align(8))]
+struct AlignedBuffer_pid([u8; BUFSIZE_pid]);
+static mut BUF_pid: AlignedBuffer_pid = AlignedBuffer_pid([0; BUFSIZE_pid]);
+fn fetch_pid( bytes: &[u8] ) -> i32 {
+    let ps = unsafe { *(bytes.as_ptr() as *const bpf_intf::packet_pid) };
+    ps.pid
+}
+
 struct Scheduler<'a> {
     skel: BpfSkel<'a>,
     struct_ops: Option<libbpf_rs::Link>,
@@ -128,6 +139,7 @@ struct Scheduler<'a> {
     characteristics: HashMap<String, CharacteristicsPacket>,
     pids: HashMap<u32, PidsPacket>,
     crecvs: Option<ChannelsR>,
+    queued_pids: libbpf_rs::RingBuffer<'a>,  // Ring buffer of queued tasks
 }
 
 impl<'a> Scheduler<'a> {
@@ -175,6 +187,19 @@ impl<'a> Scheduler<'a> {
         builder.add(rb_map, Scheduler::print_bpf_msg).unwrap();
         let rb_mgr = builder.build().unwrap();
 
+        // see fifo policy for why it's safe - summary: user space thread is just one thread  
+        fn callback_pid(data: &[u8]) -> i32 {
+            unsafe {
+                BUF_pid.0.copy_from_slice(data);
+            }
+            LIBBPF_STOP
+        }
+        let queued_ring_buffer = maps.queued_pids();
+        let mut rbb = libbpf_rs::RingBufferBuilder::new();
+        rbb.add(queued_ring_buffer, callback_pid)
+            .expect("failed to add ringbuf callback");
+        let queued_pids = rbb.build().expect("failed to build ringbuf");
+
         Ok(Self {
             skel,
             struct_ops,
@@ -184,8 +209,24 @@ impl<'a> Scheduler<'a> {
             characteristics: HashMap::new(), 
             pids: HashMap::new(),
             crecvs,
+            queued_pids,
         })
     }
+
+    // Receive a task pid from the BPF scheduler to switch to schedext policy.
+    pub fn dequeue_pid(&mut self) -> Result<Option<i32>, i32> {
+        match self.queued_pids.consume_raw() {
+            0 => Ok(None),
+            LIBBPF_STOP => {
+                // A valid pid is received, convert data to a proper pid.
+                let pid = unsafe { fetch_pid(&BUF_pid.0) };
+                Ok(Some(pid))
+            }
+            res if res < 0 => Err(res),
+            res => panic!("Unexpected return value from libbpf-rs::consume_raw(): {}", res),
+        }
+    }
+
 
     fn get_msg_seq_id() -> u64 {
         static mut MSEQ: u64 = 0;
@@ -318,13 +359,29 @@ impl<'a> Scheduler<'a> {
         RUNNING.load(Ordering::Relaxed) && !uei_exited!(&self.skel, uei)
     }
 
+    fn drain_queued_pids(&mut self){
+        let param: sched_param = sched_param { sched_priority: 0 };
+        loop {
+            // Get queued task and dispatch them in order (FIFO).
+            match self.dequeue_pid() {
+                Ok(Some(pid)) => {
+                    println!("calling setscheduler syscall on {:?}", pid);
+                    unsafe { sched_setscheduler(pid as i32, SCHED_EXT, &param as *const sched_param) };
+                }
+                Ok(None) | Err(_) => {
+                    break;
+                }
+            }
+        }
+    }
+
     fn run(&mut self) -> Result<()> {
         while self.running() {
             let interval_ms = self.prep_introspec();
             std::thread::sleep(Duration::from_millis(interval_ms));
             self.rb_mgr.poll(Duration::from_millis(100)).unwrap();
             self.cleanup_introspec();
-
+            self.drain_queued_pids();
             if let Some(crecvs) = &self.crecvs {
                 loop {
                     match crecvs.rx_chr.try_recv() {
@@ -333,19 +390,6 @@ impl<'a> Scheduler<'a> {
                             //println!("Received characteristics");
                             //println!("{:?}", chr);
                             self.characteristics.insert( chr.fqdn.clone(), chr );
-                        },
-                        Err(_) => break,
-                    }
-                }
-                let param: sched_param = sched_param { sched_priority: 0 };
-                loop {
-                    match crecvs.rx_pids.try_recv() {
-                        Ok(pids) => {
-                            // Do something interesting with your result
-                            //println!("Received pids");
-                            //println!("{:?}", pids);
-                            unsafe { sched_setscheduler(pids.pid as i32, SCHED_EXT, &param as *const sched_param) };
-                            self.pids.insert( pids.pid, pids );
                         },
                         Err(_) => break,
                     }

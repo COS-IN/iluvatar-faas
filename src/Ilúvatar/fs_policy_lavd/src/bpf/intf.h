@@ -213,4 +213,8 @@ struct msg_task_ctx {
 	struct task_ctx_x	taskc_x;
 };
 
+typedef struct packet_pid {
+    int pid;
+} packet_pid_t;
+
 #endif /* __INTF_H */
