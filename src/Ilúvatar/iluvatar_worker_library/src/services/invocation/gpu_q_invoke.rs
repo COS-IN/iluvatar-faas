@@ -5,6 +5,7 @@ use super::{
         EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat,
     },
 };
+use crate::services::invocation::queueing::paella::PaellaGpuQueue;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::{
     containers::{
@@ -196,6 +197,7 @@ impl GpuQueueingInvoker {
                 "fcfs" => FcfsGpuQueue::new(cont_manager.clone(), cmap.clone())?,
                 "oldest_batch" => BatchGpuQueue::new(cmap.clone())?,
                 "sized_batch" => SizedBatchGpuQueue::new(cmap.clone())?,
+                "paella" => PaellaGpuQueue::new(cmap.clone())?,
                 unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
             })
         } else {
@@ -327,13 +329,19 @@ impl GpuQueueingInvoker {
                 },
                 Err(cause) => {
                     error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+                    ctr_lock.as_ref().unwrap().container.mark_unhealthy();
+                    ctr_lock = None;
                     if item.increment_error_retry(&cause, self.invocation_config.retries) {
                         item.unlock();
                         match self.queue.add_item_to_queue(&item) {
                             Ok(_) => self.signal.notify_waiters(),
-                            Err(e) => error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt"),
+                            Err(e) => {
+                                item.mark_error(&cause);
+                                error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
+                            },
                         };
                     }
+                    continue;
                 }
             };
             // update the container state because the container manager can't do it for us
@@ -372,7 +380,7 @@ impl GpuQueueingInvoker {
                     item.mark_error(cause);
                 }
             };
-        } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
+        } else if let Some(_gpu_err) = cause.downcast_ref::<InsufficientGPUError>() {
             let mut warn_time = self.last_gpu_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
                 warn!(tid=%item.tid, "No GPU available to run item right now");

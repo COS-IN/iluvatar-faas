@@ -438,8 +438,6 @@ impl ContainerIsolationService for DockerIsolation {
             };
             if start.elapsed()?.as_millis() as u64 >= timeout_ms {
                 let (stdout, stderr) = self.get_logs(container.container_id(), tid).await?;
-                // let stdout = self.read_stdout(container, tid).await;
-                // let stderr = self.read_stderr(container, tid).await;
                 if !stderr.is_empty() {
                     warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for docker container start, but stderr was written to?");
                     return Ok(());
@@ -463,7 +461,7 @@ impl ContainerIsolationService for DockerIsolation {
         };
         let options = StatsOptions {
             stream: false,
-            one_shot: false,
+            one_shot: true,
         };
         let mut stream = self
             .docker_api
@@ -484,21 +482,15 @@ impl ContainerIsolationService for DockerIsolation {
                 }
             }
         }
-        warn!(tid=%tid, "Fell out of bottom of stats stream loop");
+        warn!(tid=%tid, container_id=%container.container_id(), "Fell out of bottom of stats stream loop");
         container.get_curr_mem_usage()
     }
 
     async fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
-        match self.get_stdout(container, tid).await {
-            Ok(out) => out,
-            Err(_) => "".to_string(),
-        }
+        self.get_stdout(container, tid).await.unwrap_or_else(|_| "".to_string())
     }
     async fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
-        match self.get_stderr(container, tid).await {
-            Ok(err) => err,
-            Err(_) => "".to_string(),
-        }
+        self.get_stderr(container, tid).await.unwrap_or_else(|_| "".to_string())
     }
 }
 impl crate::services::containers::structs::ToAny for DockerIsolation {
