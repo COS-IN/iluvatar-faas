@@ -39,7 +39,7 @@ UEI_DEFINE(uei);
 // global dsq id 
 #define SHARED_DSQ MAX_CPUS
 #define USCHED_DSQ SHARED_DSQ+1
-#define USCHED_CORE 12  
+#define USCHED_CORE 0  
 
 /*
  * Scheduler attributes and statistics.
