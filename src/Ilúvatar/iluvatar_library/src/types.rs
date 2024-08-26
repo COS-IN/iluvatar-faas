@@ -1,6 +1,15 @@
+use anyhow::Error;
 use bitflags::bitflags;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+
+/// Type to allow returning an owned object along with an error from a function
+pub type ResultErrorVal<T, D, E = Error> = Result<T, (E, D)>;
+/// Wrapper to make [ResultErrorVal] from a value and error
+#[inline(always)]
+pub fn err_val<T, D>(error: Error, value: D) -> ResultErrorVal<T, D> {
+    Err((error, value))
+}
 
 pub type MemSizeMb = i64;
 

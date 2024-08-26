@@ -326,7 +326,7 @@ impl GpuQueueingInvoker {
             {
                 Ok((result, duration, compute, container_state)) => {
                     item.mark_successful(result, duration, compute, container_state)
-                },
+                }
                 Err(cause) => {
                     error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
                     ctr_lock.as_ref().unwrap().container.mark_unhealthy();
@@ -338,7 +338,7 @@ impl GpuQueueingInvoker {
                             Err(e) => {
                                 item.mark_error(&cause);
                                 error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
-                            },
+                            }
                         };
                     }
                     continue;

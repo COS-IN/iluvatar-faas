@@ -1,3 +1,4 @@
+use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{
     containers::structs::{ContainerState, ContainerT, ContainerTimeFormatter, ParsedResult},
     registration::RegisteredFunction,
@@ -33,7 +34,7 @@ pub struct SimulatorContainer {
     current_memory: Mutex<MemSizeMb>,
     compute: Compute,
     iso: Isolation,
-    device: Option<Arc<GPU>>,
+    device: RwLock<Option<GPU>>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
     history_data: Option<Vec<f64>>,
 }
@@ -45,7 +46,7 @@ impl SimulatorContainer {
         state: ContainerState,
         iso: Isolation,
         compute: Compute,
-        device: Option<Arc<GPU>>,
+        device: Option<GPU>,
     ) -> Self {
         SimulatorContainer {
             container_id: cid,
@@ -58,7 +59,7 @@ impl SimulatorContainer {
             history_data: reg.historical_runtime_data_sec.get(&compute).cloned(),
             compute,
             iso,
-            device,
+            device: RwLock::new(device),
             drop_on_remove: Mutex::new(vec![]),
         }
     }
@@ -176,7 +177,7 @@ impl ContainerT for SimulatorContainer {
             end: timer.format_time(end)?,
             was_cold,
             duration_sec: code_dur.as_secs_f64(),
-            gpu_allocation_mb: None,
+            gpu_allocation_mb: 0,
         };
         Ok((result, code_dur))
     }
@@ -232,8 +233,11 @@ impl ContainerT for SimulatorContainer {
     fn compute_type(&self) -> Compute {
         self.compute
     }
-    fn device_resource(&self) -> &Option<Arc<GPU>> {
-        &self.device
+    fn device_resource(&self) -> ProtectedGpuRef<'_> {
+        self.device.read()
+    }
+    fn revoke_device(&self) -> Option<GPU> {
+        self.device.write().take()
     }
     fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
         debug!(tid=%tid, container_id=%self.container_id(), "Adding token to drop on remove");

@@ -1,3 +1,4 @@
+use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{containers::containermanager::ContainerManager, registration::RegisteredFunction};
 use anyhow::Result;
 use iluvatar_library::{
@@ -48,8 +49,10 @@ pub trait ContainerT: ToAny + Send + Sync {
     fn set_state(&self, state: ContainerState);
     fn container_type(&self) -> Isolation;
     fn compute_type(&self) -> Compute;
-    /// An optional value, returned with [Some(GPU)] if the container has extra resources
-    fn device_resource(&self) -> &Option<Arc<crate::services::resources::gpu::GPU>>;
+    /// Returned with [Some(&GPU)] if the container has extra resources
+    fn device_resource(&self) -> ProtectedGpuRef<'_>;
+    /// Remove the attached device if it exists
+    fn revoke_device(&self) -> Option<crate::services::resources::gpu::GPU>;
     /// Perform any actions that might improve performance before invocation(s) are sent
     async fn prewarm_actions(&self, _tid: &TransactionId) -> Result<()> {
         Ok(())
@@ -92,7 +95,7 @@ pub type Container = Arc<dyn ContainerT>;
 pub struct ParsedResult {
     /// The result string from the user execution
     pub user_result: Option<String>,
-    /// The error returned by user execution, if an error occured
+    /// The error returned by user execution, if an error occurred
     pub user_error: Option<String>,
     /// The timestamp when user code started
     pub start: String,
@@ -104,8 +107,8 @@ pub struct ParsedResult {
     /// As recorded by the platform _inside_ the container
     pub duration_sec: f64,
     /// Amount of GPU memory allocated by the device.
-    /// Only present if one is attached
-    pub gpu_allocation_mb: Option<MemSizeMb>,
+    #[serde(default)]
+    pub gpu_allocation_mb: MemSizeMb,
 }
 impl ParsedResult {
     pub fn parse(from: &str, tid: &TransactionId) -> Result<Self> {

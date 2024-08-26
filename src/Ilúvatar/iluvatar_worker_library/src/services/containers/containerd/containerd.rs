@@ -4,6 +4,7 @@ use crate::services::containers::containerd::containerdstructs::{ContainerdConta
 use crate::services::containers::structs::{Container, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
 use crate::services::registration::RegisteredFunction;
+use crate::services::resources::gpu::GPU;
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
 use client::services::v1::container::Runtime;
@@ -23,7 +24,7 @@ use containerd_client as client;
 use containerd_client::tonic::{transport::Channel, Request};
 use dashmap::DashMap;
 use guid_create::GUID;
-use iluvatar_library::types::{Compute, Isolation};
+use iluvatar_library::types::{err_val, Compute, Isolation, ResultErrorVal};
 use iluvatar_library::utils::execute_cmd;
 use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
@@ -31,7 +32,7 @@ use iluvatar_library::utils::{
     port::Port,
     try_get_child_pid,
 };
-use iluvatar_library::{bail_error, transaction::TransactionId, types::MemSizeMb};
+use iluvatar_library::{bail_error, bail_error_value, error_value, transaction::TransactionId, types::MemSizeMb};
 use inotify::{Inotify, WatchMask};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use serde::Deserialize;
@@ -530,8 +531,8 @@ impl ContainerdIsolation {
         reg: &Arc<RegisteredFunction>,
         tid: &TransactionId,
         compute: Compute,
-        device_resource: Option<Arc<crate::services::resources::gpu::GPU>>,
-    ) -> Result<ContainerdContainer> {
+        device_resource: Option<GPU>,
+    ) -> ResultErrorVal<ContainerdContainer, Option<GPU>> {
         let port = 8080;
 
         let permit = match &self.creation_sem {
@@ -541,14 +542,17 @@ impl ContainerdIsolation {
                     Some(p)
                 }
                 Err(e) => {
-                    bail_error!(error=%e, tid=%tid, "Error trying to acquire containerd creation semaphore");
+                    bail_error_value!(error=%e, "Error trying to acquire containerd creation semaphore", device_resource);
                 }
             },
             None => None,
         };
 
         let cid = format!("{}-{}", fqdn, GUID::rand());
-        let ns = self.namespace_manager.get_namespace(tid)?;
+        let ns = match self.namespace_manager.get_namespace(tid) {
+            Ok(n) => n,
+            Err(e) => return err_val(e, device_resource),
+        };
         debug!(tid=%tid, namespace=%ns.name, containerid=%cid, "Assigning namespace to container");
 
         let address = &ns.namespace.ips[0].address;
@@ -582,7 +586,7 @@ impl ContainerdIsolation {
         let resp = match client.create(req).await {
             Ok(resp) => resp,
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, "Containerd failed to create container");
+                bail_error_value!(tid=%tid, error=%e, "Containerd failed to create container", device_resource);
             }
         };
 
@@ -593,17 +597,23 @@ impl ContainerdIsolation {
             Err(e) => {
                 drop(permit);
                 debug!(tid=%tid, "Dropped containerd creation semaphore after load_mounts error");
-                return Err(e);
+                return Err((e, device_resource));
             }
         };
         debug!(tid=%tid, "Mounts loaded");
 
         let stdin = self.stdin_pth(&cid);
-        touch(&stdin)?;
+        if let Err(e) = touch(&stdin) {
+            return err_val(anyhow::Error::new(e), device_resource);
+        };
         let stdout = self.stdout_pth(&cid);
-        touch(&stdout)?;
+        if let Err(e) = touch(&stdout) {
+            return err_val(anyhow::Error::new(e), device_resource);
+        };
         let stderr = self.stderr_pth(&cid);
-        touch(&stderr)?;
+        if let Err(e) = touch(&stderr) {
+            return err_val(anyhow::Error::new(e), device_resource);
+        };
         let mut client = TasksClient::new(self.channel());
 
         let req = CreateTaskRequest {
@@ -621,7 +631,7 @@ impl ContainerdIsolation {
         match client.create(req).await {
             Ok(t) => {
                 drop(permit);
-                debug!(tid=%tid, "Dropped containerd containerd creation semaphore after success");
+                debug!(tid=%tid, "Dropped containerd creation semaphore after success");
                 let t = t.into_inner();
                 debug!(tid=%tid, task=?t, "Task created");
                 let task = Task {
@@ -650,9 +660,13 @@ impl ContainerdIsolation {
             Err(e) => {
                 drop(permit);
                 debug!(tid=%tid, "Dropped containerd containerd creation semaphore after error");
-                self.remove_container_internal(&cid, namespace, tid).await?;
-                self.namespace_manager.return_namespace(ns, tid)?;
-                bail_error!(tid=%tid, error=%e, "Create task failed");
+                if let Err(e) = self.remove_container_internal(&cid, namespace, tid).await {
+                    return err_val(e, device_resource);
+                };
+                if let Err(e) = self.namespace_manager.return_namespace(ns, tid) {
+                    return err_val(e, device_resource);
+                };
+                bail_error_value!(tid=%tid, error=%e, "Create task failed", device_resource);
             }
         }
     }
@@ -689,11 +703,12 @@ impl ContainerIsolationService for ContainerdIsolation {
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
-        device_resource: Option<Arc<crate::services::resources::gpu::GPU>>,
+        device_resource: Option<GPU>,
         tid: &TransactionId,
-    ) -> Result<Container> {
+    ) -> ResultErrorVal<Container, Option<GPU>> {
         if !iso.eq(&Isolation::CONTAINERD) {
-            anyhow::bail!("Only supports containerd Isolation, now {:?}", iso);
+            // return err_val(anyhow::format_err!("Only supports containerd Isolation, now {:?}", iso), device_resource);
+            error_value!("Only supports containerd Isolation, now {:?}", iso, device_resource);
         }
         info!(tid=%tid, image=%image_name, namespace=%namespace, "Creating container from image");
         let mut container = self
@@ -730,7 +745,12 @@ impl ContainerIsolationService for ContainerdIsolation {
                 );
                 Ok(Arc::new(container))
             }
-            Err(e) => bail_error!(tid=%tid, error=%e, "Starting task failed"),
+            Err(e) => {
+                // error!(tid=%tid, error=%e, "Starting task failed");
+                // return err_val(anyhow::format_err!("Starting task failed"), device_resource);
+                bail_error_value!(tid=%tid, error=%e, "Starting task failed", crate::services::containers::structs::ContainerT::revoke_device(&container));
+                // todo!();
+            }
         }
     }
 

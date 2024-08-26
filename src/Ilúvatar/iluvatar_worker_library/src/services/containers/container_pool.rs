@@ -137,7 +137,7 @@ impl ContainerPool {
         match self.idle_pool.get(fqdn) {
             Some(c) => {
                 for cont in &*c {
-                    if let Some(gpu) = cont.device_resource() {
+                    if let Some(gpu) = cont.device_resource().as_ref() {
                         if gpu.gpu_hardware_id == gpu_token.gpu_id && cont.state() == ContainerState::Warm {
                             return true;
                         }

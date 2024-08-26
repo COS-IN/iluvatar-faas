@@ -1,5 +1,6 @@
 use self::dockerstructs::DockerContainer;
 use super::{structs::Container, ContainerIsolationService};
+use crate::services::resources::gpu::GPU;
 use crate::{
     services::{containers::structs::ContainerState, registration::RegisteredFunction},
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
@@ -19,8 +20,9 @@ use bollard::{
 use dashmap::DashSet;
 use futures::StreamExt;
 use guid_create::GUID;
+use iluvatar_library::types::{err_val, ResultErrorVal};
 use iluvatar_library::{
-    bail_error,
+    bail_error, bail_error_value, error_value,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
     utils::port::free_local_port,
@@ -28,6 +30,7 @@ use iluvatar_library::{
 use std::collections::HashMap;
 use std::{sync::Arc, time::SystemTime};
 use tracing::{debug, error, info, warn};
+
 pub mod dockerstructs;
 
 const OWNER_TAG: &str = "owner=iluvatar_worker";
@@ -106,7 +109,7 @@ impl DockerIsolation {
         mut env: Vec<&str>,
         mem_limit_mb: MemSizeMb,
         cpus: u32,
-        device_resource: &Option<Arc<crate::services::resources::gpu::GPU>>,
+        device_resource: &Option<crate::services::resources::gpu::GPU>,
         ports: BollardPortBindings,
         host_config: Option<HostConfig>,
         entrypoint: Option<Vec<String>>,
@@ -266,15 +269,19 @@ impl ContainerIsolationService for DockerIsolation {
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
-        device_resource: Option<Arc<crate::services::resources::gpu::GPU>>,
+        device_resource: Option<GPU>,
         tid: &TransactionId,
-    ) -> Result<Container> {
+    ) -> ResultErrorVal<Container, Option<GPU>> {
         if !iso.eq(&Isolation::DOCKER) {
-            anyhow::bail!("Only supports docker Isolation, now {:?}", iso);
+            error_value!("Only supports docker Isolation, now {:?}", iso, device_resource);
+            // anyhow::bail!("Only supports docker Isolation, now {:?}", iso);
         }
         let mut env = vec![];
         let cid = format!("{}-{}", fqdn, GUID::rand());
-        let port = free_local_port()?;
+        let port = match free_local_port() {
+            Ok(p) => p,
+            Err(e) => return err_val(e, device_resource),
+        };
         let gunicorn_args = format!("GUNICORN_CMD_ARGS=--bind 0.0.0.0:{}", port);
         env.push(gunicorn_args.as_str());
         let mut ports = HashMap::new();
@@ -295,29 +302,34 @@ impl ContainerIsolationService for DockerIsolation {
                     Some(p)
                 }
                 Err(e) => {
-                    bail_error!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore");
+                    bail_error_value!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore", device_resource);
+                    // bail_error!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore");
                 }
             },
             None => None,
         };
 
-        self.docker_run(
-            tid,
-            image_name,
-            cid.as_str(),
-            env,
-            mem_limit_mb,
-            cpus,
-            &device_resource,
-            Some(ports),
-            None,
-            None,
-        )
-        .await?;
+        if let Err(e) = self
+            .docker_run(
+                tid,
+                image_name,
+                cid.as_str(),
+                env,
+                mem_limit_mb,
+                cpus,
+                &device_resource,
+                Some(ports),
+                None,
+                None,
+            )
+            .await
+        {
+            bail_error_value!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore", device_resource);
+        };
 
         drop(permit);
         unsafe {
-            let c = DockerContainer::new(
+            let c = match DockerContainer::new(
                 cid,
                 port,
                 "0.0.0.0".to_string(),
@@ -329,7 +341,10 @@ impl ContainerIsolationService for DockerIsolation {
                 compute,
                 device_resource,
                 tid,
-            )?;
+            ) {
+                Ok(c) => c,
+                Err((e, d)) => return err_val(e, d),
+            };
             Ok(Arc::new(c))
         }
     }

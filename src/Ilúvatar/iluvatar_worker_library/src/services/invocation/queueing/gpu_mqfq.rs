@@ -301,7 +301,7 @@ pub struct MQFQ {
     /// Keyed by function name  (qid)
     pub mqfq_set: DashMap<String, FlowQ>,
 
-    ///Remaining passed by gpu_q_invoke
+    /// Remaining passed by gpu_q_invoke
     cont_manager: Arc<ContainerManager>,
     cmap: Arc<CharacteristicsMap>,
     /// Use this as a token bucket

@@ -4,6 +4,7 @@ use crate::services::containers::{containerd::ContainerdIsolation, simulator::Si
 use crate::services::network::namespace_manager::NamespaceManager;
 use crate::worker_api::worker_config::WorkerConfig;
 use anyhow::Result;
+use iluvatar_library::types::ResultErrorVal;
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
@@ -39,9 +40,9 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
-        device_resource: Option<Arc<GPU>>,
+        device_resource: Option<GPU>,
         tid: &TransactionId,
-    ) -> Result<Container>;
+    ) -> ResultErrorVal<Container, Option<GPU>>;
 
     /// removes a specific container, and all the related resources
     async fn remove_container(&self, container_id: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;

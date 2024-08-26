@@ -4,8 +4,10 @@ use super::{
     ContainerIsolationService,
 };
 use crate::services::registration::RegisteredFunction;
+use crate::services::resources::gpu::GPU;
 use anyhow::Result;
 use guid_create::GUID;
+use iluvatar_library::types::ResultErrorVal;
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
@@ -50,9 +52,9 @@ impl ContainerIsolationService for SimulatorIsolation {
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
-        device_resource: Option<Arc<crate::services::resources::gpu::GPU>>,
+        device_resource: Option<GPU>,
         tid: &TransactionId,
-    ) -> Result<Container> {
+    ) -> ResultErrorVal<Container, Option<GPU>> {
         let cid = format!("{}-{}", fqdn, GUID::rand());
         Ok(Arc::new(SimulatorContainer::new(
             cid,
