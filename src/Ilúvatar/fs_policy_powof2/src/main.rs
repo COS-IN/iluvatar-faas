@@ -22,23 +22,54 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 
+use clap::Parser;
+
+use serde::{Deserialize,Serialize};
+
+use std::collections::HashMap;
+use ipc_channel::ipc::{self, IpcOneShotServer, IpcSender, IpcReceiver};
+use iluvatar_worker_library::worker_api::Channels;
+use iluvatar_library::characteristics_map::CharacteristicsPacket;
+use iluvatar_worker_library::services::containers::containerd::PidsPacket;
+
+use libc::{sched_param, sched_setscheduler};
+
+// Defined in UAPI
+const SCHED_EXT: i32 = 7;
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ChannelsR {
+    pub rx_chr: IpcReceiver<CharacteristicsPacket>,
+    pub rx_pids: IpcReceiver<PidsPacket>,
+}
+
 struct Scheduler<'a> {
     bpf: BpfScheduler<'a>,
+    characteristics: HashMap<String, CharacteristicsPacket>,
+    pids: HashMap<u32, PidsPacket>,
+    crecvs: Option<&'a mut ChannelsR>,
 }
 
 impl<'a> Scheduler<'a> {
-    fn init(open_object: &'a mut MaybeUninit<OpenObject>) -> Result<Self> {
+    fn init(
+        open_object: &'a mut MaybeUninit<OpenObject>,
+        crecvs: Option<&'a mut ChannelsR>,
+        slice_us: u64,
+    ) -> Result<Self> {
+
         let bpf = BpfScheduler::init(
             open_object,
+            slice_us,
             0,                        // exit_dump_len (buffer size of exit info)
-            false,                    // partial (include all tasks if false)
-            5000,                     // slice_ns (default task time slice)
-            true,                     // full_user (schedule all tasks in user-space)
-            false,                    // low_power (low power mode)
-            false,                    // verbose (verbose output)
-            false,                    // debug (debug mode)
+            true,                    // verbose (verbose output)
         )?;
-        Ok(Self { bpf })
+
+        Ok( Self { 
+            bpf, 
+            characteristics: HashMap::new(), 
+            pids: HashMap::new(),
+            crecvs,
+        }) 
     }
 
     fn now() -> u64 {
@@ -48,67 +79,73 @@ impl<'a> Scheduler<'a> {
             .as_secs()
     }
 
-    fn dispatch_tasks(&mut self) {
+    fn print_stats(&mut self) {
+        println!(
+            "Q {} - {}",
+            0,
+            1,
+        );
+        
+        if let Some(crecvs) = &self.crecvs {
+            loop {
+                match crecvs.rx_chr.try_recv() {
+                    Ok(chr) => {
+                        // Do something interesting with your result
+                        //println!("Received characteristics");
+                        //println!("{:?}", chr);
+                        self.characteristics.insert( chr.fqdn.clone(), chr );
+                    },
+                    Err(_) => break,
+                }
+            }
+            for (k, v) in &self.characteristics {
+                println!("{}: {:?}", k, v);
+            }
+        }
+    }
+
+    fn drain_queued_pids(&mut self){
+        let param: sched_param = sched_param { sched_priority: 0 };
         loop {
-            // Get queued taks and dispatch them in order (FIFO).
-            match self.bpf.dequeue_task() {
-                Ok(Some(task)) => {
-                    // task.cpu < 0 is used to to notify an exiting task, in this
-                    // case we can simply ignore the task.
-                    if task.cpu >= 0 {
-                        let mut dispatched_task = DispatchedTask::new(&task);
-
-                        // Allow to dispatch on the first CPU available.
-                        dispatched_task.set_flag(RL_CPU_ANY);
-
-                        let _ = self.bpf.dispatch_task(&dispatched_task);
-
-                        // Give the task a chance to run and prevent overflowing the dispatch queue.
-                        std::thread::yield_now();
-                    }
+            // Get queued task and dispatch them in order (FIFO).
+            match self.bpf.dequeue_pid() {
+                Ok(Some(pid)) => {
+                    println!("calling setscheduler syscall on {:?}", pid);
+                    unsafe { sched_setscheduler(pid as i32, SCHED_EXT, &param as *const sched_param) };
                 }
-                Ok(None) => {
-                    // Notify the BPF component that all tasks have been scheduled and dispatched.
-                    self.bpf.update_tasks(Some(0), Some(0));
-                    break;
-                }
-                Err(_) => {
+                Ok(None) | Err(_) => {
                     break;
                 }
             }
         }
-        // All queued tasks have been dipatched, yield to reduce scheduler's CPU consumption.
-        std::thread::yield_now();
     }
 
-    fn print_stats(&mut self) {
-        let nr_user_dispatches = *self.bpf.nr_user_dispatches_mut();
-        let nr_kernel_dispatches = *self.bpf.nr_kernel_dispatches_mut();
-        let nr_cancel_dispatches = *self.bpf.nr_cancel_dispatches_mut();
-        let nr_bounce_dispatches = *self.bpf.nr_bounce_dispatches_mut();
-        let nr_failed_dispatches = *self.bpf.nr_failed_dispatches_mut();
-        let nr_sched_congested = *self.bpf.nr_sched_congested_mut();
-
-        println!(
-            "user={} kernel={} cancel={} bounce={} fail={} cong={}",
-            nr_user_dispatches,
-            nr_kernel_dispatches,
-            nr_cancel_dispatches,
-            nr_bounce_dispatches,
-            nr_failed_dispatches,
-            nr_sched_congested,
-        );
+    fn fetch_over_channel(&mut self){
+        if let Some(crecvs) = &self.crecvs {
+            loop {
+                match crecvs.rx_chr.try_recv() {
+                    Ok(chr) => {
+                        // Do something interesting with your result
+                        //println!("Received characteristics");
+                        println!("received over channel {:?}", chr);
+                        self.characteristics.insert( chr.fqdn.clone(), chr );
+                    },
+                    Err(_) => break,
+                }
+            }
+        }
     }
 
     fn run(&mut self, shutdown: Arc<AtomicBool>) -> Result<UserExitInfo> {
         let mut prev_ts = Self::now();
 
         while !shutdown.load(Ordering::Relaxed) && !self.bpf.exited() {
-            self.dispatch_tasks();
-
             let curr_ts = Self::now();
             if curr_ts > prev_ts {
                 self.print_stats();
+                self.drain_queued_pids();
+                self.fetch_over_channel();
+
                 prev_ts = curr_ts;
             }
         }
@@ -117,27 +154,32 @@ impl<'a> Scheduler<'a> {
     }
 }
 
-fn print_warning() {
-    let warning = r#"
-**************************************************************************
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(long)]
+    server_name: Option<String>,
 
-WARNING: The purpose of scx_rlfifo is to provide a simple scheduler
-implementation based on scx_rustland_core, and it is not intended for
-use in production environments. If you want to run a scheduler that makes
-decisions in user space, it is recommended to use *scx_rustland* instead.
-
-Please do not open GitHub issues in the event of poor performance, or
-scheduler eviction due to a runnable task timeout. However, if running this
-scheduler results in a system crash or the entire system becoming unresponsive,
-please open a GitHub issue.
-
-**************************************************************************"#;
-
-    println!("{}", warning);
+    #[arg(long, default_value_t = 1000)]
+    time_slice_us: u64,
 }
 
 fn main() -> Result<()> {
-    print_warning();
+
+    let args = Args::parse();
+
+    println!("Starting power of 2 scheduler");
+
+    let mut crecvs;
+    if let Some(server_name) = &args.server_name {
+        let (c_tx, c_rx): (IpcSender<CharacteristicsPacket>, IpcReceiver<CharacteristicsPacket>) = ipc::channel().unwrap();
+        let (p_tx, p_rx): (IpcSender<PidsPacket>, IpcReceiver<PidsPacket>) = ipc::channel().unwrap();
+        let server_tx = IpcSender::connect(server_name.clone()).unwrap();
+        server_tx.send( Channels{ tx_chr: c_tx, tx_pids: p_tx } ).unwrap();
+        crecvs = Some(ChannelsR{ rx_chr: c_rx, rx_pids: p_rx });
+    } else {
+        crecvs = None;
+    }
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
@@ -147,7 +189,7 @@ fn main() -> Result<()> {
 
     let mut open_object = MaybeUninit::uninit();
     loop {
-        let mut sched = Scheduler::init(&mut open_object)?;
+        let mut sched = Scheduler::init(&mut open_object, (&mut crecvs).into(), args.time_slice_us)?;
         if !sched.run(shutdown.clone())?.should_restart() {
             break;
         }

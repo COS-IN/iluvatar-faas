@@ -108,37 +108,45 @@
       remote_src: "{{__remote_bin_src}}"
     become: yes
 
-  - name: copy fs_policy_lavd 
+  - name: copy fs_policy_powof2 
     ansible.builtin.copy:
-      src: "{{__bin_src}}/fs_policy_lavd"
+      src: "{{__bin_src}}/fs_policy_powof2"
       dest: "{{bin_dir}}/"
       mode: "preserve"
       remote_src: "{{__remote_bin_src}}"
     become: yes
 
-  - name: copy fs_policy_fifo 
-    ansible.builtin.copy:
-      src: "{{__bin_src}}/fs_policy_fifo"
-      dest: "{{bin_dir}}/"
-      mode: "preserve"
-      remote_src: "{{__remote_bin_src}}"
-    become: yes
-
-  - name: copy fs_policy_constrained 
-    ansible.builtin.copy:
-      src: "{{__bin_src}}/fs_policy_constrained"
-      dest: "{{bin_dir}}/"
-      mode: "preserve"
-      remote_src: "{{__remote_bin_src}}"
-    become: yes
-
-  - name: copy fs_policy_locality 
-    ansible.builtin.copy:
-      src: "{{__bin_src}}/fs_policy_locality"
-      dest: "{{bin_dir}}/"
-      mode: "preserve"
-      remote_src: "{{__remote_bin_src}}"
-    become: yes
+      #  - name: copy fs_policy_lavd 
+      #    ansible.builtin.copy:
+      #      src: "{{__bin_src}}/fs_policy_lavd"
+      #      dest: "{{bin_dir}}/"
+      #      mode: "preserve"
+      #      remote_src: "{{__remote_bin_src}}"
+      #    become: yes
+      #
+      #  - name: copy fs_policy_fifo 
+      #    ansible.builtin.copy:
+      #      src: "{{__bin_src}}/fs_policy_fifo"
+      #      dest: "{{bin_dir}}/"
+      #      mode: "preserve"
+      #      remote_src: "{{__remote_bin_src}}"
+      #    become: yes
+      #
+      #  - name: copy fs_policy_constrained 
+      #    ansible.builtin.copy:
+      #      src: "{{__bin_src}}/fs_policy_constrained"
+      #      dest: "{{bin_dir}}/"
+      #      mode: "preserve"
+      #      remote_src: "{{__remote_bin_src}}"
+      #    become: yes
+      #
+      #  - name: copy fs_policy_locality 
+      #    ansible.builtin.copy:
+      #      src: "{{__bin_src}}/fs_policy_locality"
+      #      dest: "{{bin_dir}}/"
+      #      mode: "preserve"
+      #      remote_src: "{{__remote_bin_src}}"
+      #    become: yes
 
   - name: copy csv characteristics 
     ansible.builtin.copy:

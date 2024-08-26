@@ -19,7 +19,8 @@ scx_rustland_core = { version = "1.0.3" }
 iluvatar_library = { path = "../iluvatar_library" }
 iluvatar_worker_library = { path = "../iluvatar_worker_library" }
 clap = { version = "4.5.4", features = ["derive"] }
-shmem-ipc = "0.3.0"
+ipc-channel = { version = "0.18.1", features = ["memfd"] }
+serde = { version = "1.0" }
 
 [build-dependencies]
 scx_utils = { version = "1.0.3" }
