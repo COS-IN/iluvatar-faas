@@ -94,11 +94,7 @@ impl<'cb> BpfScheduler<'cb> {
         skel.maps.rodata_data.effective_slice_ns = slice_us * 1000;
 
         let path = "/sys/fs/bpf/func_characs";
-        let open_obj_i = unsafe { open_object.assume_init_mut() };
-        let mut func_characs = open_obj_i 
-            .maps_mut()
-            .find(|map| map.name() == OsStr::new("func_characs"))
-            .expect("failed to find `func_characs` map");
+        let func_characs = &mut skel.maps.func_characs; 
         assert!(func_characs.reuse_pinned_map("/asdf").is_err());
         func_characs.reuse_pinned_map(path).expect("failed to reuse map");
 
