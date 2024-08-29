@@ -8,6 +8,7 @@ members = [
   "iluvatar_library",
   "iluvatar_worker_library",
   "iluvatar_energy_mon",
+  "iluvatar_bpf_library",
   "fs_policy_locality",
   "fs_policy_fifo",
   "fs_policy_lavd",
