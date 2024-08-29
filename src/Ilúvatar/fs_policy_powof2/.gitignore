@@ -1,5 +1,0 @@
-src/bpf/.output
-intf.h
-main.bpf.c
-bpf.rs
-target
