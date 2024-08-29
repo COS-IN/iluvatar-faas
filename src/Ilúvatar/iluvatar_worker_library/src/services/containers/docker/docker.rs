@@ -131,7 +131,9 @@ impl DockerIsolation {
         let mut device_requests = vec![];
 
         let mps_thread;
+        let mps_mem;
         if let Some(device) = device_resource.as_ref() {
+            info!(tid=%tid, container_id=%container_id, "Container will get a GPU");
             device_requests.push(DeviceRequest {
                 driver: Some("".into()),
                 count: None,
@@ -147,9 +149,12 @@ impl DockerIsolation {
             }
 
             if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
+                info!(tid=%tid, container_id=%container_id, threads=device.thread_pct, memory=device.allotted_mb, "Container running inside MPS context");
                 host_config.ipc_mode = Some("host".to_owned());
                 mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
+                mps_mem = format!("CUDA_MPS_PINNED_DEVICE_MEM_LIMIT={}MB", device.allotted_mb);
                 env.push(mps_thread.as_str());
+                env.push(mps_mem.as_str());
                 volumes.push("/tmp/nvidia-mps:/tmp/nvidia-mps".to_owned());
             }
             if self
@@ -274,7 +279,6 @@ impl ContainerIsolationService for DockerIsolation {
     ) -> ResultErrorVal<Container, Option<GPU>> {
         if !iso.eq(&Isolation::DOCKER) {
             error_value!("Only supports docker Isolation, now {:?}", iso, device_resource);
-            // anyhow::bail!("Only supports docker Isolation, now {:?}", iso);
         }
         let mut env = vec![];
         let cid = format!("{}-{}", fqdn, GUID::rand());
@@ -282,7 +286,7 @@ impl ContainerIsolationService for DockerIsolation {
             Ok(p) => p,
             Err(e) => return err_val(e, device_resource),
         };
-        let gunicorn_args = format!("GUNICORN_CMD_ARGS=--bind 0.0.0.0:{}", port);
+        let gunicorn_args = format!("GUNICORN_CMD_ARGS=--workers=1 --timeout={} --bind=0.0.0.0:{}", &self.limits_config.timeout_sec, port);
         env.push(gunicorn_args.as_str());
         let mut ports = HashMap::new();
         ports.insert(
@@ -300,11 +304,10 @@ impl ContainerIsolationService for DockerIsolation {
                 Ok(p) => {
                     debug!(tid=%tid, "Acquired docker creation semaphore");
                     Some(p)
-                }
+                },
                 Err(e) => {
                     bail_error_value!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore", device_resource);
-                    // bail_error!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore");
-                }
+                },
             },
             None => None,
         };

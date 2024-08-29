@@ -12,7 +12,7 @@ use iluvatar_library::{
     utils::{execute_cmd_checked, execute_cmd_checked_async, missing_or_zero_default},
 };
 use nvml_wrapper::{error::NvmlError, Nvml};
-use parking_lot::{RwLock, RwLockReadGuard};
+use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::{collections::HashMap, sync::Arc};
 use tokio::runtime::Runtime;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -150,6 +150,8 @@ struct GpuMetadata {
     pub gpu_uuid: GpuUuid,
     pub hardware_id: PrivateGpuId,
     pub hardware_memory_mb: MemSizeMb,
+    pub device_allocated_memory: RwLock<MemSizeMb>,
+    pub allocation_breakdown: Mutex<Vec<MemSizeMb>>,
     pub num_structs: u32,
     pub max_running: u32,
     pub sem: Arc<Semaphore>,
@@ -180,7 +182,7 @@ impl GPU {
     ) -> Result<Vec<Self>> {
         let (spots, mem_size) = Self::compute_spots(hardware_memory_mb, gpu_uuid, config, tid)?;
         let thread_pct = match config.mps_limit_active_threads {
-            Some(true) => (100.0 / spots as f64) as u32,
+            Some(true) => (100.0 / missing_or_zero_default(&config.concurrent_running_funcs, spots) as f64) as u32,
             _ => 100,
         };
         let mut ret = vec![];
@@ -228,7 +230,7 @@ impl GPU {
         }
         let spots = hardware_memory_mb / per_func_memory_mb;
         info!(tid=%tid, gpu_uuid=%gpu_uuid, spots=spots, hardware_memory_mb=hardware_memory_mb, per_func_memory_mb=per_func_memory_mb, "GPU available spots");
-        Ok((spots as u32, hardware_memory_mb))
+        Ok((spots as u32, per_func_memory_mb))
     }
 }
 
@@ -447,6 +449,8 @@ impl GpuResourceTracker {
                 num_structs: gpu_structs.len() as u32,
                 max_running: sem.available_permits() as u32,
                 sem,
+                device_allocated_memory: RwLock::new(0),
+                allocation_breakdown: Mutex::new(vec![0; gpu_structs.len()]),
             };
             meta.insert(gpu_hardware_id, metadata);
             ret.insert(gpu_hardware_id, gpu_structs);
@@ -474,6 +478,8 @@ impl GpuResourceTracker {
                 num_structs: gpu_structs.len() as u32,
                 max_running: sem.available_permits() as u32,
                 sem,
+                device_allocated_memory: RwLock::new(0),
+                allocation_breakdown: Mutex::new(vec![0; gpu_structs.len()]),
             };
             meta.insert(gpu_hardware_id, metadata);
             ret.insert(gpu_hardware_id, gpu_structs);
@@ -520,6 +526,8 @@ impl GpuResourceTracker {
                         num_structs: structs.len() as u32,
                         max_running: sem.available_permits() as u32,
                         sem,
+                        device_allocated_memory: RwLock::new(0),
+                        allocation_breakdown: Mutex::new(vec![0; structs.len()]),
                     };
                     meta.insert(gpu_hardware_id, metadata);
                     ret.insert(gpu_hardware_id, structs);
@@ -900,6 +908,47 @@ impl GpuResourceTracker {
     /// get the utilization of GPUs on the system
     pub fn gpu_status(&self, _tid: &TransactionId) -> Vec<GpuStatus> {
         (*self.status_info.read()).clone()
+    }
+
+    pub fn update_usage(&self, gpu: &GPU) {
+        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
+            None => (),
+            Some(meta) => {
+                let mut allocations = meta.allocation_breakdown.lock();
+                let old = allocations[gpu.struct_id as usize];
+                allocations[gpu.struct_id as usize] = gpu.allocated_mb;
+                let change = old - gpu.allocated_mb;
+                *meta.device_allocated_memory.write() += change;
+            }
+        }
+    }
+
+    pub fn remove(&self, gpu: &GPU) {
+        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
+            None => (),
+            Some(meta) => {
+                let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
+                *meta.device_allocated_memory.write() -= curr;
+            }
+        }
+    }
+    pub fn add(&self, gpu: &GPU) {
+        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
+            None => (),
+            Some(meta) => {
+                let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
+                *meta.device_allocated_memory.write() += curr;
+            }
+        }
+    }
+    pub fn memory_pressure(&self, gpu: &GPU) -> (MemSizeMb,MemSizeMb) {
+        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
+            None => (0,0),
+            Some(meta) => {
+                let curr = *meta.device_allocated_memory.read();
+                (curr, meta.hardware_memory_mb)
+            }
+        }
     }
 }
 impl Drop for GpuResourceTracker {

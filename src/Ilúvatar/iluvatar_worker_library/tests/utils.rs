@@ -5,6 +5,7 @@ use iluvatar_library::{
     transaction::{TransactionId, TEST_TID},
 };
 use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use iluvatar_worker_library::services::{
     containers::structs::ContainerTimeFormatter,
     invocation::InvocationResult,
@@ -22,7 +23,6 @@ use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::{task::JoinHandle, time::timeout};
-use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 
 #[macro_export]
 macro_rules! assert_error {
@@ -444,35 +444,39 @@ pub async fn prewarm(cm: &Arc<ContainerManager>, reg: &Arc<RegisteredFunction>, 
 }
 
 pub fn sim_args() -> anyhow::Result<String> {
-    Ok(serde_json::to_string(&SimulationInvocation::from([(
-        Compute::CPU,
-        iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData {
-            warm_dur_ms: 1000,
-            cold_dur_ms: 5000,
-        },
-    ),
-    (
-        Compute::GPU,
-        iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData {
-            warm_dur_ms: 1000,
-            cold_dur_ms: 5000,
-        },
-    )]))?)
+    Ok(serde_json::to_string(&SimulationInvocation::from([
+        (
+            Compute::CPU,
+            iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData {
+                warm_dur_ms: 1000,
+                cold_dur_ms: 5000,
+            },
+        ),
+        (
+            Compute::GPU,
+            iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData {
+                warm_dur_ms: 1000,
+                cold_dur_ms: 5000,
+            },
+        ),
+    ]))?)
 }
 
 pub fn short_sim_args() -> anyhow::Result<String> {
-    Ok(serde_json::to_string(&SimulationInvocation::from([(
-        Compute::CPU,
-        iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData {
-            warm_dur_ms: 500,
-            cold_dur_ms: 1000,
-        },
-    ),
+    Ok(serde_json::to_string(&SimulationInvocation::from([
+        (
+            Compute::CPU,
+            iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData {
+                warm_dur_ms: 500,
+                cold_dur_ms: 1000,
+            },
+        ),
         (
             Compute::GPU,
             iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData {
                 warm_dur_ms: 500,
                 cold_dur_ms: 1000,
             },
-        )]))?)
+        ),
+    ]))?)
 }
