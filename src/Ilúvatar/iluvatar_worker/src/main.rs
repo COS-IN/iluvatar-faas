@@ -7,11 +7,6 @@ use iluvatar_worker_library::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_worker_library::worker_api::config::Configuration;
 use iluvatar_worker_library::worker_api::create_worker;
 use iluvatar_worker_library::{services::containers::IsolationFactory, worker_api::config::WorkerConfig};
-use iluvatar_worker_library::worker_api::Channels;
-use iluvatar_library::characteristics_map::CharacteristicsPacket;
-use iluvatar_worker_library::services::containers::containerd::PidsPacket;
-use iluvatar_worker_library::SCHED_CHANNELS;
-use std::sync::RwLock;
 
 use std::time::Duration;
 use std::thread;
@@ -23,99 +18,18 @@ use tokio::runtime::Runtime;
 use tonic::transport::Server;
 use tracing::{debug, info};
 use utils::Args;
-use ipc_channel::ipc::{IpcOneShotServer, IpcSender, IpcReceiver};
 
 pub mod utils;
 
-// static mut channels: Option<Channels> = None;
-
 async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
+
     debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
-    match &server_config.finescheduling {
-        Some(fconfig) => {
-            let fconfig = fconfig.clone();
-            if std::path::Path::new(&fconfig.binary).exists() {
-                match (&fconfig.binary).as_str() {
-                    "/tmp/iluvatar/bin/fs_policy_locality" |
-                    "/tmp/iluvatar/bin/fs_policy_fifo" |
-                    "/tmp/iluvatar/bin/fs_policy_lavd" | 
-                    "/tmp/iluvatar/bin/fs_policy_powof2" | 
-                    "/tmp/iluvatar/bin/fs_policy_constrained" 
-                        =>  {               // create a oneshot server 
-                                            
-                        let (server, name) = IpcOneShotServer::new().unwrap();
-                        debug!(tid=tid.as_str(), name=%name, status="server waiting", "ipc debugs");
-
-                        let oname = name.clone();
-                        let bname = fconfig.binary.clone();
-
-                        thread::spawn( move || {
-                            // launch a process 
-                            let mut args = Vec::<String>::new(); 
-
-                            args.push( "--server-name".to_string() );
-                            args.push( oname );
-
-                            if let Some(&ref cores) = fconfig.cores.as_ref() {
-                                for c in cores {
-                                    args.push( "-c".to_string() );
-                                    args.push( c.to_string() );
-                                }
-                            } 
-
-                            let mut _child = execute_cmd_nonblocking(
-                                                &bname, 
-                                                &args, 
-                                                None, 
-                                                &String::from("none") 
-                                            ).unwrap();
-
-                            let mut buffer = [0; 1024];
-                            let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
-                            let mut elog = File::create("/tmp/iluvatar/bin/sched.elog").expect("failed to open log");
-
-                            loop {
-                                let read = _child.stdout.as_mut().unwrap().read(&mut buffer).unwrap_or(0);
-                                if read > 0 {
-                                    log.write(&buffer[..read]);
-                                    log.flush();
-                                }
-                                match _child.try_wait() {
-                                    Ok(Some(status)) => {
-                                        let read = _child.stderr.as_mut().unwrap().read(&mut buffer).unwrap_or(0);
-                                        if read > 0 {
-                                            elog.write(&buffer[..read]);
-                                            elog.flush();
-                                        }
-                                    },
-                                    Ok(None) => {},
-                                    Err(e) => {},
-                                }
-                            }
-                        });
-
-                        // wait for the channel to establish with a timeout 
-                        let (_, channels): (_, Channels) = server.accept().unwrap();
-                        debug!(tid=tid.as_str(), name=%name, status="channels established", "ipc debugs");
-
-                        unsafe {
-                            SCHED_CHANNELS = Some(RwLock::new(channels));
-                        }
-                    },
-                    _ => {},
-                }
-
-            }
-        }
-        None => (),
-    };
-
     let worker = match create_worker(server_config.clone(), tid).await {
         Ok(w) => w,
         Err(e) => bail_error!(tid=%tid, error=%e, "Error creating worker on startup"),
     };
-    let addr = format!("{}:{}", server_config.address, server_config.port);
 
+    let addr = format!("{}:{}", server_config.address, server_config.port);
     register_rpc_to_controller(server_config.clone(), tid.clone());
     info!(tid=%tid, "Starting RPC server");
     debug!(config=?server_config, "Worker configuration");

@@ -17,10 +17,13 @@ use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{characteristics_map::AgExponential, energy::energy_logging::EnergyLogger};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_library::characteristics_map::CharacteristicsPacket;
-use super::services::containers::containerd::PidsPacket;
+use iluvatar_library::{utils::execute_cmd_nonblocking};
+
 use std::sync::Arc;
-use ipc_channel::ipc::IpcSender;
+use std::path::Path;
+use std::fs::File;
 use serde::{Deserialize, Serialize};
+use ipc_channel::ipc::{IpcOneShotServer, IpcSender, IpcReceiver};
 
 pub mod worker_config;
 pub use worker_config as config;
@@ -28,13 +31,108 @@ pub mod iluvatar_worker;
 pub mod sim_worker;
 pub mod worker_comm;
 
+use crate::SCHED_CHANNELS;
+use crate::services::containers::containerd::PidsPacket;
+use std::sync::RwLock;
+use std::thread;
+use std::io::prelude::*;
+use std::io::Read;
+use tracing::{debug, info};
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Channels {
     pub tx_chr: IpcSender<CharacteristicsPacket>,
     pub tx_pids: IpcSender<PidsPacket>,
 }
 
+fn launch_scheduler( worker_config: &WorkerConfig ){
+
+    match &worker_config.finescheduling {
+
+        Some(fconfig) => {
+
+            let fconfig = fconfig.clone();
+
+            if Path::new(&fconfig.binary).exists() {
+
+                // create a oneshot IPC server 
+                let (server, name) = IpcOneShotServer::new().unwrap();
+                debug!(name=%name, status="server waiting", "fine_scheduler");
+
+                let mut args = Vec::<String>::new(); 
+
+                // default args for all the policies 
+                args.push( "--server-name".to_string() );
+                args.push( name.clone() );
+
+                // construct args for different policies as needed 
+                match (&fconfig.binary).as_str() {
+                    "/tmp/iluvatar/bin/fs_policy_constrained" 
+                        =>  {               
+                            if let Some(&ref cores) = fconfig.cores.as_ref() {
+                                for c in cores {
+                                    args.push( "-c".to_string() );
+                                    args.push( c.to_string() );
+                                }
+                            } 
+                        }
+                    _ => {} 
+                }
+
+                // launch the policy in a separate thread 
+                let bname = fconfig.binary.clone();
+                thread::spawn( move || {
+                    let mut _child = execute_cmd_nonblocking(
+                        &bname, 
+                        &args, 
+                        None, 
+                        &String::from("none") 
+                    ).unwrap();
+
+                    let mut buffer = [0; 1024];
+                    let mut log = File::create("/tmp/iluvatar/bin/sched.log").expect("failed to open log");
+                    let mut elog = File::create("/tmp/iluvatar/bin/sched.elog").expect("failed to open log");
+
+                    loop {
+                        let read = _child.stdout.as_mut().unwrap().read(&mut buffer).unwrap_or(0);
+                        if read > 0 {
+                            log.write(&buffer[..read]);
+                            log.flush();
+                        }
+                        match _child.try_wait() {
+                            Ok(Some(status)) => {
+                                let read = _child.stderr.as_mut().unwrap().read(&mut buffer).unwrap_or(0);
+                                if read > 0 {
+                                    elog.write(&buffer[..read]);
+                                    elog.flush();
+                                }
+                            },
+                            Ok(None) => {},
+                            Err(e) => {},
+                        }
+                    }
+                });
+
+                // wait for the channel to establish with a timeout 
+                let (_, channels): (_, Channels) = server.accept().unwrap();
+                debug!(name=%name, status="channels established", "fine_scheduler");
+
+                // save it in the global variable 
+                unsafe {
+                    SCHED_CHANNELS = Some(RwLock::new(channels));
+                }
+            }
+        }
+        None => (), // no binary config found 
+    }; // end of config match 
+}
+
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
+
+    // launch the fine grained scheduler  
+    launch_scheduler( &worker_config );
+
+    // Charateristics Map 
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
     let factory = IsolationFactory::new(worker_config.clone());
