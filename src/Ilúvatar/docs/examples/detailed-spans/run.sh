@@ -4,8 +4,8 @@ ILU_HOME="../../.."
 CORES=2
 MEMORY=4096
 
-results_dir="."
-worker_log_dir="/tmp/iluvatar/logs/ansible"
+results_dir=$(pwd)
+worker_log_dir=$results_dir
 environment='local'
 hosts="-e @../../../ansible/group_vars/local_addresses.yml"
 host_file="../../../ansible/environments/$environment/hosts.ini"

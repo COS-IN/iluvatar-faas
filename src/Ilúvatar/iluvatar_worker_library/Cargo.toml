@@ -29,7 +29,7 @@ sha2="0.10.2"
 hex = "0.4.3"
 clap = { version = "4.1", features = ["derive"] }
 reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
-dashmap = "5.3.4"
+dashmap = "6.0"
 tracing = "0.1"
 actix-web = "4"
 futures = "0.3"

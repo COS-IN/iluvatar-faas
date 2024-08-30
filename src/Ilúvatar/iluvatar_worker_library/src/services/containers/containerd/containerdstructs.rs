@@ -1,3 +1,4 @@
+use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{
     containers::{
         http_client::HttpContainerClient,
@@ -8,6 +9,7 @@ use crate::services::{
     resources::gpu::GPU,
 };
 use anyhow::Result;
+use iluvatar_library::types::{err_val, ResultErrorVal};
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
@@ -19,16 +21,14 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
-#[derive(Debug)]
 pub struct Task {
     pub pid: u32,
     pub container_id: Option<String>,
     pub running: bool,
 }
 
-#[derive(Debug)]
 #[allow(unused)]
 pub struct ContainerdContainer {
     pub container_id: String,
@@ -49,7 +49,8 @@ pub struct ContainerdContainer {
     state: Mutex<ContainerState>,
     client: HttpContainerClient,
     compute: Compute,
-    device: Option<Arc<GPU>>,
+    device: RwLock<Option<GPU>>,
+    drop_on_remove: Mutex<Vec<DroppableToken>>,
 }
 
 impl ContainerdContainer {
@@ -65,10 +66,13 @@ impl ContainerdContainer {
         invoke_timeout: u64,
         state: ContainerState,
         compute: Compute,
-        device: Option<Arc<GPU>>,
+        device: Option<GPU>,
         tid: &TransactionId,
-    ) -> Result<Self> {
-        let client = HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid)?;
+    ) -> ResultErrorVal<Self, Option<GPU>> {
+        let client = match HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid) {
+            Ok(c) => c,
+            Err(e) => return err_val(e, device),
+        };
         Ok(ContainerdContainer {
             container_id,
             task,
@@ -83,7 +87,8 @@ impl ContainerdContainer {
             invocations: Mutex::new(0),
             mem_usage: RwLock::new(function.memory),
             state: Mutex::new(state),
-            device,
+            device: RwLock::new(device),
+            drop_on_remove: Mutex::new(vec![]),
         })
     }
 
@@ -160,13 +165,24 @@ impl ContainerT for ContainerdContainer {
     fn compute_type(&self) -> Compute {
         self.compute
     }
-    fn device_resource(&self) -> &Option<Arc<GPU>> {
-        &self.device
+    fn device_resource(&self) -> ProtectedGpuRef<'_> {
+        self.device.read()
     }
-    fn add_drop_on_remove(&self, _item: DroppableToken, _tid: &TransactionId) {
-        todo!("Containerd containers are CPU-only and shouldn't be given anything to drop on remove!");
+    fn revoke_device(&self) -> Option<GPU> {
+        self.device.write().take()
     }
-    fn remove_drop(&self, _tid: &TransactionId) {}
+    fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
+        debug!(tid=%tid, container_id=%self.container_id(), "Adding token to drop on remove");
+        self.drop_on_remove.lock().push(item);
+    }
+    fn remove_drop(&self, tid: &TransactionId) {
+        let mut lck = self.drop_on_remove.lock();
+        let to_drop = std::mem::take(&mut *lck);
+        debug!(tid=%tid, container_id=%self.container_id(), num_tokens=to_drop.len(), "Dropping tokens");
+        for i in to_drop.into_iter() {
+            drop(i);
+        }
+    }
 }
 
 impl crate::services::containers::structs::ToAny for ContainerdContainer {

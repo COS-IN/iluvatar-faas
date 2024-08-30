@@ -5,7 +5,7 @@ CORES=2
 MEMORY=4096
 
 results_dir="."
-worker_log_dir="/tmp/iluvatar/logs/ansible"
+worker_log_dir=$(pwd)
 environment='local'
 hosts="-e @../../../ansible/group_vars/local_addresses.yml"
 host_file="../../../ansible/environments/$environment/hosts.ini"
@@ -22,7 +22,6 @@ source ../examples-venv/bin/activate
 
 cleanup(){
   echo "cleanup"
-  cp $worker_log_dir/* $results_dir >> $log_file
   # remove system parts
   ansible-playbook -i $host_file $ILU_HOME/ansible/worker.yml -e mode=clean $hosts  >> $log_file
 }

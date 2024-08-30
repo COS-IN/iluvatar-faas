@@ -1,11 +1,12 @@
 use crate::services::containers::http_client::HttpContainerClient;
 use crate::services::registration::RegisteredFunction;
+use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{
     containers::structs::{ContainerState, ContainerT, ParsedResult},
     resources::gpu::GPU,
 };
 use anyhow::Result;
-use iluvatar_library::types::DroppableToken;
+use iluvatar_library::types::{err_val, DroppableToken, ResultErrorVal};
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
@@ -32,7 +33,7 @@ pub struct DockerContainer {
     state: Mutex<ContainerState>,
     pub client: HttpContainerClient,
     compute: Compute,
-    device: Option<Arc<GPU>>,
+    device: RwLock<Option<GPU>>,
     mem_usage: RwLock<MemSizeMb>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
 }
@@ -48,10 +49,13 @@ impl DockerContainer {
         invoke_timeout: u64,
         state: ContainerState,
         compute: Compute,
-        device: Option<Arc<GPU>>,
+        device: Option<GPU>,
         tid: &TransactionId,
-    ) -> Result<Self> {
-        let client = HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid)?;
+    ) -> ResultErrorVal<Self, Option<GPU>> {
+        let client = match HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid) {
+            Ok(c) => c,
+            Err(e) => return err_val(e, device),
+        };
         let r = DockerContainer {
             mem_usage: RwLock::new(function.memory),
             container_id,
@@ -63,7 +67,7 @@ impl DockerContainer {
             client,
             compute,
             state: Mutex::new(state),
-            device,
+            device: RwLock::new(device),
             drop_on_remove: Mutex::new(vec![]),
         };
         Ok(r)
@@ -145,8 +149,11 @@ impl ContainerT for DockerContainer {
     fn compute_type(&self) -> Compute {
         self.compute
     }
-    fn device_resource(&self) -> &Option<Arc<GPU>> {
-        &self.device
+    fn device_resource(&self) -> ProtectedGpuRef<'_> {
+        self.device.read()
+    }
+    fn revoke_device(&self) -> Option<GPU> {
+        self.device.write().take()
     }
     fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
         debug!(tid=%tid, container_id=%self.container_id(), "Adding token to drop on remove");

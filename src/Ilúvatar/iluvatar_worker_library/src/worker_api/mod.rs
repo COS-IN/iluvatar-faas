@@ -125,6 +125,8 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         cmap,
         reg,
         influx_updater,
+        gpu_resource,
+        isos,
     ))
 }
 

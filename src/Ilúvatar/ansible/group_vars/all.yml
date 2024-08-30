@@ -1,6 +1,7 @@
 iluvatar_home: "{{ lookup('env', 'ILU_HOME') | default(playbook_dir ~ '/..', true) }}"
 mode: deploy
 target: release
+cluster: false
 
 controller:
   bin_name: "iluvatar_controller"
@@ -10,6 +11,7 @@ controller:
   algorithm: "{{ controller_algorithm | default('LeastLoaded') }}"
   load_metric: "{{ controller_load_metric | default('loadavg') }}"
   environment: "{{ controller_environment | default({}) }}"
+  # address: "http://{{ host }}:{{ port }}"
 
 worker:
   bin_name: "iluvatar_worker"

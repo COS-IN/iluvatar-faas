@@ -478,6 +478,7 @@ void cuda_driver_check_error(CUresult err, const char *func_name)
  */
 static void *real_dlsym_225(void *handle, const char *symbol)
 {
+
 	typedef void *(dlsym_t)(void *, const char *);
 	static dlsym_t *r_dlsym;
 	char *err;
@@ -571,9 +572,9 @@ void *dlsym_225(void *handle, const char *symbol)
 		return (void *)(&cuGetProcAddress);
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuInit)) == 0) {
 		return (void *)(&cuInit);
-  }
-	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
-	// 	return (void *)(&cuLaunchKernel);
+//   }
+	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
+		return (void *)(&cuLaunchKernel);
 	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpy)) == 0) {
 	// 	return (void *)(&cuMemcpy);
 	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyAsync)) == 0) {
@@ -590,7 +591,7 @@ void *dlsym_225(void *handle, const char *symbol)
 	// 	return (void *)(&cuMemcpyDtoD);
 	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync)) == 0) {
 	// 	return (void *)(&cuMemcpyDtoDAsync);
-	// }
+	}
 
 	return (real_dlsym_225(handle, symbol));
 }
@@ -650,9 +651,9 @@ void *dlsym_231(void *handle, const char *symbol)
 		return (void *)(&cuGetProcAddress);
 	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuInit)) == 0) {
 		return (void *)(&cuInit);
-  }
-	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
-	// 	return (void *)(&cuLaunchKernel);
+//   }
+	} else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuLaunchKernel)) == 0) {
+		return (void *)(&cuLaunchKernel);
 	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpy)) == 0) {
 	// 	return (void *)(&cuMemcpy);
 	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyAsync)) == 0) {
@@ -669,7 +670,7 @@ void *dlsym_231(void *handle, const char *symbol)
 	// 	return (void *)(&cuMemcpyDtoD);
 	// } else if (strcmp(symbol, CUDA_SYMBOL_STRING(cuMemcpyDtoDAsync)) == 0) {
 	// 	return (void *)(&cuMemcpyDtoDAsync);
-	// }
+	}
 
 	return (real_dlsym_231(handle, symbol));
 }
@@ -712,8 +713,8 @@ CUresult cuGetProcAddress(const char *symbol, void **pfn, int cudaVersion,
 		*pfn = (void *)(&cuGetProcAddress);
 	} else if (strcmp(symbol, "cuInit") == 0) {
 		*pfn = (void *)(&cuInit);
-	// } else if (strcmp(symbol, "cuLaunchKernel") == 0) {
-	// 	*pfn = (void *)(&cuLaunchKernel);
+	} else if (strcmp(symbol, "cuLaunchKernel") == 0) {
+		*pfn = (void *)(&cuLaunchKernel);
 	} else {
 		result = real_cuGetProcAddress(symbol, pfn, cudaVersion, flags);
 	}
@@ -982,39 +983,39 @@ CUresult cuInit(unsigned int flags)
   return result;
 }
 
-// int outstanding_kernels = 0;
+int outstanding_kernels = 0;
 
-// CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
-// 	unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX,
-// 	unsigned int blockDimY, unsigned int blockDimZ,
-// 	unsigned int sharedMemBytes, CUstream hStream, void **kernelParams,
-// 	void **extra)
-// {
-// 	CUresult result = CUDA_SUCCESS;
-//   // unsigned int maxDim = 64;
-//   // unsigned int maxBlock = 16;
+CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX,
+	unsigned int gridDimY, unsigned int gridDimZ, unsigned int blockDimX,
+	unsigned int blockDimY, unsigned int blockDimZ,
+	unsigned int sharedMemBytes, CUstream hStream, void **kernelParams,
+	void **extra)
+{
+	CUresult result = CUDA_SUCCESS;
+  // unsigned int maxDim = 64;
+  // unsigned int maxBlock = 16;
 
-//   /* Return immediately if not initialized */
-//   if (real_cuLaunchKernel == NULL)
-//     return CUDA_ERROR_NOT_INITIALIZED;
+  /* Return immediately if not initialized */
+  if (real_cuLaunchKernel == NULL)
+    return CUDA_ERROR_NOT_INITIALIZED;
 
-//   // printf("out: %d Old Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n", outstanding_kernels,
-//   //      blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
-//   // gridDimX = min(gridDimX, maxDim);
-//   // gridDimY = min(gridDimY, maxDim);
-//   // gridDimZ = min(gridDimZ, maxDim);
-//   // blockDimX = min(blockDimX, maxBlock);
-//   // blockDimY = min(blockDimY, maxBlock);
-//   // blockDimZ = min(blockDimZ, maxBlock);
-//   ++outstanding_kernels;
-//   // printf("New Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n",
-//         //  blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
-//   result = real_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX,
-//                                blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra);
-//   cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuLaunchKernel));
-//   --outstanding_kernels;
-//   return result;
-// }
+  // printf("out: %d Old Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n", outstanding_kernels,
+  //      blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
+  // gridDimX = min(gridDimX, maxDim);
+  // gridDimY = min(gridDimY, maxDim);
+  // gridDimZ = min(gridDimZ, maxDim);
+  // blockDimX = min(blockDimX, maxBlock);
+  // blockDimY = min(blockDimY, maxBlock);
+  // blockDimZ = min(blockDimZ, maxBlock);
+  ++outstanding_kernels;
+  printf("New Invoking kernel with dim block: %u * %u * %u ; grid: %u * %u * %u \n",
+         blockDimX, blockDimY, blockDimZ, gridDimX, gridDimY, gridDimZ);
+  result = real_cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX,
+                               blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra);
+  cuda_driver_check_error(result, CUDA_SYMBOL_STRING(cuLaunchKernel));
+  --outstanding_kernels;
+  return result;
+}
 
 
 // /*
@@ -1138,6 +1139,6 @@ CUresult cuInit(unsigned int flags)
 // }
 
 __asm__(".symver dlsym_225, dlsym@@GLIBC_2.2.5");
-__asm__(".symver dlsym_234, dlsym@GLIBC_2.34");
 __asm__(".symver dlsym_231, dlsym@GLIBC_2.31");
+__asm__(".symver dlsym_234, dlsym@GLIBC_2.34");
 

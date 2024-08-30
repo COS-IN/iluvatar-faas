@@ -20,6 +20,7 @@ use iluvatar_worker_library::services::{
     resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
 };
 use rstest::rstest;
+use std::collections::HashMap;
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
 
@@ -104,6 +105,7 @@ fn item() -> Arc<EnqueuedInvocation> {
         parallel_invokes: 1,
         isolation_type: iluvatar_library::types::Isolation::DOCKER,
         supported_compute: iluvatar_library::types::Compute::GPU,
+        historical_runtime_data_sec: HashMap::new(),
     });
     Arc::new(EnqueuedInvocation::new(
         rf,

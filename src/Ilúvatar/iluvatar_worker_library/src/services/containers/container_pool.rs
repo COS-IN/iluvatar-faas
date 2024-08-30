@@ -137,7 +137,7 @@ impl ContainerPool {
         match self.idle_pool.get(fqdn) {
             Some(c) => {
                 for cont in &*c {
-                    if let Some(gpu) = cont.device_resource() {
+                    if let Some(gpu) = cont.device_resource().as_ref() {
                         if gpu.gpu_hardware_id == gpu_token.gpu_id && cont.state() == ContainerState::Warm {
                             return true;
                         }
@@ -251,6 +251,7 @@ mod tests {
     use super::*;
     use crate::services::{containers::simulator::simstructs::SimulatorContainer, registration::RegisteredFunction};
     use iluvatar_library::{types::Isolation, utils::calculate_fqdn};
+    use std::collections::HashMap;
     use std::sync::Arc;
 
     #[test]
@@ -268,6 +269,7 @@ mod tests {
             isolation_type: Isolation::all(),
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
+            historical_runtime_data_sec: HashMap::new(),
         });
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
@@ -297,6 +299,7 @@ mod tests {
             isolation_type: Isolation::all(),
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
+            historical_runtime_data_sec: HashMap::new(),
         });
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
@@ -330,6 +333,7 @@ mod tests {
             isolation_type: Isolation::all(),
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
+            historical_runtime_data_sec: HashMap::new(),
         });
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
@@ -360,6 +364,7 @@ mod tests {
             isolation_type: Isolation::all(),
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
+            historical_runtime_data_sec: HashMap::new(),
         });
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
@@ -394,6 +399,7 @@ mod tests {
             isolation_type: Isolation::all(),
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
+            historical_runtime_data_sec: HashMap::new(),
         });
         let fqdn2 = calculate_fqdn("name2", "vesr");
         let reg2 = Arc::new(RegisteredFunction {
@@ -407,6 +413,7 @@ mod tests {
             isolation_type: Isolation::all(),
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
+            historical_runtime_data_sec: HashMap::new(),
         });
         let ctr = Arc::new(SimulatorContainer::new(
             "cid1".to_string(),
@@ -486,6 +493,7 @@ mod tests {
                     isolation_type: Isolation::all(),
                     supported_compute: iluvatar_library::types::Compute::CPU,
                     fqdn: "".to_string(),
+                    historical_runtime_data_sec: HashMap::new(),
                 });
                 b_c.wait().await;
                 for i in 0..creates {
@@ -525,6 +533,7 @@ mod tests {
             isolation_type: Isolation::all(),
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
+            historical_runtime_data_sec: HashMap::new(),
         });
         let ctr = Arc::new(SimulatorContainer::new(
             "cid".to_string(),
@@ -558,6 +567,7 @@ mod tests {
             isolation_type: Isolation::all(),
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
+            historical_runtime_data_sec: HashMap::new(),
         });
         assert_eq!(cp.has_idle_container(&fqdn), ContainerState::Cold);
         let ctr = Arc::new(SimulatorContainer::new(
@@ -600,6 +610,7 @@ mod tests {
             isolation_type: Isolation::all(),
             supported_compute: iluvatar_library::types::Compute::CPU,
             fqdn: "".to_string(),
+            historical_runtime_data_sec: HashMap::new(),
         });
         assert_eq!(cp.has_container(&fqdn), ContainerState::Cold);
         let ctr = Arc::new(SimulatorContainer::new(

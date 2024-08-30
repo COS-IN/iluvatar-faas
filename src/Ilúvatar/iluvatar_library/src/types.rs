@@ -1,6 +1,15 @@
+use anyhow::Error;
 use bitflags::bitflags;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+
+/// Type to allow returning an owned object along with an error from a function
+pub type ResultErrorVal<T, D, E = Error> = Result<T, (E, D)>;
+/// Wrapper to make [ResultErrorVal] from a value and error
+#[inline(always)]
+pub fn err_val<T, D>(error: Error, value: D) -> ResultErrorVal<T, D> {
+    Err((error, value))
+}
 
 pub type MemSizeMb = i64;
 
@@ -25,6 +34,7 @@ impl TryInto<CommunicationMethod> for u32 {
 
 bitflags! {
   #[derive(serde::Deserialize, serde::Serialize)]
+  #[serde(transparent)]
   /// The compute methods that a function supports. XXX Rename this ComputeDevice
   /// Having each one of these means it can run on each compute independently.
   /// e.g. having `CPU|GPU` will run fine in a CPU-only container, or one with an attached GPU
@@ -34,8 +44,9 @@ bitflags! {
     const FPGA = 0b00000100;
   }
   #[derive(serde::Deserialize, serde::Serialize)]
+  #[serde(transparent)]
   /// The isolation mechanism the function supports.
-  /// e.g. our Docker images are OSI-compliant and can be run by Docker or Containerd, so could specify `CONTAINERD|DOCKER` or `CONTAINERD`
+  /// e.g. our Docker images are OCI-compliant and can be run by Docker or Containerd, so could specify `CONTAINERD|DOCKER` or `CONTAINERD`
   pub struct Isolation: u32 {
     const CONTAINERD = 0b00000001;
     const DOCKER = 0b00000010;
@@ -217,6 +228,8 @@ pub struct FunctionInvocationTimings {
     pub warm_invoke_duration_us: Vec<u128>,
     /// cold invocation latency time recorded on worker
     pub cold_invoke_duration_us: Vec<u128>,
+    /// Data from live runtime invocations of the function, with interference from platform, concurrently running invokes, etc.
+    pub live_warm_invoke_duration_sec: Option<Vec<f64>>,
 }
 impl Default for FunctionInvocationTimings {
     fn default() -> Self {
@@ -235,6 +248,7 @@ impl FunctionInvocationTimings {
             cold_worker_duration_us: Vec::new(),
             warm_invoke_duration_us: Vec::new(),
             cold_invoke_duration_us: Vec::new(),
+            live_warm_invoke_duration_sec: None,
         }
     }
 }

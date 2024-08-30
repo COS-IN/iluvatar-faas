@@ -8,7 +8,7 @@ These steps are required on a system that is going to *run* a worker.
 
 ```bash
 sudo apt-get update -y
-sudo apt-get install -y curl runc bridge-utils iptables zfsutils-linux net-tools sysstat
+sudo apt-get install -y curl runc bridge-utils iptables zfsutils-linux net-tools sysstat jq
 ```
 
 Optional dependencies.
@@ -39,7 +39,7 @@ Start by installing go if it isn't available.
 
 ```bash
 ARCH=amd64
-GO_VERSION=1.18.3
+GO_VERSION=$(curl -s https://go.dev/dl/?mode=json | jq -r '.[0].version')
 tar="go${GO_VERSION}.linux-${ARCH}.tar.gz"
 
 wget https://go.dev/dl/${tar}
@@ -58,7 +58,7 @@ sudo mkdir -p /opt/cni/bin
 sudo mv ${gopth}/bin/cnitool /opt/cni/bin
 
 ARCH=amd64
-CNI_VERSION=v1.1.1
+CNI_VERSION=$(curl -s https://api.github.com/repos/containernetworking/plugins/releases/latest |   jq --raw-output '.tag_name')
 
 curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz | sudo tar -xz -C /opt/cni/bin
 ```
@@ -70,7 +70,7 @@ If you didn't install Docker earlier, then you will need to install Containerd m
 To check if it's needed, run `containerd -version`.
 
 ```bash
-export VER=1.6.4
+export VER=$(curl -s https://api.github.com/repos/containerd/containerd/releases/latest |   jq --raw-output '.tag_name')
 curl -sSL https://github.com/containerd/containerd/releases/download/v$VER/containerd-$VER-linux-amd64.tar.gz > /tmp/containerd.tar.gz \
   && sudo tar -xvf /tmp/containerd.tar.gz -C /usr/local/bin/ --strip-components=1
 
@@ -86,6 +86,8 @@ Run these commands, then re-run the `systemctl` commands.
 wget https://raw.githubusercontent.com/containerd/containerd/main/containerd.service
 sudo mkdir -p /usr/local/lib/systemd/system/
 sudo mv containerd.service /usr/local/lib/systemd/system/containerd.service
+sudo rm -f /etc/systemd/system/containerd.service
+sudo ln /usr/local/lib/systemd/system/containerd.service /etc/systemd/system/containerd.service
 ```
 
 **ZFS and file system.**

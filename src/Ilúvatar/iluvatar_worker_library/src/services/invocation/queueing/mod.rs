@@ -29,6 +29,7 @@ pub mod dynamic_batching;
 pub mod fcfs_gpu;
 pub mod gpu_mqfq;
 pub mod oldest_gpu;
+pub mod paella;
 pub mod sized_batches_gpu;
 
 #[derive(Debug, serde::Deserialize)]
@@ -196,7 +197,7 @@ impl EnqueuedInvocation {
         debug!(tid=%self.tid, "queued invocation completed successfully");
     }
 
-    pub fn mark_error(&self, error: anyhow::Error) {
+    pub fn mark_error(&self, error: &anyhow::Error) {
         let mut result_ptr = self.result_ptr.lock();
         error!(tid=%self.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after error");
         result_ptr.duration = Duration::from_micros(0);
@@ -207,7 +208,7 @@ impl EnqueuedInvocation {
 
     /// Increment the attempts counter on the function
     /// If the number of errors has exceeded the retries, mark it as complete and return `false` to indicate no re-trying
-    pub fn increment_error_retry(&self, error: anyhow::Error, retries: u32) -> bool {
+    pub fn increment_error_retry(&self, error: &anyhow::Error, retries: u32) -> bool {
         if self.result_ptr.lock().attempts >= retries {
             self.mark_error(error);
             false
@@ -266,7 +267,7 @@ impl<T: Ord> PartialEq for MinHeapEnqueuedInvocation<T> {
 mod heapstructs {
     use super::*;
     use iluvatar_library::logging::LocalTime;
-    use std::collections::BinaryHeap;
+    use std::collections::{BinaryHeap, HashMap};
 
     fn min_item(name: &str, priority: f64, clock: &LocalTime) -> MinHeapFloat {
         let rf = Arc::new(RegisteredFunction {
@@ -280,6 +281,7 @@ mod heapstructs {
             parallel_invokes: 1,
             isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
             supported_compute: iluvatar_library::types::Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         });
         MinHeapEnqueuedInvocation::new_f(
             Arc::new(EnqueuedInvocation::new(
@@ -341,6 +343,7 @@ mod heapstructs {
             parallel_invokes: 1,
             isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
             supported_compute: iluvatar_library::types::Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         });
         MinHeapEnqueuedInvocation::new(
             Arc::new(EnqueuedInvocation::new(
@@ -401,6 +404,7 @@ mod heapstructs {
             parallel_invokes: 1,
             isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
             supported_compute: iluvatar_library::types::Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         });
         MinHeapEnqueuedInvocation::new(
             Arc::new(EnqueuedInvocation::new(rf, name.to_string(), name.to_string(), t)),

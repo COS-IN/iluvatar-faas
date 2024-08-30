@@ -25,6 +25,7 @@ pub struct RegisteredFunction {
     pub parallel_invokes: u32,
     pub isolation_type: Isolation,
     pub supported_compute: Compute, // TODO: Rename Compute to ComputeDevice
+    pub historical_runtime_data_sec: HashMap<Compute, Vec<f64>>,
 }
 
 impl RegisteredFunction {
@@ -130,6 +131,7 @@ impl RegistrationService {
             parallel_invokes: request.parallel_invokes,
             isolation_type: isolation,
             supported_compute: compute,
+            historical_runtime_data_sec: HashMap::new(),
         };
         for (lifecycle_iso, lifecycle) in self.lifecycles.iter() {
             if !isolation.contains(*lifecycle_iso) {
@@ -141,9 +143,6 @@ impl RegistrationService {
         if !isolation.is_empty() {
             anyhow::bail!("Could not register function with isolation(s): {:?}", isolation);
         }
-        let ret = Arc::new(rf);
-        debug!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "Adding new registration to registered_functions map");
-        self.reg_map.write().insert(fqdn.clone(), ret.clone());
 
         if !request.resource_timings_json.is_empty() {
             match serde_json::from_str::<ResourceTimings>(&request.resource_timings_json) {
@@ -159,12 +158,19 @@ impl RegistrationService {
                                 self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
                             }
                             for v in timings.cold_worker_duration_us.iter() {
-                                self.characteristics_map.add(&fqdn, cold, Values::F64(*v as f64), true);
-                                self.characteristics_map.add(&fqdn, e2e, Values::F64(*v as f64), true);
+                                self.characteristics_map
+                                    .add(&fqdn, cold, Values::F64(*v as f64 / 1_000_000.0), true);
+                                self.characteristics_map
+                                    .add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
                             }
                             for v in timings.warm_worker_duration_us.iter() {
-                                self.characteristics_map.add(&fqdn, warm, Values::F64(*v as f64), true);
-                                self.characteristics_map.add(&fqdn, e2e, Values::F64(*v as f64), true);
+                                self.characteristics_map
+                                    .add(&fqdn, warm, Values::F64(*v as f64 / 1_000_000.0), true);
+                                self.characteristics_map
+                                    .add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
+                            }
+                            if let Some(hist) = &timings.live_warm_invoke_duration_sec {
+                                rf.historical_runtime_data_sec.insert(dev_compute, hist.clone());
                             }
                         }
                     }
@@ -172,9 +178,10 @@ impl RegistrationService {
                 Err(e) => anyhow::bail!("Failed to parse resource timings because {:?}", e),
             };
         }
-
+        let ret = Arc::new(rf);
+        debug!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "Adding new registration to registered_functions map");
+        self.reg_map.write().insert(fqdn.clone(), ret.clone());
         self.cm.register(&ret, tid)?;
-
         info!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "function was successfully registered");
         Ok(ret)
     }

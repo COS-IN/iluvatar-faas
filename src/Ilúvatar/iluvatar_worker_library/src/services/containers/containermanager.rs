@@ -360,7 +360,7 @@ impl ContainerManager {
         };
     }
 
-    fn get_gpu(&self, tid: &TransactionId, compute: Compute) -> Result<Option<Arc<GPU>>> {
+    fn get_gpu(&self, tid: &TransactionId, compute: Compute) -> Result<Option<GPU>> {
         if compute == Compute::GPU {
             return match self
                 .gpu_resources
@@ -378,7 +378,7 @@ impl ContainerManager {
         Ok(None)
     }
 
-    fn return_gpu(&self, gpu: Option<Arc<GPU>>, tid: &TransactionId) {
+    fn return_gpu(&self, gpu: Option<GPU>, tid: &TransactionId) {
         if let Some(gpu) = gpu {
             if let Some(gpu_man) = self.gpu_resources.as_ref() {
                 gpu_man.return_gpu(gpu, tid)
@@ -401,7 +401,7 @@ impl ContainerManager {
             }
         };
 
-        let counter = self.get_gpu(tid, compute)?;
+        let gpu = self.get_gpu(tid, compute)?;
         let curr_mem = *self.used_mem_mb.read();
         if curr_mem + reg.memory > self.resources.memory_mb {
             let avail = self.resources.memory_mb - curr_mem;
@@ -426,15 +426,15 @@ impl ContainerManager {
                 reg,
                 chosen_iso,
                 compute,
-                counter.clone(),
+                gpu,
                 tid,
             )
             .await;
         let cont = match cont {
             Ok(cont) => cont,
-            Err(e) => {
+            Err((e, gpu)) => {
                 *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
-                self.return_gpu(counter, tid);
+                self.return_gpu(gpu, tid);
                 return Err(e);
             }
         };
@@ -446,7 +446,7 @@ impl ContainerManager {
             Ok(_) => (),
             Err(e) => {
                 *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
-                self.return_gpu(counter, tid);
+                self.return_gpu(cont.revoke_device(), tid);
                 match cont_lifecycle.remove_container(cont, "default", tid).await {
                     Ok(_) => {
                         return Err(e);
@@ -528,7 +528,6 @@ impl ContainerManager {
         let pool = self.get_resource_pool(compute)?;
         pool.add_idle_container(container, tid);
         self.prioritiy_notify.notify_waiters();
-        // self.add_container_to_pool(&pool.idle_containers, container, tid)?;
         info!(tid=%tid, fqdn=%reg.fqdn, "function was successfully prewarmed");
         Ok(())
     }
@@ -550,7 +549,7 @@ impl ContainerManager {
             None => bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported"),
         };
         *self.used_mem_mb.write() -= container.get_curr_mem_usage();
-        self.return_gpu(container.device_resource().clone(), tid);
+        self.return_gpu(container.revoke_device(), tid);
         container.remove_drop(tid);
         self.prioritiy_notify.notify_waiters();
         r
@@ -699,6 +698,7 @@ mod tests {
     use super::*;
     use crate::{services::containers::IsolationFactory, worker_api::worker_config::Configuration};
     use iluvatar_library::transaction::TEST_TID;
+    use std::collections::HashMap;
 
     fn cpu_reg() -> Arc<RegisteredFunction> {
         Arc::new(RegisteredFunction {
@@ -712,6 +712,7 @@ mod tests {
             snapshot_base: "test-test".into(),
             isolation_type: Isolation::DOCKER,
             supported_compute: Compute::CPU,
+            historical_runtime_data_sec: HashMap::new(),
         })
     }
 

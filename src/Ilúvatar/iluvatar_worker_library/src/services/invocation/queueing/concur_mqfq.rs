@@ -75,7 +75,7 @@ impl Flow {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
     fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
         debug!(tid=%item.tid, error=%cause, "Marking invocation as error");
-        item.mark_error(cause);
+        item.mark_error(&cause);
     }
 
     /// Returns an owned permit if there are sufficient resources to run a function
@@ -84,7 +84,7 @@ impl Flow {
         &self,
         reg: &Arc<RegisteredFunction>,
         tid: &TransactionId,
-        gpu: Option<Arc<GPU>>,
+        gpu: Option<&GPU>,
     ) -> Option<DroppableToken> {
         let mut ret: Vec<DroppableToken> = vec![];
         match self.cpu.try_acquire_cores(reg, tid) {
@@ -102,7 +102,7 @@ impl Flow {
                 return None;
             }
         };
-        match self.gpu.try_acquire_resource(gpu.as_ref(), tid) {
+        match self.gpu.try_acquire_resource(gpu, tid) {
             Ok(c) => ret.push(c.into()),
             Err(e) => {
                 match e {
@@ -198,11 +198,9 @@ impl Flow {
                     Some(c) => c,
                     None => continue,
                 };
-                if let Some(has_tokens) = self.acquire_resources_to_run(
-                    &self.registration,
-                    &mv_tid,
-                    ctr_lck.container.device_resource().clone(),
-                ) {
+                let gpu = ctr_lck.container.device_resource();
+                if let Some(has_tokens) = self.acquire_resources_to_run(&self.registration, &mv_tid, gpu.as_ref()) {
+                    drop(gpu);
                     let min: f64 = self.mindicator.min();
                     if let Some(item) = self.queue.pop_flow(&mv_tid, min) {
                         let remove_time = self.clock.now();
@@ -212,7 +210,7 @@ impl Flow {
                     } else {
                         break;
                     }
-                }
+                };
             }
             tokio::select! {
               _ = self.queue_signal.notified() => continue,

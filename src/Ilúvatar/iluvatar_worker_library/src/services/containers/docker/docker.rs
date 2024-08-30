@@ -1,5 +1,6 @@
 use self::dockerstructs::DockerContainer;
 use super::{structs::Container, ContainerIsolationService};
+use crate::services::resources::gpu::GPU;
 use crate::{
     services::{containers::structs::ContainerState, registration::RegisteredFunction},
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
@@ -19,8 +20,9 @@ use bollard::{
 use dashmap::DashSet;
 use futures::StreamExt;
 use guid_create::GUID;
+use iluvatar_library::types::{err_val, ResultErrorVal};
 use iluvatar_library::{
-    bail_error,
+    bail_error, bail_error_value, error_value,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
     utils::port::free_local_port,
@@ -28,6 +30,7 @@ use iluvatar_library::{
 use std::collections::HashMap;
 use std::{sync::Arc, time::SystemTime};
 use tracing::{debug, error, info, warn};
+
 pub mod dockerstructs;
 
 const OWNER_TAG: &str = "owner=iluvatar_worker";
@@ -106,7 +109,7 @@ impl DockerIsolation {
         mut env: Vec<&str>,
         mem_limit_mb: MemSizeMb,
         cpus: u32,
-        device_resource: &Option<Arc<crate::services::resources::gpu::GPU>>,
+        device_resource: &Option<crate::services::resources::gpu::GPU>,
         ports: BollardPortBindings,
         host_config: Option<HostConfig>,
         entrypoint: Option<Vec<String>>,
@@ -128,7 +131,9 @@ impl DockerIsolation {
         let mut device_requests = vec![];
 
         let mps_thread;
+        let mps_mem;
         if let Some(device) = device_resource.as_ref() {
+            info!(tid=%tid, container_id=%container_id, "Container will get a GPU");
             device_requests.push(DeviceRequest {
                 driver: Some("".into()),
                 count: None,
@@ -144,9 +149,12 @@ impl DockerIsolation {
             }
 
             if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
-                host_config.runtime = Some("host".to_owned());
+                info!(tid=%tid, container_id=%container_id, threads=device.thread_pct, memory=device.allotted_mb, "Container running inside MPS context");
+                host_config.ipc_mode = Some("host".to_owned());
                 mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
+                mps_mem = format!("CUDA_MPS_PINNED_DEVICE_MEM_LIMIT={}MB", device.allotted_mb);
                 env.push(mps_thread.as_str());
+                env.push(mps_mem.as_str());
                 volumes.push("/tmp/nvidia-mps:/tmp/nvidia-mps".to_owned());
             }
             if self
@@ -266,16 +274,22 @@ impl ContainerIsolationService for DockerIsolation {
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
-        device_resource: Option<Arc<crate::services::resources::gpu::GPU>>,
+        device_resource: Option<GPU>,
         tid: &TransactionId,
-    ) -> Result<Container> {
+    ) -> ResultErrorVal<Container, Option<GPU>> {
         if !iso.eq(&Isolation::DOCKER) {
-            anyhow::bail!("Only supports docker Isolation, now {:?}", iso);
+            error_value!("Only supports docker Isolation, now {:?}", iso, device_resource);
         }
         let mut env = vec![];
         let cid = format!("{}-{}", fqdn, GUID::rand());
-        let port = free_local_port()?;
-        let gunicorn_args = format!("GUNICORN_CMD_ARGS=--bind 0.0.0.0:{}", port);
+        let port = match free_local_port() {
+            Ok(p) => p,
+            Err(e) => return err_val(e, device_resource),
+        };
+        let gunicorn_args = format!(
+            "GUNICORN_CMD_ARGS=--workers=1 --timeout={} --bind=0.0.0.0:{}",
+            &self.limits_config.timeout_sec, port
+        );
         env.push(gunicorn_args.as_str());
         let mut ports = HashMap::new();
         ports.insert(
@@ -295,29 +309,33 @@ impl ContainerIsolationService for DockerIsolation {
                     Some(p)
                 }
                 Err(e) => {
-                    bail_error!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore");
+                    bail_error_value!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore", device_resource);
                 }
             },
             None => None,
         };
 
-        self.docker_run(
-            tid,
-            image_name,
-            cid.as_str(),
-            env,
-            mem_limit_mb,
-            cpus,
-            &device_resource,
-            Some(ports),
-            None,
-            None,
-        )
-        .await?;
+        if let Err(e) = self
+            .docker_run(
+                tid,
+                image_name,
+                cid.as_str(),
+                env,
+                mem_limit_mb,
+                cpus,
+                &device_resource,
+                Some(ports),
+                None,
+                None,
+            )
+            .await
+        {
+            bail_error_value!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore", device_resource);
+        };
 
         drop(permit);
         unsafe {
-            let c = DockerContainer::new(
+            let c = match DockerContainer::new(
                 cid,
                 port,
                 "0.0.0.0".to_string(),
@@ -329,7 +347,10 @@ impl ContainerIsolationService for DockerIsolation {
                 compute,
                 device_resource,
                 tid,
-            )?;
+            ) {
+                Ok(c) => c,
+                Err((e, d)) => return err_val(e, d),
+            };
             Ok(Arc::new(c))
         }
     }
@@ -438,8 +459,6 @@ impl ContainerIsolationService for DockerIsolation {
             };
             if start.elapsed()?.as_millis() as u64 >= timeout_ms {
                 let (stdout, stderr) = self.get_logs(container.container_id(), tid).await?;
-                // let stdout = self.read_stdout(container, tid).await;
-                // let stderr = self.read_stderr(container, tid).await;
                 if !stderr.is_empty() {
                     warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for docker container start, but stderr was written to?");
                     return Ok(());
@@ -463,7 +482,7 @@ impl ContainerIsolationService for DockerIsolation {
         };
         let options = StatsOptions {
             stream: false,
-            one_shot: false,
+            one_shot: true,
         };
         let mut stream = self
             .docker_api
@@ -484,21 +503,15 @@ impl ContainerIsolationService for DockerIsolation {
                 }
             }
         }
-        warn!(tid=%tid, "Fell out of bottom of stats stream loop");
+        warn!(tid=%tid, container_id=%container.container_id(), "Fell out of bottom of stats stream loop");
         container.get_curr_mem_usage()
     }
 
     async fn read_stdout(&self, container: &Container, tid: &TransactionId) -> String {
-        match self.get_stdout(container, tid).await {
-            Ok(out) => out,
-            Err(_) => "".to_string(),
-        }
+        self.get_stdout(container, tid).await.unwrap_or_else(|_| "".to_string())
     }
     async fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
-        match self.get_stderr(container, tid).await {
-            Ok(err) => err,
-            Err(_) => "".to_string(),
-        }
+        self.get_stderr(container, tid).await.unwrap_or_else(|_| "".to_string())
     }
 }
 impl crate::services::containers::structs::ToAny for DockerIsolation {

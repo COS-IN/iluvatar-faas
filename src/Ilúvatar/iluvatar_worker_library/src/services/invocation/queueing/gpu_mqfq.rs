@@ -57,11 +57,11 @@ pub struct MqfqConfig {
 }
 
 /// Multi-Queue Fair Queueing.
-/// Refer to ATC '19 paper by Hedayati et.al.
-/// Key modifications:
-///   1. Concurrency with D tokens.
-///   2. Grace period for anticipatory batching.
+/// Refer to ATC '19 paper by Hedayati et al.
 /// Each function is its own flow.
+/// Key modifications:
+///   1. Dynamic concurrency with D tokens.
+///   2. Grace period for anticipatory batching.
 #[derive(PartialEq, Debug, Copy, Clone, serde::Serialize)]
 pub enum MQState {
     /// Non-empty queues are active
@@ -301,7 +301,7 @@ pub struct MQFQ {
     /// Keyed by function name  (qid)
     pub mqfq_set: DashMap<String, FlowQ>,
 
-    ///Remaining passed by gpu_q_invoke
+    /// Remaining passed by gpu_q_invoke
     cont_manager: Arc<ContainerManager>,
     cmap: Arc<CharacteristicsMap>,
     /// Use this as a token bucket
@@ -565,7 +565,7 @@ impl MQFQ {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
     fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
         debug!(tid=%item.tid, error=%cause, "Marking invocation as error");
-        item.mark_error(cause);
+        item.mark_error(&cause);
     }
 
     /// acquires a container and invokes the function inside it

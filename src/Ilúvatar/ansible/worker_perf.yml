@@ -22,12 +22,6 @@
     register: running_worker
     when: mode == "clean"
 
-  - name: debug print
-    # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
-    run_once: true
-    debug:
-      msg: "{{ __worker_address }}"
-
   - name: Kill running worker process on localhost
     shell: "kill --signal SIGINT {{ item }}"
     with_items: "{{ running_worker.stdout_lines }}"

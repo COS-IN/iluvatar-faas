@@ -1,4 +1,7 @@
 - hosts: workers
+  vars_files:
+    - group_vars/all.yml
+    - group_vars/host_addresses.yml
   vars:
     expected: "Connection failure: [Errno 104] Connection reset by peer"
     host_group: "{{ groups['workers'] }}"
@@ -12,6 +15,7 @@
     __remote_bin_src: "{{ remote_bin_src | default(false) }}"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     __hardware_interface: "{{ hardware_interface | default(servers[ansible_host].hardware_interface) }}"
+    __controller_address: "http://{{ controller.host }}:{{ controller.port }}"
     SIGINT: 2
     coded_proxy_env:
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
@@ -20,10 +24,18 @@
       "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
       "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
       "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
-      "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:{{ controller.port }}"
       "ILUVATAR_WORKER__timeout_sec" : "{{ worker_timeout_sec | default(6000) }}"
       "ILUVATAR_WORKER__tokio_event_interval" : "{{ worker_tokio_event_interval | default(20) }}"
       "ILUVATAR_WORKER__tokio_queue_interval" : "{{ worker_tokio_queue_interval | default(20) }}"
+      "ILUVATAR_WORKER__load_balancer_url" : "{{ __controller_address if cluster else ''}}"
+
+      # Influx config
+      "ILUVATAR_WORKER__influx__host" : "{{ influx.address }}"
+      "ILUVATAR_WORKER__influx__org" : "{{ influx.organization }}"
+      "ILUVATAR_WORKER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token | default('') }}"
+      "ILUVATAR_WORKER__influx__enabled" : "{{ influx.enabled }}"
+      "ILUVATAR_WORKER__influx__update_freq_ms" : "{{ influx.update_freq_ms }}"
+
       # Limits
       "ILUVATAR_WORKER__limits__mem_max_mb" : "{{ worker_mem_max | default(5000) }}"
 
@@ -73,12 +85,6 @@
       "ILUVATAR_WORKER__energy_cap__power_cap" : "{{ worker_power_cap | default(0.0) }}"
       "ILUVATAR_WORKER__energy_cap__power_cap_version" : "{{ worker_power_cap_version | default('V0') }}"
 
-      # Influx config
-      "ILUVATAR_WORKER__influx__host" : "{{ influx.address }}"
-      "ILUVATAR_WORKER__influx__org" : "{{ influx.organization }}"
-      "ILUVATAR_WORKER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token | default('') }}"
-      "ILUVATAR_WORKER__influx__enabled" : "{{ influx.enabled }}"
-      "ILUVATAR_WORKER__influx__update_freq_ms" : "{{ influx.update_freq_ms }}"
       # Invocation config
       "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
       "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(100) }}"
@@ -99,11 +105,8 @@
       "ILUVATAR_WORKER__invocation__mqfq_config__flow_select_cnt" : "{{ mqfq_flow_select_cnt | default(0) }}"
     proxy_env: "{{ coded_proxy_env | combine(worker.environment, recursive=True) }}"
 
-  vars_files:
-    - group_vars/all.yml
-    - group_vars/host_addresses.yml
-
   tasks:
+
   - name: Create bin directory
     file:
       path: "{{bin_dir}}"
@@ -184,6 +187,12 @@
     environment: "{{proxy_env}}"
     register: worker_output
 
+  - name: debug print
+    # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+    run_once: true
+    debug:
+      msg: "{{ worker_output }}"
+      
   - name: run worker executable through perf
     ansible.builtin.command: 
       argv: 
@@ -205,6 +214,12 @@
     when: mode == "perf"
     environment: "{{proxy_env}}"
     register: worker_output
+
+  - name: debug print
+    # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
+    run_once: true
+    debug:
+      msg: "{{ worker_output }}"
 
   - name: wait until the worker on this host is up and running
     ansible.builtin.uri:

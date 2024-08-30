@@ -14,6 +14,7 @@ use iluvatar_library::{
     types::{CommunicationMethod, Compute, Isolation},
     utils::port::Port,
 };
+use iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::{
     cmp::{max, min},
@@ -127,6 +128,26 @@ fn map_from_benchmark(
             let prewarms = compute_prewarms(func, default_prewarms, max_prewarms);
             func.prewarms = Some(prewarms);
             total_prewarms += prewarms;
+        }
+        match &func.chosen_name {
+            None => (),
+            Some(name) => {
+                let mut sim_data = HashMap::new();
+                for compute in func.parsed_compute.unwrap().into_iter() {
+                    let bench_data = bench.data.get(name).unwrap();
+                    let compute_data = bench_data.resource_data.get(&compute.try_into().unwrap()).unwrap();
+                    let warm_us = compute_data.warm_invoke_duration_us.iter().sum::<u128>()
+                        / compute_data.warm_invoke_duration_us.len() as u128;
+                    let cold_us = compute_data.cold_invoke_duration_us.iter().sum::<u128>()
+                        / compute_data.cold_invoke_duration_us.len() as u128;
+                    let compute_data = SimInvokeData {
+                        warm_dur_ms: (warm_us / 1000) as u64,
+                        cold_dur_ms: (cold_us / 1000) as u64,
+                    };
+                    sim_data.insert(compute, compute_data);
+                }
+                func.sim_invoke_data = Some(sim_data);
+            }
         }
     }
     println!("A total of {} prewarmed containers", total_prewarms);
@@ -245,7 +266,7 @@ fn worker_prewarm_functions(
                             if it.peek().is_none() {
                                 anyhow::bail!("prewarm failed because {}", errors)
                             }
-                            std::thread::sleep(Duration::from_millis(100));
+                            tokio::time::sleep(Duration::from_millis(100)).await;
                         }
                     };
                 }

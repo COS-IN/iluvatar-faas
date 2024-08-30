@@ -14,7 +14,7 @@
             "uid": 0,
             "gid": 0
         },
-        "args": [ "/usr/local/bin/gunicorn", "server:app", "--timeout", "$INVOKE_TIMEOUT" ],
+        "args": [ "/usr/local/bin/gunicorn", "server:app"],
         "env": [
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "TERM=xterm",
@@ -23,7 +23,7 @@
             "FLASK_APP=server",
             "FLASK_RUN_PORT=$PORT",
             "FLASK_RUN_HOST=$HOST_ADDR",
-            "GUNICORN_CMD_ARGS=-w 1 --bind $HOST_ADDR:$PORT"
+            "GUNICORN_CMD_ARGS=--workers=1 --timeout=$INVOKE_TIMEOUT --bind=$HOST_ADDR:$PORT"
         ],
         "cwd": "/app",
         "rlimits": [{
