@@ -941,9 +941,9 @@ impl GpuResourceTracker {
             }
         }
     }
-    pub fn memory_pressure(&self, gpu: &GPU) -> (MemSizeMb,MemSizeMb) {
+    pub fn memory_pressure(&self, gpu: &GPU) -> (MemSizeMb, MemSizeMb) {
         match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
-            None => (0,0),
+            None => (0, 0),
             Some(meta) => {
                 let curr = *meta.device_allocated_memory.read();
                 (curr, meta.hardware_memory_mb)

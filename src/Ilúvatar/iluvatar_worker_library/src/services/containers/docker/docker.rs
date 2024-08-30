@@ -286,7 +286,10 @@ impl ContainerIsolationService for DockerIsolation {
             Ok(p) => p,
             Err(e) => return err_val(e, device_resource),
         };
-        let gunicorn_args = format!("GUNICORN_CMD_ARGS=--workers=1 --timeout={} --bind=0.0.0.0:{}", &self.limits_config.timeout_sec, port);
+        let gunicorn_args = format!(
+            "GUNICORN_CMD_ARGS=--workers=1 --timeout={} --bind=0.0.0.0:{}",
+            &self.limits_config.timeout_sec, port
+        );
         env.push(gunicorn_args.as_str());
         let mut ports = HashMap::new();
         ports.insert(
@@ -304,10 +307,10 @@ impl ContainerIsolationService for DockerIsolation {
                 Ok(p) => {
                     debug!(tid=%tid, "Acquired docker creation semaphore");
                     Some(p)
-                },
+                }
                 Err(e) => {
                     bail_error_value!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore", device_resource);
-                },
+                }
             },
             None => None,
         };
