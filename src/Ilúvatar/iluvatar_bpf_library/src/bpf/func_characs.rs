@@ -21,6 +21,16 @@ mod charmap {
     ));
 }
 use charmap::*;
+pub use charmap::CharmapSkel;
+use std::fmt::{Debug, Formatter, Error};
+
+impl Debug for CharmapSkel<'_> {
+    // Required method
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error>{
+        f.debug_struct("BPF Program")
+            .finish()
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
