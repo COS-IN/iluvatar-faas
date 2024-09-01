@@ -19,7 +19,11 @@ use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_library::characteristics_map::CharacteristicsPacket;
 use iluvatar_library::{utils::execute_cmd_nonblocking};
 
+use iluvatar_bpf_library::bpf::func_characs::*;
+use std::mem::MaybeUninit;
+
 use std::sync::Arc;
+use std::sync::mpsc::{channel, Receiver};
 use std::path::Path;
 use std::fs::File;
 use serde::{Deserialize, Serialize};
@@ -132,8 +136,33 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     // launch the fine grained scheduler  
     launch_scheduler( &worker_config );
 
-    // Charateristics Map 
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
+    // create a multi-producer and single consumer async channel 
+    let (tx, rx) = channel::<(u64,CharVal)>();
+
+    // move the consumer end to a separate thread 
+    // where data is pushed to the map 
+    thread::spawn(move|| {
+        // build the bpf characteristics map 
+        let mut open_object = MaybeUninit::uninit();
+        let mut skel = build_and_load( &mut open_object ).unwrap(); 
+        let mut fcmap = skel
+            .maps
+            .func_characs;
+
+        // Unbounded receiver waiting for all senders to complete.
+        while let Ok((key, val)) = rx.recv() {
+            update_map( &mut fcmap, key, &val );
+        }
+    });
+
+    // charateristics map 
+    // push the producer end of the channel to the characteristics map 
+    let cmap = Arc::new( 
+        CharacteristicsMap::new(
+            AgExponential::new( 0.6 ),
+            Some(tx) 
+        )
+    );
 
     let factory = IsolationFactory::new(worker_config.clone());
     let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, tid)

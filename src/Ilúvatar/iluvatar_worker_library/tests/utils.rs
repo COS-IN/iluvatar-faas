@@ -77,7 +77,7 @@ pub async fn full_sim_invoker(
         ),
         false => None,
     };
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
+    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6), None));
     let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
@@ -165,7 +165,7 @@ pub async fn sim_invoker_svc(
         }
         None => None,
     };
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
+    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6), None));
     let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
@@ -250,7 +250,7 @@ pub async fn test_invoker_svc(
         ),
         false => None,
     };
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
+    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6), None));
     let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
 

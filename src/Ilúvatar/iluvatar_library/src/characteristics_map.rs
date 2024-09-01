@@ -7,6 +7,9 @@ use tracing::{debug, error};
 use csv::Writer;
 use serde::{Serialize, Deserialize};
 
+use iluvatar_bpf_library::bpf::func_characs::*;
+use std::sync::mpsc::Sender;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacteristicsPacket {
     pub fqdn: String,
@@ -142,10 +145,11 @@ pub struct CharacteristicsMap {
     /// Minimum of the values
     minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
+    fcmap_tx: Option<Sender<(u64,CharVal)>>,
 }
 
 impl CharacteristicsMap {
-    pub fn new(ag: AgExponential) -> Self {
+    pub fn new(ag: AgExponential, fcmap_tx: Option<Sender<(u64,CharVal)>> ) -> Self {
         // TODO: Implement file restore functionality here
 
         CharacteristicsMap {
@@ -153,6 +157,7 @@ impl CharacteristicsMap {
             agmap: DashMap::new(),
             minmap: DashMap::new(),
             ag,
+            fcmap_tx,
         }
     }
 
@@ -162,6 +167,16 @@ impl CharacteristicsMap {
         self.add_min(fqdn, chr, value.clone());
 
         let e0 = self.map.get_mut(fqdn);
+
+        if let Some(tx) = self.fcmap_tx.as_ref() {
+            let v = unwrap_val_f64( &value ) * 1000.0; // in ms 
+            let cv = CharVal{
+                prio: 1,
+                e2e: v as u32,
+                loc: 2,
+            };
+            tx.send( (1, cv ) );
+        }
 
         match e0 {
             // dashself.map of given fqdn
@@ -514,7 +529,7 @@ mod charmap {
     #[test]
     fn duration() {
         // Test 4 using Duration datatype for ExecTime
-        let m = CharacteristicsMap::new(AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(AgExponential::new(0.6), None);
         println!("--------------------------------------------------------------------");
         println!("Test 4: Using Duration Datatype for ExecTime");
 
@@ -565,7 +580,7 @@ mod charmap {
 
     #[test]
     fn lookup_agg() {
-        let m = CharacteristicsMap::new(AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(AgExponential::new(0.6), None);
 
         let push_video = || {
             m.add(
@@ -638,7 +653,7 @@ mod charmap {
 
     #[test]
     fn accumulation() {
-        let m = CharacteristicsMap::new(AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(AgExponential::new(0.6), None);
 
         m.add(
             "video_processing.0.0.1",
@@ -715,7 +730,7 @@ mod charmap {
         use float_cmp::approx_eq;
         use std::thread::sleep;
 
-        let m = CharacteristicsMap::new(AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(AgExponential::new(0.6), None);
         let fjd_011 = "json_dump.0.1.1".to_string();
 
         let verify_iat_lookup = |fname: &str, val_expc: f64| {
