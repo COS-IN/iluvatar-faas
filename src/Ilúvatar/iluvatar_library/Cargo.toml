@@ -38,6 +38,8 @@ influxdb2-structmap = "0.2"
 async-process = "2.0.0"
 csv = "1.3.0"
 regex = "*"
+iluvatar_bpf_library = { path = "../iluvatar_bpf_library" }
+libbpf-rs = { version = "0.24.4" }
 
 [dev-dependencies]
 rstest = "0.13.0"
