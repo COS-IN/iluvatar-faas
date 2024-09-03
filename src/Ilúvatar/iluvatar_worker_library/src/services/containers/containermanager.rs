@@ -242,6 +242,18 @@ impl ContainerManager {
         ret
     }
 
+    /// Returns the best possible idle container's [ContainerState] at this time
+    /// Can be either running or idle, if [ContainerState::Cold], then possibly no container found
+    pub fn container_cgroup_ids(&self, fqdn: &str, compute: Compute) -> Vec<u64> {
+        let cgroupids = vec!();
+        if compute == Compute::CPU {
+            cgroupids.extend( self.cpu_containers.get_cgroup_ids( fqdn ) );
+        } else if compute == Compute::GPU {
+            cgroupids.extend( self.gpu_containers.get_cgroup_ids( fqdn ) );
+        }
+        ret
+    }
+
     /// The number of containers for the given FQDN that are not idle
     /// I.E. they are executing an invocation
     /// 0 if the fqdn is unknown
