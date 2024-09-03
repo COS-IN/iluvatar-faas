@@ -13,10 +13,10 @@ use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::types::{Compute, Isolation, ResourceTimings};
-use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
-use iluvatar_library::{characteristics_map::AgExponential, energy::energy_logging::EnergyLogger};
+use iluvatar_library::{bail_error};
+use iluvatar_worker_library::utils::characteristics_map::{AgExponential, CharacteristicsMap, CharacteristicsPacket};
+use iluvatar_library::{energy::energy_logging::EnergyLogger};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
-use iluvatar_library::characteristics_map::CharacteristicsPacket;
 use iluvatar_library::{utils::execute_cmd_nonblocking};
 
 use iluvatar_bpf_library::bpf::func_characs::*;

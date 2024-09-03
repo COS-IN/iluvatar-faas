@@ -41,7 +41,7 @@ use libc::{sched_param, sched_setscheduler};
 
 use ipc_channel::ipc::{self, IpcOneShotServer, IpcSender, IpcReceiver};
 use iluvatar_worker_library::worker_api::Channels;
-use iluvatar_library::characteristics_map::CharacteristicsPacket;
+use iluvatar_worker_library::utils::characteristics_map::CharacteristicsPacket;
 use iluvatar_worker_library::services::containers::containerd::PidsPacket;
 
 const SCHED_EXT: i32 = 7;

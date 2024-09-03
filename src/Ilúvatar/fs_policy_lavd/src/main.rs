@@ -38,7 +38,7 @@ use plain::Plain;
 use rlimit::{getrlimit, setrlimit, Resource};
 
 use iluvatar_worker_library::worker_api::Channels;
-use iluvatar_library::characteristics_map::CharacteristicsPacket;
+use iluvatar_worker_library::utils::characteristics_map::CharacteristicsPacket;
 use iluvatar_worker_library::services::containers::containerd::PidsPacket;
 
 use serde::{Deserialize,Serialize};

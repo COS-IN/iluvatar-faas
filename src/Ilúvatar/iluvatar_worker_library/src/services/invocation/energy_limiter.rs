@@ -1,5 +1,5 @@
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_worker_library::utils::characteristics_map::{CharacteristicsMap};
 use iluvatar_library::energy::energy_logging::EnergyLogger;
 use std::sync::Arc;
 

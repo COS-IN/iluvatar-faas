@@ -1,6 +1,7 @@
 pub mod rpc;
 pub mod services;
 pub mod worker_api;
+pub mod utils;
 use dashmap::DashMap;
 use std::sync::RwLock;
 
