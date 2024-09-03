@@ -10,9 +10,10 @@ use crate::services::{
 };
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig, WorkerConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::{Characteristics, Values};
+use iluvatar_worker_library::utils::characteristics_map::{Characteristics, Values};
 use iluvatar_library::logging::LocalTime;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
+use iluvatar_library::{transaction::TransactionId, types::Compute};
+use iluvatar_worker_library::utils::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
 use time::Instant;

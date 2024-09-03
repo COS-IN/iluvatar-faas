@@ -1,6 +1,7 @@
 use crate::services::containers::containermanager::ContainerManager;
 use anyhow::Result;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId};
+use iluvatar_library::{transaction::TransactionId};
+use iluvatar_worker_library::utils::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::debug;

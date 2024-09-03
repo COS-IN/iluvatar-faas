@@ -3,7 +3,7 @@ use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::structs::{ContainerState, ParsedResult};
 use crate::services::registration::RegisteredFunction;
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_worker_library::utils::characteristics_map::CharacteristicsMap;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
