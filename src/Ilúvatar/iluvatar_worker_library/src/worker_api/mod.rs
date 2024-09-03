@@ -155,14 +155,6 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         }
     });
 
-    // charateristics map 
-    // push the producer end of the channel to the characteristics map 
-    let cmap = Arc::new( 
-        CharacteristicsMap::new(
-            AgExponential::new( 0.6 ),
-            Some(tx) 
-        )
-    );
 
     let factory = IsolationFactory::new(worker_config.clone());
     let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, tid)
@@ -190,6 +182,16 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     )
     .await
     .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make container manger"))?;
+
+    // charateristics map 
+    // push the producer end of the channel to the characteristics map 
+    let cmap = Arc::new( 
+        CharacteristicsMap::new(
+            AgExponential::new( 0.6 ),
+            Some(tx),
+            container_man.clone(),
+        )
+    );
 
     let reg = RegistrationService::new(
         container_man.clone(),

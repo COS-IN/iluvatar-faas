@@ -146,18 +146,23 @@ pub struct CharacteristicsMap {
     minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
     fcmap_tx: Option<Sender<(u64,CharVal)>>,
+    container_man: Arc<ContainerManager>,
 }
 
 impl CharacteristicsMap {
-    pub fn new(ag: AgExponential, fcmap_tx: Option<Sender<(u64,CharVal)>> ) -> Self {
+    pub fn new( 
+        ag: AgExponential, 
+        fcmap_tx: Option<Sender<(u64,CharVal)>>,
+        container_man: Arc<ContainerManager>,
+    ) -> Self {
         // TODO: Implement file restore functionality here
-
         CharacteristicsMap {
             map: DashMap::new(),
             agmap: DashMap::new(),
             minmap: DashMap::new(),
             ag,
             fcmap_tx,
+            container_man,
         }
     }
 
@@ -167,6 +172,10 @@ impl CharacteristicsMap {
         self.add_min(fqdn, chr, value.clone());
 
         let e0 = self.map.get_mut(fqdn);
+
+        // print out all the cgroupid for this fqdn 
+        let cgids = self.container_man.get_cgroup_ids();
+        println!("fqdn {} -> {:?}", fqdn, cgids);
 
         if let Some(tx) = self.fcmap_tx.as_ref() {
             let v = unwrap_val_f64( &value ) * 1000.0; // in ms 
