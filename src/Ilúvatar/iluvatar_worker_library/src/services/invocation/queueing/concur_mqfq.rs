@@ -10,7 +10,7 @@ use crate::services::resources::gpu::{GpuResourceTracker, GPU};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_worker_library::utils::characteristics_map::CharacteristicsMap;
+use crate::utils::characteristics_map::CharacteristicsMap;
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::threading::EventualItem;

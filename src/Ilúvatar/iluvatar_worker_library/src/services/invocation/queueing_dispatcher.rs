@@ -12,7 +12,7 @@ use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracke
 use crate::services::{containers::containermanager::ContainerManager, invocation::queueing::EnqueueingPolicy};
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig, WorkerConfig};
 use anyhow::Result;
-use iluvatar_worker_library::utils::characteristics_map::{CharacteristicsMap};
+use crate::utils::characteristics_map::{CharacteristicsMap};
 use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{logging::LocalTime, transaction::TransactionId, types::Compute};
 use parking_lot::RwLock;
@@ -24,7 +24,7 @@ use time::OffsetDateTime;
 use tracing::{debug, info};
 use crate::{SCHED_CHANNELS, get_pid_from_fqdn};
 use crate::services::containers::containerd::PidsPacket;
-use iluvatar_worker_library::utils::characteristics_map::{CharacteristicsPacket};
+use crate::utils::characteristics_map::{CharacteristicsPacket};
 use iluvatar_library::utils::get_all_children;
 
 lazy_static::lazy_static! {

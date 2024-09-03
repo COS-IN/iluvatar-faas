@@ -5,7 +5,7 @@ use crate::services::{
 };
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_worker_library::utils::characteristics_map::CharacteristicsMap;
+use crate::utils::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
 use std::sync::{atomic::AtomicUsize, Arc};
 
@@ -88,7 +88,7 @@ impl GpuQueuePolicy for BatchGpuQueue {
 #[cfg(test)]
 mod oldest_batch {
     use super::*;
-    use iluvatar_worker_library::utils::characteristics_map::{Characteristics, Values};
+    use crate::utils::characteristics_map::{Characteristics, Values};
     use time::OffsetDateTime;
 
     fn reg(name: &str) -> Arc<RegisteredFunction> {

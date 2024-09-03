@@ -13,9 +13,6 @@ cd $script_path
 
 
 fs=(
-    ./fs_policy_locality/src/main.rs
-    ./fs_policy_lavd/src/main.rs
-    ./fs_policy_constrained/src/main.rs
     iluvatar_worker_library/src/worker_api/mod.rs
     iluvatar_worker_library/src/services/invocation/queueing_dispatcher.rs
     iluvatar_worker_library/src/services/invocation/queueing_dispatcher.rs
@@ -39,14 +36,13 @@ fs=(
     iluvatar_worker_library/src/services/invocation/queueing/concur_mqfq.rs
     iluvatar_worker_library/src/services/invocation/queueing/mod.rs
     iluvatar_worker_library/tests/container_sim_tests.rs
-    ./fs_policy_powof2/src/main.rs
-    ./fs_policy_fifo/src/main.rs
+    fs_policy_powof2/src/main.rs
+    fs_policy_fifo/src/main.rs
 )
-
 
 for f in ${fs[@]}; do 
     sed -i \
-        's/use.*characteristics_map/use iluvatar_worker_library::utils::characteristics_map/g' \
+        's/use iluvatar_worker_library::utils::characteristics_map/use crate::utils::characteristics_map/' \
         $f 
 done
 

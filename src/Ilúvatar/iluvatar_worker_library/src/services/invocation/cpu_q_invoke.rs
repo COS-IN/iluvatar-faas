@@ -13,7 +13,7 @@ use crate::services::invocation::invoke_on_container;
 use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
-use iluvatar_worker_library::utils::characteristics_map::{CharacteristicsMap};
+use crate::utils::characteristics_map::{CharacteristicsMap};
 use iluvatar_library::{
     logging::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
 };

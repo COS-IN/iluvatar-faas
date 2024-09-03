@@ -5,7 +5,7 @@ use crate::services::{
 };
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_worker_library::utils::characteristics_map::CharacteristicsMap;
+use crate::utils::characteristics_map::CharacteristicsMap;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::{atomic::AtomicUsize, Arc};

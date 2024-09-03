@@ -14,7 +14,7 @@ use anyhow::Result;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::types::{Compute, Isolation, ResourceTimings};
 use iluvatar_library::{bail_error};
-use iluvatar_worker_library::utils::characteristics_map::{AgExponential, CharacteristicsMap, CharacteristicsPacket};
+use crate::utils::characteristics_map::{AgExponential, CharacteristicsMap, CharacteristicsPacket};
 use iluvatar_library::{energy::energy_logging::EnergyLogger};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_library::{utils::execute_cmd_nonblocking};

@@ -9,7 +9,7 @@ use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
-use iluvatar_worker_library::utils::characteristics_map::CharacteristicsMap;
+use crate::utils::characteristics_map::CharacteristicsMap;
 use iluvatar_library::logging::LocalTime;
 use iluvatar_library::threading::{tokio_runtime, EventualItem};
 use iluvatar_library::transaction::TransactionId;
