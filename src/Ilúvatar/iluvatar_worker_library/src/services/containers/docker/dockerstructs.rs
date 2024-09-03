@@ -36,6 +36,7 @@ pub struct DockerContainer {
     device: Option<Arc<GPU>>,
     mem_usage: RwLock<MemSizeMb>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
+    cgroup_id: u64,
 }
 
 impl DockerContainer {
@@ -51,6 +52,7 @@ impl DockerContainer {
         compute: Compute,
         device: Option<Arc<GPU>>,
         tid: &TransactionId,
+        cgroup_id: u64,
     ) -> Result<Self> {
         let client = HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid)?;
         let r = DockerContainer {
@@ -66,6 +68,7 @@ impl DockerContainer {
             state: Mutex::new(state),
             device,
             drop_on_remove: Mutex::new(vec![]),
+            cgroup_id
         };
         Ok(r)
     }

@@ -256,6 +256,22 @@ impl ContainerPool {
         }
         (pos, pool_len)
     }
+
+    /// get all the cgroup_ids corresponding to given fqdn in this pool 
+    pub fn get_cgroup_ids(&self, fqdn: &str) -> Vec<u64> {
+        let mut cgroup_ids = Vec::new();
+        if let Some(c) = self.idle_pool.get(fqdn) {
+            for cont in &*c {
+                cgroup_ids.push(cont.get_cgroupid());
+            }
+        }
+        if let Some(c) = self.running_pool.get(fqdn) {
+            for cont in &*c {
+                cgroup_ids.push(cont.get_cgroupid());
+            }
+        }
+        cgroup_ids
+    }
 }
 
 #[cfg(test)]

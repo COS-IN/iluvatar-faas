@@ -328,6 +328,7 @@ impl ContainerIsolationService for DockerIsolation {
                 compute,
                 device_resource,
                 tid,
+                cgroup_id,
             )?;
             Ok(Arc::new(c))
         }

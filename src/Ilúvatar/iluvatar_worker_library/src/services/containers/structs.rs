@@ -23,6 +23,9 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
     /// Invoke the function within the container, passing the json args to it
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)>;
 
+    /// get cgroup id 
+    fn get_cgroupid(&self) -> u64;
+
     /// indicate that the container as been "used" or internal datatsructures should be updated such that it has
     fn touch(&self);
     /// the unique ID for this container
