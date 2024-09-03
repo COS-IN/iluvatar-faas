@@ -65,7 +65,7 @@ impl DockerIsolation {
         tid: &TransactionId,
         env: Option<&HashMap<String, String>>,
         fqdn: Option<&str>,
-    ) -> Result<()> {
+    ) -> Result<(u64)> {
         run_args.insert(0, "run");
         run_args.extend(["--label", "owner=iluvatar_worker", "--detach", image_name]);
         if let Some(a) = proc_args {
@@ -74,22 +74,36 @@ impl DockerIsolation {
         let output = execute_cmd_async("/usr/bin/docker", run_args, env, tid).await?;
         match output.status.code() {
             Some(0) => {
-                let pargs = vec![ "inspect", "-f", "'{{.State.Pid}}'", container_id.clone() ];
-                let pidoutput = execute_cmd_async( "/usr/bin/docker", pargs, env, tid ).await?;
-                let pidoutput = String::from_utf8_lossy(&pidoutput.stdout).trim().trim_matches('\'').to_string();
+                let inspect_container = | cid: &str, field: &str | {
+                    let pargs = vec![ "inspect", "-f", field, cid.clone() ];
+                    if let Ok(output) = execute_cmd( "/usr/bin/docker", pargs, env, tid ) {
+                        return String::from_utf8_lossy(&output.stdout).trim().trim_matches('\'').to_string();
+                    }
+                    "".to_string()
+                };
+                let pidoutput = inspect_container( container_id.clone(), "'{{.State.Pid}}'" );
                 let pid = match pidoutput.parse::<u32>() {
                     Ok(p) => p,
                     Err(_) => 0,
                 };
+                let cgroup_idoutput = inspect_container( container_id.clone(), "'{{.Id}}'" );
+                let cgroup_id = match u64::from_str_radix( &cgroup_idoutput[0..12], 16 ) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        0
+                    },
+                };
+
                 let fqdn = fqdn.unwrap_or("unknown");
-                
+
                 if pid != 0 && fqdn != "unknown"{
                     insert_to_fqdn_pid_map( fqdn.to_string(), pid );
                 }
 
                 debug!(tid=%tid, name=%image_name, containerid=%container_id, fqdn=%fqdn, pidoutput=%pidoutput, output=?output, "Docker container started successfully");
-                info!(tid=%tid, name=%image_name, containerid=%container_id, "Docker container started successfully");
-                Ok(())
+                info!(tid=%tid, name=%image_name, containerid=%container_id, cgroup_id=%cgroup_id, "Docker container started successfully");
+                Ok((cgroup_id))
             }
             Some(error_stat) => {
                 bail_error!(tid=%tid, status=error_stat, output=?output, "Failed to create docker container with exit code")
@@ -293,8 +307,13 @@ impl ContainerIsolationService for DockerIsolation {
         let time = format!("{}", self.limits_config.timeout_sec);
         let proc_args = vec!["server:app", "-w", "1", "--timeout", time.as_str()];
         // let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
-        self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None, Some(fqdn.clone()))
+        let cgroup_id = self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None, Some(fqdn.clone()))
             .await?;
+        println!("fqdn {} -> cgroup_id {}", 
+                fqdn,
+                cgroup_id
+            );
+
         drop(permit);
         unsafe {
             let c = DockerContainer::new(

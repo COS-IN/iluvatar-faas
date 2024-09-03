@@ -336,9 +336,12 @@ impl GpuResourceTracker {
             "/tmp/nvidia-mps:/tmp/nvidia-mps",
         ];
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
-        docker
+        match docker
             .docker_run( args, img_name, "iluvatar_mps_control", Some(vec!["-f"]), tid, None, None )
-            .await
+            .await {
+                Ok(cgroup_id) => Ok(()),
+                Err(e) => Err(e),
+        }
     }
 
     fn set_shared_exclusive(tid: &TransactionId) -> Result<()> {
