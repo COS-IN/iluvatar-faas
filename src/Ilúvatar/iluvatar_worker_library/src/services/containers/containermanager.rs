@@ -251,7 +251,7 @@ impl ContainerManager {
         } else if compute == Compute::GPU {
             cgroupids.extend( self.gpu_containers.get_cgroup_ids( fqdn ) );
         }
-        ret
+        cgroupids 
     }
 
     /// The number of containers for the given FQDN that are not idle

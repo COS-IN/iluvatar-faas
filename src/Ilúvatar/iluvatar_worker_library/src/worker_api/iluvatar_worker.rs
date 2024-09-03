@@ -9,8 +9,9 @@ use crate::worker_api::config::WorkerConfig;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
 use iluvatar_library::{
-    characteristics_map::CharacteristicsMap, energy::energy_logging::EnergyLogger, utils::calculate_fqdn,
+    energy::energy_logging::EnergyLogger, utils::calculate_fqdn,
 };
+use crate::utils::characteristics_map::CharacteristicsMap;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::{error, info};
