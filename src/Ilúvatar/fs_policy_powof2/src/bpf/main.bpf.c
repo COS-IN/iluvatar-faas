@@ -113,6 +113,18 @@ const volatile s32 powof2_cores[MAX_CPUS];
 // userland
 #define CMASK_GLOBAL_KEY 0x0
 
+// Callback for bpf_for_each_map_elem
+// long (\*callback_fn)(struct bpf_map \*map, const void \*key, void \*value, void \*ctx);
+// callback continues if return 0 
+//          stops if return 1
+static long func_characs_cb_print (void *map, const __u64 *key, CharVal_t *val, void *data){
+    info_msg("[map][func_characs] key: %llu e2e: %lu", 
+             *key,
+             val->e2e
+             ); 
+    return 0;
+}
+
 static volatile s32 next_qid = 0;
 
 static __always_inline s32 gen_qid()
@@ -574,6 +586,9 @@ s32 BPF_STRUCT_OPS(powof2_init_task, struct task_struct *p,
     if( v ){
         bpf_printk( "func_characs - v %d", v->prio );
     }
+
+    u64 stackptr = 0; 
+    bpf_for_each_map_elem(&func_characs, func_characs_cb_print, &stackptr, 0); 
 
 	return 0;
 }
