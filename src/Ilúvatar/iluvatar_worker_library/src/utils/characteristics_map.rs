@@ -180,16 +180,17 @@ impl CharacteristicsMap {
         if let Some(cm) = &self.container_man {
             let cgids = cm.container_cgroup_ids(fqdn, Compute::CPU);
             println!("fqdn {} -> {:?}", fqdn, cgids);
-        }
-
-        if let Some(tx) = self.fcmap_tx.as_ref() {
-            let v = unwrap_val_f64( &value ) * 1000.0; // in ms 
-            let cv = CharVal{
-                prio: 1,
-                e2e: v as u32,
-                loc: 2,
-            };
-            tx.send( (1, cv ) );
+            for cgid in cgids {
+                if let Some(tx) = self.fcmap_tx.as_ref() {
+                    let v = unwrap_val_f64( &value ) * 1000.0; // in ms 
+                    let cv = CharVal{
+                        prio: 1,
+                        e2e: v as u32,
+                        loc: 2,
+                    };
+                    tx.send( (cgid, cv ) );
+                }
+            }
         }
 
         match e0 {
