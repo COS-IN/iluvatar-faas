@@ -165,6 +165,10 @@ impl ContainerT for SimulatorContainer {
         Ok((result, d))
     }
 
+    fn get_cgroupid(&self) -> u64 {
+       0 
+    }
+
     fn touch(&self) {
         let mut lock = self.last_used.write();
         *lock = SystemTime::now();

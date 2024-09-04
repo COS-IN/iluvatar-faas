@@ -50,6 +50,7 @@ pub struct ContainerdContainer {
     client: HttpContainerClient,
     compute: Compute,
     device: Option<Arc<GPU>>,
+    cgroup_id: u64,
 }
 
 impl ContainerdContainer {
@@ -84,6 +85,7 @@ impl ContainerdContainer {
             mem_usage: RwLock::new(function.memory),
             state: Mutex::new(state),
             device,
+            cgroup_id: 0
         })
     }
 
@@ -107,6 +109,10 @@ impl ContainerT for ContainerdContainer {
                 Err(e)
             }
         }
+    }
+
+    fn get_cgroupid(&self) -> u64 {
+        self.cgroup_id
     }
 
     fn container_id(&self) -> &String {

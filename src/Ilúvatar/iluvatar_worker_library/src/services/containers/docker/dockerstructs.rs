@@ -103,6 +103,10 @@ impl ContainerT for DockerContainer {
         *lock = SystemTime::now();
     }
 
+    fn get_cgroupid(&self) -> u64 {
+        self.cgroup_id
+    }
+
     fn container_id(&self) -> &String {
         &self.container_id
     }
