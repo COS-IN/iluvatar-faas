@@ -182,11 +182,11 @@ impl CharacteristicsMap {
             println!("fqdn {} -> {:?}", fqdn, cgids);
             for cgid in cgids {
                 if let Some(tx) = self.fcmap_tx.as_ref() {
-                    let v = unwrap_val_f64( &value ) * 1000.0; // in ms 
+                    let v = self.avg_cpu_e2e_t(fqdn) * 1000.0; // in ms 
                     let cv = CharVal{
                         prio: 1,
-                        e2e: v as u32,
                         loc: 2,
+                        e2e: v as u32,
                     };
                     tx.send( (cgid, cv ) );
                 }
