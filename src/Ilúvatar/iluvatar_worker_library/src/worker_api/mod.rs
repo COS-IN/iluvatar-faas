@@ -189,7 +189,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         CharacteristicsMap::new(
             AgExponential::new( 0.6 ),
             Some(tx),
-            container_man.clone(),
+            Some(container_man.clone()),
         )
     );
 

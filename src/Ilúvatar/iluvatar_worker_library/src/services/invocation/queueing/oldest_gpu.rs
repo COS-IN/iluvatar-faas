@@ -108,7 +108,7 @@ mod oldest_batch {
 
     #[test]
     fn single_item_cold() {
-        let m = CharacteristicsMap::new(crate::utils::characteristics_map::AgExponential::new(0.6), None);
+        let m = CharacteristicsMap::new(crate::utils::characteristics_map::AgExponential::new(0.6), None, None);
         let name = "t1";
         let rf = reg(name);
 
@@ -133,7 +133,7 @@ mod oldest_batch {
 
     #[test]
     fn two_item_mix() {
-        let m = CharacteristicsMap::new(crate::utils::characteristics_map::AgExponential::new(0.6), None);
+        let m = CharacteristicsMap::new(crate::utils::characteristics_map::AgExponential::new(0.6), None, None);
         let name = "t1";
         let rf = reg(name);
         let invoke = Arc::new(EnqueuedInvocation::new(
@@ -164,7 +164,7 @@ mod oldest_batch {
 
     #[test]
     fn two_func_mix() {
-        let m = CharacteristicsMap::new(crate::utils::characteristics_map::AgExponential::new(0.6), None);
+        let m = CharacteristicsMap::new(crate::utils::characteristics_map::AgExponential::new(0.6), None, None);
         let name = "t1";
         let rf = reg(name);
         let invoke = Arc::new(EnqueuedInvocation::new(

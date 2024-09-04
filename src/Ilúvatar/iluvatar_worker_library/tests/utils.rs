@@ -1,6 +1,5 @@
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{
-    characteristics_map::{AgExponential, CharacteristicsMap},
     logging::{start_tracing, LoggingConfig},
     transaction::{TransactionId, TEST_TID},
 };
@@ -9,6 +8,7 @@ use iluvatar_worker_library::services::{
     invocation::{Invoker, InvokerFactory},
 };
 use iluvatar_worker_library::{
+    utils::characteristics_map::{AgExponential, CharacteristicsMap},
     rpc::{LanguageRuntime, RegisterRequest},
     services::{
         containers::structs::ContainerTimeFormatter,
@@ -77,7 +77,7 @@ pub async fn full_sim_invoker(
         ),
         false => None,
     };
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6), None));
+    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6), None, None));
     let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
@@ -165,7 +165,7 @@ pub async fn sim_invoker_svc(
         }
         None => None,
     };
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6), None));
+    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6), None, None));
     let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
@@ -250,7 +250,7 @@ pub async fn test_invoker_svc(
         ),
         false => None,
     };
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6), None));
+    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6), None, None));
     let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
 

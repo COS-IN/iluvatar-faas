@@ -4,7 +4,7 @@ pub mod utils;
 use crate::utils::{
     background_test_invoke, full_sim_invoker, resolve_invoke, sim_args, sim_invoker_svc, wait_for_queue_len,
 };
-use crate::utils::characteristics_map::{Characteristics, Values};
+use iluvatar_worker_library::utils::characteristics_map::{Characteristics, Values};
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
 use iluvatar_worker_library::rpc::{LanguageRuntime, RegisterRequest};

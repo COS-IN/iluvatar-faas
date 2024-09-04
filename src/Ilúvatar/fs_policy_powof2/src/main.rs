@@ -29,7 +29,7 @@ use serde::{Deserialize,Serialize};
 use std::collections::HashMap;
 use ipc_channel::ipc::{self, IpcOneShotServer, IpcSender, IpcReceiver};
 use iluvatar_worker_library::worker_api::Channels;
-use crate::utils::characteristics_map::CharacteristicsPacket;
+use iluvatar_worker_library::utils::characteristics_map::CharacteristicsPacket;
 use iluvatar_worker_library::services::containers::containerd::PidsPacket;
 
 use libc::{sched_param, sched_setscheduler};

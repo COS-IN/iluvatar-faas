@@ -15,6 +15,7 @@ use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_
 use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::sync::{atomic::AtomicU32, Arc};
+use std::fmt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
@@ -49,6 +50,13 @@ pub struct ContainerManager {
     unhealthy_removal_rx: UnboundedSender<Container>,
     /// Currently executing a function
     outstanding_containers: DashMap<String, AtomicU32>,
+}
+
+impl fmt::Debug for ContainerManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ContainerManager")
+         .finish()
+    }
 }
 
 impl ContainerManager {
@@ -245,7 +253,7 @@ impl ContainerManager {
     /// Returns the best possible idle container's [ContainerState] at this time
     /// Can be either running or idle, if [ContainerState::Cold], then possibly no container found
     pub fn container_cgroup_ids(&self, fqdn: &str, compute: Compute) -> Vec<u64> {
-        let cgroupids = vec!();
+        let mut cgroupids = vec!();
         if compute == Compute::CPU {
             cgroupids.extend( self.cpu_containers.get_cgroup_ids( fqdn ) );
         } else if compute == Compute::GPU {
