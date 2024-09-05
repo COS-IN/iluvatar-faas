@@ -120,24 +120,32 @@ volatile u64 nr_eq_tasks = 0;
 volatile u32 e2e_thresholds[MAX_E2E_BUCKETS];
 
 s32 get_groupid( u32 e2e ) {
-    s32 bkt = RESERVED_E2E_BUCKET;
     int i;
 
     // can setup if else branch for thresholds 
     if( e2e == 0 ){
         return -1;
     };
-    bpf_for(i, 0, MAX_E2E_BUCKETS){
-        if ( e2e < e2e_thresholds[i] ){
-            bkt += 1;
-        }else{
-            break;
-        }
+    if( e2e < e2e_thresholds[0] ){
+        return 1;
+    }else if ( e2e < e2e_thresholds[1] ){
+        return 2;
     }
-    return bkt;
+    return 3;
 }
 
-void verify_get_groupid(){
+/*
+   Test Results 
+      root@v-021:/data2/ar/workspace/temp# cat /sys/kernel/debug/tracing/trace_pipe | grep -i test
+      fs_policy_tsksz-2481710 [002] ...11 227122.741565: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 0 -> gid -1 -- should be -1 -- passed: 1
+      fs_policy_tsksz-2481710 [002] ...11 227122.741567: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 100 -> gid 1 -- should be 1 -- passed: 1
+      fs_policy_tsksz-2481710 [002] ...11 227122.741568: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 1000 -> gid 1 -- should be 1 -- passed: 1
+      fs_policy_tsksz-2481710 [002] ...11 227122.741569: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 2000 -> gid 2 -- should be 2 -- passed: 1
+      fs_policy_tsksz-2481710 [002] ...11 227122.741570: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 3000 -> gid 2 -- should be 2 -- passed: 1
+      fs_policy_tsksz-2481710 [002] ...11 227122.741571: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 4000 -> gid 3 -- should be 3 -- passed: 1
+      fs_policy_tsksz-2481710 [002] ...11 227122.741572: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 5000 -> gid 3 -- should be 3 -- passed: 1
+*/
+static __always_inline void verify_get_groupid(){
     s32 gid; 
     s32 sgid; 
 
