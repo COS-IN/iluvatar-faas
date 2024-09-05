@@ -84,13 +84,13 @@ volatile u64 nr_eq_tasks = 0;
 // info msg with a specific tag
 #define info_msg(_fmt, ...)                                       \
 	do {                                                      \
-		bpf_printk("[info-powof2] " _fmt, ##__VA_ARGS__); \
+		bpf_printk("[info-tsksz] " _fmt, ##__VA_ARGS__); \
 	} while (0)
 
 // info msg with a specific tag
 #define info_msg_fm_dispatch(_fmt, ...)                                       \
 	do {                                                      \
-		bpf_printk("[info-powof2] " _fmt, ##__VA_ARGS__); \
+		bpf_printk("[info-tsksz] " _fmt, ##__VA_ARGS__); \
 	} while (0)
 // info msg with a specific tag
 #define info_msg_fm_dispatch(_fmt, ...)
@@ -98,7 +98,7 @@ volatile u64 nr_eq_tasks = 0;
 // warn msg with a specific tag
 #define warn_msg(_fmt, ...)                                       \
 	do {                                                      \
-		bpf_printk("[warn-powof2] " _fmt, ##__VA_ARGS__); \
+		bpf_printk("[warn-tsksz] " _fmt, ##__VA_ARGS__); \
 	} while (0)
 
 #define callback_msg(_fmt, ...)                                          \
@@ -162,7 +162,7 @@ void verify_get_groupid(){
 // maximum number of tasks that can be handled
 #define MAX_ENQUEUED_TASKS 8192
 
-// it is filled in during init from the powof2 core array filled by
+// it is filled in during init from the tsksz core array filled by
 // userland
 #define CMASK_GLOBAL_KEY 0x0
 
@@ -487,10 +487,10 @@ bool is_usersched_cpu(s32 cpu)
 /*
    Select the target CPU where a task can be executed.
   
-   Use scx_bpf_pick_any_cpu to pick from the only powof2 
+   Use scx_bpf_pick_any_cpu to pick from the only tsksz 
    cores that we want to schedule tasks on. 
 */
-s32 BPF_STRUCT_OPS(powof2_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
+s32 BPF_STRUCT_OPS(tsksz_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags)
 {
 	s32 cpu;
 	callback_msg("%s", __func__);
@@ -528,7 +528,7 @@ s32 BPF_STRUCT_OPS(powof2_select_cpu, struct task_struct *p, s32 prev_cpu, u64 w
  * user-space scheduler is not required, or enqueue it to be processed by the
  * scheduler.
  */
-void BPF_STRUCT_OPS(powof2_enqueue, struct task_struct *p, u64 enq_flags)
+void BPF_STRUCT_OPS(tsksz_enqueue, struct task_struct *p, u64 enq_flags)
 {
 	callback_msg("%s", __func__);
 
@@ -557,7 +557,7 @@ void BPF_STRUCT_OPS(powof2_enqueue, struct task_struct *p, u64 enq_flags)
  * so (usually if other CPUs are idle we may want to send more tasks to their
  * local DSQ to optimize the scheduling pipeline).
  */
-void BPF_STRUCT_OPS(powof2_dispatch, s32 cpu, struct task_struct *prev)
+void BPF_STRUCT_OPS(tsksz_dispatch, s32 cpu, struct task_struct *prev)
 {
 	info_msg_fm_dispatch("[%s] on cpu -%d-", __func__,
 		 cpu); // char *
@@ -584,7 +584,7 @@ void BPF_STRUCT_OPS(powof2_dispatch, s32 cpu, struct task_struct *prev)
  * Allocate and initialize all the internal structures for the task (this
  * function is allowed to block, so it can be used to preallocate memory).
  */
-s32 BPF_STRUCT_OPS(powof2_init_task, struct task_struct *p,
+s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
 		   struct scx_init_task_args *args)
 {
 	callback_msg("%s", __func__);
@@ -652,7 +652,7 @@ s32 BPF_STRUCT_OPS(powof2_init_task, struct task_struct *p,
  * Notify the user-space scheduler that we can free up all the allocated
  * resources associated to this task.
  */
-void BPF_STRUCT_OPS(powof2_exit_task, struct task_struct *p,
+void BPF_STRUCT_OPS(tsksz_exit_task, struct task_struct *p,
 		    struct scx_exit_task_args *args)
 {
 	callback_msg("%s", __func__);
@@ -740,16 +740,16 @@ static int dsq_init(void)
 /*
  * Initialize the scheduling class.
  */
-s32 BPF_STRUCT_OPS_SLEEPABLE(powof2_init)
+s32 BPF_STRUCT_OPS_SLEEPABLE(tsksz_init)
 {
 	int err;
 
-	info_msg("initializing the powof2 scheduler");
+	info_msg("initializing the tsksz scheduler");
 
 	/* Compile-time checks */
 	BUILD_BUG_ON((MAX_CPUS % 2));
 
-	/* Initialize powof2 core */
+	/* Initialize tsksz core */
 	err = dsq_init();
 	if (err)
 		return err;
@@ -769,6 +769,7 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(powof2_init)
 
     e2e_thresholds[0] = 2000;
     e2e_thresholds[1] = 4000;
+    verify_get_groupid();
 
 	return 0;
 }
@@ -776,9 +777,9 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(powof2_init)
 /*
  * Unregister the scheduling class.
  */
-void BPF_STRUCT_OPS(powof2_exit, struct scx_exit_info *ei)
+void BPF_STRUCT_OPS(tsksz_exit, struct scx_exit_info *ei)
 {
-	info_msg("exiting the powof2 scheduler");
+	info_msg("exiting the tsksz scheduler");
 
 	UEI_RECORD(uei, ei);
 }
@@ -786,17 +787,17 @@ void BPF_STRUCT_OPS(powof2_exit, struct scx_exit_info *ei)
 /*
  * Scheduling class declaration.
  */
-SCX_OPS_DEFINE( powof2_ops, 
-           .select_cpu = (void *)powof2_select_cpu,
-	       .enqueue = (void *)powof2_enqueue,
-	       .dispatch = (void *)powof2_dispatch,
-	       .init_task = (void *)powof2_init_task,
-	       .exit_task = (void *)powof2_exit_task,
-	       .init = (void *)powof2_init, 
-           .exit = (void *)powof2_exit,
+SCX_OPS_DEFINE( tsksz_ops, 
+           .select_cpu = (void *)tsksz_select_cpu,
+	       .enqueue = (void *)tsksz_enqueue,
+	       .dispatch = (void *)tsksz_dispatch,
+	       .init_task = (void *)tsksz_init_task,
+	       .exit_task = (void *)tsksz_exit_task,
+	       .init = (void *)tsksz_init, 
+           .exit = (void *)tsksz_exit,
 	       .flags = SCX_OPS_ENQ_LAST | SCX_OPS_KEEP_BUILTIN_IDLE | SCX_OPS_SWITCH_PARTIAL,
 	       .timeout_ms = 5000, 
-           .name = "powof2"
+           .name = "tsksz"
 );
 
 

@@ -76,7 +76,7 @@ impl<'cb> BpfScheduler<'cb> {
         // Open the BPF prog first for verification.
         let mut skel_builder = BpfSkelBuilder::default();
         skel_builder.obj_builder.debug(verbose);
-        let mut skel = scx_ops_open!(skel_builder, open_object, powof2_ops)?;
+        let mut skel = scx_ops_open!(skel_builder, open_object, tsksz_ops)?;
 
         // Lock all the memory to prevent page faults that could trigger potential deadlocks during
         // scheduling.
@@ -89,7 +89,7 @@ impl<'cb> BpfScheduler<'cb> {
             LIBBPF_STOP
         }
 
-        skel.struct_ops.powof2_ops_mut().exit_dump_len = exit_dump_len;
+        skel.struct_ops.tsksz_ops_mut().exit_dump_len = exit_dump_len;
         skel.maps.bss_data.usersched_pid = std::process::id();
         skel.maps.rodata_data.effective_slice_ns = slice_us * 1000;
 
@@ -99,8 +99,8 @@ impl<'cb> BpfScheduler<'cb> {
         func_characs.reuse_pinned_map(path).expect("failed to reuse map");
 
         // Attach BPF scheduler.
-        let mut skel = scx_ops_load!(skel, powof2_ops, uei)?;
-        let struct_ops = Some(scx_ops_attach!(skel, powof2_ops)?);
+        let mut skel = scx_ops_load!(skel, tsksz_ops, uei)?;
+        let struct_ops = Some(scx_ops_attach!(skel, tsksz_ops)?);
 
         // Build the ring buffer of queued tasks.
         let rb_map = &mut skel.maps.queued_pids;
