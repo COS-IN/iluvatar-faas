@@ -179,7 +179,7 @@ static __always_inline s32 gen_qid_new( s32 gid )
 	s32 t = bkt_next_qid[gid]++;
     s32 gap = SHARED_DSQ / MAX_E2E_BUCKETS; // 6 
     s32 lower = gap * gid; // 0,6
-    s32 upper = gap * gid + gap; // 6,12 
+    s32 upper = lower + gap; // 6,12 
 
 	if ( bkt_next_qid[gid] == upper ) {
 		bkt_next_qid[gid] = lower;
@@ -188,17 +188,50 @@ static __always_inline s32 gen_qid_new( s32 gid )
 	return t;
 }
 
+/*
+   Test Results 
+    root@v-021:/data2/ar/workspace/temp# cat /sys/kernel/debug/tracing/trace_pipe | grep -i gen_qid_new
+     fs_policy_tsksz-2491375 [047] ...11 231851.589544: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: -1 -> qid -1 -- should be -1 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589545: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 0 -> qid 0 -- should be 0 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589546: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 0 -> qid 1 -- should be 1 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589547: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 0 -> qid 2 -- should be 2 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589547: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 0 -> qid 3 -- should be 3 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589548: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 0 -> qid 4 -- should be 4 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589549: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 0 -> qid 5 -- should be 5 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589550: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 0 -> qid 0 -- should be 0 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589551: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 1 -> qid 6 -- should be 6 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589552: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 1 -> qid 7 -- should be 7 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589552: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 1 -> qid 8 -- should be 8 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589553: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 1 -> qid 9 -- should be 9 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589554: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 1 -> qid 10 -- should be 10 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589555: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 1 -> qid 11 -- should be 11 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589556: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 1 -> qid 6 -- should be 6 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589557: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 2 -> qid 12 -- should be 12 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589558: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 2 -> qid 13 -- should be 13 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589558: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 2 -> qid 14 -- should be 14 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589559: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 2 -> qid 15 -- should be 15 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589560: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 2 -> qid 16 -- should be 16 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589561: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 2 -> qid 17 -- should be 17 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589562: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 2 -> qid 12 -- should be 12 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589563: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 3 -> qid 18 -- should be 18 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589563: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 3 -> qid 19 -- should be 19 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589564: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 3 -> qid 20 -- should be 20 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589565: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 3 -> qid 21 -- should be 21 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589566: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 3 -> qid 22 -- should be 22 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589567: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 3 -> qid 23 -- should be 23 -- passed: 1
+     fs_policy_tsksz-2491375 [047] ...11 231851.589568: bpf_trace_printk: [info-tsksz] [test][gen_qid_new] gid: 3 -> qid 18 -- should be 18 -- passed: 1
+*/
 static __always_inline void verify_gen_qid_new(){
     s32 qid; 
     s32 sgid; 
 
 #define TESTCASE_gen_qid_new( gid, sqid ) \
-    qid = gen_qid_new( 0 ); \
+    qid = gen_qid_new( gid ); \
     info_msg("[test][gen_qid_new] gid: %d -> qid %d -- should be %d -- passed: %d ", \
                 gid, \
                 qid, \
-                sgid, \
-                (gid == sgid) \
+                sqid, \
+                (qid == sqid) \
              );
     // for config max dsqs 24 and - max buckets 4  
     // 0 -> [0,6)
@@ -215,6 +248,7 @@ static __always_inline void verify_gen_qid_new(){
     TESTCASE_gen_qid_new( gid, sqid + 5 ) \
     TESTCASE_gen_qid_new( gid, sqid + 0 )
 
+  TESTCASE_gen_qid_new( -1, -1 ) 
   TESTCASES_gen_qid_new( 0, 0 )
   TESTCASES_gen_qid_new( 1, 6 )
   TESTCASES_gen_qid_new( 2, 12 )
@@ -835,6 +869,17 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(tsksz_init)
     e2e_thresholds[0] = 2000;
     e2e_thresholds[1] = 4000;
     verify_get_groupid();
+    
+
+    // init the next qids array for each bucket 
+    s32 gap = SHARED_DSQ / MAX_E2E_BUCKETS; // 6 
+    s32 lower;
+
+	bpf_for(i, 0, MAX_E2E_BUCKETS){
+      lower = gap * i; // 0,6
+      bkt_next_qid[i] = lower;
+    }
+    verify_gen_qid_new();
 
 	return 0;
 }
