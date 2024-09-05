@@ -115,10 +115,11 @@ volatile u64 nr_eq_tasks = 0;
 // [0,2000) [2000,4000) [4000,...)
 // there are 2 buckets in this example, third is default for larger functions 
 // the reserved bucket 0 for funcs that aren't yet categorized 
-#define MAX_E2E_BUCKETS 2 
+#define MAX_E2E_BUCKETS 4
 #define RESERVED_E2E_BUCKET 0
-volatile u32 e2e_thresholds[MAX_E2E_BUCKETS];
-
+volatile u32 e2e_thresholds[MAX_E2E_BUCKETS -2]; // we don't need thresholds
+                                                 // for reserved and rest
+                                                 // buckets
 s32 get_groupid( u32 e2e ) {
     int i;
 
@@ -167,6 +168,60 @@ static __always_inline void verify_get_groupid(){
     TESTCASE_get_groupid( 5000, 3 )
 }
 
+
+static volatile s32 bkt_next_qid[MAX_E2E_BUCKETS] = {0};
+static __always_inline s32 gen_qid_new( s32 gid )
+{
+    if( !(0 <= gid && gid < MAX_E2E_BUCKETS) ){
+      return -1;
+    }
+
+	s32 t = bkt_next_qid[gid]++;
+    s32 gap = SHARED_DSQ / MAX_E2E_BUCKETS; // 6 
+    s32 lower = gap * gid; // 0,6
+    s32 upper = gap * gid + gap; // 6,12 
+
+	if ( bkt_next_qid[gid] == upper ) {
+		bkt_next_qid[gid] = lower;
+	}
+
+	return t;
+}
+
+static __always_inline void verify_gen_qid_new(){
+    s32 qid; 
+    s32 sgid; 
+
+#define TESTCASE_gen_qid_new( gid, sqid ) \
+    qid = gen_qid_new( 0 ); \
+    info_msg("[test][gen_qid_new] gid: %d -> qid %d -- should be %d -- passed: %d ", \
+                gid, \
+                qid, \
+                sgid, \
+                (gid == sgid) \
+             );
+    // for config max dsqs 24 and - max buckets 4  
+    // 0 -> [0,6)
+    // 1 -> [6,12)
+    // 2 -> [12,18)
+    // 3 -> [18,24)
+
+#define TESTCASES_gen_qid_new( gid, sqid ) \
+    TESTCASE_gen_qid_new( gid, sqid + 0 ) \
+    TESTCASE_gen_qid_new( gid, sqid + 1 ) \
+    TESTCASE_gen_qid_new( gid, sqid + 2 ) \
+    TESTCASE_gen_qid_new( gid, sqid + 3 ) \
+    TESTCASE_gen_qid_new( gid, sqid + 4 ) \
+    TESTCASE_gen_qid_new( gid, sqid + 5 ) \
+    TESTCASE_gen_qid_new( gid, sqid + 0 )
+
+  TESTCASES_gen_qid_new( 0, 0 )
+  TESTCASES_gen_qid_new( 1, 6 )
+  TESTCASES_gen_qid_new( 2, 12 )
+  TESTCASES_gen_qid_new( 3, 18 )
+}
+
+
 // maximum number of tasks that can be handled
 #define MAX_ENQUEUED_TASKS 8192
 
@@ -187,7 +242,6 @@ static long func_characs_cb_print (void *map, const __u64 *key, CharVal_t *val, 
 }
 
 static volatile s32 next_qid = 0;
-
 static __always_inline s32 gen_qid()
 {
 	s32 t = next_qid++;
@@ -196,6 +250,9 @@ static __always_inline s32 gen_qid()
 	}
 	return t;
 }
+
+
+
 
 static __always_inline bool verify_qid(s32 qid)
 {
