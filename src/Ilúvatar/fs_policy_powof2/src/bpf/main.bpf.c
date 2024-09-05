@@ -622,6 +622,20 @@ static int usersched_timer_fn(void *map, int *key, struct bpf_timer *timer)
 	/* Kick the scheduler */
 	set_usersched_needed();
 
+    // check all the dsqs - if anyone has any pending tasks 
+    // kick the target cpus, so that we may not have any unnecessary stalls
+    int i;
+    s32 cpu;
+    s32 n; 
+    bpf_for(i, 0, SHARED_DSQ){
+      n = scx_bpf_dsq_nr_queued( i );
+      if ( n > 0 ){
+        cpu = i*2;
+        scx_bpf_kick_cpu( cpu, SCX_KICK_IDLE);
+        scx_bpf_kick_cpu( cpu+1, SCX_KICK_IDLE);
+      }
+    }
+
 	/* Re-arm the timer */
 	err = bpf_timer_start(timer, NSEC_PER_SEC, 0);
 	if (err)
