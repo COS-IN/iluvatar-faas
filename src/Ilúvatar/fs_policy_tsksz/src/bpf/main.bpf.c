@@ -100,14 +100,59 @@ volatile u64 nr_eq_tasks = 0;
 			 p->pid, p->comm);                               \
 	} while (0)
 
-// Maximum length of name (struct kernfs_node -> name)
-#define MAX_NAME_LEN 10
+// Maximum length of name (struct kernfs_node -> name) - comm has 16 length in
+// kernel 
+#define MAX_NAME_LEN 16
+
+// [0,2000) [2000,4000) [4000,...)
+// there are 2 buckets in this example, third is default for larger functions 
+// the reserved bucket 0 for funcs that aren't yet categorized 
+#define MAX_E2E_BUCKETS 2 
+#define RESERVED_E2E_BUCKET 0
+volatile u32 e2e_thresholds[MAX_E2E_BUCKETS];
+
+s32 get_groupid( u32 e2e ) {
+    s32 bkt = RESERVED_E2E_BUCKET;
+    int i;
+
+    // can setup if else branch for thresholds 
+    if( e2e == 0 ){
+        return -1;
+    };
+    bpf_for(i, 0, MAX_E2E_BUCKETS){
+        if ( e2e < e2e_thresholds[i] ){
+            bkt += 1;
+        }else{
+            break;
+        }
+    }
+    return bkt;
+}
+
+void verify_get_groupid(){
+    s32 gid; 
+    s32 sgid; 
+
+#define TESTCASE_get_groupid( e2e, sgid ) \
+    gid = get_groupid( e2e ); \
+    info_msg("[test][get_groupid] e2e: %d -> gid %d -- should be %d -- passed: %d ", \
+                e2e, \
+                gid, \
+                sgid, \
+                (gid == sgid) \
+             );
+    
+    TESTCASE_get_groupid( 0, -1 )
+    TESTCASE_get_groupid( 100, 1 )
+    TESTCASE_get_groupid( 1000, 1 )
+    TESTCASE_get_groupid( 2000, 2 )
+    TESTCASE_get_groupid( 3000, 2 )
+    TESTCASE_get_groupid( 4000, 3 )
+    TESTCASE_get_groupid( 5000, 3 )
+}
 
 // maximum number of tasks that can be handled
 #define MAX_ENQUEUED_TASKS 8192
-
-// map of allocated CPUs.
-const volatile s32 powof2_cores[MAX_CPUS];
 
 // it is filled in during init from the powof2 core array filled by
 // userland
@@ -713,6 +758,9 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(powof2_init)
         cpu += 1;
         cpu_to_qid_array[cpu] = i;
 	}
+
+    e2e_thresholds[0] = 2000;
+    e2e_thresholds[1] = 4000;
 
 	return 0;
 }

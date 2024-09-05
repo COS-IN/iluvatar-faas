@@ -36,20 +36,23 @@
     verify it works as expected 
     move on to next function 
 
+  start with independent entitities 
+
 ### Components 
-  
+
+
+  * get_groupid( e2e )
+    * based on the e2e thresholds - generate groupid 
+
+  * qid_to_groupid( qid ) 
+    * reverse lookup 
+
   * update the cgroup hashmap to have oqid and nqid 
   
   * gen_qid() --> gen_qid( gid )
     * counters for each gid
     * generate qid based off that 
     
-  * get_groupid( e2e )
-    * based on the e2e thresholds - generate groupid 
-  
-  * qid_to_groupid( qid ) 
-    * reverse lookup 
-  
   * update_nqid( p )
     * e2e to groupid 
     * nqid to groupid 
