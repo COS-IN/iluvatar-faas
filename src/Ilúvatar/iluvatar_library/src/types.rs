@@ -33,8 +33,8 @@ impl TryInto<CommunicationMethod> for u32 {
 }
 
 bitflags! {
-  #[derive(serde::Deserialize, serde::Serialize)]
-  #[serde(transparent)]
+  #[derive(Debug,Eq,PartialEq,Copy,Clone,Hash,Ord, PartialOrd,Serialize, Deserialize)]
+  #[repr(transparent)]
   /// The compute methods that a function supports. XXX Rename this ComputeDevice
   /// Having each one of these means it can run on each compute independently.
   /// e.g. having `CPU|GPU` will run fine in a CPU-only container, or one with an attached GPU
@@ -43,8 +43,8 @@ bitflags! {
     const GPU = 0b00000010;
     const FPGA = 0b00000100;
   }
-  #[derive(serde::Deserialize, serde::Serialize)]
-  #[serde(transparent)]
+  #[derive(Debug,Eq,PartialEq,Copy,Clone,Hash,Serialize, Deserialize)]
+  #[repr(transparent)]
   /// The isolation mechanism the function supports.
   /// e.g. our Docker images are OCI-compliant and can be run by Docker or Containerd, so could specify `CONTAINERD|DOCKER` or `CONTAINERD`
   pub struct Isolation: u32 {
@@ -56,7 +56,7 @@ bitflags! {
 }
 
 #[derive(
-    clap::ValueEnum, std::fmt::Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
+    clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
 )]
 /// To be used with CLI args and other places where it needs to be converted into a string
 /// The compute methods that a function supports
@@ -89,19 +89,6 @@ impl TryInto<ComputeEnum> for &Compute {
         }
     }
     type Error = anyhow::Error;
-}
-impl IntoIterator for Compute {
-    type Item = Compute;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    /// Get a list of the individual compute components in the [Compute] bitmap
-    fn into_iter(self) -> Self::IntoIter {
-        vec![Compute::CPU, Compute::GPU, Compute::FPGA]
-            .into_iter()
-            .filter(|x| self.contains(*x))
-            .collect::<Vec<Compute>>()
-            .into_iter()
-    }
 }
 impl From<Vec<ComputeEnum>> for Compute {
     fn from(i: Vec<ComputeEnum>) -> Self {

@@ -300,6 +300,11 @@ impl GpuResourceTracker {
             if config.count == 0 {
                 return Ok(None);
             }
+            match config.mig_enabled() {
+                true => Self::enable_mig(tid),
+                false => Self::disable_mig(tid),
+            }?;
+
             let (gpu_structs, metadata) = Self::prepare_structs(&config, tid)?;
             let mut nvml = None;
             if !iluvatar_library::utils::is_simulation() {
@@ -316,11 +321,6 @@ impl GpuResourceTracker {
                 } else if !config.is_tegra.unwrap_or(false) {
                     Self::set_gpus_shared(tid)?;
                 }
-
-                match config.mig_enabled() {
-                    true => Self::enable_mig(tid),
-                    false => Self::disable_mig(tid),
-                }?;
 
                 nvml = match Nvml::init() {
                     Ok(n) => Some(n),
@@ -445,11 +445,15 @@ impl GpuResourceTracker {
 
     /// Enable MIG on all GPUs
     fn enable_mig(tid: &TransactionId) -> Result<()> {
+        debug!(tid=%tid, "Enabling MIG");
+        // TODO: a better way to ensure MIG is safely enabled?
+        Self::disable_mig(tid)?;
         Self::apply_smi_across_gpus(tid, vec!["-mig", "1"])
     }
     /// Disable MIG on all GPUs
     /// This also deletes all created MIG profiles
     fn disable_mig(tid: &TransactionId) -> Result<()> {
+        debug!(tid=%tid, "Disabling MIG");
         Self::apply_smi_across_gpus(tid, vec!["-mig", "0"])
     }
 
@@ -659,11 +663,12 @@ impl GpuResourceTracker {
             Self::make_real_gpus(gpu_config, tid)?
         };
         let found_physical = structs.len();
-        if found_physical as u32 != gpu_config.count {
+        let expected = gpu_config.mig_shares.unwrap_or(1) * gpu_config.count;
+        if found_physical as u32 != expected {
             anyhow::bail!(
                 "Was able to prepare {} GPUs, but configuration expected {}",
                 found_physical,
-                gpu_config.count
+                expected
             );
         }
         info!(tid=%tid, gpus=?structs, "GPUs prepared");
@@ -884,8 +889,8 @@ impl GpuResourceTracker {
             return;
         }
         let args = vec![
-          "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
-          "--format=csv,noheader,nounits",
+            "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
+            "--format=csv,noheader,nounits",
         ];
         let nvidia = match execute_cmd_checked_async("/usr/bin/nvidia-smi", args, None, &tid).await {
             Ok(r) => r,
@@ -1051,16 +1056,17 @@ impl GpuResourceTracker {
 }
 impl Drop for GpuResourceTracker {
     fn drop(&mut self) {
-        let tid = "Drop_GpuResourceTracker".to_string();
-        if let Some(d) = &self.docker {
-            if let Some(docker) = d.as_any().downcast_ref::<DockerIsolation>() {
-                let tid: &TransactionId = &GPU_RESC_TID;
-                match Runtime::new() {
-                    Ok(r) => match r.block_on(docker.get_logs(MPS_CONTAINER_NAME, tid)) {
-                        Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
-                        Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
-                    },
-                    Err(e) => error!(error=%e, tid=%tid, "Failed to create runtime"),
+        let tid: TransactionId = GPU_RESC_TID.clone();
+        if self.config.mps_enabled() {
+            if let Some(d) = &self.docker {
+                if let Some(docker) = d.as_any().downcast_ref::<DockerIsolation>() {
+                    match Runtime::new() {
+                        Ok(r) => match r.block_on(docker.get_logs(MPS_CONTAINER_NAME, &tid)) {
+                            Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
+                            Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
+                        },
+                        Err(e) => error!(error=%e, tid=%tid, "Failed to create runtime"),
+                    }
                 }
             }
         }
