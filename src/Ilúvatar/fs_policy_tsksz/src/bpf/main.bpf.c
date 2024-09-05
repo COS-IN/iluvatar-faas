@@ -370,7 +370,7 @@ static __always_inline void verify_qid_to_groupid(){
 // callback continues if return 0 
 //          stops if return 1
 static long func_characs_cb_print (void *map, const __u64 *key, CharVal_t *val, void *data){
-    info_msg("[map][func_characs] key: %llu e2e: %lu", 
+    info_msg("[cgroup-id][map][func_characs] key: %llu e2e: %lu", 
              *key,
              val->e2e
              ); 
@@ -468,8 +468,12 @@ static void chashmap_insert(__u64 cid, char *name)
 		new_cvalue.qid = gen_qid();
 		bpf_map_update_elem(&CgroupsHashMap, &cid, &new_cvalue,
 				    BPF_NOEXIST);
-		info_msg("[%s] -- %d -OK-inserted- %s, qid: %d", __func__, cid,
-			 name, new_cvalue.qid);
+		info_msg("[cgroup-id][%s] -- %d -OK-inserted- %s, qid: %d", 
+                 __func__,
+                 cid,
+                 name,
+                 new_cvalue.qid
+        );
 	}
 }
 
@@ -822,16 +826,21 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
 
 				// and insert the cgroup id for future reference
 				FETCH_KERNEL_STR(cgrp->kn->name)
-				chashmap_insert(cgrp->kn->id, name);
-			}
+                unsigned long cvt_cid = 0;
+                if ( bpf_strtoul(name, MAX_NAME_LEN, 16, &cvt_cid ) > 0 ){
+                    info_msg("[cgroup-id] converted key: %llu ", 
+                             cvt_cid
+                    ); 
+                    chashmap_insert( cvt_cid, name);
+                }else{
+                    chashmap_insert( cgrp->kn->id, name);
+                    warn_msg("[cgroup-id] couldn't converted key: %llu - bad cgroup hashtable", 
+                             cvt_cid
+                    ); 
+                }
+            }
 		}
 	}
-
-    u64 k = 10; 
-    CharVal_t * v = bpf_map_lookup_elem( &func_characs, &k );
-    if( v ){
-        bpf_printk( "func_characs - v %d", v->prio );
-    }
 
     u64 stackptr = 0; 
     bpf_for_each_map_elem(&func_characs, func_characs_cb_print, &stackptr, 0); 

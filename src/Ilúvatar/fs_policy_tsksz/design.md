@@ -58,6 +58,20 @@
   * update the cgroup hashmap to have oqid and nqid                 ✓
 
   * verify that cgroup id captured in init_task and those pushed into func_chars bpf_map are same
+    * no it's incorrect! 
+
+  * fix the cgroup-id match issue                 ✓
+    * possible ways to fix it 
+      * convert name to digit in bpf program and then we would be good 
+        * use bpf_strtoul to conver the name to  
+```
+  oup-id][chashmap_insert] -- 8317 -OK-inserted- a9cf888125b0829, qid: 0
+  oup-id] converted key: 764759300053338153
+  oup-id][map][func_characs] key: 764759300053338153 e2e: 0
+  oup-id][map][func_characs] key: 764759300053338153 e2e: 0
+  oup-id][map][func_characs] key: 764759300053338153 e2e: 299
+  oup-id][map][func_characs] key: 764759300053338153 e2e: 299
+```
 
   * fetch e2e based on the cgroup_id 
 

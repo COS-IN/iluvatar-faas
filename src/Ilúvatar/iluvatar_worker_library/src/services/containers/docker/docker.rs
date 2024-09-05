@@ -87,7 +87,7 @@ impl DockerIsolation {
                     Err(_) => 0,
                 };
                 let cgroup_idoutput = inspect_container( container_id.clone(), "'{{.Id}}'" );
-                let cgroup_id = match u64::from_str_radix( &cgroup_idoutput[0..12], 16 ) {
+                let cgroup_id = match u64::from_str_radix( &cgroup_idoutput[0..15], 16 ) {
                     Ok(p) => p,
                     Err(e) => {
                         println!("Error: {}", e);
