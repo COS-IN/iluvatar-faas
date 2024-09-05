@@ -256,6 +256,99 @@ static __always_inline void verify_gen_qid_new(){
 }
 
 
+static __always_inline s32 qid_to_groupid( s32 qid ){
+    s32 gid = 0;
+
+    if( !(0 <= qid && qid < SHARED_DSQ) ){
+        return -1;
+    }
+
+    s32 gap = SHARED_DSQ / MAX_E2E_BUCKETS; // 6 
+    s32 lower;
+    s32 upper;
+
+    bpf_for(gid, 0, MAX_E2E_BUCKETS){
+      lower = gap * gid; // 0,6
+      upper = lower + gap; // 6,12 
+
+      if( lower <= qid && qid < upper ){
+          break;
+      }
+    }
+    if ( gid == MAX_E2E_BUCKETS ){
+        return -1;
+    }
+    return gid;
+}
+
+/*
+   Test Results: 
+     root@v-021:/data2/ar/workspace/temp# cat /sys/kernel/debug/tracing/trace_pipe | grep -i qid_to_groupid
+     fs_policy_tsksz-2497763 [026] ...11 235008.361905: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: -1 -> gid -1 -- should be -1 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361906: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 0 -> gid 0 -- should be 0 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361907: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 1 -> gid 0 -- should be 0 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361908: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 2 -> gid 0 -- should be 0 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361909: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 3 -> gid 0 -- should be 0 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361910: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 4 -> gid 0 -- should be 0 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361911: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 5 -> gid 0 -- should be 0 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361912: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 0 -> gid 0 -- should be 0 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361912: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 6 -> gid 1 -- should be 1 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361913: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 7 -> gid 1 -- should be 1 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361914: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 8 -> gid 1 -- should be 1 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361915: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 9 -> gid 1 -- should be 1 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361916: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 10 -> gid 1 -- should be 1 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361917: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 11 -> gid 1 -- should be 1 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361918: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 6 -> gid 1 -- should be 1 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361919: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 12 -> gid 2 -- should be 2 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361920: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 13 -> gid 2 -- should be 2 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361921: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 14 -> gid 2 -- should be 2 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361922: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 15 -> gid 2 -- should be 2 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361923: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 16 -> gid 2 -- should be 2 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361924: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 17 -> gid 2 -- should be 2 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361925: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 12 -> gid 2 -- should be 2 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361926: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 18 -> gid 3 -- should be 3 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361927: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 19 -> gid 3 -- should be 3 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361927: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 20 -> gid 3 -- should be 3 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361928: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 21 -> gid 3 -- should be 3 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361929: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 22 -> gid 3 -- should be 3 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361930: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 23 -> gid 3 -- should be 3 -- passed: 1
+     fs_policy_tsksz-2497763 [026] ...11 235008.361931: bpf_trace_printk: [info-tsksz] [test][qid_to_groupid] qid: 18 -> gid 3 -- should be 3 -- passed: 1
+*/
+static __always_inline void verify_qid_to_groupid(){
+    s32 gid; 
+
+#define TESTCASE_qid_to_groupid( qid, sgid ) \
+    gid = qid_to_groupid( qid ); \
+    info_msg("[test][qid_to_groupid] qid: %d -> gid %d -- should be %d -- passed: %d ", \
+                qid, \
+                gid, \
+                sgid, \
+                (gid == sgid) \
+             );
+
+/* 
+   [0,6)   -> 0 
+   [6,12)  -> 1
+   [12,18) -> 2
+   [18,24) -> 3
+*/
+#define TESTCASES_qid_to_groupid( qid, sgid ) \
+    TESTCASE_qid_to_groupid( qid + 0, sgid) \
+    TESTCASE_qid_to_groupid( qid + 1, sgid) \
+    TESTCASE_qid_to_groupid( qid + 2, sgid) \
+    TESTCASE_qid_to_groupid( qid + 3, sgid) \
+    TESTCASE_qid_to_groupid( qid + 4, sgid) \
+    TESTCASE_qid_to_groupid( qid + 5, sgid) \
+    TESTCASE_qid_to_groupid( qid + 0, sgid)
+
+  TESTCASE_qid_to_groupid( -1, -1 ) 
+  TESTCASES_qid_to_groupid( 0, 0 )
+  TESTCASES_qid_to_groupid( 6, 1 )
+  TESTCASES_qid_to_groupid( 12, 2 )
+  TESTCASES_qid_to_groupid( 18, 3 )
+}
+
+
 // maximum number of tasks that can be handled
 #define MAX_ENQUEUED_TASKS 8192
 
@@ -865,12 +958,12 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(tsksz_init)
         cpu += 1;
         cpu_to_qid_array[cpu] = i;
 	}
-
+    
+    // init thresholds for buckets 
     e2e_thresholds[0] = 2000;
     e2e_thresholds[1] = 4000;
     verify_get_groupid();
     
-
     // init the next qids array for each bucket 
     s32 gap = SHARED_DSQ / MAX_E2E_BUCKETS; // 6 
     s32 lower;
@@ -880,6 +973,9 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(tsksz_init)
       bkt_next_qid[i] = lower;
     }
     verify_gen_qid_new();
+
+    // test qid groupid 
+    verify_qid_to_groupid();
 
 	return 0;
 }
