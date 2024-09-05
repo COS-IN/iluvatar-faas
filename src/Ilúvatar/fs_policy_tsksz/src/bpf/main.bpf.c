@@ -87,6 +87,14 @@ volatile u64 nr_eq_tasks = 0;
 		bpf_printk("[info-powof2] " _fmt, ##__VA_ARGS__); \
 	} while (0)
 
+// info msg with a specific tag
+#define info_msg_fm_dispatch(_fmt, ...)                                       \
+	do {                                                      \
+		bpf_printk("[info-powof2] " _fmt, ##__VA_ARGS__); \
+	} while (0)
+// info msg with a specific tag
+#define info_msg_fm_dispatch(_fmt, ...)
+
 // warn msg with a specific tag
 #define warn_msg(_fmt, ...)                                       \
 	do {                                                      \
@@ -551,7 +559,7 @@ void BPF_STRUCT_OPS(powof2_enqueue, struct task_struct *p, u64 enq_flags)
  */
 void BPF_STRUCT_OPS(powof2_dispatch, s32 cpu, struct task_struct *prev)
 {
-	info_msg("[%s] on cpu -%d-", __func__,
+	info_msg_fm_dispatch("[%s] on cpu -%d-", __func__,
 		 cpu); // char *
 
 	// Enqueue the scheduler task if the timer callback
@@ -565,7 +573,7 @@ void BPF_STRUCT_OPS(powof2_dispatch, s32 cpu, struct task_struct *prev)
 	s32 qid = cpu_to_qid(cpu);
 	if (verify_qid(qid)) {
 		if (scx_bpf_consume(qid)) {
-			info_msg("%s consumed a task from Q %d", __func__, qid);
+			info_msg_fm_dispatch("%s consumed a task from Q %d", __func__, qid);
 		}
 	}
 }

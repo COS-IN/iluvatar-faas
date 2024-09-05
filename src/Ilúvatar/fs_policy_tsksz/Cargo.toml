@@ -1,5 +1,5 @@
 [package]
-name = "fs_policy_powof2"
+name = "fs_policy_tsksz"
 version = "0.0.3"
 authors = ["Abdul Rehman <abdulrehmanee010@gmail.com>"]
 edition = "2021"

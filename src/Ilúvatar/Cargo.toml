@@ -14,6 +14,7 @@ members = [
   "fs_policy_lavd",
   "fs_policy_constrained",
   "fs_policy_powof2",
+  "fs_policy_tsksz",
 ]
 resolver = "2"
 
