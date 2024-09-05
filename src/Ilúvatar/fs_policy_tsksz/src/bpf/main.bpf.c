@@ -168,6 +168,15 @@ static __always_inline void verify_get_groupid(){
     TESTCASE_get_groupid( 5000, 3 )
 }
 
+static volatile s32 next_qid = 0;
+static __always_inline s32 gen_qid()
+{
+	s32 t = next_qid++;
+	if (next_qid == SHARED_DSQ) {
+		next_qid = 0;
+	}
+	return t;
+}
 
 static volatile s32 bkt_next_qid[MAX_E2E_BUCKETS] = {0};
 static __always_inline s32 gen_qid_new( s32 gid )
@@ -368,19 +377,6 @@ static long func_characs_cb_print (void *map, const __u64 *key, CharVal_t *val, 
     return 0;
 }
 
-static volatile s32 next_qid = 0;
-static __always_inline s32 gen_qid()
-{
-	s32 t = next_qid++;
-	if (next_qid == SHARED_DSQ) {
-		next_qid = 0;
-	}
-	return t;
-}
-
-
-
-
 static __always_inline bool verify_qid(s32 qid)
 {
 	if (0 <= qid && qid < SHARED_DSQ) {
@@ -468,6 +464,7 @@ static void chashmap_insert(__u64 cid, char *name)
 	} else {
 		Cgroupvalue new_cvalue;
 		__builtin_memcpy_inline(new_cvalue.name, name, MAX_NAME_LEN);
+        
 		new_cvalue.qid = gen_qid();
 		bpf_map_update_elem(&CgroupsHashMap, &cid, &new_cvalue,
 				    BPF_NOEXIST);
@@ -687,6 +684,8 @@ s32 BPF_STRUCT_OPS(tsksz_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wa
 	s32 cpu;
 	callback_msg("%s", __func__);
 
+    // update the nqid assignment of the task p 
+
 	s32 qid = task_to_qid(p);
 
     print_task_cgroup_stats( p );
@@ -732,6 +731,8 @@ void BPF_STRUCT_OPS(tsksz_enqueue, struct task_struct *p, u64 enq_flags)
 		return;
 
     print_task_cgroup_stats( p );
+
+
 
 	s32 qid = task_to_qid(p);
 	if (verify_qid(qid)) {
@@ -866,6 +867,20 @@ static int usersched_timer_fn(void *map, int *key, struct bpf_timer *timer)
 
 	/* Kick the scheduler */
 	set_usersched_needed();
+
+    // check all the dsqs - if anyone has any pending tasks 
+    // kick the target cpus, so that we may not have any unnecessary stalls
+    int i;
+    s32 cpu;
+    s32 n; 
+    bpf_for(i, 0, SHARED_DSQ){
+      n = scx_bpf_dsq_nr_queued( i );
+      if ( n > 0 ){
+        cpu = i*2;
+        scx_bpf_kick_cpu( cpu, SCX_KICK_IDLE);
+        scx_bpf_kick_cpu( cpu+1, SCX_KICK_IDLE);
+      }
+    }
 
 	/* Re-arm the timer */
 	err = bpf_timer_start(timer, NSEC_PER_SEC, 0);

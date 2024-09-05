@@ -51,11 +51,16 @@
       * counters for each gid
       * generate qid based off that
 
-  * qid_to_groupid( qid ) 
-    * reverse lookup 
+  ~ 0.5 hrs
+    * qid_to_groupid( qid )                            ✓
+      * reverse lookup
 
-  * update the cgroup hashmap to have oqid and nqid 
-    
+  * update the cgroup hashmap to have oqid and nqid                 ✓
+
+  * verify that cgroup id captured in init_task and those pushed into func_chars bpf_map are same
+
+  * fetch e2e based on the cgroup_id 
+
   * update_nqid( p )
     * e2e to groupid 
     * nqid to groupid 
@@ -64,16 +69,22 @@
       * oqid = nqid 
       * nqid = gen_qid( gid )
 
+  * remember - task context 
+    * put qid in it 
+    * use it to keep track of if all the tasks that have transitioned 
+    * similarly build a Q context to keep track of the Q state 
+
 ### Flows 
 
-  * update enqueue to 
-    * put task p into nqid 
-    
+  * update select_cpu to 
+    * update the nqid allocation of the task p 
+
+
+
   * update dispatch to 
-    * consume( oqid )
-    * consume( nqid )
-    * check all Qs if they are empty 
-      * and kick the target cpu if it's idle 
+    * each per CPU SharedQ is consumed regardless of anything 
+      * consume( oqid )              ✗
+      * consume( nqid )              ✗
 
 ### Verification  
 
