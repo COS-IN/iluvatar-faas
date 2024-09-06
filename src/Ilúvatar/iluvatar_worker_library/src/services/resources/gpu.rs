@@ -445,7 +445,7 @@ impl GpuResourceTracker {
 
     /// Enable MIG on all GPUs
     fn enable_mig(tid: &TransactionId) -> Result<()> {
-        debug!(tid=%tid, "Enabling MIG");
+        info!(tid=%tid, "Enabling MIG");
         // TODO: a better way to ensure MIG is safely enabled?
         Self::disable_mig(tid)?;
         Self::apply_smi_across_gpus(tid, vec!["-mig", "1"])
@@ -453,7 +453,7 @@ impl GpuResourceTracker {
     /// Disable MIG on all GPUs
     /// This also deletes all created MIG profiles
     fn disable_mig(tid: &TransactionId) -> Result<()> {
-        debug!(tid=%tid, "Disabling MIG");
+        info!(tid=%tid, "Disabling MIG");
         Self::apply_smi_across_gpus(tid, vec!["-mig", "0"])
     }
 
@@ -663,7 +663,7 @@ impl GpuResourceTracker {
             Self::make_real_gpus(gpu_config, tid)?
         };
         let found_physical = structs.len();
-        let expected = gpu_config.mig_shares.unwrap_or(1) * gpu_config.count;
+        let expected = missing_or_zero_default(&gpu_config.mig_shares, 1) * gpu_config.count;
         if found_physical as u32 != expected {
             anyhow::bail!(
                 "Was able to prepare {} GPUs, but configuration expected {}",

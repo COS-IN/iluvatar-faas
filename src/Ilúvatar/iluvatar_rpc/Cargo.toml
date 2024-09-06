@@ -15,7 +15,7 @@ iluvatar_library = { path = "../iluvatar_library" }
 tonic = "0.11"
 prost = "0.12"
 prost-types = "0.12"
-anyhow = "1.0.13"
+anyhow = "1"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0.81"
 tracing = "0.1"
