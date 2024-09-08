@@ -72,16 +72,17 @@
   oup-id][map][func_characs] key: 764759300053338153 e2e: 299
   oup-id][map][func_characs] key: 764759300053338153 e2e: 299
 ```
+ 
+  * update select_cpu to 
+    * update the nqid allocation of the task p based on e2e 
 
-  * fetch e2e based on the cgroup_id 
-
-  * update_nqid( p )
-    * e2e to groupid 
-    * nqid to groupid 
-    * if they are same - nothing todo
-    * otherwise:
-      * oqid = nqid 
-      * nqid = gen_qid( gid )
+      * update_nqid( p )
+        * e2e to groupid 
+        * nqid to groupid 
+        * if they are same - nothing todo
+        * otherwise:
+          * oqid = nqid 
+          * nqid = gen_qid( gid )
 
   * remember - task context 
     * put qid in it 
@@ -90,11 +91,7 @@
 
 ### Flows 
 
-  * update select_cpu to 
-    * update the nqid allocation of the task p 
-
-
-
+  
   * update dispatch to 
     * each per CPU SharedQ is consumed regardless of anything 
       * consume( oqid )              ✗

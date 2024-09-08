@@ -677,6 +677,20 @@ bool is_usersched_cpu(s32 cpu)
 	return cpu == USCHED_CORE;
 }
 
+#if 0
+static __always_inline update_qid( struct task_struct *p ) {
+  // get the cgroup id of the task p 
+
+  // fetch the e2e 
+  // get groupid based off the e2e 
+  // get previous groupid based of existing qid 
+  // if the groupids are same 
+    // do nothing 
+  // else 
+    // generate the new qid for the new group - and assign it 
+}
+#endif
+
 /*
    Select the target CPU where a task can be executed.
   
@@ -828,8 +842,9 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
 				FETCH_KERNEL_STR(cgrp->kn->name)
                 unsigned long cvt_cid = 0;
                 if ( bpf_strtoul(name, MAX_NAME_LEN, 16, &cvt_cid ) > 0 ){
-                    info_msg("[cgroup-id] converted key: %llu ", 
-                             cvt_cid
+                    info_msg("[cgroup-id] converted key: %llu p->sched_task_group->css.cgroup->kn->id: %llu", 
+                             cvt_cid,
+                             cgrp->kn->id
                     ); 
                     chashmap_insert( cvt_cid, name);
                 }else{
