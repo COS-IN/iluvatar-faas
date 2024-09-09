@@ -1,6 +1,8 @@
 use iluvatar_bpf_library::bpf::func_characs::*;
 use std::mem::MaybeUninit;
 
+type str_array = [u8;15];
+
 pub fn main() {
 
     let mut open_object = MaybeUninit::uninit();
@@ -9,8 +11,11 @@ pub fn main() {
         .maps
         .func_characs;
 
-    let key: u64 = 10;
-    let key2: u64 = 20;
+    // let key: u64 = 10;
+    // let key2: u64 = 20;
+    let mut key: str_array  = *b"first_key      ";
+    let mut key2: str_array = *b"second_key     ";
+
     let val = CharVal{
         prio: 1,
         e2e: 2,

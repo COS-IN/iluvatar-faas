@@ -4,6 +4,8 @@
 
 #define MAX_FUNCS 50 
 
+#define KEYSIZE 15 // because the kernel fs inode name is 15 characters 
+
 typedef struct CharVal{
     u32 prio;
     u32 e2e;
@@ -15,7 +17,7 @@ typedef struct CharVal{
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __uint(max_entries, MAX_FUNCS);
-  __uint(key_size, sizeof(u64));         /* cgrp ID */
+  __uint(key_size, sizeof(char)*KEYSIZE);         /* cgrp ID */
   __uint(value_size, sizeof(CharVal_t)); /* Value Structure */
 } func_characs SEC(".maps");
 

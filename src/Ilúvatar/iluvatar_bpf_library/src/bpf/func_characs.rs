@@ -68,9 +68,8 @@ pub fn build_and_load<'obj>( open_object:  &'obj mut MaybeUninit::<libbpf_rs::Op
     Ok(skel)
 }
 
-pub fn update_map<'obj>( map:  &'obj libbpf_rs::MapMut<'obj>, key: u64, val: &CharVal ) 
+pub fn update_map<'obj>( map:  &'obj libbpf_rs::MapMut<'obj>, key: [u8;15], val: &CharVal ) 
 {
-    let key = key.to_ne_bytes();
     let val: &[u8] = unsafe { any_as_u8_slice(val) };
     match map.update(&key, val, MapFlags::ANY) {
         Ok(_) => (),
