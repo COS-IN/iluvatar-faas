@@ -11,6 +11,7 @@ use iluvatar_library::{
     types::{Compute, Isolation, MemSizeMb},
     utils::port::Port,
 };
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
 use parking_lot::{Mutex, RwLock};
 use std::{
     num::NonZeroU32,
@@ -36,7 +37,7 @@ pub struct DockerContainer {
     device: Option<Arc<GPU>>,
     mem_usage: RwLock<MemSizeMb>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
-    cgroup_id: u64,
+    cgroup_id: BPF_FMAP_KEY,
 }
 
 impl DockerContainer {
@@ -52,7 +53,7 @@ impl DockerContainer {
         compute: Compute,
         device: Option<Arc<GPU>>,
         tid: &TransactionId,
-        cgroup_id: u64,
+        cgroup_id: BPF_FMAP_KEY,
     ) -> Result<Self> {
         let client = HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid)?;
         let r = DockerContainer {
@@ -103,7 +104,7 @@ impl ContainerT for DockerContainer {
         *lock = SystemTime::now();
     }
 
-    fn get_cgroupid(&self) -> u64 {
+    fn get_cgroupid(&self) -> BPF_FMAP_KEY {
         self.cgroup_id
     }
 

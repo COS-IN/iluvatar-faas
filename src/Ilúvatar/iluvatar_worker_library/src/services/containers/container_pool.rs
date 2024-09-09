@@ -2,6 +2,7 @@ use super::structs::{Container, ContainerState};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
 use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc,
@@ -258,7 +259,7 @@ impl ContainerPool {
     }
 
     /// get all the cgroup_ids corresponding to given fqdn in this pool 
-    pub fn get_cgroup_ids(&self, fqdn: &str) -> Vec<u64> {
+    pub fn get_cgroup_ids(&self, fqdn: &str) -> Vec<BPF_FMAP_KEY> {
         let mut cgroup_ids = Vec::new();
         if let Some(c) = self.idle_pool.get(fqdn) {
             for cont in &*c {

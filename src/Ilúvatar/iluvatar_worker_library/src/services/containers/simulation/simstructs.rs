@@ -9,6 +9,8 @@ use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
+use iluvatar_bpf_library::bpf::func_characs::build_bpf_key;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
@@ -165,8 +167,8 @@ impl ContainerT for SimulatorContainer {
         Ok((result, d))
     }
 
-    fn get_cgroupid(&self) -> u64 {
-       0 
+    fn get_cgroupid(&self) -> BPF_FMAP_KEY {
+       build_bpf_key( &"fromsimstruct".to_string() )
     }
 
     fn touch(&self) {

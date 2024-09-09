@@ -137,7 +137,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     launch_scheduler( &worker_config );
 
     // create a multi-producer and single consumer async channel 
-    let (tx, rx) = channel::<(u64,CharVal)>();
+    let (tx, rx) = channel::<(BPF_FMAP_KEY,CharVal)>();
 
     // move the consumer end to a separate thread 
     // where data is pushed to the map 
@@ -149,12 +149,11 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
             .maps
             .func_characs;
 
-        // Unbounded receiver waiting for all senders to complete.
+        // unbounded receiver waiting for all senders to complete.
         while let Ok((key, val)) = rx.recv() {
-            update_map( &mut fcmap, key, &val );
+            update_map( &mut fcmap, &key, &val );
         }
     });
-
 
     let factory = IsolationFactory::new(worker_config.clone());
     let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, tid)

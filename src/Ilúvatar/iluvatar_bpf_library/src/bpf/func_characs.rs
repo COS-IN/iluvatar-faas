@@ -22,7 +22,7 @@ mod charmap {
 }
 use charmap::*;
 pub use charmap::CharmapSkel;
-use std::fmt::{Debug, Formatter, Error};
+use std::fmt::{Debug, Formatter, Error, Display};
 
 impl Debug for CharmapSkel<'_> {
     // Required method

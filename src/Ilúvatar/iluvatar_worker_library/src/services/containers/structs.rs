@@ -7,6 +7,7 @@ use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
 use std::{
     sync::Arc,
     time::{Duration, SystemTime},
@@ -24,7 +25,7 @@ pub trait ContainerT: ToAny + std::fmt::Debug + Send + Sync {
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)>;
 
     /// get cgroup id 
-    fn get_cgroupid(&self) -> u64;
+    fn get_cgroupid(&self) -> BPF_FMAP_KEY;
 
     /// indicate that the container as been "used" or internal datatsructures should be updated such that it has
     fn touch(&self);

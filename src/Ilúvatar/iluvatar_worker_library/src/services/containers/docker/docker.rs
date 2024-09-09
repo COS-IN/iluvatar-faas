@@ -15,6 +15,8 @@ use iluvatar_library::{
     types::{Compute, Isolation, MemSizeMb},
     utils::{execute_cmd, execute_cmd_async, port::free_local_port},
 };
+use iluvatar_bpf_library::bpf::func_characs::{BPF_FMAP_KEY,build_bpf_key};
+
 use std::collections::HashMap;
 use std::{sync::Arc, time::SystemTime};
 use tracing::{debug, error, info, trace, warn};
@@ -65,7 +67,7 @@ impl DockerIsolation {
         tid: &TransactionId,
         env: Option<&HashMap<String, String>>,
         fqdn: Option<&str>,
-    ) -> Result<(u64)> {
+    ) -> Result<(BPF_FMAP_KEY)> {
         run_args.insert(0, "run");
         run_args.extend(["--label", "owner=iluvatar_worker", "--detach", image_name]);
         if let Some(a) = proc_args {
@@ -87,13 +89,7 @@ impl DockerIsolation {
                     Err(_) => 0,
                 };
                 let cgroup_idoutput = inspect_container( container_id.clone(), "'{{.Id}}'" );
-                let cgroup_id = match u64::from_str_radix( &cgroup_idoutput[0..15], 16 ) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        println!("Error: {}", e);
-                        0
-                    },
-                };
+                let cgroup_id: BPF_FMAP_KEY = build_bpf_key( &cgroup_idoutput[0..15].to_string() );
 
                 let fqdn = fqdn.unwrap_or("unknown");
 
@@ -102,7 +98,7 @@ impl DockerIsolation {
                 }
 
                 debug!(tid=%tid, name=%image_name, containerid=%container_id, fqdn=%fqdn, pidoutput=%pidoutput, output=?output, "Docker container started successfully");
-                info!(tid=%tid, name=%image_name, containerid=%container_id, cgroup_id=%cgroup_id, "Docker container started successfully");
+                info!(tid=%tid, name=%image_name, containerid=%container_id, "Docker container started successfully");
                 Ok((cgroup_id))
             }
             Some(error_stat) => {
@@ -309,7 +305,7 @@ impl ContainerIsolationService for DockerIsolation {
         // let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
         let cgroup_id = self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None, Some(fqdn.clone()))
             .await?;
-        println!("fqdn {} -> cgroup_id {}", 
+        println!("fqdn {} -> cgroup_id {:?}", 
                 fqdn,
                 cgroup_id
             );

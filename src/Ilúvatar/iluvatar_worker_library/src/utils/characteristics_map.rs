@@ -148,14 +148,14 @@ pub struct CharacteristicsMap {
     /// Minimum of the values
     minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
-    fcmap_tx: Option<Sender<(u64,CharVal)>>,
+    fcmap_tx: Option<Sender<(BPF_FMAP_KEY,CharVal)>>,
     container_man: Option<Arc<ContainerManager>>,
 }
 
 impl CharacteristicsMap {
     pub fn new( 
         ag: AgExponential, 
-        fcmap_tx: Option<Sender<(u64,CharVal)>>,
+        fcmap_tx: Option<Sender<(BPF_FMAP_KEY,CharVal)>>,
         container_man: Option<Arc<ContainerManager>>,
     ) -> Self {
         // TODO: Implement file restore functionality here

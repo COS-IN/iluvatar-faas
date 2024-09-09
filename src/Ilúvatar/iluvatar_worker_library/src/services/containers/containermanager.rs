@@ -12,6 +12,7 @@ use futures::Future;
 use iluvatar_library::threading::{tokio_runtime, EventualItem};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
 use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::sync::{atomic::AtomicU32, Arc};
@@ -252,7 +253,7 @@ impl ContainerManager {
 
     /// Returns the best possible idle container's [ContainerState] at this time
     /// Can be either running or idle, if [ContainerState::Cold], then possibly no container found
-    pub fn container_cgroup_ids(&self, fqdn: &str, compute: Compute) -> Vec<u64> {
+    pub fn container_cgroup_ids(&self, fqdn: &str, compute: Compute) -> Vec<BPF_FMAP_KEY> {
         let mut cgroupids = vec!();
         if compute == Compute::CPU {
             cgroupids.extend( self.cpu_containers.get_cgroup_ids( fqdn ) );
