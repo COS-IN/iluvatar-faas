@@ -233,7 +233,8 @@ impl ContainerIsolationService for DockerIsolation {
         let cid = format!("{}-{}", fqdn, GUID::rand());
         let port = free_local_port()?;
         let gunicorn_args = format!("GUNICORN_CMD_ARGS=--bind 0.0.0.0:{}", port);
-        let cpu_arg = cpus.to_string();
+        //let cpu_arg = cpus.to_string();
+        let cpu_arg = "0.0".to_string();
         let port_args = format!("{}:{}", port, port);
         let il_port = format!("__IL_PORT={}", port);
         let memory_arg = format!("{}MB", mem_limit_mb);
