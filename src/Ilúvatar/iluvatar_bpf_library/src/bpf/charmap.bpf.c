@@ -3,7 +3,6 @@
 #include <bpf/bpf_endian.h>
 
 #define MAX_FUNCS 50 
-
 #define KEYSIZE 15 // because the kernel fs inode name is 15 characters 
 
 typedef struct CharVal{

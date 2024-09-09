@@ -36,6 +36,7 @@ UEI_DEFINE(uei);
 */
 
 #define MAX_FUNCS 50 
+#define KEYSIZE 15 // because the kernel fs inode name is 15 characters 
 
 typedef struct CharVal{
     u32 prio;
@@ -48,7 +49,7 @@ typedef struct CharVal{
 struct {
   __uint(type, BPF_MAP_TYPE_HASH);
   __uint(max_entries, MAX_FUNCS);
-  __uint(key_size, sizeof(u64));         /* cgrp ID */
+  __uint(key_size, sizeof(char)*KEYSIZE);         /* cgrp ID */
   __uint(value_size, sizeof(CharVal_t)); /* Value Structure */
 } func_characs SEC(".maps");
 
@@ -369,9 +370,9 @@ static __always_inline void verify_qid_to_groupid(){
 // long (\*callback_fn)(struct bpf_map \*map, const void \*key, void \*value, void \*ctx);
 // callback continues if return 0 
 //          stops if return 1
-static long func_characs_cb_print (void *map, const __u64 *key, CharVal_t *val, void *data){
-    info_msg("[cgroup-id][map][func_characs] key: %llu e2e: %lu", 
-             *key,
+static long func_characs_cb_print (void *map, const char *key, CharVal_t *val, void *data){
+    info_msg("[cgroup-id][map][func_characs] key: %s e2e: %lu", 
+             key,
              val->e2e
              ); 
     return 0;
