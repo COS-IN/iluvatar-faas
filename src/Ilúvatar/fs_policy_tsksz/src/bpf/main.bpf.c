@@ -35,23 +35,24 @@ UEI_DEFINE(uei);
 
 */
 
+
+////////////////////////////////
+// Macros 
+
+#define FETCH_KERNEL_STR(x, name)                             \
+	char name[MAX_NAME_LEN];                                  \
+	int n = bpf_probe_read_kernel_str(name, MAX_NAME_LEN, x); \
+	n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n;
+
 #define MAX_FUNCS 50 
 #define KEYSIZE 15 // because the kernel fs inode name is 15 characters 
 
-typedef struct CharVal{
-    u32 prio;
-    u32 e2e;
-    u32 loc;
-} CharVal_t;
+// maximum number of tasks that can be handled
+#define MAX_ENQUEUED_TASKS 8192
 
-// let's create a hashmap 
-// a hash map 
-struct {
-  __uint(type, BPF_MAP_TYPE_HASH);
-  __uint(max_entries, MAX_FUNCS);
-  __uint(key_size, sizeof(char)*KEYSIZE);         /* cgrp ID */
-  __uint(value_size, sizeof(CharVal_t)); /* Value Structure */
-} func_characs SEC(".maps");
+// it is filled in during init from the tsksz core array filled by
+// userland
+#define CMASK_GLOBAL_KEY 0x0
 
 /*
    48 / 2 -> 24 
@@ -65,22 +66,6 @@ struct {
 #define USCHED_DSQ SHARED_DSQ + 1
 #define USCHED_CORE MAX_CPUS - 1
 #define MAX_CGROUPS 64
-
-/*
- * Scheduler attributes and statistics.
- */
-u32 usersched_pid; /* User-space scheduler PID */
-const volatile u64 slice_ns = SCX_SLICE_DFL; /* Base time slice duration */
-
-/*
- * Effective time slice: allow the scheduler to override the default time slice
- * (slice_ns) if this one is set.
- */
-const volatile u64 effective_slice_ns = 1 * MSEC_PER_SEC;
-
-// Number of tasks being handled by the bpf scheduler
-volatile u64 nr_tasks = 0;
-volatile u64 nr_eq_tasks = 0;
 
 // info msg with a specific tag
 #define info_msg(_fmt, ...)                                       \
@@ -118,9 +103,118 @@ volatile u64 nr_eq_tasks = 0;
 // the reserved bucket 0 for funcs that aren't yet categorized 
 #define MAX_E2E_BUCKETS 4
 #define RESERVED_E2E_BUCKET 0
+
+
+////////////////////////////////////////
+// Structures 
+
+typedef struct CharVal{
+    u32 prio;
+    u32 e2e;
+    u32 loc;
+} CharVal_t;
+
+// let's create a hashmap 
+// a hash map 
+struct {
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, MAX_FUNCS);
+  __uint(key_size, sizeof(char)*KEYSIZE);         /* cgrp ID */
+  __uint(value_size, sizeof(CharVal_t)); /* Value Structure */
+} func_characs SEC(".maps");
+
+
+/*
+  hashmap for capturing cgroups along with properties 
+*/
+typedef struct cgroupvalue {
+	s32 qid;
+	char name[MAX_NAME_LEN];
+} Cgroupvalue;
+
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, MAX_CGROUPS);
+	__type(key, __u64);
+	__type(value, Cgroupvalue);
+} CgroupsHashMap SEC(".maps");
+
+
+/*
+ * Heartbeat timer used to periodically trigger the check to run the user-space
+ * scheduler.
+ *
+ * Without this timer we may starve the scheduler if the system is completely
+ * idle and hit the watchdog that would auto-kill this scheduler.
+ */
+struct usersched_timer {
+	struct bpf_timer timer;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, u32);
+	__type(value, struct usersched_timer);
+} usersched_timer SEC(".maps");
+
+// The map containing pids of tasks that are to be switched to SchedEXT policy.
+// it is drained by the user space thread
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, MAX_ENQUEUED_TASKS);
+} queued_pids SEC(".maps");
+
+
+/////////////////////////////////////////////
+// Global Variables 
+
+/*
+ * Scheduler attributes and statistics.
+ */
+u32 usersched_pid; /* User-space scheduler PID */
+const volatile u64 slice_ns = SCX_SLICE_DFL; /* Base time slice duration */
+
+/*
+ * Effective time slice: allow the scheduler to override the default time slice
+ * (slice_ns) if this one is set.
+ */
+const volatile u64 effective_slice_ns = 1 * MSEC_PER_SEC;
+
+// Number of tasks being handled by the bpf scheduler
+volatile u64 nr_tasks = 0;
+volatile u64 nr_eq_tasks = 0;
+
+
 volatile u32 e2e_thresholds[MAX_E2E_BUCKETS -2]; // we don't need thresholds
                                                  // for reserved and rest
                                                  // buckets
+
+// Q related 
+static volatile s32 bkt_next_qid[MAX_E2E_BUCKETS] = {0};
+
+// we can later change this assignment - so that one Q may have more cpus
+// there is a bug in the bpf verifier - which isn't allowing to use following
+// to set the array, hence to avoid it capacity is twice the number of cpus 
+//        cpu = i * 2 + 1;
+static s32 cpu_to_qid_array[MAX_CPUS*2];
+
+/*
+ * Flag used to wake-up the user-space scheduler.
+ */
+static volatile u32 usersched_needed;
+
+/////////////////////////////////
+// Function Declarations 
+
+static __always_inline struct cgroup * task_to_cgroup(struct task_struct *p);
+static __always_inline CharVal_t * func_characs_present( char *key_name );
+static __always_inline Cgroupvalue *chashmap_present(__u64 cid);
+
+
+/////////////////////////////////
+// Function Definitions 
+
 s32 get_groupid( u32 e2e ) {
     int i;
 
@@ -169,17 +263,6 @@ static __always_inline void verify_get_groupid(){
     TESTCASE_get_groupid( 5000, 3 )
 }
 
-static volatile s32 next_qid = 0;
-static __always_inline s32 gen_qid()
-{
-	s32 t = next_qid++;
-	if (next_qid == SHARED_DSQ) {
-		next_qid = 0;
-	}
-	return t;
-}
-
-static volatile s32 bkt_next_qid[MAX_E2E_BUCKETS] = {0};
 static __always_inline s32 gen_qid_new( s32 gid )
 {
     if( !(0 <= gid && gid < MAX_E2E_BUCKETS) ){
@@ -358,13 +441,43 @@ static __always_inline void verify_qid_to_groupid(){
   TESTCASES_qid_to_groupid( 18, 3 )
 }
 
+static __always_inline void update_qid_as_per_e2e( struct task_struct *p ) {
 
-// maximum number of tasks that can be handled
-#define MAX_ENQUEUED_TASKS 8192
+    // fetch cgroup name for the given task 
+    struct cgroup *cgrp = task_to_cgroup( p );
+    if( cgrp ){
+        FETCH_KERNEL_STR( cgrp->kn->name, cname )
 
-// it is filled in during init from the tsksz core array filled by
-// userland
-#define CMASK_GLOBAL_KEY 0x0
+        CharVal_t * fvalue = func_characs_present( cname );
+        if( fvalue ){
+
+            Cgroupvalue * cgvalue = chashmap_present( cgrp->kn->id );  
+            if ( cgvalue ){
+
+              s32 gid = get_groupid( fvalue->e2e );
+              s32 ogid = qid_to_groupid( cgvalue->qid );
+
+              if ( ogid != gid ){
+                  s32 nqid = gen_qid_new( gid );
+                  info_msg( "[update_qid] qid: %d -> nqid %d for cgroup: %s pid: %d", 
+                           cgvalue->qid,         
+                           nqid,
+                           cname,
+                           p->pid
+                         );
+                  cgvalue->qid = nqid;
+              }
+
+            }else{
+              info_msg( "[warning][update_qid] no cgroup value in hashmap for cgroup: %s", cname );
+            }
+        }else{
+            info_msg( "[warning][update_qid] no func_characs for cgroup: %s", cname );
+        }
+    }else{
+        info_msg( "[warning][update_qid] no cgroup for %d - %s", p->pid, p->comm );
+    }
+}
 
 // Callback for bpf_for_each_map_elem
 // long (\*callback_fn)(struct bpf_map \*map, const void \*key, void \*value, void \*ctx);
@@ -378,7 +491,13 @@ static long func_characs_cb_print (void *map, const char *key, CharVal_t *val, v
     return 0;
 }
 
-static __always_inline bool verify_qid(s32 qid)
+static __always_inline CharVal_t * func_characs_present( char *key_name )
+{
+	CharVal_t *cvalue = bpf_map_lookup_elem(&func_characs, key_name);
+	return cvalue;
+}
+
+static __always_inline bool verify_qid( s32 qid )
 {
 	if (0 <= qid && qid < SHARED_DSQ) {
 		return true;
@@ -394,11 +513,6 @@ static __always_inline bool verify_cpu(s32 cpu)
 	return false;
 }
 
-// we can later change this assignment - so that one Q may have more cpus
-// there is a bug in the bpf verifier - which isn't allowing to use following
-// to set the array, hence to avoid it capacity is twice the number of cpus 
-//        cpu = i * 2 + 1;
-static s32 cpu_to_qid_array[MAX_CPUS*2];
 static __always_inline s32 cpu_to_qid(s32 cpu)
 {
     if ( verify_cpu( cpu ) ){
@@ -423,13 +537,6 @@ static __always_inline struct bpf_cpumask *qid_to_cpumask(s32 qid)
     return mask;
 }
 
-// The map containing pids of tasks that are to be switched to SchedEXT policy.
-// it is drained by the user space thread
-struct {
-	__uint(type, BPF_MAP_TYPE_RINGBUF);
-	__uint(max_entries, MAX_ENQUEUED_TASKS);
-} queued_pids SEC(".maps");
-
 void queued_pids_push(int pid)
 {
 	int *p = bpf_ringbuf_reserve(&queued_pids, sizeof(packet_pid_t), 0);
@@ -441,21 +548,6 @@ void queued_pids_push(int pid)
 	}
 }
 
-/*
-  hashmap for capturing cgroups along with properties 
-*/
-typedef struct cgroupvalue {
-	s32 qid;
-	char name[MAX_NAME_LEN];
-} Cgroupvalue;
-
-struct {
-	__uint(type, BPF_MAP_TYPE_LRU_HASH);
-	__uint(max_entries, MAX_CGROUPS);
-	__type(key, __u64);
-	__type(value, Cgroupvalue);
-} CgroupsHashMap SEC(".maps");
-
 static void chashmap_insert(__u64 cid, char *name)
 {
 	Cgroupvalue *cvalue = bpf_map_lookup_elem(&CgroupsHashMap, &cid);
@@ -466,7 +558,7 @@ static void chashmap_insert(__u64 cid, char *name)
 		Cgroupvalue new_cvalue;
 		__builtin_memcpy_inline(new_cvalue.name, name, MAX_NAME_LEN);
         
-		new_cvalue.qid = gen_qid();
+		new_cvalue.qid = gen_qid_new( 0 );
 		bpf_map_update_elem(&CgroupsHashMap, &cid, &new_cvalue,
 				    BPF_NOEXIST);
 		info_msg("[cgroup-id][%s] -- %d -OK-inserted- %s, qid: %d", 
@@ -484,11 +576,19 @@ static __always_inline Cgroupvalue *chashmap_present(__u64 cid)
 	return cvalue;
 }
 
-static __always_inline s32 task_to_qid(struct task_struct *p)
+static __always_inline struct cgroup * task_to_cgroup(struct task_struct *p)
 {
 	struct task_group *tg = p->sched_task_group;
 	if (tg && tg->css.cgroup) {
-		struct cgroup *cgrp = tg->css.cgroup;
+		return tg->css.cgroup;
+	}
+    return NULL;
+}
+
+static __always_inline s32 task_to_qid(struct task_struct *p)
+{
+    struct cgroup *cgrp = task_to_cgroup( p );
+	if ( cgrp ) {
         Cgroupvalue * cvalue = chashmap_present(cgrp->kn->id);
 		if (cvalue) {
             return cvalue->qid;
@@ -543,14 +643,9 @@ static inline bool match_prefix(const char *prefix, const char *str,
 	return false;
 }
 
-#define FETCH_KERNEL_STR(x)                                       \
-	char name[MAX_NAME_LEN];                                  \
-	int n = bpf_probe_read_kernel_str(name, MAX_NAME_LEN, x); \
-	n = n > MAX_NAME_LEN ? MAX_NAME_LEN : n;
-
 static inline bool match_prefix_kernel_str(const char *prefix, const char *kstr)
 {
-	FETCH_KERNEL_STR(kstr)
+	FETCH_KERNEL_STR(kstr, name)
 
 	if (n >= 0 && match_prefix(prefix, name, n)) {
 		return true;
@@ -568,23 +663,7 @@ static __always_inline int cus_strlen(const char *cs)
 	return len;
 }
 
-/*
- * Heartbeat timer used to periodically trigger the check to run the user-space
- * scheduler.
- *
- * Without this timer we may starve the scheduler if the system is completely
- * idle and hit the watchdog that would auto-kill this scheduler.
- */
-struct usersched_timer {
-	struct bpf_timer timer;
-};
 
-struct {
-	__uint(type, BPF_MAP_TYPE_ARRAY);
-	__uint(max_entries, 1);
-	__type(key, u32);
-	__type(value, struct usersched_timer);
-} usersched_timer SEC(".maps");
 
 /*
  * Return true if the target task @p is the user-space scheduler.
@@ -601,11 +680,6 @@ static inline bool is_kthread(const struct task_struct *p)
 {
 	return !!(p->flags & PF_KTHREAD);
 }
-
-/*
- * Flag used to wake-up the user-space scheduler.
- */
-static volatile u32 usersched_needed;
 
 /*
  * Set user-space scheduler wake-up flag (equivalent to an atomic release
@@ -678,20 +752,6 @@ bool is_usersched_cpu(s32 cpu)
 	return cpu == USCHED_CORE;
 }
 
-#if 0
-static __always_inline update_qid( struct task_struct *p ) {
-  // get the cgroup id of the task p 
-
-  // fetch the e2e 
-  // get groupid based off the e2e 
-  // get previous groupid based of existing qid 
-  // if the groupids are same 
-    // do nothing 
-  // else 
-    // generate the new qid for the new group - and assign it 
-}
-#endif
-
 /*
    Select the target CPU where a task can be executed.
   
@@ -703,12 +763,11 @@ s32 BPF_STRUCT_OPS(tsksz_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wa
 	s32 cpu;
 	callback_msg("%s", __func__);
 
-    // update the nqid assignment of the task p 
-
-	s32 qid = task_to_qid(p);
+    update_qid_as_per_e2e( p );
 
     print_task_cgroup_stats( p );
 
+	s32 qid = task_to_qid(p);
 	if (verify_qid(qid)) {
         struct bpf_cpumask __kptr *cpumask = qid_to_cpumask(qid);
         if ( cpumask ) {
@@ -817,7 +876,7 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
 				__func__, p->comm, p->pid, cgrp->kn->id,
 				cgrp->kn->name);
 		} else {
-			FETCH_KERNEL_STR(p->comm)
+			FETCH_KERNEL_STR(p->comm, name)
 			const char *other = "gunicorn";
 			int no = cus_strlen(other);
 			n = n < no ? n : no;
@@ -840,20 +899,8 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
 				queued_pids_push(p->pid);
 
 				// and insert the cgroup id for future reference
-				FETCH_KERNEL_STR(cgrp->kn->name)
-                unsigned long cvt_cid = 0;
-                if ( bpf_strtoul(name, MAX_NAME_LEN, 16, &cvt_cid ) > 0 ){
-                    info_msg("[cgroup-id] converted key: %llu p->sched_task_group->css.cgroup->kn->id: %llu", 
-                             cvt_cid,
-                             cgrp->kn->id
-                    ); 
-                    chashmap_insert( cvt_cid, name);
-                }else{
-                    chashmap_insert( cgrp->kn->id, name);
-                    warn_msg("[cgroup-id] couldn't converted key: %llu - bad cgroup hashtable", 
-                             cvt_cid
-                    ); 
-                }
+				FETCH_KERNEL_STR(cgrp->kn->name, name)
+                chashmap_insert( cgrp->kn->id, name);
             }
 		}
 	}
