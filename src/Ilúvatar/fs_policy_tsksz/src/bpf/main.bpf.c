@@ -179,12 +179,12 @@ const volatile u64 slice_ns = SCX_SLICE_DFL; /* Base time slice duration */
  * Effective time slice: allow the scheduler to override the default time slice
  * (slice_ns) if this one is set.
  */
-const volatile u64 effective_slice_ns = 1 * MSEC_PER_SEC;
+// const volatile u64 effective_slice_ns = 5 * MSEC_PER_SEC;
+const volatile u64 effective_slice_ns = 10 * ONE_MSEC;
 
 // Number of tasks being handled by the bpf scheduler
 volatile u64 nr_tasks = 0;
 volatile u64 nr_eq_tasks = 0;
-
 
 volatile u32 e2e_thresholds[MAX_E2E_BUCKETS -2]; // we don't need thresholds
                                                  // for reserved and rest
@@ -800,6 +800,12 @@ s32 BPF_STRUCT_OPS(tsksz_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wa
 void BPF_STRUCT_OPS(tsksz_enqueue, struct task_struct *p, u64 enq_flags)
 {
 	callback_msg("%s", __func__);
+    info_msg("[task-stats][%d][%s] on-enqueue slice: %llu flags: 0x%llx",
+             p->pid,
+             p->comm,
+             p->scx.slice,
+             enq_flags
+             );
 
 	/*
 	 * Scheduler is dispatched directly in .dispatch() when needed, so
@@ -808,13 +814,14 @@ void BPF_STRUCT_OPS(tsksz_enqueue, struct task_struct *p, u64 enq_flags)
 	if (is_usersched_task(p))
 		return;
 
-    print_task_cgroup_stats( p );
-
-
-
 	s32 qid = task_to_qid(p);
 	if (verify_qid(qid)) {
 		scx_bpf_dispatch(p, qid, effective_slice_ns, 0);
+        // trigger a follow up scheduling event 
+        // how? --> cpu kick? 
+        s32 cpu = qid*2;
+        scx_bpf_kick_cpu( cpu, SCX_KICK_IDLE);
+        scx_bpf_kick_cpu( cpu+1, SCX_KICK_IDLE);
 	}
 }
 
