@@ -32,6 +32,8 @@ impl Debug for CharmapSkel<'_> {
     }
 }
 
+pub type BPF_FMAP_KEY = [u8;15];
+
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct CharVal{
@@ -68,10 +70,21 @@ pub fn build_and_load<'obj>( open_object:  &'obj mut MaybeUninit::<libbpf_rs::Op
     Ok(skel)
 }
 
-pub fn update_map<'obj>( map:  &'obj libbpf_rs::MapMut<'obj>, key: [u8;15], val: &CharVal ) 
+pub fn build_bpf_key( key: &String ) -> [u8;15] {
+    let mut keyb: BPF_FMAP_KEY = [0;15];
+
+    for (i,k) in key.bytes().enumerate(){
+        if i < keyb.len() {
+            keyb[i] = k;
+        } 
+    }
+    keyb
+}
+
+pub fn update_map<'obj>( map:  &'obj libbpf_rs::MapMut<'obj>, key: &BPF_FMAP_KEY, val: &CharVal ) 
 {
     let val: &[u8] = unsafe { any_as_u8_slice(val) };
-    match map.update(&key, val, MapFlags::ANY) {
+    match map.update(key, val, MapFlags::ANY) {
         Ok(_) => (),
         Err(e) => {
             println!("error: unable to update the map {:?}", e);
