@@ -22,15 +22,19 @@ enum PoolType {
 pub struct ContainerPool {
     idle_pool: Pool,
     running_pool: Pool,
+    tid_pool: DashMap<String,Vec<TransactionId>>, // this has one to one correspondence with running
+                                                  // pool 
     /// fqdn->Vec<Container>
     len: AtomicU32,
     pool_name: String,
 }
+
 impl ContainerPool {
     pub fn new(compute: Compute) -> Self {
         ContainerPool {
             idle_pool: DashMap::new(),
             running_pool: DashMap::new(),
+            tid_pool: DashMap::new(),
             len: AtomicU32::new(0),
             pool_name: format!("{:?}", compute),
         }
@@ -121,7 +125,11 @@ impl ContainerPool {
                 Some(c) => {
                     debug!(tid=%tid, container_id=%c.container_id(), name=%self.pool_name, pool_type=?PoolType::Idle, "Removing random container from pool");
                     match self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running) {
-                        Ok(_) => Some(c),
+                        Ok(_) => {
+                            // pool is the best place to maintain a tid to cgroup id mapping 
+                            self.tid_pool.get_mut( c.fqdn() ).push( tid.clone() );
+                            Some(c)
+                        }
                         Err(e) => {
                             println!("{:?}", e);
                             error!(tid=%tid, error=%e, "Failed trying to move container to running pool");
@@ -272,6 +280,11 @@ impl ContainerPool {
             }
         }
         cgroup_ids
+    }
+
+    /// get all the cgroup_ids corresponding to given fqdn in this pool 
+    pub fn get_tids(&self, fqdn: &str) -> Vec<TransactionId> {
+        self.tid_pool.get( fqdn ).clone()
     }
 }
 

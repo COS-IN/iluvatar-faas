@@ -65,6 +65,7 @@ impl HttpContainerClient {
             .post(&self.invoke_uri)
             .body(json_args.to_owned())
             .header("Content-Type", "application/json");
+        // by this point the get random container must have been already called 
         let start = SystemTime::now();
         let response = match builder.send().await {
             Ok(r) => r,
@@ -76,7 +77,7 @@ impl HttpContainerClient {
             Ok(dur) => dur,
             Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
         };
-        Ok((response, duration))
+        Ok( (response, duration) )
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, response, container_id), fields(tid=%tid, fqdn=%self.fqdn)))]

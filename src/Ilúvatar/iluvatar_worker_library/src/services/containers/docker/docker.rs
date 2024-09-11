@@ -306,6 +306,7 @@ impl ContainerIsolationService for DockerIsolation {
         // let proc_args = format!("server:app -w 1 --timeout {}", self.limits_config.timeout_sec);
         let cgroup_id = self.docker_run(args, image_name, cid.as_str(), Some(proc_args), tid, None, Some(fqdn.clone()))
             .await?;
+        
         println!("fqdn {} -> cgroup_id {:?}", 
                 fqdn,
                 cgroup_id
