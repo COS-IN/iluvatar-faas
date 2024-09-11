@@ -22,8 +22,7 @@ enum PoolType {
 pub struct ContainerPool {
     idle_pool: Pool,
     running_pool: Pool,
-    tid_pool: DashMap<String,Vec<TransactionId>>, // this has one to one correspondence with running
-                                                  // pool 
+    tid_map: DashMap<TransactionId, BPF_FMAP_KEY>, // tid-cgroupid  
     /// fqdn->Vec<Container>
     len: AtomicU32,
     pool_name: String,
@@ -34,7 +33,7 @@ impl ContainerPool {
         ContainerPool {
             idle_pool: DashMap::new(),
             running_pool: DashMap::new(),
-            tid_pool: DashMap::new(),
+            tid_map: DashMap::new(),
             len: AtomicU32::new(0),
             pool_name: format!("{:?}", compute),
         }
@@ -44,7 +43,6 @@ impl ContainerPool {
     pub fn register_fqdn(&self, fqdn: String) {
         self.idle_pool.insert(fqdn.clone(), Vec::new());
         self.running_pool.insert(fqdn.clone(), Vec::new());
-        self.tid_pool.insert(fqdn, Vec::new());
     }
     pub fn pool_name(&self) -> &str {
         &self.pool_name
@@ -128,10 +126,7 @@ impl ContainerPool {
                     match self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running) {
                         Ok(_) => {
                             // pool is the best place to maintain a tid to cgroup id mapping 
-                            match self.tid_pool.get_mut( c.fqdn() ){
-                                Some(mut tpool) => tpool.push( tid.clone() ),
-                                None => error!(tid=%tid, fqdn=%fqdn, "no vec list to put tid in for given fqdn"),
-                            }
+                            tid_map.insert( tid.clone(), c.get_cgroupid() );
                             Some(c)
                         }
                         Err(e) => {
@@ -250,16 +245,10 @@ impl ContainerPool {
                 let (pos, pool_len) = self.find_container_pos(container, pool_list);
                 if pos < pool_len {
                     debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, pool_type=?pool_type, "Removing container from pool");
-                    match self.tid_pool.get_mut( container.fqdn() ){
-                        Some(mut tpool) => {
-                            if pos < tpool.len(){
-                                tpool.remove(pos);
-                            }else{
-                                error!(fqdn=%container.fqdn(), pos=%pos, "pos is more then the tid pool len! something went wrong");
-                            }
-                        }
-                        None => error!(fqdn=%container.fqdn(), "no vec list to remove tid from given fqdn"),
-                    }
+                    // self.tid_map.remove( tid );
+                    // we are not removing the tid here because 
+                    // charmap would query it after the invocation is done 
+                    // and we don't want the value to absent 
                     Some(pool_list.remove(pos))
                 } else {
                     None
@@ -268,6 +257,17 @@ impl ContainerPool {
             None => None,
         }
     }
+
+    pub fn get_cgroupid_against_tid(&self,
+            tid: &TransactionId,
+        ) -> Option<BPF_FMAP_KEY>
+    {
+        match self.tid_map.remove( tid ) {
+            Some((k,v)) => Some(v),
+            None => None,
+        }
+    }
+
     fn find_container_pos(&self, container: &Container, pool_list: &Subpool) -> (usize, usize) {
         let pool_len = pool_list.len();
         let mut pos = usize::MAX;

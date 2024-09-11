@@ -289,6 +289,15 @@ impl CharacteristicsMap {
 
         self
     }
+    pub fn start_invoke(&self, fqdn: &str, tid: TransactionId) {
+        let cgroup_id = self.container_man.get_cgroupid_against_tid( tid );
+        println!("invoke starting: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+    }
+
+    pub fn end_invoke(&self, fqdn: &str, tid: TransactionId) {
+        let cgroup_id = self.container_man.get_cgroupid_against_tid( tid );
+        println!("invoke ending: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+    }
 
     pub fn add_iat(&self, fqdn: &str) {
         let time_now = SystemTime::now();
