@@ -43,7 +43,8 @@ impl ContainerPool {
     /// Used to register a new fqdn with the pool
     pub fn register_fqdn(&self, fqdn: String) {
         self.idle_pool.insert(fqdn.clone(), Vec::new());
-        self.running_pool.insert(fqdn, Vec::new());
+        self.running_pool.insert(fqdn.clone(), Vec::new());
+        self.tid_pool.insert(fqdn, Vec::new());
     }
     pub fn pool_name(&self) -> &str {
         &self.pool_name
@@ -127,7 +128,10 @@ impl ContainerPool {
                     match self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running) {
                         Ok(_) => {
                             // pool is the best place to maintain a tid to cgroup id mapping 
-                            self.tid_pool.get_mut( c.fqdn() ).push( tid.clone() );
+                            match self.tid_pool.get_mut( c.fqdn() ){
+                                Some(mut tpool) => tpool.push( tid.clone() ),
+                                None => error!(tid=%tid, fqdn=%fqdn, "no vec list to put tid in for given fqdn"),
+                            }
                             Some(c)
                         }
                         Err(e) => {
@@ -284,7 +288,10 @@ impl ContainerPool {
 
     /// get all the cgroup_ids corresponding to given fqdn in this pool 
     pub fn get_tids(&self, fqdn: &str) -> Vec<TransactionId> {
-        self.tid_pool.get( fqdn ).clone()
+        match self.tid_pool.get( fqdn ){
+            Some(p) => p.clone(),
+            None => vec![],
+        }
     }
 }
 

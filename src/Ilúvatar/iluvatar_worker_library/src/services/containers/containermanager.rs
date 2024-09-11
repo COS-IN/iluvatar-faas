@@ -325,11 +325,11 @@ impl ContainerManager {
                 // cgroupid 
                 println!("fqdn {:?} -> cgroup-ids: {:?}",
                         reg.fqdn,
-                        self.cpu_containers.get_cgroup_ids(reg.fqdn.into())
+                        self.cpu_containers.get_cgroup_ids(reg.fqdn.as_str())
                     ); 
                 println!("fqdn {:?} -> tids: {:?}",
                         reg.fqdn,
-                        self.cpu_containers.get_tids(reg.fqdn.into())
+                        self.cpu_containers.get_tids(reg.fqdn.as_str())
                     ); 
                 EventualItem::Now(Ok(l))
             } 
