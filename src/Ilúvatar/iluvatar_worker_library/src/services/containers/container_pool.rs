@@ -250,6 +250,16 @@ impl ContainerPool {
                 let (pos, pool_len) = self.find_container_pos(container, pool_list);
                 if pos < pool_len {
                     debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, pool_type=?pool_type, "Removing container from pool");
+                    match self.tid_pool.get_mut( container.fqdn() ){
+                        Some(mut tpool) => {
+                            if pos < tpool.len(){
+                                tpool.remove(pos);
+                            }else{
+                                error!(fqdn=%container.fqdn(), pos=%pos, "pos is more then the tid pool len! something went wrong");
+                            }
+                        }
+                        None => error!(fqdn=%container.fqdn(), "no vec list to remove tid from given fqdn"),
+                    }
                     Some(pool_list.remove(pos))
                 } else {
                     None
