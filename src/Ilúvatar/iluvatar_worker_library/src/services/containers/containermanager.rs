@@ -334,16 +334,6 @@ impl ContainerManager {
         let cont = self.try_acquire_container(&reg.fqdn, tid, compute);
         let cont = match cont {
             Some(l) => {
-                // at this point the container is definitly acquired we can verify the tid and the
-                // cgroupid 
-                println!("fqdn {:?} -> cgroup-ids: {:?}",
-                        reg.fqdn,
-                        self.cpu_containers.get_cgroup_ids(reg.fqdn.as_str())
-                    ); 
-                println!("fqdn {:?} -> tids: {:?}",
-                        reg.fqdn,
-                        self.cpu_containers.get_tids(reg.fqdn.as_str())
-                    ); 
                 EventualItem::Now(Ok(l))
             } 
             None => {

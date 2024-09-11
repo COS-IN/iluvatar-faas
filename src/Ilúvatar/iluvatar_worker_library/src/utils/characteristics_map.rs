@@ -10,6 +10,8 @@ use std::sync::Arc;
 use crate::services::containers::{containermanager::ContainerManager};
 
 use iluvatar_library::types::{Compute};
+use iluvatar_library::transaction::TransactionId;
+
 use iluvatar_bpf_library::bpf::func_characs::*;
 use std::sync::mpsc::Sender;
 
@@ -289,14 +291,19 @@ impl CharacteristicsMap {
 
         self
     }
-    pub fn start_invoke(&self, fqdn: &str, tid: TransactionId) {
-        let cgroup_id = self.container_man.get_cgroupid_against_tid( tid );
-        println!("invoke starting: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+
+    pub fn start_invoke(&self, fqdn: &str, tid: &TransactionId) {
+        if let Some(cm) = &self.container_man {
+            let cgroup_id = cm.get_cgroupid_against_tid( tid );
+            println!("invoke starting: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+        }
     }
 
-    pub fn end_invoke(&self, fqdn: &str, tid: TransactionId) {
-        let cgroup_id = self.container_man.get_cgroupid_against_tid( tid );
-        println!("invoke ending: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+    pub fn end_invoke(&self, fqdn: &str, tid: &TransactionId) {
+        if let Some(cm) = &self.container_man {
+            let cgroup_id = cm.get_cgroupid_against_tid( tid );
+            println!("invoke ending: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+        }
     }
 
     pub fn add_iat(&self, fqdn: &str) {

@@ -126,7 +126,7 @@ impl ContainerPool {
                     match self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running) {
                         Ok(_) => {
                             // pool is the best place to maintain a tid to cgroup id mapping 
-                            tid_map.insert( tid.clone(), c.get_cgroupid() );
+                            self.tid_map.insert( tid.clone(), c.get_cgroupid() );
                             Some(c)
                         }
                         Err(e) => {
@@ -296,13 +296,6 @@ impl ContainerPool {
         cgroup_ids
     }
 
-    /// get all the cgroup_ids corresponding to given fqdn in this pool 
-    pub fn get_tids(&self, fqdn: &str) -> Vec<TransactionId> {
-        match self.tid_pool.get( fqdn ){
-            Some(p) => p.clone(),
-            None => vec![],
-        }
-    }
 }
 
 #[cfg(test)]
