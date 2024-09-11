@@ -301,7 +301,7 @@ impl CharacteristicsMap {
 
     pub fn end_invoke(&self, fqdn: &str, tid: &TransactionId) {
         if let Some(cm) = &self.container_man {
-            let cgroup_id = cm.get_cgroupid_against_tid( tid );
+            let cgroup_id = cm.remove_cgroupid_against_tid( tid );
             println!("invoke ending: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
         }
     }

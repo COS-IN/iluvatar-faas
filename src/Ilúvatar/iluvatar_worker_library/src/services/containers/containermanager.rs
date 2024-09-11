@@ -96,6 +96,19 @@ impl ContainerManager {
         None
     }
 
+    pub fn remove_cgroupid_against_tid(&self,
+            tid: &TransactionId,
+        ) -> Option<BPF_FMAP_KEY>
+    {
+        if let Some(v) = self.cpu_containers.remove_cgroupid_against_tid( tid ){
+            return Some(v);
+        }
+        if let Some(v) = self.gpu_containers.remove_cgroupid_against_tid( tid ){
+            return Some(v);
+        }
+        None
+    }
+
     fn priorities_thread() -> (
         tokio::task::JoinHandle<()>,
         std::sync::mpsc::Sender<Arc<Self>>,

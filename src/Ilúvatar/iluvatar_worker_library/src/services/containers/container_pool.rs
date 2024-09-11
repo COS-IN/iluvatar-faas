@@ -262,6 +262,16 @@ impl ContainerPool {
             tid: &TransactionId,
         ) -> Option<BPF_FMAP_KEY>
     {
+        match self.tid_map.get( tid ) {
+            Some(v) => Some(v.clone()),
+            None => None,
+        }
+    }
+
+    pub fn remove_cgroupid_against_tid(&self,
+            tid: &TransactionId,
+        ) -> Option<BPF_FMAP_KEY>
+    {
         match self.tid_map.remove( tid ) {
             Some((k,v)) => Some(v),
             None => None,
