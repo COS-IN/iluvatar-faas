@@ -12,6 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use std::str::FromStr;
 use tracing::{error, info};
 
 // base cgroup mount location 
@@ -34,7 +35,7 @@ const BASE_CGROUP_DIR: &str = "/sys/fs/cgroup";
             11675
     
     key-val pairs - 
-         cpu.stat
+         cpu.stat                ✓
             nr_periods 0
             nr_throttled 0
             throttled_time 0
@@ -81,7 +82,7 @@ const V1_METRIC_STAT_CPU: &str = "cpu.stat";
 
     key-val pairs - 
 
-         cpu.stat
+         cpu.stat                ✓
             usage_usec 84553241
             user_usec 25088308
             system_usec 59464932
@@ -96,12 +97,32 @@ const V2_METRIC_TASKS: &str  = "cgroup.threads";
 const V2_METRIC_PROCS: &str    = "cgroup.procs";
 
 #[derive(Debug, Clone)]
+pub struct CGROUPV2PsiVal {
+    avg10: f32,
+    avg60: f32,
+    avg300: f32,
+    total: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct CGROUPV2Psi {
+    some: CGROUPV2PsiVal,
+    full: CGROUPV2PsiVal,
+}
+
+#[derive(Debug, Clone)]
 pub struct CGROUPReadingV2 {
     pub threads: Vec<u64>,
     pub procs: Vec<u64>,
     pub cpustats: HashMap<String,u64>,
+    cpupsi: CGROUPV2Psi,
+    mempsi: CGROUPV2Psi,
+    iopsi: CGROUPV2Psi,
 }
 
+// at some point implement serde serialize and deserialize for this structure 
+// https://serde.rs/impl-serialize.html
+// it would help convert this structure to a json or a csv very easily 
 #[derive(Debug, Clone)]
 pub struct CGROUPReading {
     // v1 
@@ -200,6 +221,52 @@ pub fn read_as_u64_hashmap( cgroupid: &String, metric: &str, docker_loc: &str ) 
     }
 }
 
+pub fn read_as_CGROUPV2Psi( cgroupid: &String, metric: &str, docker_loc: &str ) -> CGROUPV2Psi
+{
+    let mut data = CGROUPV2Psi {
+        some: CGROUPV2PsiVal {
+            avg10  : 0.0,
+            avg60  : 0.0,
+            avg300 : 0.0,
+            total  : 0,
+        },
+        full: CGROUPV2PsiVal {
+            avg10  : 0.0,
+            avg60  : 0.0,
+            avg300 : 0.0,
+            total  : 0,
+        },
+    };
+
+    match read_to_string_first_match( &cgroupid, metric, docker_loc) {
+
+        Some(r) => {
+            println!("check->{:?}", r);
+            let lines: Vec<&str> = r.trim().split("\n").collect();
+            let fillval = |line:&str, val: &mut CGROUPV2PsiVal|{
+                // given line: "some avg10=0.00 avg60=0.00 avg300=0.00 total=22\n"
+                let stuff = &line.split(" ").collect::<Vec<&str>>()[1..];
+                let pairs: Vec<Vec<&str>> = stuff.iter().map( |x| x.split("=").collect() ).collect();
+                val.avg10  = f32::from_str       ( pairs[0][1]     ) .unwrap_or     ( 0.0 ) ;
+                val.avg60  = f32::from_str       ( pairs[1][1]     ) .unwrap_or     ( 0.0 ) ;
+                val.avg300 = f32::from_str       ( pairs[2][1]     ) .unwrap_or     ( 0.0 ) ;
+                val.total  = u32::from_str_radix ( pairs[3][1], 10 ) .unwrap_or ( 0       ) ;
+            };
+            // fill in some 
+            fillval( lines[0], &mut data.some );
+            if lines.len() == 2 {
+                // let's fill in full as well 
+                fillval( lines[1], &mut data.full );
+            }
+            println!("check->{:?}", lines);
+            return data;
+        }
+
+        None => data,
+    }
+}
+
+
 pub fn read_cgroup( cgroupid: String )
     -> Result<CGROUPReading> { 
     Ok(CGROUPReading{
@@ -215,6 +282,9 @@ pub fn read_cgroup( cgroupid: String )
             threads  : read_as_u64_vec(&cgroupid     , V2_METRIC_TASKS    , DOCKER_LOC_V2) ,
             procs    : read_as_u64_vec(&cgroupid     , V2_METRIC_PROCS    , DOCKER_LOC_V2) ,
             cpustats : read_as_u64_hashmap(&cgroupid , V2_METRIC_STAT_CPU , DOCKER_LOC_V2) ,
+            cpupsi   : read_as_CGROUPV2Psi(&cgroupid , V2_METRIC_PRS_CPU  , DOCKER_LOC_V2) ,
+            mempsi   : read_as_CGROUPV2Psi(&cgroupid , V2_METRIC_PRS_MEM  , DOCKER_LOC_V2) ,
+            iopsi    : read_as_CGROUPV2Psi(&cgroupid , V2_METRIC_PRS_IO   , DOCKER_LOC_V2) ,
         }
     })
 }
