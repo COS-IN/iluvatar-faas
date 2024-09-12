@@ -166,12 +166,11 @@ pub fn read_as_u64_vec( cgroupid: &String, metric: &str, docker_loc: &str ) -> V
             Ok(pathb) => {
                 let r = read_to_string( &pathb.into_os_string().into_string().unwrap() ).unwrap();
                 println!("{} -> {}", path, r);
-                let nums = r.trim().split(" ");
-                let mut rnums = vec![];
-                for n in nums {
-                    rnums.push( u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) );
+                let mut nums: Vec<u64> = r.trim().split(" ").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
+                if nums.len() == 1 {
+                    nums = r.trim().split("\n").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
                 }
-                return rnums;
+                return nums;
                 ()
             }
             Err(e) => println!("{:?}", e),
