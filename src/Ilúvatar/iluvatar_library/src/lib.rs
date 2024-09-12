@@ -14,6 +14,7 @@ pub mod macros;
 pub mod api_register;
 pub mod continuation;
 pub mod cpu_interaction;
+pub mod cgroup_interaction;
 pub mod energy;
 pub mod influx;
 pub mod logging;

@@ -173,6 +173,7 @@ impl CPUUtilInstant {
         let cpu_line = Self::read()?;
         Self::parse(cpu_line, tid)
     }
+
     fn read() -> Result<String> {
         let mut ret = String::new();
         let mut b = match File::open("/proc/stat") {
@@ -192,6 +193,7 @@ impl CPUUtilInstant {
             }
         }
     }
+
     fn parse(mut line: String, tid: &TransactionId) -> Result<Self> {
         if line.ends_with('\n') {
             line.pop();
@@ -211,6 +213,7 @@ impl CPUUtilInstant {
             cpu_guest_nice: Self::safe_get_val(&strs, 10, tid)?,
         })
     }
+
     fn safe_get_val(split_line: &[&str], pos: usize, tid: &TransactionId) -> Result<f64> {
         if split_line.len() >= pos {
             match split_line[pos].parse::<f64>() {
@@ -238,6 +241,7 @@ pub struct CPUUtilPcts {
     pub cpu_guest: f64,
     pub cpu_guest_nice: f64,
 }
+
 impl std::ops::Sub for &CPUUtilInstant {
     type Output = CPUUtilPcts;
 
@@ -278,3 +282,4 @@ impl std::ops::Sub for &CPUUtilInstant {
         }
     }
 }
+
