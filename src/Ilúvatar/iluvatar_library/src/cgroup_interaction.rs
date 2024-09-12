@@ -20,13 +20,13 @@ const BASE_CGROUP_DIR: &str = "/sys/fs/cgroup";
  v1 location and names  
 
     vec of u64?
-         tasks
+         tasks                ✓
              11753
              11754
              11755
              11756
 
-         cgroup.procs -  
+         cgroup.procs -                  ✓
             11646
             11673
             11674
@@ -65,14 +65,14 @@ const V1_METRIC_STAT_CPU: &str = "cpu.stat";
 
     vec of u64?
 
-         cgroup.threads
+         cgroup.threads                ✓
             11752
             11753
             11754
             11755
             11756
 
-         cgroup.procs
+         cgroup.procs                ✓
             11646
             11673
             11674
@@ -98,6 +98,7 @@ const V2_METRIC_PROCS: &str    = "cgroup.procs";
 pub struct CGROUPReadingV2 {
     pub threads: Vec<u64>,
     pub procs: Vec<u64>,
+    //pub cpustats: HashMap<String,u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +110,7 @@ pub struct CGROUPReading {
     pub pcpu_sys: Vec<u64>,
     pub threads: Vec<u64>,
     pub procs: Vec<u64>,
+    //pub cpustats: HashMap<String,u64>,
     
     // v2 
     pub v2: CGROUPReadingV2,
@@ -140,44 +142,59 @@ fn read_to_string( path: &String ) -> Result<String> {
     }
 }
 
-pub fn read_as_u64( cgroupid: &String, metric: &str, docker_loc: &str ) -> u64 
-{
+fn read_to_string_first_match( cgroupid: &String, metric: &str, docker_loc: &str ) -> Option<String> {
     let path = build_path( &cgroupid, metric, docker_loc );
     for entry in glob(path.as_str()).expect("Failed to read glob pattern") {
         let _ = match entry {
             Ok(pathb) => {
-                let r = read_to_string( &pathb.into_os_string().into_string().unwrap() ).unwrap();
-                println!("{} -> {}", path, r);
-                return u64::from_str_radix( r.trim(), 10 ).unwrap_or(0);
-                ()
+                match read_to_string( &pathb.into_os_string().into_string().unwrap() ){
+                    Ok(r) => Some(r),
+                    Err(_) => None,
+                }
             }
             Err(e) => println!("{:?}", e),
         };
     }
+    None 
+}
 
-    0
+pub fn read_as_u64( cgroupid: &String, metric: &str, docker_loc: &str ) -> u64 
+{
+    match read_to_string_first_match( &cgroupid, metric, docker_loc) {
+        Ok(r) => {
+            println!("{} -> {}", path, r);
+            return u64::from_str_radix( r.trim(), 10 ).unwrap_or(0);
+        }
+        None => 0,
+    }
 }
 
 pub fn read_as_u64_vec( cgroupid: &String, metric: &str, docker_loc: &str ) -> Vec<u64> 
 {
-    let path = build_path( &cgroupid, metric, docker_loc );
-    for entry in glob(path.as_str()).expect("Failed to read glob pattern") {
-        let _ = match entry {
-            Ok(pathb) => {
-                let r = read_to_string( &pathb.into_os_string().into_string().unwrap() ).unwrap();
-                println!("{} -> {}", path, r);
-                let mut nums: Vec<u64> = r.trim().split(" ").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
-                if nums.len() == 1 {
-                    nums = r.trim().split("\n").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
-                }
-                return nums;
-                ()
+    match read_to_string_first_match( &cgroupid, metric, docker_loc) {
+        Ok(r) => {
+            let mut nums: Vec<u64> = r.trim().split(" ").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
+            if nums.len() == 1 {
+                nums = r.trim().split("\n").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
             }
-            Err(e) => println!("{:?}", e),
-        };
+            return nums;
+        }
+        None => vec![],
     }
+}
 
-    vec![] 
+pub fn read_as_u64_hashmap( cgroupid: &String, metric: &str, docker_loc: &str ) -> HashMap<String,u64> 
+{
+    match read_to_string_first_match( &cgroupid, metric, docker_loc) {
+        Ok(r) => {
+            let mut nums: Vec<u64> = r.trim().split(" ").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
+            if nums.len() == 1 {
+                nums = r.trim().split("\n").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
+            }
+            return nums;
+        }
+        None => vec![],
+    }
 }
 
 pub fn read_cgroup( cgroupid: String )
