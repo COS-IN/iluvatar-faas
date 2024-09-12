@@ -5,6 +5,7 @@ use crate::{bail_error, nproc, threading, transaction::TransactionId};
 use anyhow::Result;
 use std::thread::JoinHandle;
 use glob::glob;
+use std::collections::HashMap;
 use std::{
     fs::File,
     io::{BufRead, Read},
@@ -148,8 +149,8 @@ fn read_to_string_first_match( cgroupid: &String, metric: &str, docker_loc: &str
         let _ = match entry {
             Ok(pathb) => {
                 match read_to_string( &pathb.into_os_string().into_string().unwrap() ){
-                    Ok(r) => Some(r),
-                    Err(_) => None,
+                    Ok(r) => return Some(r),
+                    Err(_) => return None,
                 }
             }
             Err(e) => println!("{:?}", e),
@@ -161,8 +162,8 @@ fn read_to_string_first_match( cgroupid: &String, metric: &str, docker_loc: &str
 pub fn read_as_u64( cgroupid: &String, metric: &str, docker_loc: &str ) -> u64 
 {
     match read_to_string_first_match( &cgroupid, metric, docker_loc) {
-        Ok(r) => {
-            println!("{} -> {}", path, r);
+        Some(r) => {
+            println!("{} -> {}", cgroupid, r);
             return u64::from_str_radix( r.trim(), 10 ).unwrap_or(0);
         }
         None => 0,
@@ -172,7 +173,7 @@ pub fn read_as_u64( cgroupid: &String, metric: &str, docker_loc: &str ) -> u64
 pub fn read_as_u64_vec( cgroupid: &String, metric: &str, docker_loc: &str ) -> Vec<u64> 
 {
     match read_to_string_first_match( &cgroupid, metric, docker_loc) {
-        Ok(r) => {
+        Some(r) => {
             let mut nums: Vec<u64> = r.trim().split(" ").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
             if nums.len() == 1 {
                 nums = r.trim().split("\n").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
@@ -183,19 +184,21 @@ pub fn read_as_u64_vec( cgroupid: &String, metric: &str, docker_loc: &str ) -> V
     }
 }
 
+/*
 pub fn read_as_u64_hashmap( cgroupid: &String, metric: &str, docker_loc: &str ) -> HashMap<String,u64> 
 {
     match read_to_string_first_match( &cgroupid, metric, docker_loc) {
-        Ok(r) => {
+        Some(r) => {
             let mut nums: Vec<u64> = r.trim().split(" ").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
             if nums.len() == 1 {
                 nums = r.trim().split("\n").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
             }
             return nums;
         }
-        None => vec![],
+        None => HashMap::new(),
     }
 }
+*/
 
 pub fn read_cgroup( cgroupid: String )
     -> Result<CGROUPReading> { 
