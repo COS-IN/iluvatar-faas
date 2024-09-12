@@ -99,7 +99,7 @@ const V2_METRIC_PROCS: &str    = "cgroup.procs";
 pub struct CGROUPReadingV2 {
     pub threads: Vec<u64>,
     pub procs: Vec<u64>,
-    //pub cpustats: HashMap<String,u64>,
+    pub cpustats: HashMap<String,u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -111,7 +111,7 @@ pub struct CGROUPReading {
     pub pcpu_sys: Vec<u64>,
     pub threads: Vec<u64>,
     pub procs: Vec<u64>,
-    //pub cpustats: HashMap<String,u64>,
+    pub cpustats: HashMap<String,u64>,
     
     // v2 
     pub v2: CGROUPReadingV2,
@@ -184,35 +184,37 @@ pub fn read_as_u64_vec( cgroupid: &String, metric: &str, docker_loc: &str ) -> V
     }
 }
 
-/*
 pub fn read_as_u64_hashmap( cgroupid: &String, metric: &str, docker_loc: &str ) -> HashMap<String,u64> 
 {
     match read_to_string_first_match( &cgroupid, metric, docker_loc) {
         Some(r) => {
-            let mut nums: Vec<u64> = r.trim().split(" ").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
-            if nums.len() == 1 {
-                nums = r.trim().split("\n").map( |n| u64::from_str_radix( n.trim(), 10 ).unwrap_or(0) ).collect();
+            let pairs: Vec<&str> = r.trim().split("\n").collect();
+            let tuples: Vec<Vec<&str>> = pairs.iter().map( |x| x.trim().split(" ").collect() ).collect();
+            let mut result = HashMap::<String,u64>::new();
+            for pair in tuples.iter(){
+                result.insert( pair[0].to_string(),  u64::from_str_radix( pair[1].trim(), 10 ).unwrap_or(0) );
             }
-            return nums;
+            return result;
         }
         None => HashMap::new(),
     }
 }
-*/
 
 pub fn read_cgroup( cgroupid: String )
     -> Result<CGROUPReading> { 
     Ok(CGROUPReading{
-        usr      : read_as_u64(&cgroupid     , V1_METRIC_USR      , DOCKER_LOC_V1) ,
-        sys      : read_as_u64(&cgroupid     , V1_METRIC_SYS      , DOCKER_LOC_V1) ,
-        pcpu_usr : read_as_u64_vec(&cgroupid , V1_METRIC_PCPU_USR , DOCKER_LOC_V1) ,
-        pcpu_sys : read_as_u64_vec(&cgroupid , V1_METRIC_PCPU_SYS , DOCKER_LOC_V1) ,
-        threads  : read_as_u64_vec(&cgroupid , V1_METRIC_TASKS    , DOCKER_LOC_V1) ,
-        procs    : read_as_u64_vec(&cgroupid , V1_METRIC_PROCS    , DOCKER_LOC_V1) ,
+        usr      : read_as_u64(&cgroupid         , V1_METRIC_USR      , DOCKER_LOC_V1) ,
+        sys      : read_as_u64(&cgroupid         , V1_METRIC_SYS      , DOCKER_LOC_V1) ,
+        pcpu_usr : read_as_u64_vec(&cgroupid     , V1_METRIC_PCPU_USR , DOCKER_LOC_V1) ,
+        pcpu_sys : read_as_u64_vec(&cgroupid     , V1_METRIC_PCPU_SYS , DOCKER_LOC_V1) ,
+        threads  : read_as_u64_vec(&cgroupid     , V1_METRIC_TASKS    , DOCKER_LOC_V1) ,
+        procs    : read_as_u64_vec(&cgroupid     , V1_METRIC_PROCS    , DOCKER_LOC_V1) ,
+        cpustats : read_as_u64_hashmap(&cgroupid , V1_METRIC_STAT_CPU , DOCKER_LOC_V1) ,
 
         v2: CGROUPReadingV2{
-            threads : read_as_u64_vec(&cgroupid , V2_METRIC_TASKS , DOCKER_LOC_V2) ,
-            procs   : read_as_u64_vec(&cgroupid , V2_METRIC_PROCS , DOCKER_LOC_V2) ,
+            threads  : read_as_u64_vec(&cgroupid     , V2_METRIC_TASKS    , DOCKER_LOC_V2) ,
+            procs    : read_as_u64_vec(&cgroupid     , V2_METRIC_PROCS    , DOCKER_LOC_V2) ,
+            cpustats : read_as_u64_hashmap(&cgroupid , V2_METRIC_STAT_CPU , DOCKER_LOC_V2) ,
         }
     })
 }
