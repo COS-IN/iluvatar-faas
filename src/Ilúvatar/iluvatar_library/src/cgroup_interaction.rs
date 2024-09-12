@@ -98,16 +98,17 @@ const V2_METRIC_PROCS: &str    = "cgroup.procs";
 
 #[derive(Debug, Clone)]
 pub struct CGROUPV2PsiVal {
-    avg10: f32,
-    avg60: f32,
-    avg300: f32,
-    total: u32,
+    pub avg10: f32, // % of time group waited for the resource to become available - on average
+                    // over last 10 seconds  
+    pub avg60: f32,
+    pub avg300: f32,
+    pub total: u64, // accumulated useconds of stall 
 }
 
 #[derive(Debug, Clone)]
 pub struct CGROUPV2Psi {
-    some: CGROUPV2PsiVal,
-    full: CGROUPV2PsiVal,
+    pub some: CGROUPV2PsiVal,
+    pub full: CGROUPV2PsiVal,
 }
 
 #[derive(Debug, Clone)]
@@ -115,9 +116,9 @@ pub struct CGROUPReadingV2 {
     pub threads: Vec<u64>,
     pub procs: Vec<u64>,
     pub cpustats: HashMap<String,u64>,
-    cpupsi: CGROUPV2Psi,
-    mempsi: CGROUPV2Psi,
-    iopsi: CGROUPV2Psi,
+    pub cpupsi: CGROUPV2Psi,
+    pub mempsi: CGROUPV2Psi,
+    pub iopsi: CGROUPV2Psi,
 }
 
 // at some point implement serde serialize and deserialize for this structure 
@@ -250,7 +251,7 @@ pub fn read_as_CGROUPV2Psi( cgroupid: &String, metric: &str, docker_loc: &str ) 
                 val.avg10  = f32::from_str       ( pairs[0][1]     ) .unwrap_or     ( 0.0 ) ;
                 val.avg60  = f32::from_str       ( pairs[1][1]     ) .unwrap_or     ( 0.0 ) ;
                 val.avg300 = f32::from_str       ( pairs[2][1]     ) .unwrap_or     ( 0.0 ) ;
-                val.total  = u32::from_str_radix ( pairs[3][1], 10 ) .unwrap_or ( 0       ) ;
+                val.total  = u64::from_str_radix ( pairs[3][1], 10 ) .unwrap_or ( 0       ) ;
             };
             // fill in some 
             fillval( lines[0], &mut data.some );

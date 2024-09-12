@@ -11,6 +11,7 @@ use crate::services::containers::{containermanager::ContainerManager};
 
 use iluvatar_library::types::{Compute};
 use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::cgroup_interaction::{read_cgroup, CGROUPReadingV2, CGROUPV2Psi, CGROUPV2PsiVal};
 
 use iluvatar_bpf_library::bpf::func_characs::*;
 use std::sync::mpsc::Sender;
@@ -296,6 +297,10 @@ impl CharacteristicsMap {
         if let Some(cm) = &self.container_man {
             let cgroup_id = cm.get_cgroupid_against_tid( tid );
             println!("invoke starting: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+            if let Some(cgid) = cgroup_id {
+                let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() );
+                println!("reading at start of invoke: {:?}", reading);
+            }
         }
     }
 
@@ -303,6 +308,10 @@ impl CharacteristicsMap {
         if let Some(cm) = &self.container_man {
             let cgroup_id = cm.remove_cgroupid_against_tid( tid );
             println!("invoke ending: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+            if let Some(cgid) = cgroup_id {
+                let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() );
+                println!("reading at end of invoke: {:?}", reading);
+            }
         }
     }
 
