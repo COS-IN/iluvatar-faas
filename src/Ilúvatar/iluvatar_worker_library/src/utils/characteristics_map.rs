@@ -11,7 +11,7 @@ use crate::services::containers::{containermanager::ContainerManager};
 
 use iluvatar_library::types::{Compute};
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::cgroup_interaction::{read_cgroup, CGROUPReadingV2, CGROUPV2Psi, CGROUPV2PsiVal};
+use iluvatar_library::cgroup_interaction::{read_cgroup, diff_cgroupreading, CGROUPReading, CGROUPReadingV2, CGROUPV2Psi, CGROUPV2PsiVal};
 
 use iluvatar_bpf_library::bpf::func_characs::*;
 use std::sync::mpsc::Sender;
@@ -153,6 +153,8 @@ pub struct CharacteristicsMap {
     ag: AgExponential,
     fcmap_tx: Option<Sender<(BPF_FMAP_KEY,CharVal)>>,
     container_man: Option<Arc<ContainerManager>>,
+    snapshot_invk_start: DashMap<TransactionId,CGROUPReading>,  
+    snapshot_invk_end: DashMap<TransactionId,CGROUPReading>,  
 }
 
 impl CharacteristicsMap {
@@ -169,6 +171,8 @@ impl CharacteristicsMap {
             ag,
             fcmap_tx,
             container_man,
+            snapshot_invk_start: DashMap::new(),
+            snapshot_invk_end: DashMap::new(),
         }
     }
 
@@ -298,8 +302,8 @@ impl CharacteristicsMap {
             let cgroup_id = cm.get_cgroupid_against_tid( tid );
             println!("invoke starting: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
             if let Some(cgid) = cgroup_id {
-                let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() );
-                println!("reading at start of invoke: {:?}", reading);
+                let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() ).unwrap();
+                self.snapshot_invk_start.insert( tid.clone(), reading );
             }
         }
     }
@@ -309,8 +313,12 @@ impl CharacteristicsMap {
             let cgroup_id = cm.remove_cgroupid_against_tid( tid );
             println!("invoke ending: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
             if let Some(cgid) = cgroup_id {
-                let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() );
-                println!("reading at end of invoke: {:?}", reading);
+                let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() ).unwrap();
+                if let Some(start_reading) = self.snapshot_invk_start.get( tid ){
+                    let diff = diff_cgroupreading( &start_reading, &reading );
+                    println!("diff in reading at the end of the invoke: {:?}", diff);
+                }
+                println!("absolute reading at the end of the invoke: {:?}", reading);
             }
         }
     }
