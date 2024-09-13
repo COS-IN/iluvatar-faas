@@ -41,6 +41,7 @@ regex = "*"
 iluvatar_bpf_library = { path = "../iluvatar_bpf_library" }
 libbpf-rs = { version = "0.24.4" }
 glob = "0.3.1"
+array_tool = "1.0.3"
 
 [dev-dependencies]
 rstest = "0.13.0"

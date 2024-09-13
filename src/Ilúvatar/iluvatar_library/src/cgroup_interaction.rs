@@ -5,6 +5,7 @@ use crate::{bail_error, nproc, threading, transaction::TransactionId};
 use anyhow::Result;
 use std::thread::JoinHandle;
 use glob::glob;
+use array_tool::vec::Union; 
 use std::collections::HashMap;
 use std::{
     fs::File,
@@ -290,6 +291,71 @@ pub fn read_cgroup( cgroupid: String )
     })
 }
 
+/// val1 - val0 -> result 
+pub fn diff_cgroupreading( val0: &CGROUPReading, val1: &CGROUPReading ) -> CGROUPReading {
+
+    fn diff_vec( v0: &Vec<u64>, v1: &Vec<u64> ) -> Vec<u64>{
+        let mut diffvec = Vec::<u64>::new();
+        if v0.len() != v1.len(){
+            return vec![];
+        }
+        for (i,v) in v0.iter().enumerate() {
+            diffvec.push( v1[i] - v );
+        }
+        diffvec 
+    }
+
+    fn diff_hashmap( v0: &HashMap<String,u64>, v1: &HashMap<String,u64> ) -> HashMap<String,u64>{
+        let mut diffmap = HashMap::<String,u64>::new();
+        for (k,v) in v0.iter(){
+            if let Some(o) = v1.get(k) {
+                diffmap.insert( k.clone(), o - v );
+            }
+        }
+        diffmap 
+    }
+
+    fn avg_psi( v0: &CGROUPV2PsiVal, v1: &CGROUPV2PsiVal ) -> CGROUPV2PsiVal
+    {
+        let avg = |a,b|{
+            (a+b)/2.0
+        }; 
+        CGROUPV2PsiVal{
+            avg10  : avg(v1.avg10, v0.avg10),
+            avg60  : avg(v1.avg60, v0.avg60),
+            avg300 : avg(v1.avg300, v0.avg300),
+            total  : v1.total-v0.total,
+        }
+    }
+
+    CGROUPReading{
+        usr      : (val1.usr - val0.usr),
+        sys      : (val1.sys - val0.sys),
+        pcpu_usr : diff_vec(&val0.pcpu_usr, &val1.pcpu_usr),
+        pcpu_sys : diff_vec(&val0.pcpu_sys, &val1.pcpu_sys),
+        threads  : val1.threads.union(  val0.threads.clone() ),
+        procs    : val1.procs.union(  val0.procs.clone() ),
+        cpustats : diff_hashmap( &val0.cpustats,  &val1.cpustats ),
+        v2: CGROUPReadingV2{
+            threads  : val1.v2.threads.union(  val0.v2.threads.clone() ),
+            procs    : val1.v2.procs.union(  val0.v2.procs.clone() ),
+            cpustats : diff_hashmap( &val0.v2.cpustats,  &val1.v2.cpustats ),
+            cpupsi   : CGROUPV2Psi{
+                some : avg_psi(     & val0.v2.cpupsi.some, & val1.v2.cpupsi.some ),
+                full : avg_psi(     & val0.v2.cpupsi.full, & val1.v2.cpupsi.full ),
+            },
+            mempsi   : CGROUPV2Psi{
+                some : avg_psi(     & val0.v2.mempsi.some, & val1.v2.mempsi.some ),
+                full : avg_psi(     & val0.v2.mempsi.full, & val1.v2.mempsi.full ),
+            },
+            iopsi    : CGROUPV2Psi{
+                some : avg_psi(     & val0.v2.iopsi.some,  & val1.v2.iopsi.some ),
+                full : avg_psi(     & val0.v2.iopsi.full,  & val1.v2.iopsi.full ),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod cgroup_interaction_tests {
     use crate::cgroup_interaction::*;
@@ -299,6 +365,217 @@ mod cgroup_interaction_tests {
         let cgroup_id = "89e979a2b0e9fd3".to_string();
         let res = read_cgroup( cgroup_id );
         println!("{:?}", res);
+        assert!(false); 
+    }
+
+    #[test]
+    fn test_cg_diff(){
+        let v0 = CGROUPReading{
+            usr                              : 20,
+            sys                              : 20,
+            pcpu_usr                         : vec![20,30],
+            pcpu_sys                         : vec![20,30],
+            threads                          : vec![120,130],
+            procs                            : vec![120,130],
+            cpustats                         :
+                [
+                    ("nr_periods".to_string(), 0),
+                    ("nr_throttled".to_string(), 0),
+                    ("throttled_time".to_string(), 0),
+                ].iter().cloned().collect(),
+
+            v2: CGROUPReadingV2{
+                threads  : vec![120,130],
+                procs    : vec![120,130],
+                cpustats :                 
+                    [
+                        ("nr_periods".to_string(), 0),
+                        ("nr_throttled".to_string(), 0),
+                        ("throttled_time".to_string(), 0),
+                    ].iter().cloned().collect(),
+                cpupsi   : CGROUPV2Psi{
+                    some       : CGROUPV2PsiVal{
+                        avg10  : 0.00,
+                        avg60  : 0.00,
+                        avg300 : 0.00,
+                        total  : 123,
+                    },
+                    full       : CGROUPV2PsiVal{
+                        avg10  : 0.00,
+                        avg60  : 0.00,
+                        avg300 : 0.00,
+                        total  : 123,
+                    },
+                },
+                mempsi   : CGROUPV2Psi{
+                    some       : CGROUPV2PsiVal{
+                        avg10  : 0.00,
+                        avg60  : 0.00,
+                        avg300 : 0.00,
+                        total  : 123,
+                    },
+                    full       : CGROUPV2PsiVal{
+                        avg10  : 0.00,
+                        avg60  : 0.00,
+                        avg300 : 0.00,
+                        total  : 123,
+                    },
+                },
+                iopsi    : CGROUPV2Psi{
+                    some       : CGROUPV2PsiVal{
+                        avg10  : 0.00,
+                        avg60  : 0.00,
+                        avg300 : 0.00,
+                        total  : 123,
+                    },
+                    full       : CGROUPV2PsiVal{
+                        avg10  : 0.00,
+                        avg60  : 0.00,
+                        avg300 : 0.00,
+                        total  : 123,
+                    },
+                },
+            }
+        };
+        let v1 = CGROUPReading{
+            usr                              : 30,
+            sys                              : 30,
+            pcpu_usr                         : vec![30,40],
+            pcpu_sys                         : vec![30,40],
+            threads                          : vec![121,131],
+            procs                            : vec![121,131],
+            cpustats                         :
+                [
+                    ("nr_periods".to_string(), 1),
+                    ("nr_throttled".to_string(), 1),
+                    ("throttled_time".to_string(), 1),
+                ].iter().cloned().collect(),
+
+            v2: CGROUPReadingV2{
+                threads  : vec![121,131],
+                procs    : vec![121,131],
+                cpustats :                 
+                    [
+                        ("nr_periods".to_string(), 1),
+                        ("nr_throttled".to_string(), 1),
+                        ("throttled_time".to_string(), 1),
+                    ].iter().cloned().collect(),
+                cpupsi   : CGROUPV2Psi{
+                    some       : CGROUPV2PsiVal{
+                        avg10  : 0.20,
+                        avg60  : 0.20,
+                        avg300 : 0.20,
+                        total  : 124,
+                    },
+                    full       : CGROUPV2PsiVal{
+                        avg10  : 0.20,
+                        avg60  : 0.20,
+                        avg300 : 0.20,
+                        total  : 124,
+                    },
+                },
+                mempsi   : CGROUPV2Psi{
+                    some       : CGROUPV2PsiVal{
+                        avg10  : 0.20,
+                        avg60  : 0.20,
+                        avg300 : 0.20,
+                        total  : 124,
+                    },
+                    full       : CGROUPV2PsiVal{
+                        avg10  : 0.20,
+                        avg60  : 0.20,
+                        avg300 : 0.20,
+                        total  : 124,
+                    },
+                },
+                iopsi    : CGROUPV2Psi{
+                    some       : CGROUPV2PsiVal{
+                        avg10  : 0.20,
+                        avg60  : 0.20,
+                        avg300 : 0.20,
+                        total  : 124,
+                    },
+                    full       : CGROUPV2PsiVal{
+                        avg10  : 0.20,
+                        avg60  : 0.20,
+                        avg300 : 0.20,
+                        total  : 124,
+                    },
+                },
+            }
+        };
+        
+        let shouldbe = CGROUPReading{
+            usr                              : 10,
+            sys                              : 10,
+            pcpu_usr                         : vec![10,10],
+            pcpu_sys                         : vec![10,10],
+            threads                          : vec![120, 130, 121,131],
+            procs                            : vec![120, 130, 121,131],
+            cpustats                         :
+                [
+                    ("nr_periods".to_string(), 1),
+                    ("nr_throttled".to_string(), 1),
+                    ("throttled_time".to_string(), 1),
+                ].iter().cloned().collect(),
+
+            v2: CGROUPReadingV2{
+                threads  : vec![120, 130, 121,131],
+                procs    : vec![120, 130, 121,131],
+                cpustats :                 
+                    [
+                        ("nr_periods".to_string(), 1),
+                        ("nr_throttled".to_string(), 1),
+                        ("throttled_time".to_string(), 1),
+                    ].iter().cloned().collect(),
+                cpupsi   : CGROUPV2Psi{
+                    some       : CGROUPV2PsiVal{
+                        avg10  : 0.10,
+                        avg60  : 0.10,
+                        avg300 : 0.10,
+                        total  : 1,
+                    },
+                    full       : CGROUPV2PsiVal{
+                        avg10  : 0.10,
+                        avg60  : 0.10,
+                        avg300 : 0.10,
+                        total  : 1,
+                    },
+                },
+                mempsi   : CGROUPV2Psi{
+                    some       : CGROUPV2PsiVal{
+                        avg10  : 0.10,
+                        avg60  : 0.10,
+                        avg300 : 0.10,
+                        total  : 1,
+                    },
+                    full       : CGROUPV2PsiVal{
+                        avg10  : 0.10,
+                        avg60  : 0.10,
+                        avg300 : 0.10,
+                        total  : 1,
+                    },
+                },
+                iopsi    : CGROUPV2Psi{
+                    some       : CGROUPV2PsiVal{
+                        avg10  : 0.10,
+                        avg60  : 0.10,
+                        avg300 : 0.10,
+                        total  : 1,
+                    },
+                    full       : CGROUPV2PsiVal{
+                        avg10  : 0.10,
+                        avg60  : 0.10,
+                        avg300 : 0.10,
+                        total  : 1,
+                    },
+                },
+            }
+        };
+
+        let diff = diff_cgroupreading( &v0, &v1 );
+        println!("Diff is {:?}", diff);
+        println!("Diff shouldbe {:?}", shouldbe);
         assert!(false); 
     }
 }
