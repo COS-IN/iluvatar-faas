@@ -141,6 +141,13 @@ pub enum Characteristics {
     E2EGpu,
 }
 
+#[derive(Debug, Clone)]
+pub struct InvokeDiff {
+    fqdn: String, 
+    cgroupid: BPF_FMAP_KEY,
+    cgroupstat: CGROUPReading,
+}
+
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc.
 /// TODO: make get/set functions for Characteristics auto-generated
 #[derive(Debug)]
@@ -155,7 +162,7 @@ pub struct CharacteristicsMap {
     fcmap_tx: Option<Sender<(BPF_FMAP_KEY,CharVal)>>,
     container_man: Option<Arc<ContainerManager>>,
     snapshot_invk_start: DashMap<TransactionId,CGROUPReading>,  
-    diff_invk: Arc<DashMap<SystemTime,CGROUPReading>>,  
+    diff_invk: Arc<DashMap<SystemTime,InvokeDiff>>,  
 }
 
 impl CharacteristicsMap {
@@ -319,7 +326,11 @@ impl CharacteristicsMap {
                 let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() ).unwrap();
                 if let Some(start_reading) = self.snapshot_invk_start.get( tid ){
                     let diff = diff_cgroupreading( &start_reading, &reading );
-                    self.diff_invk.insert( SystemTime::now(), diff.clone() );
+                    self.diff_invk.insert( SystemTime::now(), InvokeDiff{
+                        fqdn: fqdn.to_string(),
+                        cgroupid: cgid.clone(),
+                        cgroupstat: diff.clone(),
+                    } );
                     println!("diff in reading at the end of the invoke: {:?}", diff);
                 }
                 println!("absolute reading at the end of the invoke: {:?}", reading);
