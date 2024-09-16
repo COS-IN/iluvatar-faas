@@ -104,6 +104,9 @@ impl AgExponential {
         where T: AsPrimitive<f64>, f64: AsPrimitive<T> 
     {
         let mut result = vec![];
+        if old.len() != new.len(){
+            return new.clone();
+        }
         for (i,val) in old.iter().enumerate(){
             result.push( self.accumulate(*val, new[i]) )
         }
@@ -135,9 +138,9 @@ impl AgExponential {
                     cpustats :                 
 
                          [
-                            ("nr_periods".to_string()     , self.accumulate( *old.v2.cpustats.get(&"nr_periods".to_string()).unwrap_or(&0)     , *new.v2.cpustats.get(&"nr_periods".to_string()).unwrap_or(&0) ) )     ,
-                            ("nr_throttled".to_string()   , self.accumulate( *old.v2.cpustats.get(&"nr_throttled".to_string()).unwrap_or(&0)   , *new.v2.cpustats.get(&"nr_throttled".to_string()).unwrap_or(&0) ) )   ,
-                            ("throttled_time".to_string() , self.accumulate( *old.v2.cpustats.get(&"throttled_time".to_string()).unwrap_or(&0) , *new.v2.cpustats.get(&"throttled_time".to_string()).unwrap_or(&0) ) ) ,
+                            ("user_usec".to_string()     , self.accumulate( *old.v2.cpustats.get(&"user_usec".to_string()).unwrap_or(&0)     , *new.v2.cpustats.get(&"user_usec".to_string()).unwrap_or(&0) ) )     ,
+                            ("system_usec".to_string()   , self.accumulate( *old.v2.cpustats.get(&"system_usec".to_string()).unwrap_or(&0)   , *new.v2.cpustats.get(&"system_usec".to_string()).unwrap_or(&0) ) )   ,
+                            ("usage_usec".to_string() , self.accumulate( *old.v2.cpustats.get(&"usage_usec".to_string()).unwrap_or(&0) , *new.v2.cpustats.get(&"usage_usec".to_string()).unwrap_or(&0) ) ) ,
                         ].iter().cloned().collect()   ,
 
                         cpupsi   : CGROUPV2Psi{
@@ -444,10 +447,15 @@ impl CharacteristicsMap {
 
     pub fn dump_tables_to_disk(&self){
         let dtable_ref = self.diff_invk.clone();
+        let avgtable_ref = self.avg10_invk.clone();
         thread::spawn(move ||{
             loop {
-                let dcopy = (*dtable_ref).clone();
-                println!("{:?}", dcopy);
+                //let dcopy = (*dtable_ref).clone();
+                //println!("{:?}", dcopy);
+
+                let acopy = (*avgtable_ref).clone();
+                println!("{:?}", acopy);
+
                 thread::sleep(Duration::from_millis(1000)); 
             }
         });
