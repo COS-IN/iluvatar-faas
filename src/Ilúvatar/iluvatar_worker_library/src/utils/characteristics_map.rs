@@ -275,6 +275,7 @@ fn build_sink_thread<T: Serialize + std::marker::Send + 'static> () -> Sender<T>
         // unbounded receiver waiting for all senders to complete.
         while let Ok(val) = rx.recv() {
             sink.serialize( val );
+            sink.flush();
         }
     });
     tx
@@ -314,7 +315,7 @@ impl CharacteristicsMap {
         // print out all the cgroupid for this fqdn 
         if let Some(cm) = &self.container_man {
             let cgids = cm.container_cgroup_ids(fqdn, Compute::CPU);
-            println!("fqdn {} -> {:?}", fqdn, cgids);
+            //println!("fqdn {} -> {:?}", fqdn, cgids);
             for cgid in cgids {
                 if let Some(tx) = self.fcmap_tx.as_ref() {
                     let v = self.avg_cpu_e2e_t(fqdn) * 1000.0; // in ms 
@@ -428,7 +429,7 @@ impl CharacteristicsMap {
     pub fn start_invoke(&self, fqdn: &str, tid: &TransactionId) {
         if let Some(cm) = &self.container_man {
             let cgroup_id = cm.get_cgroupid_against_tid( tid );
-            println!("invoke starting: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+            //println!("invoke starting: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
             if let Some(cgid) = cgroup_id {
                 let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() ).unwrap();
                 self.snapshot_invk_start.insert( tid.clone(), reading );
@@ -439,7 +440,7 @@ impl CharacteristicsMap {
     pub fn end_invoke(&self, fqdn: &str, tid: &TransactionId) {
         if let Some(cm) = &self.container_man {
             let cgroup_id = cm.remove_cgroupid_against_tid( tid );
-            println!("invoke ending: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
+            //println!("invoke ending: {:?} - {:?} - {:?}", fqdn, tid, cgroup_id);
             if let Some(cgid) = cgroup_id {
                 let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() ).unwrap();
                 if let Some(start_reading) = self.snapshot_invk_start.get( tid ){
@@ -454,7 +455,7 @@ impl CharacteristicsMap {
                     self.invk_csv_tx.send( idiff.clone() );
                     self.diff_invk.insert( time_now.clone(),  idiff );
 
-                    println!("diff in reading at the end of the invoke: {:?}", diff);
+                    //println!("diff in reading at the end of the invoke: {:?}", diff);
                     let olddiff = match self.avg10_invk.get(fqdn) {
                         Some(v) => v.cgroupstat.clone(),
                         None => InvokeDiff::default().cgroupstat,
@@ -467,7 +468,7 @@ impl CharacteristicsMap {
                         cgroupstat: mvavgdiff,
                     });
                 }
-                println!("absolute reading at the end of the invoke: {:?}", reading);
+                //println!("absolute reading at the end of the invoke: {:?}", reading);
             }
         }
     }
@@ -481,7 +482,7 @@ impl CharacteristicsMap {
                 //println!("{:?}", dcopy);
 
                 let acopy = (*avgtable_ref).clone();
-                println!("{:?}", acopy);
+                //println!("{:?}", acopy);
 
                 thread::sleep(Duration::from_millis(1000)); 
             }

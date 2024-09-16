@@ -259,7 +259,7 @@ pub fn read_as_u64( cgroupid: &String, metric: &str, docker_loc: &str ) -> u64
 {
     match read_to_string_first_match( &cgroupid, metric, docker_loc) {
         Some(r) => {
-            println!("{} -> {}", cgroupid, r);
+            //println!("{} -> {}", cgroupid, r);
             return u64::from_str_radix( r.trim(), 10 ).unwrap_or(0);
         }
         None => 0,
@@ -316,7 +316,7 @@ pub fn read_as_CGROUPV2Psi( cgroupid: &String, metric: &str, docker_loc: &str ) 
     match read_to_string_first_match( &cgroupid, metric, docker_loc) {
 
         Some(r) => {
-            println!("check->{:?}", r);
+            //println!("check->{:?}", r);
             let lines: Vec<&str> = r.trim().split("\n").collect();
             let fillval = |line:&str, val: &mut CGROUPV2PsiVal|{
                 // given line: "some avg10=0.00 avg60=0.00 avg300=0.00 total=22\n"
@@ -333,7 +333,7 @@ pub fn read_as_CGROUPV2Psi( cgroupid: &String, metric: &str, docker_loc: &str ) 
                 // let's fill in full as well 
                 fillval( lines[1], &mut data.full );
             }
-            println!("check->{:?}", lines);
+            //println!("check->{:?}", lines);
             return data;
         }
 
