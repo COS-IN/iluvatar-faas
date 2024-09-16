@@ -3,6 +3,7 @@ use ordered_float::OrderedFloat;
 use std::cmp::{min, Ordering};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
 use tracing::{debug, error};
 use csv::Writer;
 use serde::{Serialize, Deserialize};
@@ -154,7 +155,7 @@ pub struct CharacteristicsMap {
     fcmap_tx: Option<Sender<(BPF_FMAP_KEY,CharVal)>>,
     container_man: Option<Arc<ContainerManager>>,
     snapshot_invk_start: DashMap<TransactionId,CGROUPReading>,  
-    diff_invk: DashMap<SystemTime,CGROUPReading>,  
+    diff_invk: Arc<DashMap<SystemTime,CGROUPReading>>,  
 }
 
 impl CharacteristicsMap {
@@ -172,7 +173,7 @@ impl CharacteristicsMap {
             fcmap_tx,
             container_man,
             snapshot_invk_start: DashMap::new(),
-            diff_invk: DashMap::new(),
+            diff_invk: Arc::new(DashMap::new()),
         };
         cmap.dump_tables_to_disk();
         cmap
@@ -318,7 +319,7 @@ impl CharacteristicsMap {
                 let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() ).unwrap();
                 if let Some(start_reading) = self.snapshot_invk_start.get( tid ){
                     let diff = diff_cgroupreading( &start_reading, &reading );
-                    self.diff_invk.insert( SystemTime::now(), diff );
+                    self.diff_invk.insert( SystemTime::now(), diff.clone() );
                     println!("diff in reading at the end of the invoke: {:?}", diff);
                 }
                 println!("absolute reading at the end of the invoke: {:?}", reading);
@@ -327,12 +328,12 @@ impl CharacteristicsMap {
     }
 
     pub fn dump_tables_to_disk(&self){
-        
-        threads::spawn(move||{
+        let dtable_ref = self.diff_invk.clone();
+        thread::spawn(move ||{
             loop {
-                let dcopy = self.diff_invk.clone();
+                let dcopy = (*dtable_ref).clone();
                 println!("{:?}", dcopy);
-                thread::sleep(time::Duration::from_millis(1000)); 
+                thread::sleep(Duration::from_millis(1000)); 
             }
         });
     }
