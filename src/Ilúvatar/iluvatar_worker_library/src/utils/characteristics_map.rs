@@ -264,7 +264,7 @@ pub struct CharacteristicsMap {
     snapshot_invk_start               : DashMap<TransactionId,CGROUPReading>,
     diff_invk                         : Arc<DashMap<SystemTime,InvokeDiff>>,
     avg10_invk                        : Arc<DashMap<String,InvokeDiff>>, // it's an exponential moving average of the invoke diff
-    invk_csv_tx                       : Sender<DummyStruct>,
+    invk_csv_tx                       : Sender<InvokeDiff>,
     avg10_csv_tx                      : Sender<InvokeDiff>,
 }
 
@@ -280,12 +280,6 @@ fn build_sink_thread<T: Serialize + std::marker::Send + 'static> () -> Sender<T>
     });
     tx
 } 
-
-#[derive(Clone,Serialize,Copy)]
-pub struct DummyStruct{
-    a: i32,
-    b: i32,
-}
 
 impl CharacteristicsMap {
     pub fn new( 
@@ -458,11 +452,7 @@ impl CharacteristicsMap {
                         cgroupid: cgid.clone(),
                         cgroupstat: diff.clone(),
                     };
-                    //self.invk_csv_tx.send( idiff.clone() );
-                    self.invk_csv_tx.send( DummyStruct{
-                        a: 1,
-                        b: 2,
-                    } );
+                    self.invk_csv_tx.send( idiff.clone() );
                     self.diff_invk.insert( time_now.clone(),  idiff );
 
                     //println!("diff in reading at the end of the invoke: {:?}", diff);
