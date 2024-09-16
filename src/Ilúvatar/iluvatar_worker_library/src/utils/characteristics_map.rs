@@ -8,16 +8,21 @@ use tracing::{debug, error};
 use csv::Writer;
 use serde::{Serialize, Deserialize};
 use std::sync::Arc;
+use std::io;
+use std::io::Write;
 use crate::services::containers::{containermanager::ContainerManager};
 
 use iluvatar_library::types::{Compute};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::cgroup_interaction::{read_cgroup, diff_cgroupreading, CGROUPReading, CGROUPReadingV2, CGROUPV2Psi, CGROUPV2PsiVal};
-
 use iluvatar_bpf_library::bpf::func_characs::*;
-use std::sync::mpsc::Sender;
+
 use std::default::Default;
 use num::cast::AsPrimitive;
+
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
+use std::sync::mpsc::Receiver;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacteristicsPacket {
@@ -237,6 +242,7 @@ pub enum Characteristics {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InvokeDiff {
+    timestamp: u64,
     fqdn: String, 
     cgroupid: BPF_FMAP_KEY,
     cgroupstat: CGROUPReading,
@@ -247,21 +253,32 @@ pub struct InvokeDiff {
 #[derive(Debug)]
 pub struct CharacteristicsMap {
     /// Most recent fn->{char->value}
-    pub map: DashMap<String, DashMap<Characteristics, Values>>,
+    pub map                           : DashMap<String, DashMap<Characteristics, Values>>,
     /// Moving average values
-    agmap: DashMap<String, DashMap<Characteristics, Values>>,
+    agmap                             : DashMap<String, DashMap<Characteristics, Values>>,
     /// Minimum of the values
-    minmap: DashMap<String, DashMap<Characteristics, Values>>,
-    ag: AgExponential,
-    fcmap_tx: Option<Sender<(BPF_FMAP_KEY,CharVal)>>,
-    container_man: Option<Arc<ContainerManager>>,
-    snapshot_invk_start: DashMap<TransactionId,CGROUPReading>,  
-    diff_invk: Arc<DashMap<SystemTime,InvokeDiff>>,  
-    avg10_invk: Arc<DashMap<String,InvokeDiff>>, // it's an exponential moving average of the
-                                                 // invoke diff  
-    invk_csv: Writer,
-    avg10_csv: Witer,
+    minmap                            : DashMap<String, DashMap<Characteristics, Values>>,
+    ag                                : AgExponential,
+    fcmap_tx                          : Option<Sender<(BPF_FMAP_KEY,CharVal)>>,
+    container_man                     : Option<Arc<ContainerManager>>,
+    snapshot_invk_start               : DashMap<TransactionId,CGROUPReading>,
+    diff_invk                         : Arc<DashMap<SystemTime,InvokeDiff>>,
+    avg10_invk                        : Arc<DashMap<String,InvokeDiff>>, // it's an exponential moving average of the invoke diff
+    invk_csv_tx                       : Sender<InvokeDiff>,
+    avg10_csv_tx                      : Sender<InvokeDiff>,
 }
+
+fn build_sink_thread<T: Serialize + std::marker::Send + 'static> () -> Sender<T> {
+    let (tx, rx): (Sender<T>, Receiver<T>) = mpsc::channel();
+    thread::spawn(move ||{
+        let mut sink = csv::Writer::from_writer(io::stdout());
+        // unbounded receiver waiting for all senders to complete.
+        while let Ok(val) = rx.recv() {
+            sink.serialize( val );
+        }
+    });
+    tx
+} 
 
 impl CharacteristicsMap {
     pub fn new( 
@@ -271,17 +288,17 @@ impl CharacteristicsMap {
     ) -> Self {
         // TODO: Implement file restore functionality here
         let cmap = CharacteristicsMap {
-            map: DashMap::new(),
-            agmap: DashMap::new(),
-            minmap: DashMap::new(),
+            map    :  DashMap::new(),
+            agmap  :  DashMap::new(),
+            minmap :  DashMap::new(),
             ag,
             fcmap_tx,
             container_man,
-            snapshot_invk_start: DashMap::new(),
-            diff_invk: Arc::new(DashMap::new()),
-            avg10_invk: Arc::new(DashMap::new()),
-            invk_csv: csv::Writer::from_writer(io::stdout()), 
-            avg10_csv: csv::Writer::from_writer(io::stdout()), 
+            snapshot_invk_start :  DashMap::new(),
+            diff_invk           :  Arc::new(DashMap::new()),
+            avg10_invk          :  Arc::new(DashMap::new()),
+            invk_csv_tx         :  build_sink_thread(),
+            avg10_csv_tx        :  build_sink_thread(),
         };
         cmap.dump_tables_to_disk();
         cmap
@@ -427,13 +444,15 @@ impl CharacteristicsMap {
                 let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() ).unwrap();
                 if let Some(start_reading) = self.snapshot_invk_start.get( tid ){
                     let diff = diff_cgroupreading( &start_reading, &reading );
+                    let time_now = SystemTime::now();
                     let idiff = InvokeDiff{
+                        timestamp: time_now.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
                         fqdn: fqdn.to_string(),
                         cgroupid: cgid.clone(),
                         cgroupstat: diff.clone(),
                     };
-                    self.invk_csv.write_record( idiff );
-                    self.diff_invk.insert( SystemTime::now(),  idiff );
+                    self.invk_csv_tx.send( idiff.clone() );
+                    self.diff_invk.insert( time_now.clone(),  idiff );
 
                     println!("diff in reading at the end of the invoke: {:?}", diff);
                     let olddiff = match self.avg10_invk.get(fqdn) {
@@ -442,6 +461,7 @@ impl CharacteristicsMap {
                     };
                     let mvavgdiff = self.ag.accumulate_cgroupreading( &olddiff, &diff );
                     self.avg10_invk.insert( fqdn.to_string(), InvokeDiff{
+                        timestamp: time_now.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
                         fqdn: fqdn.to_string(),
                         cgroupid: cgid.clone(),
                         cgroupstat: mvavgdiff,
