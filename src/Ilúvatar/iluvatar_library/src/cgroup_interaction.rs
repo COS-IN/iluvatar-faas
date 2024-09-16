@@ -140,6 +140,78 @@ pub struct CGROUPReading {
     pub v2: CGROUPReadingV2,
 }
 
+impl Default for CGROUPReading {
+    fn default() -> Self { 
+        CGROUPReading{
+            usr                              : 0,
+            sys                              : 0,
+            pcpu_usr                         : vec![0,0],
+            pcpu_sys                         : vec![0,0],
+            threads                          : vec![],
+            procs                            : vec![],
+            cpustats                         :
+                [
+                ("nr_periods".to_string()     , 0) ,
+                ("nr_throttled".to_string()   , 0) ,
+                ("throttled_time".to_string() , 0) ,
+                ].iter().cloned().collect()   ,
+
+                v2: CGROUPReadingV2{
+                    threads  : vec![],
+                    procs    : vec![],
+                    cpustats :                 
+                        [
+                        ("nr_periods".to_string()     , 0) ,
+                        ("nr_throttled".to_string()   , 0) ,
+                        ("throttled_time".to_string() , 0) ,
+                        ].iter().cloned().collect()   ,
+                        cpupsi   : CGROUPV2Psi{
+                            some       : CGROUPV2PsiVal{
+                                avg10  : 0.00,
+                                avg60  : 0.00,
+                                avg300 : 0.00,
+                                total  : 0,
+                            },
+                            full       : CGROUPV2PsiVal{
+                                avg10  : 0.00,
+                                avg60  : 0.00,
+                                avg300 : 0.00,
+                                total  : 0,
+                            },
+                        },
+                        mempsi   : CGROUPV2Psi{
+                            some       : CGROUPV2PsiVal{
+                                avg10  : 0.00,
+                                avg60  : 0.00,
+                                avg300 : 0.00,
+                                total  : 0,
+                            },
+                            full       : CGROUPV2PsiVal{
+                                avg10  : 0.00,
+                                avg60  : 0.00,
+                                avg300 : 0.00,
+                                total  : 0,
+                            },
+                        },
+                        iopsi    : CGROUPV2Psi{
+                            some       : CGROUPV2PsiVal{
+                                avg10  : 0.00,
+                                avg60  : 0.00,
+                                avg300 : 0.00,
+                                total  : 0,
+                            },
+                            full       : CGROUPV2PsiVal{
+                                avg10  : 0.00,
+                                avg60  : 0.00,
+                                avg300 : 0.00,
+                                total  : 0,
+                            },
+                        },
+                }
+        }
+    }
+}
+
 pub fn build_path( cgroupid: &String, metric: &str, docker_loc: &str  ) -> String {
     format!("{}/{}/{}*/{}",
         BASE_CGROUP_DIR,
