@@ -154,7 +154,7 @@ pub struct CharacteristicsMap {
     fcmap_tx: Option<Sender<(BPF_FMAP_KEY,CharVal)>>,
     container_man: Option<Arc<ContainerManager>>,
     snapshot_invk_start: DashMap<TransactionId,CGROUPReading>,  
-    snapshot_invk_end: DashMap<TransactionId,CGROUPReading>,  
+    diff_invk: DashMap<SystemTime,CGROUPReading>,  
 }
 
 impl CharacteristicsMap {
@@ -164,7 +164,7 @@ impl CharacteristicsMap {
         container_man: Option<Arc<ContainerManager>>,
     ) -> Self {
         // TODO: Implement file restore functionality here
-        CharacteristicsMap {
+        let cmap = CharacteristicsMap {
             map: DashMap::new(),
             agmap: DashMap::new(),
             minmap: DashMap::new(),
@@ -172,8 +172,10 @@ impl CharacteristicsMap {
             fcmap_tx,
             container_man,
             snapshot_invk_start: DashMap::new(),
-            snapshot_invk_end: DashMap::new(),
-        }
+            diff_invk: DashMap::new(),
+        };
+        cmap.dump_tables_to_disk();
+        cmap
     }
 
     /// Set most recent
@@ -316,11 +318,23 @@ impl CharacteristicsMap {
                 let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() ).unwrap();
                 if let Some(start_reading) = self.snapshot_invk_start.get( tid ){
                     let diff = diff_cgroupreading( &start_reading, &reading );
+                    self.diff_invk.insert( SystemTime::now(), diff );
                     println!("diff in reading at the end of the invoke: {:?}", diff);
                 }
                 println!("absolute reading at the end of the invoke: {:?}", reading);
             }
         }
+    }
+
+    pub fn dump_tables_to_disk(&self){
+        
+        threads::spawn(move||{
+            loop {
+                let dcopy = self.diff_invk.clone();
+                println!("{:?}", dcopy);
+                thread::sleep(time::Duration::from_millis(1000)); 
+            }
+        });
     }
 
     pub fn add_iat(&self, fqdn: &str) {
