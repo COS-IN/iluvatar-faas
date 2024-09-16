@@ -16,6 +16,8 @@ use iluvatar_library::cgroup_interaction::{read_cgroup, diff_cgroupreading, CGRO
 
 use iluvatar_bpf_library::bpf::func_characs::*;
 use std::sync::mpsc::Sender;
+use std::default::Default;
+use num::cast::AsPrimitive;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacteristicsPacket {
@@ -84,39 +86,26 @@ pub struct AgExponential {
     alpha: f64,
 }
 
-macro_rules! populatecpustats_field {
-    ( $( $x:expr ),* ) => {
-        {
-            $(
-                ($x.to_string()     , self.accumulate( &old.cpustats.get($x.to_string()).unwrap_or(0), &new.cpustats.get($x.to_string()).unwrap_or(0) ) ) ,
-            )*
-        }
-    };
-}
-
-macro_rules! populatecpustats_field_v2 {
-    ( $( $x:expr ),* ) => {
-        {
-            $(
-                ($x.to_string()     , self.accumulate( &old.v2.cpustats.get($x.to_string()).unwrap_or(0), &new.v2.cpustats.get($x.to_string()).unwrap_or(0) ) ) ,
-            )*
-        }
-    };
-}
-
 impl AgExponential {
     pub fn new(alpha: f64) -> Self {
         AgExponential { alpha }
     }
 
-    fn accumulate<T>(&self, old: &T, new: &T) -> T {
-        (new * self.alpha) + (old * (1.0 - self.alpha))
+    fn accumulate<T>(&self, old: T, new: T) -> T
+        where T: AsPrimitive<f64>, f64: AsPrimitive<T> 
+    {
+        let oldf: f64 = old.as_();
+        let newf: f64 = new.as_();
+        let r = (newf * self.alpha) + (oldf * (1.0 - self.alpha));
+        r.as_()
     }
 
-    fn accumulate_vec<T>(&self, old: &Vec<T>, new: &Vec<T>) -> Vec<T> {
+    fn accumulate_vec<T>(&self, old: &Vec<T>, new: &Vec<T>) -> Vec<T> 
+        where T: AsPrimitive<f64>, f64: AsPrimitive<T> 
+    {
         let mut result = vec![];
-        for (i,val) in old.inter().enumerate(){
-            result.push( self.accumulate(val, new[i]) )
+        for (i,val) in old.iter().enumerate(){
+            result.push( self.accumulate(*val, new[i]) )
         }
         result
     }
@@ -127,8 +116,8 @@ impl AgExponential {
 
     fn accumulate_cgroupreading( &self, old: &CGROUPReading, new:&CGROUPReading ) -> CGROUPReading {
         CGROUPReading{
-            usr                              : self.accumulate( &old.usr, &new.usr ),
-            sys                              : self.accumulate( &old.sys, &new.sys ),
+            usr                              : self.accumulate( old.usr, new.usr ),
+            sys                              : self.accumulate( old.sys, new.sys ),
             pcpu_usr                         : self.accumulate_vec( &old.pcpu_usr, &new.pcpu_usr ),
             pcpu_sys                         : self.accumulate_vec( &old.pcpu_sys, &new.pcpu_sys ),
             threads                          : vec![], // if we do accumulate threads it would just
@@ -136,56 +125,61 @@ impl AgExponential {
             procs                            : vec![], // same goes for the procs 
             cpustats                         :
                 [
-                    populatecpustats_field!["nr_periods", "nr_throttled", "throttled_time" ]
+                    ("nr_periods".to_string()     , self.accumulate( *old.cpustats.get(&"nr_periods".to_string()).unwrap_or(&0)     , *new.cpustats.get(&"nr_periods".to_string()).unwrap_or(&0) ) )     ,
+                    ("nr_throttled".to_string()   , self.accumulate( *old.cpustats.get(&"nr_throttled".to_string()).unwrap_or(&0)   , *new.cpustats.get(&"nr_throttled".to_string()).unwrap_or(&0) ) )   ,
+                    ("throttled_time".to_string() , self.accumulate( *old.cpustats.get(&"throttled_time".to_string()).unwrap_or(&0) , *new.cpustats.get(&"throttled_time".to_string()).unwrap_or(&0) ) ) ,
                 ].iter().cloned().collect()   ,
-
                 v2: CGROUPReadingV2{
                     threads  : vec![],
                     procs    : vec![],
                     cpustats :                 
-                        [
-                            populatecpustats_field_v2!["nr_periods", "nr_throttled", "throttled_time" ]
+
+                         [
+                            ("nr_periods".to_string()     , self.accumulate( *old.v2.cpustats.get(&"nr_periods".to_string()).unwrap_or(&0)     , *new.v2.cpustats.get(&"nr_periods".to_string()).unwrap_or(&0) ) )     ,
+                            ("nr_throttled".to_string()   , self.accumulate( *old.v2.cpustats.get(&"nr_throttled".to_string()).unwrap_or(&0)   , *new.v2.cpustats.get(&"nr_throttled".to_string()).unwrap_or(&0) ) )   ,
+                            ("throttled_time".to_string() , self.accumulate( *old.v2.cpustats.get(&"throttled_time".to_string()).unwrap_or(&0) , *new.v2.cpustats.get(&"throttled_time".to_string()).unwrap_or(&0) ) ) ,
                         ].iter().cloned().collect()   ,
+
                         cpupsi   : CGROUPV2Psi{
                             some       : CGROUPV2PsiVal{
-                                avg10  : self.accumulate( &old.v2.cpupsi.some.avg10, &new.v2.cpupsi.some.avg10 ),
-                                avg60  : self.accumulate( &old.v2.cpupsi.some.avg60, &new.v2.cpupsi.some.avg60 ),
-                                avg300 : self.accumulate( &old.v2.cpupsi.some.avg300, &new.v2.cpupsi.some.avg300 ),
-                                total  : self.accumulate( &old.v2.cpupsi.some.total, &new.v2.cpupsi.some.total ),
+                                avg10  : self.accumulate( old.v2.cpupsi.some.avg10, new.v2.cpupsi.some.avg10 ),
+                                avg60  : self.accumulate( old.v2.cpupsi.some.avg60, new.v2.cpupsi.some.avg60 ),
+                                avg300 : self.accumulate( old.v2.cpupsi.some.avg300, new.v2.cpupsi.some.avg300 ),
+                                total  : self.accumulate( old.v2.cpupsi.some.total, new.v2.cpupsi.some.total ),
                             },
                             full       : CGROUPV2PsiVal{
-                                avg10  : self.accumulate( &old.v2.cpupsi.full.avg10, &new.v2.cpupsi.full.avg10 ),
-                                avg60  : self.accumulate( &old.v2.cpupsi.full.avg60, &new.v2.cpupsi.full.avg60 ),
-                                avg300 : self.accumulate( &old.v2.cpupsi.full.avg300, &new.v2.cpupsi.full.avg300 ),
-                                total  : self.accumulate( &old.v2.cpupsi.full.total, &new.v2.cpupsi.full.total ),
+                                avg10  : self.accumulate( old.v2.cpupsi.full.avg10, new.v2.cpupsi.full.avg10 ),
+                                avg60  : self.accumulate( old.v2.cpupsi.full.avg60, new.v2.cpupsi.full.avg60 ),
+                                avg300 : self.accumulate( old.v2.cpupsi.full.avg300, new.v2.cpupsi.full.avg300 ),
+                                total  : self.accumulate( old.v2.cpupsi.full.total, new.v2.cpupsi.full.total ),
                             },
                         },
                         mempsi   : CGROUPV2Psi{
                             some       : CGROUPV2PsiVal{
-                                avg10  : self.accumulate( &old.v2.mempsi.some.avg10, &new.v2.mempsi.some.avg10 ),
-                                avg60  : self.accumulate( &old.v2.mempsi.some.avg60, &new.v2.mempsi.some.avg60 ),
-                                avg300 : self.accumulate( &old.v2.mempsi.some.avg300, &new.v2.mempsi.some.avg300 ),
-                                total  : self.accumulate( &old.v2.mempsi.some.total, &new.v2.mempsi.some.total ),
+                                avg10  : self.accumulate( old.v2.mempsi.some.avg10, new.v2.mempsi.some.avg10 ),
+                                avg60  : self.accumulate( old.v2.mempsi.some.avg60, new.v2.mempsi.some.avg60 ),
+                                avg300 : self.accumulate( old.v2.mempsi.some.avg300, new.v2.mempsi.some.avg300 ),
+                                total  : self.accumulate( old.v2.mempsi.some.total, new.v2.mempsi.some.total ),
                             },
                             full       : CGROUPV2PsiVal{
-                                avg10  : self.accumulate( &old.v2.mempsi.full.avg10, &new.v2.mempsi.full.avg10 ),
-                                avg60  : self.accumulate( &old.v2.mempsi.full.avg60, &new.v2.mempsi.full.avg60 ),
-                                avg300 : self.accumulate( &old.v2.mempsi.full.avg300, &new.v2.mempsi.full.avg300 ),
-                                total  : self.accumulate( &old.v2.mempsi.full.total, &new.v2.mempsi.full.total ),
+                                avg10  : self.accumulate( old.v2.mempsi.full.avg10, new.v2.mempsi.full.avg10 ),
+                                avg60  : self.accumulate( old.v2.mempsi.full.avg60, new.v2.mempsi.full.avg60 ),
+                                avg300 : self.accumulate( old.v2.mempsi.full.avg300, new.v2.mempsi.full.avg300 ),
+                                total  : self.accumulate( old.v2.mempsi.full.total, new.v2.mempsi.full.total ),
                             },
                         },
                         iopsi    : CGROUPV2Psi{
                             some       : CGROUPV2PsiVal{
-                                avg10  : self.accumulate( &old.v2.iopsi.some.avg10, &new.v2.iopsi.some.avg10 ),
-                                avg60  : self.accumulate( &old.v2.iopsi.some.avg60, &new.v2.iopsi.some.avg60 ),
-                                avg300 : self.accumulate( &old.v2.iopsi.some.avg300, &new.v2.iopsi.some.avg300 ),
-                                total  : self.accumulate( &old.v2.iopsi.some.total, &new.v2.iopsi.some.total ),
+                                avg10  : self.accumulate( old.v2.iopsi.some.avg10, new.v2.iopsi.some.avg10 ),
+                                avg60  : self.accumulate( old.v2.iopsi.some.avg60, new.v2.iopsi.some.avg60 ),
+                                avg300 : self.accumulate( old.v2.iopsi.some.avg300, new.v2.iopsi.some.avg300 ),
+                                total  : self.accumulate( old.v2.iopsi.some.total, new.v2.iopsi.some.total ),
                             },
                             full       : CGROUPV2PsiVal{
-                                avg10  : self.accumulate( &old.v2.iopsi.full.avg10, &new.v2.iopsi.full.avg10 ),
-                                avg60  : self.accumulate( &old.v2.iopsi.full.avg60, &new.v2.iopsi.full.avg60 ),
-                                avg300 : self.accumulate( &old.v2.iopsi.full.avg300, &new.v2.iopsi.full.avg300 ),
-                                total  : self.accumulate( &old.v2.iopsi.full.total, &new.v2.iopsi.full.total ),
+                                avg10  : self.accumulate( old.v2.iopsi.full.avg10, new.v2.iopsi.full.avg10 ),
+                                avg60  : self.accumulate( old.v2.iopsi.full.avg60, new.v2.iopsi.full.avg60 ),
+                                avg300 : self.accumulate( old.v2.iopsi.full.avg300, new.v2.iopsi.full.avg300 ),
+                                total  : self.accumulate( old.v2.iopsi.full.total, new.v2.iopsi.full.total ),
                             },
                         },
                 }
@@ -280,6 +274,7 @@ impl CharacteristicsMap {
             container_man,
             snapshot_invk_start: DashMap::new(),
             diff_invk: Arc::new(DashMap::new()),
+            avg10_invk: Arc::new(DashMap::new()),
         };
         cmap.dump_tables_to_disk();
         cmap
@@ -352,7 +347,7 @@ impl CharacteristicsMap {
                     Some(mut v1) => {
                         *v1 = match &v1.value() {
                             Values::Duration(d) => Values::Duration(self.ag.accumulate_dur(d, &unwrap_val_dur(&value))),
-                            Values::F64(f) => Values::F64(self.ag.accumulate(f, &unwrap_val_f64(&value))),
+                            Values::F64(f) => Values::F64(self.ag.accumulate(*f, unwrap_val_f64(&value))),
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
@@ -431,7 +426,10 @@ impl CharacteristicsMap {
                         cgroupstat: diff.clone(),
                     } );
                     println!("diff in reading at the end of the invoke: {:?}", diff);
-                    let olddiff = self.avg10_invk.get(fqdn).unwrap_or_default().cgroupstat;
+                    let olddiff = match self.avg10_invk.get(fqdn) {
+                        Some(v) => v.cgroupstat.clone(),
+                        None => InvokeDiff::default().cgroupstat,
+                    };
                     let mvavgdiff = self.ag.accumulate_cgroupreading( &olddiff, &diff );
                     self.avg10_invk.insert( fqdn.to_string(), InvokeDiff{
                         fqdn: fqdn.to_string(),

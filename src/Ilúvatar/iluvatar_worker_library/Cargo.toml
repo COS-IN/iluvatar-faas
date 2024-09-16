@@ -45,6 +45,7 @@ rand = "0.8"
 nvml-wrapper = "0.9"
 ipc-channel = { version = "0.18.1", features = ["memfd"] }
 iluvatar_bpf_library = { path = "../iluvatar_bpf_library" }
+num = "0.4.3"
 
 [build-dependencies]
 tonic-build = "0.7.2"
