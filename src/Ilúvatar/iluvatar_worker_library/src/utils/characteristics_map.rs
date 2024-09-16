@@ -235,7 +235,7 @@ pub enum Characteristics {
     E2EGpu,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InvokeDiff {
     fqdn: String, 
     cgroupid: BPF_FMAP_KEY,
@@ -259,6 +259,8 @@ pub struct CharacteristicsMap {
     diff_invk: Arc<DashMap<SystemTime,InvokeDiff>>,  
     avg10_invk: Arc<DashMap<String,InvokeDiff>>, // it's an exponential moving average of the
                                                  // invoke diff  
+    invk_csv: Writer,
+    avg10_csv: Witer,
 }
 
 impl CharacteristicsMap {
@@ -278,6 +280,8 @@ impl CharacteristicsMap {
             snapshot_invk_start: DashMap::new(),
             diff_invk: Arc::new(DashMap::new()),
             avg10_invk: Arc::new(DashMap::new()),
+            invk_csv: csv::Writer::from_writer(io::stdout()), 
+            avg10_csv: csv::Writer::from_writer(io::stdout()), 
         };
         cmap.dump_tables_to_disk();
         cmap
@@ -423,11 +427,14 @@ impl CharacteristicsMap {
                 let reading = read_cgroup( std::str::from_utf8(&cgid).unwrap().to_string() ).unwrap();
                 if let Some(start_reading) = self.snapshot_invk_start.get( tid ){
                     let diff = diff_cgroupreading( &start_reading, &reading );
-                    self.diff_invk.insert( SystemTime::now(), InvokeDiff{
+                    let idiff = InvokeDiff{
                         fqdn: fqdn.to_string(),
                         cgroupid: cgid.clone(),
                         cgroupstat: diff.clone(),
-                    } );
+                    };
+                    self.invk_csv.write_record( idiff );
+                    self.diff_invk.insert( SystemTime::now(),  idiff );
+
                     println!("diff in reading at the end of the invoke: {:?}", diff);
                     let olddiff = match self.avg10_invk.get(fqdn) {
                         Some(v) => v.cgroupstat.clone(),

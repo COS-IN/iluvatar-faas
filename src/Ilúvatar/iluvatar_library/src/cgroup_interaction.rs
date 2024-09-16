@@ -15,6 +15,7 @@ use std::{
 };
 use std::str::FromStr;
 use tracing::{error, info};
+use serde::{Serialize, Deserialize};
 
 // base cgroup mount location 
 const BASE_CGROUP_DIR: &str = "/sys/fs/cgroup";
@@ -97,7 +98,7 @@ const V2_METRIC_STAT_CPU: &str = "cpu.stat";
 const V2_METRIC_TASKS: &str  = "cgroup.threads";
 const V2_METRIC_PROCS: &str    = "cgroup.procs";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CGROUPV2PsiVal {
     pub avg10: f32, // % of time group waited for the resource to become available - on average
                     // over last 10 seconds  
@@ -106,13 +107,13 @@ pub struct CGROUPV2PsiVal {
     pub total: u64, // accumulated useconds of stall 
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CGROUPV2Psi {
     pub some: CGROUPV2PsiVal,
     pub full: CGROUPV2PsiVal,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CGROUPReadingV2 {
     pub threads: Vec<u64>,
     pub procs: Vec<u64>,
@@ -125,7 +126,7 @@ pub struct CGROUPReadingV2 {
 // at some point implement serde serialize and deserialize for this structure 
 // https://serde.rs/impl-serialize.html
 // it would help convert this structure to a json or a csv very easily 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CGROUPReading {
     // v1 
     pub usr: u64,
