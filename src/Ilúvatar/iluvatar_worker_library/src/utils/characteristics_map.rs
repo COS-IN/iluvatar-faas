@@ -24,6 +24,10 @@ use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::Receiver;
 
+use std::fs::File;
+use std::io::prelude::*;
+use serde_json;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacteristicsPacket {
     pub fqdn: String,
@@ -271,15 +275,24 @@ pub struct CharacteristicsMap {
 fn build_sink_thread<T: Serialize + std::marker::Send + 'static> () -> Sender<T> {
     let (tx, rx): (Sender<T>, Receiver<T>) = mpsc::channel();
     thread::spawn(move ||{
-        let mut sink = csv::Writer::from_writer(io::stdout());
+        let mut sink = io::stdout();
+        //let mut sink = File::create("foo.txt")?;
+        
         // unbounded receiver waiting for all senders to complete.
         while let Ok(val) = rx.recv() {
-            sink.serialize( val );
-            sink.flush();
+
+            // Serialize it to a JSON string.
+            let j = match serde_json::to_string(&val){
+                Ok(j) => j,
+                Err(_) => "".to_string(),
+            };     
+            sink.write_all( j.as_bytes() );
+            //sink.write_all(b"Hello, world!")?;
         }
     });
     tx
 } 
+
 
 impl CharacteristicsMap {
     pub fn new( 
