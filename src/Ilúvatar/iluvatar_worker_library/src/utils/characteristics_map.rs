@@ -6,7 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::thread;
 use tracing::{debug, error};
 use csv::Writer;
-use serde::{Serialize, Deserialize};
+use serde;
+use serde::Deserialize;
+use serde::ser::{Serialize, Serializer, SerializeSeq, SerializeMap};
 use std::sync::Arc;
 use std::io;
 use std::io::Write;
@@ -24,7 +26,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::sync::mpsc::Receiver;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, Deserialize)]
 pub struct CharacteristicsPacket {
     pub fqdn: String,
     pub e2e: f64,
@@ -240,12 +242,35 @@ pub enum Characteristics {
     E2EGpu,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct InvokeDiff {
     timestamp: u64,
     fqdn: String, 
     cgroupid: BPF_FMAP_KEY,
     cgroupstat: CGROUPReading,
+}
+
+// implement Serialize for the InvokeDiff Structure 
+// Why am I forcing it to be csv? - I can just spit out json and ingest json!   
+impl Serialize for InvokeDiff
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(2))?;
+
+        seq.serialize_element("timestamp")?;
+        seq.serialize_element(&self.timestamp)?;
+
+        seq.serialize_element("fqdn")?;
+        seq.serialize_element(&self.fqdn)?;
+
+        seq.serialize_element("cgroupid")?;
+        seq.serialize_element(&self.cgroupid)?;
+
+        seq.end()
+    }
 }
 
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc.
@@ -268,12 +293,19 @@ pub struct CharacteristicsMap {
     avg10_csv_tx                      : Sender<InvokeDiff>,
 }
 
-fn build_sink_thread<T: Serialize + std::marker::Send + 'static> () -> Sender<T> {
+fn build_sink_thread<T> () -> Sender<T> 
+    where 
+        T: Serialize + 
+            std::marker::Send + 
+            'static + 
+            std::fmt::Debug
+{
     let (tx, rx): (Sender<T>, Receiver<T>) = mpsc::channel();
     thread::spawn(move ||{
         let mut sink = csv::Writer::from_writer(io::stdout());
         // unbounded receiver waiting for all senders to complete.
         while let Ok(val) = rx.recv() {
+           // println!("Serializing {:?}", val);
             sink.serialize( val );
             sink.flush();
         }
