@@ -9,6 +9,7 @@ use csv::Writer;
 use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 use std::io;
+use std::os::fd::AsFd;
 use std::io::Write;
 use crate::services::containers::{containermanager::ContainerManager};
 
@@ -268,15 +269,17 @@ pub struct CharacteristicsMap {
     snapshot_invk_start               : DashMap<TransactionId,CGROUPReading>,
     diff_invk                         : Arc<DashMap<SystemTime,InvokeDiff>>,
     avg10_invk                        : Arc<DashMap<String,InvokeDiff>>, // it's an exponential moving average of the invoke diff
-    invk_csv_tx                       : Sender<InvokeDiff>,
-    avg10_csv_tx                      : Sender<InvokeDiff>,
+    invk_json_tx                       : Sender<InvokeDiff>,
+    avg10_json_tx                      : Sender<InvokeDiff>,
 }
 
-fn build_sink_thread<T: Serialize + std::marker::Send + 'static> () -> Sender<T> {
+fn build_sink_thread<T: Serialize + std::marker::Send + 'static> ( filename: String ) -> Sender<T> {
     let (tx, rx): (Sender<T>, Receiver<T>) = mpsc::channel();
     thread::spawn(move ||{
-        let mut sink = io::stdout();
-        //let mut sink = File::create("foo.txt")?;
+        let mut sink = match File::create( filename ){
+            Ok(f) => Box::new(f) as Box<dyn Write>,
+            Err(_) => Box::new(io::stdout()) as Box<dyn Write>,
+        };
         
         // unbounded receiver waiting for all senders to complete.
         while let Ok(val) = rx.recv() {
@@ -287,12 +290,11 @@ fn build_sink_thread<T: Serialize + std::marker::Send + 'static> () -> Sender<T>
                 Err(_) => "".to_string(),
             };     
             sink.write_all( j.as_bytes() );
-            //sink.write_all(b"Hello, world!")?;
+            sink.write_all( b"\n" );
         }
     });
     tx
 } 
-
 
 impl CharacteristicsMap {
     pub fn new( 
@@ -311,8 +313,8 @@ impl CharacteristicsMap {
             snapshot_invk_start :  DashMap::new(),
             diff_invk           :  Arc::new(DashMap::new()),
             avg10_invk          :  Arc::new(DashMap::new()),
-            invk_csv_tx         :  build_sink_thread(),
-            avg10_csv_tx        :  build_sink_thread(),
+            invk_json_tx         :  build_sink_thread("/tmp/iluvatar/bin/invoke.json".to_string()),
+            avg10_json_tx        :  build_sink_thread("/tmp/iluvatar/bin/invoke_avg10.json".to_string()),
         };
         cmap.dump_tables_to_disk();
         cmap
@@ -465,7 +467,7 @@ impl CharacteristicsMap {
                         cgroupid: cgid.clone(),
                         cgroupstat: diff.clone(),
                     };
-                    self.invk_csv_tx.send( idiff.clone() );
+                    self.invk_json_tx.send( idiff.clone() );
                     self.diff_invk.insert( time_now.clone(),  idiff );
 
                     //println!("diff in reading at the end of the invoke: {:?}", diff);
@@ -474,12 +476,14 @@ impl CharacteristicsMap {
                         None => InvokeDiff::default().cgroupstat,
                     };
                     let mvavgdiff = self.ag.accumulate_cgroupreading( &olddiff, &diff );
-                    self.avg10_invk.insert( fqdn.to_string(), InvokeDiff{
+                    let imvavgdiff = InvokeDiff{
                         timestamp: time_now.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
                         fqdn: fqdn.to_string(),
                         cgroupid: cgid.clone(),
                         cgroupstat: mvavgdiff,
-                    });
+                    };
+                    self.avg10_json_tx.send( imvavgdiff.clone() );
+                    self.avg10_invk.insert( fqdn.to_string(), imvavgdiff );
                 }
                 //println!("absolute reading at the end of the invoke: {:?}", reading);
             }
