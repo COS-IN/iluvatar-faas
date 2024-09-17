@@ -462,7 +462,7 @@ impl CharacteristicsMap {
                     let diff = diff_cgroupreading( &start_reading, &reading );
                     let time_now = SystemTime::now();
                     let idiff = InvokeDiff{
-                        timestamp: time_now.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
+                        timestamp: time_now.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
                         fqdn: fqdn.to_string(),
                         cgroupid: cgid.clone(),
                         cgroupstat: diff.clone(),
@@ -477,7 +477,7 @@ impl CharacteristicsMap {
                     };
                     let mvavgdiff = self.ag.accumulate_cgroupreading( &olddiff, &diff );
                     let imvavgdiff = InvokeDiff{
-                        timestamp: time_now.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs(),
+                        timestamp: time_now.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
                         fqdn: fqdn.to_string(),
                         cgroupid: cgid.clone(),
                         cgroupstat: mvavgdiff,
