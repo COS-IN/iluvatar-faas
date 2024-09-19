@@ -93,10 +93,10 @@ impl<'cb> BpfScheduler<'cb> {
         skel.maps.bss_data.usersched_pid = std::process::id();
         skel.maps.rodata_data.effective_slice_ns = slice_us * 1000;
 
-        let path = "/sys/fs/bpf/func_characs";
-        let func_characs = &mut skel.maps.func_characs; 
-        assert!(func_characs.reuse_pinned_map("/asdf").is_err());
-        func_characs.reuse_pinned_map(path).expect("failed to reuse map");
+        let path = "/sys/fs/bpf/func_metadata";
+        let func_metadata = &mut skel.maps.func_metadata; 
+        assert!(func_metadata.reuse_pinned_map("/asdf").is_err());
+        func_metadata.reuse_pinned_map(path).expect("failed to reuse map");
 
         // Attach BPF scheduler.
         let mut skel = scx_ops_load!(skel, tsksz_ops, uei)?;

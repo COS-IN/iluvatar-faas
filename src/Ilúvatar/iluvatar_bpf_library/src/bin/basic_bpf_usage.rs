@@ -1,14 +1,13 @@
 use iluvatar_bpf_library::bpf::func_characs::*;
 use std::mem::MaybeUninit;
 
-
 pub fn main() {
 
     let mut open_object = MaybeUninit::uninit();
     let mut skel = build_and_load( &mut open_object ).unwrap(); 
     let mut fcmap = skel
         .maps
-        .func_characs;
+        .func_metadata;
 
     // let key: u64 = 10;
     // let key2: u64 = 20;

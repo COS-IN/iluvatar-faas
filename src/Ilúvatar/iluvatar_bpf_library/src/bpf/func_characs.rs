@@ -55,14 +55,14 @@ pub fn build_and_load<'obj>( open_object:  &'obj mut MaybeUninit::<libbpf_rs::Op
     let open_skel = skel_builder.open(open_object)?;
     let mut skel = open_skel.load()?;
 
-    let path = "/sys/fs/bpf/func_characs";
+    let path = "/sys/fs/bpf/func_metadata";
     if( Path::new(path).exists() ){
         let _ = fs::remove_file(path);
     }
 
     let fcmap = &mut skel
         .maps
-        .func_characs;
+        .func_metadata;
 
     fcmap.pin(path).expect("failed to pin map");
     assert!(Path::new(path).exists());

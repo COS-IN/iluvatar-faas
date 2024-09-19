@@ -69,7 +69,6 @@ struct {
   __uint(value_size, sizeof(MetaVal_t)); /* Value Structure */
 } func_metadata SEC(".maps");
 
-
 typedef struct CgroupInfo {
     u64 id;
 	s32 qid;
@@ -473,7 +472,7 @@ static __always_inline bool verify_cpu(s32 cpu)
 
 static __always_inline s32 cpu_to_qid(s32 cpu)
 {
-    return cpu / 2;
+    return (u32)cpu / 2;
 }
 
 // Generate a bpf cpumask with cpus that belong to qid
@@ -548,7 +547,7 @@ static __always_inline CgroupInfo_t get_task_cgroupinfo(struct task_struct *p)
     CgroupInfo_t info;
 
     bpf_rcu_read_lock();
-      cgroups = task->cgroups;
+      cgroups = p->cgroups;
       info.id = cgroups->dfl_cgrp->kn->id;
       bpf_probe_read_kernel_str( info.name, MAX_NAME_LEN, cgroups->dfl_cgrp->kn->name );
     bpf_rcu_read_unlock();
@@ -766,6 +765,7 @@ void BPF_STRUCT_OPS(tsksz_enqueue, struct task_struct *p, u64 enq_flags)
  * so (usually if other CPUs are idle we may want to send more tasks to their
  * local DSQ to optimize the scheduling pipeline).
  */
+#if 0
 void BPF_STRUCT_OPS(tsksz_dispatch, s32 cpu, struct task_struct *prev)
 {
     info_msg("[dispatch] cpu: %d prev_task: %d - %s",
@@ -799,6 +799,7 @@ void BPF_STRUCT_OPS(tsksz_dispatch, s32 cpu, struct task_struct *prev)
 		}
 	}
 }
+#endif
 
 /*
  * A new task @p is being created.
@@ -843,7 +844,7 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
 
           if( match_prefix( other, comm, MAX_NAME_LEN ) ){
             push_to_ringbuf = true;
-            chashmap_insert( cgrp.id, cgrp.name );
+            chashmap_insert( &cgrp );
 
             info_msg(
                 "[chashmap][init][%s] inserting cgroup: %d - %s because of task %d - %s",
@@ -1010,6 +1011,7 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(tsksz_init)
     // init the next qids array for each bucket 
     s32 gap = SHARED_DSQ / MAX_E2E_BUCKETS; // 6 
     s32 lower;
+    s32 i;
     bpf_for(i, 0, MAX_E2E_BUCKETS){
         lower = gap * i; // 0,6
         bkt_next_qid[i] = lower;
@@ -1041,7 +1043,7 @@ void BPF_STRUCT_OPS(tsksz_exit, struct scx_exit_info *ei)
 SCX_OPS_DEFINE( tsksz_ops, 
            .select_cpu = (void *)tsksz_select_cpu,
 	       .enqueue = (void *)tsksz_enqueue,
-	       .dispatch = (void *)tsksz_dispatch,
+//	       .dispatch = (void *)tsksz_dispatch,
 	       .init_task = (void *)tsksz_init_task,
 	       .exit_task = (void *)tsksz_exit_task,
 	       .init = (void *)tsksz_init, 

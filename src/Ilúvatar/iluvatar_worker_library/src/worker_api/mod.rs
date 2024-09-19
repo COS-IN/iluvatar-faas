@@ -147,7 +147,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         let mut skel = build_and_load( &mut open_object ).unwrap(); 
         let mut fcmap = skel
             .maps
-            .func_characs;
+            .func_metadata;
 
         // unbounded receiver waiting for all senders to complete.
         while let Ok((key, val)) = rx.recv() {
