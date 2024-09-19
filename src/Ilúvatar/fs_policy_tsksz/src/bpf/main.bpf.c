@@ -765,17 +765,18 @@ void BPF_STRUCT_OPS(tsksz_enqueue, struct task_struct *p, u64 enq_flags)
  * so (usually if other CPUs are idle we may want to send more tasks to their
  * local DSQ to optimize the scheduling pipeline).
  */
-#if 0
 void BPF_STRUCT_OPS(tsksz_dispatch, s32 cpu, struct task_struct *prev)
 {
-    info_msg("[dispatch] cpu: %d prev_task: %d - %s",
-             cpu,
-             prev->pid,
-             prev->comm
-    );
+    if( prev ){
+        info_msg("[dispatch] cpu: %d prev_task: %d - %s",
+                 cpu,
+                 prev->pid,
+                 prev->comm
+        );
+    }
 
-	// Enqueue the scheduler task if the timer callback
-	// has set the need flag - it's set every second
+    // Enqueue the scheduler task if the timer callback
+    // has set the need flag - it's set every second
 	dispatch_user_scheduler();
 
 	if ( is_usersched_cpu(cpu) ) {
@@ -799,7 +800,6 @@ void BPF_STRUCT_OPS(tsksz_dispatch, s32 cpu, struct task_struct *prev)
 		}
 	}
 }
-#endif
 
 /*
  * A new task @p is being created.
@@ -1043,7 +1043,7 @@ void BPF_STRUCT_OPS(tsksz_exit, struct scx_exit_info *ei)
 SCX_OPS_DEFINE( tsksz_ops, 
            .select_cpu = (void *)tsksz_select_cpu,
 	       .enqueue = (void *)tsksz_enqueue,
-//	       .dispatch = (void *)tsksz_dispatch,
+	       .dispatch = (void *)tsksz_dispatch,
 	       .init_task = (void *)tsksz_init_task,
 	       .exit_task = (void *)tsksz_exit_task,
 	       .init = (void *)tsksz_init, 
