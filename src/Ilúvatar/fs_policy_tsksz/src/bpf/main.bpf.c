@@ -164,7 +164,7 @@ static volatile s32 bkt_next_qid[MAX_E2E_BUCKETS] = {0};
 static volatile u32 usersched_needed;
 
 // verbose debug output flag
-bool verbose = false;
+bool verbose = true;
 
 /////////////////////////////////
 // Function Declarations 
@@ -542,14 +542,19 @@ static __always_inline CgroupInfo_t *get_chashmap(__u64 cid)
 
 static __always_inline CgroupInfo_t get_task_cgroupinfo(struct task_struct *p)
 {
-    struct css_set *cgroups;
-    u64 cgroup_id;
+    struct cgroup *cgrp;
     CgroupInfo_t info;
 
     bpf_rcu_read_lock();
-      cgroups = p->cgroups;
-      info.id = cgroups->dfl_cgrp->kn->id;
-      bpf_probe_read_kernel_str( info.name, MAX_NAME_LEN, cgroups->dfl_cgrp->kn->name );
+      // cgroups->dfl_cgrp is the cgroup-id 1 
+      // we need cgroups->subsys[sched] cgroup 
+      if( p->sched_task_group && 
+          p->sched_task_group->css.cgroup 
+         ){
+          cgrp = p->sched_task_group->css.cgroup;
+          info.id = cgrp->kn->id;
+          bpf_probe_read_kernel_str( info.name, MAX_NAME_LEN, cgrp->kn->name );
+      } 
     bpf_rcu_read_unlock();
 
     info.qid = -1;
@@ -564,6 +569,16 @@ static __always_inline s32 task_to_qid(struct task_struct *p)
     CgroupInfo_t * cvalue = get_chashmap( cgrp.id );
     if (cvalue) {
         return cvalue->qid;
+    }else{
+        // sometimes task switch to sched_ext even after partial being set
+        // let's sched those tasks through qid 0 
+        info_msg("[warn] no qid found for task %d - %s belongs to cgroup %d - %s",
+                 p->pid,
+                 p->comm,
+                 cgrp.id,
+                 cgrp.name
+        );
+        return 0;
     }
 
     return -1;
@@ -706,9 +721,12 @@ s32 BPF_STRUCT_OPS(tsksz_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wa
             bpf_cpumask_release( cpumask );
         }
 	} else {
-      info_msg( "[select_cpu] Q id not found for task: %d - %s",
+      CgroupInfo_t cgrp = get_task_cgroupinfo( p );
+      info_msg( "[select_cpu] Q id not found for task: %d - %s belongs to cgroup: %d - %s",
                 p->pid, 
-                p->comm
+                p->comm,
+                cgrp.id,
+                cgrp.name
       );
 	}
     
