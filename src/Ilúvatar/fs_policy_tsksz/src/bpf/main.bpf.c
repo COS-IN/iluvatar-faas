@@ -31,7 +31,7 @@ UEI_DEFINE(uei);
 ////////////////////////////////
 // Macros 
 
-#define MAX_NAME_LEN   15
+#define MAX_NAME_LEN   16
 #define MAX_FUNCS 50 
 #define FUNC_METADATA_KEYSIZE   MAX_NAME_LEN // because the kernel fs inode name is 15 characters 
 #define MAX_ENQUEUED_TASKS 8192
@@ -419,6 +419,7 @@ static __always_inline void update_qid_assignment( struct task_struct *p ) {
         if ( cgrp_old ){
               s32 gid  = get_groupid( fmeta->e2e ); // new group id 
               s32 ogid = qid_to_groupid( cgrp_old->qid ); // old group id 
+
               if ( ogid != gid ){
                   s32 nqid = gen_qid_new( gid );
                   info_msg( "[qid_assignment] cgroup %d - %s now is assigned Q %d instead of old-Q %d", 

@@ -90,11 +90,19 @@
   * invoke 
 
   Expected outcome
-  * 'cat /sys/kernel/debug/tracing/trace_pipe | grep -i [chashmap]'
+  * 'cat /sys/kernel/debug/tracing/trace_pipe | grep -i "\[chashmap\]"'
   * should show inserting, found logs  
   
   logs
 ```
+   root@v-021:/data2/ar/workspace# cat /sys/kernel/debug/tracing/trace_pipe | grep -i "\[chashmap\]"
+        gunicorn-3009925 [023] ...11 1783745.330394: bpf_trace_printk: [info-tsksz] [chashmap] inserting cgroup 49391 - 9c12eb2cbf11f4 with Q 1
+        gunicorn-3009925 [023] ...11 1783745.330396: bpf_trace_printk: [info-tsksz] [chashmap][init][____tsksz_init_task] inserting cgroup: 49391 - 9c12eb2cbf11f4 because of task 3010021 - gunicorn
+        gunicorn-3010021 [001] ...11 1783745.493700: bpf_trace_printk: [info-tsksz] [chashmap][____tsksz_init_task] found cgroup: 49391 - 9c12eb2cbf11f4 for task 3010039 - gunicorn
+        gunicorn-3010021 [001] ...11 1783745.626219: bpf_trace_printk: [info-tsksz] [chashmap][____tsksz_init_task] found cgroup: 49391 - 9c12eb2cbf11f4 for task 3010046 - gunicorn
+
+        gunicorn-3010076 [023] ...11 1783746.193474: bpf_trace_printk: [info-tsksz] [chashmap] inserting cgroup 49413 - worker-health- with Q 2
+        gunicorn-3010076 [023] ...11 1783746.193475: bpf_trace_printk: [info-tsksz] [chashmap][init][____tsksz_init_task] inserting cgroup: 49413 - worker-health- because of task 3010129 - gunicorn
 ```
 
 ##### qid assignment update  
@@ -104,7 +112,7 @@
   * do a multi invoke 
 
   Expected outcome
-  * 'cat /sys/kernel/debug/tracing/trace_pipe | grep -i [qid_assignment]'
+  * 'cat /sys/kernel/debug/tracing/trace_pipe | grep -i qid_assignment'
   * should show "now is assigned logs"  
   
   logs
