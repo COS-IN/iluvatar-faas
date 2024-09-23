@@ -117,6 +117,12 @@
   
   logs
 ```
+   root@v-021:/data2/ar/workspace# cat /sys/kernel/debug/tracing/trace_pipe | grep -i qid_assignment
+    docker-proxy-3045960 [032] d.s61 1785808.377592: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49875 - 75d56f05b1c1c2e now is assigned Q 7 instead of old-Q 1
+    docker-proxy-3045960 [032] d.s61 1785811.720694: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49875 - 75d56f05b1c1c2e now is assigned Q 13 instead of old-Q 7
+    docker-proxy-3046096 [034] d.s61 1785815.918948: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49875 - 75d56f05b1c1c2e now is assigned Q 9 instead of old-Q 13
+          <idle>-0       [027] dNs51 1785812.310564: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49919 - 1b1d995a11874fa now is assigned Q 14 instead of old-Q 3
+          <idle>-0       [029] dNs51 1785815.766729: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49919 - 1b1d995a11874fa now is assigned Q 8 instead of old-Q 14
 ```
 
 ##### pidstat   
@@ -130,6 +136,31 @@
 
   logs 
 ```
+
+    docker-proxy-3046410 [003] d.s61 1786047.940979: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49919 - 1b1d995a11874fa now is assigned Q 13 instead of old-Q 6
+    docker-proxy-3046405 [005] d.s61 1786050.019048: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49919 - 1b1d995a11874fa now is assigned Q 7 instead of old-Q 13
+    docker-proxy-3045961 [004] d.s61 1786050.021591: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49875 - 75d56f05b1c1c2e now is assigned Q 8 instead of old-Q 12
+              ls-3049924 [017] d..41 1786058.353941: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49875 - 75d56f05b1c1c2e now is assigned Q 14 instead of old-Q 8
+    docker-proxy-3046410 [002] d.s61 1786058.499184: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49919 - 1b1d995a11874fa now is assigned Q 15 instead of old-Q 7
+          <idle>-0       [031] dNs51 1786060.408030: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49919 - 1b1d995a11874fa now is assigned Q 9 instead of old-Q 15
+    docker-proxy-3046096 [035] d.s61 1786060.560585: bpf_trace_printk: [info-tsksz] [qid_assignment] cgroup 49875 - 75d56f05b1c1c2e now is assigned Q 10 instead of old-Q 14
+
+   01:37:17 PM   UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+01:37:18 PM     0   3046546    0.00    0.00    0.00    0.00    0.00    15  gunicorn
+01:37:19 PM     0   3046546    0.00    0.00    0.00    0.00    0.00    15  gunicorn
+01:37:20 PM     0   3046546    0.00    0.00    0.00    0.00    0.00    15  gunicorn
+01:37:21 PM     0   3046546    0.00    0.00    0.00    0.00    0.00    15  gunicorn
+
+15 / 2 -> 7.5 -> Q 7 
+Q 7 -> Bucket 2 
+
+   [info-tsksz] [func_metadata][dump_callback] key: containerd e2e: 767
+   [info-tsksz] [func_metadata][dump_callback] key: 75d56f05b1c1c2e e2e: 1909
+   [info-tsksz] [func_metadata][dump_callback] key: 1b1d995a11874fa e2e: 1909
+   [info-tsksz] [func_metadata][dump_callback] key: containerd e2e: 767
+
+based on the thresholds it should have been bucket 2 
+
 ```
 
 
