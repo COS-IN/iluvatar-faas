@@ -196,7 +196,7 @@ s32 get_groupid( u32 e2e ) {
 /*
    Test Results 
       root@v-021:/data2/ar/workspace/temp# cat /sys/kernel/debug/tracing/trace_pipe | grep -i test
-      fs_policy_tsksz-2481710 [002] ...11 227122.741565: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 0 -> gid -1 -- should be -1 -- passed: 1
+      fs_policy_tsksz-2481710 [002] ...11 227122.741565: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 0 -> gid 0 -- should be 0 -- passed: 1
       fs_policy_tsksz-2481710 [002] ...11 227122.741567: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 100 -> gid 1 -- should be 1 -- passed: 1
       fs_policy_tsksz-2481710 [002] ...11 227122.741568: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 1000 -> gid 1 -- should be 1 -- passed: 1
       fs_policy_tsksz-2481710 [002] ...11 227122.741569: bpf_trace_printk: [info-tsksz] [test][get_groupid] e2e: 2000 -> gid 2 -- should be 2 -- passed: 1
