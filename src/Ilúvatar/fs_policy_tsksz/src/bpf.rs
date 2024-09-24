@@ -12,6 +12,8 @@ use crate::bpf_skel::*;
 use std::fs::File;
 use std::io::Read;
 
+use serde::{Deserialize,Serialize};
+
 use anyhow::Context;
 use anyhow::Result;
 
@@ -47,18 +49,37 @@ pub struct BpfScheduler<'cb> {
     pub skel: BpfSkel<'cb>,                // Low-level BPF connector
     struct_ops: Option<libbpf_rs::Link>,   // Low-level BPF methods
     queued_pids: libbpf_rs::RingBuffer<'cb>,  // ring buffer of tasks pids to be switched to schedext
+    queued_stats: libbpf_rs::RingBuffer<'cb>,  // ring buffer of tasks pids to be switched to schedext
 }
 
-// Buffer to store pids from the bpf scheduler 
-// NOTE: make the buffer aligned to 64-bits to prevent misaligned dereferences when accessing the
-// buffer using a pointer.
-const BUFSIZE: usize = std::mem::size_of::<i32>();
-#[repr(align(8))]
-struct AlignedBuffer([u8; BUFSIZE]);
-static mut BUF: AlignedBuffer = AlignedBuffer([0; BUFSIZE]);
+#[derive(Clone, Copy, Debug)]
+pub struct lpolicy_stats(bpf_intf::policy_stats);
+
+macro_rules! define_buffer {
+    ( $bufname: ident, $abufname: ident, $abuf: ident, $callback: ident, $tdst: ty ) => {
+        const $bufname: usize = std::mem::size_of::<$tdst>();
+        #[repr(align(8))]
+        struct $abufname([u8; $bufname]);
+        static mut $abuf: $abufname = $abufname([0; $bufname]);
+        fn $callback(data: &[u8]) -> i32 {
+            unsafe {
+                $abuf.0.copy_from_slice(data);
+            }
+            LIBBPF_STOP
+        }
+    }
+}
+
+define_buffer!( BUFSIZE_PID, AlignedBufferPid, BUF_PID, callback_pid, i32 );
 fn fetch_pid( bytes: &[u8] ) -> i32 {
     let ps = unsafe { *(bytes.as_ptr() as *const bpf_intf::packet_pid) };
     ps.pid
+}
+
+define_buffer!( BUFSIZE_STATS, AlignedBufferstats, BUF_STATS, callback_stats, bpf_intf::policy_stats );
+fn fetch_stats( bytes: &[u8] ) -> lpolicy_stats {
+    let ps = unsafe { *(bytes.as_ptr() as *const bpf_intf::policy_stats) };
+    lpolicy_stats(ps.clone())
 }
 
 // Special negative error code for libbpf to stop after consuming just one item from a BPF
@@ -82,13 +103,6 @@ impl<'cb> BpfScheduler<'cb> {
         // scheduling.
         ALLOCATOR.lock_memory();
 
-        fn callback(data: &[u8]) -> i32 {
-            unsafe {
-                BUF.0.copy_from_slice(data);
-            }
-            LIBBPF_STOP
-        }
-
         skel.struct_ops.tsksz_ops_mut().exit_dump_len = exit_dump_len;
         skel.maps.bss_data.usersched_pid = std::process::id();
         skel.maps.rodata_data.effective_slice_ns = slice_us * 1000;
@@ -105,8 +119,14 @@ impl<'cb> BpfScheduler<'cb> {
         // Build the ring buffer of queued tasks.
         let rb_map = &mut skel.maps.queued_pids;
         let mut builder = libbpf_rs::RingBufferBuilder::new();
-        builder.add(rb_map, callback).unwrap();
+        builder.add(rb_map, callback_pid).unwrap();
         let queued_pids = builder.build().unwrap();
+
+        // Build the ring buffer of queued tasks.
+        let rb_map = &mut skel.maps.queued_stats;
+        let mut builder = libbpf_rs::RingBufferBuilder::new();
+        builder.add(rb_map, callback_stats).unwrap();
+        let queued_stats = builder.build().unwrap();
 
         // Make sure to use the SCHED_EXT class at least for the scheduler itself.
         match Self::use_sched_ext() {
@@ -114,6 +134,7 @@ impl<'cb> BpfScheduler<'cb> {
                 skel,
                 struct_ops,
                 queued_pids,
+                queued_stats,
             }),
             err => Err(anyhow::Error::msg(format!(
                 "sched_setscheduler error: {}",
@@ -128,8 +149,22 @@ impl<'cb> BpfScheduler<'cb> {
             0 => Ok(None),
             LIBBPF_STOP => {
                 // A valid pid is received, convert data to a proper pid.
-                let pid = unsafe { fetch_pid(&BUF.0) };
+                let pid = unsafe { fetch_pid(&BUF_PID.0) };
                 Ok(Some(pid))
+            }
+            res if res < 0 => Err(res),
+            res => panic!("Unexpected return value from libbpf-rs::consume_raw(): {}", res),
+        }
+    }
+
+    // Receive stats from the BPF scheduler to switch to schedext policy.
+    pub fn dequeue_stats(&mut self) -> Result<Option<lpolicy_stats>, i32> {
+        match self.queued_stats.consume_raw() {
+            0 => Ok(None),
+            LIBBPF_STOP => {
+                // A valid pid is received, convert data to a proper pid.
+                let stats = unsafe { fetch_stats(&BUF_STATS.0) };
+                Ok(Some(stats))
             }
             res if res < 0 => Err(res),
             res => panic!("Unexpected return value from libbpf-rs::consume_raw(): {}", res),

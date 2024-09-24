@@ -80,11 +80,15 @@ impl<'a> Scheduler<'a> {
     }
 
     fn print_stats(&mut self) {
-        println!(
-            "Q {} - {}",
-            0,
-            1,
-        );
+        println!( "--------  Userspace thread running ----------" );
+
+        match self.bpf.dequeue_stats() {
+            Ok(Some(stats)) => {
+                println!("stats {:?}", stats);
+            }
+            Ok(None) | Err(_) => {
+            }
+        }
         
         if let Some(crecvs) = &self.crecvs {
             loop {

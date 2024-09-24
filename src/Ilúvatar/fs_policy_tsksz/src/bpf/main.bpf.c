@@ -537,9 +537,14 @@ void push_pid_for_class_switch( int pid )
 
 void push_stats( stats_t *stat )
 {
+    if( !stat ){
+        return;
+    }
+
 	int *p = bpf_ringbuf_reserve( &queued_stats, sizeof(stats_t), 0 );
 	if ( p ) {
 		stats_t *ps = (stats_t *)p;
+        stat->seq = bpf_ktime_get_ns()/ONE_MSEC;
         __builtin_memcpy_inline( ps, stat, sizeof(stats_t) );
 		bpf_ringbuf_submit(ps, 0);
         info_msg( "[queued_stats] pushed stat %p", ps );
@@ -997,7 +1002,9 @@ static int usersched_timer_fn(void *map, int *key, struct bpf_timer *timer)
         scx_bpf_kick_cpu( cpu+1, SCX_KICK_IDLE);
       }
     }
-  
+ 
+    push_stats( &global_stats );
+
     if ( verbose ){
 
       info_msg("[health] heartbeat message");

@@ -54,6 +54,12 @@
 ### Verification  
 
 
+## Next Actions 
+
+  * capture on BPF side                 ✓
+  * push to the user space via ring buffer 
+  * dump into a json or a csv 
+
 ## Questions
   
   What is the mechanisim to read maps from the user space? 
