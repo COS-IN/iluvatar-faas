@@ -18,22 +18,46 @@
 
 ### Design (Words)
   
-  comp
+
 ### Design (ASCII Flow Diagram)
 
 ## Implementation Details 
 ### Components 
-
-  struct stats{
-    tsks_Q[ num_of_Qs ],
-    #of cgroups, 
-
+  
+  struct stats_Q {
+    # of tasks 
   }
+  hashmap of stats_Q - key - qid 
+
+  struct stats_bucket {
+    # of tasks 
+  }
+  hashmap of stats_bucket - key - bucket id  
+
+  struct stats_cgroup {
+    # of tasks 
+  }
+  hashmap of stats_cgroup - key - cgroup_name   
+
+  global variable of this structure  
+
+  atomic updates to this structure in the bpf scheduler 
+
+  mechanisim to read the snapshot of this structure from user space 
 
 ### Flows 
-### Verification  
-## Questions
 
-    * #tasks in a Q  
-    * #tasks in a bucket  
- 
+  init_task -> updates to tsks_Q - should be atomic 
+  chashmap_insert -> update to # of cgroups - should be atomic  
+
+
+### Verification  
+
+
+## Questions
+  
+  What is the mechanisim to read maps from the user space? 
+    it's best to use the ring buffers to avoid the race issues  
+
+
+

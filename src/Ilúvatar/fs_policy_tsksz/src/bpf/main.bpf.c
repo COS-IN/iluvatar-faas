@@ -28,29 +28,6 @@ char _license[] SEC("license") = "GPL";
 
 UEI_DEFINE(uei);
 
-////////////////////////////////
-// Macros 
-
-#define MAX_NAME_LEN   16
-#define MAX_FUNCS 50 
-#define FUNC_METADATA_KEYSIZE   MAX_NAME_LEN // because the kernel fs inode name is 15 characters 
-#define MAX_ENQUEUED_TASKS 8192
-#define MAX_CGROUPS 64
-
-#define SHARED_DSQ  MAX_CPUS/2 
-#define USCHED_DSQ  SHARED_DSQ + 1
-#define USCHED_CORE MAX_CPUS - 1
-
-// info msg with a specific tag
-#define info_msg(_fmt, ...)                              \
-	do {                                                 \
-		bpf_printk("[info-tsksz] " _fmt, ##__VA_ARGS__); \
-	} while (0)
-
-// see comment over e2e_thresholds
-#define MAX_E2E_BUCKETS 4
-#define RESERVED_E2E_BUCKET 0
-
 ////////////////////////////////////////
 // Structures 
 
@@ -72,6 +49,7 @@ struct {
 typedef struct CgroupInfo {
     u64 id;
 	s32 qid;
+    s32 tsk_cnt;
 	char name[MAX_NAME_LEN];
 } CgroupInfo_t;
 
@@ -112,6 +90,14 @@ struct {
 	__uint(max_entries, MAX_ENQUEUED_TASKS);
 } queued_pids SEC(".maps");
 
+stats_t global_stats;
+
+// The map containing stats that are to be switched to SchedEXT policy.
+// it is drained by the user space thread
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, MAX_ENQUEUED_TASKS);
+} queued_stats SEC(".maps");
 
 /////////////////////////////////////////////
 // Global Variables 
@@ -428,6 +414,21 @@ static __always_inline void update_qid_assignment( struct task_struct *p ) {
                            nqid,
                            cgrp_old->qid
                   );
+
+                  // sub the # of tasks from oqid for the given cgroup 
+                  __sync_fetch_and_sub( &global_stats.tsks_Q[cgrp_old->qid], cgrp_old->tsk_cnt );
+
+                  // add the # of tasks from oqid to nqid in global stats - for
+                  // this cgroup 
+                  __sync_fetch_and_add( &global_stats.tsks_Q[nqid], cgrp_old->tsk_cnt );
+
+                  // todo: it's an abrupt change in stats - even though actual
+                  // shift only happens when tasks go through the select_cpu
+                  // callback  
+                  // so there is a lag between stats and actual shift - but it
+                  // should be very small for coarse grained observation over a
+                  // second 
+
                   cgrp_old->qid = nqid;
               }
         } // cgrp_old 
@@ -445,6 +446,24 @@ static long func_metadata_dump_callback (void *map, const char *key, MetaVal_t *
     info_msg("[func_metadata][dump_callback] key: %s e2e: %lu", 
              key,
              val->e2e
+    ); 
+    return 0;
+}
+
+/*
+   Callback for bpf_for_each_map_elem
+   long (\*callback_fn)(struct bpf_map \*map, const void \*key, void \*value, void \*ctx);
+   callback  
+      continues : if return 0
+      stops     : if return 1
+*/
+static long func_cgroup_dump_callback (void *map, const __u64 *key, CgroupInfo_t *val, void *data){
+    info_msg("[func_cgroup][dump_callback] key: %d id: %llu qid: %d tasks: %d name: %s", 
+             *key,
+             val->id,
+             val->qid,
+             val->tsk_cnt,
+             val->name
     ); 
     return 0;
 }
@@ -502,6 +521,17 @@ void push_pid_for_class_switch( int pid )
         info_msg( "[queued_pids] pushed pid %d", pid );
 	}
 }
+
+void push_stats( stats_t *stat )
+{
+	int *p = bpf_ringbuf_reserve( &queued_stats, sizeof(stats_t), 0 );
+	if ( p ) {
+		stats_t *ps = (stats_t *)p;
+        __builtin_memcpy_inline( ps, stat, sizeof(stats_t) );
+		bpf_ringbuf_submit(ps, 0);
+        info_msg( "[queued_stats] pushed stat %p", ps );
+	}
+} 
 
 static void chashmap_insert( CgroupInfo_t *cgrp )
 {
@@ -838,12 +868,17 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
 	__sync_fetch_and_add(&nr_tasks, 1);
 
     CgroupInfo_t cgrp = get_task_cgroupinfo( p );
+    cgrp.tsk_cnt = 1;
+
+    CgroupInfo_t *cgrp_old = get_chashmap(cgrp.id);
     
     // check if cgroup of this task is already in the table 
-    if( get_chashmap(cgrp.id) ) {
+    if( cgrp_old ) {
         // if so, push it to ring buffer so that it's sched class can be
         // changed
         push_to_ringbuf = true;
+        __sync_fetch_and_add( &cgrp_old->tsk_cnt, 1 );
+
         info_msg(
             "[chashmap][%s] found cgroup: %d - %s for task %d - %s",
             __func__, 
@@ -877,6 +912,11 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
         }
     }
   
+    cgrp_old = get_chashmap(cgrp.id);
+    if( cgrp_old ){
+      __sync_fetch_and_add( &global_stats.tsks_Q[cgrp_old->qid], 1 );
+    }
+
     if ( push_to_ringbuf ){
         push_pid_for_class_switch(p->pid);
     }
@@ -906,6 +946,13 @@ void BPF_STRUCT_OPS(tsksz_exit_task, struct task_struct *p,
              p->comm
     );
 	__sync_fetch_and_sub(&nr_tasks, 1);
+
+    CgroupInfo_t cgrp = get_task_cgroupinfo( p );
+    CgroupInfo_t *cgrp_old = get_chashmap(cgrp.id);
+    if( cgrp_old ){
+      __sync_fetch_and_sub( &cgrp_old->tsk_cnt, 1 );
+      __sync_fetch_and_sub( &global_stats.tsks_Q[cgrp_old->qid], 1 );
+    }
 }
 
 /*
@@ -936,6 +983,27 @@ static int usersched_timer_fn(void *map, int *key, struct bpf_timer *timer)
         scx_bpf_kick_cpu( cpu, SCX_KICK_IDLE);
         scx_bpf_kick_cpu( cpu+1, SCX_KICK_IDLE);
       }
+    }
+  
+    if ( verbose ){
+
+      int i;
+      bpf_for(i, 0, SHARED_DSQ) {
+          info_msg("[stats] q[%d] -> %d",
+                   i,
+                   global_stats.tsks_Q[i]
+          );
+      }
+
+      // dump out the cgrouphashmap  
+      u64 stackptr = 0; 
+      bpf_for_each_map_elem(
+            &CgroupsHashMap, 
+            func_cgroup_dump_callback, 
+            &stackptr, 
+            0
+      ); 
+
     }
 
 	/* Re-arm the timer */

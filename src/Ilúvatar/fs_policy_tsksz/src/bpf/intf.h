@@ -4,6 +4,31 @@
 #ifndef __INTF_H
 #define __INTF_H
 
+
+////////////////////////////////
+// Macros 
+
+#define MAX_NAME_LEN   16
+#define MAX_FUNCS 50 
+#define FUNC_METADATA_KEYSIZE   MAX_NAME_LEN // because the kernel fs inode name is 15 characters 
+#define MAX_ENQUEUED_TASKS 8192
+#define MAX_CGROUPS 64
+
+#define SHARED_DSQ  MAX_CPUS/2 
+#define USCHED_DSQ  SHARED_DSQ + 1
+#define USCHED_CORE MAX_CPUS - 1
+
+// info msg with a specific tag
+#define info_msg(_fmt, ...)                              \
+	do {                                                 \
+		bpf_printk("[info-tsksz] " _fmt, ##__VA_ARGS__); \
+	} while (0)
+
+// see comment over e2e_thresholds
+#define MAX_E2E_BUCKETS 4
+#define RESERVED_E2E_BUCKET 0
+
+
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
@@ -88,5 +113,10 @@ struct dispatched_task_ctx {
 typedef struct packet_pid {
     int pid;
 } packet_pid_t;
+
+typedef struct policy_stats {
+    int seq;
+    int tsks_Q[SHARED_DSQ];
+} stats_t;
 
 #endif /* __INTF_H */
