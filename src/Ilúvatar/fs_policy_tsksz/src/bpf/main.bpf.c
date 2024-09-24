@@ -158,9 +158,22 @@ bool verbose = true;
 static __always_inline CgroupInfo_t   get_task_cgroupinfo( struct task_struct *p );
 static __always_inline CgroupInfo_t * get_chashmap( __u64 cid );
 static __always_inline MetaVal_t *    get_func_metadata( char *key_name );
+static __always_inline bool verify_qid( s32 qid );
 
 /////////////////////////////////
 // Function Definitions 
+
+void global_stats_add_tsks_Q( s32 qid, s32 tsks_cnt ){
+    if( verify_qid(qid) ){
+        __sync_fetch_and_add( &global_stats.tsks_Q[qid], tsks_cnt );
+    }
+}
+
+void global_stats_sub_tsks_Q( s32 qid, s32 tsks_cnt ){
+    if( verify_qid(qid) ){
+        __sync_fetch_and_sub( &global_stats.tsks_Q[qid], tsks_cnt );
+    }
+}
 
 s32 get_groupid( u32 e2e ) {
     int i;
@@ -407,20 +420,22 @@ static __always_inline void update_qid_assignment( struct task_struct *p ) {
               s32 ogid = qid_to_groupid( cgrp_old->qid ); // old group id 
 
               if ( ogid != gid ){
-                  s32 nqid = gen_qid_new( gid );
+                  s32 nqid; 
                   info_msg( "[qid_assignment] cgroup %d - %s now is assigned Q %d instead of old-Q %d", 
                            cgrp_old->id,         
                            cgrp_old->name,         
                            nqid,
                            cgrp_old->qid
                   );
-
+                  
                   // sub the # of tasks from oqid for the given cgroup 
-                  __sync_fetch_and_sub( &global_stats.tsks_Q[cgrp_old->qid], cgrp_old->tsk_cnt );
-
+                  global_stats_sub_tsks_Q( cgrp_old->qid, cgrp_old->tsk_cnt );
+                  
+                  nqid = gen_qid_new( gid );
                   // add the # of tasks from oqid to nqid in global stats - for
                   // this cgroup 
-                  __sync_fetch_and_add( &global_stats.tsks_Q[nqid], cgrp_old->tsk_cnt );
+                  global_stats_add_tsks_Q(nqid, cgrp_old->tsk_cnt );
+                  cgrp_old->qid = nqid;
 
                   // todo: it's an abrupt change in stats - even though actual
                   // shift only happens when tasks go through the select_cpu
@@ -428,8 +443,6 @@ static __always_inline void update_qid_assignment( struct task_struct *p ) {
                   // so there is a lag between stats and actual shift - but it
                   // should be very small for coarse grained observation over a
                   // second 
-
-                  cgrp_old->qid = nqid;
               }
         } // cgrp_old 
     } // fmeta
@@ -914,7 +927,7 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
   
     cgrp_old = get_chashmap(cgrp.id);
     if( cgrp_old ){
-      __sync_fetch_and_add( &global_stats.tsks_Q[cgrp_old->qid], 1 );
+        global_stats_add_tsks_Q( cgrp_old->qid, 1 );
     }
 
     if ( push_to_ringbuf ){
@@ -951,7 +964,7 @@ void BPF_STRUCT_OPS(tsksz_exit_task, struct task_struct *p,
     CgroupInfo_t *cgrp_old = get_chashmap(cgrp.id);
     if( cgrp_old ){
       __sync_fetch_and_sub( &cgrp_old->tsk_cnt, 1 );
-      __sync_fetch_and_sub( &global_stats.tsks_Q[cgrp_old->qid], 1 );
+      global_stats_sub_tsks_Q( cgrp_old->qid, 1 );
     }
 }
 
@@ -986,6 +999,8 @@ static int usersched_timer_fn(void *map, int *key, struct bpf_timer *timer)
     }
   
     if ( verbose ){
+
+      info_msg("[health] heartbeat message");
 
       int i;
       bpf_for(i, 0, SHARED_DSQ) {
