@@ -14,7 +14,6 @@
  */
 #include <scx/common.bpf.h>
 #include <scx/ravg_impl.bpf.h>
-#include "intf.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -23,6 +22,7 @@
 #include <bpf/bpf_core_read.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
+#include "intf.h"
 
 char _license[] SEC("license") = "GPL";
 
@@ -91,6 +91,18 @@ struct {
 } queued_pids SEC(".maps");
 
 stats_t global_stats;
+
+struct lock_wrapper {
+	struct bpf_spin_lock lock;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, u32);
+	__type(value, struct lock_wrapper);
+	__uint(max_entries, 1);
+	__uint(map_flags, 0);
+} global_locks SEC(".maps");
 
 // The map containing stats that are to be switched to SchedEXT policy.
 // it is drained by the user space thread
@@ -428,13 +440,18 @@ static __always_inline void update_qid_assignment( struct task_struct *p ) {
                            cgrp_old->qid
                   );
                   
-                  // sub the # of tasks from oqid for the given cgroup 
-                  global_stats_sub_tsks_Q( cgrp_old->qid, cgrp_old->tsk_cnt );
-                  
-                  nqid = gen_qid_new( gid );
-                  // add the # of tasks from oqid to nqid in global stats - for
-                  // this cgroup 
-                  global_stats_add_tsks_Q(nqid, cgrp_old->tsk_cnt );
+                  LOCK_HEADER( STATS_LOCK ) {
+                      bpf_spin_lock(&lockw->lock);
+                      // sub the # of tasks from oqid for the given cgroup 
+                      global_stats_sub_tsks_Q( cgrp_old->qid, cgrp_old->tsk_cnt );
+
+                      nqid = gen_qid_new( gid );
+                      // add the # of tasks from oqid to nqid in global stats - for
+                      // this cgroup 
+                      global_stats_add_tsks_Q(nqid, cgrp_old->tsk_cnt );
+                      bpf_spin_unlock(&lockw->lock);
+                  }
+
                   cgrp_old->qid = nqid;
 
                   // todo: it's an abrupt change in stats - even though actual
@@ -886,7 +903,7 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
 	__sync_fetch_and_add(&nr_tasks, 1);
 
     CgroupInfo_t cgrp = get_task_cgroupinfo( p );
-    cgrp.tsk_cnt = 1;
+    cgrp.tsk_cnt = 0;
 
     CgroupInfo_t *cgrp_old = get_chashmap(cgrp.id);
     
@@ -895,8 +912,6 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
         // if so, push it to ring buffer so that it's sched class can be
         // changed
         push_to_ringbuf = true;
-        __sync_fetch_and_add( &cgrp_old->tsk_cnt, 1 );
-
         info_msg(
             "[chashmap][%s] found cgroup: %d - %s for task %d - %s",
             __func__, 
@@ -929,10 +944,15 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
           }
         }
     }
-  
+
     cgrp_old = get_chashmap(cgrp.id);
-    if( cgrp_old ){
-        global_stats_add_tsks_Q( cgrp_old->qid, 1 );
+    if ( cgrp_old ) {
+        LOCK_HEADER( STATS_LOCK ) {
+          bpf_spin_lock(&lockw->lock);
+            __sync_fetch_and_add( &cgrp_old->tsk_cnt, 1 );
+            global_stats_add_tsks_Q( cgrp_old->qid, 1 );
+          bpf_spin_unlock(&lockw->lock);
+        }
     }
 
     if ( push_to_ringbuf ){
@@ -968,8 +988,13 @@ void BPF_STRUCT_OPS(tsksz_exit_task, struct task_struct *p,
     CgroupInfo_t cgrp = get_task_cgroupinfo( p );
     CgroupInfo_t *cgrp_old = get_chashmap(cgrp.id);
     if( cgrp_old ){
-      __sync_fetch_and_sub( &cgrp_old->tsk_cnt, 1 );
-      global_stats_sub_tsks_Q( cgrp_old->qid, 1 );
+
+      LOCK_HEADER( STATS_LOCK ) {
+        bpf_spin_lock(&lockw->lock);
+          __sync_fetch_and_sub( &cgrp_old->tsk_cnt, 1 );
+          global_stats_sub_tsks_Q( cgrp_old->qid, 1 );
+        bpf_spin_unlock(&lockw->lock);
+      }
     }
 }
 

@@ -8,6 +8,15 @@
 ////////////////////////////////
 // Macros 
 
+#define MAX_LOCKS 1
+#define STATS_LOCK 0
+
+#define LOCK_HEADER( lock_name )                                 \
+          u32 lock_key = lock_name;                              \
+          struct lock_wrapper *lockw;                            \
+          lockw = bpf_map_lookup_elem(&global_locks, &lock_key); \
+          if( lockw )
+
 #define MAX_NAME_LEN   16
 #define MAX_FUNCS 50 
 #define FUNC_METADATA_KEYSIZE   MAX_NAME_LEN // because the kernel fs inode name is 15 characters 

@@ -57,8 +57,9 @@
 ## Next Actions 
 
   * capture on BPF side                 ✓
-  * push to the user space via ring buffer 
+  * push to the user space via ring buffer                 ✓
   * dump into a json or a csv 
+    * no need we can post process the sched logs 
 
 ## Questions
   
