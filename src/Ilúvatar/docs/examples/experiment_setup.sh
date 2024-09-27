@@ -2,32 +2,10 @@
 
 # This script prepares dependencies and configuration to run the samples on the landing page and in this directory.
 # It is expecting to be run in the same directory as it is located.
+# You should have already ran the `setup.sh` script in the parent directory to install dependencies for the worker and load generator
 
-if ! [ -x "$(command -v go)" ];
-then
-  echo "go not found, installing"
-  ARCH=amd64
-  GO_VERSION=1.22.5
-  tar="go${GO_VERSION}.linux-${ARCH}.tar.gz"
-
-  wget https://go.dev/dl/${tar}
-  sudo rm -rf /usr/local/go/
-  sudo tar -C /usr/local -xzf ${tar}
-  rm ${tar}
-  export PATH="$PATH:/usr/local/go/bin"
-fi
-
-go install github.com/containernetworking/cni/cnitool@latest
-gopth=$(go env GOPATH)
-sudo mkdir -p /opt/cni/bin
-sudo mv ${gopth}/bin/cnitool /opt/cni/bin
-
-ARCH=amd64
-CNI_VERSION=v1.1.1
-
-curl -sSL https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz | sudo tar -xz -C /opt/cni/bin
-
-sudo apt install -y jq ensurepip
+sudo apt install -y jq python3-pip python3-venv
+cargo install cross --git https://github.com/cross-rs/cross
 python3 -m pip install virtualenv
 python3 -m venv --clear examples-venv
 source ./examples-venv/bin/activate

@@ -5,9 +5,9 @@ It provides a system that is easy and consistent to use, highly modifiable, and 
 
 If you use, extend, compare against, etc., Ilúvatar, please reference our HPDC 2023 paper in your work.
 
-```sh
-CITATION HERE
-```
+`Alexander Fuerst, Abdul Rehman, and Prateek Sharma. 2023. Ilúvatar: A Fast Control Plane for Serverless Computing.
+In Proceedings of the 32nd International Symposium on High-Performance Parallel and Distributed Computing (HPDC ’23), June 16–23, 2023, Orlando, FL, USA.
+ACM, New York, NY, USA, 14 pages. https://doi.org/10.1145/3588195.3592995`
 
 ## Design
 
@@ -21,6 +21,7 @@ Information on preparing a node to run any of Ilúvatar's pieces can be found [h
 ## Examples
 
 Quickly run a sample function using [these instructions](docs/FUNCTIONS.md).
+Try out end-to-end examples [here](docs/examples/README.md).
 Or run more advanced load scenarios using the [load generation documentation](docs/LOAD.md).
 
 ## Develop & Extend
