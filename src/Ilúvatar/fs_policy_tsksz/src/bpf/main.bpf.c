@@ -874,7 +874,7 @@ void BPF_STRUCT_OPS(tsksz_dispatch, s32 cpu, struct task_struct *prev)
 
     // dispatch tasks from custom DSQ that corresponds to this CPU 
     // to Local DSQ of this cpu 
-	s32 qid = cpu_to_qid(cpu);
+	s32 qid = cpu_to_qid( cpu );
 	if ( verify_qid(qid) ) {
 		if ( scx_bpf_consume(qid) ) {
             info_msg("[dispatch] consumed Q %d on cpu: %d ",
