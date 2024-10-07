@@ -33,13 +33,18 @@
 
 ## Implementation  
 
-  * hashmap 
-  * updates in callbacks 
-  * print out qid assignment at all the locations 
+  * hashmap                                       ✓
+  * updates in callbacks                          ✓
+  * print out qid assignment at all the locations ✓
 
 ## Verification 
   
   * single func exp using gzip 
   * verify via traces what happens to the qid assignment 
+
+# Update Q task count tracking 
+
+
+
 
 

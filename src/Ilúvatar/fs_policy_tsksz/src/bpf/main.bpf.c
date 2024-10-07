@@ -64,6 +64,21 @@ struct {
 	__type(value, CgroupInfo_t);
 } CgroupsHashMap SEC(".maps");
 
+typedef struct TaskInfo {
+    s32 pid;
+	s32 qid_cur;
+    CgroupInfo_t *cgroupctx;
+} TaskInfo_t;
+
+/*
+   HashMap to keep track of the task context.
+*/
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, MAX_ENQUEUED_TASKS);
+	__type(key, __s32);                      // pid of the task 
+	__type(value, TaskInfo_t);               // context of the task 
+} TasksHashMap SEC(".maps");
 
 /*
  * Heartbeat timer used to periodically trigger the check to run the user-space
@@ -628,6 +643,29 @@ static __always_inline CgroupInfo_t get_task_cgroupinfo(struct task_struct *p)
     return info;
 }
 
+
+static __always_inline void thashmap_insert( TaskInfo_t *tinfo )
+{
+	TaskInfo_t *tinfo_old = bpf_map_lookup_elem( &TasksHashMap, &tinfo->pid );
+    long r = bpf_map_update_elem( 
+                        &TasksHashMap, 
+                        &tinfo->pid, 
+                        tinfo,
+                        BPF_ANY
+    );
+    info_msg("[thashmap] inserting task %d with Q %d - status %d", 
+             tinfo->pid,
+             tinfo->qid_cur,
+             r
+    );
+}
+
+static __always_inline TaskInfo_t* get_task_ctx(struct task_struct *p)
+{
+	TaskInfo_t *tinfo = bpf_map_lookup_elem(&TasksHashMap, &p->pid);
+	return tinfo;
+}
+
 static __always_inline s32 task_to_qid(struct task_struct *p)
 {
     CgroupInfo_t cgrp = get_task_cgroupinfo( p );
@@ -769,6 +807,10 @@ s32 BPF_STRUCT_OPS(tsksz_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wa
 
 	s32 qid = task_to_qid( p );
 	if ( verify_qid(qid) ){
+
+        TaskInfo_t *taskctx = get_task_ctx( p );
+        taskctx->qid_cur = qid;
+
         struct bpf_cpumask __kptr *cpumask = qid_to_cpumask(qid);
         if ( cpumask ) {
             cpu = scx_bpf_pick_idle_cpu(
@@ -825,6 +867,9 @@ void BPF_STRUCT_OPS(tsksz_enqueue, struct task_struct *p, u64 enq_flags)
 
 	s32 qid = task_to_qid(p);
 	if (verify_qid(qid)) {
+        TaskInfo_t *taskctx = get_task_ctx( p );
+        taskctx->qid_cur = qid;
+
 		scx_bpf_dispatch( p, qid, effective_slice_ns, 0 );
         info_msg("[enqueue] enqueued task: %d - %s to Q %d",
                  p->pid,
@@ -905,7 +950,7 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
     CgroupInfo_t cgrp = get_task_cgroupinfo( p );
     cgrp.tsk_cnt = 0;
 
-    CgroupInfo_t *cgrp_old = get_chashmap(cgrp.id);
+    CgroupInfo_t *cgrp_old = get_chashmap( cgrp.id );
     
     // check if cgroup of this task is already in the table 
     if( cgrp_old ) {
@@ -953,6 +998,12 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
             global_stats_add_tsks_Q( cgrp_old->qid, 1 );
           bpf_spin_unlock(&lockw->lock);
         }
+      
+        TaskInfo_t taskctx;
+        taskctx.pid = p->pid;
+        taskctx.qid_cur = cgrp_old->qid;
+        taskctx.cgroupctx = cgrp_old;
+        thashmap_insert( &taskctx );
     }
 
     if ( push_to_ringbuf ){
@@ -1167,6 +1218,14 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(tsksz_init)
 void BPF_STRUCT_OPS(tsksz_exit, struct scx_exit_info *ei)
 {
 	info_msg("[exit] exiting the tsksz scheduler");
+
+    TaskInfo_t *taskctx = get_task_ctx( p );
+    taskctx->qid_cur = qid;
+
+    info_msg("[thashmap] exiting task %d with Q %d ", 
+             tinfo->pid,
+             tinfo->qid_cur
+    );
 
 	UEI_RECORD(uei, ei);
 }
