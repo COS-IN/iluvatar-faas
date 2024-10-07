@@ -190,6 +190,12 @@ static __always_inline bool verify_qid( s32 qid );
 /////////////////////////////////
 // Function Definitions 
 
+void global_stats_update_tsks_Q( s32 qid, s32 tsks_cnt ){
+    if( verify_qid(qid) ){
+        global_stats.tsks_Q[qid] = tsks_cnt;
+    }
+}
+
 void global_stats_add_tsks_Q( s32 qid, s32 tsks_cnt ){
     if( verify_qid(qid) ){
         __sync_fetch_and_add( &global_stats.tsks_Q[qid], tsks_cnt );
@@ -448,24 +454,15 @@ static __always_inline void update_qid_assignment( struct task_struct *p ) {
 
               if ( ogid != gid ){
                   s32 nqid; 
+
+                  nqid = gen_qid_new( gid );
+
                   info_msg( "[qid_assignment] cgroup %d - %s now is assigned Q %d instead of old-Q %d", 
                            cgrp_old->id,         
                            cgrp_old->name,         
                            nqid,
                            cgrp_old->qid
                   );
-                  
-                  LOCK_HEADER( STATS_LOCK ) {
-                      bpf_spin_lock(&lockw->lock);
-                      // sub the # of tasks from oqid for the given cgroup 
-                      global_stats_sub_tsks_Q( cgrp_old->qid, cgrp_old->tsk_cnt );
-
-                      nqid = gen_qid_new( gid );
-                      // add the # of tasks from oqid to nqid in global stats - for
-                      // this cgroup 
-                      global_stats_add_tsks_Q(nqid, cgrp_old->tsk_cnt );
-                      bpf_spin_unlock(&lockw->lock);
-                  }
 
                   cgrp_old->qid = nqid;
 
@@ -880,6 +877,7 @@ void BPF_STRUCT_OPS(tsksz_enqueue, struct task_struct *p, u64 enq_flags)
                  p->comm,
                  qid 
         );
+        global_stats_update_tsks_Q( qid, scx_bpf_dsq_nr_queued(qid) );
 
         // trigger a follow up scheduling event 
         s32 cpu = qid*2;
@@ -999,7 +997,6 @@ s32 BPF_STRUCT_OPS(tsksz_init_task, struct task_struct *p,
         LOCK_HEADER( STATS_LOCK ) {
           bpf_spin_lock(&lockw->lock);
             __sync_fetch_and_add( &cgrp_old->tsk_cnt, 1 );
-            global_stats_add_tsks_Q( cgrp_old->qid, 1 );
           bpf_spin_unlock(&lockw->lock);
         }
       
@@ -1043,11 +1040,9 @@ void BPF_STRUCT_OPS(tsksz_exit_task, struct task_struct *p,
     CgroupInfo_t cgrp = get_task_cgroupinfo( p );
     CgroupInfo_t *cgrp_old = get_chashmap(cgrp.id);
     if( cgrp_old ){
-
       LOCK_HEADER( STATS_LOCK ) {
         bpf_spin_lock(&lockw->lock);
           __sync_fetch_and_sub( &cgrp_old->tsk_cnt, 1 );
-          global_stats_sub_tsks_Q( cgrp_old->qid, 1 );
         bpf_spin_unlock(&lockw->lock);
       }
     }
@@ -1084,6 +1079,7 @@ static int usersched_timer_fn(void *map, int *key, struct bpf_timer *timer)
     s32 n; 
     bpf_for(i, 0, SHARED_DSQ){
       n = scx_bpf_dsq_nr_queued( i );
+      global_stats_update_tsks_Q( i, n );
       if ( n > 0 ){
         cpu = i*2;
         scx_bpf_kick_cpu( cpu, SCX_KICK_IDLE);

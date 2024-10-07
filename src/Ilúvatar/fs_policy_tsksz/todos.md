@@ -39,8 +39,8 @@
 
 ## Verification 
   
-  * single func exp using gzip 
-  * verify via traces what happens to the qid assignment 
+  * single func exp using gzip                 ✓
+  * verify via traces what happens to the qid assignment                 ✓
 
 # Update Q task count tracking 
 
