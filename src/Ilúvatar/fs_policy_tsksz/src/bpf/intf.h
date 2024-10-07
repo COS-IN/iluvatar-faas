@@ -124,7 +124,7 @@ typedef struct packet_pid {
 } packet_pid_t;
 
 typedef struct policy_stats {
-    int timestamp_ms;
+    unsigned int timestamp_ms;
     int tsks_Q[SHARED_DSQ];
 } stats_t;
 

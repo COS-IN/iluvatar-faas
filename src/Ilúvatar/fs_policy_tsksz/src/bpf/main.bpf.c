@@ -660,9 +660,9 @@ static __always_inline void thashmap_insert( TaskInfo_t *tinfo )
     );
 }
 
-static __always_inline TaskInfo_t* get_task_ctx(struct task_struct *p)
+static __always_inline TaskInfo_t* get_task_ctx(s32 pid)
 {
-	TaskInfo_t *tinfo = bpf_map_lookup_elem(&TasksHashMap, &p->pid);
+	TaskInfo_t *tinfo = bpf_map_lookup_elem(&TasksHashMap, &pid);
 	return tinfo;
 }
 
@@ -808,8 +808,10 @@ s32 BPF_STRUCT_OPS(tsksz_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wa
 	s32 qid = task_to_qid( p );
 	if ( verify_qid(qid) ){
 
-        TaskInfo_t *taskctx = get_task_ctx( p );
-        taskctx->qid_cur = qid;
+        TaskInfo_t *taskctx = get_task_ctx( p->pid );
+        if ( taskctx ){
+          taskctx->qid_cur = qid;
+        }
 
         struct bpf_cpumask __kptr *cpumask = qid_to_cpumask(qid);
         if ( cpumask ) {
@@ -867,8 +869,10 @@ void BPF_STRUCT_OPS(tsksz_enqueue, struct task_struct *p, u64 enq_flags)
 
 	s32 qid = task_to_qid(p);
 	if (verify_qid(qid)) {
-        TaskInfo_t *taskctx = get_task_ctx( p );
-        taskctx->qid_cur = qid;
+        TaskInfo_t *taskctx = get_task_ctx( p->pid );
+        if( taskctx ){
+          taskctx->qid_cur = qid;
+        }
 
 		scx_bpf_dispatch( p, qid, effective_slice_ns, 0 );
         info_msg("[enqueue] enqueued task: %d - %s to Q %d",
@@ -1047,6 +1051,14 @@ void BPF_STRUCT_OPS(tsksz_exit_task, struct task_struct *p,
         bpf_spin_unlock(&lockw->lock);
       }
     }
+
+    TaskInfo_t *tinfo = get_task_ctx( p->pid );
+    if( tinfo ){
+      info_msg("[thashmap] exiting task %d with Q %d ", 
+               tinfo->pid,
+               tinfo->qid_cur
+      );
+    }
 }
 
 /*
@@ -1219,13 +1231,6 @@ void BPF_STRUCT_OPS(tsksz_exit, struct scx_exit_info *ei)
 {
 	info_msg("[exit] exiting the tsksz scheduler");
 
-    TaskInfo_t *taskctx = get_task_ctx( p );
-    taskctx->qid_cur = qid;
-
-    info_msg("[thashmap] exiting task %d with Q %d ", 
-             tinfo->pid,
-             tinfo->qid_cur
-    );
 
 	UEI_RECORD(uei, ei);
 }
