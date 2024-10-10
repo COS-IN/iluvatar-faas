@@ -179,6 +179,7 @@ async fn invoke_on_container(
         true,
     );
     let e2etime = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
+    println!("{:?} -e2e- {:?}", reg.fqdn, e2etime);
     cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
     Ok((
         data,

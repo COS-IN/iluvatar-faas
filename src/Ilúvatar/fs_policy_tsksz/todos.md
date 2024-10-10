@@ -1,3 +1,14 @@
+
+
+
+# Load Balancing 
+
+  * Update the update_qid func to change qid assignment if the Q has more then 60 tasks in it 
+    * it should remove the load from Q 0 in the mixed trace exp 
+
+
+
+
 # Adding Task Context 
 
 ## Why is this feature required? 
@@ -44,7 +55,7 @@
 
 # Update Q task count tracking 
 
-
+  * done via bpf_dsq_len helper 
 
 
 

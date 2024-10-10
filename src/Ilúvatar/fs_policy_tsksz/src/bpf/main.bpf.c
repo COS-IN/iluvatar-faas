@@ -449,6 +449,9 @@ static __always_inline void update_qid_assignment( struct task_struct *p ) {
         // of this cgroup using chashmap 
         CgroupInfo_t * cgrp_old = get_chashmap( cgrp.id );  
         if ( cgrp_old ){
+              
+
+              // Update based on the e2e changes 
               s32 gid  = get_groupid( fmeta->e2e ); // new group id 
               s32 ogid = qid_to_groupid( cgrp_old->qid ); // old group id 
 
@@ -472,6 +475,26 @@ static __always_inline void update_qid_assignment( struct task_struct *p ) {
                   // so there is a lag between stats and actual shift - but it
                   // should be very small for coarse grained observation over a
                   // second 
+              } else {
+                  // if there were not changes based on the e2e 
+                  // we will try load balancing based on Q threshold within the
+                  // same group 
+
+                  s32 qlen = scx_bpf_dsq_nr_queued( cgrp_old->qid ); 
+                  if ( qlen > QMAX_THRESHOLD ){
+
+                      s32 nqid; 
+                      nqid = gen_qid_new( gid );
+
+                      info_msg( "[qid_assignment][load_balanced] cgroup %d - %s now is assigned Q %d instead of old-Q %d", 
+                               cgrp_old->id,         
+                               cgrp_old->name,         
+                               nqid,
+                               cgrp_old->qid
+                      );
+
+                      cgrp_old->qid = nqid;
+                  }
               }
         } // cgrp_old 
     } // fmeta

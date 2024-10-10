@@ -27,6 +27,8 @@
 #define USCHED_DSQ  SHARED_DSQ + 1
 #define USCHED_CORE MAX_CPUS - 1
 
+#define QMAX_THRESHOLD 80
+
 // info msg with a specific tag
 #define info_msg(_fmt, ...)                              \
 	do {                                                 \
