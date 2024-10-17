@@ -65,6 +65,7 @@ impl HttpContainerClient {
             .post(&self.invoke_uri)
             .body(json_args.to_owned())
             .header("Content-Type", "application/json");
+        // by this point the get random container must have been already called
         let start = SystemTime::now();
         let response = match builder.send().await {
             Ok(r) => r,

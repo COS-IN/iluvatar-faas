@@ -7,12 +7,13 @@ use crate::services::invocation::{completion_time_tracker::CompletionTimeTracker
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
+use crate::utils::characteristics_map::CharacteristicsMap;
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
 use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::utils::missing_default;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, logging::LocalTime, transaction::TransactionId};
+use iluvatar_library::{logging::LocalTime, transaction::TransactionId};
 use iluvatar_library::{
     mindicator::Mindicator,
     threading::{tokio_runtime, tokio_thread, EventualItem},

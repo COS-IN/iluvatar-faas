@@ -9,6 +9,7 @@ use crate::services::{
     resources::gpu::GPU,
 };
 use anyhow::Result;
+use iluvatar_bpf_library::bpf::func_characs::{build_bpf_key, BPF_FMAP_KEY};
 use iluvatar_library::types::{err_val, ResultErrorVal};
 use iluvatar_library::{
     transaction::TransactionId,
@@ -51,6 +52,7 @@ pub struct ContainerdContainer {
     compute: Compute,
     device: RwLock<Option<GPU>>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
+    cgroup_id: BPF_FMAP_KEY,
 }
 
 impl ContainerdContainer {
@@ -89,6 +91,7 @@ impl ContainerdContainer {
             state: Mutex::new(state),
             device: RwLock::new(device),
             drop_on_remove: Mutex::new(vec![]),
+            cgroup_id: build_bpf_key(&"containerd".to_string()),
         })
     }
 
@@ -112,6 +115,10 @@ impl ContainerT for ContainerdContainer {
                 Err(e)
             }
         }
+    }
+
+    fn get_cgroupid(&self) -> BPF_FMAP_KEY {
+        self.cgroup_id
     }
 
     fn container_id(&self) -> &String {

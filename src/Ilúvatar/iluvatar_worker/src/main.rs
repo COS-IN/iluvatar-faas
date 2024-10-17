@@ -9,6 +9,7 @@ use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use iluvatar_worker_library::worker_api::config::Configuration;
 use iluvatar_worker_library::worker_api::create_worker;
 use iluvatar_worker_library::{services::containers::IsolationFactory, worker_api::config::WorkerConfig};
+
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tonic::transport::Server;
@@ -19,7 +20,6 @@ pub mod utils;
 
 async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
-
     let worker = match create_worker(server_config.clone(), tid).await {
         Ok(w) => w,
         Err(e) => bail_error!(tid=%tid, error=%e, "Error creating worker on startup"),
@@ -102,6 +102,7 @@ fn build_runtime(server_config: WorkerConfig, tid: &TransactionId) -> Result<Run
 
 fn main() -> Result<()> {
     iluvatar_library::utils::file::ensure_temp_dir()?;
+
     let tid: &TransactionId = &STARTUP_TID;
     let cli = Args::parse();
 

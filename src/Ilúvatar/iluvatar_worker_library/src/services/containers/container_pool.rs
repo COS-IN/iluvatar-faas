@@ -1,6 +1,7 @@
 use super::structs::{Container, ContainerState};
 use anyhow::Result;
 use dashmap::DashMap;
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
 use std::sync::{
     atomic::{AtomicU32, Ordering},
@@ -21,18 +22,27 @@ enum PoolType {
 pub struct ContainerPool {
     idle_pool: Pool,
     running_pool: Pool,
+    tid_map: DashMap<TransactionId, BPF_FMAP_KEY>, // tid-cgroupid
     /// fqdn->Vec<Container>
     len: AtomicU32,
     pool_name: String,
 }
+
 impl ContainerPool {
     pub fn new(compute: Compute) -> Self {
         ContainerPool {
             idle_pool: DashMap::new(),
             running_pool: DashMap::new(),
+            tid_map: DashMap::new(),
             len: AtomicU32::new(0),
             pool_name: format!("{:?}", compute),
         }
+    }
+
+    /// Used to register a new fqdn with the pool
+    pub fn register_fqdn(&self, fqdn: String) {
+        self.idle_pool.insert(fqdn.clone(), Vec::new());
+        self.running_pool.insert(fqdn.clone(), Vec::new());
     }
 
     pub fn pool_name(&self) -> &str {
@@ -111,6 +121,8 @@ impl ContainerPool {
                 Some(c) => {
                     debug!(tid=%tid, container_id=%c.container_id(), name=%self.pool_name, pool_type=?PoolType::Idle, "Removing random container from pool");
                     self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running);
+                    // pool is the best place to maintain a tid to cgroup id mapping
+                    self.tid_map.insert(tid.clone(), c.get_cgroupid());
                     Some(c)
                 }
                 None => None,
@@ -225,6 +237,10 @@ impl ContainerPool {
                 let (pos, pool_len) = self.find_container_pos(container, pool_list);
                 if pos < pool_len {
                     debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, pool_type=?pool_type, "Removing container from pool");
+                    // self.tid_map.remove( tid );
+                    // we are not removing the tid here because
+                    // charmap would query it after the invocation is done
+                    // and we don't want the value to absent
                     Some(pool_list.remove(pos))
                 } else {
                     None
@@ -233,6 +249,15 @@ impl ContainerPool {
             None => None,
         }
     }
+
+    pub fn get_cgroupid_against_tid(&self, tid: &TransactionId) -> Option<BPF_FMAP_KEY> {
+        self.tid_map.get(tid).map(|v| *v)
+    }
+
+    pub fn remove_cgroupid_against_tid(&self, tid: &TransactionId) -> Option<BPF_FMAP_KEY> {
+        self.tid_map.remove(tid).map(|(k, v)| v)
+    }
+
     fn find_container_pos(&self, container: &Container, pool_list: &Subpool) -> (usize, usize) {
         let pool_len = pool_list.len();
         let mut pos = usize::MAX;
@@ -243,6 +268,22 @@ impl ContainerPool {
             }
         }
         (pos, pool_len)
+    }
+
+    /// get all the cgroup_ids corresponding to given fqdn in this pool
+    pub fn get_cgroup_ids(&self, fqdn: &str) -> Vec<BPF_FMAP_KEY> {
+        let mut cgroup_ids = Vec::new();
+        if let Some(c) = self.idle_pool.get(fqdn) {
+            for cont in &*c {
+                cgroup_ids.push(cont.get_cgroupid());
+            }
+        }
+        if let Some(c) = self.running_pool.get(fqdn) {
+            for cont in &*c {
+                cgroup_ids.push(cont.get_cgroupid());
+            }
+        }
+        cgroup_ids
     }
 }
 

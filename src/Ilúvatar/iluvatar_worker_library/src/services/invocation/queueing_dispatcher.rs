@@ -9,9 +9,9 @@ use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::{containers::containermanager::ContainerManager, invocation::queueing::EnqueueingPolicy};
-use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
+use crate::utils::characteristics_map::CharacteristicsMap;
+use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig, WorkerConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{logging::LocalTime, transaction::TransactionId, types::Compute};
 use parking_lot::RwLock;
@@ -19,6 +19,7 @@ use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{debug, info};
+//use crate::{SCHED_CHANNELS, get_pid_from_fqdn};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -64,6 +65,7 @@ impl PolymDispatchCtx {
 
 pub struct QueueingDispatcher {
     async_functions: AsyncHelper,
+    worker_config: WorkerConfig,
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
     clock: LocalTime,
@@ -79,6 +81,7 @@ impl QueueingDispatcher {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
         function_config: Arc<FunctionLimits>,
+        worker_config: WorkerConfig,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
         cmap: Arc<CharacteristicsMap>,
@@ -110,6 +113,7 @@ impl QueueingDispatcher {
             )?,
             async_functions: AsyncHelper::new(),
             clock: LocalTime::new(tid)?,
+            worker_config,
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
@@ -228,6 +232,43 @@ impl QueueingDispatcher {
             self.clock.now(),
         ));
         let mut enqueues = 0;
+        // an example of sending packet over shared memory to the scheduler userspace thread
+        //        let fqdn = reg.fqdn.clone();
+        //        let cmap = self.cmap.clone();
+        //
+        //        thread::spawn(move || {
+        //            if let Some(xpid) = get_pid_from_fqdn( fqdn.clone() ) {
+        //                let c = get_all_children( xpid.clone() ).unwrap();
+        //                unsafe {
+        //                    if let Some(cchannel) = &SCHED_CHANNELS {
+        //                        let cchannel = cchannel.write().unwrap();
+        //                        for cpid in &c {
+        //                            match cchannel.tx_pids.send(
+        //                                PidsPacket{
+        //                                    pid: *cpid,
+        //                                    fqdn: fqdn.clone()
+        //                                }) {
+        //                                Ok(_) => (),
+        //                                Err(e) => println!("Error sending PID: {:?}", e),
+        //                            }
+        //
+        //                            for e0 in cmap.map.iter() {
+        //                                let fqdn = e0.key();
+        //                                let exec_time = cmap.get_exec_time(&fqdn);
+        //                                match cchannel.tx_chr.send(
+        //                                    CharacteristicsPacket {
+        //                                        fqdn: fqdn.clone(),
+        //                                        e2e: exec_time
+        //                                    }) {
+        //                                    Ok(_) => (),
+        //                                    Err(e) => println!("Error sending CharacteristicsPacket: {:?}", e),
+        //                                }
+        //                            }
+        //                        }
+        //                    }
+        //                }
+        //            }
+        //        });
 
         if reg.supported_compute == Compute::CPU {
             self.enqueue_cpu_check(&enqueue)?;

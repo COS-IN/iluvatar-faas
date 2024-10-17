@@ -6,6 +6,7 @@ use crate::services::{
     resources::gpu::GPU,
 };
 use anyhow::Result;
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
 use iluvatar_library::types::{err_val, DroppableToken, ResultErrorVal};
 use iluvatar_library::{
     transaction::TransactionId,
@@ -36,6 +37,7 @@ pub struct DockerContainer {
     device: RwLock<Option<GPU>>,
     mem_usage: RwLock<MemSizeMb>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
+    cgroup_id: BPF_FMAP_KEY,
 }
 
 impl DockerContainer {
@@ -51,6 +53,7 @@ impl DockerContainer {
         compute: Compute,
         device: Option<GPU>,
         tid: &TransactionId,
+        cgroup_id: BPF_FMAP_KEY,
     ) -> ResultErrorVal<Self, Option<GPU>> {
         let client = match HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid) {
             Ok(c) => c,
@@ -69,6 +72,7 @@ impl DockerContainer {
             state: Mutex::new(state),
             device: RwLock::new(device),
             drop_on_remove: Mutex::new(vec![]),
+            cgroup_id,
         };
         Ok(r)
     }
@@ -101,6 +105,10 @@ impl ContainerT for DockerContainer {
     fn touch(&self) {
         let mut lock = self.last_used.write();
         *lock = SystemTime::now();
+    }
+
+    fn get_cgroupid(&self) -> BPF_FMAP_KEY {
+        self.cgroup_id
     }
 
     fn container_id(&self) -> &String {

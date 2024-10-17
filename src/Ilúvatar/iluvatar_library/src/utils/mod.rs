@@ -17,9 +17,37 @@ use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
 use std::num::ParseIntError;
 use std::process::{Child, Command, Output, Stdio};
+//, Stdio
+use regex::Regex;
 use std::{str, thread, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, info};
+
+fn parse_lines(lines: &str) -> Vec<u32> {
+    let lines = lines.split("\n").collect::<Vec<&str>>();
+    let re = Regex::new(r"([0-9]+)").unwrap();
+    let mut v = Vec::new();
+    for line in lines {
+        for (cs, [_c]) in re.captures_iter(line).map(|c| c.extract()) {
+            v.push(cs.parse::<u32>().unwrap_or(0));
+        }
+    }
+    v
+}
+
+pub fn get_all_children(ppid: u32) -> Result<Vec<u32>, ParseIntError> {
+    let cmd = ["pstree -Aclpn ", &ppid.to_string()].join("");
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .expect("failed to execute process");
+
+    let output_str = str::from_utf8(&output.stdout).unwrap().trim();
+    let children = parse_lines(output_str);
+
+    Ok(children)
+}
 
 pub fn get_child_pid(ppid: u32) -> Result<u32, ParseIntError> {
     let output = Command::new("pgrep")
@@ -206,8 +234,9 @@ where
 {
     debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
     let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
-    cmd.stdout(Stdio::null()).stdin(Stdio::null()).stderr(Stdio::null());
-
+    //cmd.stdout(Stdio::null()).stdin(Stdio::null()).stderr(Stdio::null());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
     match cmd.spawn() {
         Ok(out) => Ok(out),
         Err(e) => {

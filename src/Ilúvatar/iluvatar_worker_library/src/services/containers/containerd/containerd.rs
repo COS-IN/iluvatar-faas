@@ -5,7 +5,8 @@ use crate::services::containers::structs::{Container, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::gpu::GPU;
-use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
+use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits, WorkerConfig};
+use crate::{insert_to_fqdn_pid_map, SCHED_CHANNELS};
 use anyhow::Result;
 use client::services::v1::container::Runtime;
 use client::services::v1::snapshots::{snapshots_client::SnapshotsClient, PrepareSnapshotRequest};
@@ -29,13 +30,14 @@ use iluvatar_library::utils::execute_cmd;
 use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
     file::{temp_file_pth, touch, try_remove_pth},
+    get_all_children,
     port::Port,
     try_get_child_pid,
 };
 use iluvatar_library::{bail_error, bail_error_value, error_value, transaction::TransactionId, types::MemSizeMb};
 use inotify::{Inotify, WatchMask};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -47,6 +49,12 @@ use tracing::{debug, error, info, warn};
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PidsPacket {
+    pub pid: u32,
+    pub fqdn: String,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct BGPacket {
@@ -61,12 +69,14 @@ pub struct BGPacket {
 pub struct ContainerdIsolation {
     channel: Option<Channel>,
     namespace_manager: Arc<NamespaceManager>,
+    worker_config: WorkerConfig,
     config: Arc<ContainerResourceConfig>,
     limits_config: Arc<FunctionLimits>,
     docker_config: Option<DockerConfig>,
     downloaded_images: Arc<DashMap<String, bool>>,
     creation_sem: Option<tokio::sync::Semaphore>,
     tx: Arc<mpsc::SyncSender<BGPacket>>,
+    dtx: Arc<mpsc::SyncSender<String>>,
     bg_workqueue: thread::JoinHandle<Result<()>>,
 }
 
@@ -103,6 +113,7 @@ impl ContainerdIsolation {
 
     pub fn new(
         ns_man: Arc<NamespaceManager>,
+        worker_config: WorkerConfig,
         config: Arc<ContainerResourceConfig>,
         limits_config: Arc<FunctionLimits>,
         docker_config: Option<DockerConfig>,
@@ -112,30 +123,97 @@ impl ContainerdIsolation {
             i => Some(tokio::sync::Semaphore::new(i as usize)),
         };
 
+        let pidmap = DashMap::new();
         let (send, recv) = sync_channel(30);
+        let (dsend, drecv) = sync_channel(30);
 
         ContainerdIsolation {
             // this is threadsafe if we clone channel
             // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
             channel: None,
             namespace_manager: ns_man,
+            worker_config,
             config,
             limits_config,
             docker_config,
             downloaded_images: Arc::new(DashMap::new()),
             creation_sem: sem,
             tx: Arc::new(send),
+            dtx: Arc::new(dsend),
             bg_workqueue: thread::spawn(move || loop {
                 match recv.recv() {
                     Ok(x) => {
+                        println!("Inserting from bg thread {:?} {:?}", x.fqdn, x.pid);
+                        insert_to_fqdn_pid_map(x.fqdn.clone(), x.pid);
+
+                        let mut retries = 3;
+                        let all_children = loop {
+                            let c = get_all_children(x.pid).unwrap();
+                            if c.len() > 1 {
+                                break c;
+                            }
+                            retries -= 1;
+                            if retries == 0 {
+                                break c;
+                            }
+                        };
+
+                        for cpid in &all_children {
+                            pidmap.insert(*cpid, x.fqdn.clone());
+                        }
+
+                        unsafe {
+                            if let Some(c) = &SCHED_CHANNELS {
+                                let c = c.write().unwrap();
+                                for cpid in &all_children {
+                                    c.tx_pids.send(PidsPacket {
+                                        pid: *cpid,
+                                        fqdn: x.fqdn.clone(),
+                                    });
+                                }
+                            }
+                        }
+
+                        for cpid in &all_children {
+                            info!(
+                                tid=%x.tid,
+                                fqdn=%x.fqdn,
+                                container_id=%x.container_id,
+                                pid=%x.pid,
+                                allc=%cpid,
+                                "mydebugs {:?}",
+                                pidmap
+                            );
+                        }
+
+                        loop {
+                            match drecv.try_recv() {
+                                Ok(dfqdn) => {
+                                    let mut to_remove = vec![];
+                                    for node in pidmap.iter() {
+                                        let k = node.key();
+                                        let v = node.value();
+                                        if v == &dfqdn {
+                                            to_remove.push(*k);
+                                        }
+                                    }
+                                    for k in to_remove {
+                                        info!(pid=%k, "Removing pid");
+                                        pidmap.remove(&k);
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+
                         let ccpid = try_get_child_pid(x.pid, 1, 500);
                         info!(
-                                  tid=%x.tid,
-                                  fqdn=%x.fqdn,
-                                  container_id=%x.container_id,
-                                  pid=%x.pid,
-                                  cpid=%ccpid,
-                                  "tag_pid_mapping"
+                            tid=%x.tid,
+                            fqdn=%x.fqdn,
+                            container_id=%x.container_id,
+                            pid=%x.pid,
+                            cpid=%ccpid,
+                            "tag_pid_mapping"
                         );
                     }
                     Err(e) => {
@@ -370,8 +448,12 @@ impl ContainerdIsolation {
         ctd_namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
-        info!(tid=%tid, container_id=%container_id, "Removing container");
         let mut client = TasksClient::new(self.channel());
+        // container_id is of the form rodinia-needle-0.0.1-2DA0B908-D363-B1BD-34A3-C5F6B264FEFE
+        // we only need rodinia-needle-0.0.1
+        let fqdn = container_id.split('-').take(3).collect::<Vec<&str>>().join("-");
+        info!(tid=%tid, container_id=%container_id, fqdn=%fqdn, "Removing container");
+        //self.dtx.send( fqdn );
         self.kill_task(&mut client, container_id, ctd_namespace, tid).await?;
         self.delete_task(&mut client, container_id, ctd_namespace, tid).await?;
 
@@ -802,7 +884,9 @@ impl ContainerIsolationService for ContainerdIsolation {
         let mut handles = vec![];
         for container in resp.into_inner().containers {
             let container_id = container.id.clone();
-            info!(tid=%tid, container_id=%container_id, "Removing container");
+            let fqdn = container_id.split('-').take(3).collect::<Vec<&str>>().join("-");
+            info!(tid=%tid, container_id=%container_id, fqdn=%fqdn, "Removing container");
+            //self.dtx.send( fqdn );
 
             let svc_clone = self_src.clone();
             let ns_clone = ctd_namespace.to_string();
