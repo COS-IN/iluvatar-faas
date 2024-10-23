@@ -23,7 +23,7 @@ clean:
 	@$(RUST_C) clean
 check:
 	@echo "Checking"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) check $(DEBUG_FLAGS) $(CARGO_ARGS)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) check --all-features $(DEBUG_FLAGS) $(CARGO_ARGS)
 release:
 	@echo "Building release"
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(RELEASE_FLAGS) $(CARGO_ARGS)
@@ -47,7 +47,8 @@ flame:
 	@echo "TODO: implement running flame"
 test:
 	@echo "Running unit tests"
-# TODO: this is probably broken, Docker-in-Docker etc.
+# TODO: this is broken with cross, Docker-in-Docker, containerd, etc.
+# Only use cargo, which sucks as it now needs local setup to have all dependencies
 # https://github.com/cross-rs/cross?tab=readme-ov-file#docker-in-docker
 	@RUSTFLAGS=$(RUST_FLAGS) cargo test $(CARGO_ARGS)
 format:

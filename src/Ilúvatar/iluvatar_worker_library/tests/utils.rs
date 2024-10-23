@@ -1,3 +1,4 @@
+use iluvatar_library::energy::energy_logging::EnergyLogger;
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{
     characteristics_map::{AgExponential, CharacteristicsMap},
@@ -6,6 +7,7 @@ use iluvatar_library::{
 };
 use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
+use iluvatar_worker_library::services::invocation::energy_limiter::EnergyLimiter;
 use iluvatar_worker_library::services::{
     containers::structs::ContainerTimeFormatter,
     invocation::InvocationResult,
@@ -109,6 +111,11 @@ pub async fn full_sim_invoker(
         cmap.clone(),
         cfg.container_resources.clone(),
     );
+    let en_log = EnergyLogger::boxed(None, &TEST_TID)
+        .await
+        .unwrap_or_else(|e| panic!("Failed to create energy logger: {}", e));
+    let energy =
+        EnergyLimiter::boxed(&None, en_log).unwrap_or_else(|e| panic!("Failed to create energy limiter: {}", e));
     let invoker_fact = InvokerFactory::new(
         cm.clone(),
         cfg.limits.clone(),
@@ -117,6 +124,7 @@ pub async fn full_sim_invoker(
         cpu.clone(),
         gpu_resource.clone(),
         cfg.container_resources.gpu_resource.clone(),
+        energy,
     );
     let invoker = invoker_fact
         .get_invoker_service(&TEST_TID)
@@ -196,6 +204,11 @@ pub async fn sim_invoker_svc(
         cmap.clone(),
         cfg.container_resources.clone(),
     );
+    let en_log = EnergyLogger::boxed(None, &TEST_TID)
+        .await
+        .unwrap_or_else(|e| panic!("Failed to create energy logger: {}", e));
+    let energy =
+        EnergyLimiter::boxed(&None, en_log).unwrap_or_else(|e| panic!("Failed to create energy limiter: {}", e));
     let invoker_fact = InvokerFactory::new(
         cm.clone(),
         cfg.limits.clone(),
@@ -204,6 +217,7 @@ pub async fn sim_invoker_svc(
         cpu,
         gpu_resource,
         cfg.container_resources.gpu_resource.clone(),
+        energy,
     );
     let invoker = invoker_fact
         .get_invoker_service(&TEST_TID)
@@ -281,6 +295,11 @@ pub async fn test_invoker_svc(
         cmap.clone(),
         cfg.container_resources.clone(),
     );
+    let en_log = EnergyLogger::boxed(None, &TEST_TID)
+        .await
+        .unwrap_or_else(|e| panic!("Failed to create energy logger: {}", e));
+    let energy =
+        EnergyLimiter::boxed(&None, en_log).unwrap_or_else(|e| panic!("Failed to create energy limiter: {}", e));
     let invoker_fact = InvokerFactory::new(
         cm.clone(),
         cfg.limits.clone(),
@@ -289,6 +308,7 @@ pub async fn test_invoker_svc(
         cpu,
         gpu_resource,
         cfg.container_resources.gpu_resource.clone(),
+        energy,
     );
     let invoker = invoker_fact
         .get_invoker_service(&TEST_TID)

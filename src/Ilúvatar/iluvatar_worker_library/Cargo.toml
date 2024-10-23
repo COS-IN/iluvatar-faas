@@ -17,7 +17,7 @@ tonic = "0.11"
 tokio = { version = "1.35.1", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot"] }
 lazy_static = "1.4.0"
 anyhow = "1.0.13"
-guid-create = "0.2.0"
+guid-create = "0.4"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0.81"
 parking_lot = "0.12.1"

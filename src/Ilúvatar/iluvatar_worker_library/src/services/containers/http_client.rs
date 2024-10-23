@@ -53,7 +53,7 @@ impl HttpContainerClient {
         })
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args, container_id), fields(tid=%tid, fqdn=%self.fqdn)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args, container_id), fields(tid=%tid)))]
     async fn call_container(
         &self,
         json_args: &str,
@@ -79,7 +79,7 @@ impl HttpContainerClient {
         Ok((response, duration))
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, response, container_id), fields(tid=%tid, fqdn=%self.fqdn)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, response, container_id), fields(tid=%tid)))]
     async fn download_text(&self, response: Response, tid: &TransactionId, container_id: &str) -> Result<String> {
         match response.text().await {
             Ok(r) => Ok(r),
