@@ -26,6 +26,7 @@ use tokio::{
     runtime::{Builder, Runtime},
     task::JoinHandle,
 };
+use tracing::info;
 
 async fn controller_register_functions(
     funcs: &HashMap<String, Function>,
@@ -40,7 +41,7 @@ async fn controller_register_functions(
             .image_name
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Unable to get image name for function '{}'", fid))?;
-        println!("{}, {}", func.func_name, image);
+        info!("{}, {}", func.func_name, image);
         let func_timings = match &func.chosen_name {
             Some(chosen_name) => match benchmark.as_ref() {
                 Some(t) => match t.data.get(chosen_name) {
