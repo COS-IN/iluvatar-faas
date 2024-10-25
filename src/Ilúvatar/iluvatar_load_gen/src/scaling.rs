@@ -1,8 +1,3 @@
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
-// use clap::{ArgMatches, App, SubCommand, Arg};
 use crate::{
     trace::prepare_function_args,
     utils::{
@@ -12,6 +7,7 @@ use crate::{
 };
 use anyhow::Result;
 use clap::Parser;
+use iluvatar_library::tokio::build_tokio_runtime;
 use iluvatar_library::{
     logging::LocalTime,
     transaction::gen_tid,
@@ -20,7 +16,10 @@ use iluvatar_library::{
 };
 use rand::prelude::*;
 use std::path::Path;
-use tokio::runtime::Builder;
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tokio::sync::Barrier;
 
 #[derive(Parser, Debug)]
@@ -79,11 +78,7 @@ pub fn scaling(args: ScalingArgs) -> Result<()> {
 
 fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<ThreadResult>> {
     let barrier = Arc::new(Barrier::new(thread_cnt));
-    let threaded_rt = Builder::new_multi_thread()
-        .worker_threads(thread_cnt)
-        .enable_all()
-        .build()
-        .unwrap();
+    let threaded_rt = build_tokio_runtime(&None, &None, &Some(thread_cnt), &"SCALING_TID".to_string())?;
 
     let mut threads = Vec::new();
 

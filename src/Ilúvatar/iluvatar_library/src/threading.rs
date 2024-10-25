@@ -1,3 +1,4 @@
+use crate::tokio::build_tokio_runtime;
 use crate::transaction::TransactionId;
 use std::future::Future;
 use std::sync::mpsc::{channel, Sender};
@@ -185,17 +186,11 @@ where
             }
         };
 
-        let mut builder = tokio::runtime::Builder::new_multi_thread();
-        builder.enable_all();
-        match num_worker_threads {
-            Some(cpus) => builder.worker_threads(cpus),
-            None => &builder,
-        };
-        let worker_rt = match builder.build() {
+        let worker_rt = match build_tokio_runtime(&None, &None, &num_worker_threads, &tid) {
             Ok(rt) => rt,
             Err(e) => {
-                error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Tokio thread runtime failed to start");
-                return ;
+                error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Failed to get tokio runtime!");
+                return;
             }
         };
         debug!(tid=%tid, typename=%std::any::type_name::<T>(), "tokio runtime worker thread started");
@@ -216,7 +211,7 @@ where
                             }
                         }
                     }
-                    None => tokio::time::sleep(std::time::Duration::from_millis(sleep_t)).await,
+                    None => tokio::time::sleep(Duration::from_millis(sleep_t)).await,
                 };
             }
             crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);

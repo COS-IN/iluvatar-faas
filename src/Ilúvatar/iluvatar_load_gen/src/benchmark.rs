@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use std::{collections::HashMap, path::Path};
-use tokio::runtime::{Builder, Runtime};
+use iluvatar_library::tokio::{build_tokio_runtime, TokioRuntime};
 
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct ToBenchmarkFunction {
@@ -116,7 +116,7 @@ pub fn load_functions(args: &BenchmarkArgs) -> Result<Vec<ToBenchmarkFunction>> 
 
 pub fn benchmark_functions(args: BenchmarkArgs) -> Result<()> {
     let functions = load_functions(&args)?;
-    let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, &gen_tid())?;
 
     match args.target {
         Target::Worker => benchmark_worker(&threaded_rt, functions, args),
@@ -214,7 +214,7 @@ pub async fn benchmark_controller(
     Ok(())
 }
 
-pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunction>, args: BenchmarkArgs) -> Result<()> {
+pub fn benchmark_worker(threaded_rt: &TokioRuntime, functions: Vec<ToBenchmarkFunction>, args: BenchmarkArgs) -> Result<()> {
     let mut full_data = BenchmarkStore::new();
     for f in &functions {
         full_data

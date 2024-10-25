@@ -8,6 +8,7 @@ use crate::{
     },
 };
 use anyhow::Result;
+use iluvatar_library::tokio::build_tokio_runtime;
 use iluvatar_library::{
     logging::LocalTime,
     transaction::{gen_tid, TransactionId},
@@ -17,7 +18,7 @@ use iluvatar_library::{
 use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_config::Configuration};
 use std::time::SystemTime;
 use std::{path::Path, sync::Arc};
-use tokio::{runtime::Builder, task::JoinHandle};
+use tokio::task::JoinHandle;
 
 pub fn trace_worker(args: TraceArgs) -> Result<()> {
     match args.setup {
@@ -33,9 +34,9 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Must have 'worker_config' for sim"))?
         .clone();
-    let server_config = Configuration::boxed(&Some(&worker_config_pth), None).unwrap();
+    let server_config = Configuration::boxed(&Some(&worker_config_pth), None)?;
     let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
-    let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
     let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
 
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
@@ -123,7 +124,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
     let tid: &TransactionId = &iluvatar_library::transaction::LIVE_WORKER_LOAD_TID;
     let factory = WorkerAPIFactory::boxed();
 
-    let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
 
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
 

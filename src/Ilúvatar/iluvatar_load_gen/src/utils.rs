@@ -19,7 +19,8 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{runtime::Runtime, task::JoinHandle};
+use tokio::task::JoinHandle;
+use iluvatar_library::tokio::TokioRuntime;
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
@@ -471,7 +472,7 @@ pub enum ErrorHandling {
 /// Resolve all the tokio threads and return their results
 /// Optionally handle errors from threads
 pub fn resolve_handles<T>(
-    runtime: &Runtime,
+    runtime: &TokioRuntime,
     run_results: Vec<JoinHandle<Result<T>>>,
     eh: ErrorHandling,
 ) -> Result<Vec<T>>

@@ -25,7 +25,8 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{runtime::Runtime, task::JoinHandle};
+use tokio::task::JoinHandle;
+use iluvatar_library::tokio::TokioRuntime;
 
 fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms: u32) -> u32 {
     match default_prewarms {
@@ -216,7 +217,7 @@ fn worker_prewarm_functions(
     prewarm_data: &HashMap<String, Function>,
     host: &str,
     port: Port,
-    rt: &Runtime,
+    rt: &TokioRuntime,
     factory: &Arc<WorkerAPIFactory>,
     communication_method: CommunicationMethod,
 ) -> Result<()> {
@@ -297,7 +298,7 @@ pub fn worker_prepare_functions(
     port: Port,
     load_type: LoadType,
     func_data: Option<String>,
-    rt: &Runtime,
+    rt: &TokioRuntime,
     prewarms: Option<u32>,
     trace_pth: &str,
     factory: &Arc<WorkerAPIFactory>,
@@ -312,7 +313,7 @@ fn prepare_worker(
     host: &str,
     port: Port,
     runtype: RunType,
-    rt: &Runtime,
+    rt: &TokioRuntime,
     factory: &Arc<WorkerAPIFactory>,
     func_data: &Option<String>,
 ) -> Result<()> {
@@ -338,7 +339,7 @@ fn prepare_worker(
 
 fn worker_wait_reg(
     funcs: &HashMap<String, Function>,
-    rt: &Runtime,
+    rt: &TokioRuntime,
     port: Port,
     host: &str,
     factory: &Arc<WorkerAPIFactory>,

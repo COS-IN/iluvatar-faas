@@ -22,10 +22,8 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-use tokio::{
-    runtime::{Builder, Runtime},
-    task::JoinHandle,
-};
+use tokio::task::JoinHandle;
+use iluvatar_library::tokio::{build_tokio_runtime, TokioRuntime};
 
 async fn controller_register_functions(
     funcs: &HashMap<String, Function>,
@@ -83,7 +81,7 @@ async fn controller_prewarm_funcs(
 }
 
 pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
-    let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, &gen_tid())?;
     let factory = ControllerAPIFactory::boxed();
     let host = args.host.clone();
     run_invokes(args, factory, threaded_rt, &host, CommunicationMethod::RPC)
@@ -128,7 +126,7 @@ async fn controller_sim_register_workers(
 fn run_invokes(
     args: TraceArgs,
     api_factory: Arc<ControllerAPIFactory>,
-    threaded_rt: Runtime,
+    threaded_rt: TokioRuntime,
     host: &str,
     comm: CommunicationMethod,
 ) -> Result<()> {
@@ -214,12 +212,12 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Must have 'controller_config' for sim"))?
         .clone();
-    let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, &gen_tid())?;
 
     let tid: &TransactionId = &SIMULATION_START_TID;
-    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None).unwrap();
+    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None)?;
     let controller_config =
-        iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth).unwrap();
+        iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)?;
     let _guard =
         iluvatar_library::logging::start_tracing(controller_config.logging.clone(), &controller_config.name, tid)?;
     let controller = threaded_rt.block_on(async {

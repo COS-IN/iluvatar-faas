@@ -19,6 +19,7 @@ pub mod influx;
 pub mod logging;
 pub mod mindicator;
 pub mod threading;
+pub mod tokio;
 pub mod types;
 
 /// The number of logical processors on the system
