@@ -10,7 +10,7 @@ use iluvatar_library::types::Compute;
 use iluvatar_library::{load_avg, nproc, threading};
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::thread::JoinHandle;
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 
 #[allow(unused)]
@@ -36,11 +36,11 @@ impl StatusService {
         invoker: Arc<dyn Invoker>,
         gpu: Option<Arc<GpuResourceTracker>>,
     ) -> Result<Arc<Self>> {
-        let (handle, sender) = threading::os_thread::<Self>(
+        let (handle, sender) = threading::tokio_thread(
             config.report_freq_ms,
             STATUS_WORKER_TID.clone(),
-            Arc::new(StatusService::update_status),
-        )?;
+            StatusService::update_status,
+        );
         let cpu_svc = CPUService::boxed(tid)?;
 
         let ret = Arc::new(StatusService {
@@ -69,7 +69,7 @@ impl StatusService {
                 "worker.load.mem_pct",
                 "worker.load.used_mem",
             ],
-            cpu_instant: Mutex::new(cpu_svc.instant_cpu_util(tid)?),
+            cpu_instant: Mutex::new(Default::default()),
             cpu: cpu_svc,
             config,
             invoker,
@@ -79,8 +79,8 @@ impl StatusService {
         Ok(ret)
     }
 
-    fn update_status(&self, tid: &TransactionId) {
-        let cpu_now = match self.cpu.instant_cpu_util(tid) {
+    async fn update_status(self: Arc<Self>, tid: TransactionId) {
+        let cpu_now = match self.cpu.instant_cpu_util(&tid).await {
             Ok(i) => i,
             Err(e) => {
                 error!(tid=%tid, error=%e, "Unable to get instant cpu utilization");
@@ -88,8 +88,8 @@ impl StatusService {
             }
         };
 
-        let minute_load_avg = load_avg(tid);
-        let nprocs = match nproc(tid, false) {
+        let minute_load_avg = load_avg(&tid).await;
+        let nprocs = match nproc(&tid, false) {
             Ok(n) => n,
             Err(e) => {
                 error!(tid=%tid, error=%e, "Unable to get the number of processors on the system");
@@ -99,7 +99,7 @@ impl StatusService {
 
         let mut gpu_utilization = vec![];
         if let Some(gpu) = &self.gpu {
-            gpu_utilization = gpu.gpu_status(tid);
+            gpu_utilization = gpu.gpu_status(&tid);
         }
 
         let mut cpu_instant_lck = self.cpu_instant.lock();

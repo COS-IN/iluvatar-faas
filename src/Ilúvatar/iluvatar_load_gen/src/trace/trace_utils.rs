@@ -26,7 +26,7 @@ use std::{
     time::Duration,
 };
 use tokio::task::JoinHandle;
-use iluvatar_library::tokio::TokioRuntime;
+use iluvatar_library::tokio_utils::TokioRuntime;
 
 fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms: u32) -> u32 {
     match default_prewarms {

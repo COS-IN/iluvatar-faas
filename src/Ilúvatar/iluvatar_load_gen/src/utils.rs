@@ -20,7 +20,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::task::JoinHandle;
-use iluvatar_library::tokio::TokioRuntime;
+use iluvatar_library::tokio_utils::TokioRuntime;
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();

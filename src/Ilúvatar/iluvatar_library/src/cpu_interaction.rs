@@ -2,11 +2,11 @@ use crate::{bail_error, nproc, threading, transaction::TransactionId};
 use anyhow::Result;
 use std::thread::JoinHandle;
 use std::{
-    fs::File,
-    io::{BufRead, Read},
     path::{Path, PathBuf},
     sync::Arc,
 };
+use std::io::Read;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{error, info};
 
 const BASE_CPU_DIR: &str = "/sys/devices/system/cpu";
@@ -38,7 +38,7 @@ impl CPUService {
     }
 
     fn read_freq(&self, pth: PathBuf, tid: &TransactionId) -> Result<u64> {
-        let mut opened = match File::open(&pth) {
+        let mut opened = match std::fs::File::open(&pth) {
             Ok(b) => b,
             Err(e) => {
                 bail_error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to open cpu freq file")
@@ -75,8 +75,8 @@ impl CPUService {
         Ok(ret)
     }
 
-    pub fn instant_cpu_util(&self, tid: &TransactionId) -> Result<CPUUtilInstant> {
-        CPUUtilInstant::get(tid)
+    pub async fn instant_cpu_util(&self, tid: &TransactionId) -> Result<CPUUtilInstant> {
+        CPUUtilInstant::get(tid).await
     }
     pub fn compute_cpu_util(&self, inst1: &CPUUtilInstant, inst2: &CPUUtilInstant) -> CPUUtilPcts {
         if inst1.read_time > inst2.read_time {
@@ -168,21 +168,38 @@ pub struct CPUUtilInstant {
     cpu_guest: f64,
     cpu_guest_nice: f64,
 }
+impl Default for CPUUtilInstant { 
+    fn default() -> Self {
+        Self {
+            read_time: std::time::Instant::now(),
+            cpu_user: 0.0,
+            cpu_nice: 0.0,
+            cpu_system: 0.0,
+            cpu_idle: 0.0,
+            cpu_iowait: 0.0,
+            cpu_irq: 0.0,
+            cpu_softirq: 0.0,
+            cpu_steal: 0.0,
+            cpu_guest: 0.0,
+            cpu_guest_nice: 0.0,
+        }
+    }
+}
 impl CPUUtilInstant {
-    pub fn get(tid: &TransactionId) -> Result<Self> {
-        let cpu_line = Self::read()?;
+    pub async fn get(tid: &TransactionId) -> Result<Self> {
+        let cpu_line = Self::read().await?;
         Self::parse(cpu_line, tid)
     }
-    fn read() -> Result<String> {
+    async fn read() -> Result<String> {
         let mut ret = String::new();
-        let mut b = match File::open("/proc/stat") {
-            Ok(f) => std::io::BufReader::new(f),
+        let mut b = match tokio::fs::File::open("/proc/stat").await {
+            Ok(f) => BufReader::new(f),
             Err(e) => {
                 return Err(e.into());
             }
         };
         loop {
-            match b.read_line(&mut ret)? {
+            match b.read_line(&mut ret).await? {
                 0 => anyhow::bail!("Unable to find matching 'cpu ' line in /proc/stat"),
                 _ => {
                     if ret.starts_with("cpu ") {

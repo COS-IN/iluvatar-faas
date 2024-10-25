@@ -92,7 +92,7 @@ impl CpuResourceTracker {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(svc), fields(tid=%tid)))]
     async fn monitor_load(svc: Arc<CpuResourceTracker>, tid: TransactionId) {
-        let load_avg = load_avg(&tid);
+        let load_avg = load_avg(&tid).await;
         if load_avg < 0.0 {
             return;
         }

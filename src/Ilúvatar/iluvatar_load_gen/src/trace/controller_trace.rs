@@ -23,7 +23,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::task::JoinHandle;
-use iluvatar_library::tokio::{build_tokio_runtime, TokioRuntime};
+use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 
 async fn controller_register_functions(
     funcs: &HashMap<String, Function>,

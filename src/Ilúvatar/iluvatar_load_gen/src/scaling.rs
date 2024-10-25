@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::Result;
 use clap::Parser;
-use iluvatar_library::tokio::build_tokio_runtime;
+use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::{
     logging::LocalTime,
     transaction::gen_tid,

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
-use iluvatar_library::tokio::build_tokio_runtime;
+use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_library::types::CommunicationMethod;
 use iluvatar_library::{bail_error, logging::start_tracing, utils::wait_for_exit_signal};

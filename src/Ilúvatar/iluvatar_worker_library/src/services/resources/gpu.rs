@@ -955,7 +955,7 @@ impl Drop for GpuResourceTracker {
         if let Some(d) = &self.docker {
             if let Some(docker) = d.as_any().downcast_ref::<DockerIsolation>() {
                 let tid: &TransactionId = &GPU_RESC_TID;
-                match iluvatar_library::tokio::build_tokio_runtime(&None, &None, &None, tid) {
+                match iluvatar_library::tokio_utils::build_tokio_runtime(&None, &None, &None, tid) {
                     Ok(r) => match r.block_on(docker.get_logs(MPS_CONTAINER_NAME, tid)) {
                         Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
                         Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),

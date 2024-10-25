@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use std::{collections::HashMap, path::Path};
-use iluvatar_library::tokio::{build_tokio_runtime, TokioRuntime};
+use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct ToBenchmarkFunction {

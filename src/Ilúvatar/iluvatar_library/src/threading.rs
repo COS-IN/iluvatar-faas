@@ -1,4 +1,4 @@
-use crate::tokio::build_tokio_runtime;
+use crate::tokio_utils::build_tokio_runtime;
 use crate::transaction::TransactionId;
 use std::future::Future;
 use std::sync::mpsc::{channel, Sender};
@@ -57,8 +57,8 @@ pub fn os_thread<T: Send + Sync + 'static>(
     Ok((handle, tx))
 }
 
-/// Start an async function inside of a Tokio worker
-/// It will be executed every `call_ms` milliseconds
+/// Start an async function inside a Tokio worker thread.
+/// It will be executed every `call_ms` milliseconds.
 pub fn tokio_thread<S, T>(
     call_ms: u64,
     tid: TransactionId,
@@ -90,8 +90,8 @@ where
     (handle, tx)
 }
 
-/// Start an async function inside of a Tokio worker
-/// It will be awakened on each notification
+/// Start an async function inside a Tokio worker thread.
+/// It will be awakened on each notification.
 pub fn tokio_notify_thread<S>(
     tid: TransactionId,
     notifier: Arc<Notify>,
@@ -122,7 +122,7 @@ where
     (handle, tx)
 }
 
-/// Start an async function inside of a Tokio worker
+/// Start an async function inside a Tokio worker
 /// It will be executed on each sent item sent via [sender]
 pub fn tokio_sender_thread<'a, S, T, R, F>(
     tid: TransactionId,

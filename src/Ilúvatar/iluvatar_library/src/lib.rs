@@ -2,7 +2,6 @@
 //!
 //! This crate is for shared code and utilities that are not specific to any executable in the Ilúvatar stack.
 
-use std::{fs::File, io::Read};
 use tracing::error;
 use transaction::TransactionId;
 use utils::execute_cmd_checked;
@@ -19,7 +18,7 @@ pub mod influx;
 pub mod logging;
 pub mod mindicator;
 pub mod threading;
-pub mod tokio;
+pub mod tokio_utils;
 pub mod types;
 
 /// The number of logical processors on the system
@@ -43,16 +42,16 @@ pub fn nproc(tid: &TransactionId, all: bool) -> anyhow::Result<u32> {
 
 /// Returns the one-minute system load average
 /// If an error occurs, -1.0 is returned
-pub fn load_avg(tid: &TransactionId) -> f64 {
-    let mut file = match File::open("/proc/loadavg") {
-        Ok(f) => f,
-        Err(e) => {
-            error!(tid=%tid, error=%e, "Failed to open /proc/loadavg");
-            return -1.0;
-        }
-    };
-    let mut buff = String::new();
-    match file.read_to_string(&mut buff) {
+pub async fn load_avg(tid: &TransactionId) -> f64 {
+    // let mut file = match File::open("/proc/loadavg") {
+    //     Ok(f) => f,
+    //     Err(e) => {
+    //         error!(tid=%tid, error=%e, "Failed to open /proc/loadavg");
+    //         return -1.0;
+    //     }
+    // };
+    // let mut buff = String::new();
+    let buff = match tokio::fs::read_to_string("/proc/loadavg").await {
         Ok(f) => f,
         Err(e) => {
             error!(tid=%tid, error=%e, "Failed to read /proc/loadavg");
