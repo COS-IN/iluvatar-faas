@@ -183,7 +183,6 @@ mod tracker_tests {
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 0.0);
         assert_le!(time.as_seconds_f64(), 5.0);
-        println!("removing");
         tracker.remove_item(time2);
 
         let time = tracker.next_avail();

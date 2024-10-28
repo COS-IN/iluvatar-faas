@@ -1,3 +1,8 @@
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
+// use clap::{ArgMatches, App, SubCommand, Arg};
 use crate::{
     trace::prepare_function_args,
     utils::{
@@ -16,11 +21,8 @@ use iluvatar_library::{
 };
 use rand::prelude::*;
 use std::path::Path;
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
 use tokio::sync::Barrier;
+use tracing::{error, info};
 
 #[derive(Parser, Debug)]
 /// Test scaling of worker with increasing amount of requests
@@ -47,8 +49,11 @@ pub struct ScalingArgs {
     /// Host controller/worker is on
     host: String,
     #[arg(short, long)]
-    /// Folder to output results to
-    out_folder: String,
+    /// Folder to output results and logs to
+    pub out_folder: String,
+    #[arg(long)]
+    /// Output load generator logs to stdout
+    pub log_stdout: bool,
     #[arg(long)]
     /// Isolation the image will use
     isolation: IsolationEnum,
@@ -67,7 +72,7 @@ pub fn scaling(args: ScalingArgs) -> Result<()> {
     ensure_dir(&std::path::PathBuf::new().join(&args.out_folder))?;
 
     for threads in args.start..(args.end + 1) {
-        println!("\n Running with {} threads", threads);
+        info!("\n Running with {} threads", threads);
         let result = run_one_scaling_test(threads as usize, &args)?;
         let p = Path::new(&args.out_folder).join(format!("{}.json", threads));
         save_result_json(p, &result)?;
@@ -142,7 +147,7 @@ async fn scaling_thread(
             tid,
         ),
         Err(e) => {
-            println!("thread {} registration failed because {}", thread_id, e);
+            error!("thread {} registration failed because {}", thread_id, e);
             std::process::exit(1);
         }
     };
@@ -158,7 +163,7 @@ async fn scaling_thread(
             Err(e) => {
                 errors = format!("{} iteration {}: '{}';\n", errors, i, e);
                 if it.peek().is_none() {
-                    println!("thread {} prewarm failed because {}", thread_id, errors);
+                    error!("thread {} prewarm failed because {}", thread_id, errors);
                     std::process::exit(1);
                 }
             }

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
 use std::{collections::HashMap, path::Path};
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
+use tracing::{error, info};
 
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct ToBenchmarkFunction {
@@ -92,7 +93,10 @@ pub struct BenchmarkArgs {
     host: String,
     #[arg(short, long)]
     /// Folder to output results to
-    out_folder: String,
+    pub out_folder: String,
+    #[arg(long)]
+    /// Output load generator logs to stdout
+    pub log_stdout: bool,
 }
 
 pub fn load_functions(args: &BenchmarkArgs) -> Result<Vec<ToBenchmarkFunction>> {
@@ -142,7 +146,7 @@ pub async fn benchmark_controller(
     let mut full_data = BenchmarkStore::new();
     for function in &functions {
         let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
-        println!("{}", function.name);
+        info!("{}", function.name);
         let clock = LocalTime::boxed(&gen_tid())?;
         let reg_tid = gen_tid();
         let api = factory
@@ -157,7 +161,7 @@ pub async fn benchmark_controller(
                 {
                     Ok(d) => d,
                     Err(e) => {
-                        println!("{}", e);
+                        error!("{}", e);
                         continue;
                     }
                 };
@@ -199,7 +203,7 @@ pub async fn benchmark_controller(
                         }
                     }
                     Err(e) => {
-                        println!("{}", e);
+                        error!("{}", e);
                         break 'inner;
                     }
                 }
@@ -253,7 +257,7 @@ pub fn benchmark_worker(threaded_rt: &TokioRuntime, functions: Vec<ToBenchmarkFu
             None => "{\"name\":\"TESTING\"}".to_string(),
         };
         for supported_compute in compute {
-            println!("{} {:?}", &function.name, supported_compute);
+            info!("{} {:?}", &function.name, supported_compute);
 
             for iter in 0..cold_repeats {
                 let name = format!("{}.{:?}.{}", &function.name, supported_compute, iter);
@@ -273,7 +277,7 @@ pub fn benchmark_worker(threaded_rt: &TokioRuntime, functions: Vec<ToBenchmarkFu
                 )) {
                     Ok(r) => r,
                     Err(e) => {
-                        println!("{:?}", e);
+                        error!("{:?}", e);
                         continue;
                     }
                 };
@@ -294,7 +298,7 @@ pub fn benchmark_worker(threaded_rt: &TokioRuntime, functions: Vec<ToBenchmarkFu
                             )) {
                                 Ok(r) => invokes.push(r),
                                 Err(e) => {
-                                    println!("Invocation error: {}", e);
+                                    error!("Invocation error: {}", e);
                                     continue;
                                 }
                             };
@@ -317,7 +321,7 @@ pub fn benchmark_worker(threaded_rt: &TokioRuntime, functions: Vec<ToBenchmarkFu
                             )) {
                                 Ok(r) => invokes.push(r),
                                 Err(e) => {
-                                    println!("Invocation error: {}", e);
+                                    error!("Invocation error: {}", e);
                                     continue;
                                 }
                             };
@@ -327,7 +331,7 @@ pub fn benchmark_worker(threaded_rt: &TokioRuntime, functions: Vec<ToBenchmarkFu
                 if supported_compute != Compute::CPU {
                     match threaded_rt.block_on(worker_clean(&args.host, args.port, &gen_tid(), &factory, None)) {
                         Ok(_) => (),
-                        Err(e) => println!("{:?}", e),
+                        Err(e) => error!("{:?}", e),
                     }
                 }
             }
@@ -368,7 +372,7 @@ pub fn benchmark_worker(threaded_rt: &TokioRuntime, functions: Vec<ToBenchmarkFu
                 resource_entry.warm_invoke_duration_us.push(invoke.client_latency_us);
             }
         } else {
-            println!("invoke failure {:?}", invoke.worker_response.json_result);
+            error!("invoke failure {:?}", invoke.worker_response.json_result);
         }
     }
     let p = Path::new(&args.out_folder).join("worker_function_benchmarks.json");

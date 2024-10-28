@@ -23,6 +23,7 @@ use std::time::SystemTime;
 use tokio::task::JoinHandle;
 use iluvatar_library::clock::GlobalClock;
 use iluvatar_library::tokio_utils::TokioRuntime;
+use tracing::error;
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
@@ -517,11 +518,11 @@ where
                 Ok(ok) => ret.push(ok),
                 Err(e) => match eh {
                     ErrorHandling::Raise => return Err(e),
-                    ErrorHandling::Print => println!("Error from thread: {:?}", e),
+                    ErrorHandling::Print => error!("Error from thread: {:?}", e),
                     ErrorHandling::Ignore => (),
                 },
             },
-            Err(thread_e) => println!("Joining error: {}", thread_e),
+            Err(thread_e) => error!("Joining error: {}", thread_e),
         };
     }
     ret.sort();
@@ -562,7 +563,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
         match f.write_all(to_write.as_bytes()) {
             Ok(_) => (),
             Err(e) => {
-                println!("Failed to write result to '{:?}' because {}", &path, e);
+                error!("Failed to write result to '{:?}' because {}", &path, e);
                 continue;
             }
         };

@@ -9,7 +9,6 @@ use crate::{
 };
 use anyhow::Result;
 use iluvatar_library::{
-    clock::LocalTime,
     transaction::TransactionId,
     types::{CommunicationMethod, Compute, Isolation},
     utils::port::Port,
@@ -26,8 +25,8 @@ use std::{
     time::Duration,
 };
 use tokio::task::JoinHandle;
-use iluvatar_library::clock::GlobalClock;
 use iluvatar_library::tokio_utils::TokioRuntime;
+use tracing::info;
 
 fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms: u32) -> u32 {
     match default_prewarms {
@@ -92,15 +91,15 @@ fn map_from_benchmark(
         if let Some((_last, elements)) = func.func_name.split('-').collect::<Vec<&str>>().split_last() {
             let name = elements.join("-");
             if bench.data.contains_key(&name) && func.image_name.is_some() {
-                println!("{} mapped to self name in benchmark", func.func_name);
+                info!("{} mapped to self name in benchmark", func.func_name);
                 func.chosen_name = Some(name);
             }
-            println!("chosen_name A {} {:?}", _last, elements);
+            info!("chosen_name A {} {:?}", _last, elements);
         }
         if bench.data.contains_key(&func.func_name) && func.image_name.is_some() && func.chosen_name.is_none() {
-            println!("{} mapped to exact name in benchmark", func.func_name);
+            info!("{} mapped to exact name in benchmark", func.func_name);
             func.chosen_name = Some(func.func_name.clone());
-            println!("chosen_name B");
+            info!("chosen_name B");
         }
         if func.chosen_name.is_none() {
             let device_data: ComputeChoiceList = choose_bench_data_for_func(func, bench)?;
@@ -123,13 +122,13 @@ fn map_from_benchmark(
             }
 
             if func.image_name.is_none() {
-                println!("{} mapped to function '{}'", &func.func_name, chosen_name);
+                info!("{} mapped to function '{}'", &func.func_name, chosen_name);
                 func.cold_dur_ms = chosen_cold_time_ms as u64;
                 func.warm_dur_ms = chosen_warm_time_ms as u64;
                 func.chosen_name = Some(chosen_name);
                 func.image_name = Some(chosen_image);
             }
-            println!("chosen_name C {:?}", func.image_name);
+            info!("chosen_name C {:?}", func.image_name);
         }
         if func.prewarms.is_none() {
             let prewarms = compute_prewarms(func, default_prewarms, max_prewarms);
@@ -137,7 +136,7 @@ fn map_from_benchmark(
             total_prewarms += prewarms;
         }
         match &func.chosen_name {
-            None => println!("not filling out sim_invoke_data"),
+            None => info!("not filling out sim_invoke_data"),
             Some(name) => {
                 let mut sim_data = HashMap::new();
                 for compute in func.parsed_compute.unwrap().into_iter() {
@@ -157,7 +156,7 @@ fn map_from_benchmark(
             }
         }
     }
-    println!("A total of {} prewarmed containers", total_prewarms);
+    info!("A total of {} prewarmed containers", total_prewarms);
     Ok(())
 }
 
@@ -229,12 +228,7 @@ fn worker_prewarm_functions(
 ) -> Result<()> {
     let mut prewarm_calls = vec![];
     for (func_name, func) in prewarm_data.iter() {
-        println!(
-            "{} prewarming {:?} containers for function '{}'",
-            LocalTime::new(&"PREWARM_LOAD_GEN".to_string())?.now_str()?,
-            func.prewarms,
-            func_name
-        );
+        info!("prewarming {:?} containers for function '{}'", func.prewarms, func_name);
         for i in 0..func.prewarms.ok_or_else(|| {
             anyhow::anyhow!(
                 "Function '{}' did not have a prewarm value, supply one or pass a benchmark file",
@@ -454,7 +448,7 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
         match f.write_all(to_write.as_bytes()) {
             Ok(_) => (),
             Err(e) => {
-                println!("Failed to write result because {}", e);
+                info!("Failed to write result because {}", e);
                 continue;
             }
         };

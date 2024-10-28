@@ -19,8 +19,8 @@ use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_
 use std::time::SystemTime;
 use std::path::Path;
 use tokio::task::JoinHandle;
-use iluvatar_library::clock::GlobalClock;
 use crate::utils::wait_elapsed_live;
+use tracing::info;
 
 pub fn trace_worker(args: TraceArgs) -> Result<()> {
     match args.setup {
@@ -62,7 +62,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
     let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
     let mut handles = Vec::new(); // : Vec<JoinHandle<Result<(u128, InvokeResponse)>>>
 
-    println!("starting simulation run");
+    info!("starting simulation run");
 
     let start = SystemTime::now();
     for result in trace_rdr.deserialize() {
@@ -161,7 +161,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
     let mut handles: Vec<JoinHandle<Result<CompletedWorkerInvocation>>> = Vec::new();
     let clock = LocalTime::boxed(tid)?;
 
-    println!("{} starting live trace run", clock.now_str()?);
+    info!("starting live trace run");
     let start = SystemTime::now();
     for result in trace_rdr.deserialize() {
         let invoke: CsvInvocation = match result {

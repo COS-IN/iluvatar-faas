@@ -45,7 +45,7 @@ impl RAPL {
         let uj: u128;
         if left.start_uj < right.start_uj {
             uj = left.start_uj + (self.max_uj - right.start_uj);
-            println!(
+            debug!(
                 "going around the energy horn {uj} = {} + ({} - {})",
                 left.start_uj, self.max_uj, right.start_uj
             );

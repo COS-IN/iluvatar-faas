@@ -58,7 +58,7 @@ pub fn timezone(tid: &TransactionId) -> Result<String> {
     }
 }
 
-pub trait GlobalClock {
+pub trait GlobalClock: Send + Sync {
     /// The number of nanoseconds since the unix epoch start, as a String.
     fn now_str(&self) -> Result<String>;
     /// The number of nanoseconds since the unix epoch start.
@@ -71,6 +71,28 @@ impl FormatTime for dyn GlobalClock {
         format_offset_time(self, w)
     }
 }
+pub struct ClockWrapper(pub Arc<dyn GlobalClock>);
+impl FormatTime for ClockWrapper
+{
+    fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
+        format_offset_time(self, w)
+    }
+}
+impl GlobalClock for ClockWrapper {
+    #[inline(always)]
+    fn now_str(&self) -> Result<String> {
+        self.0.now_str()
+    }
+    #[inline(always)]
+    fn now(&self) -> OffsetDateTime {
+        self.0.now()
+    }
+    #[inline(always)]
+    fn format_time(&self, time: OffsetDateTime) -> Result<String> {
+        self.0.format_time(time)
+    }
+}
+
 fn format_offset_time(clock: &dyn GlobalClock, w: &mut Writer<'_>) -> std::fmt::Result {
     let s = match clock.now_str() {
         Ok(s) => s,

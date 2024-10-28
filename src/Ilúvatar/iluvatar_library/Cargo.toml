@@ -15,7 +15,7 @@ categories.workspace = true
 [dependencies]
 lazy_static = "1.4.0"
 anyhow = "1.0.13"
-guid-create = "0.2.0"
+guid-create = "0.4"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 clap = { version = "4", features = ["derive"] }

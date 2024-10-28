@@ -56,7 +56,10 @@ pub struct TraceArgs {
     host: String,
     #[arg(short, long)]
     /// Folder to output results to
-    out_folder: String,
+    pub out_folder: String,
+    #[arg(long)]
+    /// Output load generator logs to stdout
+    pub log_stdout: bool,
 }
 
 pub fn run_trace(args: TraceArgs) -> Result<()> {

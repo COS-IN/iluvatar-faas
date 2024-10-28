@@ -8,7 +8,7 @@ use iluvatar_worker_library::{services::influx_updater::InfluxLoadData, worker_a
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 #[allow(unused)]
 pub struct LoadService {
@@ -111,7 +111,7 @@ impl LoadService {
             Some(influx) => match influx.query_data::<InfluxLoadData>(query).await {
                 Ok(r) => {
                     for item in r {
-                        println!("{:?}", &item);
+                        debug!("{:?}", &item);
                         ret.insert(item.name, item.value);
                     }
                     if ret.is_empty() {
