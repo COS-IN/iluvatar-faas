@@ -11,11 +11,12 @@ use crate::{
 use anyhow::Result;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_controller_library::services::ControllerAPI;
+use iluvatar_library::clock::get_global_clock;
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::transaction::{TransactionId, SIMULATION_START_TID};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation};
 use iluvatar_library::utils::config::args_to_json;
-use iluvatar_library::{clock::LocalTime, transaction::gen_tid, utils::port::Port};
+use iluvatar_library::{transaction::gen_tid, utils::port::Port};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 use std::{
@@ -131,7 +132,7 @@ fn run_invokes(
     host: &str,
     comm: CommunicationMethod,
 ) -> Result<()> {
-    let clock = LocalTime::boxed(&gen_tid())?;
+    let clock = get_global_clock(&gen_tid())?;
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     map_functions_to_prep(
         crate::utils::RunType::Simulation,

@@ -2,13 +2,10 @@
 pub mod utils;
 
 use crate::utils::{short_sim_args, sim_args, sim_invoker_svc};
-use iluvatar_library::clock::GlobalClock;
+use iluvatar_library::clock::get_global_clock;
 use iluvatar_library::mindicator::Mindicator;
+use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_library::{
-    clock::LocalTime,
-    transaction::{gen_tid, TEST_TID},
-};
 use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
 use iluvatar_worker_library::services::invocation::queueing::DeviceQueue;
@@ -94,7 +91,7 @@ async fn build_mqfq(
 
 fn item() -> Arc<EnqueuedInvocation> {
     let name = gen_tid();
-    let clock = LocalTime::new(&"clock".to_string()).unwrap();
+    let clock = get_global_clock(&name).unwrap();
     let rf = Arc::new(RegisteredFunction {
         function_name: name.to_string(),
         function_version: name.to_string(),

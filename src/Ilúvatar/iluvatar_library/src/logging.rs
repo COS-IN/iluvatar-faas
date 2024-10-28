@@ -1,9 +1,8 @@
 use crate::bail_error;
-use crate::clock::{get_global_clock, ClockWrapper, LocalTime, SimulatedTime};
+use crate::clock::{get_global_clock, ClockWrapper};
 use crate::energy::energy_layer::EnergyLayer;
 use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
-use crate::utils::is_simulation;
 use anyhow::Result;
 use std::{path::PathBuf, sync::Arc};
 use tracing_flame::FlameLayer;

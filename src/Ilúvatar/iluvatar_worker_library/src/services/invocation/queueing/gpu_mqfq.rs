@@ -10,10 +10,10 @@ use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
-use iluvatar_library::clock::GlobalClock;
+use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::utils::missing_default;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, clock::LocalTime, transaction::TransactionId};
+use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId};
 use iluvatar_library::{
     mindicator::Mindicator,
     threading::{tokio_runtime, tokio_thread, EventualItem},
@@ -314,7 +314,7 @@ pub struct MQFQ {
     _mon_thread: Option<tokio::task::JoinHandle<()>>,
     gpu: Arc<GpuResourceTracker>,
     gpu_config: Arc<GPUResourceConfig>,
-    clock: LocalTime,
+    clock: Clock,
     q_config: Arc<MqfqConfig>,
     policy: MqfqPolicy,
     sticky_queue: RwLock<String>,
@@ -435,7 +435,7 @@ impl MQFQ {
                 .as_ref()
                 .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?
                 .clone(),
-            clock: LocalTime::new(tid)?,
+            clock: get_global_clock(tid)?,
             cpu,
             cmap,
             cont_manager,

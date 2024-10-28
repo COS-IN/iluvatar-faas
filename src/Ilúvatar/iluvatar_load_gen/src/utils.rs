@@ -1,10 +1,9 @@
 use crate::benchmark::BenchmarkStore;
 use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
-use iluvatar_library::clock::GlobalClock;
+use iluvatar_library::clock::Clock;
 use iluvatar_library::tokio_utils::TokioRuntime;
 use iluvatar_library::{
-    clock::LocalTime,
     transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::{port::Port, timing::TimedExt},
@@ -223,7 +222,7 @@ pub async fn controller_invoke(
     name: &str,
     version: &str,
     json_args: Option<String>,
-    clock: Arc<LocalTime>,
+    clock: Clock,
     api: ControllerAPI,
 ) -> Result<CompletedControllerInvocation> {
     let tid = gen_tid();
@@ -393,7 +392,7 @@ pub async fn worker_invoke(
     port: Port,
     tid: &TransactionId,
     args: Option<String>,
-    clock: Arc<LocalTime>,
+    clock: Clock,
     factory: &Arc<WorkerAPIFactory>,
     comm_method: Option<CommunicationMethod>,
 ) -> Result<CompletedWorkerInvocation> {
@@ -469,8 +468,7 @@ pub fn wait_elapsed_live(timer: &SystemTime, elapsed: u64) {
     loop {
         match timer.elapsed() {
             Ok(t) => {
-                
-                if  t.as_millis() <= elapsed as u128 {
+                if t.as_millis() <= elapsed as u128 {
                     break;
                 } else {
                     let diff = (elapsed as u128) - t.as_millis();

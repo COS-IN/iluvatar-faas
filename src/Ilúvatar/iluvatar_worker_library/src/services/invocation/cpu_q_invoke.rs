@@ -14,10 +14,8 @@ use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResou
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::clock::GlobalClock;
-use iluvatar_library::{
-    clock::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
-};
+use iluvatar_library::clock::{get_global_clock, Clock};
+use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::{
     sync::{atomic::AtomicU32, Arc},
@@ -35,7 +33,7 @@ pub struct CpuQueueingInvoker {
     cont_manager: Arc<ContainerManager>,
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
-    clock: LocalTime,
+    clock: Clock,
     running: AtomicU32,
     last_memory_warning: Mutex<Instant>,
     cpu: Arc<CpuResourceTracker>,
@@ -82,7 +80,7 @@ impl CpuQueueingInvoker {
             _bypass_thread: bypass_thread,
             signal: Notify::new(),
             _cpu_thread: cpu_handle,
-            clock: LocalTime::new(tid)?,
+            clock: get_global_clock(tid)?,
             running: AtomicU32::new(0),
             last_memory_warning: Mutex::new(Instant::now()),
         });

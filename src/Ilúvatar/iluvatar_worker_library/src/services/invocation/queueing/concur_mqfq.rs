@@ -11,7 +11,7 @@ use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::clock::{GlobalClock, LocalTime};
+use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::threading::EventualItem;
 use iluvatar_library::transaction::TransactionId;
@@ -37,7 +37,7 @@ struct Flow {
     queue: SharedQueue,
     cont_manager: Arc<ContainerManager>,
     registration: Arc<RegisteredFunction>,
-    clock: LocalTime,
+    clock: Clock,
     cmap: Arc<CharacteristicsMap>,
     queue_signal: Arc<Notify>,
 }
@@ -62,7 +62,7 @@ impl Flow {
             ctrack: ctrack.clone(),
             cont_manager: cont_manager.clone(),
             registration: registration.clone(),
-            clock: LocalTime::new(tid)?,
+            clock: get_global_clock(tid)?,
             cmap: cmap.clone(),
             queue_signal: signal,
         })

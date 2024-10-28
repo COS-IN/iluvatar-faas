@@ -12,9 +12,9 @@ use crate::services::{containers::containermanager::ContainerManager, invocation
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::clock::GlobalClock;
+use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::types::ComputeEnum;
-use iluvatar_library::{clock::LocalTime, transaction::TransactionId, types::Compute};
+use iluvatar_library::{transaction::TransactionId, types::Compute};
 use parking_lot::RwLock;
 use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
@@ -67,7 +67,7 @@ pub struct QueueingDispatcher {
     async_functions: AsyncHelper,
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
-    clock: LocalTime,
+    clock: Clock,
     cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Option<Arc<dyn DeviceQueue>>,
     dispatch_state: RwLock<PolymDispatchCtx>,
@@ -110,7 +110,7 @@ impl QueueingDispatcher {
                 gpu_config,
             )?,
             async_functions: AsyncHelper::new(),
-            clock: LocalTime::new(tid)?,
+            clock: get_global_clock(tid)?,
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,

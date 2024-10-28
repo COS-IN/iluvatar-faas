@@ -20,11 +20,9 @@ use crate::{
     worker_api::worker_config::GPUResourceConfig,
 };
 use anyhow::Result;
-use iluvatar_library::clock::GlobalClock;
+use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::{characteristics_map::CharacteristicsMap, types::DroppableToken};
-use iluvatar_library::{
-    clock::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
-};
+use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::{
@@ -124,7 +122,7 @@ pub struct GpuQueueingInvoker {
     cont_manager: Arc<ContainerManager>,
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
-    clock: LocalTime,
+    clock: Clock,
     running: AtomicU32,
     last_memory_warning: Mutex<Instant>,
     last_gpu_warning: Mutex<Instant>,
@@ -170,7 +168,7 @@ impl GpuQueueingInvoker {
             cpu,
             signal: Notify::new(),
             _gpu_thread: gpu_handle,
-            clock: LocalTime::new(tid)?,
+            clock: get_global_clock(tid)?,
             running: AtomicU32::new(0),
             last_memory_warning: Mutex::new(Instant::now()),
             queue: q?,
@@ -489,7 +487,7 @@ mod gpu_batch_tests {
     use super::*;
     use std::collections::HashMap;
 
-    fn item(clock: &LocalTime) -> Arc<EnqueuedInvocation> {
+    fn item(clock: &Clock) -> Arc<EnqueuedInvocation> {
         let name = "test";
         let rf = Arc::new(RegisteredFunction {
             function_name: name.to_string(),
@@ -514,7 +512,7 @@ mod gpu_batch_tests {
 
     #[test]
     fn one_item_correct() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let b = GpuBatch::new(item(&clock), 1.0);
         assert_eq!(b.len(), 1);
         assert_eq!(b.est_queue_time(), 1.0);
@@ -522,7 +520,7 @@ mod gpu_batch_tests {
 
     #[test]
     fn added_items_correct() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut b = GpuBatch::new(item(&clock), 1.0);
 
         for _ in 0..3 {

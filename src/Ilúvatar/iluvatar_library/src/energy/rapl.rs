@@ -1,5 +1,5 @@
 use super::EnergyConfig;
-use crate::clock::{GlobalClock, LocalTime};
+use crate::clock::{get_global_clock, Clock};
 use crate::threading::os_thread;
 use crate::transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID};
 use crate::{bail_error, nproc};
@@ -233,7 +233,7 @@ pub struct RaplMonitor {
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
     log_file: RwLock<File>,
-    timer: LocalTime,
+    timer: Clock,
     latest_reading: RwLock<(i128, i128, i128)>,
 }
 impl RaplMonitor {
@@ -253,7 +253,7 @@ impl RaplMonitor {
             rapl: Mutex::new(i),
             _worker_thread: handle,
             _config: config.clone(),
-            timer: LocalTime::new(tid)?,
+            timer: get_global_clock(tid)?,
             log_file: RaplMonitor::open_log_file(&config, tid)?,
         });
         r.write_text("timestamp,rapl_uj\n".to_string(), tid);

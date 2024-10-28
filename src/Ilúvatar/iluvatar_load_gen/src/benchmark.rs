@@ -3,10 +3,11 @@ use crate::utils::*;
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_library::clock::get_global_clock;
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
-use iluvatar_library::{clock::LocalTime, transaction::gen_tid, utils::port_utils::Port};
+use iluvatar_library::{transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
 use std::{collections::HashMap, path::Path};
@@ -147,7 +148,7 @@ pub async fn benchmark_controller(
     for function in &functions {
         let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
         info!("{}", function.name);
-        let clock = LocalTime::boxed(&gen_tid())?;
+        let clock = get_global_clock(&gen_tid())?;
         let reg_tid = gen_tid();
         let api = factory
             .get_controller_api(&host, port, CommunicationMethod::RPC, &reg_tid)
@@ -230,7 +231,7 @@ pub fn benchmark_worker(
     }
     let mut invokes = vec![];
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
-    let clock = LocalTime::boxed(&gen_tid())?;
+    let clock = get_global_clock(&gen_tid())?;
     let mut cold_repeats = args.cold_iters;
 
     for function in &functions {

@@ -11,7 +11,7 @@ use crate::services::{
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::{Characteristics, Values};
-use iluvatar_library::clock::{GlobalClock, LocalTime};
+use iluvatar_library::clock::Clock;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::time::Instant;
@@ -156,7 +156,7 @@ async fn invoke_on_container(
     remove_time: String,
     cold_time_start: Instant,
     cmap: &Arc<CharacteristicsMap>,
-    clock: &LocalTime,
+    clock: &Clock,
 ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
     let (data, dur, ctr) = invoke_on_container_2(
         reg,
@@ -188,7 +188,7 @@ async fn invoke_on_container_2(
     remove_time: String,
     cold_time_start: Instant,
     cmap: &Arc<CharacteristicsMap>,
-    clock: &LocalTime,
+    clock: &Clock,
 ) -> Result<(ParsedResult, Duration, Container)> {
     info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;

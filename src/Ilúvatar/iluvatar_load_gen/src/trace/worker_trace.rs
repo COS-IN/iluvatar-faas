@@ -9,9 +9,9 @@ use crate::{
     },
 };
 use anyhow::Result;
+use iluvatar_library::clock::get_global_clock;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::{
-    clock::LocalTime,
     transaction::{gen_tid, TransactionId},
     types::CommunicationMethod,
     utils::config::args_to_json,
@@ -76,7 +76,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
 
         let func_args = serde_json::to_string(&func.sim_invoke_data.as_ref().unwrap())?;
         // TODO: simulated clock
-        let clock = LocalTime::boxed(tid)?;
+        let clock = get_global_clock(tid)?;
 
         // wait_elapsed(&start, invoke.invoke_time_ms);
         loop {
@@ -159,7 +159,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
         ),
     };
     let mut handles: Vec<JoinHandle<Result<CompletedWorkerInvocation>>> = Vec::new();
-    let clock = LocalTime::boxed(tid)?;
+    let clock = get_global_clock(tid)?;
 
     info!("starting live trace run");
     let start = SystemTime::now();

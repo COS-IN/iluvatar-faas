@@ -1,5 +1,6 @@
 use crate::tokio_utils::compute_sim_tick_dur;
 use crate::transaction::TransactionId;
+use crate::utils::is_simulation;
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::ops::Add;
@@ -8,7 +9,6 @@ use time::format_description::FormatItem;
 use time::{format_description, OffsetDateTime, UtcOffset};
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
-use crate::utils::is_simulation;
 
 pub type Clock = Arc<dyn GlobalClock + Send + Sync>;
 static CLOCK: Mutex<Option<Clock>> = Mutex::new(None);
@@ -107,7 +107,7 @@ fn format_offset_time(clock: &dyn GlobalClock, w: &mut Writer<'_>) -> std::fmt::
 /// A struct to serve timestamps as Local time
 /// To be used everywhere timestamps are logged externally
 /// This matches the times logged in `perf`
-pub struct LocalTime {
+struct LocalTime {
     format: Vec<FormatItem<'static>>,
     local_offset: UtcOffset,
 }
@@ -159,7 +159,7 @@ impl FormatTime for LocalTime {
 /// A struct to serve timestamps as Local time
 /// To be used everywhere timestamps are logged externally
 /// This matches the times logged in `perf`
-pub struct SimulatedTime {
+struct SimulatedTime {
     format: Vec<FormatItem<'static>>,
     start_time: OffsetDateTime,
 }
