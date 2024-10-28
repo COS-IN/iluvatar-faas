@@ -717,7 +717,9 @@ mod tests {
     }
 
     async fn svc(overrides: Option<Vec<(String, String)>>) -> Arc<ContainerManager> {
-        iluvatar_library::utils::set_simulation();
+        let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
+        iluvatar_library::utils::set_simulation(tid)
+            .unwrap_or_else(|e| panic!("Failed to make system clock: {:?}", e));
         let cfg = Configuration::boxed(&Some("tests/resources/worker.dev.json"), overrides)
             .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
         let fac = IsolationFactory::new(cfg.clone())

@@ -7,6 +7,36 @@ use tracing_subscriber::fmt::time::FormatTime;
 use crate::tokio_utils::compute_sim_tick_dur;
 use crate::transaction::TransactionId;
 use anyhow::Result;
+use parking_lot::Mutex;
+
+pub type Clock = Arc<dyn GlobalClock + Send + Sync>;
+static CLOCK: Mutex<Option<Clock>> = Mutex::new(None);
+static LEN_ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::Relaxed;
+/// Number of simulation ticks so far.
+static SIM_TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Gets the current global clock. Creates a new [LocalTime] if not present.
+pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
+    if let Some(rt) = CLOCK.lock().as_ref() {
+        return Ok(rt.clone());
+    }
+    let clk = LocalTime::boxed(tid)?;
+    *CLOCK.lock() = Some(clk.clone());
+    Ok(clk)
+}
+/// Sets the global clock to be a newly created [SimulatedTime] clock.
+pub fn set_sim_clock(tid: &TransactionId) -> Result<Clock> {
+    let clk = SimulatedTime::boxed(tid)?;
+    *CLOCK.lock() = Some(clk.clone());
+    Ok(clk)
+}
+/// Tick the simulation clock by 1.
+pub fn tick_sim_clock() -> u64 {
+    SIM_TICKS.fetch_add(1, LEN_ORDERING)
+}
+fn get_sim_clock_ticks() -> u64 {
+    SIM_TICKS.load(LEN_ORDERING)
+}
 
 pub fn timezone(tid: &TransactionId) -> Result<String> {
     let mut tz_str = match std::fs::read_to_string("/etc/timezone") {
@@ -28,7 +58,6 @@ pub fn timezone(tid: &TransactionId) -> Result<String> {
     }
 }
 
-pub type Clock = Arc<dyn GlobalClock>;
 pub trait GlobalClock {
     /// The number of nanoseconds since the unix epoch start, as a String.
     fn now_str(&self) -> Result<String>;
@@ -110,10 +139,9 @@ impl FormatTime for LocalTime {
 pub struct SimulatedTime {
     format: Vec<FormatItem<'static>>,
     start_time: OffsetDateTime,
-    elapsed_ticks: u64
 }
 impl SimulatedTime {
-    pub fn new(tid: &TransactionId) -> anyhow::Result<Self> {
+    pub fn new(tid: &TransactionId) -> Result<Self> {
         let format = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]")?;
         let now = OffsetDateTime::now_utc();
         let tz_str = timezone(tid)?;
@@ -128,17 +156,12 @@ impl SimulatedTime {
         let offset = UtcOffset::from_whole_seconds(tm.ut_offset())?;
         Ok(Self {
             format,
-            elapsed_ticks: 0,
             start_time: OffsetDateTime::now_utc().to_offset(offset)
         })
     }
-    pub fn boxed(tid: &TransactionId) -> anyhow::Result<Box<Self>> {
+    pub fn boxed(tid: &TransactionId) -> Result<Arc<Self>> {
         let r = Self::new(tid)?;
-        Ok(Box::new(r))
-    }
-    pub fn tick(&self) {
-        // TODO: increment tick
-        // self.elapsed_ticks += 1;
+        Ok(Arc::new(r))
     }
 }
 impl Clone for SimulatedTime {
@@ -146,7 +169,6 @@ impl Clone for SimulatedTime {
         Self {
             format: self.format.clone(),
             start_time: self.start_time,
-            elapsed_ticks: self.elapsed_ticks,
         }
     }
 }
@@ -158,8 +180,7 @@ impl GlobalClock for SimulatedTime {
     }
     /// The number of nanoseconds since the unix epoch start
     fn now(&self) -> OffsetDateTime {
-        // TODO: variable tick duration
-        self.start_time.add(compute_sim_tick_dur(self.elapsed_ticks))
+        self.start_time.add(compute_sim_tick_dur(get_sim_clock_ticks()))
     }
 
     fn format_time(&self, time: OffsetDateTime) -> anyhow::Result<String> {

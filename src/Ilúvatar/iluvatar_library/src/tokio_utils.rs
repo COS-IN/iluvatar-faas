@@ -16,6 +16,7 @@ pub fn compute_sim_tick_dur(sim_duration: u64) -> Duration {
 
 pub async fn sim_scheduler_tick() {
     tokio::time::advance(compute_sim_tick_dur(1)).await;
+    crate::clock::tick_sim_clock();
     tokio::task::yield_now().await;
 }
 

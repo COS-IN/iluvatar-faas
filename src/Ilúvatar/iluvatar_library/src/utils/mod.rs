@@ -54,8 +54,10 @@ lazy_static::lazy_static! {
   pub static ref SIMULATION_CHECK: parking_lot::Mutex<bool>  = parking_lot::Mutex::new(false);
 }
 /// Set globally that the system is being run as a simulation
-pub fn set_simulation() {
+pub fn set_simulation(tid: &TransactionId) -> Result<()> {
     *SIMULATION_CHECK.lock() = true;
+    crate::clock::set_sim_clock(tid)?;
+    Ok(())
 }
 /// A method for anyone to check if the system is being run as a simulation
 pub fn is_simulation() -> bool {

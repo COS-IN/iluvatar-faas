@@ -199,7 +199,8 @@ fn run_invokes(
 }
 
 pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
-    iluvatar_library::utils::set_simulation();
+    let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
+    iluvatar_library::utils::set_simulation(&tid)?;
     let api_factory = ControllerAPIFactory::boxed();
 
     let worker_config_pth = args
@@ -212,7 +213,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Must have 'controller_config' for sim"))?
         .clone();
-    let threaded_rt = build_tokio_runtime(&None, &None, &None, &gen_tid())?;
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, &tid)?;
 
     let tid: &TransactionId = &SIMULATION_START_TID;
     let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None)?;

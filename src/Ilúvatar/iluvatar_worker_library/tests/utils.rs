@@ -54,8 +54,9 @@ pub async fn full_sim_invoker(
     Option<Arc<GpuResourceTracker>>,
     Arc<CpuResourceTracker>,
 ) {
+    let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
-    iluvatar_library::utils::set_simulation();
+    iluvatar_library::utils::set_simulation(tid).unwrap();
     let log = log.unwrap_or(false);
     let worker_name = "TEST".to_string();
     let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
@@ -140,8 +141,9 @@ pub async fn sim_invoker_svc(
     Arc<RegistrationService>,
     Arc<CharacteristicsMap>,
 ) {
+    let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
-    iluvatar_library::utils::set_simulation();
+    iluvatar_library::utils::set_simulation(tid).unwrap();
     let worker_name = "TEST".to_string();
     let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
     let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides)
