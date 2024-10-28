@@ -20,6 +20,7 @@ use crate::{
     worker_api::worker_config::GPUResourceConfig,
 };
 use anyhow::Result;
+use iluvatar_library::clock::GlobalClock;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, types::DroppableToken};
 use iluvatar_library::{
     clock::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
@@ -33,7 +34,6 @@ use std::{
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
-use iluvatar_library::clock::GlobalClock;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();

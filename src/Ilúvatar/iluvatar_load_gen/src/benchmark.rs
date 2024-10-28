@@ -3,13 +3,13 @@ use crate::utils::*;
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{clock::LocalTime, transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime};
 use std::{collections::HashMap, path::Path};
-use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use tracing::{error, info};
 
 #[derive(Debug, serde::Deserialize, Clone)]
@@ -217,7 +217,11 @@ pub async fn benchmark_controller(
     Ok(())
 }
 
-pub fn benchmark_worker(threaded_rt: &TokioRuntime, functions: Vec<ToBenchmarkFunction>, args: BenchmarkArgs) -> Result<()> {
+pub fn benchmark_worker(
+    threaded_rt: &TokioRuntime,
+    functions: Vec<ToBenchmarkFunction>,
+    args: BenchmarkArgs,
+) -> Result<()> {
     let mut full_data = BenchmarkStore::new();
     for f in &functions {
         full_data

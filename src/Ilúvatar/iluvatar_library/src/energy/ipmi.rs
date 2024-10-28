@@ -1,4 +1,5 @@
 use super::EnergyConfig;
+use crate::clock::GlobalClock;
 use crate::threading::os_thread;
 use crate::{
     bail_error,
@@ -10,7 +11,6 @@ use anyhow::{anyhow, bail, Result};
 use parking_lot::RwLock;
 use std::{fs::File, io::Write, path::Path, sync::Arc, thread::JoinHandle};
 use tracing::{error, trace};
-use crate::clock::GlobalClock;
 
 pub struct IPMI {
     ipmi_pass_file: String,

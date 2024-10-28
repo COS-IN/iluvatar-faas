@@ -1,4 +1,5 @@
 use super::EnergyConfig;
+use crate::clock::GlobalClock;
 use crate::{
     bail_error,
     clock::LocalTime,
@@ -10,7 +11,6 @@ use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
 use std::{fs::File, io::Write, path::Path, sync::Arc, thread::JoinHandle};
 use tracing::error;
-use crate::clock::GlobalClock;
 
 pub struct ProcessMonitor {
     pid: String,

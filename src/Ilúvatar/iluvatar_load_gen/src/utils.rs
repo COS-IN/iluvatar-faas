@@ -1,6 +1,8 @@
 use crate::benchmark::BenchmarkStore;
 use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
+use iluvatar_library::clock::GlobalClock;
+use iluvatar_library::tokio_utils::TokioRuntime;
 use iluvatar_library::{
     clock::LocalTime,
     transaction::{gen_tid, TransactionId},
@@ -11,6 +13,7 @@ use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResp
 use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
+use std::time::SystemTime;
 use std::{
     collections::HashMap,
     fs::File,
@@ -19,10 +22,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use std::time::SystemTime;
 use tokio::task::JoinHandle;
-use iluvatar_library::clock::GlobalClock;
-use iluvatar_library::tokio_utils::TokioRuntime;
 use tracing::error;
 
 lazy_static::lazy_static! {
@@ -469,10 +469,11 @@ pub fn wait_elapsed_live(timer: &SystemTime, elapsed: u64) {
     loop {
         match timer.elapsed() {
             Ok(t) => {
-                let diff = (elapsed as u128) - t.as_millis();
-                if diff <= 0 {
+                
+                if  t.as_millis() <= elapsed as u128 {
                     break;
                 } else {
+                    let diff = (elapsed as u128) - t.as_millis();
                     std::thread::sleep(Duration::from_millis(diff as u64 / 2));
                 }
             }

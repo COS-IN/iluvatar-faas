@@ -14,6 +14,7 @@ use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResou
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::clock::GlobalClock;
 use iluvatar_library::{
     clock::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
 };
@@ -25,7 +26,6 @@ use std::{
 use time::OffsetDateTime;
 use tokio::sync::{mpsc::UnboundedSender, Notify};
 use tracing::{debug, error, info, warn};
-use iluvatar_library::clock::GlobalClock;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();

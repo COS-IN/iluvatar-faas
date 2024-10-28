@@ -10,13 +10,16 @@ pub type TokioRuntime = Arc<Runtime>;
 /// All events in simulation need to happen on same runtime. Duplicate it and share under the hood.
 static SIM_RUNTIME: Mutex<Option<TokioRuntime>> = Mutex::new(None);
 
-pub fn compute_sim_tick_dur(sim_duration: u64) -> Duration {
-    Duration::from_millis(sim_duration)
+/// Calculate the duration of the given number of simulation ticks
+pub fn compute_sim_tick_dur(sim_ticks: u64) -> Duration {
+    Duration::from_millis(sim_ticks)
 }
 
+/// Increment the simulation one tick.
+/// Yields back to the Tokio scheduler to allow outstanding tasks to be polled
 pub async fn sim_scheduler_tick() {
-    tokio::time::advance(compute_sim_tick_dur(1)).await;
     crate::clock::tick_sim_clock();
+    tokio::time::advance(compute_sim_tick_dur(1)).await;
     tokio::task::yield_now().await;
 }
 

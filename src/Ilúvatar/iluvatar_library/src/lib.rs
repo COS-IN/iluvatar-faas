@@ -11,6 +11,7 @@ pub mod utils;
 #[macro_use]
 pub mod macros;
 pub mod characteristics_map;
+pub mod clock;
 pub mod continuation;
 pub mod cpu_interaction;
 pub mod energy;
@@ -20,7 +21,6 @@ pub mod mindicator;
 pub mod threading;
 pub mod tokio_utils;
 pub mod types;
-pub mod clock;
 
 /// The number of logical processors on the system
 /// * `all` - returns all the processors on the system when true.

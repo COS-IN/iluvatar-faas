@@ -1,5 +1,6 @@
 use super::{CsvInvocation, TraceArgs};
 use crate::trace::prepare_function_args;
+use crate::utils::wait_elapsed_live;
 use crate::{
     trace::trace_utils::worker_prepare_functions,
     utils::{
@@ -16,10 +17,9 @@ use iluvatar_library::{
     utils::config::args_to_json,
 };
 use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_config::Configuration};
-use std::time::SystemTime;
 use std::path::Path;
+use std::time::SystemTime;
 use tokio::task::JoinHandle;
-use crate::utils::wait_elapsed_live;
 use tracing::info;
 
 pub fn trace_worker(args: TraceArgs) -> Result<()> {
@@ -82,8 +82,8 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
         loop {
             match start.elapsed() {
                 Ok(t) => {
-                    let diff = (invoke.invoke_time_ms as u128) - t.as_millis();
-                    if diff <= 0 {
+                    // let diff = (invoke.invoke_time_ms as u128) - t.as_millis();
+                    if t.as_millis() <= invoke.invoke_time_ms as u128 {
                         break;
                     } else {
                         // tokio::time::sleep(Duration::from_millis(diff as u64 / 2)).await;
@@ -178,7 +178,6 @@ fn live_worker(args: TraceArgs) -> Result<()> {
         let f_c = func.func_name.clone();
         let func_args = args_to_json(&prepare_function_args(func, args.load_type))?;
         wait_elapsed_live(&start, invoke.invoke_time_ms);
-
 
         let clk_clone = clock.clone();
         let fct_cln = factory.clone();

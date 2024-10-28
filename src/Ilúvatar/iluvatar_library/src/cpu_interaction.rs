@@ -1,11 +1,11 @@
 use crate::{bail_error, nproc, threading, transaction::TransactionId};
 use anyhow::Result;
+use std::io::Read;
 use std::thread::JoinHandle;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use std::io::Read;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{error, info};
 
@@ -168,7 +168,7 @@ pub struct CPUUtilInstant {
     cpu_guest: f64,
     cpu_guest_nice: f64,
 }
-impl Default for CPUUtilInstant { 
+impl Default for CPUUtilInstant {
     fn default() -> Self {
         Self {
             read_time: std::time::Instant::now(),

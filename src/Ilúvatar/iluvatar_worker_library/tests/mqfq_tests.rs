@@ -2,6 +2,7 @@
 pub mod utils;
 
 use crate::utils::{short_sim_args, sim_args, sim_invoker_svc};
+use iluvatar_library::clock::GlobalClock;
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{
@@ -23,7 +24,6 @@ use rstest::rstest;
 use std::collections::HashMap;
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
-use iluvatar_library::clock::GlobalClock;
 
 static TIMEOUT_SEC: f64 = 2.0;
 

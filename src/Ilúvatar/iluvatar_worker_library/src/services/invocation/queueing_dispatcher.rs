@@ -12,6 +12,7 @@ use crate::services::{containers::containermanager::ContainerManager, invocation
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::clock::GlobalClock;
 use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{clock::LocalTime, transaction::TransactionId, types::Compute};
 use parking_lot::RwLock;
@@ -19,7 +20,6 @@ use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{debug, info};
-use iluvatar_library::clock::GlobalClock;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();

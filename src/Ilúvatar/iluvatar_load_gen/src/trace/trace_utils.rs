@@ -8,6 +8,7 @@ use crate::{
     },
 };
 use anyhow::Result;
+use iluvatar_library::tokio_utils::TokioRuntime;
 use iluvatar_library::{
     transaction::TransactionId,
     types::{CommunicationMethod, Compute, Isolation},
@@ -25,7 +26,6 @@ use std::{
     time::Duration,
 };
 use tokio::task::JoinHandle;
-use iluvatar_library::tokio_utils::TokioRuntime;
 use tracing::info;
 
 fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms: u32) -> u32 {

@@ -10,6 +10,7 @@ use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
+use iluvatar_library::clock::GlobalClock;
 use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::utils::missing_default;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, clock::LocalTime, transaction::TransactionId};
@@ -26,7 +27,6 @@ use std::time::{Duration, Instant};
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
-use iluvatar_library::clock::GlobalClock;
 
 lazy_static::lazy_static! {
   pub static ref MQFQ_GPU_QUEUE_WORKER_TID: TransactionId = "MQFQ_GPU_Queue".to_string();

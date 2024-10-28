@@ -1,13 +1,14 @@
+use crate::tokio_utils::compute_sim_tick_dur;
+use crate::transaction::TransactionId;
+use anyhow::Result;
+use parking_lot::Mutex;
 use std::ops::Add;
 use std::sync::Arc;
 use time::format_description::FormatItem;
 use time::{format_description, OffsetDateTime, UtcOffset};
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
-use crate::tokio_utils::compute_sim_tick_dur;
-use crate::transaction::TransactionId;
-use anyhow::Result;
-use parking_lot::Mutex;
+use crate::utils::is_simulation;
 
 pub type Clock = Arc<dyn GlobalClock + Send + Sync>;
 static CLOCK: Mutex<Option<Clock>> = Mutex::new(None);
@@ -15,18 +16,15 @@ static LEN_ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::
 /// Number of simulation ticks so far.
 static SIM_TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Gets the current global clock. Creates a new [LocalTime] if not present.
+/// Gets the current global clock. Creates a new [Clock] if not present.
 pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
     if let Some(rt) = CLOCK.lock().as_ref() {
         return Ok(rt.clone());
     }
-    let clk = LocalTime::boxed(tid)?;
-    *CLOCK.lock() = Some(clk.clone());
-    Ok(clk)
-}
-/// Sets the global clock to be a newly created [SimulatedTime] clock.
-pub fn set_sim_clock(tid: &TransactionId) -> Result<Clock> {
-    let clk = SimulatedTime::boxed(tid)?;
+    let clk: Clock = match is_simulation() {
+        true => LocalTime::boxed(tid)?,
+        false => SimulatedTime::boxed(tid)?,
+    };
     *CLOCK.lock() = Some(clk.clone());
     Ok(clk)
 }
@@ -67,13 +65,15 @@ pub trait GlobalClock: Send + Sync {
     fn format_time(&self, time: OffsetDateTime) -> Result<String>;
 }
 impl FormatTime for dyn GlobalClock {
+    #[inline(always)]
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
         format_offset_time(self, w)
     }
 }
+/// Dummy wrapper for [Clock] to make logging framework happy.
 pub struct ClockWrapper(pub Arc<dyn GlobalClock>);
-impl FormatTime for ClockWrapper
-{
+impl FormatTime for ClockWrapper {
+    #[inline(always)]
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
         format_offset_time(self, w)
     }
@@ -150,6 +150,7 @@ impl GlobalClock for LocalTime {
     }
 }
 impl FormatTime for LocalTime {
+    #[inline(always)]
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
         format_offset_time(self, w)
     }
@@ -178,7 +179,7 @@ impl SimulatedTime {
         let offset = UtcOffset::from_whole_seconds(tm.ut_offset())?;
         Ok(Self {
             format,
-            start_time: OffsetDateTime::now_utc().to_offset(offset)
+            start_time: OffsetDateTime::now_utc().to_offset(offset),
         })
     }
     pub fn boxed(tid: &TransactionId) -> Result<Arc<Self>> {
@@ -210,6 +211,7 @@ impl GlobalClock for SimulatedTime {
     }
 }
 impl FormatTime for SimulatedTime {
+    #[inline(always)]
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
         format_offset_time(self, w)
     }
