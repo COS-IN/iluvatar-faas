@@ -94,10 +94,14 @@ fn map_from_benchmark(
                 println!("{} mapped to self name in benchmark", func.func_name);
                 func.chosen_name = Some(name);
             }
-        } else if bench.data.contains_key(&func.func_name) && func.image_name.is_some() {
+            println!("chosen_name A {} {:?}", _last, elements);
+        }
+        if bench.data.contains_key(&func.func_name) && func.image_name.is_some() && func.chosen_name.is_none() {
             println!("{} mapped to exact name in benchmark", func.func_name);
             func.chosen_name = Some(func.func_name.clone());
-        } else {
+            println!("chosen_name B");
+        }
+        if func.chosen_name.is_none() {
             let device_data: ComputeChoiceList = choose_bench_data_for_func(func, bench)?;
             let chosen = match device_data.iter().min_by(|a, b| safe_cmp(&a.1, &b.1)) {
                 Some(n) => n,
@@ -124,6 +128,7 @@ fn map_from_benchmark(
                 func.chosen_name = Some(chosen_name);
                 func.image_name = Some(chosen_image);
             }
+            println!("chosen_name C {:?}", func.image_name);
         }
         if func.prewarms.is_none() {
             let prewarms = compute_prewarms(func, default_prewarms, max_prewarms);
@@ -131,7 +136,7 @@ fn map_from_benchmark(
             total_prewarms += prewarms;
         }
         match &func.chosen_name {
-            None => (),
+            None => println!("not filling out sim_invoke_data"),
             Some(name) => {
                 let mut sim_data = HashMap::new();
                 for compute in func.parsed_compute.unwrap().into_iter() {
@@ -180,7 +185,7 @@ fn map_from_args(
 }
 
 pub fn map_functions_to_prep(
-    runtype: RunType,
+    _runtype: RunType,
     load_type: LoadType,
     func_json_data_path: &Option<String>,
     funcs: &mut HashMap<String, Function>,
@@ -197,9 +202,9 @@ pub fn map_functions_to_prep(
             Some(c) => Some(Isolation::try_from(c)?),
             None => Some(Isolation::CONTAINERD),
         };
-        if runtype == RunType::Simulation && v.image_name.is_none() {
-            v.image_name = Some("SimImage".to_owned());
-        }
+        // if runtype == RunType::Simulation && v.image_name.is_none() {
+        //     v.image_name = Some("SimImage".to_owned());
+        // }
     }
     match load_type {
         LoadType::Lookbusy => map_from_lookbusy(funcs, default_prewarms, max_prewarms),

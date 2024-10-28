@@ -19,6 +19,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use std::time::SystemTime;
 use tokio::task::JoinHandle;
 use iluvatar_library::tokio_utils::TokioRuntime;
 
@@ -460,6 +461,35 @@ pub async fn worker_clean(
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
     api.clean(tid.clone()).await
+}
+
+pub fn wait_elapsed_live(timer: &SystemTime, elapsed: u64) {
+    loop {
+        match timer.elapsed() {
+            Ok(t) => {
+                let diff = (elapsed as u128) - t.as_millis();
+                if diff <= 0 {
+                    break;
+                } else {
+                    std::thread::sleep(Duration::from_millis(diff as u64 / 2));
+                }
+            }
+            Err(_) => (),
+        }
+    }
+}
+
+pub async fn wait_elapsed_sim(timer: &SystemTime, elapsed: u64) {
+    loop {
+        match timer.elapsed() {
+            Ok(t) => {
+                if t.as_millis() >= elapsed as u128 {
+                    break;
+                }
+            }
+            Err(_) => (),
+        }
+    }
 }
 
 /// How to handle per-thread errors that appear when joining load workers

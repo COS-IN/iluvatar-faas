@@ -16,9 +16,10 @@ use iluvatar_library::{
     utils::config::args_to_json,
 };
 use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_config::Configuration};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use std::{path::Path, sync::Arc};
 use tokio::task::JoinHandle;
+use crate::utils::wait_elapsed_live;
 
 pub fn trace_worker(args: TraceArgs) -> Result<()> {
     match args.setup {
@@ -37,6 +38,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
     let server_config = Configuration::boxed(&Some(&worker_config_pth), None)?;
     let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
+    let _rt_guard = threaded_rt.enter();
     let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
 
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
@@ -71,14 +73,19 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
             )
         })?;
 
-        let func_args = serde_json::to_string(&func.sim_invoke_data.as_ref().unwrap()).unwrap();
-        let clock = Arc::new(LocalTime::new(tid)?);
+        let func_args = serde_json::to_string(&func.sim_invoke_data.as_ref().unwrap())?;
+        // TODO: simulated clock
+        let clock = LocalTime::new(tid)?;
 
+        // wait_elapsed(&start, invoke.invoke_time_ms);
         loop {
             match start.elapsed() {
                 Ok(t) => {
-                    if t.as_millis() >= invoke.invoke_time_ms as u128 {
+                    let diff = (invoke.invoke_time_ms as u128) - t.as_millis();
+                    if diff <= 0 {
                         break;
+                    } else {
+                        tokio::time::sleep(Duration::from_millis(diff as u64 / 2)).await;
                     }
                 }
                 Err(_) => (),
@@ -151,7 +158,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
         ),
     };
     let mut handles: Vec<JoinHandle<Result<CompletedWorkerInvocation>>> = Vec::new();
-    let clock = Arc::new(LocalTime::new(tid)?);
+    let clock = LocalTime::new(tid)?;
 
     println!("{} starting live trace run", clock.now_str()?);
     let start = SystemTime::now();
@@ -169,16 +176,8 @@ fn live_worker(args: TraceArgs) -> Result<()> {
         let h_c = args.host.clone();
         let f_c = func.func_name.clone();
         let func_args = args_to_json(&prepare_function_args(func, args.load_type))?;
-        loop {
-            match start.elapsed() {
-                Ok(t) => {
-                    if t.as_millis() >= invoke.invoke_time_ms as u128 {
-                        break;
-                    }
-                }
-                Err(_) => (),
-            }
-        }
+        wait_elapsed_live(&start, invoke.invoke_time_ms);
+
 
         let clk_clone = clock.clone();
         let fct_cln = factory.clone();

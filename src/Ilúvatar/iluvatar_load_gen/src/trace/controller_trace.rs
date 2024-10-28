@@ -130,7 +130,7 @@ fn run_invokes(
     host: &str,
     comm: CommunicationMethod,
 ) -> Result<()> {
-    let clock = Arc::new(LocalTime::new(&gen_tid())?);
+    let clock = LocalTime::new(&gen_tid())?;
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     map_functions_to_prep(
         crate::utils::RunType::Simulation,

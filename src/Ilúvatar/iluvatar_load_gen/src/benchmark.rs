@@ -144,7 +144,7 @@ pub async fn benchmark_controller(
     for function in &functions {
         let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
         println!("{}", function.name);
-        let clock = Arc::new(LocalTime::new(&gen_tid())?);
+        let clock = LocalTime::new(&gen_tid())?;
         let reg_tid = gen_tid();
         let api = factory
             .get_controller_api(&host, port, CommunicationMethod::RPC, &reg_tid)
@@ -223,7 +223,7 @@ pub fn benchmark_worker(threaded_rt: &TokioRuntime, functions: Vec<ToBenchmarkFu
     }
     let mut invokes = vec![];
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
-    let clock = Arc::new(LocalTime::new(&gen_tid())?);
+    let clock = LocalTime::new(&gen_tid())?;
     let mut cold_repeats = args.cold_iters;
 
     for function in &functions {

@@ -233,7 +233,7 @@ pub struct RaplMonitor {
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
     log_file: RwLock<File>,
-    timer: LocalTime,
+    timer: Arc<LocalTime>,
     latest_reading: RwLock<(i128, i128, i128)>,
 }
 impl RaplMonitor {

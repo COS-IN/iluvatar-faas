@@ -3,11 +3,21 @@ use crate::transaction::TransactionId;
 use crate::utils::missing_or_zero_default;
 use parking_lot::Mutex;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::runtime::Runtime;
 
 pub type TokioRuntime = Arc<Runtime>;
 /// All events in simulation need to happen on same runtime. Duplicate it and share under the hood.
 static SIM_RUNTIME: Mutex<Option<TokioRuntime>> = Mutex::new(None);
+
+pub fn compute_sim_tick_dur(sim_duration: u64) -> Duration {
+    Duration::from_millis(sim_duration)
+}
+
+pub async fn sim_scheduler_tick() {
+    tokio::time::advance(compute_sim_tick_dur(1)).await;
+    tokio::task::yield_now().await;
+}
 
 pub fn build_tokio_runtime(
     tokio_event_interval: &Option<u32>,

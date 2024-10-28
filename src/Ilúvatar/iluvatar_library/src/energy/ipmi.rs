@@ -78,7 +78,7 @@ pub struct IPMIMonitor {
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
     log_file: RwLock<File>,
-    timer: LocalTime,
+    timer: Arc<LocalTime>,
     latest_reading: RwLock<(i128, f64)>,
 }
 impl IPMIMonitor {

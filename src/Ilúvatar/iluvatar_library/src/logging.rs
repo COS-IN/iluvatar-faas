@@ -4,12 +4,15 @@ use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
 use anyhow::Result;
 use std::{path::PathBuf, sync::Arc};
+use std::ops::Add;
 use time::format_description::FormatItem;
 use time::{format_description, OffsetDateTime, UtcOffset};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::filter::EnvFilter;
-use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::fmt::format::{FmtSpan, Writer};
 use tracing_subscriber::{prelude::*, Registry};
+use tracing_subscriber::fmt::time::FormatTime;
+use crate::tokio_utils::compute_sim_tick_dur;
 
 #[derive(Debug, serde::Deserialize)]
 /// Details about how/where to log to
@@ -112,27 +115,43 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
         }
     };
 
-    let writer_layer = tracing_subscriber::fmt::layer()
-        .with_span_events(str_to_span(&config.spanning))
-        .with_timer(LocalTime::new(tid)?)
-        .with_writer(non_blocking);
-    match config.directory {
-        None => layers.with(writer_layer).init(),
-        Some(_) => layers.with(writer_layer.json()).init(),
-    };
+    // This is ugly, but there isn't an alternative
+    // https://github.com/tokio-rs/tracing/issues/1846
+    // Bad trait bound on `with_timer` causes compile failure if using Arc<dyn FormatTime>
+    match crate::utils::is_simulation() {
+        true => {
+            let writer_layer = tracing_subscriber::fmt::layer()
+                .with_span_events(str_to_span(&config.spanning))
+                .with_timer(SimulatedTime::new(tid)?)
+                .with_writer(non_blocking);
+            match config.directory {
+                None => layers.with(writer_layer).init(),
+                Some(_) => layers.with(writer_layer.json()).init(),
+            };
+        },
+        false => {
+            let writer_layer = tracing_subscriber::fmt::layer()
+                .with_span_events(str_to_span(&config.spanning))
+                .with_timer(LocalTime::new(tid)?)
+                .with_writer(non_blocking);
+            match config.directory {
+                None => layers.with(writer_layer).init(),
+                Some(_) => layers.with(writer_layer.json()).init(),
+            };   
+        }
+    }
     Ok(drops)
 }
 
 pub fn timezone(tid: &TransactionId) -> Result<String> {
     let mut tz_str = match std::fs::read_to_string("/etc/timezone") {
         Ok(t) => t,
-        Err(e) => bail_error!(tid=%tid, error=%e, "/etc/timezone doesn ot exist!!"),
+        Err(e) => bail_error!(tid=%tid, error=%e, "/etc/timezone is missing!!"),
     };
     tz_str.truncate(tz_str.trim_end().len());
-    match tzdb::tz_by_name(&tz_str) {
-        Some(_) => return Ok(tz_str),
-        None => (),
-    };
+    if tzdb::tz_by_name(&tz_str).is_some() {
+        return Ok(tz_str);
+    }
     let sections: Vec<&str> = tz_str.split('/').collect();
     if sections.len() == 2 {
         anyhow::bail!("Unknown timezome string {}", tz_str)
@@ -142,6 +161,31 @@ pub fn timezone(tid: &TransactionId) -> Result<String> {
         Some(_) => Ok(tz_str_2),
         None => anyhow::bail!("local timezone string was invalid: {}", tz_str),
     }
+}
+
+pub type Clock = Arc<dyn GlobalClock>;
+pub trait GlobalClock {
+    /// The number of nanoseconds since the unix epoch start, as a String.
+    fn now_str(&self) -> Result<String>;
+    /// The number of nanoseconds since the unix epoch start.
+    fn now(&self) -> OffsetDateTime;
+    /// Format the given time
+    fn format_time(&self, time: OffsetDateTime) -> Result<String>;
+}
+impl FormatTime for dyn GlobalClock {
+    fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
+        format_offset_time(self, w)
+    }
+}
+fn format_offset_time(clock: &dyn GlobalClock, w: &mut Writer<'_>) -> std::fmt::Result {
+    let s = match clock.now_str() {
+        Ok(s) => s,
+        Err(e) => {
+            println!("time formatting error: {}", e);
+            return Err(std::fmt::Error {});
+        }
+    };
+    w.write_str(s.as_str())
 }
 
 /// A struct to serve timestamps as Local time
@@ -185,15 +229,91 @@ impl LocalTime {
         Ok(time.format(&self.format)?)
     }
 }
-impl tracing_subscriber::fmt::time::FormatTime for LocalTime {
-    fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
-        let s = match self.now_str() {
-            Ok(s) => s,
-            Err(e) => {
-                println!("time formatting error: {}", e);
-                return Err(std::fmt::Error {});
-            }
+impl GlobalClock for LocalTime {
+    /// The number of nanoseconds since the unix epoch start
+    /// As a String
+    fn now_str(&self) -> Result<String> {
+        GlobalClock::format_time(self, self.now())
+    }
+    /// The number of nanoseconds since the unix epoch start
+    fn now(&self) -> OffsetDateTime {
+        OffsetDateTime::now_utc().to_offset(self.local_offset)
+    }
+
+    fn format_time(&self, time: OffsetDateTime) -> Result<String> {
+        Ok(time.format(&self.format)?)
+    }
+}
+impl FormatTime for LocalTime {
+    fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
+        format_offset_time(self, w)
+    }
+}
+
+/// A struct to serve timestamps as Local time
+/// To be used everywhere timestamps are logged externally
+/// This matches the times logged in `perf`
+pub struct SimulatedTime {
+    format: Vec<FormatItem<'static>>,
+    start_time: OffsetDateTime,
+    elapsed_ticks: u64
+}
+impl SimulatedTime {
+    pub fn new(tid: &TransactionId) -> Result<Self> {
+        let format = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]")?;
+        let now = OffsetDateTime::now_utc();
+        let tz_str = timezone(tid)?;
+        let time_zone = match tzdb::tz_by_name(&tz_str) {
+            Some(t) => t,
+            None => anyhow::bail!("parsed local timezone string was invalid: {}", tz_str),
         };
-        w.write_str(s.as_str())
+        let tm = match time_zone.find_local_time_type(now.unix_timestamp()) {
+            Ok(t) => t,
+            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to find time zone type"),
+        };
+        let offset = UtcOffset::from_whole_seconds(tm.ut_offset())?;
+        Ok(Self {
+            format,
+            elapsed_ticks: 0,
+            start_time: OffsetDateTime::now_utc().to_offset(offset)
+        })
+    }
+    pub fn boxed(tid: &TransactionId) -> Result<Box<Self>> {
+        let r = Self::new(tid)?;
+        Ok(Box::new(r))
+    }
+    pub fn tick(&self) {
+        // TODO: increment tick
+        // self.elapsed_ticks += 1;
+    }
+}
+impl Clone for SimulatedTime {
+    fn clone(&self) -> Self {
+        Self {
+            format: self.format.clone(),
+            start_time: self.start_time,
+            elapsed_ticks: self.elapsed_ticks,
+        }
+    }
+}
+impl GlobalClock for SimulatedTime {
+    /// The number of nanoseconds since the unix epoch start
+    /// As a String
+    fn now_str(&self) -> Result<String> {
+        GlobalClock::format_time(self, self.now())
+    }
+    /// The number of nanoseconds since the unix epoch start
+    fn now(&self) -> OffsetDateTime {
+        // TODO: variable tick duration
+        self.start_time.add(compute_sim_tick_dur(self.elapsed_ticks))
+    }
+
+    fn format_time(&self, time: OffsetDateTime) -> Result<String> {
+        Ok(time.format(&self.format)?)
+    }
+}
+impl FormatTime for SimulatedTime {
+    fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
+        format_offset_time(self, w)
     }
 }

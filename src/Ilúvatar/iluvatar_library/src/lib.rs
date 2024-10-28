@@ -20,6 +20,7 @@ pub mod mindicator;
 pub mod threading;
 pub mod tokio_utils;
 pub mod types;
+mod clock;
 
 /// The number of logical processors on the system
 /// * `all` - returns all the processors on the system when true.

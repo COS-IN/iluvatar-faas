@@ -170,7 +170,7 @@ async fn scaling_thread(
     let start = SystemTime::now();
     let mut data = Vec::new();
     let mut errors = 0;
-    let clock = Arc::new(LocalTime::new(&gen_tid())?);
+    let clock = LocalTime::new(&gen_tid())?;
     let mut dummy = crate::trace::Function::default();
     loop {
         let tid = format!("{}-{}", thread_id, gen_tid());

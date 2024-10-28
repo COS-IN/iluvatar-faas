@@ -15,7 +15,7 @@ pub struct ProcessMonitor {
     pid: String,
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
-    timer: LocalTime,
+    timer: Arc<LocalTime>,
     log_file: RwLock<File>,
 }
 impl ProcessMonitor {
