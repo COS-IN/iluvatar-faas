@@ -11,7 +11,7 @@ use crate::services::{
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::{Characteristics, Values};
-use iluvatar_library::logging::LocalTime;
+use iluvatar_library::clock::{GlobalClock, LocalTime};
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::time::Instant;

@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::Result;
 use iluvatar_library::{
-    logging::LocalTime,
+    clock::LocalTime,
     transaction::TransactionId,
     types::{CommunicationMethod, Compute, Isolation},
     utils::port::Port,
@@ -26,6 +26,7 @@ use std::{
     time::Duration,
 };
 use tokio::task::JoinHandle;
+use iluvatar_library::clock::GlobalClock;
 use iluvatar_library::tokio_utils::TokioRuntime;
 
 fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms: u32) -> u32 {

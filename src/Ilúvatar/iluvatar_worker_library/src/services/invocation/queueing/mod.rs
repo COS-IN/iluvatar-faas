@@ -266,7 +266,7 @@ impl<T: Ord> PartialEq for MinHeapEnqueuedInvocation<T> {
 #[cfg(test)]
 mod heapstructs {
     use super::*;
-    use iluvatar_library::logging::LocalTime;
+    use iluvatar_library::clock::{GlobalClock, LocalTime};
     use std::collections::{BinaryHeap, HashMap};
 
     fn min_item(name: &str, priority: f64, clock: &LocalTime) -> MinHeapFloat {

@@ -10,15 +10,16 @@ use crate::{
 use anyhow::Result;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::{
-    logging::LocalTime,
+    clock::LocalTime,
     transaction::{gen_tid, TransactionId},
     types::CommunicationMethod,
     utils::config::args_to_json,
 };
 use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_config::Configuration};
-use std::time::{Duration, SystemTime};
-use std::{path::Path, sync::Arc};
+use std::time::SystemTime;
+use std::path::Path;
 use tokio::task::JoinHandle;
+use iluvatar_library::clock::GlobalClock;
 use crate::utils::wait_elapsed_live;
 
 pub fn trace_worker(args: TraceArgs) -> Result<()> {
@@ -75,7 +76,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
 
         let func_args = serde_json::to_string(&func.sim_invoke_data.as_ref().unwrap())?;
         // TODO: simulated clock
-        let clock = LocalTime::new(tid)?;
+        let clock = LocalTime::boxed(tid)?;
 
         // wait_elapsed(&start, invoke.invoke_time_ms);
         loop {
@@ -85,7 +86,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
                     if diff <= 0 {
                         break;
                     } else {
-                        tokio::time::sleep(Duration::from_millis(diff as u64 / 2)).await;
+                        // tokio::time::sleep(Duration::from_millis(diff as u64 / 2)).await;
                     }
                 }
                 Err(_) => (),
@@ -158,7 +159,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
         ),
     };
     let mut handles: Vec<JoinHandle<Result<CompletedWorkerInvocation>>> = Vec::new();
-    let clock = LocalTime::new(tid)?;
+    let clock = LocalTime::boxed(tid)?;
 
     println!("{} starting live trace run", clock.now_str()?);
     let start = SystemTime::now();

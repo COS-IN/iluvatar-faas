@@ -2,7 +2,7 @@ use super::EnergyConfig;
 use crate::threading::os_thread;
 use crate::{
     bail_error,
-    logging::LocalTime,
+    clock::LocalTime,
     transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID},
     utils::execute_cmd_checked,
 };
@@ -10,6 +10,7 @@ use anyhow::{anyhow, bail, Result};
 use parking_lot::RwLock;
 use std::{fs::File, io::Write, path::Path, sync::Arc, thread::JoinHandle};
 use tracing::{error, trace};
+use crate::clock::GlobalClock;
 
 pub struct IPMI {
     ipmi_pass_file: String,
@@ -78,7 +79,7 @@ pub struct IPMIMonitor {
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
     log_file: RwLock<File>,
-    timer: Arc<LocalTime>,
+    timer: LocalTime,
     latest_reading: RwLock<(i128, f64)>,
 }
 impl IPMIMonitor {

@@ -2,7 +2,7 @@ use crate::benchmark::BenchmarkStore;
 use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::{
-    logging::LocalTime,
+    clock::LocalTime,
     transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::{port::Port, timing::TimedExt},
@@ -21,6 +21,7 @@ use std::{
 };
 use std::time::SystemTime;
 use tokio::task::JoinHandle;
+use iluvatar_library::clock::GlobalClock;
 use iluvatar_library::tokio_utils::TokioRuntime;
 
 lazy_static::lazy_static! {

@@ -11,7 +11,7 @@ use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::logging::LocalTime;
+use iluvatar_library::clock::{GlobalClock, LocalTime};
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::threading::EventualItem;
 use iluvatar_library::transaction::TransactionId;

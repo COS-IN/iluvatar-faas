@@ -14,7 +14,7 @@ use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::transaction::{TransactionId, SIMULATION_START_TID};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation};
 use iluvatar_library::utils::config::args_to_json;
-use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port::Port};
+use iluvatar_library::{clock::LocalTime, transaction::gen_tid, utils::port::Port};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 use std::{
@@ -130,7 +130,7 @@ fn run_invokes(
     host: &str,
     comm: CommunicationMethod,
 ) -> Result<()> {
-    let clock = LocalTime::new(&gen_tid())?;
+    let clock = LocalTime::boxed(&gen_tid())?;
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     map_functions_to_prep(
         crate::utils::RunType::Simulation,

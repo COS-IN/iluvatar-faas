@@ -3,7 +3,7 @@ use crate::services::{containers::containermanager::ContainerManager, registrati
 use anyhow::Result;
 use iluvatar_library::{
     bail_error,
-    logging::timezone,
+    clock::timezone,
     transaction::TransactionId,
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };

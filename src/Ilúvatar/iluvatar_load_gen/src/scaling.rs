@@ -9,7 +9,7 @@ use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::{
-    logging::LocalTime,
+    clock::LocalTime,
     transaction::gen_tid,
     types::{Compute, ComputeEnum, Isolation, IsolationEnum, MemSizeMb},
     utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port},
@@ -170,7 +170,7 @@ async fn scaling_thread(
     let start = SystemTime::now();
     let mut data = Vec::new();
     let mut errors = 0;
-    let clock = LocalTime::new(&gen_tid())?;
+    let clock = LocalTime::boxed(&gen_tid())?;
     let mut dummy = crate::trace::Function::default();
     loop {
         let tid = format!("{}-{}", thread_id, gen_tid());

@@ -1,7 +1,7 @@
 use super::EnergyConfig;
 use crate::{
     bail_error,
-    logging::LocalTime,
+    clock::LocalTime,
     threading::os_thread,
     transaction::{TransactionId, ENERGY_LOGGER_PS_TID},
     utils::execute_cmd_checked,
@@ -10,12 +10,13 @@ use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
 use std::{fs::File, io::Write, path::Path, sync::Arc, thread::JoinHandle};
 use tracing::error;
+use crate::clock::GlobalClock;
 
 pub struct ProcessMonitor {
     pid: String,
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
-    timer: Arc<LocalTime>,
+    timer: LocalTime,
     log_file: RwLock<File>,
 }
 impl ProcessMonitor {
