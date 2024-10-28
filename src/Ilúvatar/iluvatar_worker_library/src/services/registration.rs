@@ -106,9 +106,7 @@ impl RegistrationService {
         }
 
         for specific_compute in compute {
-            if (specific_compute == Compute::CPU && self.resources.cpu_resource.count == 0)
-                || (specific_compute == Compute::GPU
-                    && self.resources.gpu_resource.as_ref().map_or(0, |c| c.count) == 0)
+            if (specific_compute == Compute::GPU && self.resources.gpu_resource.as_ref().map_or(0, |c| c.count) == 0)
                 || (specific_compute != Compute::CPU && specific_compute != Compute::GPU)
             {
                 Self::compute_resource_fail(specific_compute)?;

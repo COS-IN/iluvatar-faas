@@ -17,11 +17,9 @@ async fn main() -> anyhow::Result<()> {
 
     let log_config = Arc::new(LoggingConfig {
         level: "debug".to_string(),
-        directory: Some(config.log_folder.clone()),
+        directory: config.log_folder.clone(),
         basename: "energy_monitor".to_string(),
-        spanning: "NONE".to_string(),
-        flame: None,
-        span_energy_monitoring: false,
+        ..Default::default()
     });
     let _guard = start_tracing(log_config, "energy_monitor", tid)?;
 

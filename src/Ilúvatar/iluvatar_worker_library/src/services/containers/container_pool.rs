@@ -92,7 +92,7 @@ impl ContainerPool {
     }
 
     /// Add the container to the pool
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, pool, pool_type), fields(tid=%tid)))]
     fn add_container(&self, container: Container, pool: &Pool, tid: &TransactionId, pool_type: PoolType) {
         debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, pool_type=?pool_type, "Inserting container into pool");
         match pool.get_mut(container.fqdn()) {
@@ -211,7 +211,7 @@ impl ContainerPool {
 
     /// Removes the container if it was found in the pool
     /// Returns [None] if it was not found
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, pool_type, pool), fields(tid=%tid)))]
     fn remove_container_pool(
         &self,
         container: &Container,

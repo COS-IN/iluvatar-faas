@@ -408,7 +408,7 @@ impl GpuQueueingInvoker {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, ctr_lock, cold_time_start), fields(tid=%tid)))]
     async fn invoke<'a>(
         &'a self,
         ctr_lock: &'a ContainerLock,

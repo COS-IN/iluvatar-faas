@@ -12,7 +12,7 @@ use std::{
 use super::energy_layer::DataExtractorVisitor;
 use dashmap::DashMap;
 use parking_lot::RwLock;
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 
 const WORKER_API_TARGET: &str = "iluvatar_worker_library::worker_api::iluvatar_worker";
 const INVOKE_TARGET: &str = "iluvatar_worker_library::services::containers::containerd::containerdstructs";
@@ -124,7 +124,7 @@ impl EnergyMonitorService {
 
         // let overhead_pct = overhead as f64 / tot_time_ns as f64;
         // TODO: push to influx
-        // println!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time_ns, overhead_pct);
+        // debug!("Overhead: {}; Total time: {}; Overhead share: {}", overhead, tot_time_ns, overhead_pct);
         // for (k,v) in function_data.iter() {
         //   let share = *v as f64 / tot_time_ns as f64;
         //   let energy = share * uj as f64;
@@ -165,7 +165,7 @@ impl EnergyMonitorService {
                 "ContainerdContainer::invoke" => {
                     self.invocation_spans.insert(span_id, data);
                 }
-                i => println!("invoke open: {} {}", i, name),
+                i => trace!("invoke open: {} {}", i, name),
             },
             WORKER_API_TARGET => match name {
                 "register" => {
@@ -174,7 +174,7 @@ impl EnergyMonitorService {
                 "invoke" => {
                     self.worker_spans.insert(span_id, data);
                 }
-                i => println!("api open: {} {}", i, name),
+                i => trace!("api open: {} {}", i, name),
             },
             NAMESPACE_TARGET => match name {
                 "monitor_pool" => {
@@ -201,12 +201,12 @@ impl EnergyMonitorService {
                 "ContainerdContainer::invoke" => {
                     self.remove_invoke_transaction(span_id);
                 }
-                i => println!("invoke close: {} {}", i, name),
+                i => trace!("invoke close: {} {}", i, name),
             },
             WORKER_API_TARGET => match name {
                 "register" => self.remove_worker_transaction(span_id),
                 "invoke" => self.remove_worker_transaction(span_id),
-                i => println!("api close: {} {}", i, name),
+                i => trace!("api close: {} {}", i, name),
             },
             NAMESPACE_TARGET => match name {
                 "monitor_pool" => self.remove_worker_transaction(span_id),
@@ -232,7 +232,7 @@ impl EnergyMonitorService {
                 };
                 match s.fqdn() {
                     Some(f) => {
-                        // println!("function {f:?} completed span in {time_ns} ns");
+                        // debug!("function {f:?} completed span in {time_ns} ns");
                         self.invocation_durations
                             .write()
                             .as_mut()

@@ -72,7 +72,7 @@ pub struct ContainerResourceConfig {
     pub concurrent_creation: u32,
 
     /// Configuration to be passed to Docker
-    /// Currently this is also passed to Containerd for repository autentication
+    /// Currently this is also passed to Containerd for repository authentication
     pub docker_config: Option<DockerConfig>,
     /// Settings for the CPU compute resources the worker can use
     pub cpu_resource: Arc<CPUResourceConfig>,
@@ -83,11 +83,9 @@ pub struct ContainerResourceConfig {
 /// Configuration detailing a single type of compute
 pub struct CPUResourceConfig {
     /// number of cores it can use, i.e. number of concurrent functions allowed at once
-    /// If this is set to 0, then allocations of the resource will not be managed.
-    /// Depending on resource type, will not be allowed (i.e. GPU must have exact number)
+    /// If this is set to 0, then allocations of CPUs will not be limited
     pub count: u32,
-    /// If provided and greated than [Self::count], the resource will be over-subscribed to that limit
-    /// Not all resources support oversubscription
+    /// If provided and greater than [Self::count], the resource will be over-subscribed to that limit
     pub max_oversubscribe: Option<u32>,
     /// Frequency at which to check the system load and optionally increase the allowed invocation concurrency.
     /// Used with [Self::max_oversubscribe], disabled if 0
@@ -100,8 +98,7 @@ pub struct CPUResourceConfig {
 /// Configuration detailing a single type of compute
 pub struct GPUResourceConfig {
     /// Number of GPU devices it can use, i.e. number of concurrent functions allowed at once.
-    /// If this is set to 0, then allocations of the resource will not be managed.
-    /// Depending on resource type, will not be allowed (i.e. GPU must have exact number).
+    /// If this is set to 0, then GPUs will not be used by the worker
     pub count: u32,
     /// The amount of physical memory each GPU has.
     /// Used for simulations
@@ -198,7 +195,7 @@ pub struct NetworkingConfig {
     pub cni_name: String,
     /// use a pool of network namespaces
     pub use_pool: bool,
-    /// number of free namspaces to keep in the pool
+    /// number of free namespaces to keep in the pool
     pub pool_size: usize,
     /// frequency of namespace pool monitor runs, in milliseconds
     pub pool_freq_ms: u64,

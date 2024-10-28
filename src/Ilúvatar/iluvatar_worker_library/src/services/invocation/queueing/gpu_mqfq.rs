@@ -510,7 +510,7 @@ impl MQFQ {
     /// Handle executing an invocation, plus account for its success or failure
     /// On success, the results are moved to the pointer and it is signaled
     /// On failure, [Invoker::handle_invocation_error] is called
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, batch, permit), fields(fqdn=batch.peek().registration.fqdn)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cpu_token, gpu_token), fields(fqdn=item.invoke.registration.fqdn)))]
     async fn invocation_worker_thread(
         &self,
         item: Arc<MQRequest>,
@@ -576,7 +576,7 @@ impl MQFQ {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, gpu_token, cpu_token), fields(tid=%tid)))]
     async fn invoke<'a>(
         &'a self,
         reg: &'a Arc<RegisteredFunction>,
