@@ -1,7 +1,7 @@
 use crate::benchmark::BenchmarkStore;
 use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
-use iluvatar_library::clock::Clock;
+use iluvatar_library::clock::{now, Clock};
 use iluvatar_library::tokio_utils::TokioRuntime;
 use iluvatar_library::{
     transaction::{gen_tid, TransactionId},
@@ -12,16 +12,9 @@ use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResp
 use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::Write,
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tracing::error;
 
 lazy_static::lazy_static! {
@@ -274,7 +267,7 @@ pub async fn controller_register(
     timings: Option<&ResourceTimings>,
     api: ControllerAPI,
 ) -> Result<Duration> {
-    let start = Instant::now();
+    let start = now();
     let tid = format!("{}-{}-reg", name, version);
     let req = RegisterRequest::new(
         name,
@@ -300,7 +293,7 @@ pub async fn controller_prewarm(
     api: ControllerAPI,
     tid: &TransactionId,
 ) -> Result<Duration> {
-    let start = Instant::now();
+    let start = now();
     let req = PrewarmRequest {
         function_name: name.to_owned(),
         function_version: version.to_owned(),
@@ -396,14 +389,8 @@ pub async fn worker_invoke(
     factory: &Arc<WorkerAPIFactory>,
     comm_method: Option<CommunicationMethod>,
 ) -> Result<CompletedWorkerInvocation> {
-    let args = match args {
-        Some(a) => a,
-        None => "{}".to_string(),
-    };
-    let method = match comm_method {
-        Some(m) => m,
-        None => CommunicationMethod::RPC,
-    };
+    let args = args.unwrap_or_else(|| "{}".to_string());
+    let method = comm_method.unwrap_or(CommunicationMethod::RPC);
     let invoke_start = clock.now_str()?;
     let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
         Ok(a) => a,
@@ -453,10 +440,7 @@ pub async fn worker_clean(
     factory: &Arc<WorkerAPIFactory>,
     comm_method: Option<CommunicationMethod>,
 ) -> Result<CleanResponse> {
-    let method = match comm_method {
-        Some(m) => m,
-        None => CommunicationMethod::RPC,
-    };
+    let method = comm_method.unwrap_or(CommunicationMethod::RPC);
     let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
@@ -464,31 +448,22 @@ pub async fn worker_clean(
     api.clean(tid.clone()).await
 }
 
-pub fn wait_elapsed_live(timer: &SystemTime, elapsed: u64) {
+pub fn wait_elapsed_live(timer: &Instant, elapsed: u64) {
     loop {
-        match timer.elapsed() {
-            Ok(t) => {
-                if t.as_millis() <= elapsed as u128 {
-                    break;
-                } else {
-                    let diff = (elapsed as u128) - t.as_millis();
-                    std::thread::sleep(Duration::from_millis(diff as u64 / 2));
-                }
-            }
-            Err(_) => (),
+        let timer_elapsed_ms = timer.elapsed().as_millis();
+        if timer_elapsed_ms <= elapsed as u128 {
+            break;
+        } else {
+            let diff = (elapsed as u128) - timer_elapsed_ms;
+            std::thread::sleep(Duration::from_millis(diff as u64 / 2));
         }
     }
 }
 
-pub async fn wait_elapsed_sim(timer: &SystemTime, elapsed: u64) {
+pub async fn wait_elapsed_sim(timer: &Instant, elapsed: u64) {
     loop {
-        match timer.elapsed() {
-            Ok(t) => {
-                if t.as_millis() >= elapsed as u128 {
-                    break;
-                }
-            }
-            Err(_) => (),
+        if timer.elapsed().as_millis() >= elapsed as u128 {
+            break;
         }
     }
 }

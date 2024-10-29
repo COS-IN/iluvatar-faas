@@ -44,14 +44,6 @@ pub fn nproc(tid: &TransactionId, all: bool) -> anyhow::Result<u32> {
 /// Returns the one-minute system load average
 /// If an error occurs, -1.0 is returned
 pub async fn load_avg(tid: &TransactionId) -> f64 {
-    // let mut file = match File::open("/proc/loadavg") {
-    //     Ok(f) => f,
-    //     Err(e) => {
-    //         error!(tid=%tid, error=%e, "Failed to open /proc/loadavg");
-    //         return -1.0;
-    //     }
-    // };
-    // let mut buff = String::new();
     let buff = match tokio::fs::read_to_string("/proc/loadavg").await {
         Ok(f) => f,
         Err(e) => {

@@ -1,8 +1,9 @@
+use crate::clock::now;
 use dashmap::DashMap;
 use ordered_float::OrderedFloat;
 use std::cmp::{min, Ordering};
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::time::Instant;
 use tracing::{debug, error};
 
 #[derive(Debug, Clone)]
@@ -134,6 +135,7 @@ pub struct CharacteristicsMap {
     /// Minimum of the values
     minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
+    creation_time: Instant,
 }
 
 impl CharacteristicsMap {
@@ -145,6 +147,7 @@ impl CharacteristicsMap {
             agmap: DashMap::new(),
             minmap: DashMap::new(),
             ag,
+            creation_time: now(),
         }
     }
 
@@ -253,8 +256,8 @@ impl CharacteristicsMap {
     }
 
     pub fn add_iat(&self, fqdn: &str) {
-        let time_now = SystemTime::now();
-        let time_now = time_now.duration_since(UNIX_EPOCH).expect("Time went backwards");
+        let time_now = now();
+        let time_now = time_now.duration_since(self.creation_time);
 
         let last_inv_time = self
             .lookup(fqdn, &Characteristics::LastInvTime)

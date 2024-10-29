@@ -339,11 +339,11 @@ impl QueueingDispatcher {
         match device {
             ComputeEnum::cpu => {
                 d.n_cpu += 1;
-                d.cpu_prev_t.insert(fid.clone(), OffsetDateTime::now_utc());
+                d.cpu_prev_t.insert(fid.clone(), self.clock.now());
             }
             ComputeEnum::gpu => {
                 d.n_gpu += 1;
-                d.gpu_prev_t.insert(fid.clone(), OffsetDateTime::now_utc());
+                d.gpu_prev_t.insert(fid.clone(), self.clock.now());
             }
             _ => todo!(),
         }
@@ -501,7 +501,7 @@ impl QueueingDispatcher {
             let egpu = gpu_queue.est_completion_time(&reg, tid);
             let ecpu = self.cpu_queue.est_completion_time(&reg, tid);
 
-            let tnow = OffsetDateTime::now_utc();
+            let tnow = self.clock.now();
 
             let fqdn = &reg.fqdn;
 
@@ -590,7 +590,7 @@ impl QueueingDispatcher {
     // 	self.dispatch_state.update_device_loads();
     // 	self.dispatch_state.update_fn_chars(); // implicit?
 
-    // 	self.dispatch_state.update_prev_t(fid, OffsetDateTime::now_utc());
+    // 	self.dispatch_state.update_prev_t(fid, self.clock.now());
     // 	self.dispatch_state.update_prev_dispath(fid, chosen_device);
     //         return chosen_q ;
     //     }

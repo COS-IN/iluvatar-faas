@@ -1,3 +1,4 @@
+use crate::clock::now;
 use crate::{bail_error, nproc, threading, transaction::TransactionId};
 use anyhow::Result;
 use std::io::Read;
@@ -7,6 +8,7 @@ use std::{
     sync::Arc,
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::time::Instant;
 use tracing::{error, info};
 
 const BASE_CPU_DIR: &str = "/sys/devices/system/cpu";
@@ -156,7 +158,7 @@ impl CpuFreqMonitor {
 
 /// The CPU usage metrics reported by /proc/stat
 pub struct CPUUtilInstant {
-    read_time: std::time::Instant,
+    read_time: Instant,
     cpu_user: f64,
     cpu_nice: f64,
     cpu_system: f64,
@@ -171,7 +173,7 @@ pub struct CPUUtilInstant {
 impl Default for CPUUtilInstant {
     fn default() -> Self {
         Self {
-            read_time: std::time::Instant::now(),
+            read_time: now(),
             cpu_user: 0.0,
             cpu_nice: 0.0,
             cpu_system: 0.0,
@@ -215,7 +217,7 @@ impl CPUUtilInstant {
         }
         let strs: Vec<&str> = line.split(' ').filter(|str| !str.is_empty()).collect();
         Ok(Self {
-            read_time: std::time::Instant::now(),
+            read_time: now(),
             cpu_user: Self::safe_get_val(&strs, 1, tid)?,
             cpu_nice: Self::safe_get_val(&strs, 2, tid)?,
             cpu_system: Self::safe_get_val(&strs, 3, tid)?,

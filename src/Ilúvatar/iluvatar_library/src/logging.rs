@@ -5,6 +5,7 @@ use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
 use anyhow::Result;
 use std::{path::PathBuf, sync::Arc};
+use tracing::warn;
 use tracing_flame::FlameLayer;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -115,6 +116,9 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
         .json()
         .finish();
     let subscriber = subscriber.with(stdout_layer).with(energy_layer).with(flame_layer);
-    tracing::subscriber::set_global_default(subscriber)?;
+    match tracing::subscriber::set_global_default(subscriber) {
+        Ok(_) => (),
+        Err(e) => warn!(tid=%tid, error=%e, "Global tracing subscriber was already set"),
+    };
     Ok(drops)
 }

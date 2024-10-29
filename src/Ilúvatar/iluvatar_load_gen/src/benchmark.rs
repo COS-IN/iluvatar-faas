@@ -3,13 +3,13 @@ use crate::utils::*;
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
-use iluvatar_library::clock::get_global_clock;
+use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use std::{collections::HashMap, path::Path};
 use tracing::{error, info};
 
@@ -311,8 +311,8 @@ pub fn benchmark_worker(
                     }
                     duration_sec => {
                         let timeout = Duration::from_secs(duration_sec as u64);
-                        let start = SystemTime::now();
-                        while start.elapsed()? < timeout {
+                        let start = now();
+                        while start.elapsed() < timeout {
                             match threaded_rt.block_on(worker_invoke(
                                 &name,
                                 &version,

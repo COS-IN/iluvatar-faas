@@ -10,6 +10,7 @@ use crate::{
 use anyhow::Result;
 use iluvatar_library::tokio_utils::TokioRuntime;
 use iluvatar_library::{
+    bail_error,
     transaction::TransactionId,
     types::{CommunicationMethod, Compute, Isolation},
     utils::port::Port,
@@ -27,6 +28,24 @@ use std::{
 };
 use tokio::task::JoinHandle;
 use tracing::info;
+
+pub fn load_trace_csv<T: serde::de::DeserializeOwned, P: AsRef<Path> + tracing::Value>(
+    csv: P,
+    tid: &TransactionId,
+) -> Result<Vec<T>> {
+    let mut trace_rdr = match csv::Reader::from_path(&csv) {
+        Ok(csv) => csv,
+        Err(e) => bail_error!(error=%e, tid=%tid, path=csv, "Failed to open CSV file"),
+    };
+    let mut ret = vec![];
+    for (i, result) in trace_rdr.deserialize().enumerate() {
+        match result {
+            Ok(item) => ret.push(item),
+            Err(e) => bail_error!(error=%e, tid=%tid, line_num=i, path=csv, "Failed to deserialize item"),
+        }
+    }
+    Ok(ret)
+}
 
 fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms: u32) -> u32 {
     match default_prewarms {

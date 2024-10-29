@@ -88,8 +88,9 @@ impl GpuQueuePolicy for BatchGpuQueue {
 mod oldest_batch {
     use super::*;
     use iluvatar_library::characteristics_map::{Characteristics, Values};
+    use iluvatar_library::clock::get_global_clock;
+    use iluvatar_library::transaction::gen_tid;
     use std::collections::HashMap;
-    use time::OffsetDateTime;
 
     fn reg(name: &str) -> Arc<RegisteredFunction> {
         Arc::new(RegisteredFunction {
@@ -117,7 +118,7 @@ mod oldest_batch {
             rf,
             name.to_string(),
             name.to_string(),
-            OffsetDateTime::now_utc(),
+            get_global_clock(&gen_tid()).unwrap().now(),
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -141,7 +142,7 @@ mod oldest_batch {
             rf,
             name.to_string(),
             name.to_string(),
-            OffsetDateTime::now_utc(),
+            get_global_clock(&gen_tid()).unwrap().now(),
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -172,7 +173,7 @@ mod oldest_batch {
             rf,
             name.to_string(),
             name.to_string(),
-            OffsetDateTime::now_utc(),
+            get_global_clock(&gen_tid()).unwrap().now(),
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -193,7 +194,7 @@ mod oldest_batch {
             rf2,
             name.to_string(),
             name.to_string(),
-            OffsetDateTime::now_utc(),
+            get_global_clock(&gen_tid()).unwrap().now(),
         ));
         m.add(
             &invoke2.registration.fqdn,

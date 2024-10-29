@@ -1,6 +1,8 @@
 use super::energy_service::EnergyMonitorService;
+use crate::clock::now;
 use crate::utils::calculate_fqdn;
-use std::{sync::Arc, time::SystemTime};
+use std::sync::Arc;
+use tokio::time::Instant;
 use tracing::{field::Visit, span::Attributes, Id};
 use tracing_subscriber::{layer::Context, Layer};
 
@@ -52,7 +54,7 @@ where
 #[derive(Debug)]
 /// A helper to extract Ilúvatar-specific information from spans, if it is present
 pub struct DataExtractorVisitor {
-    pub timestamp: SystemTime,
+    pub timestamp: Instant,
     pub transaction_id: Option<String>,
     pub function_name: Option<String>,
     pub function_version: Option<String>,
@@ -68,7 +70,7 @@ impl Default for DataExtractorVisitor {
 impl DataExtractorVisitor {
     pub fn new() -> Self {
         DataExtractorVisitor {
-            timestamp: SystemTime::now(),
+            timestamp: now(),
             transaction_id: None,
             function_name: None,
             function_version: None,

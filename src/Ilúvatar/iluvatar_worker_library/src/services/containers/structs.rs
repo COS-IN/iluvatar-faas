@@ -1,6 +1,8 @@
 use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{containers::containermanager::ContainerManager, registration::RegisteredFunction};
 use anyhow::Result;
+use iluvatar_library::clock::{get_global_clock, Clock};
+use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::{
     bail_error,
     clock::timezone,
@@ -8,14 +10,12 @@ use iluvatar_library::{
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
 pub use iluvatar_rpc::rpc::ContainerState;
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{sync::Arc, time::Duration};
 use time::{
     format_description::{self, FormatItem},
     OffsetDateTime, PrimitiveDateTime, UtcOffset,
 };
+use tokio::time::Instant;
 use tracing::debug;
 
 #[tonic::async_trait]
@@ -29,7 +29,7 @@ pub trait ContainerT: ToAny + Send + Sync {
     /// the unique ID for this container
     fn container_id(&self) -> &String;
     /// The time at which the container last served an invocation
-    fn last_used(&self) -> SystemTime;
+    fn last_used(&self) -> Instant;
     /// Number of invocations this container has served
     fn invocations(&self) -> u32;
     /// Current memory usage of this container
@@ -206,17 +206,20 @@ impl std::fmt::Display for ContainerStartupError {
 impl std::error::Error for ContainerStartupError {}
 
 /// Parses the times returned from a container into Rust objects
+// TODO: remove this / move with other clock stuff
 pub struct ContainerTimeFormatter {
     py_tz_formatter: Vec<FormatItem<'static>>,
     py_formatter: Vec<FormatItem<'static>>,
     local_offset: UtcOffset,
+    clock: Clock,
 }
 impl ContainerTimeFormatter {
     pub fn new(tid: &TransactionId) -> Result<Self> {
         let py_tz_formatter =
             format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]:[subsecond]+[offset_hour]")?;
         let py_formatter = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]:[subsecond]+")?;
-        let now = OffsetDateTime::now_utc();
+        let clock = get_global_clock(&gen_tid())?;
+        let now = clock.now();
         let tz_str = timezone(tid)?;
         let time_zone = match tzdb::tz_by_name(&tz_str) {
             Some(t) => t,
@@ -232,6 +235,7 @@ impl ContainerTimeFormatter {
             py_tz_formatter,
             py_formatter,
             local_offset: offset,
+            clock,
         })
     }
 
@@ -251,7 +255,7 @@ impl ContainerTimeFormatter {
 
     /// The number of nanoseconds since the unix epoch start
     pub fn now(&self) -> OffsetDateTime {
-        OffsetDateTime::now_utc().to_offset(self.local_offset)
+        self.clock.now().to_offset(self.local_offset)
     }
     /// The number of nanoseconds since the unix epoch start
     /// As a String

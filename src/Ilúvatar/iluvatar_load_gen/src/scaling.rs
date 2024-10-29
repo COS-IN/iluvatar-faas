@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::Result;
 use clap::Parser;
-use iluvatar_library::clock::get_global_clock;
+use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::{
     transaction::gen_tid,
@@ -16,10 +16,7 @@ use iluvatar_library::{
 };
 use rand::prelude::*;
 use std::path::Path;
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{sync::Arc, time::Duration};
 use tokio::sync::Barrier;
 use tracing::{error, info};
 
@@ -171,7 +168,7 @@ async fn scaling_thread(
     barrier.wait().await;
 
     let stopping = Duration::from_secs(duration);
-    let start = SystemTime::now();
+    let start = now();
     let mut data = Vec::new();
     let mut errors = 0;
     let clock = get_global_clock(&gen_tid())?;
@@ -207,7 +204,7 @@ async fn scaling_thread(
             }
         };
 
-        if start.elapsed()? > stopping {
+        if start.elapsed() > stopping {
             break;
         }
     }

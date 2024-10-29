@@ -6,10 +6,10 @@ use std::{
         Arc,
     },
     thread::JoinHandle,
-    time::SystemTime,
 };
 
 use super::energy_layer::DataExtractorVisitor;
+use crate::clock::now;
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use tracing::{debug, error, trace};
@@ -224,12 +224,7 @@ impl EnergyMonitorService {
         let found_stamp = self.invocation_spans.remove(&id);
         match found_stamp {
             Some((_id, s)) => {
-                let time_ns = match SystemTime::now().duration_since(s.timestamp) {
-                    Ok(t) => t.as_nanos(),
-                    Err(_e) => {
-                        return;
-                    }
-                };
+                let time_ns = now().duration_since(s.timestamp).as_nanos();
                 match s.fqdn() {
                     Some(f) => {
                         // debug!("function {f:?} completed span in {time_ns} ns");
@@ -249,12 +244,7 @@ impl EnergyMonitorService {
         let found_stamp = self.worker_spans.remove(&id);
         match found_stamp {
             Some((_id, s)) => {
-                let time_ns = match SystemTime::now().duration_since(s.timestamp) {
-                    Ok(t) => t.as_nanos(),
-                    Err(_e) => {
-                        return;
-                    }
-                };
+                let time_ns = now().duration_since(s.timestamp).as_nanos();
                 let overhead = match self
                     .invocation_durations
                     .read()

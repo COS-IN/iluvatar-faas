@@ -11,7 +11,7 @@ use crate::{
 use anyhow::Result;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_controller_library::services::ControllerAPI;
-use iluvatar_library::clock::get_global_clock;
+use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::transaction::{TransactionId, SIMULATION_START_TID};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation};
@@ -19,11 +19,7 @@ use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{transaction::gen_tid, utils::port::Port};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
 use tracing::info;
 
@@ -164,7 +160,7 @@ fn run_invokes(
     let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();
     let api = threaded_rt.block_on(api_factory.get_controller_api(host, args.port, comm, &gen_tid()))?;
 
-    let start = SystemTime::now();
+    let start = now();
     for result in trace_rdr.deserialize() {
         let invocation: CsvInvocation = result?;
         let func = metadata.get(&invocation.func_name).ok_or_else(|| {
@@ -181,16 +177,11 @@ fn run_invokes(
         let clk = clock.clone();
         let f_c = func.func_name.clone();
         loop {
-            match start.elapsed() {
-                Ok(t) => {
-                    let ms = t.as_millis() as u64;
-                    if ms >= invocation.invoke_time_ms {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(ms / 2));
-                }
-                Err(_) => (),
+            let ms = start.elapsed().as_millis() as u64;
+            if ms >= invocation.invoke_time_ms {
+                break;
             }
+            std::thread::sleep(Duration::from_millis(ms / 2));
         }
         handles.push(
             threaded_rt.spawn(async move { controller_invoke(&f_c, &VERSION, Some(func_args), clk, api_cln).await }),
@@ -235,6 +226,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         &worker_config_pth,
         &worker_config,
     ))?;
+    // TODO: simulated clock
     run_invokes(
         args,
         api_factory,

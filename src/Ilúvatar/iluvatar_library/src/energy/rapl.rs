@@ -1,5 +1,5 @@
 use super::EnergyConfig;
-use crate::clock::{get_global_clock, Clock};
+use crate::clock::{get_global_clock, now, Clock};
 use crate::threading::os_thread;
 use crate::transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID};
 use crate::{bail_error, nproc};
@@ -10,7 +10,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::SystemTime;
+use tokio::time::Instant;
 use tracing::{debug, error, trace, warn};
 
 const RAPL_PTH: &str = "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj";
@@ -29,19 +29,15 @@ impl RAPL {
 
     pub fn record(&self) -> Result<RAPLQuery> {
         Ok(RAPLQuery {
-            start: SystemTime::now(),
+            start: now(),
             start_uj: RAPL::get_uj()?,
         })
     }
 
     /// Return the elapsed time and used uj between the two queries
     ///   right must have happened before left or it will error
-    pub fn difference(&self, left: &RAPLQuery, right: &RAPLQuery, tid: &TransactionId) -> Result<(u128, u128)> {
-        let elapsed = match left.start.duration_since(right.start) {
-            Ok(t) => t,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Clock error reading RAPL information"),
-        }
-        .as_micros();
+    pub fn difference(&self, left: &RAPLQuery, right: &RAPLQuery, _tid: &TransactionId) -> Result<(u128, u128)> {
+        let elapsed = left.start.duration_since(right.start).as_micros();
         let uj: u128;
         if left.start_uj < right.start_uj {
             uj = left.start_uj + (self.max_uj - right.start_uj);
@@ -68,7 +64,7 @@ impl RAPL {
 }
 
 pub struct RAPLQuery {
-    pub start: SystemTime,
+    pub start: Instant,
     pub start_uj: u128,
 }
 

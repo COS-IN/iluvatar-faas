@@ -20,6 +20,7 @@ use bollard::{
 use dashmap::DashSet;
 use futures::StreamExt;
 use guid_create::GUID;
+use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, ResultErrorVal};
 use iluvatar_library::{
     bail_error, bail_error_value, error_value,
@@ -28,7 +29,7 @@ use iluvatar_library::{
     utils::port::free_local_port,
 };
 use std::collections::HashMap;
-use std::{sync::Arc, time::SystemTime};
+use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 pub mod dockerstructs;
@@ -444,7 +445,7 @@ impl ContainerIsolationService for DockerIsolation {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, timeout_ms), fields(tid=%tid)))]
     async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
-        let start = SystemTime::now();
+        let start = now();
         loop {
             match self.get_logs(container.container_id(), tid).await {
                 Ok((_out, err)) => {
@@ -457,7 +458,7 @@ impl ContainerIsolationService for DockerIsolation {
                     bail_error!(tid=%tid, container_id=%container.container_id(), error=%e, "Timeout while reading inotify events for docker container")
                 }
             };
-            if start.elapsed()?.as_millis() as u64 >= timeout_ms {
+            if start.elapsed().as_millis() as u64 >= timeout_ms {
                 let (stdout, stderr) = self.get_logs(container.container_id(), tid).await?;
                 if !stderr.is_empty() {
                     warn!(tid=%tid, container_id=%&container.container_id(), "Timeout waiting for docker container start, but stderr was written to?");

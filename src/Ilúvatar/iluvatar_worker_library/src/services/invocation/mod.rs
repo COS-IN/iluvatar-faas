@@ -14,9 +14,9 @@ use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::clock::Clock;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
-use std::time::Instant;
 use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
+use tokio::time::Instant;
 use tracing::info;
 
 pub mod async_tracker;
@@ -204,7 +204,7 @@ async fn invoke_on_container_2(
         Values::F64(data.duration_sec),
         true,
     );
-    let e2etime = (OffsetDateTime::now_utc() - queue_insert_time).as_seconds_f64();
+    let e2etime = (clock.now() - queue_insert_time).as_seconds_f64();
     cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
     Ok((data, duration, ctr_lock.container.clone()))
 }

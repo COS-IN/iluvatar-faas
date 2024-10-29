@@ -20,7 +20,7 @@ use iluvatar_worker_library::services::{
 use rstest::rstest;
 use std::collections::HashMap;
 use std::sync::Arc;
-use time::{Duration, OffsetDateTime};
+use time::Duration;
 
 static TIMEOUT_SEC: f64 = 2.0;
 
@@ -55,6 +55,7 @@ async fn build_flowq(overrun: f64) -> (Option<impl Drop>, Arc<ContainerManager>,
         cfg.invocation.mqfq_config.as_ref().expect("MQFQ config was missing"),
         &cmap,
         &min,
+        &get_global_clock(&gen_tid()).unwrap(),
     );
     (log, cm, q, min)
 }
@@ -197,7 +198,7 @@ mod flowq_tests {
         let item = item();
         q.push_flow(item.clone(), 20.0);
         q.state = MQState::Throttled;
-        q.last_serviced = OffsetDateTime::now_utc();
+        q.last_serviced = get_global_clock(&gen_tid()).unwrap().now();
         q.set_idle_throttled(10.0);
         assert_eq!(q.state, MQState::Active);
     }
@@ -210,7 +211,7 @@ mod flowq_tests {
         assert!(!q.queue.is_empty(), "queue not empty");
 
         q.state = MQState::Throttled;
-        q.last_serviced = OffsetDateTime::now_utc() - Duration::seconds(30);
+        q.last_serviced = get_global_clock(&gen_tid()).unwrap().now() - Duration::seconds(30);
         q.set_idle_throttled(10.0);
         assert_eq!(q.state, MQState::Active);
     }

@@ -14,15 +14,16 @@ use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResou
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::clock::{get_global_clock, Clock};
+use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::{
     sync::{atomic::AtomicU32, Arc},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use time::OffsetDateTime;
 use tokio::sync::{mpsc::UnboundedSender, Notify};
+use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
@@ -82,7 +83,7 @@ impl CpuQueueingInvoker {
             _cpu_thread: cpu_handle,
             clock: get_global_clock(tid)?,
             running: AtomicU32::new(0),
-            last_memory_warning: Mutex::new(Instant::now()),
+            last_memory_warning: Mutex::new(now()),
         });
         cpu_tx.send(svc.clone())?;
         bypass_tx.send(svc.clone())?;
@@ -246,7 +247,7 @@ impl CpuQueueingInvoker {
             let mut warn_time = self.last_memory_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
                 warn!(tid=%item.tid, "Insufficient memory to run item right now");
-                *warn_time = Instant::now();
+                *warn_time = now();
             }
             item.unlock();
             match self.queue.add_item_to_queue(&item, Some(0)) {
@@ -293,7 +294,7 @@ impl CpuQueueingInvoker {
             remove_time,
             &ctr_lock,
             self.clock.format_time(remove_time)?,
-            Instant::now(),
+            now(),
             &self.cmap,
             &self.clock,
         )
@@ -326,7 +327,7 @@ impl CpuQueueingInvoker {
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
-        let start = Instant::now();
+        let start = now();
         let ctr_lock = match self.cont_manager.acquire_container(reg, tid, Compute::CPU) {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => n?,

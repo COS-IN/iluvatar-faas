@@ -9,8 +9,8 @@ use crate::{
     },
 };
 use anyhow::Result;
-use iluvatar_library::clock::get_global_clock;
-use iluvatar_library::tokio_utils::build_tokio_runtime;
+use iluvatar_library::clock::{get_global_clock, now};
+use iluvatar_library::tokio_utils::{build_tokio_runtime, SimulationGranularity};
 use iluvatar_library::{
     transaction::{gen_tid, TransactionId},
     types::CommunicationMethod,
@@ -18,9 +18,8 @@ use iluvatar_library::{
 };
 use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_config::Configuration};
 use std::path::Path;
-use std::time::SystemTime;
 use tokio::task::JoinHandle;
-use tracing::info;
+use tracing::{info, trace};
 
 pub fn trace_worker(args: TraceArgs) -> Result<()> {
     match args.setup {
@@ -43,8 +42,9 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
     let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
 
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
+    let trace: Vec<CsvInvocation> = crate::trace::trace_utils::load_trace_csv(&args.input_csv, tid)?;
     let factory = WorkerAPIFactory::boxed();
-
+    let clock = get_global_clock(tid)?;
     worker_prepare_functions(
         RunType::Simulation,
         &mut metadata,
@@ -59,61 +59,69 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
         args.max_prewarms,
     )?;
 
-    let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
-    let mut handles = Vec::new(); // : Vec<JoinHandle<Result<(u128, InvokeResponse)>>>
+    // TODO: simulated clock
+    let results = threaded_rt.block_on(async {
+        let mut handles = Vec::new();
+        info!("starting simulation run");
+        let start = now();
+        for invoke in trace {
+            let func = metadata.get(&invoke.func_name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invocation had function name '{}' that wasn't in metadata",
+                    invoke.func_name
+                )
+            })?;
 
-    info!("starting simulation run");
-
-    let start = SystemTime::now();
-    for result in trace_rdr.deserialize() {
-        let invoke: CsvInvocation = result?;
-        let func = metadata.get(&invoke.func_name).ok_or_else(|| {
-            anyhow::anyhow!(
-                "Invocation had function name '{}' that wasn't in metadata",
-                invoke.func_name
-            )
-        })?;
-
-        let func_args = serde_json::to_string(&func.sim_invoke_data.as_ref().unwrap())?;
-        // TODO: simulated clock
-        let clock = get_global_clock(tid)?;
-
-        // wait_elapsed(&start, invoke.invoke_time_ms);
-        loop {
-            match start.elapsed() {
-                Ok(t) => {
-                    // let diff = (invoke.invoke_time_ms as u128) - t.as_millis();
-                    if t.as_millis() <= invoke.invoke_time_ms as u128 {
-                        break;
-                    } else {
-                        // tokio::time::sleep(Duration::from_millis(diff as u64 / 2)).await;
-                    }
+            let func_args = serde_json::to_string(&func.sim_invoke_data.as_ref().unwrap())?;
+            // wait_elapsed(&start, invoke.invoke_time_ms);
+            loop {
+                let elapsed = start.elapsed();
+                trace!(tid=%tid, elapsed=?elapsed, elapsed=elapsed.as_millis(), waiting=invoke.invoke_time_ms, "Elapsed clock time vs wait time");
+                if invoke.invoke_time_ms as u128 <= elapsed.as_millis() {
+                    break;
+                } else {
+                    iluvatar_library::tokio_utils::sim_scheduler_tick(SimulationGranularity::MS).await;
                 }
-                Err(_) => (),
             }
+            let f_c = func.func_name.clone();
+            let clk_clone = clock.clone();
+            let fct_cln = factory.clone();
+            let h_c = worker_config_pth.clone();
+            info!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Launching invocation");
+            handles.push(tokio::task::spawn(async move {
+                worker_invoke(
+                    &f_c,
+                    &VERSION,
+                    &h_c,
+                    args.port,
+                    &gen_tid(),
+                    Some(func_args),
+                    clk_clone,
+                    &fct_cln,
+                    Some(CommunicationMethod::SIMULATION),
+                )
+                .await
+            }));
+            info!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Invocation sent");
         }
-        let f_c = func.func_name.clone();
-        let clk_clone = clock.clone();
-        let fct_cln = factory.clone();
-        let h_c = worker_config_pth.clone();
-        handles.push(threaded_rt.spawn(async move {
-            worker_invoke(
-                &f_c,
-                &VERSION,
-                &h_c,
-                args.port,
-                &gen_tid(),
-                Some(func_args),
-                clk_clone,
-                &fct_cln,
-                Some(CommunicationMethod::SIMULATION),
-            )
-            .await
-        }));
-    }
+        iluvatar_library::tokio_utils::sim_scheduler_tick(SimulationGranularity::MS).await;
+        info!(tid=%tid, "Invocations sent, awaiting on thread handles");
+        // resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)
+        let mut ret = vec![];
+        for h in handles {
+            match h.await {
+                Ok(r) => match r {
+                    Ok(ok) => ret.push(ok),
+                    Err(e) => tracing::error!("Error from thread: {:?}", e),
+                },
+                Err(thread_e) => tracing::error!("Joining error: {}", thread_e),
+            };
+        }
+        ret.sort();
+        Ok::<Vec<CompletedWorkerInvocation>, anyhow::Error>(ret)
+    })?;
 
-    let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
-
+    info!(tid=%tid, "Threads closed, writing results to file");
     let pth = Path::new(&args.input_csv);
     let p = Path::new(&args.out_folder).join(format!(
         "output-{}",
@@ -162,7 +170,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
     let clock = get_global_clock(tid)?;
 
     info!("starting live trace run");
-    let start = SystemTime::now();
+    let start = now();
     for result in trace_rdr.deserialize() {
         let invoke: CsvInvocation = match result {
             Ok(i) => i,

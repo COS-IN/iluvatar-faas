@@ -3,25 +3,19 @@ use anyhow::Result;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId};
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::debug;
 
 use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation, MinHeapFloat};
+use iluvatar_library::clock::now;
 use std::collections::BinaryHeap;
-
-fn time_since_epoch() -> f64 {
-    let start = SystemTime::now();
-    start
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs_f64()
-}
+use tokio::time::Instant;
 
 pub struct MinHeapEDQueue {
     invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
     cmap: Arc<CharacteristicsMap>,
     est_time: Mutex<f64>,
     cont_manager: Arc<ContainerManager>,
+    creation: Instant,
 }
 
 impl MinHeapEDQueue {
@@ -35,9 +29,13 @@ impl MinHeapEDQueue {
             est_time: Mutex::new(0.0),
             cmap,
             cont_manager,
+            creation: now(),
         });
         debug!(tid=%tid, "Created MinHeapEDInvoker");
         Ok(svc)
+    }
+    fn time_since_creation(&self) -> f64 {
+        now().duration_since(self.creation).as_secs_f64()
     }
 }
 
@@ -76,7 +74,7 @@ impl InvokerCpuQueuePolicy for MinHeapEDQueue {
         let est_wall_time = self.est_wall_time(item, &self.cont_manager, &self.cmap)?;
         *self.est_time.lock() += est_wall_time;
         let mut queue = self.invoke_queue.lock();
-        let deadline = self.cmap.get_exec_time(&item.registration.fqdn) + time_since_epoch();
+        let deadline = self.cmap.get_exec_time(&item.registration.fqdn) + self.time_since_creation();
         queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), deadline, est_wall_time));
         debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
                         queue.len(),

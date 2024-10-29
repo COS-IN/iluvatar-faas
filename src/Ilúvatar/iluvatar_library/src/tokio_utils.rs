@@ -11,16 +11,37 @@ pub type TokioRuntime = Arc<Runtime>;
 static SIM_RUNTIME: Mutex<Option<TokioRuntime>> = Mutex::new(None);
 
 /// Calculate the duration of the given number of simulation ticks
-pub fn compute_sim_tick_dur(sim_ticks: u64) -> Duration {
-    Duration::from_millis(sim_ticks)
+pub fn compute_sim_tick_dur(sim_ticks: u64, granularity: SimulationGranularity) -> Duration {
+    match granularity {
+        SimulationGranularity::S => Duration::from_secs(sim_ticks),
+        SimulationGranularity::MS => Duration::from_millis(sim_ticks),
+        SimulationGranularity::US => Duration::from_micros(sim_ticks),
+        SimulationGranularity::NS => Duration::from_micros(sim_ticks),
+    }
+}
+
+/// Time granularity for simulation to run at
+pub enum SimulationGranularity {
+    /// Second
+    S,
+    /// Millisecond
+    MS,
+    /// Microsecond
+    US,
+    /// Nanosecond
+    NS
 }
 
 /// Increment the simulation one tick.
-/// Yields back to the Tokio scheduler to allow outstanding tasks to be polled
-pub async fn sim_scheduler_tick() {
+/// Yields back to the Tokio scheduler to allow outstanding tasks to be polled.
+#[warn(clippy::disallowed_methods)]
+pub async fn sim_scheduler_tick(granularity: SimulationGranularity) {
+    // tracing::trace!(now=?tokio::time::Instant::now(), "Ticking scheduler");
     crate::clock::tick_sim_clock();
-    tokio::time::advance(compute_sim_tick_dur(1)).await;
-    tokio::task::yield_now().await;
+    // tokio::time::advance(compute_sim_tick_dur(1)).await;
+    tokio::time::sleep(compute_sim_tick_dur(1, granularity)).await;
+    // tracing::trace!(now=?tokio::time::Instant::now(), "Ticking advance completed");
+    // tokio::task::yield_now().await;
 }
 
 pub fn build_tokio_runtime(

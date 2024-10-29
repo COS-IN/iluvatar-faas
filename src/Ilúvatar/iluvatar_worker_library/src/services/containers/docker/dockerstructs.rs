@@ -6,6 +6,7 @@ use crate::services::{
     resources::gpu::GPU,
 };
 use anyhow::Result;
+use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, DroppableToken, ResultErrorVal};
 use iluvatar_library::{
     transaction::TransactionId,
@@ -13,11 +14,8 @@ use iluvatar_library::{
     utils::port::Port,
 };
 use parking_lot::{Mutex, RwLock};
-use std::{
-    num::NonZeroU32,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
+use tokio::time::Instant;
 use tracing::{debug, warn};
 
 #[allow(unused, dyn_drop)]
@@ -26,7 +24,7 @@ pub struct DockerContainer {
     fqdn: String,
     /// the associated function inside the container
     pub function: Arc<RegisteredFunction>,
-    last_used: RwLock<SystemTime>,
+    last_used: RwLock<Instant>,
     /// number of invocations a container has performed
     invocations: Mutex<u32>,
     port: Port,
@@ -61,7 +59,7 @@ impl DockerContainer {
             container_id,
             fqdn: fqdn.to_owned(),
             function: function.clone(),
-            last_used: RwLock::new(SystemTime::now()),
+            last_used: RwLock::new(now()),
             invocations: Mutex::new(0),
             port,
             client,
@@ -100,14 +98,14 @@ impl ContainerT for DockerContainer {
 
     fn touch(&self) {
         let mut lock = self.last_used.write();
-        *lock = SystemTime::now();
+        *lock = now();
     }
 
     fn container_id(&self) -> &String {
         &self.container_id
     }
 
-    fn last_used(&self) -> SystemTime {
+    fn last_used(&self) -> Instant {
         *self.last_used.read()
     }
 
