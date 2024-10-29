@@ -1,4 +1,5 @@
 use crate::clock::now;
+use crate::tokio_utils::build_tokio_runtime;
 use crate::transaction::TransactionId;
 use std::future::Future;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -10,7 +11,6 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle as TokioHandle;
 use tokio::time::Instant;
 use tracing::{debug, error};
-use crate::tokio_utils::build_tokio_runtime;
 
 pub enum EventualItem<Left: Future> {
     Future(Left),
@@ -66,22 +66,28 @@ where
     S: Send + Sync + 'static,
 {
     let (tx, rx) = channel();
-    let handle = tokio_waiter_thread(call_ms, tid, function, None::<fn(Arc<S>, TransactionId) -> tokio::sync::futures::Notified<'static>>, rx);
+    let handle = tokio_waiter_thread(
+        call_ms,
+        tid,
+        function,
+        None::<fn(Arc<S>, TransactionId) -> tokio::sync::futures::Notified<'static>>,
+        rx,
+    );
     (handle, tx)
 }
 
-fn tokio_waiter_thread<T,T2,S>(
+fn tokio_waiter_thread<T, T2, S>(
     call_ms: u64,
     tid: TransactionId,
     function: fn(Arc<S>, TransactionId) -> T,
     waiter_function: Option<fn(Arc<S>, TransactionId) -> T2>,
-    receiver: Receiver<Arc<S>>
+    receiver: Receiver<Arc<S>>,
 ) -> TokioHandle<()>
 where
     T: Future<Output = ()> + Send + 'static,
     T2: Future<Output = ()> + Send + 'static,
-    S: Send + Sync + 'static, {
-
+    S: Send + Sync + 'static,
+{
     tokio::spawn(async move {
         let service: Arc<S> = match receiver.recv() {
             Ok(service) => service,
@@ -207,7 +213,7 @@ where
             // Dummy to match return type
             let handle = std::thread::Builder::new().spawn(|| ())?;
             Ok((handle, tx))
-        },
+        }
         false => {
             let handle = std::thread::Builder::new().name(tid.clone()).spawn(move || {
                 let worker_rt = match build_tokio_runtime(&None, &None, &num_worker_threads, &tid) {

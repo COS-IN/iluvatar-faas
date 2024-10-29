@@ -68,8 +68,9 @@ pub fn scaling(args: ScalingArgs) -> Result<()> {
     ensure_dir(&std::path::PathBuf::new().join(&args.out_folder))?;
 
     for threads in args.start..(args.end + 1) {
+        let runtime = build_tokio_runtime(&None, &None, &Some(threads as usize), &"SCALING_TID".to_string())?;
         info!("\n Running with {} threads", threads);
-        let result = run_one_scaling_test(threads as usize, &args)?;
+        let result = runtime.block_on(run_one_scaling_test(threads as usize, &args))?;
         let p = Path::new(&args.out_folder).join(format!("{}.json", threads));
         save_result_json(p, &result)?;
     }
@@ -77,10 +78,8 @@ pub fn scaling(args: ScalingArgs) -> Result<()> {
     Ok(())
 }
 
-fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<ThreadResult>> {
+async fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<ThreadResult>> {
     let barrier = Arc::new(Barrier::new(thread_cnt));
-    let threaded_rt = build_tokio_runtime(&None, &None, &Some(thread_cnt), &"SCALING_TID".to_string())?;
-
     let mut threads = Vec::new();
 
     for thread_id in 0..thread_cnt {
@@ -94,12 +93,12 @@ fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<Thr
         let mem = args.memory_mb;
         let a = args.function_args.clone();
 
-        threads.push(threaded_rt.spawn(async move {
+        threads.push(tokio::task::spawn(async move {
             scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation, thread_cnt, mem, a).await
         }));
     }
 
-    resolve_handles(&threaded_rt, threads, ErrorHandling::Print)
+    resolve_handles(threads, ErrorHandling::Print).await
 }
 
 async fn scaling_thread(

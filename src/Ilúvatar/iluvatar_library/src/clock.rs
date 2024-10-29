@@ -1,4 +1,3 @@
-use crate::tokio_utils::{compute_sim_tick_dur, SimulationGranularity};
 use crate::transaction::TransactionId;
 use crate::utils::is_simulation;
 use anyhow::Result;
@@ -14,9 +13,6 @@ use tracing_subscriber::fmt::time::FormatTime;
 pub type Clock = Arc<dyn GlobalClock + Send + Sync>;
 /// The global [Clock]
 static CLOCK: Mutex<Option<Clock>> = Mutex::new(None);
-static TICK_ORDERING: std::sync::atomic::Ordering = std::sync::atomic::Ordering::Relaxed;
-/// Number of simulation ticks so far.
-static SIM_TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Gets the current global clock. Creates a new [Clock] if not present.
 pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
@@ -30,13 +26,7 @@ pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
     *CLOCK.lock() = Some(clk.clone());
     Ok(clk)
 }
-/// Tick the simulation clock by 1.
-pub fn tick_sim_clock() -> u64 {
-    SIM_TICKS.fetch_add(1, TICK_ORDERING)
-}
-fn get_sim_clock_ticks() -> u64 {
-    SIM_TICKS.load(TICK_ORDERING)
-}
+
 /// Get the current [Instance]
 #[inline(always)]
 pub fn now() -> Instant {
@@ -151,7 +141,7 @@ impl GlobalClock for LocalTime {
         #[allow(clippy::disallowed_methods)]
         OffsetDateTime::now_utc().to_offset(self.local_offset)
     }
-    fn format_time(&self, time: OffsetDateTime) -> anyhow::Result<String> {
+    fn format_time(&self, time: OffsetDateTime) -> Result<String> {
         Ok(time.format(&self.format)?)
     }
 }
@@ -168,27 +158,29 @@ impl FormatTime for LocalTime {
 struct SimulatedTime {
     format: Vec<FormatItem<'static>>,
     start_time: OffsetDateTime,
+    tokio_elapsed: Instant,
 }
 impl SimulatedTime {
     pub fn new(tid: &TransactionId) -> Result<Self> {
         let format = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]")?;
         #[allow(clippy::disallowed_methods)]
-        let now = OffsetDateTime::now_utc();
+        let clock_now = OffsetDateTime::now_utc();
+        let tokio_now = now();
         let tz_str = timezone(tid)?;
         let time_zone = match tzdb::tz_by_name(&tz_str) {
             Some(t) => t,
             None => anyhow::bail!("parsed local timezone string was invalid: {}", tz_str),
         };
-        let tm = match time_zone.find_local_time_type(now.unix_timestamp()) {
+        let tm = match time_zone.find_local_time_type(clock_now.unix_timestamp()) {
             Ok(t) => t,
             Err(e) => bail_error!(tid=%tid, error=%e, "Failed to find time zone type"),
         };
         let offset = UtcOffset::from_whole_seconds(tm.ut_offset())?;
         Ok(Self {
             format,
-            #[allow(clippy::disallowed_methods)]
             // simulated clock starts using current system time
-            start_time: now.to_offset(offset),
+            start_time: clock_now.to_offset(offset),
+            tokio_elapsed: tokio_now,
         })
     }
     pub fn boxed(tid: &TransactionId) -> Result<Arc<Self>> {
@@ -196,21 +188,12 @@ impl SimulatedTime {
         Ok(Arc::new(r))
     }
 }
-impl Clone for SimulatedTime {
-    fn clone(&self) -> Self {
-        Self {
-            format: self.format.clone(),
-            start_time: self.start_time,
-        }
-    }
-}
 impl GlobalClock for SimulatedTime {
     fn now_str(&self) -> Result<String> {
         GlobalClock::format_time(self, self.now())
     }
     fn now(&self) -> OffsetDateTime {
-        // TODO: tokio can advance simulation without us, so this can be wrong
-        self.start_time.add(compute_sim_tick_dur(get_sim_clock_ticks(), SimulationGranularity::MS))
+        self.start_time.add(self.tokio_elapsed.elapsed())
     }
     fn format_time(&self, time: OffsetDateTime) -> Result<String> {
         Ok(time.format(&self.format)?)

@@ -2,6 +2,7 @@ use crate::utils::{LoadType, RunType, Target};
 use anyhow::Result;
 use clap::Parser;
 use controller_trace::{controller_trace_live, controller_trace_sim};
+use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::{types::MemSizeMb, utils::port::Port};
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use std::collections::HashMap;
@@ -60,6 +61,12 @@ pub struct TraceArgs {
     #[arg(long)]
     /// Output load generator logs to stdout
     pub log_stdout: bool,
+    #[arg(long, value_enum, default_value_t=SimulationGranularity::MS)]
+    /// Time granularity of system simulation
+    sim_gran: SimulationGranularity,
+    #[arg(long, default_value_t = 1)]
+    /// Step size to increment simulation clock per tick
+    tick_step: u64,
 }
 
 pub fn run_trace(args: TraceArgs) -> Result<()> {

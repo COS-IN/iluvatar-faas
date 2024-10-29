@@ -2,7 +2,7 @@ use crate::benchmark::BenchmarkStore;
 use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::clock::{now, Clock};
-use iluvatar_library::tokio_utils::TokioRuntime;
+use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::{
     transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
@@ -448,22 +448,24 @@ pub async fn worker_clean(
     api.clean(tid.clone()).await
 }
 
-pub fn wait_elapsed_live(timer: &Instant, elapsed: u64) {
+pub async fn wait_elapsed_live(timer: &Instant, elapsed: u64) {
     loop {
         let timer_elapsed_ms = timer.elapsed().as_millis();
         if timer_elapsed_ms <= elapsed as u128 {
             break;
         } else {
             let diff = (elapsed as u128) - timer_elapsed_ms;
-            std::thread::sleep(Duration::from_millis(diff as u64 / 2));
+            tokio::time::sleep(Duration::from_millis(diff as u64 / 2)).await;
         }
     }
 }
 
-pub async fn wait_elapsed_sim(timer: &Instant, elapsed: u64) {
+pub async fn wait_elapsed_sim(timer: &Instant, wait_until: u64, tick_step: u64, sim_gran: SimulationGranularity) {
     loop {
-        if timer.elapsed().as_millis() >= elapsed as u128 {
+        if wait_until as u128 <= timer.elapsed().as_millis() {
             break;
+        } else {
+            iluvatar_library::tokio_utils::sim_scheduler_tick(tick_step, sim_gran).await;
         }
     }
 }
@@ -477,17 +479,14 @@ pub enum ErrorHandling {
 
 /// Resolve all the tokio threads and return their results
 /// Optionally handle errors from threads
-pub fn resolve_handles<T>(
-    runtime: &TokioRuntime,
-    run_results: Vec<JoinHandle<Result<T>>>,
-    eh: ErrorHandling,
-) -> Result<Vec<T>>
+pub async fn resolve_handles<T>(run_results: Vec<JoinHandle<Result<T>>>, eh: ErrorHandling) -> Result<Vec<T>>
 where
     T: Ord,
 {
     let mut ret = vec![];
     for h in run_results {
-        match runtime.block_on(h) {
+        // TODO: simulation tick sleep here too?
+        match h.await {
             Ok(r) => match r {
                 Ok(ok) => ret.push(ok),
                 Err(e) => match eh {

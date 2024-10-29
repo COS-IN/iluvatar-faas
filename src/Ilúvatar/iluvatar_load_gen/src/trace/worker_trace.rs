@@ -1,6 +1,6 @@
 use super::{CsvInvocation, TraceArgs};
 use crate::trace::prepare_function_args;
-use crate::utils::wait_elapsed_live;
+use crate::utils::{wait_elapsed_live, wait_elapsed_sim};
 use crate::{
     trace::trace_utils::worker_prepare_functions,
     utils::{
@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::Result;
 use iluvatar_library::clock::{get_global_clock, now};
-use iluvatar_library::tokio_utils::{build_tokio_runtime, SimulationGranularity};
+use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::{
     transaction::{gen_tid, TransactionId},
     types::CommunicationMethod,
@@ -19,7 +19,7 @@ use iluvatar_library::{
 use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_config::Configuration};
 use std::path::Path;
 use tokio::task::JoinHandle;
-use tracing::{info, trace};
+use tracing::{debug, info};
 
 pub fn trace_worker(args: TraceArgs) -> Result<()> {
     match args.setup {
@@ -59,7 +59,6 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
         args.max_prewarms,
     )?;
 
-    // TODO: simulated clock
     let results = threaded_rt.block_on(async {
         let mut handles = Vec::new();
         info!("starting simulation run");
@@ -73,21 +72,12 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
             })?;
 
             let func_args = serde_json::to_string(&func.sim_invoke_data.as_ref().unwrap())?;
-            // wait_elapsed(&start, invoke.invoke_time_ms);
-            loop {
-                let elapsed = start.elapsed();
-                trace!(tid=%tid, elapsed=?elapsed, elapsed=elapsed.as_millis(), waiting=invoke.invoke_time_ms, "Elapsed clock time vs wait time");
-                if invoke.invoke_time_ms as u128 <= elapsed.as_millis() {
-                    break;
-                } else {
-                    iluvatar_library::tokio_utils::sim_scheduler_tick(SimulationGranularity::MS).await;
-                }
-            }
+            wait_elapsed_sim(&start, invoke.invoke_time_ms, args.tick_step, args.sim_gran).await;
             let f_c = func.func_name.clone();
             let clk_clone = clock.clone();
             let fct_cln = factory.clone();
             let h_c = worker_config_pth.clone();
-            info!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Launching invocation");
+            debug!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Launching invocation");
             handles.push(tokio::task::spawn(async move {
                 worker_invoke(
                     &f_c,
@@ -102,23 +92,11 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
                 )
                 .await
             }));
-            info!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Invocation sent");
+            debug!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Invocation sent");
         }
-        iluvatar_library::tokio_utils::sim_scheduler_tick(SimulationGranularity::MS).await;
+        iluvatar_library::tokio_utils::sim_scheduler_tick(args.tick_step, args.sim_gran).await;
         info!(tid=%tid, "Invocations sent, awaiting on thread handles");
-        // resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)
-        let mut ret = vec![];
-        for h in handles {
-            match h.await {
-                Ok(r) => match r {
-                    Ok(ok) => ret.push(ok),
-                    Err(e) => tracing::error!("Error from thread: {:?}", e),
-                },
-                Err(thread_e) => tracing::error!("Joining error: {}", thread_e),
-            };
-        }
-        ret.sort();
-        Ok::<Vec<CompletedWorkerInvocation>, anyhow::Error>(ret)
+        resolve_handles(handles, crate::utils::ErrorHandling::Print).await
     })?;
 
     info!(tid=%tid, "Threads closed, writing results to file");
@@ -139,10 +117,10 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
 fn live_worker(args: TraceArgs) -> Result<()> {
     let tid: &TransactionId = &iluvatar_library::transaction::LIVE_WORKER_LOAD_TID;
     let factory = WorkerAPIFactory::boxed();
-
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
-
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
+    let trace: Vec<CsvInvocation> = crate::trace::trace_utils::load_trace_csv(&args.input_csv, tid)?;
+    let clock = get_global_clock(tid)?;
 
     worker_prepare_functions(
         RunType::Live,
@@ -158,54 +136,41 @@ fn live_worker(args: TraceArgs) -> Result<()> {
         args.max_prewarms,
     )?;
 
-    let mut trace_rdr = match csv::Reader::from_path(&args.input_csv) {
-        Ok(r) => r,
-        Err(e) => anyhow::bail!(
-            "Unable to open trace csv file '{}' because of error '{}'",
-            args.input_csv,
-            e
-        ),
-    };
-    let mut handles: Vec<JoinHandle<Result<CompletedWorkerInvocation>>> = Vec::new();
-    let clock = get_global_clock(tid)?;
+    let results = threaded_rt.block_on(async {
+        let mut handles: Vec<JoinHandle<Result<CompletedWorkerInvocation>>> = Vec::new();
+        info!("starting live trace run");
+        let start = now();
+        for invoke in trace {
+            let func = metadata.get(&invoke.func_name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invocation had function name '{}' that wasn't in metadata",
+                    invoke.func_name
+                )
+            })?;
+            let h_c = args.host.clone();
+            let f_c = func.func_name.clone();
+            let func_args = args_to_json(&prepare_function_args(func, args.load_type))?;
+            wait_elapsed_live(&start, invoke.invoke_time_ms).await;
 
-    info!("starting live trace run");
-    let start = now();
-    for result in trace_rdr.deserialize() {
-        let invoke: CsvInvocation = match result {
-            Ok(i) => i,
-            Err(e) => anyhow::bail!("Error deserializing csv invocation: {}", e),
-        };
-        let func = metadata.get(&invoke.func_name).ok_or_else(|| {
-            anyhow::anyhow!(
-                "Invocation had function name '{}' that wasn't in metadata",
-                invoke.func_name
-            )
-        })?;
-        let h_c = args.host.clone();
-        let f_c = func.func_name.clone();
-        let func_args = args_to_json(&prepare_function_args(func, args.load_type))?;
-        wait_elapsed_live(&start, invoke.invoke_time_ms);
-
-        let clk_clone = clock.clone();
-        let fct_cln = factory.clone();
-        handles.push(threaded_rt.spawn(async move {
-            worker_invoke(
-                &f_c,
-                &VERSION,
-                &h_c,
-                args.port,
-                &gen_tid(),
-                Some(func_args),
-                clk_clone,
-                &fct_cln,
-                None,
-            )
-            .await
-        }));
-    }
-
-    let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
+            let clk_clone = clock.clone();
+            let fct_cln = factory.clone();
+            handles.push(threaded_rt.spawn(async move {
+                worker_invoke(
+                    &f_c,
+                    &VERSION,
+                    &h_c,
+                    args.port,
+                    &gen_tid(),
+                    Some(func_args),
+                    clk_clone,
+                    &fct_cln,
+                    None,
+                )
+                .await
+            }));
+        }
+        resolve_handles(handles, crate::utils::ErrorHandling::Print).await
+    })?;
 
     let pth = Path::new(&args.input_csv);
     let p = Path::new(&args.out_folder).join(format!(

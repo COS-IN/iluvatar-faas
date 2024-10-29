@@ -16,11 +16,12 @@ pub fn compute_sim_tick_dur(sim_ticks: u64, granularity: SimulationGranularity) 
         SimulationGranularity::S => Duration::from_secs(sim_ticks),
         SimulationGranularity::MS => Duration::from_millis(sim_ticks),
         SimulationGranularity::US => Duration::from_micros(sim_ticks),
-        SimulationGranularity::NS => Duration::from_micros(sim_ticks),
+        SimulationGranularity::NS => Duration::from_nanos(sim_ticks),
     }
 }
 
 /// Time granularity for simulation to run at
+#[derive(clap::ValueEnum, Debug, Clone, Copy)]
 pub enum SimulationGranularity {
     /// Second
     S,
@@ -29,19 +30,17 @@ pub enum SimulationGranularity {
     /// Microsecond
     US,
     /// Nanosecond
-    NS
+    NS,
 }
 
 /// Increment the simulation one tick.
 /// Yields back to the Tokio scheduler to allow outstanding tasks to be polled.
 #[warn(clippy::disallowed_methods)]
-pub async fn sim_scheduler_tick(granularity: SimulationGranularity) {
-    // tracing::trace!(now=?tokio::time::Instant::now(), "Ticking scheduler");
-    crate::clock::tick_sim_clock();
-    // tokio::time::advance(compute_sim_tick_dur(1)).await;
-    tokio::time::sleep(compute_sim_tick_dur(1, granularity)).await;
-    // tracing::trace!(now=?tokio::time::Instant::now(), "Ticking advance completed");
-    // tokio::task::yield_now().await;
+pub async fn sim_scheduler_tick(tick_step: u64, granularity: SimulationGranularity) {
+    // TODO: Tokio sleep as millisecond granularity, limiting possible precision of simulation
+    // https://github.com/tokio-rs/tokio/discussions/5996
+    // Try: https://docs.rs/tokio-timerfd/latest/tokio_timerfd/struct.Delay.html
+    tokio::time::sleep(compute_sim_tick_dur(tick_step, granularity)).await;
 }
 
 pub fn build_tokio_runtime(
@@ -82,6 +81,7 @@ pub fn build_tokio_runtime(
         }
     };
     if is_sim {
+        // Only one runtime un sim, clone to share if anyone creates another runtime in future
         SIM_RUNTIME.lock().replace(rt.clone());
     }
     Ok(rt)
