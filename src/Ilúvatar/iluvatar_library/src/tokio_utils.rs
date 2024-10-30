@@ -10,16 +10,6 @@ pub type TokioRuntime = Arc<Runtime>;
 /// All events in simulation need to happen on same runtime. Duplicate it and share under the hood.
 static SIM_RUNTIME: Mutex<Option<TokioRuntime>> = Mutex::new(None);
 
-/// Calculate the duration of the given number of simulation ticks
-pub fn compute_sim_tick_dur(sim_ticks: u64, granularity: SimulationGranularity) -> Duration {
-    match granularity {
-        SimulationGranularity::S => Duration::from_secs(sim_ticks),
-        SimulationGranularity::MS => Duration::from_millis(sim_ticks),
-        SimulationGranularity::US => Duration::from_micros(sim_ticks),
-        SimulationGranularity::NS => Duration::from_nanos(sim_ticks),
-    }
-}
-
 /// Time granularity for simulation to run at
 #[derive(clap::ValueEnum, Debug, Clone, Copy)]
 pub enum SimulationGranularity {
@@ -35,12 +25,13 @@ pub enum SimulationGranularity {
 
 /// Increment the simulation one tick.
 /// Yields back to the Tokio scheduler to allow outstanding tasks to be polled.
-#[warn(clippy::disallowed_methods)]
 pub async fn sim_scheduler_tick(tick_step: u64, granularity: SimulationGranularity) {
-    // TODO: Tokio sleep as millisecond granularity, limiting possible precision of simulation
-    // https://github.com/tokio-rs/tokio/discussions/5996
-    // Try: https://docs.rs/tokio-timerfd/latest/tokio_timerfd/struct.Delay.html
-    tokio::time::sleep(compute_sim_tick_dur(tick_step, granularity)).await;
+    match granularity {
+        SimulationGranularity::S => tokio::time::advance(Duration::from_secs(tick_step)).await,
+        SimulationGranularity::MS => tokio::time::advance(Duration::from_millis(tick_step)).await,
+        SimulationGranularity::US => tokio::time::advance(Duration::from_micros(tick_step)).await,
+        SimulationGranularity::NS => tokio::time::advance(Duration::from_nanos(tick_step)).await,
+    }
 }
 
 pub fn build_tokio_runtime(

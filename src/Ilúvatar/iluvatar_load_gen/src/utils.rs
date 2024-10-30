@@ -460,7 +460,12 @@ pub async fn wait_elapsed_live(timer: &Instant, elapsed: u64) {
     }
 }
 
-pub async fn wait_elapsed_sim(timer: &Instant, wait_until: u64, tick_step: u64, sim_gran: SimulationGranularity) {
+pub async fn wait_elapsed_sim(
+    timer: &Instant,
+    wait_until: u64,
+    tick_step: u64,
+    sim_gran: SimulationGranularity,
+) {
     loop {
         if wait_until as u128 <= timer.elapsed().as_millis() {
             break;
@@ -485,7 +490,6 @@ where
 {
     let mut ret = vec![];
     for h in run_results {
-        // TODO: simulation tick sleep here too?
         match h.await {
             Ok(r) => match r {
                 Ok(ok) => ret.push(ok),

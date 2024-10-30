@@ -1,6 +1,7 @@
 disallowed-methods = [
     # fully qualified function/method name:
     "tokio::time::Instant::now",
+    "std::time::Instant::now",
     "time::OffsetDateTime::now_utc",
     "time::OffsetDateTime::now",
     "time::OffsetDateTime::now_local",

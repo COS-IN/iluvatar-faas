@@ -92,7 +92,6 @@ fn run_invokes(
             }));
             debug!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Invocation sent");
         }
-        iluvatar_library::tokio_utils::sim_scheduler_tick(args.tick_step, args.sim_gran).await;
         info!(tid=%tid, "Invocations sent, awaiting on thread handles");
         resolve_handles(handles, crate::utils::ErrorHandling::Print).await
     })?;
