@@ -49,7 +49,7 @@ fn build_gpu_env(overrun: f64, num_gpus: u32) -> Vec<(String, String)> {
 mod flowq_tests {
     use super::*;
     use crate::utils::{background_test_invoke, resolve_invoke};
-    use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
+    use iluvatar_library::clock::ContainerTimeFormatter;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn insert_set_active() {

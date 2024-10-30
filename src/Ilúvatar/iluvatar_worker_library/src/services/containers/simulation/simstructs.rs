@@ -1,13 +1,14 @@
 use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{
-    containers::structs::{ContainerState, ContainerT, ContainerTimeFormatter, ParsedResult},
+    containers::structs::{ContainerState, ContainerT, ParsedResult},
     registration::RegisteredFunction,
     resources::gpu::GPU,
 };
 use anyhow::Result;
-use iluvatar_library::clock::now;
+use iluvatar_library::clock::{now, ContainerTimeFormatter, GlobalClock};
+use iluvatar_library::types::ResultErrorVal;
 use iluvatar_library::{
-    bail_error,
+    bail_error, error_value,
     transaction::TransactionId,
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
@@ -36,9 +37,11 @@ pub struct SimulatorContainer {
     device: RwLock<Option<GPU>>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
     history_data: Option<Vec<f64>>,
+    time_formatter: ContainerTimeFormatter,
 }
 impl SimulatorContainer {
     pub fn new(
+        tid: &TransactionId,
         cid: String,
         fqdn: &str,
         reg: &Arc<RegisteredFunction>,
@@ -46,8 +49,12 @@ impl SimulatorContainer {
         iso: Isolation,
         compute: Compute,
         device: Option<GPU>,
-    ) -> Self {
-        SimulatorContainer {
+    ) -> ResultErrorVal<Self, Option<GPU>> {
+        let formatter = match ContainerTimeFormatter::new(tid) {
+            Ok(f) => f,
+            Err(e) => error_value!("{:?}", e, device),
+        };
+        Ok(SimulatorContainer {
             container_id: cid,
             fqdn: fqdn.to_owned(),
             function: reg.clone(),
@@ -60,7 +67,8 @@ impl SimulatorContainer {
             iso,
             device: RwLock::new(device),
             drop_on_remove: Mutex::new(vec![]),
-        }
+            time_formatter: formatter,
+        })
     }
 }
 
@@ -261,6 +269,7 @@ impl crate::services::containers::structs::ToAny for SimulatorContainer {
 #[cfg(test)]
 mod sim_struct_tests {
     use super::*;
+    use iluvatar_library::transaction::gen_tid;
     use more_asserts::assert_ge;
 
     fn reg(data: Option<Vec<f64>>) -> Arc<RegisteredFunction> {
@@ -297,6 +306,7 @@ mod sim_struct_tests {
     fn no_data_empty_ecdf() {
         let reg = reg(None);
         let cont = SimulatorContainer::new(
+            &gen_tid(),
             "cid".to_owned(),
             "fqdn",
             &reg,
@@ -304,7 +314,8 @@ mod sim_struct_tests {
             Isolation::CONTAINERD,
             Compute::CPU,
             None,
-        );
+        )
+        .unwrap();
         assert_eq!(cont.history_data, None);
     }
 
@@ -312,6 +323,7 @@ mod sim_struct_tests {
     fn data_filled_ecdf() {
         let reg = reg(Some(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
         let cont = SimulatorContainer::new(
+            &gen_tid(),
             "cid".to_owned(),
             "fqdn",
             &reg,
@@ -319,7 +331,8 @@ mod sim_struct_tests {
             Isolation::CONTAINERD,
             Compute::CPU,
             None,
-        );
+        )
+        .unwrap();
         assert_ne!(cont.history_data, None);
     }
 
@@ -327,6 +340,7 @@ mod sim_struct_tests {
     async fn no_args_fails() {
         let reg = reg(None);
         let cont = SimulatorContainer::new(
+            &gen_tid(),
             "cid".to_owned(),
             "fqdn",
             &reg,
@@ -334,7 +348,8 @@ mod sim_struct_tests {
             Isolation::CONTAINERD,
             Compute::CPU,
             None,
-        );
+        )
+        .unwrap();
         cont.invoke("", &"tid".to_owned())
             .await
             .expect_err("No simulation args should error");
@@ -345,6 +360,7 @@ mod sim_struct_tests {
         let reg = reg(None);
         let cold_time = 100;
         let cont = SimulatorContainer::new(
+            &gen_tid(),
             "cid".to_owned(),
             "fqdn",
             &reg,
@@ -352,7 +368,8 @@ mod sim_struct_tests {
             Isolation::CONTAINERD,
             Compute::CPU,
             None,
-        );
+        )
+        .unwrap();
         let data = invoke_data(Compute::CPU, cold_time, 10).unwrap();
         let start = now();
         let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();
@@ -365,6 +382,7 @@ mod sim_struct_tests {
         let reg = reg(None);
         let warm_time = 10;
         let cont = SimulatorContainer::new(
+            &gen_tid(),
             "cid".to_owned(),
             "fqdn",
             &reg,
@@ -372,7 +390,8 @@ mod sim_struct_tests {
             Isolation::CONTAINERD,
             Compute::CPU,
             None,
-        );
+        )
+        .unwrap();
         let data = invoke_data(Compute::CPU, 100, warm_time).unwrap();
         let start = now();
         let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();
@@ -384,6 +403,7 @@ mod sim_struct_tests {
     async fn warm_data_uses_sample() {
         let reg = reg(Some(vec![1.0, 1.1, 1.2, 1.5, 2.0]));
         let cont = SimulatorContainer::new(
+            &gen_tid(),
             "cid".to_owned(),
             "fqdn",
             &reg,
@@ -391,7 +411,8 @@ mod sim_struct_tests {
             Isolation::CONTAINERD,
             Compute::CPU,
             None,
-        );
+        )
+        .unwrap();
         let data = invoke_data(Compute::CPU, 100, 5).unwrap();
         let start = now();
         let (_result, _) = cont.invoke(&data, &"tid".to_owned()).await.unwrap();

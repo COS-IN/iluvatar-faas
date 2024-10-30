@@ -7,8 +7,10 @@ use crate::services::registration::RegisteredFunction;
 use crate::services::resources::gpu::GPU;
 use anyhow::Result;
 use guid_create::GUID;
+use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::ResultErrorVal;
 use iluvatar_library::{
+    error_value,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
 };
@@ -56,7 +58,8 @@ impl ContainerIsolationService for SimulatorIsolation {
         tid: &TransactionId,
     ) -> ResultErrorVal<Container, Option<GPU>> {
         let cid = format!("{}-{}", fqdn, GUID::rand());
-        Ok(Arc::new(SimulatorContainer::new(
+        match SimulatorContainer::new(
+            &gen_tid(),
             cid,
             fqdn,
             reg,
@@ -64,7 +67,10 @@ impl ContainerIsolationService for SimulatorIsolation {
             iso,
             compute,
             device_resource,
-        )))
+        ) {
+            Ok(c) => Ok(Arc::new(c)),
+            Err((e, d)) => error_value!("{:?}", e, d),
+        }
     }
 
     /// Removed the specified container in the containerd namespace

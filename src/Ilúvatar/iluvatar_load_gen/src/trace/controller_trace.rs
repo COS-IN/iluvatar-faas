@@ -183,9 +183,9 @@ fn run_invokes(
                 true => wait_elapsed_sim(&start, invocation.invoke_time_ms, args.tick_step, args.sim_gran).await,
                 false => wait_elapsed_live(&start, invocation.invoke_time_ms).await,
             }
-            handles.push(
-                tokio::task::spawn(async move { controller_invoke(&f_c, &VERSION, Some(func_args), clk, api_cln).await }),
-            );
+            handles.push(tokio::task::spawn(async move {
+                controller_invoke(&f_c, &VERSION, Some(func_args), clk, api_cln).await
+            }));
         }
         info!(tid=%tid, "Invocations sent, awaiting on thread handles");
         resolve_handles(handles, crate::utils::ErrorHandling::Print).await

@@ -3,14 +3,12 @@ use crate::trace::prepare_function_args;
 use crate::utils::{wait_elapsed_live, wait_elapsed_sim};
 use crate::{
     trace::trace_utils::worker_prepare_functions,
-    utils::{
-        resolve_handles, save_result_json, save_worker_result_csv, worker_invoke, RunType,
-        VERSION,
-    },
+    utils::{resolve_handles, save_result_json, save_worker_result_csv, worker_invoke, RunType, VERSION},
 };
 use anyhow::Result;
 use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
+use iluvatar_library::utils::is_simulation;
 use iluvatar_library::{
     transaction::{gen_tid, TransactionId},
     types::CommunicationMethod,
@@ -20,7 +18,6 @@ use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_
 use std::path::Path;
 use std::sync::Arc;
 use tracing::{debug, info};
-use iluvatar_library::utils::is_simulation;
 
 pub fn trace_worker(args: TraceArgs) -> Result<()> {
     match args.setup {
@@ -29,13 +26,14 @@ pub fn trace_worker(args: TraceArgs) -> Result<()> {
     }
 }
 
-fn run_invokes(    
-tid: &TransactionId,
-args: TraceArgs,
-factory: Arc<WorkerAPIFactory>,
-runtime: TokioRuntime,
-host: String,
-comm: CommunicationMethod) -> Result<()> {
+fn run_invokes(
+    tid: &TransactionId,
+    args: TraceArgs,
+    factory: Arc<WorkerAPIFactory>,
+    runtime: TokioRuntime,
+    host: String,
+    comm: CommunicationMethod,
+) -> Result<()> {
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     let trace: Vec<CsvInvocation> = crate::trace::trace_utils::load_trace_csv(&args.input_csv, tid)?;
     let clock = get_global_clock(tid)?;
@@ -90,7 +88,7 @@ comm: CommunicationMethod) -> Result<()> {
                     &fct_cln,
                     Some(comm),
                 )
-                    .await
+                .await
             }));
             debug!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Invocation sent");
         }
@@ -134,7 +132,8 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
         factory,
         threaded_rt,
         worker_config_pth,
-        CommunicationMethod::SIMULATION)
+        CommunicationMethod::SIMULATION,
+    )
 }
 
 fn live_worker(args: TraceArgs) -> Result<()> {
@@ -142,11 +141,5 @@ fn live_worker(args: TraceArgs) -> Result<()> {
     let factory = WorkerAPIFactory::boxed();
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
     let host = args.host.clone();
-    run_invokes(
-        tid,
-        args,
-        factory,
-        threaded_rt,
-        host,
-        CommunicationMethod::RPC)
+    run_invokes(tid, args, factory, threaded_rt, host, CommunicationMethod::RPC)
 }

@@ -708,7 +708,6 @@ impl ContainerIsolationService for ContainerdIsolation {
         tid: &TransactionId,
     ) -> ResultErrorVal<Container, Option<GPU>> {
         if !iso.eq(&Isolation::CONTAINERD) {
-            // return err_val(anyhow::format_err!("Only supports containerd Isolation, now {:?}", iso), device_resource);
             error_value!("Only supports containerd Isolation, now {:?}", iso, device_resource);
         }
         info!(tid=%tid, image=%image_name, namespace=%namespace, "Creating container from image");
@@ -747,10 +746,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 Ok(Arc::new(container))
             }
             Err(e) => {
-                // error!(tid=%tid, error=%e, "Starting task failed");
-                // return err_val(anyhow::format_err!("Starting task failed"), device_resource);
                 bail_error_value!(tid=%tid, error=%e, "Starting task failed", crate::services::containers::structs::ContainerT::revoke_device(&container));
-                // todo!();
             }
         }
     }

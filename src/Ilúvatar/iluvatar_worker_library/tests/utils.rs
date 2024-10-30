@@ -1,3 +1,4 @@
+use iluvatar_library::clock::ContainerTimeFormatter;
 #[cfg(feature = "power_cap")]
 use iluvatar_library::energy::energy_logging::EnergyLogger;
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
@@ -11,13 +12,12 @@ use iluvatar_worker_library::services::containers::simulator::simstructs::Simula
 #[cfg(feature = "power_cap")]
 use iluvatar_worker_library::services::invocation::energy_limiter::EnergyLimiter;
 use iluvatar_worker_library::services::{
-    containers::structs::ContainerTimeFormatter,
-    invocation::InvocationResult,
-    resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
-};
-use iluvatar_worker_library::services::{
     containers::{containermanager::ContainerManager, IsolationFactory},
     invocation::{Invoker, InvokerFactory},
+};
+use iluvatar_worker_library::services::{
+    invocation::InvocationResult,
+    resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
 };
 use iluvatar_worker_library::{
     services::registration::{RegisteredFunction, RegistrationService},

@@ -1,11 +1,11 @@
-use crate::transaction::TransactionId;
+use crate::transaction::{gen_tid, TransactionId};
 use crate::utils::is_simulation;
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::ops::Add;
 use std::sync::Arc;
 use time::format_description::FormatItem;
-use time::{format_description, OffsetDateTime, UtcOffset};
+use time::{format_description, OffsetDateTime, PrimitiveDateTime, UtcOffset};
 use tokio::time::Instant;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
@@ -102,9 +102,9 @@ fn format_offset_time(clock: &dyn GlobalClock, w: &mut Writer<'_>) -> std::fmt::
     w.write_str(s.as_str())
 }
 
-/// A struct to serve timestamps as Local time
-/// To be used everywhere timestamps are logged externally
-/// This matches the times logged in `perf`
+/// A struct to serve timestamps as Local time.
+/// To be used everywhere timestamps are logged externally.
+/// This matches the times logged in `perf`.
 struct LocalTime {
     format: Vec<FormatItem<'static>>,
     local_offset: UtcOffset,
@@ -114,16 +114,7 @@ impl LocalTime {
         let format = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]")?;
         #[allow(clippy::disallowed_methods)]
         let now = OffsetDateTime::now_utc();
-        let tz_str = timezone(tid)?;
-        let time_zone = match tzdb::tz_by_name(&tz_str) {
-            Some(t) => t,
-            None => anyhow::bail!("parsed local timezone string was invalid: {}", tz_str),
-        };
-        let tm = match time_zone.find_local_time_type(now.unix_timestamp()) {
-            Ok(t) => t,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to find time zone type"),
-        };
-        let offset = UtcOffset::from_whole_seconds(tm.ut_offset())?;
+        let offset = load_local_offset(now, tid)?;
         Ok(LocalTime {
             format,
             local_offset: offset,
@@ -134,7 +125,7 @@ impl LocalTime {
     }
 }
 impl GlobalClock for LocalTime {
-    fn now_str(&self) -> anyhow::Result<String> {
+    fn now_str(&self) -> Result<String> {
         GlobalClock::format_time(self, self.now())
     }
     fn now(&self) -> OffsetDateTime {
@@ -152,9 +143,7 @@ impl FormatTime for LocalTime {
     }
 }
 
-/// A struct to serve timestamps as Local time
-/// To be used everywhere timestamps are logged externally
-/// This matches the times logged in `perf`
+/// A struct to serve timestamps using the same format as [LocalTime], but running inside the simulation.
 struct SimulatedTime {
     format: Vec<FormatItem<'static>>,
     start_time: OffsetDateTime,
@@ -163,24 +152,12 @@ struct SimulatedTime {
 impl SimulatedTime {
     pub fn new(tid: &TransactionId) -> Result<Self> {
         let format = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]")?;
-        #[allow(clippy::disallowed_methods)]
-        let clock_now = OffsetDateTime::now_utc();
-        let tokio_now = now();
-        let tz_str = timezone(tid)?;
-        let time_zone = match tzdb::tz_by_name(&tz_str) {
-            Some(t) => t,
-            None => anyhow::bail!("parsed local timezone string was invalid: {}", tz_str),
-        };
-        let tm = match time_zone.find_local_time_type(clock_now.unix_timestamp()) {
-            Ok(t) => t,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to find time zone type"),
-        };
-        let offset = UtcOffset::from_whole_seconds(tm.ut_offset())?;
+        let local_clock = LocalTime::new(tid)?;
         Ok(Self {
             format,
             // simulated clock starts using current system time
-            start_time: clock_now.to_offset(offset),
-            tokio_elapsed: tokio_now,
+            start_time: local_clock.now(),
+            tokio_elapsed: now(),
         })
     }
     pub fn boxed(tid: &TransactionId) -> Result<Arc<Self>> {
@@ -204,4 +181,68 @@ impl FormatTime for SimulatedTime {
     fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
         format_offset_time(self, w)
     }
+}
+
+/// Parses the times returned from a Python container into Rust objects
+pub struct ContainerTimeFormatter {
+    py_tz_formatter: Vec<FormatItem<'static>>,
+    py_formatter: Vec<FormatItem<'static>>,
+    local_offset: UtcOffset,
+    clock: Clock,
+}
+impl ContainerTimeFormatter {
+    pub fn new(tid: &TransactionId) -> Result<Self> {
+        let py_tz_formatter =
+            format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]:[subsecond]+[offset_hour]")?;
+        let py_formatter = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]:[subsecond]+")?;
+        let clock = get_global_clock(&gen_tid())?;
+        Ok(ContainerTimeFormatter {
+            py_tz_formatter,
+            py_formatter,
+            local_offset: load_local_offset(clock.now(), tid)?,
+            clock,
+        })
+    }
+
+    /// Python format: "%Y-%m-%d %H:%M:%S:%f+%z"
+    pub fn parse_python_container_time(&self, date: &str) -> Result<OffsetDateTime> {
+        if date
+            .chars()
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("Passed date was empty"))?
+            == '+'
+        {
+            Ok(PrimitiveDateTime::parse(date, &self.py_formatter)?.assume_utc())
+        } else {
+            Ok(OffsetDateTime::parse(date, &self.py_tz_formatter)?)
+        }
+    }
+}
+impl GlobalClock for ContainerTimeFormatter {
+    #[inline(always)]
+    fn now_str(&self) -> Result<String> {
+        let time = self.now();
+        self.format_time(time)
+    }
+    #[inline(always)]
+    fn now(&self) -> OffsetDateTime {
+        self.clock.now().to_offset(self.local_offset)
+    }
+    #[inline(always)]
+    fn format_time(&self, time: OffsetDateTime) -> Result<String> {
+        Ok(time.format(&self.py_formatter)?)
+    }
+}
+
+fn load_local_offset(from_time: OffsetDateTime, tid: &TransactionId) -> Result<UtcOffset> {
+    let tz_str = timezone(tid)?;
+    let time_zone = match tzdb::tz_by_name(&tz_str) {
+        Some(t) => t,
+        None => anyhow::bail!("parsed local timezone string was invalid: {}", tz_str),
+    };
+    let tm = match time_zone.find_local_time_type(from_time.unix_timestamp()) {
+        Ok(t) => t,
+        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to find time zone type"),
+    };
+    Ok(UtcOffset::from_whole_seconds(tm.ut_offset())?)
 }
