@@ -43,7 +43,7 @@
     "eviction": "LRU",
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 1024,
-    "pool_freq_ms": 5000,
+    "pool_freq_ms": 500,
     "snapshotter": "zfs",
     "concurrent_creation": 5,
     "cpu_resource": {

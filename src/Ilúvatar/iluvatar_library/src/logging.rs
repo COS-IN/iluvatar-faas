@@ -11,7 +11,7 @@ use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 
-#[derive(Debug, serde::Deserialize, Default)]
+#[derive(Debug, serde::Deserialize, Default, Clone)]
 /// Details about how/where to log to
 pub struct LoggingConfig {
     /// the min log level
@@ -63,7 +63,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
     ensure_dir(&buff.join(&config.directory))?;
     let dir = match std::fs::canonicalize(config.directory.clone()) {
         Ok(d) => d,
-        Err(e) => anyhow::bail!("Failed to canonicalize log file '{}'", e),
+        Err(e) => anyhow::bail!("Failed to canonicalize log file '{}', error: '{}'", config.directory, e),
     };
     ensure_dir(&dir)?;
 

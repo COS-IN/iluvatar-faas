@@ -160,11 +160,10 @@ pub async fn sim_invoker_svc(
         .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
     let _log = match log_level {
         Some(log_level) => {
-            let fake_logging = Arc::new(LoggingConfig {
-                level: log_level.to_string(),
-                spanning: cfg.logging.spanning.clone(),
-                ..Default::default()
-            });
+            let mut fake_logging = (*cfg.logging).clone();
+            fake_logging.stdout = Some(true);
+            fake_logging.level = log_level.to_string();
+            let fake_logging = Arc::new(fake_logging);
             Some(
                 start_tracing(fake_logging, &worker_name, &TEST_TID)
                     .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
@@ -253,6 +252,8 @@ pub async fn test_invoker_svc(
     let fake_logging = Arc::new(LoggingConfig {
         level: cfg.logging.level.clone(),
         spanning: cfg.logging.spanning.clone(),
+        directory: "/tmp".to_string(),
+        basename: "test".to_string(),
         ..Default::default()
     });
     let _log = match log {

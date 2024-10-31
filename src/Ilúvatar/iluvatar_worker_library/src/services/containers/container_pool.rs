@@ -194,18 +194,19 @@ impl ContainerPool {
         self.add_container(container, &self.running_pool, tid, PoolType::Running)
     }
 
-    /// Removes the container if it was found somewhere in the pool
-    /// Returns [None] if it was not found
+    /// Removes the container if it was found in the _idle_ pool.
+    /// Returns [None] if it was not found.
+    /// Removing a running container can cause instability.
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
     pub fn remove_container(&self, container: &Container, tid: &TransactionId) -> Option<Container> {
         if let Some(c) = self.remove_container_pool(container, &self.idle_pool, tid, PoolType::Idle) {
             self.len.fetch_sub(1, LEN_ORDERING);
             return Some(c);
         }
-        if let Some(c) = self.remove_container_pool(container, &self.running_pool, tid, PoolType::Running) {
-            self.len.fetch_sub(1, LEN_ORDERING);
-            return Some(c);
-        }
+        // if let Some(c) = self.remove_container_pool(container, &self.running_pool, tid, PoolType::Running) {
+        //     self.len.fetch_sub(1, LEN_ORDERING);
+        //     return Some(c);
+        // }
         None
     }
 
@@ -497,7 +498,8 @@ mod tests {
             .activate_random_container(&fqdn, &"test".to_string())
             .expect("should remove a container");
         assert_eq!(cp.len(), 4);
-
+        cp.move_to_idle(&c, &"test".to_string()).unwrap();
+        assert_eq!(cp.len(), 4);
         cp.remove_container(&c, &"test".to_string())
             .expect("should remove a container");
         assert_eq!(cp.len(), 3);
