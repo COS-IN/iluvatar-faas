@@ -1,4 +1,4 @@
-ARG REPO=alfuerst
+ARG ACTION_BASE=alfuerst/iluvatar-action-gpu-base
 # FROM nvidia/cuda:11.8.0-devel-ubuntu20.04 as build_img
 FROM ${REPO}/iluvatar-action-gpu-base:aarch64 as build_img
 
@@ -22,7 +22,7 @@ RUN git checkout 9ac922cc3b0dc8fcfd18506d68f917b726884a2b && \
     make && \
     cd ../../
 
-FROM ${REPO}/iluvatar-action-gpu-base:aarch64 
+FROM ${ACTION_BASE}:aarch64 
 
 WORKDIR /app
 

@@ -795,7 +795,7 @@ mod tests {
         }
         .unwrap_or_else(|e| panic!("acquire container 2 failed: {:?}", e));
         tokio::time::sleep(Duration::from_secs(1)).await;
-        assert_eq!(*cm.used_mem_mb.read(), func.memory*2, "second failed");
+        assert_eq!(*cm.used_mem_mb.read(), func.memory * 2, "second failed");
         drop(c1);
         cm.remove_idle_containers(&TEST_TID)
             .await

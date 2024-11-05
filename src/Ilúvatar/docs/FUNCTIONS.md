@@ -65,12 +65,12 @@ This file must conform to the expected [pip syntax](https://pip.pypa.io/en/stabl
 
 ### Building Containers
 
-There are build scripts [such as this one](../../load/functions/python3/build.sh) located in the relevant folders for creating Docker images from the various code snippets, plus installing their required dependencies.
+There are build scripts [such as this one](../../load/functions/python3/build-cpu.py) located in the relevant folders for creating Docker images from the various code snippets, plus installing their required dependencies.
 Running these various scripts will compile all the functions into Docker images and push them to Docker Hub.
 You will need to pass a repository name that you have write permission to via arguments to the script, along with an optional version for the image.
 
 ```bash
-foo@cosin:~$ ./build.sh --repo=cosin --version=latest
+foo@cosin:~$ ./build-cpu.py --repo=cosin --version=latest
 ```
 
 Once the script is completed, the images will be ready to use by Ilúvatar.
@@ -78,5 +78,5 @@ Once the script is completed, the images will be ready to use by Ilúvatar.
 ### Custom dependencies
 
 If your code requires custom dependencies that can't be installed with `pip`, it can add a custom `dockerfile` that installs them.
-It should be located in the same directory as the code, be named `Dockerfile`, and start with `FROM ${REPO}/iluvatar-action-base`.
+It should be located in the same directory as the code, be named `Dockerfile`, and start with `FROM ${ACTION_BASE}`.
 See `video_processing` doing this [here](../../load/functions/python3/functions/video_processing/Dockerfile) to install ffmpeg.

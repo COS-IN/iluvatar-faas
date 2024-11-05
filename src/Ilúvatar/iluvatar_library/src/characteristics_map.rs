@@ -263,15 +263,18 @@ impl CharacteristicsMap {
             .lookup(fqdn, &Characteristics::LastInvTime)
             .unwrap_or(Values::Duration(Duration::new(0, 0)));
         let last_inv_time = unwrap_val_dur(&last_inv_time);
-        // let iat = time_now_elapsed.as_secs_f64() - last_inv_time.as_secs_f64();
-        // println!("{:?} {:?} {:?} {} {:?}", time_now, time_now_elapsed, last_inv_time, last_inv_time.as_secs_f64(), iat);
-        
+
         if last_inv_time.as_secs_f64() > 0.0 {
             let iat = time_now_elapsed.as_secs_f64() - last_inv_time.as_secs_f64();
             self.add(fqdn, Characteristics::IAT, Values::F64(iat), true);
         }
 
-        self.add(fqdn, Characteristics::LastInvTime, Values::Duration(time_now_elapsed), false);
+        self.add(
+            fqdn,
+            Characteristics::LastInvTime,
+            Values::Duration(time_now_elapsed),
+            false,
+        );
     }
 
     /// Most recent value

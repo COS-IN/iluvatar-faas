@@ -451,7 +451,7 @@ pub async fn worker_clean(
 pub async fn wait_elapsed_live(timer: &Instant, elapsed: u64) {
     loop {
         let timer_elapsed_ms = timer.elapsed().as_millis();
-        if timer_elapsed_ms <= elapsed as u128 {
+        if elapsed as u128 <= timer_elapsed_ms {
             break;
         } else {
             let diff = (elapsed as u128) - timer_elapsed_ms;

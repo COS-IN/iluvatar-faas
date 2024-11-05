@@ -38,7 +38,7 @@ fn run_invokes(
     let trace: Vec<CsvInvocation> = crate::trace::trace_utils::load_trace_csv(&args.input_csv, tid)?;
     let clock = get_global_clock(tid)?;
     worker_prepare_functions(
-        RunType::Simulation,
+        args.setup,
         &mut metadata,
         &host,
         args.port,
@@ -51,9 +51,9 @@ fn run_invokes(
         args.max_prewarms,
     )?;
 
+    info!(tid=%tid, "Starting invocations");
     let results = runtime.block_on(async {
         let mut handles = Vec::new();
-        info!("starting simulation run");
         let start = now();
         for invoke in trace {
             let func = metadata.get(&invoke.func_name).ok_or_else(|| {
@@ -124,6 +124,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
     let _rt_guard = threaded_rt.enter();
     let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
     let factory = WorkerAPIFactory::boxed();
+    info!(tid=%tid, "starting simulation run");
 
     run_invokes(
         tid,
@@ -140,5 +141,7 @@ fn live_worker(args: TraceArgs) -> Result<()> {
     let factory = WorkerAPIFactory::boxed();
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
     let host = args.host.clone();
+    info!(tid=%tid, "starting live run");
+
     run_invokes(tid, args, factory, threaded_rt, host, CommunicationMethod::RPC)
 }

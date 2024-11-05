@@ -44,7 +44,7 @@ fn start_logging(path: &str, stdout: bool) -> anyhow::Result<impl Drop> {
 fn wrap_logging<T>(path: String, stdout: bool, args: T, run: fn(args: T) -> anyhow::Result<()>) -> anyhow::Result<()> {
     let _drop = start_logging(&path, stdout)?;
     match run(args) {
-        Err(e) => bail_error!(error=%e, "Load failed"),
+        Err(e) => bail_error!(error=%e, "Load failed, check error log"),
         _ => Ok(()),
     }
 }

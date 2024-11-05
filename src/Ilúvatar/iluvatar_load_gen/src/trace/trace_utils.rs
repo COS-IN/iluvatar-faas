@@ -113,12 +113,10 @@ fn map_from_benchmark(
                 info!("{} mapped to self name in benchmark", func.func_name);
                 func.chosen_name = Some(name);
             }
-            info!("chosen_name A {} {:?}", _last, elements);
         }
         if bench.data.contains_key(&func.func_name) && func.image_name.is_some() && func.chosen_name.is_none() {
             info!("{} mapped to exact name in benchmark", func.func_name);
             func.chosen_name = Some(func.func_name.clone());
-            info!("chosen_name B");
         }
         if func.chosen_name.is_none() {
             let device_data: ComputeChoiceList = choose_bench_data_for_func(func, bench)?;
@@ -147,7 +145,6 @@ fn map_from_benchmark(
                 func.chosen_name = Some(chosen_name);
                 func.image_name = Some(chosen_image);
             }
-            info!("chosen_name C {:?}", func.image_name);
         }
         if func.prewarms.is_none() {
             let prewarms = compute_prewarms(func, default_prewarms, max_prewarms);
@@ -159,8 +156,23 @@ fn map_from_benchmark(
             Some(name) => {
                 let mut sim_data = HashMap::new();
                 for compute in func.parsed_compute.unwrap().into_iter() {
-                    let bench_data = bench.data.get(name).unwrap();
-                    let compute_data = bench_data.resource_data.get(&compute.try_into().unwrap()).unwrap();
+                    let bench_data = bench.data.get(name).ok_or_else(|| {
+                        anyhow::format_err!(
+                            "Failed to get benchmark data for function '{}' with chosen_name '{}'",
+                            func.func_name,
+                            name
+                        )
+                    })?;
+                    let compute_data: &iluvatar_library::types::FunctionInvocationTimings = bench_data
+                        .resource_data
+                        .get(&compute.try_into().expect("failed to parse compute"))
+                        .ok_or_else(|| {
+                            anyhow::format_err!(
+                            "failed to find data in bench_data.resource_data for function '{}' with chosen_name '{}'",
+                            func.func_name,
+                            name
+                        )
+                        })?;
                     let warm_us = compute_data.warm_invoke_duration_us.iter().sum::<u128>()
                         / compute_data.warm_invoke_duration_us.len() as u128;
                     let cold_us = compute_data.cold_invoke_duration_us.iter().sum::<u128>()
