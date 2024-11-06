@@ -1,7 +1,7 @@
 use crate::services::registration::RegisteredFunction;
+use crate::services::status::status_service::LoadAvg;
 use crate::worker_api::worker_config::CPUResourceConfig;
 use anyhow::Result;
-use iluvatar_library::cpu_interaction::CpuMonitor;
 use iluvatar_library::threading::tokio_thread;
 use iluvatar_library::transaction::TransactionId;
 use parking_lot::Mutex;
@@ -25,15 +25,16 @@ pub struct CpuResourceTracker {
     current_concur: Mutex<u32>,
     max_load: Option<f64>,
     cores: f64,
-    cpu_mon: CpuMonitor,
+    load_avg: LoadAvg,
 }
 
 impl CpuResourceTracker {
-    pub fn new(config: &Arc<CPUResourceConfig>, tid: &TransactionId) -> Result<Arc<Self>> {
+    pub fn new(config: &Arc<CPUResourceConfig>, load_avg: LoadAvg, tid: &TransactionId) -> Result<Arc<Self>> {
         let mut max_concur = 0;
-        let cpu_mon = iluvatar_library::cpu_interaction::get_cpu_mon(config.count, tid)?;
-
-        let available_cores = num_cpus::get();
+        let available_cores = match config.count {
+            0 => num_cpus::get(),
+            n => n as usize,
+        };
         let sem = match config.count {
             0 => None,
             p => Some(Arc::new(Semaphore::new(p as usize))),
@@ -68,7 +69,7 @@ impl CpuResourceTracker {
             max_concur,
             _load_thread: load_handle,
             cores: available_cores as f64,
-            cpu_mon,
+            load_avg,
         });
         if let Some(load_tx) = load_tx {
             load_tx.send(svc.clone())?;
@@ -95,15 +96,7 @@ impl CpuResourceTracker {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(svc), fields(tid=%tid)))]
     async fn monitor_load(svc: Arc<CpuResourceTracker>, tid: TransactionId) {
-        let load_avg = match svc.cpu_mon.load_average(&tid) {
-            Ok(l) if l >= 0.0 => l,
-            Ok(_) => return,
-            Err(e) => {
-                error!(tid=%tid, error=%e, "Failed to read load average");
-                return;
-            }
-        };
-        let norm_load = load_avg / svc.cores;
+        let norm_load = *svc.load_avg.read() / svc.cores;
         let current = *svc.current_concur.lock();
         if norm_load > svc.max_load.unwrap() {
             let change = current - svc.min_concur;

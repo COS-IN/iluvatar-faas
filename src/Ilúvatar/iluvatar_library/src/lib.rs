@@ -9,7 +9,6 @@ pub mod macros;
 pub mod characteristics_map;
 pub mod clock;
 pub mod continuation;
-pub mod cpu_interaction;
 pub mod energy;
 pub mod influx;
 pub mod logging;

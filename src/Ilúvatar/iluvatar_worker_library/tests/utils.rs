@@ -11,6 +11,7 @@ use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 #[cfg(feature = "power_cap")]
 use iluvatar_worker_library::services::invocation::energy_limiter::EnergyLimiter;
+use iluvatar_worker_library::services::status::status_service::build_load_avg_signal;
 use iluvatar_worker_library::services::{
     containers::{containermanager::ContainerManager, IsolationFactory},
     invocation::{Invoker, InvokerFactory},
@@ -78,8 +79,9 @@ pub async fn full_sim_invoker(
         ),
         false => None,
     };
+    let load_avg = build_load_avg_signal();
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg.clone(), &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
     let lifecycles = factory
@@ -171,8 +173,9 @@ pub async fn sim_invoker_svc(
         }
         None => None,
     };
+    let load_avg = build_load_avg_signal();
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
     let lifecycles = factory
@@ -263,8 +266,9 @@ pub async fn test_invoker_svc(
         ),
         false => None,
     };
+    let load_avg = build_load_avg_signal();
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
 
     let factory = IsolationFactory::new(cfg.clone());

@@ -9,6 +9,7 @@ use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
 use iluvatar_worker_library::services::invocation::queueing::DeviceQueue;
+use iluvatar_worker_library::services::status::status_service::build_load_avg_signal;
 use iluvatar_worker_library::services::{
     invocation::queueing::{
         gpu_mqfq::{FlowQ, MQState, MQFQ},
@@ -67,7 +68,8 @@ async fn build_mqfq(
 ) -> (Option<impl Drop>, Arc<ContainerManager>, Arc<MQFQ>) {
     let env = build_gpu_env(overrun, timeout_sec, mqfq_policy);
     let (log, cfg, cm, _invoker, _reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID).unwrap();
+    let load_avg = build_load_avg_signal();
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg, &TEST_TID).unwrap();
     let gpu = GpuResourceTracker::boxed(
         &cfg.container_resources.gpu_resource,
         &cfg.container_resources,
