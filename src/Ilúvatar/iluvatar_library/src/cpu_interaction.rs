@@ -1,158 +1,114 @@
 use crate::clock::now;
-use crate::{bail_error, nproc, threading, transaction::TransactionId};
+use crate::utils::is_simulation;
+use crate::{bail_error, threading, transaction::TransactionId};
 use anyhow::Result;
-use std::io::Read;
+use parking_lot::Mutex;
+use std::fs::read_to_string;
+use std::io::{BufRead, BufReader, Read};
 use std::thread::JoinHandle;
+use std::time::Duration;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::time::Instant;
 use tracing::{error, info};
 
-const BASE_CPU_DIR: &str = "/sys/devices/system/cpu";
-
-pub struct CPUService {
-    nprocs: usize,
+pub fn get_cpu_mon(cpu_count: u32, tid: &TransactionId) -> Result<CpuMonitor> {
+    match is_simulation() {
+        true => Ok(CpuSimMonitor::new(cpu_count, tid)),
+        false => Ok(CpuHardwareMonitor::new(cpu_count, tid)?),
+    }
 }
 
-impl CPUService {
-    pub fn boxed(tid: &TransactionId) -> Result<Arc<Self>> {
-        let procs = nproc(tid, true)?;
-        Ok(Arc::new(CPUService { nprocs: procs as usize }))
+pub type CpuMonitor = Arc<dyn CpuMonitorTrait + Send + Sync>;
+pub trait CpuMonitorTrait {
+    /// Breakdown in CPU utilization, since previous query.
+    /// More frequent querying results in more accurate utilization.
+    /// _NOT_ an instantaneous CPU utilization.
+    fn cpu_util(&self, tid: &TransactionId) -> Result<CPUUtilPcts>;
+    /// System [load average](https://www.man7.org/linux/man-pages/man5/proc_loadavg.5.html) over 1 minute.
+    fn load_average(&self, tid: &TransactionId) -> Result<f64>;
+    /// Number of CPUs available to the system.
+    fn nprocs(&self, tid: &TransactionId) -> Result<u32>;
+}
+
+pub struct CpuHardwareMonitor {
+    last_instant_usage: Mutex<CPUUtilInstant>,
+    nprocs: u32,
+}
+impl CpuHardwareMonitor {
+    pub fn new(cpu_count: u32, tid: &TransactionId) -> Result<Arc<Self>> {
+        Ok(Arc::new(Self {
+            last_instant_usage: Mutex::new(CPUUtilInstant::get(tid)?),
+            nprocs: match cpu_count {
+                0 => num_cpus::get() as u32,
+                n => n,
+            },
+        }))
+    }
+}
+#[async_trait::async_trait]
+impl CpuMonitorTrait for CpuHardwareMonitor {
+    fn cpu_util(&self, tid: &TransactionId) -> Result<CPUUtilPcts> {
+        let now = CPUUtilInstant::get(tid)?;
+        let mut last = self.last_instant_usage.lock();
+        let diff = &now - &*last;
+        *last = now;
+        Ok(diff)
     }
 
-    /// The frequencies of all the CPUs in the system, as reported by the hardware
-    /// CPU IDs are implicit in the position, values will be 0 if an error occured
-    pub fn hardware_cpu_freqs(&self, tid: &TransactionId) -> Result<Vec<u64>> {
-        let mut ret = Vec::new();
-        let base = Path::new(BASE_CPU_DIR);
-
-        for cpu in 0..self.nprocs {
-            let shared_path = base.join(format!("cpu{}", cpu));
-            let hw_path = shared_path.join("cpufreq/cpuinfo_cur_freq");
-            let parsed = self.read_freq(hw_path, tid)?;
-            ret.push(parsed);
-        }
-
-        Ok(ret)
-    }
-
-    fn read_freq(&self, pth: PathBuf, tid: &TransactionId) -> Result<u64> {
-        let mut opened = match std::fs::File::open(&pth) {
-            Ok(b) => b,
+    fn load_average(&self, tid: &TransactionId) -> Result<f64> {
+        let buff = match read_to_string("/proc/loadavg") {
+            Ok(f) => f,
+            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read /proc/loadavg"),
+        };
+        let lines: Vec<&str> = buff.split(' ').filter(|str| !str.is_empty()).collect();
+        let min = lines[0];
+        match min.parse::<f64>() {
+            Ok(r) => Ok(r),
             Err(e) => {
-                bail_error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to open cpu freq file")
-            }
-        };
-        let mut buff = String::new();
-        match opened.read_to_string(&mut buff) {
-            Ok(_) => (),
-            Err(e) => {
-                bail_error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to read cpu freq file into buffer")
-            }
-        };
-        match buff[0..buff.len() - 1].parse::<u64>() {
-            Ok(u) => Ok(u),
-            Err(e) => {
-                bail_error!(error=%e, tid=%tid, data=%buff, "Unable to parse cpu freq buffer")
+                bail_error!(tid=%tid, "error parsing float from uptime {}: {}", min, e);
             }
         }
     }
 
-    /// The frequencies of all the CPUs in the system, as reported by the kernel
-    /// CPU IDs are implicit in the position, values will be 0 if an error occured
-    pub fn kernel_cpu_freqs(&self, tid: &TransactionId) -> Result<Vec<u64>> {
-        let mut ret = Vec::new();
-        let base = Path::new(BASE_CPU_DIR);
-
-        for cpu in 0..self.nprocs {
-            let shared_path = base.join(format!("cpu{}", cpu));
-            let kernel_path = shared_path.join("cpufreq/scaling_cur_freq");
-            let parsed = self.read_freq(kernel_path, tid)?;
-            ret.push(parsed);
-        }
-
-        Ok(ret)
-    }
-
-    pub async fn instant_cpu_util(&self, tid: &TransactionId) -> Result<CPUUtilInstant> {
-        CPUUtilInstant::get(tid).await
-    }
-    pub fn compute_cpu_util(&self, inst1: &CPUUtilInstant, inst2: &CPUUtilInstant) -> CPUUtilPcts {
-        if inst1.read_time > inst2.read_time {
-            inst1 - inst2
-        } else {
-            inst2 - inst1
-        }
+    fn nprocs(&self, _tid: &TransactionId) -> Result<u32> {
+        Ok(self.nprocs)
     }
 }
 
-pub struct CpuFreqMonitor {
-    cpu: Arc<CPUService>,
-    _kernel_worker: Option<JoinHandle<()>>,
-    _hardware_worker: Option<JoinHandle<()>>,
+pub struct CpuSimMonitor {
+    cpu_count: u32,
 }
-
-lazy_static::lazy_static! {
-  pub static ref KERNEL_FREQ_WORKER_TID: TransactionId = "KernelFreqMon".to_string();
-  pub static ref HARDWARE_FREQ_WORKER_TID: TransactionId = "HardwareFreqMon".to_string();
+impl CpuSimMonitor {
+    pub fn new(cpu_count: u32, _tid: &TransactionId) -> Arc<Self> {
+        Arc::new(Self { cpu_count })
+    }
 }
-impl CpuFreqMonitor {
-    pub fn boxed(kernel_freq_ms: Option<u64>, hardware_freq_ms: Option<u64>, tid: &TransactionId) -> Result<Arc<Self>> {
-        let cpu = CPUService::boxed(tid)?;
-        let kernel = match kernel_freq_ms {
-            None | Some(0) => (None, None),
-            Some(ms) => {
-                // make sure kernel data is accessible
-                cpu.kernel_cpu_freqs(tid)?;
-                let (h, t) =
-                    threading::os_thread(ms, KERNEL_FREQ_WORKER_TID.clone(), Arc::new(Self::kernel_frequencies))?;
-                (Some(h), Some(t))
-            }
-        };
-        let hardware = match hardware_freq_ms {
-            None | Some(0) => (None, None),
-            Some(ms) => {
-                // make sure hardware data is accessible
-                cpu.hardware_cpu_freqs(tid)?;
-                let (h, t) = threading::os_thread(
-                    ms,
-                    HARDWARE_FREQ_WORKER_TID.clone(),
-                    Arc::new(Self::hardware_frequencies),
-                )?;
-                (Some(h), Some(t))
-            }
-        };
-        let r = Arc::new(CpuFreqMonitor {
-            cpu,
-            _kernel_worker: kernel.0,
-            _hardware_worker: hardware.0,
-        });
-        if let Some(tx) = kernel.1 {
-            tx.send(r.clone())?;
-        }
-        if let Some(tx) = hardware.1 {
-            tx.send(r.clone())?;
-        }
-        Ok(r)
+impl CpuMonitorTrait for CpuSimMonitor {
+    fn cpu_util(&self, _tid: &TransactionId) -> Result<CPUUtilPcts> {
+        Ok(CPUUtilPcts {
+            read_diff: Duration::from_micros(0),
+            cpu_user: 0.0,
+            cpu_nice: 0.0,
+            cpu_system: 0.0,
+            cpu_idle: 0.0,
+            cpu_iowait: 0.0,
+            cpu_irq: 0.0,
+            cpu_softirq: 0.0,
+            cpu_steal: 0.0,
+            cpu_guest: 0.0,
+            cpu_guest_nice: 0.0,
+        })
     }
 
-    /// Log the kernel CPU frequencies, CPU ID is the entry in the vec
-    pub fn kernel_frequencies(&self, tid: &TransactionId) {
-        match self.cpu.kernel_cpu_freqs(tid) {
-            Ok(h) => info!(tid=%tid, frequencies=?h, "Kernel CPU Frequencies"),
-            Err(e) => error!(tid=%tid, error=%e, "Failed to read kernel CPU frequencies"),
-        }
+    fn load_average(&self, _tid: &TransactionId) -> Result<f64> {
+        Ok(0.0)
     }
 
-    /// Log the hardware CPU frequencies, CPU ID is the entry in the vec
-    pub fn hardware_frequencies(&self, tid: &TransactionId) {
-        match self.cpu.hardware_cpu_freqs(tid) {
-            Ok(h) => info!(tid=%tid, frequencies=?h, "Hardware CPU Frequencies"),
-            Err(e) => error!(tid=%tid, error=%e, "Failed to read hardware CPU frequencies"),
-        }
+    fn nprocs(&self, _tid: &TransactionId) -> Result<u32> {
+        Ok(self.cpu_count)
     }
 }
 
@@ -188,20 +144,20 @@ impl Default for CPUUtilInstant {
     }
 }
 impl CPUUtilInstant {
-    pub async fn get(tid: &TransactionId) -> Result<Self> {
-        let cpu_line = Self::read().await?;
+    pub fn get(tid: &TransactionId) -> Result<Self> {
+        let cpu_line = Self::read()?;
         Self::parse(cpu_line, tid)
     }
-    async fn read() -> Result<String> {
+    fn read() -> Result<String> {
         let mut ret = String::new();
-        let mut b = match tokio::fs::File::open("/proc/stat").await {
+        let mut b = match std::fs::File::open("/proc/stat") {
             Ok(f) => BufReader::new(f),
             Err(e) => {
                 return Err(e.into());
             }
         };
         loop {
-            match b.read_line(&mut ret).await? {
+            match b.read_line(&mut ret)? {
                 0 => anyhow::bail!("Unable to find matching 'cpu ' line in /proc/stat"),
                 _ => {
                     if ret.starts_with("cpu ") {
@@ -295,5 +251,119 @@ impl std::ops::Sub for &CPUUtilInstant {
             cpu_guest: (guest_diff / tot) * 100.0,
             cpu_guest_nice: (guest_nice_diff / tot) * 100.0,
         }
+    }
+}
+
+const BASE_CPU_DIR: &str = "/sys/devices/system/cpu";
+pub struct CpuFreqMonitor {
+    nprocs: usize,
+    _kernel_worker: Option<JoinHandle<()>>,
+    _hardware_worker: Option<JoinHandle<()>>,
+}
+
+lazy_static::lazy_static! {
+  pub static ref KERNEL_FREQ_WORKER_TID: TransactionId = "KernelFreqMon".to_string();
+  pub static ref HARDWARE_FREQ_WORKER_TID: TransactionId = "HardwareFreqMon".to_string();
+}
+impl CpuFreqMonitor {
+    pub fn boxed(
+        kernel_freq_ms: Option<u64>,
+        hardware_freq_ms: Option<u64>,
+        _tid: &TransactionId,
+    ) -> Result<Arc<Self>> {
+        let kernel = match kernel_freq_ms {
+            None | Some(0) => (None, None),
+            Some(ms) => {
+                let (h, t) =
+                    threading::os_thread(ms, KERNEL_FREQ_WORKER_TID.clone(), Arc::new(Self::kernel_frequencies))?;
+                (Some(h), Some(t))
+            }
+        };
+        let hardware = match hardware_freq_ms {
+            None | Some(0) => (None, None),
+            Some(ms) => {
+                // make sure hardware data is accessible
+                let (h, t) = threading::os_thread(
+                    ms,
+                    HARDWARE_FREQ_WORKER_TID.clone(),
+                    Arc::new(Self::hardware_frequencies),
+                )?;
+                (Some(h), Some(t))
+            }
+        };
+        let r = Arc::new(CpuFreqMonitor {
+            _kernel_worker: kernel.0,
+            _hardware_worker: hardware.0,
+            nprocs: num_cpus::get_physical(),
+        });
+        if let Some(tx) = kernel.1 {
+            tx.send(r.clone())?;
+        }
+        if let Some(tx) = hardware.1 {
+            tx.send(r.clone())?;
+        }
+        Ok(r)
+    }
+
+    fn read_freq(&self, pth: PathBuf, tid: &TransactionId) -> Result<u64> {
+        let mut opened = match std::fs::File::open(&pth) {
+            Ok(b) => b,
+            Err(e) => {
+                bail_error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to open cpu freq file")
+            }
+        };
+        let mut buff = String::new();
+        match opened.read_to_string(&mut buff) {
+            Ok(_) => (),
+            Err(e) => {
+                bail_error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to read cpu freq file into buffer")
+            }
+        };
+        match buff[0..buff.len() - 1].parse::<u64>() {
+            Ok(u) => Ok(u),
+            Err(e) => {
+                bail_error!(error=%e, tid=%tid, data=%buff, "Unable to parse cpu freq buffer")
+            }
+        }
+    }
+
+    /// Log the kernel CPU frequencies, CPU ID is the entry in the vec
+    fn kernel_frequencies(&self, tid: &TransactionId) {
+        let mut frequencies = Vec::new();
+        let base = Path::new(BASE_CPU_DIR);
+
+        for cpu in 0..self.nprocs {
+            let shared_path = base.join(format!("cpu{}", cpu));
+            let kernel_path = shared_path.join("cpufreq/scaling_cur_freq");
+            let parsed = match self.read_freq(kernel_path, tid) {
+                Ok(p) => p,
+                Err(e) => {
+                    error!(tid=%tid, error=%e, "Failed to read kernel CPU frequencies");
+                    return;
+                }
+            };
+            frequencies.push(parsed);
+        }
+        info!(tid=%tid, frequencies=?frequencies, "Kernel CPU Frequencies");
+    }
+
+    /// Log the hardware CPU frequencies, CPU ID is the entry in the vec
+    fn hardware_frequencies(&self, tid: &TransactionId) {
+        let mut frequencies = Vec::new();
+        let base = Path::new(BASE_CPU_DIR);
+
+        for cpu in 0..self.nprocs {
+            let shared_path = base.join(format!("cpu{}", cpu));
+            let hw_path = shared_path.join("cpufreq/cpuinfo_cur_freq");
+            let parsed = match self.read_freq(hw_path, tid) {
+                Ok(p) => p,
+                Err(e) => {
+                    error!(tid=%tid, error=%e, "Failed to read hardware CPU frequencies");
+                    return;
+                }
+            };
+            frequencies.push(parsed);
+        }
+        info!(tid=%tid, frequencies=?frequencies, "Hardware CPU Frequencies");
     }
 }

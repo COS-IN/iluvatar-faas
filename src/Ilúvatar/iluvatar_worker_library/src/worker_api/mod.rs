@@ -10,6 +10,7 @@ use crate::services::status::status_service::StatusService;
 use crate::services::worker_health::WorkerHealthService;
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
+use iluvatar_library::cpu_interaction::get_cpu_mon;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::types::{Compute, HealthStatus, Isolation, ResourceTimings};
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
@@ -95,6 +96,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         worker_config.status.clone(),
         invoker.clone(),
         gpu_resource.clone(),
+        get_cpu_mon(worker_config.container_resources.cpu_resource.count, tid)?,
     )
     .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make status service"))?;
 

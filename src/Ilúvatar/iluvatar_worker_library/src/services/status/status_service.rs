@@ -4,10 +4,10 @@ use crate::services::{
 };
 use crate::worker_api::worker_config::StatusConfig;
 use anyhow::Result;
-use iluvatar_library::cpu_interaction::{CPUService, CPUUtilInstant};
+use iluvatar_library::cpu_interaction::CpuMonitor;
+use iluvatar_library::threading;
 use iluvatar_library::transaction::{TransactionId, STATUS_WORKER_TID};
 use iluvatar_library::types::Compute;
-use iluvatar_library::{load_avg, nproc, threading};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -20,9 +20,8 @@ pub struct StatusService {
     worker_thread: JoinHandle<()>,
     tags: String,
     metrics: Vec<&'static str>,
-    cpu: Arc<CPUService>,
+    cpu: CpuMonitor,
     config: Arc<StatusConfig>,
-    cpu_instant: Mutex<CPUUtilInstant>,
     invoker: Arc<dyn Invoker>,
     gpu: Option<Arc<GpuResourceTracker>>,
 }
@@ -31,17 +30,17 @@ impl StatusService {
     pub fn boxed(
         cm: Arc<ContainerManager>,
         worker_name: String,
-        tid: &TransactionId,
+        _tid: &TransactionId,
         config: Arc<StatusConfig>,
         invoker: Arc<dyn Invoker>,
         gpu: Option<Arc<GpuResourceTracker>>,
+        cpu_mon: CpuMonitor,
     ) -> Result<Arc<Self>> {
         let (handle, sender) = threading::tokio_thread(
             config.report_freq_ms,
             STATUS_WORKER_TID.clone(),
             StatusService::update_status,
         );
-        let cpu_svc = CPUService::boxed(tid)?;
 
         let ret = Arc::new(StatusService {
             container_manager: cm,
@@ -69,8 +68,7 @@ impl StatusService {
                 "worker.load.mem_pct",
                 "worker.load.used_mem",
             ],
-            cpu_instant: Mutex::new(Default::default()),
-            cpu: cpu_svc,
+            cpu: cpu_mon,
             config,
             invoker,
             gpu,
@@ -80,16 +78,8 @@ impl StatusService {
     }
 
     async fn update_status(self: Arc<Self>, tid: TransactionId) {
-        let cpu_now = match self.cpu.instant_cpu_util(&tid).await {
-            Ok(i) => i,
-            Err(e) => {
-                error!(tid=%tid, error=%e, "Unable to get instant cpu utilization");
-                return;
-            }
-        };
-
-        let minute_load_avg = load_avg(&tid).await;
-        let nprocs = match nproc(&tid, false) {
+        let minute_load_avg = self.cpu.load_average(&tid).unwrap_or_else(|_| -1.0);
+        let nprocs = match self.cpu.nprocs(&tid) {
             Ok(n) => n,
             Err(e) => {
                 error!(tid=%tid, error=%e, "Unable to get the number of processors on the system");
@@ -102,9 +92,7 @@ impl StatusService {
             gpu_utilization = gpu.gpu_status(&tid);
         }
 
-        let mut cpu_instant_lck = self.cpu_instant.lock();
-        let computed_util = self.cpu.compute_cpu_util(&cpu_now, &cpu_instant_lck);
-        *cpu_instant_lck = cpu_now;
+        let computed_util = self.cpu.cpu_util(&tid).unwrap();
 
         let queue_lengths = self.invoker.queue_len();
         let used_mem = self.container_manager.used_memory();

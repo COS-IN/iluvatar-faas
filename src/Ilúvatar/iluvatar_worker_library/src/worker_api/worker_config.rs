@@ -80,7 +80,7 @@ pub struct ContainerResourceConfig {
     pub gpu_resource: Option<Arc<GPUResourceConfig>>,
 }
 #[derive(Debug, Deserialize, Default)]
-/// Configuration detailing a single type of compute
+/// Configuration detailing a single type of compute.
 pub struct CPUResourceConfig {
     /// number of cores it can use, i.e. number of concurrent functions allowed at once
     /// If this is set to 0, then allocations of CPUs will not be limited
@@ -91,7 +91,8 @@ pub struct CPUResourceConfig {
     /// Used with [Self::max_oversubscribe], disabled if 0
     pub concurrency_update_check_ms: Option<u64>,
     /// The maximum normalized load average before reducing concurrency.
-    /// Used with [Self::max_oversubscribe] and cannot be 0
+    /// Used with [Self::max_oversubscribe] and cannot be 0.
+    /// Ilúvatar assumes that it will be the only program running on the system with this enabled, and has access to all CPUs.
     pub max_load: Option<f64>,
 }
 #[derive(Debug, Deserialize, Default)]

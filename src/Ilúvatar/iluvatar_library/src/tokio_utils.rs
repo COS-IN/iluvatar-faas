@@ -1,4 +1,3 @@
-use crate::nproc;
 use crate::transaction::TransactionId;
 use crate::utils::missing_or_zero_default;
 use parking_lot::Mutex;
@@ -38,7 +37,7 @@ pub fn build_tokio_runtime(
     tokio_event_interval: &Option<u32>,
     tokio_queue_interval: &Option<u32>,
     num_threads: &Option<usize>,
-    tid: &TransactionId,
+    _tid: &TransactionId,
 ) -> anyhow::Result<TokioRuntime> {
     let is_sim = crate::utils::is_simulation();
     if is_sim {
@@ -47,10 +46,6 @@ pub fn build_tokio_runtime(
         }
     }
 
-    let num_threads = match num_threads {
-        None => nproc(tid, false)? as usize,
-        Some(n) => *n,
-    };
     let event = missing_or_zero_default(tokio_event_interval, 61);
     let queue = missing_or_zero_default(tokio_queue_interval, 31);
 
@@ -58,8 +53,11 @@ pub fn build_tokio_runtime(
         true => tokio::runtime::Builder::new_current_thread(),
         false => tokio::runtime::Builder::new_multi_thread(),
     };
+    let rt: &mut tokio::runtime::Builder = match num_threads {
+        Some(n) => rt.worker_threads(*n),
+        None => &mut rt,
+    };
     let rt = match rt
-        .worker_threads(num_threads)
         .enable_all()
         .event_interval(event)
         .global_queue_interval(queue)

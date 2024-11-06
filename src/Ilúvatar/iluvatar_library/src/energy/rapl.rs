@@ -1,8 +1,8 @@
 use super::EnergyConfig;
+use crate::bail_error;
 use crate::clock::{get_global_clock, now, Clock};
 use crate::threading::os_thread;
 use crate::transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID};
-use crate::{bail_error, nproc};
 use anyhow::{anyhow, Result};
 use parking_lot::{Mutex, RwLock};
 use std::fs::{read_to_string, File};
@@ -35,7 +35,7 @@ impl RAPL {
     }
 
     /// Return the elapsed time and used uj between the two queries
-    ///   right must have happened before left or it will error
+    ///   right must have happened before left, or it will error.
     pub fn difference(&self, left: &RAPLQuery, right: &RAPLQuery, _tid: &TransactionId) -> Result<(u128, u128)> {
         let elapsed = left.start.duration_since(right.start).as_micros();
         let uj: u128;
@@ -122,7 +122,7 @@ pub struct RaplMsr {
 }
 impl RaplMsr {
     pub fn new(tid: &TransactionId) -> Result<Self> {
-        let procs = nproc(tid, false)?;
+        let procs = num_cpus::get_physical();
 
         let mut open_fds = vec![];
         let mut power_units = vec![];
@@ -136,7 +136,7 @@ impl RaplMsr {
                 // This can happen if the CPU core in question has been disabled
                 Err(e) => bail_error!(tid=%tid, error=%e, cpu=cpu, "Failed to open MSR for cpu"),
             };
-            let (pu, cpu, time) = RaplMsr::read_power_unit(cpu as usize, &mut file, intel, tid)?;
+            let (pu, cpu, time) = RaplMsr::read_power_unit(cpu, &mut file, intel, tid)?;
             power_units.push(pu);
             cpu_energy_units.push(cpu);
             time_units.push(time);
