@@ -54,7 +54,7 @@ impl StatusService {
             0 => num_cpus::get() as u32,
             n => n,
         };
-        let cpu_mon = get_cpu_mon(signal, invoker.clone(), tid)?;
+        let cpu_mon = get_cpu_mon(cpu_count, signal, invoker.clone(), tid)?;
         let ret = Arc::new(StatusService {
             container_manager: cm,
             current_status: Mutex::new(Arc::new(WorkerStatus {
@@ -147,9 +147,9 @@ pub fn build_load_avg_signal() -> LoadAvg {
     Arc::new(RwLock::new(0.0))
 }
 
-fn get_cpu_mon(signal: LoadAvg, invoker: Arc<dyn Invoker>, tid: &TransactionId) -> Result<CpuMonitor> {
+fn get_cpu_mon(num_cpus: u32, signal: LoadAvg, invoker: Arc<dyn Invoker>, tid: &TransactionId) -> Result<CpuMonitor> {
     match is_simulation() {
-        true => Ok(CpuSimMonitor::new(signal, invoker, tid)),
+        true => Ok(CpuSimMonitor::new(num_cpus, signal, invoker, tid)),
         false => Ok(CpuHardwareMonitor::new(signal, tid)?),
     }
 }
@@ -203,12 +203,17 @@ impl CpuMonitorTrait for CpuHardwareMonitor {
 }
 
 struct CpuSimMonitor {
+    num_cpus: u32,
     signal: LoadAvg,
     invoker: Arc<dyn Invoker>,
 }
 impl CpuSimMonitor {
-    fn new(signal: LoadAvg, invoker: Arc<dyn Invoker>, _tid: &TransactionId) -> Arc<Self> {
-        Arc::new(Self { signal, invoker })
+    fn new(num_cpus: u32, signal: LoadAvg, invoker: Arc<dyn Invoker>, _tid: &TransactionId) -> Arc<Self> {
+        Arc::new(Self {
+            num_cpus,
+            signal,
+            invoker,
+        })
     }
 }
 impl CpuMonitorTrait for CpuSimMonitor {
@@ -221,9 +226,9 @@ impl CpuMonitorTrait for CpuSimMonitor {
         Ok((
             CPUUtilPcts {
                 read_diff: Duration::from_micros(0),
-                cpu_user: 0.0,
+                cpu_user: load_avg / self.num_cpus as f64,
                 cpu_nice: 0.0,
-                cpu_system: 0.0,
+                cpu_system: 0.5,
                 cpu_idle: 0.0,
                 cpu_iowait: 0.0,
                 cpu_irq: 0.0,
