@@ -1,4 +1,4 @@
-use self::queueing_dispatcher::QueueingDispatcher;
+use dispatching::queueing_dispatcher::QueueingDispatcher;
 use super::containers::containermanager::ContainerManager;
 use super::containers::structs::{Container, ContainerLock};
 use super::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
@@ -26,7 +26,7 @@ mod cpu_q_invoke;
 pub mod energy_limiter;
 mod gpu_q_invoke;
 pub mod queueing;
-mod queueing_dispatcher;
+pub mod dispatching;
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement

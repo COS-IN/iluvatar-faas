@@ -1,6 +1,6 @@
-use super::queueing::{concur_mqfq::ConcurMqfq, gpu_mqfq::MQFQ};
-use super::queueing::{DeviceQueue, EnqueuedInvocation};
-use super::{
+use crate::services::invocation::queueing::{concur_mqfq::ConcurMqfq, gpu_mqfq::MQFQ};
+use crate::services::invocation::queueing::{DeviceQueue, EnqueuedInvocation};
+use crate::services::invocation::{
     async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
     InvocationResultPtr, Invoker,
 };
@@ -8,18 +8,20 @@ use super::{
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
-use crate::services::{containers::containermanager::ContainerManager, invocation::queueing::EnqueueingPolicy};
+use crate::services::containers::containermanager::ContainerManager;
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{transaction::TransactionId, types::Compute};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{debug, info};
+use crate::services::invocation::dispatching::EnqueueingPolicy;
+use crate::services::invocation::dispatching::landlord::LandlordDispatch;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -71,6 +73,7 @@ pub struct QueueingDispatcher {
     cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Option<Arc<dyn DeviceQueue>>,
     dispatch_state: RwLock<PolymDispatchCtx>,
+    landlord: Mutex<LandlordDispatch>,
 }
 
 #[allow(dyn_drop)]
@@ -113,6 +116,7 @@ impl QueueingDispatcher {
             clock: get_global_clock(tid)?,
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
+            landlord: Mutex::new(LandlordDispatch::new(&cmap)),
             cmap,
         });
         debug!(tid=%tid, "Created QueueingInvoker");
@@ -208,7 +212,7 @@ impl QueueingDispatcher {
     ) -> Result<()> {
         match q {
             Some(q) => q.enqueue_item(item),
-            None => anyhow::bail!("No queue present for compute {}", compute),
+            None => anyhow::bail!("No queue present for compute '{}'", compute),
         }
     }
 
@@ -261,11 +265,22 @@ impl QueueingDispatcher {
                     enqueues += 1;
                 } else {
                     anyhow::bail!(
-                        "Cannot enqueue invocation using {:?} strategy because it does not support CPU",
+                        "Cannot enqueue invocation using {:?} strategy because invocation does not support CPU-only",
                         EnqueueingPolicy::AlwaysCPU
                     );
                 }
-            }
+            },
+            &EnqueueingPolicy::AlwaysGPU => {
+                if reg.supported_compute.contains(Compute::GPU) {
+                    self.enqueue_cpu_check(&enqueue)?;
+                    enqueues += 1;
+                } else {
+                    anyhow::bail!(
+                        "Cannot enqueue invocation using {:?} strategy because invocation does not support CPU-only",
+                        EnqueueingPolicy::AlwaysGPU
+                    );
+                }
+            },
             EnqueueingPolicy::ShortestExecTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
@@ -319,6 +334,17 @@ impl QueueingDispatcher {
             EnqueueingPolicy::HitTput => {
                 self.hit_tput_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
                 enqueues += 1;
+            },
+            EnqueueingPolicy::Landlord => {
+                let compute = self.landlord.lock().choose(&enqueue);
+                if compute == Compute::CPU {
+                    self.enqueue_cpu_check(&enqueue)?;
+                    return Ok(enqueue);
+                }
+                if compute == Compute::GPU {
+                    self.enqueue_gpu_check(&enqueue)?;
+                    return Ok(enqueue);
+                }
             }
         }
 

@@ -1,6 +1,6 @@
 use crate::services::{
     containers::docker::DockerConfig,
-    invocation::queueing::{gpu_mqfq::MqfqConfig, EnqueueingPolicy},
+    invocation::queueing::gpu_mqfq::MqfqConfig,
 };
 use config::{Config, File};
 use iluvatar_library::{
@@ -13,6 +13,7 @@ use iluvatar_library::{
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use crate::services::invocation::dispatching::EnqueueingPolicy;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
