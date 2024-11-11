@@ -43,9 +43,11 @@ pub fn os_thread<T: Send + Sync + 'static>(
         debug!(tid=%tid, typename=%std::any::type_name::<T>(), "OS worker thread started");
         crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
         while crate::continuation::GLOB_CONT_CHECK.check_continue() {
+            tracing::trace!(tid=%tid, "Executing");
             let start = now();
             function(&recv_svc, &tid);
             let sleep_t = sleep_time(call_ms, start, &tid);
+            tracing::trace!(tid=%tid, "Completed");
             std::thread::sleep(Duration::from_millis(sleep_t));
         }
         crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
@@ -98,9 +100,11 @@ where
         };
         crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
         while crate::continuation::GLOB_CONT_CHECK.check_continue() {
+            tracing::trace!(tid=%tid, "Executing");
             let start = now();
             function(service.clone(), tid.clone()).await;
             let sleep_t = sleep_time(call_ms, start, &tid);
+            tracing::trace!(tid=%tid, "Completed");
             match waiter_function {
                 Some(wf) => {
                     let fut = wf(service.clone(), tid.clone());
@@ -179,7 +183,11 @@ where
             tokio::select! {
               _ = crate::continuation::GLOB_NOTIFIER.notified() => break,
               item = item_rx.recv() => match item {
-                  Some(item) => function(service.clone(), tid.clone(), item).await,
+                  Some(item) => {
+                        tracing::trace!(tid=%tid, "Executing");
+                        function(service.clone(), tid.clone(), item).await;
+                        tracing::trace!(tid=%tid, "Completed");
+                    },
                   None => break,
               },
             }

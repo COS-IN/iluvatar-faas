@@ -1,14 +1,16 @@
+use crate::services::containers::containermanager::ContainerManager;
+use crate::services::invocation::dispatching::landlord::LandlordDispatch;
+use crate::services::invocation::dispatching::EnqueueingPolicy;
+#[cfg(feature = "power_cap")]
+use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::queueing::{concur_mqfq::ConcurMqfq, gpu_mqfq::MQFQ};
 use crate::services::invocation::queueing::{DeviceQueue, EnqueuedInvocation};
 use crate::services::invocation::{
     async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
     InvocationResultPtr, Invoker,
 };
-#[cfg(feature = "power_cap")]
-use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
-use crate::services::containers::containermanager::ContainerManager;
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
@@ -20,8 +22,6 @@ use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{debug, info};
-use crate::services::invocation::dispatching::EnqueueingPolicy;
-use crate::services::invocation::dispatching::landlord::LandlordDispatch;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -114,9 +114,9 @@ impl QueueingDispatcher {
             )?,
             async_functions: AsyncHelper::new(),
             clock: get_global_clock(tid)?,
+            landlord: Mutex::new(LandlordDispatch::new(&cmap, &invocation_config.landlord_config)?),
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
-            landlord: Mutex::new(LandlordDispatch::new(&cmap)),
             cmap,
         });
         debug!(tid=%tid, "Created QueueingInvoker");
@@ -269,7 +269,7 @@ impl QueueingDispatcher {
                         EnqueueingPolicy::AlwaysCPU
                     );
                 }
-            },
+            }
             &EnqueueingPolicy::AlwaysGPU => {
                 if reg.supported_compute.contains(Compute::GPU) {
                     self.enqueue_cpu_check(&enqueue)?;
@@ -280,7 +280,7 @@ impl QueueingDispatcher {
                         EnqueueingPolicy::AlwaysGPU
                     );
                 }
-            },
+            }
             EnqueueingPolicy::ShortestExecTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
@@ -334,7 +334,7 @@ impl QueueingDispatcher {
             EnqueueingPolicy::HitTput => {
                 self.hit_tput_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
                 enqueues += 1;
-            },
+            }
             EnqueueingPolicy::Landlord => {
                 let compute = self.landlord.lock().choose(&enqueue);
                 if compute == Compute::CPU {

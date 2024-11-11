@@ -32,7 +32,6 @@ pub mod oldest_gpu;
 pub mod paella;
 pub mod sized_batches_gpu;
 
-
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
 pub trait InvokerCpuQueuePolicy: Send + Sync {

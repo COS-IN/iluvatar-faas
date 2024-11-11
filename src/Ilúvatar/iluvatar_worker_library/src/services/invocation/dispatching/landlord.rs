@@ -1,21 +1,30 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use crate::services::invocation::queueing::EnqueuedInvocation;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::types::Compute;
-use crate::services::invocation::queueing::EnqueuedInvocation;
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+#[derive(Debug, Deserialize)]
+pub struct LandlordConfig {
+    pub cache_size: u32,
+}
 
 pub struct LandlordDispatch {
-    max_cache_size: usize,
     /// Map of FQDN -> credit
     credits: HashMap<String, f64>,
     cmap: Arc<CharacteristicsMap>,
+    cfg: Arc<LandlordConfig>,
 }
 impl LandlordDispatch {
-    pub fn new(cmap: &Arc<CharacteristicsMap>) -> Self {
-        Self {
-            max_cache_size: 5,
-            credits: HashMap::new(),
-            cmap: cmap.clone(),
+    pub fn new(cmap: &Arc<CharacteristicsMap>, cfg: &Option<Arc<LandlordConfig>>) -> anyhow::Result<Self> {
+        match cfg {
+            None => anyhow::bail!("LandlordConfig was empty"),
+            Some(c) => Ok(Self {
+                credits: HashMap::new(),
+                cmap: cmap.clone(),
+                cfg: c.clone(),
+            }),
         }
     }
     fn cache_size(&self) -> usize {
@@ -23,31 +32,30 @@ impl LandlordDispatch {
     }
     fn insert(&mut self, fqdn: &str) {
         match self.credits.get_mut(fqdn) {
-            None => { 
+            None => {
                 let size = self.cmap.avg_gpu_e2e_t(fqdn);
-                self.credits.insert(fqdn.to_string(), size); 
-            },
+                self.credits.insert(fqdn.to_string(), size);
+            }
             Some(c) => {
                 *c += self.cmap.get_gpu_exec_time(fqdn);
             }
         }
     }
     fn charge_rent(&mut self, fqdn: &str) {
-        let new_credit = self.calc_credit(&fqdn);
-        self.credits.retain(|_,c| {
+        let new_credit = self.calc_credit(fqdn);
+        self.credits.retain(|_, c| {
             *c -= new_credit;
             *c > 0.0
         });
     }
     fn present(&self, fqdn: &str) -> bool {
-        self.credits.get(fqdn).is_some()
+        self.credits.contains_key(fqdn)
     }
     fn calc_credit(&self, fqdn: &str) -> f64 {
-        self.cmap.avg_gpu_e2e_t(&fqdn) -
-            self.cmap.avg_cpu_e2e_t(&fqdn)
+        self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn)
     }
     fn credit(&mut self, fqdn: &str) -> Compute {
-        let new_credit = self.calc_credit(&fqdn);
+        let new_credit = self.calc_credit(fqdn);
         if let Some(credit) = self.credits.get_mut(fqdn) {
             if new_credit < 0.0 {
                 // no benefit! run on CPU
@@ -58,7 +66,7 @@ impl LandlordDispatch {
         Compute::GPU
     }
     pub fn choose(&mut self, item: &Arc<EnqueuedInvocation>) -> Compute {
-        if self.cache_size() < self.max_cache_size {
+        if self.cache_size() < self.cfg.cache_size as usize {
             // easy insert
             self.insert(&item.registration.fqdn);
             return Compute::GPU;
@@ -67,7 +75,7 @@ impl LandlordDispatch {
             return self.credit(&item.registration.fqdn);
         }
         self.charge_rent(&item.registration.fqdn);
-        if self.cache_size() < self.max_cache_size {
+        if self.cache_size() < self.cfg.cache_size as usize {
             // easy insert
             self.insert(&item.registration.fqdn);
             return Compute::GPU;

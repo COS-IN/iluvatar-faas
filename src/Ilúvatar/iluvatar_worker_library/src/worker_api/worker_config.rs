@@ -1,7 +1,5 @@
-use crate::services::{
-    containers::docker::DockerConfig,
-    invocation::queueing::gpu_mqfq::MqfqConfig,
-};
+use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
+use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
 use config::{Config, File};
 use iluvatar_library::{
     energy::EnergyConfig,
@@ -13,7 +11,6 @@ use iluvatar_library::{
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::services::invocation::dispatching::EnqueueingPolicy;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
@@ -182,6 +179,7 @@ pub struct InvocationConfig {
     ///   will bypass concurrency restrictions and be run immediately
     pub bypass_duration_ms: Option<u64>,
     pub mqfq_config: Option<Arc<MqfqConfig>>,
+    pub landlord_config: Option<Arc<LandlordConfig>>,
 }
 
 #[derive(Debug, Deserialize)]

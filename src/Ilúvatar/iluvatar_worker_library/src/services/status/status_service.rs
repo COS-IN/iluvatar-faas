@@ -179,6 +179,7 @@ impl CpuHardwareMonitor {
 #[async_trait::async_trait]
 impl CpuMonitorTrait for CpuHardwareMonitor {
     fn cpu_util(&self, tid: &TransactionId) -> Result<(CPUUtilPcts, f64)> {
+        debug!(tid=%tid, "Computing system utilization");
         let now = CPUUtilInstant::get(tid)?;
         let mut last = self.last_instant_usage.lock();
         let diff = &now - &*last;
@@ -217,12 +218,13 @@ impl CpuSimMonitor {
     }
 }
 impl CpuMonitorTrait for CpuSimMonitor {
-    fn cpu_util(&self, _tid: &TransactionId) -> Result<(CPUUtilPcts, f64)> {
+    fn cpu_util(&self, tid: &TransactionId) -> Result<(CPUUtilPcts, f64)> {
+        debug!(tid=%tid, "Computing system utilization");
         // additional 0.5 to account for system work
         let running = self.invoker.running_funcs() as f64 + 0.5;
-        let lck = self.signal.write();
+        let mut lck = self.signal.write();
         let load_avg = (running * 0.5) + (*lck * (1.0 - 0.5));
-        *self.signal.write() = load_avg;
+        *lck = load_avg;
         Ok((
             CPUUtilPcts {
                 read_diff: Duration::from_micros(0),

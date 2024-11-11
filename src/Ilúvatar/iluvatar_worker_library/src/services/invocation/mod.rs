@@ -1,4 +1,3 @@
-use dispatching::queueing_dispatcher::QueueingDispatcher;
 use super::containers::containermanager::ContainerManager;
 use super::containers::structs::{Container, ContainerLock};
 use super::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
@@ -10,6 +9,7 @@ use crate::services::{
 };
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
+use dispatching::queueing_dispatcher::QueueingDispatcher;
 use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::clock::Clock;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
@@ -22,11 +22,11 @@ use tracing::info;
 pub mod async_tracker;
 pub mod completion_time_tracker;
 mod cpu_q_invoke;
+pub mod dispatching;
 #[cfg(feature = "power_cap")]
 pub mod energy_limiter;
 mod gpu_q_invoke;
 pub mod queueing;
-pub mod dispatching;
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement

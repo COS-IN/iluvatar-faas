@@ -21,5 +21,5 @@ pub enum EnqueueingPolicy {
     /// Always GPU for polymorphic functions
     AlwaysGPU,
     /// Landlord-based policy
-    Landlord
+    Landlord,
 }
