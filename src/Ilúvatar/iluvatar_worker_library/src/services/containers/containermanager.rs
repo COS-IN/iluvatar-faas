@@ -104,7 +104,6 @@ impl ContainerManager {
     #[tracing::instrument(skip(service), fields(tid=%tid))]
     async fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) {
         service.update_memory_usages(&tid).await;
-        // service.recompute_eviction_priorities(&tid);
         service.prioritiy_notify.notify_waiters();
         if service.resources.memory_buffer_mb > 0 {
             let reclaim = service.resources.memory_buffer_mb - service.free_memory();
@@ -699,6 +698,7 @@ mod tests {
     use crate::{services::containers::IsolationFactory, worker_api::worker_config::Configuration};
     use iluvatar_library::transaction::TEST_TID;
     use std::collections::HashMap;
+    use std::time::Duration;
 
     fn cpu_reg() -> Arc<RegisteredFunction> {
         Arc::new(RegisteredFunction {
@@ -717,7 +717,8 @@ mod tests {
     }
 
     async fn svc(overrides: Option<Vec<(String, String)>>) -> Arc<ContainerManager> {
-        iluvatar_library::utils::set_simulation();
+        let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
+        iluvatar_library::utils::set_simulation(tid).unwrap_or_else(|e| panic!("Failed to make system clock: {:?}", e));
         let cfg = Configuration::boxed(&Some("tests/resources/worker.dev.json"), overrides)
             .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
         let fac = IsolationFactory::new(cfg.clone())
@@ -739,11 +740,13 @@ mod tests {
             EventualItem::Now(n) => n,
         }
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        tokio::time::sleep(Duration::from_secs(10)).await;
         assert_eq!(*cm.used_mem_mb.read(), func.memory);
         let c1_cont = c1.container.clone();
         c1_cont.mark_unhealthy();
         drop(c1);
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        cm.prioritiy_notify.notify_waiters();
+        tokio::time::sleep(Duration::from_secs(10)).await;
         assert_eq!(cm.gpu_containers.len(), 0, "Unhealthy container should be gone");
         assert_eq!(*cm.used_mem_mb.read(), 0);
     }
@@ -758,6 +761,7 @@ mod tests {
             EventualItem::Now(n) => n,
         }
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(*cm.used_mem_mb.read(), func.memory);
         assert_eq!(cm.cpu_containers.len(), 1, "Container should exist");
         drop(c1);
@@ -783,18 +787,20 @@ mod tests {
             EventualItem::Now(n) => n,
         }
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-        assert_eq!(*cm.used_mem_mb.read(), func.memory);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(*cm.used_mem_mb.read(), func.memory, "first failed");
         let _c2 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
         .unwrap_or_else(|e| panic!("acquire container 2 failed: {:?}", e));
-        assert_eq!(*cm.used_mem_mb.read(), func.memory * 2);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(*cm.used_mem_mb.read(), func.memory * 2, "second failed");
         drop(c1);
         cm.remove_idle_containers(&TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("remove_idle_containers failed: {:?}", e));
-
-        assert_eq!(*cm.used_mem_mb.read(), func.memory);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(*cm.used_mem_mb.read(), func.memory, "thinrd failed");
     }
 }

@@ -1,8 +1,9 @@
+use crate::clock::now;
 use dashmap::DashMap;
 use ordered_float::OrderedFloat;
 use std::cmp::{min, Ordering};
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::time::Instant;
 use tracing::{debug, error};
 
 #[derive(Debug, Clone)]
@@ -134,6 +135,7 @@ pub struct CharacteristicsMap {
     /// Minimum of the values
     minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
+    creation_time: Instant,
 }
 
 impl CharacteristicsMap {
@@ -145,6 +147,7 @@ impl CharacteristicsMap {
             agmap: DashMap::new(),
             minmap: DashMap::new(),
             ag,
+            creation_time: now(),
         }
     }
 
@@ -253,20 +256,25 @@ impl CharacteristicsMap {
     }
 
     pub fn add_iat(&self, fqdn: &str) {
-        let time_now = SystemTime::now();
-        let time_now = time_now.duration_since(UNIX_EPOCH).expect("Time went backwards");
+        let time_now = now();
+        let time_now_elapsed = time_now.duration_since(self.creation_time);
 
         let last_inv_time = self
             .lookup(fqdn, &Characteristics::LastInvTime)
             .unwrap_or(Values::Duration(Duration::new(0, 0)));
         let last_inv_time = unwrap_val_dur(&last_inv_time);
 
-        if last_inv_time.as_secs_f64() > 0.1 {
-            let iat = time_now.as_secs_f64() - last_inv_time.as_secs_f64();
+        if last_inv_time.as_secs_f64() > 0.0 {
+            let iat = time_now_elapsed.as_secs_f64() - last_inv_time.as_secs_f64();
             self.add(fqdn, Characteristics::IAT, Values::F64(iat), true);
         }
 
-        self.add(fqdn, Characteristics::LastInvTime, Values::Duration(time_now), false);
+        self.add(
+            fqdn,
+            Characteristics::LastInvTime,
+            Values::Duration(time_now_elapsed),
+            false,
+        );
     }
 
     /// Most recent value
@@ -700,6 +708,7 @@ mod charmap {
 
         let verify_iat_lookup = |fname: &str, val_expc: f64| {
             let val = m.lookup_agg(fname, &Characteristics::IAT).unwrap_or(Values::F64(0.0));
+            println!("{} {}", unwrap_val_f64(&val), val_expc);
             assert!(approx_eq!(f64, unwrap_val_f64(&val), val_expc, epsilon = 0.005));
             // assert_eq!( unwrap_val_f64( &val ), val_expc );
         };

@@ -1,3 +1,5 @@
+use iluvatar_library::clock::{get_global_clock, Clock};
+use iluvatar_library::transaction::TransactionId;
 use parking_lot::{Mutex, RwLock};
 use time::{Duration, OffsetDateTime};
 
@@ -7,14 +9,16 @@ use time::{Duration, OffsetDateTime};
 pub struct CompletionTimeTracker {
     items: RwLock<Vec<OffsetDateTime>>,
     inflight: Mutex<i32>, // Could be a semaphore but whatever
+    clock: Clock,
 }
 
 impl CompletionTimeTracker {
-    pub fn new() -> Self {
-        CompletionTimeTracker {
+    pub fn new(tid: &TransactionId) -> anyhow::Result<Self> {
+        Ok(CompletionTimeTracker {
             items: RwLock::new(vec![]),
             inflight: Mutex::new(0),
-        }
+            clock: get_global_clock(tid)?,
+        })
     }
 
     pub fn get_inflight(&self) -> i32 {
@@ -50,7 +54,7 @@ impl CompletionTimeTracker {
     /// The duration until the next item is to be completed
     pub fn next_avail(&self) -> Duration {
         if let Some(item) = self.items.read().first() {
-            let dur = *item - OffsetDateTime::now_utc();
+            let dur = *item - self.clock.now();
             if dur.is_negative() {
                 return Duration::seconds_f64(0.0);
             }
@@ -62,7 +66,7 @@ impl CompletionTimeTracker {
 
     /// Remove all times that have expired
     pub fn remove_outdated(&self) {
-        let now = OffsetDateTime::now_utc();
+        let now = self.clock.now();
         let items: Vec<OffsetDateTime> = self
             .items
             .read()
@@ -79,13 +83,14 @@ impl CompletionTimeTracker {
 #[cfg(test)]
 mod tracker_tests {
     use super::*;
+    use iluvatar_library::transaction::gen_tid;
     use more_asserts::{assert_gt, assert_le, assert_lt};
     use rand::Rng;
 
     #[test]
     fn added_items_ordered() {
         let time = OffsetDateTime::UNIX_EPOCH;
-        let tracker = CompletionTimeTracker::new();
+        let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
         for i in 0..10 {
             tracker.add_item(time + Duration::seconds(i));
@@ -115,7 +120,7 @@ mod tracker_tests {
     #[test]
     fn random_insertions_ordered() {
         let time = OffsetDateTime::UNIX_EPOCH;
-        let tracker = CompletionTimeTracker::new();
+        let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
         for _ in 0..100 {
             let num = rand::thread_rng().gen_range(0..100);
             tracker.add_item(time + Duration::seconds(num));
@@ -135,8 +140,8 @@ mod tracker_tests {
 
     #[test]
     fn next_avail_changes() {
-        let time = OffsetDateTime::now_utc() + Duration::seconds(10);
-        let tracker = CompletionTimeTracker::new();
+        let time = get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(10);
+        let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
         tracker.add_item(time);
         assert_ne!(tracker.next_avail(), tracker.next_avail());
@@ -144,8 +149,8 @@ mod tracker_tests {
 
     #[test]
     fn single_item_works() {
-        let time = OffsetDateTime::now_utc() + Duration::seconds(10);
-        let tracker = CompletionTimeTracker::new();
+        let time = get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(10);
+        let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
         tracker.add_item(time);
         let time = tracker.next_avail();
@@ -155,7 +160,7 @@ mod tracker_tests {
 
     #[test]
     fn no_item_zero() {
-        let tracker = CompletionTimeTracker::new();
+        let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
         let time = tracker.next_avail();
         assert_eq!(time.as_seconds_f64(), 0.0);
@@ -163,10 +168,10 @@ mod tracker_tests {
 
     #[test]
     fn newer_item_changes() {
-        let tracker = CompletionTimeTracker::new();
+        let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
-        tracker.add_item(OffsetDateTime::now_utc() + Duration::seconds(10));
-        tracker.add_item(OffsetDateTime::now_utc() + Duration::seconds(5));
+        tracker.add_item(get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(10));
+        tracker.add_item(get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(5));
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 0.0);
         assert_le!(time.as_seconds_f64(), 5.0);
@@ -174,11 +179,11 @@ mod tracker_tests {
 
     #[test]
     fn item_removal_changes() {
-        let tracker = CompletionTimeTracker::new();
+        let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
-        tracker.add_item(OffsetDateTime::now_utc() + Duration::seconds(10));
+        tracker.add_item(get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(10));
 
-        let time2 = OffsetDateTime::now_utc() + Duration::seconds(5);
+        let time2 = get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(5);
         tracker.add_item(time2);
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 0.0);
@@ -192,10 +197,10 @@ mod tracker_tests {
 
     #[test]
     fn old_item_removed() {
-        let tracker = CompletionTimeTracker::new();
+        let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
-        tracker.add_item(OffsetDateTime::now_utc() - Duration::seconds(10));
-        tracker.add_item(OffsetDateTime::now_utc() + Duration::seconds(10));
+        tracker.add_item(get_global_clock(&gen_tid()).unwrap().now() - Duration::seconds(10));
+        tracker.add_item(get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(10));
         tracker.remove_outdated();
         let time = tracker.next_avail();
         assert!(time.as_seconds_f64() > 0.0);

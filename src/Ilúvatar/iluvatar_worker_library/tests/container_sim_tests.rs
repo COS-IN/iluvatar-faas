@@ -9,7 +9,7 @@ use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
 use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
-use iluvatar_worker_library::services::containers::structs::{ContainerState, ContainerTimeFormatter};
+use iluvatar_worker_library::services::containers::structs::ContainerState;
 use rstest::rstest;
 
 fn cpu_reg() -> RegisterRequest {
@@ -244,6 +244,7 @@ mod compute_iso_matching {
 #[cfg(test)]
 mod gpu {
     use super::*;
+    use iluvatar_library::clock::ContainerTimeFormatter;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_container_must_use_docker() {
@@ -744,6 +745,7 @@ mod gpu {
 #[cfg(test)]
 mod gpu_queueuing {
     use super::*;
+    use iluvatar_library::clock::ContainerTimeFormatter;
 
     #[rstest]
     #[case("fcfs")]

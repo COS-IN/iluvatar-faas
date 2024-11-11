@@ -1,4 +1,4 @@
-ARG REPO=alfuerst
+ARG ACTION_BASE=alfuerst/iluvatar-action-gpu-base
 FROM nvidia/cuda:11.8.0-devel-ubuntu20.04 as build_img
 
 # Only need if binaries use files in data directory, none currently do
@@ -19,7 +19,7 @@ RUN git checkout 9ac922cc3b0dc8fcfd18506d68f917b726884a2b && \
     make && \
     cd ../../
 
-FROM ${REPO}/iluvatar-action-gpu-base
+FROM ${ACTION_BASE}
 
 WORKDIR /app
 

@@ -1,7 +1,7 @@
 use super::EnergyConfig;
+use crate::clock::{get_global_clock, Clock};
 use crate::{
     bail_error,
-    logging::LocalTime,
     threading::os_thread,
     transaction::{TransactionId, ENERGY_LOGGER_PS_TID},
     utils::execute_cmd_checked,
@@ -15,7 +15,7 @@ pub struct ProcessMonitor {
     pid: String,
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
-    timer: LocalTime,
+    timer: Clock,
     log_file: RwLock<File>,
 }
 impl ProcessMonitor {
@@ -33,7 +33,7 @@ impl ProcessMonitor {
             pid: std::process::id().to_string(),
             _worker_thread: handle,
             _config: config.clone(),
-            timer: LocalTime::new(tid)?,
+            timer: get_global_clock(tid)?,
             log_file: ProcessMonitor::open_log_file(&config, tid)?,
         });
         r.write_text("timestamp,cpu_pct,cpu_time\n".to_string(), tid);

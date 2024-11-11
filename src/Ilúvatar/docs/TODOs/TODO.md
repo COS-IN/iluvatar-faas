@@ -9,21 +9,6 @@ Jetson requires using `tegrastats` to get utilization numbers.
 The [GPU monitor](iluvatar_worker_library/src/services/resources/gpu.rs) needs updated information for ideal usage.
 Can cause dispatches to be blocked or broken on Jetson.
 
-## Time-skipping simulation
-
-Can we enable time-skipping when running in a simulation context?
-All function invocations are just `tokio::time::sleep().await`
-The background threads use either that, or the `std::thread::sleep()` if using an OS thread.
-The simulation can be sped up by "jumping" the current time to the next instance in which an action will be performed.
-
-If we can put a layer between how the Future system polls results, and move the clock ahead to match, this could work.
-But that's either:
-
-1. A lot of work
-1. Maybe not possible
-
-Probably going to need completion of [this (very old) tokio issue](https://github.com/tokio-rs/tokio/issues/1845).
-
 ## Switch/Enable networking via unix sockets
 
 Using HTTP connections to send/receive invocations has some networking overhead and scaling issues at high throughput.

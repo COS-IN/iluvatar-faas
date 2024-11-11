@@ -1,9 +1,7 @@
+use crate::clock::now;
 use crate::{bail_error, transaction::TransactionId, utils::execute_cmd_nonblocking};
 use anyhow::Result;
-use std::{
-    process::Child,
-    time::{Duration, SystemTime},
-};
+use std::{process::Child, time::Duration};
 use tracing::{info, warn};
 
 /// Start tegrastat tracking of several metrics:
@@ -35,10 +33,10 @@ where
 
 async fn test_args(tid: &TransactionId, args: &Vec<&str>) -> Result<bool> {
     let mut child = execute_cmd_nonblocking("/usr/bin/tegrastats", args, None, tid)?;
-    let start = SystemTime::now();
+    let start = now();
 
     let timeout = Duration::from_secs(1);
-    while start.elapsed()? < timeout {
+    while start.elapsed() < timeout {
         match child.try_wait() {
             Ok(exit) => match exit {
                 // an exit means the metric doesn't exist

@@ -8,7 +8,9 @@ use crate::{
     },
 };
 use anyhow::Result;
+use iluvatar_library::tokio_utils::TokioRuntime;
 use iluvatar_library::{
+    bail_error,
     transaction::TransactionId,
     types::{CommunicationMethod, Compute, Isolation},
     utils::port::Port,
@@ -24,8 +26,26 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{runtime::Runtime, task::JoinHandle};
+use tokio::task::JoinHandle;
 use tracing::info;
+
+pub fn load_trace_csv<T: serde::de::DeserializeOwned, P: AsRef<Path> + tracing::Value>(
+    csv: P,
+    tid: &TransactionId,
+) -> Result<Vec<T>> {
+    let mut trace_rdr = match csv::Reader::from_path(&csv) {
+        Ok(csv) => csv,
+        Err(e) => bail_error!(error=%e, tid=%tid, path=csv, "Failed to open CSV file"),
+    };
+    let mut ret = vec![];
+    for (i, result) in trace_rdr.deserialize().enumerate() {
+        match result {
+            Ok(item) => ret.push(item),
+            Err(e) => bail_error!(error=%e, tid=%tid, line_num=i, path=csv, "Failed to deserialize item"),
+        }
+    }
+    Ok(ret)
+}
 
 fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms: u32) -> u32 {
     match default_prewarms {
@@ -93,10 +113,12 @@ fn map_from_benchmark(
                 info!("{} mapped to self name in benchmark", func.func_name);
                 func.chosen_name = Some(name);
             }
-        } else if bench.data.contains_key(&func.func_name) && func.image_name.is_some() {
+        }
+        if bench.data.contains_key(&func.func_name) && func.image_name.is_some() && func.chosen_name.is_none() {
             info!("{} mapped to exact name in benchmark", func.func_name);
             func.chosen_name = Some(func.func_name.clone());
-        } else {
+        }
+        if func.chosen_name.is_none() {
             let device_data: ComputeChoiceList = choose_bench_data_for_func(func, bench)?;
             let chosen = match device_data.iter().min_by(|a, b| safe_cmp(&a.1, &b.1)) {
                 Some(n) => n,
@@ -130,12 +152,27 @@ fn map_from_benchmark(
             total_prewarms += prewarms;
         }
         match &func.chosen_name {
-            None => (),
+            None => info!("not filling out sim_invoke_data"),
             Some(name) => {
                 let mut sim_data = HashMap::new();
                 for compute in func.parsed_compute.unwrap().into_iter() {
-                    let bench_data = bench.data.get(name).unwrap();
-                    let compute_data = bench_data.resource_data.get(&compute.try_into().unwrap()).unwrap();
+                    let bench_data = bench.data.get(name).ok_or_else(|| {
+                        anyhow::format_err!(
+                            "Failed to get benchmark data for function '{}' with chosen_name '{}'",
+                            func.func_name,
+                            name
+                        )
+                    })?;
+                    let compute_data: &iluvatar_library::types::FunctionInvocationTimings = bench_data
+                        .resource_data
+                        .get(&compute.try_into().expect("failed to parse compute"))
+                        .ok_or_else(|| {
+                            anyhow::format_err!(
+                            "failed to find data in bench_data.resource_data for function '{}' with chosen_name '{}'",
+                            func.func_name,
+                            name
+                        )
+                        })?;
                     let warm_us = compute_data.warm_invoke_duration_us.iter().sum::<u128>()
                         / compute_data.warm_invoke_duration_us.len() as u128;
                     let cold_us = compute_data.cold_invoke_duration_us.iter().sum::<u128>()
@@ -179,7 +216,7 @@ fn map_from_args(
 }
 
 pub fn map_functions_to_prep(
-    runtype: RunType,
+    _runtype: RunType,
     load_type: LoadType,
     func_json_data_path: &Option<String>,
     funcs: &mut HashMap<String, Function>,
@@ -196,9 +233,9 @@ pub fn map_functions_to_prep(
             Some(c) => Some(Isolation::try_from(c)?),
             None => Some(Isolation::CONTAINERD),
         };
-        if runtype == RunType::Simulation && v.image_name.is_none() {
-            v.image_name = Some("SimImage".to_owned());
-        }
+        // if runtype == RunType::Simulation && v.image_name.is_none() {
+        //     v.image_name = Some("SimImage".to_owned());
+        // }
     }
     match load_type {
         LoadType::Lookbusy => map_from_lookbusy(funcs, default_prewarms, max_prewarms),
@@ -216,7 +253,7 @@ fn worker_prewarm_functions(
     prewarm_data: &HashMap<String, Function>,
     host: &str,
     port: Port,
-    rt: &Runtime,
+    rt: &TokioRuntime,
     factory: &Arc<WorkerAPIFactory>,
     communication_method: CommunicationMethod,
 ) -> Result<()> {
@@ -292,7 +329,7 @@ pub fn worker_prepare_functions(
     port: Port,
     load_type: LoadType,
     func_data: Option<String>,
-    rt: &Runtime,
+    rt: &TokioRuntime,
     prewarms: Option<u32>,
     trace_pth: &str,
     factory: &Arc<WorkerAPIFactory>,
@@ -307,7 +344,7 @@ fn prepare_worker(
     host: &str,
     port: Port,
     runtype: RunType,
-    rt: &Runtime,
+    rt: &TokioRuntime,
     factory: &Arc<WorkerAPIFactory>,
     func_data: &Option<String>,
 ) -> Result<()> {
@@ -333,7 +370,7 @@ fn prepare_worker(
 
 fn worker_wait_reg(
     funcs: &HashMap<String, Function>,
-    rt: &Runtime,
+    rt: &TokioRuntime,
     port: Port,
     host: &str,
     factory: &Arc<WorkerAPIFactory>,

@@ -44,6 +44,8 @@ rand = "0.8"
 nvml-wrapper = "0.9"
 bollard = "0.16"
 prost-types = "0.12"
+num_cpus = "1.16.0"
+async-trait = "0.1.80"
 
 [dev-dependencies]
 rstest = "0.13.0"

@@ -9,6 +9,7 @@ use crate::services::{
     resources::gpu::GPU,
 };
 use anyhow::Result;
+use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, ResultErrorVal};
 use iluvatar_library::{
     transaction::TransactionId,
@@ -16,11 +17,8 @@ use iluvatar_library::{
     utils::port_utils::Port,
 };
 use parking_lot::{Mutex, RwLock};
-use std::{
-    num::NonZeroU32,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
+use tokio::time::Instant;
 use tracing::{debug, warn};
 
 pub struct Task {
@@ -39,7 +37,7 @@ pub struct ContainerdContainer {
     fqdn: String,
     /// the associated function inside the container
     pub function: Arc<RegisteredFunction>,
-    last_used: RwLock<SystemTime>,
+    last_used: RwLock<Instant>,
     /// The namespace container has been put in
     pub namespace: Arc<Namespace>,
     /// number of invocations a container has performed
@@ -82,7 +80,7 @@ impl ContainerdContainer {
             compute,
             fqdn: fqdn.to_owned(),
             function: function.clone(),
-            last_used: RwLock::new(SystemTime::now()),
+            last_used: RwLock::new(now()),
             namespace: ns,
             invocations: Mutex::new(0),
             mem_usage: RwLock::new(function.memory),
@@ -118,7 +116,7 @@ impl ContainerT for ContainerdContainer {
         &self.container_id
     }
 
-    fn last_used(&self) -> SystemTime {
+    fn last_used(&self) -> Instant {
         *self.last_used.read()
     }
 
@@ -128,7 +126,7 @@ impl ContainerT for ContainerdContainer {
 
     fn touch(&self) {
         let mut lock = self.last_used.write();
-        *lock = SystemTime::now();
+        *lock = now();
     }
 
     fn get_curr_mem_usage(&self) -> MemSizeMb {

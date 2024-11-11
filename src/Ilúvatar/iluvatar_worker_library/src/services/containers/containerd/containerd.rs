@@ -24,6 +24,7 @@ use containerd_client as client;
 use containerd_client::tonic::{transport::Channel, Request};
 use dashmap::DashMap;
 use guid_create::GUID;
+use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, Compute, Isolation, ResultErrorVal};
 use iluvatar_library::utils::execute_cmd;
 use iluvatar_library::utils::{
@@ -42,7 +43,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 pub mod containerdstructs;
@@ -251,13 +252,13 @@ impl ContainerdIsolation {
         ctd_namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
-        let start = SystemTime::now();
+        let start = now();
         let timeout = Duration::from_secs(10);
         loop {
             match self.try_delete_task(client, container_id, ctd_namespace, tid).await {
                 Ok(_) => return Ok(()),
                 Err(e2) => {
-                    if start.elapsed()? > timeout {
+                    if start.elapsed() > timeout {
                         bail_error!(tid=%tid, container_id=%container_id, error=%e2, "Deleting task in container failed");
                     }
                     // sleep a little and hope the process has terminated in that time
@@ -707,7 +708,6 @@ impl ContainerIsolationService for ContainerdIsolation {
         tid: &TransactionId,
     ) -> ResultErrorVal<Container, Option<GPU>> {
         if !iso.eq(&Isolation::CONTAINERD) {
-            // return err_val(anyhow::format_err!("Only supports containerd Isolation, now {:?}", iso), device_resource);
             error_value!("Only supports containerd Isolation, now {:?}", iso, device_resource);
         }
         info!(tid=%tid, image=%image_name, namespace=%namespace, "Creating container from image");
@@ -746,10 +746,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 Ok(Arc::new(container))
             }
             Err(e) => {
-                // error!(tid=%tid, error=%e, "Starting task failed");
-                // return err_val(anyhow::format_err!("Starting task failed"), device_resource);
                 bail_error_value!(tid=%tid, error=%e, "Starting task failed", crate::services::containers::structs::ContainerT::revoke_device(&container));
-                // todo!();
             }
         }
     }
@@ -858,8 +855,7 @@ impl ContainerIsolationService for ContainerdIsolation {
     async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
         debug!(tid=%tid, container_id=%container.container_id(), "Waiting for startup of container");
         let stderr = self.stderr_pth(container.container_id());
-
-        let start = SystemTime::now();
+        let start = now();
 
         let mut inotify = match Inotify::init() {
             Ok(i) => i,
@@ -882,7 +878,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                     break;
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if start.elapsed()?.as_millis() as u64 >= timeout_ms {
+                    if start.elapsed().as_millis() as u64 >= timeout_ms {
                         let stdout = self.read_stdout(container, tid).await;
                         let stderr = self.read_stderr(container, tid).await;
                         if !stderr.is_empty() {

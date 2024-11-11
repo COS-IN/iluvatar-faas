@@ -6,7 +6,7 @@ use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::InvokerFactory;
 use crate::services::registration::RegistrationService;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
-use crate::services::status::status_service::StatusService;
+use crate::services::status::status_service::{build_load_avg_signal, StatusService};
 use crate::services::worker_health::WorkerHealthService;
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
@@ -29,7 +29,8 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
     let factory = IsolationFactory::new(worker_config.clone());
-    let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, tid)
+    let load_avg = build_load_avg_signal();
+    let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, load_avg.clone(), tid)
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make cpu resource tracker"))?;
 
     let isos = factory
@@ -95,6 +96,8 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         worker_config.status.clone(),
         invoker.clone(),
         gpu_resource.clone(),
+        load_avg,
+        &worker_config.container_resources,
     )
     .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make status service"))?;
 

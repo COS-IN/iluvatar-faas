@@ -4,6 +4,10 @@
 
 Following the commands in [setup](./SETUP.md#build-setup) to prepare the required build dependencies.
 
+## Code Standards
+
+Code standards are mostly enforced through the CI/CD pipeline
+
 ## Code Overview
 
 ### Rust Crate Breakdown

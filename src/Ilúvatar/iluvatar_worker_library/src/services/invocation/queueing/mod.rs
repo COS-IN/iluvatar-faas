@@ -266,10 +266,10 @@ impl<T: Ord> PartialEq for MinHeapEnqueuedInvocation<T> {
 #[cfg(test)]
 mod heapstructs {
     use super::*;
-    use iluvatar_library::logging::LocalTime;
+    use iluvatar_library::clock::{get_global_clock, Clock};
     use std::collections::{BinaryHeap, HashMap};
 
-    fn min_item(name: &str, priority: f64, clock: &LocalTime) -> MinHeapFloat {
+    fn min_item(name: &str, priority: f64, clock: &Clock) -> MinHeapFloat {
         let rf = Arc::new(RegisteredFunction {
             function_name: name.to_string(),
             function_version: name.to_string(),
@@ -297,7 +297,7 @@ mod heapstructs {
 
     #[test]
     fn min_f64() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut heap = BinaryHeap::new();
         let item1 = min_item("1", 1.0, &clock);
         let item2 = min_item("2", 2.0, &clock);
@@ -331,7 +331,7 @@ mod heapstructs {
         );
     }
 
-    fn item_i64(name: &str, priority: i64, clock: &LocalTime) -> MinHeapEnqueuedInvocation<i64> {
+    fn item_i64(name: &str, priority: i64, clock: &Clock) -> MinHeapEnqueuedInvocation<i64> {
         let rf = Arc::new(RegisteredFunction {
             function_name: name.to_string(),
             function_version: name.to_string(),
@@ -358,7 +358,7 @@ mod heapstructs {
     }
     #[test]
     fn min_i64() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut heap = BinaryHeap::new();
         let item1 = item_i64("1", 1, &clock);
         let item2 = item_i64("2", 2, &clock);
@@ -391,7 +391,7 @@ mod heapstructs {
             "3"
         );
     }
-    fn item_datetime(name: &str, clock: &LocalTime) -> MinHeapEnqueuedInvocation<OffsetDateTime> {
+    fn item_datetime(name: &str, clock: &Clock) -> MinHeapEnqueuedInvocation<OffsetDateTime> {
         let t = clock.now();
         let rf = Arc::new(RegisteredFunction {
             function_name: name.to_string(),
@@ -414,7 +414,7 @@ mod heapstructs {
     }
     #[test]
     fn min_datetime() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut heap = BinaryHeap::new();
         let item1 = item_datetime("1", &clock);
         let item2 = item_datetime("2", &clock);

@@ -1,8 +1,3 @@
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
-// use clap::{ArgMatches, App, SubCommand, Arg};
 use crate::{
     trace::prepare_function_args,
     utils::{
@@ -12,15 +7,16 @@ use crate::{
 };
 use anyhow::Result;
 use clap::Parser;
+use iluvatar_library::clock::{get_global_clock, now};
+use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::{
-    logging::LocalTime,
     transaction::gen_tid,
     types::{Compute, ComputeEnum, Isolation, IsolationEnum, MemSizeMb},
     utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port},
 };
 use rand::prelude::*;
 use std::path::Path;
-use tokio::runtime::Builder;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::Barrier;
 use tracing::{error, info};
 
@@ -72,8 +68,9 @@ pub fn scaling(args: ScalingArgs) -> Result<()> {
     ensure_dir(&std::path::PathBuf::new().join(&args.out_folder))?;
 
     for threads in args.start..(args.end + 1) {
+        let runtime = build_tokio_runtime(&None, &None, &Some(threads as usize), &"SCALING_TID".to_string())?;
         info!("\n Running with {} threads", threads);
-        let result = run_one_scaling_test(threads as usize, &args)?;
+        let result = runtime.block_on(run_one_scaling_test(threads as usize, &args))?;
         let p = Path::new(&args.out_folder).join(format!("{}.json", threads));
         save_result_json(p, &result)?;
     }
@@ -81,13 +78,8 @@ pub fn scaling(args: ScalingArgs) -> Result<()> {
     Ok(())
 }
 
-fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<ThreadResult>> {
+async fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<ThreadResult>> {
     let barrier = Arc::new(Barrier::new(thread_cnt));
-    let threaded_rt = Builder::new_multi_thread()
-        .worker_threads(thread_cnt)
-        .enable_all()
-        .build()?;
-
     let mut threads = Vec::new();
 
     for thread_id in 0..thread_cnt {
@@ -101,12 +93,12 @@ fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<Thr
         let mem = args.memory_mb;
         let a = args.function_args.clone();
 
-        threads.push(threaded_rt.spawn(async move {
+        threads.push(tokio::task::spawn(async move {
             scaling_thread(host_c, p, d, thread_id, b, i_c, compute, isolation, thread_cnt, mem, a).await
         }));
     }
 
-    resolve_handles(&threaded_rt, threads, ErrorHandling::Print)
+    resolve_handles(threads, ErrorHandling::Print).await
 }
 
 async fn scaling_thread(
@@ -175,10 +167,10 @@ async fn scaling_thread(
     barrier.wait().await;
 
     let stopping = Duration::from_secs(duration);
-    let start = SystemTime::now();
+    let start = now();
     let mut data = Vec::new();
     let mut errors = 0;
-    let clock = Arc::new(LocalTime::new(&gen_tid())?);
+    let clock = get_global_clock(&gen_tid())?;
     let mut dummy = crate::trace::Function::default();
     loop {
         let tid = format!("{}-{}", thread_id, gen_tid());
@@ -211,7 +203,7 @@ async fn scaling_thread(
             }
         };
 
-        if start.elapsed()? > stopping {
+        if start.elapsed() > stopping {
             break;
         }
     }

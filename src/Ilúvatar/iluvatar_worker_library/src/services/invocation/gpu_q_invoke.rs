@@ -20,18 +20,18 @@ use crate::{
     worker_api::worker_config::GPUResourceConfig,
 };
 use anyhow::Result;
+use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::{characteristics_map::CharacteristicsMap, types::DroppableToken};
-use iluvatar_library::{
-    logging::LocalTime, threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute,
-};
+use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::{
     sync::{atomic::AtomicU32, Arc},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use time::OffsetDateTime;
 use tokio::sync::Notify;
+use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
@@ -123,7 +123,7 @@ pub struct GpuQueueingInvoker {
     cont_manager: Arc<ContainerManager>,
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
-    clock: LocalTime,
+    clock: Clock,
     running: AtomicU32,
     last_memory_warning: Mutex<Instant>,
     last_gpu_warning: Mutex<Instant>,
@@ -169,12 +169,12 @@ impl GpuQueueingInvoker {
             cpu,
             signal: Notify::new(),
             _gpu_thread: gpu_handle,
-            clock: LocalTime::new(tid)?,
+            clock: get_global_clock(tid)?,
             running: AtomicU32::new(0),
-            last_memory_warning: Mutex::new(Instant::now()),
+            last_memory_warning: Mutex::new(now()),
             queue: q?,
-            last_gpu_warning: Mutex::new(Instant::now()),
-            completion_tracker: Arc::new(CompletionTimeTracker::new()),
+            last_gpu_warning: Mutex::new(now()),
+            completion_tracker: Arc::new(CompletionTimeTracker::new(tid)?),
             gpu_config: gpu_config
                 .as_ref()
                 .ok_or_else(|| anyhow::format_err!("Creating GPU queue with no GPU config"))?
@@ -278,8 +278,8 @@ impl GpuQueueingInvoker {
     async fn invocation_worker_thread(&self, batch: GpuBatch, permit: DroppableToken) {
         let tid: &TransactionId = &INVOKER_GPU_QUEUE_WORKER_TID;
         info!(tid=%tid, fqdn=batch.item_registration().fqdn, batch_len=batch.len(), "Executing batch");
-        let now = OffsetDateTime::now_utc();
-        let est_finish_time = now + time::Duration::seconds_f64(batch.est_queue_time());
+        let curr_time = self.clock.now();
+        let est_finish_time = curr_time + time::Duration::seconds_f64(batch.est_queue_time());
         self.completion_tracker.add_item(est_finish_time);
         let mut ctr_lock = None;
         let mut start;
@@ -287,7 +287,7 @@ impl GpuQueueingInvoker {
             if !item.lock() {
                 continue;
             }
-            start = Instant::now();
+            start = now();
             if ctr_lock.is_none() {
                 let (lck, was_cold) =
                     match self
@@ -370,7 +370,7 @@ impl GpuQueueingInvoker {
             let mut warn_time = self.last_memory_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
                 warn!(tid=%item.tid, "Insufficient memory to run item right now");
-                *warn_time = Instant::now();
+                *warn_time = now();
             }
             item.unlock();
             match self.queue.add_item_to_queue(item) {
@@ -384,7 +384,7 @@ impl GpuQueueingInvoker {
             let mut warn_time = self.last_gpu_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
                 warn!(tid=%item.tid, "No GPU available to run item right now");
-                *warn_time = Instant::now();
+                *warn_time = now();
             }
             item.unlock();
             match self.queue.add_item_to_queue(item) {
@@ -486,10 +486,9 @@ impl DeviceQueue for GpuQueueingInvoker {
 #[cfg(test)]
 mod gpu_batch_tests {
     use super::*;
-    use iluvatar_library::logging::LocalTime;
     use std::collections::HashMap;
 
-    fn item(clock: &LocalTime) -> Arc<EnqueuedInvocation> {
+    fn item(clock: &Clock) -> Arc<EnqueuedInvocation> {
         let name = "test";
         let rf = Arc::new(RegisteredFunction {
             function_name: name.to_string(),
@@ -514,7 +513,7 @@ mod gpu_batch_tests {
 
     #[test]
     fn one_item_correct() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let b = GpuBatch::new(item(&clock), 1.0);
         assert_eq!(b.len(), 1);
         assert_eq!(b.est_queue_time(), 1.0);
@@ -522,7 +521,7 @@ mod gpu_batch_tests {
 
     #[test]
     fn added_items_correct() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut b = GpuBatch::new(item(&clock), 1.0);
 
         for _ in 0..3 {

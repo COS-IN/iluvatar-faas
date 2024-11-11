@@ -2,15 +2,14 @@
 pub mod utils;
 
 use crate::utils::{short_sim_args, sim_args, sim_invoker_svc};
+use iluvatar_library::clock::get_global_clock;
 use iluvatar_library::mindicator::Mindicator;
+use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_library::{
-    logging::LocalTime,
-    transaction::{gen_tid, TEST_TID},
-};
 use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
 use iluvatar_worker_library::services::invocation::queueing::DeviceQueue;
+use iluvatar_worker_library::services::status::status_service::build_load_avg_signal;
 use iluvatar_worker_library::services::{
     invocation::queueing::{
         gpu_mqfq::{FlowQ, MQState, MQFQ},
@@ -22,7 +21,7 @@ use iluvatar_worker_library::services::{
 use rstest::rstest;
 use std::collections::HashMap;
 use std::sync::Arc;
-use time::{Duration, OffsetDateTime};
+use time::Duration;
 
 static TIMEOUT_SEC: f64 = 2.0;
 
@@ -57,6 +56,7 @@ async fn build_flowq(overrun: f64) -> (Option<impl Drop>, Arc<ContainerManager>,
         cfg.invocation.mqfq_config.as_ref().expect("MQFQ config was missing"),
         &cmap,
         &min,
+        &get_global_clock(&gen_tid()).unwrap(),
     );
     (log, cm, q, min)
 }
@@ -68,7 +68,8 @@ async fn build_mqfq(
 ) -> (Option<impl Drop>, Arc<ContainerManager>, Arc<MQFQ>) {
     let env = build_gpu_env(overrun, timeout_sec, mqfq_policy);
     let (log, cfg, cm, _invoker, _reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID).unwrap();
+    let load_avg = build_load_avg_signal();
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg, &TEST_TID).unwrap();
     let gpu = GpuResourceTracker::boxed(
         &cfg.container_resources.gpu_resource,
         &cfg.container_resources,
@@ -93,7 +94,7 @@ async fn build_mqfq(
 
 fn item() -> Arc<EnqueuedInvocation> {
     let name = gen_tid();
-    let clock = LocalTime::new(&"clock".to_string()).unwrap();
+    let clock = get_global_clock(&name).unwrap();
     let rf = Arc::new(RegisteredFunction {
         function_name: name.to_string(),
         function_version: name.to_string(),
@@ -199,7 +200,7 @@ mod flowq_tests {
         let item = item();
         q.push_flow(item.clone(), 20.0);
         q.state = MQState::Throttled;
-        q.last_serviced = OffsetDateTime::now_utc();
+        q.last_serviced = get_global_clock(&gen_tid()).unwrap().now();
         q.set_idle_throttled(10.0);
         assert_eq!(q.state, MQState::Active);
     }
@@ -212,7 +213,7 @@ mod flowq_tests {
         assert!(!q.queue.is_empty(), "queue not empty");
 
         q.state = MQState::Throttled;
-        q.last_serviced = OffsetDateTime::now_utc() - Duration::seconds(30);
+        q.last_serviced = get_global_clock(&gen_tid()).unwrap().now() - Duration::seconds(30);
         q.set_idle_throttled(10.0);
         assert_eq!(q.state, MQState::Active);
     }

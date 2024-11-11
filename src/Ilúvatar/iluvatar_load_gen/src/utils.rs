@@ -1,8 +1,9 @@
 use crate::benchmark::BenchmarkStore;
 use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
+use iluvatar_library::clock::{now, Clock};
+use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::{
-    logging::LocalTime,
     transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::{port::Port, timing::TimedExt},
@@ -11,15 +12,9 @@ use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResp
 use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::Write,
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tokio::{runtime::Runtime, task::JoinHandle};
+use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tracing::error;
 
 lazy_static::lazy_static! {
@@ -220,7 +215,7 @@ pub async fn controller_invoke(
     name: &str,
     version: &str,
     json_args: Option<String>,
-    clock: Arc<LocalTime>,
+    clock: Clock,
     api: ControllerAPI,
 ) -> Result<CompletedControllerInvocation> {
     let tid = gen_tid();
@@ -272,7 +267,7 @@ pub async fn controller_register(
     timings: Option<&ResourceTimings>,
     api: ControllerAPI,
 ) -> Result<Duration> {
-    let start = Instant::now();
+    let start = now();
     let tid = format!("{}-{}-reg", name, version);
     let req = RegisterRequest::new(
         name,
@@ -298,7 +293,7 @@ pub async fn controller_prewarm(
     api: ControllerAPI,
     tid: &TransactionId,
 ) -> Result<Duration> {
-    let start = Instant::now();
+    let start = now();
     let req = PrewarmRequest {
         function_name: name.to_owned(),
         function_version: version.to_owned(),
@@ -390,18 +385,12 @@ pub async fn worker_invoke(
     port: Port,
     tid: &TransactionId,
     args: Option<String>,
-    clock: Arc<LocalTime>,
+    clock: Clock,
     factory: &Arc<WorkerAPIFactory>,
     comm_method: Option<CommunicationMethod>,
 ) -> Result<CompletedWorkerInvocation> {
-    let args = match args {
-        Some(a) => a,
-        None => "{}".to_string(),
-    };
-    let method = match comm_method {
-        Some(m) => m,
-        None => CommunicationMethod::RPC,
-    };
+    let args = args.unwrap_or_else(|| "{}".to_string());
+    let method = comm_method.unwrap_or(CommunicationMethod::RPC);
     let invoke_start = clock.now_str()?;
     let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
         Ok(a) => a,
@@ -451,15 +440,34 @@ pub async fn worker_clean(
     factory: &Arc<WorkerAPIFactory>,
     comm_method: Option<CommunicationMethod>,
 ) -> Result<CleanResponse> {
-    let method = match comm_method {
-        Some(m) => m,
-        None => CommunicationMethod::RPC,
-    };
+    let method = comm_method.unwrap_or(CommunicationMethod::RPC);
     let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
     api.clean(tid.clone()).await
+}
+
+pub async fn wait_elapsed_live(timer: &Instant, elapsed: u64) {
+    loop {
+        let timer_elapsed_ms = timer.elapsed().as_millis();
+        if elapsed as u128 <= timer_elapsed_ms {
+            break;
+        } else {
+            let diff = (elapsed as u128) - timer_elapsed_ms;
+            tokio::time::sleep(Duration::from_millis(diff as u64 / 2)).await;
+        }
+    }
+}
+
+pub async fn wait_elapsed_sim(timer: &Instant, wait_until: u64, tick_step: u64, sim_gran: SimulationGranularity) {
+    loop {
+        if wait_until as u128 <= timer.elapsed().as_millis() {
+            break;
+        } else {
+            iluvatar_library::tokio_utils::sim_scheduler_tick(tick_step, sim_gran).await;
+        }
+    }
 }
 
 /// How to handle per-thread errors that appear when joining load workers
@@ -471,17 +479,13 @@ pub enum ErrorHandling {
 
 /// Resolve all the tokio threads and return their results
 /// Optionally handle errors from threads
-pub fn resolve_handles<T>(
-    runtime: &Runtime,
-    run_results: Vec<JoinHandle<Result<T>>>,
-    eh: ErrorHandling,
-) -> Result<Vec<T>>
+pub async fn resolve_handles<T>(run_results: Vec<JoinHandle<Result<T>>>, eh: ErrorHandling) -> Result<Vec<T>>
 where
     T: Ord,
 {
     let mut ret = vec![];
     for h in run_results {
-        match runtime.block_on(h) {
+        match h.await {
             Ok(r) => match r {
                 Ok(ok) => ret.push(ok),
                 Err(e) => match eh {

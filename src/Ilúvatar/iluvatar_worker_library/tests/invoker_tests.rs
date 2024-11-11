@@ -1,12 +1,12 @@
 #[macro_use]
 pub mod utils;
 
+use iluvatar_library::clock::ContainerTimeFormatter;
 use iluvatar_library::transaction::TEST_TID;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_rpc::rpc::{ContainerState, InvokeAsyncRequest, InvokeRequest, LanguageRuntime, RegisterRequest};
-use iluvatar_worker_library::services::containers::structs::ContainerTimeFormatter;
 use rstest::rstest;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use utils::{
     background_test_invoke, cust_register, get_start_end_time_from_invoke, prewarm, register, test_invoker_svc,
 };
@@ -156,6 +156,7 @@ mod invoke {
 #[cfg(test)]
 mod invoke_async {
     use super::*;
+    use iluvatar_library::clock::now;
 
     #[rstest]
     #[case("fcfs")]
@@ -186,7 +187,7 @@ mod invoke_async {
             transaction_id: "testTID".to_string(),
         };
         let result = invok_svc.async_invocation(reg, req.json_args, req.transaction_id);
-        let start = std::time::Instant::now();
+        let start = now();
         match result {
             Ok(cookie) => {
                 assert_ne!(cookie, "");
@@ -451,6 +452,7 @@ fn build_bypass_overrides(invoker_q: &str) -> Vec<(String, String)> {
 #[cfg(test)]
 mod bypass_tests {
     use super::*;
+    use iluvatar_library::clock::now;
 
     #[rstest]
     #[case("fcfs")]
@@ -491,10 +493,10 @@ mod bypass_tests {
         assert_eq!(invok_svc.running_funcs(), 1, "Should have one thing running");
         let second_slow_invoke = background_test_invoke(&invok_svc, &slow_reg, &json_args, &transaction_id);
         assert_eq!(invok_svc.running_funcs(), 1, "Should have one thing running");
-        let start = SystemTime::now();
+        let start = now();
         let fast_invoke = background_test_invoke(&invok_svc, &fast_reg, &json_args, &transaction_id);
         let mut found = false;
-        while start.elapsed().expect("Time elapsed failed") < Duration::from_secs(4) {
+        while start.elapsed() < Duration::from_secs(4) {
             if invok_svc.running_funcs() > 1 {
                 found = true;
                 break;

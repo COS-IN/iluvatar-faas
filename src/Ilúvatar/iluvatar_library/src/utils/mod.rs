@@ -51,15 +51,16 @@ pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {
 }
 
 lazy_static::lazy_static! {
-  pub static ref SIMULATION_CHECK: parking_lot::Mutex<bool>  = parking_lot::Mutex::new(false);
+  // TODO: This probably shouldn't exist. Process-level global state causes weirdness, is generally bad programming, and prevents in-proc simulation on alternate threads.
+  static ref SIMULATION_CHECK: parking_lot::Mutex<bool>  = parking_lot::Mutex::new(false);
 }
 /// Set globally that the system is being run as a simulation
-pub fn set_simulation() {
+pub fn set_simulation(_tid: &TransactionId) -> Result<()> {
     *SIMULATION_CHECK.lock() = true;
+    Ok(())
 }
 /// A method for anyone to check if the system is being run as a simulation
 pub fn is_simulation() -> bool {
-    // false
     *SIMULATION_CHECK.lock()
 }
 

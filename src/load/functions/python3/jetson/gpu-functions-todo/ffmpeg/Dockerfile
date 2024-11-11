@@ -1,4 +1,5 @@
-ARG REPO=alfuerst
+ARG ACTION_BASE=alfuerst/iluvatar-action-gpu-base
+
 # FROM nvidia/cuda:11.8.0-devel-ubuntu20.04 as build_img
 FROM nvcr.io/nvidia/l4t-tensorflow:r35.3.1-tf2.11-py3 as build_img
 
@@ -45,7 +46,7 @@ RUN git clone https://git.ffmpeg.org/ffmpeg.git . && \
 # wget https://ia902303.us.archive.org/14/items/sample-video-file-100-mb/Sample_Video_File_100MB.mp4
 
 
-FROM ${REPO}/iluvatar-action-gpu-base:aarch64
+FROM ${ACTION_BASE}:aarch64
 WORKDIR /app
 
 # matches driver version in 11.8 container

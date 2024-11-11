@@ -10,9 +10,10 @@ use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
+use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::utils::missing_default;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, logging::LocalTime, transaction::TransactionId};
+use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId};
 use iluvatar_library::{
     mindicator::Mindicator,
     threading::{tokio_runtime, tokio_thread, EventualItem},
@@ -22,7 +23,7 @@ use rand::seq::IteratorRandom;
 use serde::Deserialize;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
@@ -124,6 +125,7 @@ pub struct FlowQ {
     gpu_config: Arc<GPUResourceConfig>,
     cmap: Arc<CharacteristicsMap>,
     mindicator: Arc<Mindicator>,
+    clock: Clock,
 }
 
 impl FlowQ {
@@ -137,6 +139,7 @@ impl FlowQ {
         q_config: &Arc<MqfqConfig>,
         cmap: &Arc<CharacteristicsMap>,
         mindicator: &Arc<Mindicator>,
+        clock: &Clock,
     ) -> Self {
         Self {
             queue: VecDeque::new(),
@@ -145,10 +148,10 @@ impl FlowQ {
             finish_time_virt: start_time_virt,
             in_flight: 0,
             ttl_sec: missing_default(&q_config.ttl_sec, 2.0),
-            last_serviced: OffsetDateTime::now_utc(),
+            last_serviced: clock.now(),
             service_avg: q_config.service_average,
             allowed_overrun: missing_default(&q_config.allowed_overrun, 10.0),
-            active_start_t: OffsetDateTime::now_utc(),
+            active_start_t: clock.now(),
             avg_active_t: 0.0,
             num_active_periods: 0,
             cont_manager: cont_manager.clone(),
@@ -158,6 +161,7 @@ impl FlowQ {
             gpu_config: gpu_config.clone(),
             cmap: cmap.clone(),
             mindicator: mindicator.clone(),
+            clock: clock.clone(),
         }
     }
 
@@ -204,7 +208,7 @@ impl FlowQ {
             self.mindicator.insert(self.flow_id, self.start_time_virt).unwrap();
             if self.state == MQState::Inactive {
                 // We just turned active, so mark the time
-                self.active_start_t = OffsetDateTime::now_utc();
+                self.active_start_t = self.clock.now();
                 self.num_active_periods += 1;
                 self.update_state(MQState::Active);
             }
@@ -217,7 +221,7 @@ impl FlowQ {
         let r = self.queue.pop_front();
         if r.is_some() {
             self.in_flight += 1;
-            self.last_serviced = OffsetDateTime::now_utc();
+            self.last_serviced = self.clock.now();
         }
         self.update_dispatched();
         // MQFQ should remove from the active list if not ready
@@ -252,7 +256,7 @@ impl FlowQ {
             return;
         }
         if self.state == MQState::Active {
-            let ttl_remaining = (OffsetDateTime::now_utc() - self.last_serviced).as_seconds_f64();
+            let ttl_remaining = (self.clock.now() - self.last_serviced).as_seconds_f64();
             let ttl = if self.ttl_sec < 0.0 {
                 self.cmap.get_iat(&self.fqdn) * f64::abs(self.ttl_sec)
             } else {
@@ -261,7 +265,7 @@ impl FlowQ {
             if ttl_remaining > ttl {
                 self.update_state(MQState::Inactive);
                 // Update the active period/eviction time
-                let active_t = (OffsetDateTime::now_utc() - self.active_start_t).as_seconds_f64();
+                let active_t = (self.clock.now() - self.active_start_t).as_seconds_f64();
                 let n = self.num_active_periods as f64;
                 let prev_avg = self.avg_active_t;
                 let new_avg = (n * prev_avg) + active_t / (n + 1.0);
@@ -287,7 +291,7 @@ impl FlowQ {
 
     pub fn mark_completed(&mut self) {
         self.in_flight -= 1;
-        self.last_serviced = OffsetDateTime::now_utc();
+        self.last_serviced = self.clock.now();
         self.check_empty_q_grace_period();
     }
 
@@ -313,7 +317,7 @@ pub struct MQFQ {
     _mon_thread: Option<tokio::task::JoinHandle<()>>,
     gpu: Arc<GpuResourceTracker>,
     gpu_config: Arc<GPUResourceConfig>,
-    clock: LocalTime,
+    clock: Clock,
     q_config: Arc<MqfqConfig>,
     policy: MqfqPolicy,
     sticky_queue: RwLock<String>,
@@ -426,7 +430,7 @@ impl MQFQ {
 
         let svc = Arc::new(MQFQ {
             mqfq_set: DashMap::new(),
-            ctrack: Arc::new(CompletionTimeTracker::new()),
+            ctrack: Arc::new(CompletionTimeTracker::new(tid)?),
             signal: Notify::new(),
             _thread: gpu_handle,
             _mon_thread: mon_handle,
@@ -434,7 +438,7 @@ impl MQFQ {
                 .as_ref()
                 .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?
                 .clone(),
-            clock: LocalTime::new(tid)?,
+            clock: get_global_clock(tid)?,
             cpu,
             cmap,
             cont_manager,
@@ -517,7 +521,7 @@ impl MQFQ {
         cpu_token: DroppableToken,
         gpu_token: DroppableToken,
     ) {
-        let ct = OffsetDateTime::now_utc();
+        let ct = self.clock.now();
         self.ctrack.add_item(ct);
         if item.invoke.lock() {
             let container = match self
@@ -590,7 +594,7 @@ impl MQFQ {
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
-        let start = Instant::now();
+        let start = now();
         let ctr_lock = match self.cont_manager.acquire_container(reg, tid, Compute::GPU) {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => {
@@ -681,6 +685,7 @@ impl MQFQ {
                     &self.q_config,
                     &self.cmap,
                     &self.mindicator,
+                    &self.clock,
                 );
                 if qguard.push_flow(item, virtual_time) {
                     self.mindicator.insert(qguard.flow_id, qguard.start_time_virt).unwrap();

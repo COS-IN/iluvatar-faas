@@ -22,7 +22,7 @@ use iluvatar_rpc::rpc::{
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 #[allow(unused)]
 pub struct IluvatarWorkerImpl {
@@ -263,7 +263,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn status(&self, request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, "Handling status request");
+        debug!(tid=%request.transaction_id, "Handling status request");
 
         let stat = self.status.get_status(&request.transaction_id);
 
@@ -286,7 +286,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn health(&self, request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, "Handling health request");
+        debug!(tid=%request.transaction_id, "Handling health request");
         let reply = self.health.check_health(&request.transaction_id).await;
         Ok(Response::new(reply))
     }
@@ -294,7 +294,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn clean(&self, request: Request<CleanRequest>) -> Result<Response<CleanResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, "Handling clean request");
+        debug!(tid=%request.transaction_id, "Handling clean request");
         match self
             .container_manager
             .remove_idle_containers(&request.transaction_id)

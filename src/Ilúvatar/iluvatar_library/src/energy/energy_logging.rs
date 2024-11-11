@@ -1,6 +1,6 @@
 use super::{ipmi::IPMIMonitor, process_pct::ProcessMonitor, rapl::RaplMonitor};
+use crate::energy::cpu_freq::CpuFreqMonitor;
 use crate::{
-    cpu_interaction::CpuFreqMonitor,
     energy::{perf::start_perf_stat, tegrastats::start_tegrastats, EnergyConfig},
     transaction::TransactionId,
 };

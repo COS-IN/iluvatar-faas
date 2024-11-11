@@ -11,7 +11,7 @@ use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::logging::LocalTime;
+use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::threading::EventualItem;
 use iluvatar_library::transaction::TransactionId;
@@ -20,7 +20,6 @@ use iluvatar_library::utils::missing_default;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::Instant;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info};
@@ -37,7 +36,7 @@ struct Flow {
     queue: SharedQueue,
     cont_manager: Arc<ContainerManager>,
     registration: Arc<RegisteredFunction>,
-    clock: LocalTime,
+    clock: Clock,
     cmap: Arc<CharacteristicsMap>,
     queue_signal: Arc<Notify>,
 }
@@ -62,7 +61,7 @@ impl Flow {
             ctrack: ctrack.clone(),
             cont_manager: cont_manager.clone(),
             registration: registration.clone(),
-            clock: LocalTime::new(tid)?,
+            clock: get_global_clock(tid)?,
             cmap: cmap.clone(),
             queue_signal: signal,
         })
@@ -151,9 +150,9 @@ impl Flow {
         tokens: DroppableToken,
         tid: TransactionId,
     ) {
-        let start = Instant::now();
+        let start = now();
         if item.invoke.lock() {
-            let ct = OffsetDateTime::now_utc();
+            let ct = self.clock.now();
             self.ctrack.add_item(ct);
             match invoke_on_container(
                 &self.registration,
@@ -251,6 +250,7 @@ struct FuncQueue {
     flow_tid: TransactionId,
     pub global_signal: Arc<Notify>,
     pub queue_signal: Arc<Notify>,
+    clock: Clock,
 }
 type SharedQueue = Arc<FuncQueue>;
 impl FuncQueue {
@@ -266,6 +266,7 @@ impl FuncQueue {
         ctrack: &Arc<CompletionTimeTracker>,
         cmap: &Arc<CharacteristicsMap>,
         signal: &Arc<Notify>,
+        clock: &Clock,
     ) -> SharedQueue {
         let start_time_virt = mindicator.min();
         Arc::new(Self {
@@ -275,7 +276,7 @@ impl FuncQueue {
             start_time_virt: RwLock::new(start_time_virt),
             finish_time_virt: RwLock::new(start_time_virt),
             ttl_sec: 20.0,
-            last_serviced: RwLock::new(OffsetDateTime::now_utc()),
+            last_serviced: RwLock::new(clock.now()),
             service_avg: 10.0,
             allowed_overrun: missing_default(&q_config.allowed_overrun, 10.0),
             registration: registration.clone(),
@@ -289,6 +290,7 @@ impl FuncQueue {
             cmap: cmap.clone(),
             global_signal: signal.clone(),
             queue_signal: Arc::new(Notify::new()),
+            clock: clock.clone(),
         })
     }
 
@@ -360,7 +362,7 @@ impl FuncQueue {
 
     /// Check if the start time is ahead of global time by allowed overrun
     pub fn update_dispatched(self: &Arc<Self>, tid: &TransactionId, glob_virt_time: f64) {
-        *self.last_serviced.write() = OffsetDateTime::now_utc();
+        *self.last_serviced.write() = self.clock.now();
         let mut new_start_time_virt = *self.start_time_virt.read();
         if let Some(next_item) = self.queue.read().front() {
             new_start_time_virt = next_item.start_time_virt;
@@ -393,7 +395,7 @@ impl FuncQueue {
         }
         // check grace period
         if self.queue.read().is_empty() {
-            let ttl_remaining = (OffsetDateTime::now_utc() - *self.last_serviced.read()).as_seconds_f64();
+            let ttl_remaining = (self.clock.now() - *self.last_serviced.read()).as_seconds_f64();
             if ttl_remaining > self.ttl_sec {
                 // info!("set_idle_throttled ttl overshtot");
                 self.update_state(tid, MQState::Inactive);
@@ -422,6 +424,7 @@ pub struct ConcurMqfq {
     q_config: Arc<MqfqConfig>,
     mindicator: Arc<Mindicator>,
     signal: Arc<Notify>,
+    clock: Clock,
 }
 
 #[allow(dyn_drop)]
@@ -444,7 +447,7 @@ impl ConcurMqfq {
             .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU config"))?;
         let svc = Arc::new(ConcurMqfq {
             queues: DashMap::new(),
-            ctrack: Arc::new(CompletionTimeTracker::new()),
+            ctrack: Arc::new(CompletionTimeTracker::new(tid)?),
             gpu: gpu
                 .as_ref()
                 .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?
@@ -455,6 +458,7 @@ impl ConcurMqfq {
             q_config,
             mindicator: Mindicator::boxed(0),
             signal: Arc::new(Notify::new()),
+            clock: get_global_clock(tid)?,
         });
         info!(tid=%tid, "Created ConcurMqfq");
         Ok(svc)
@@ -486,6 +490,7 @@ impl ConcurMqfq {
                     &self.ctrack,
                     &self.cmap,
                     &self.signal,
+                    &self.clock,
                 );
                 // let sig = qguard.global_signal.clone();
                 qguard.start_new_flow(&item.tid);

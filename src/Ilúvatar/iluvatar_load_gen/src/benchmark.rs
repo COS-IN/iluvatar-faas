@@ -3,14 +3,14 @@ use crate::utils::*;
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_library::clock::{get_global_clock, now};
+use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
-use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port_utils::Port};
+use iluvatar_library::{transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use std::{collections::HashMap, path::Path};
-use tokio::runtime::{Builder, Runtime};
 use tracing::{error, info};
 
 #[derive(Debug, serde::Deserialize, Clone)]
@@ -120,7 +120,7 @@ pub fn load_functions(args: &BenchmarkArgs) -> Result<Vec<ToBenchmarkFunction>> 
 
 pub fn benchmark_functions(args: BenchmarkArgs) -> Result<()> {
     let functions = load_functions(&args)?;
-    let threaded_rt = Builder::new_multi_thread().enable_all().build()?;
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, &gen_tid())?;
 
     match args.target {
         Target::Worker => benchmark_worker(&threaded_rt, functions, args),
@@ -148,7 +148,7 @@ pub async fn benchmark_controller(
     for function in &functions {
         let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
         info!("{}", function.name);
-        let clock = Arc::new(LocalTime::new(&gen_tid())?);
+        let clock = get_global_clock(&gen_tid())?;
         let reg_tid = gen_tid();
         let api = factory
             .get_controller_api(&host, port, CommunicationMethod::RPC, &reg_tid)
@@ -218,7 +218,11 @@ pub async fn benchmark_controller(
     Ok(())
 }
 
-pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunction>, args: BenchmarkArgs) -> Result<()> {
+pub fn benchmark_worker(
+    threaded_rt: &TokioRuntime,
+    functions: Vec<ToBenchmarkFunction>,
+    args: BenchmarkArgs,
+) -> Result<()> {
     let mut full_data = BenchmarkStore::new();
     for f in &functions {
         full_data
@@ -227,7 +231,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
     }
     let mut invokes = vec![];
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
-    let clock = Arc::new(LocalTime::new(&gen_tid())?);
+    let clock = get_global_clock(&gen_tid())?;
     let mut cold_repeats = args.cold_iters;
 
     for function in &functions {
@@ -307,8 +311,8 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
                     }
                     duration_sec => {
                         let timeout = Duration::from_secs(duration_sec as u64);
-                        let start = SystemTime::now();
-                        while start.elapsed()? < timeout {
+                        let start = now();
+                        while start.elapsed() < timeout {
                             match threaded_rt.block_on(worker_invoke(
                                 &name,
                                 &version,

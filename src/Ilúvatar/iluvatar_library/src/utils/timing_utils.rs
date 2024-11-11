@@ -1,10 +1,12 @@
 // Edited code, based on this
 // https://stackoverflow.com/questions/53291554/whats-a-clean-way-to-get-how-long-a-future-takes-to-resolve
+use crate::clock::now;
 use pin_project::pin_project;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use tokio::time::Instant;
 
 /// A wrapper around a Future which adds timing data.
 #[pin_project]
@@ -43,7 +45,7 @@ pub trait TimedExt: Sized + Future {
     fn timed(self) -> Timed<Self> {
         Timed {
             inner: self,
-            start: Instant::now(),
+            start: now(),
         }
     }
 }

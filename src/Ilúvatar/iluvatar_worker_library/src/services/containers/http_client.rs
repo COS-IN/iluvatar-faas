@@ -1,15 +1,13 @@
 use crate::services::containers::structs::ParsedResult;
 use anyhow::Result;
+use iluvatar_library::clock::now;
 use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
     utils::{calculate_base_uri, calculate_invoke_uri, format_uri, port::Port},
 };
 use reqwest::{Client, Response, StatusCode};
-use std::{
-    collections::HashMap,
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashMap, time::Duration};
 use tracing::warn;
 
 #[derive(Debug)]
@@ -65,18 +63,14 @@ impl HttpContainerClient {
             .post(&self.invoke_uri)
             .body(json_args.to_owned())
             .header("Content-Type", "application/json");
-        let start = SystemTime::now();
+        let start = now();
         let response = match builder.send().await {
             Ok(r) => r,
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, container_id=%container_id, "HTTP error when trying to connect to container");
             }
         };
-        let duration = match start.elapsed() {
-            Ok(dur) => dur,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
-        };
-        Ok((response, duration))
+        Ok((response, start.elapsed()))
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, response, container_id), fields(tid=%tid)))]
