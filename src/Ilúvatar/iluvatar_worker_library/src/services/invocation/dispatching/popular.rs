@@ -52,11 +52,11 @@ impl PopularDispatch {
                 let val = self.invokes.get_mut(&item.registration.fqdn).unwrap();
                 *val += 1;
                 *val
-            }
+            },
             false => {
                 self.invokes.insert(item.registration.fqdn.clone(), 1);
                 1
-            }
+            },
         };
         let freq = invokes as f64 / self.total_invokes as f64;
         match freq > self.popular_cutoff {

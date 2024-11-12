@@ -173,7 +173,7 @@ impl RegistrationService {
                             }
                         }
                     }
-                }
+                },
                 Err(e) => anyhow::bail!("Failed to parse resource timings because {:?}", e),
             };
         }

@@ -42,7 +42,7 @@ impl HealthService {
             Some(stat) => {
                 info!(tid=%tid, worker=%worker.name, status=?status, "worker changed status to");
                 stat.value() == status
-            }
+            },
             None => true,
         }
     }
@@ -71,14 +71,14 @@ impl HealthService {
             Err(e) => {
                 warn!(tid=%tid, worker=%worker.name, error=%e, "Couldn't connect to worker for health check");
                 return HealthStatus::OFFLINE;
-            }
+            },
         };
         match api.health(tid.clone()).await {
             Ok(h) => h,
             Err(e) => {
                 warn!(tid=%tid, worker=%worker.name, error=%e, "Error when checking worker health");
                 HealthStatus::UNHEALTHY
-            }
+            },
         }
     }
 }

@@ -35,10 +35,10 @@ impl LandlordDispatch {
             None => {
                 let size = self.cmap.avg_gpu_e2e_t(fqdn);
                 self.credits.insert(fqdn.to_string(), size);
-            }
+            },
             Some(c) => {
                 *c += self.cmap.get_gpu_exec_time(fqdn);
-            }
+            },
         }
     }
     fn charge_rent(&mut self, fqdn: &str) {

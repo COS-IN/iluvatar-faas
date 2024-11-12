@@ -114,7 +114,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
                 tid,
             )
             .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make influx updater"))?
-        }
+        },
         None => None,
     };
 

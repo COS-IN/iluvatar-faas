@@ -45,12 +45,12 @@ async fn test_args(tid: &TransactionId, args: &Vec<&str>) -> Result<bool> {
                     // didn't exit yet
                     tokio::time::sleep(Duration::from_millis(5)).await;
                     continue;
-                }
+                },
             },
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Checking if `{:?}` args existed encountered an error", args);
                 return Ok(false);
-            }
+            },
         };
     }
     // probably would have errored out after a second

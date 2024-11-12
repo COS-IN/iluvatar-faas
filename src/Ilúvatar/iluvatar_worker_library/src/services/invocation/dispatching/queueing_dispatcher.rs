@@ -199,7 +199,7 @@ impl QueueingDispatcher {
                 } else {
                     anyhow::bail!("Unkonwn GPU queue {}", q);
                 }
-            }
+            },
             None => anyhow::bail!("GPU queue was not specified"),
         }
     }
@@ -263,7 +263,7 @@ impl QueueingDispatcher {
                     self.enqueue_cpu_check(&enqueue)?;
                     enqueues += 1;
                 }
-            }
+            },
             EnqueueingPolicy::AlwaysCPU => {
                 if reg.supported_compute.contains(Compute::CPU) {
                     self.enqueue_cpu_check(&enqueue)?;
@@ -274,7 +274,7 @@ impl QueueingDispatcher {
                         EnqueueingPolicy::AlwaysCPU
                     );
                 }
-            }
+            },
             EnqueueingPolicy::AlwaysGPU => {
                 if reg.supported_compute.contains(Compute::GPU) {
                     self.enqueue_cpu_check(&enqueue)?;
@@ -285,7 +285,7 @@ impl QueueingDispatcher {
                         EnqueueingPolicy::AlwaysGPU
                     );
                 }
-            }
+            },
             EnqueueingPolicy::ShortestExecTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
@@ -303,7 +303,7 @@ impl QueueingDispatcher {
                     Self::enqueue_check(q, &enqueue, *c)?;
                     enqueues += 1;
                 }
-            }
+            },
             EnqueueingPolicy::EstCompTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
@@ -327,19 +327,19 @@ impl QueueingDispatcher {
                     Self::enqueue_check(q, &enqueue, *c)?;
                     enqueues += 1;
                 }
-            }
+            },
             EnqueueingPolicy::UCB1 => {
                 self.ucb1_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
                 enqueues += 1;
-            }
+            },
             EnqueueingPolicy::MWUA => {
                 self.mwua_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
                 enqueues += 1;
-            }
+            },
             EnqueueingPolicy::HitTput => {
                 self.hit_tput_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
                 enqueues += 1;
-            }
+            },
             EnqueueingPolicy::Speedup => {
                 let cpu = self.cmap.avg_cpu_exec_t(&enqueue.registration.fqdn);
                 let gpu = self.cmap.avg_gpu_exec_t(&enqueue.registration.fqdn);
@@ -351,7 +351,7 @@ impl QueueingDispatcher {
                     self.enqueue_cpu_check(&enqueue)?;
                     enqueues += 1;
                 }
-            }
+            },
             EnqueueingPolicy::Landlord => {
                 let compute = self.landlord.lock().choose(&enqueue);
                 if compute == Compute::CPU {
@@ -362,7 +362,7 @@ impl QueueingDispatcher {
                     self.enqueue_gpu_check(&enqueue)?;
                     enqueues += 1;
                 }
-            }
+            },
             EnqueueingPolicy::Popular => {
                 let compute = self.popular.lock().choose(&enqueue);
                 if compute == Compute::CPU {
@@ -373,7 +373,7 @@ impl QueueingDispatcher {
                     self.enqueue_gpu_check(&enqueue)?;
                     enqueues += 1;
                 }
-            }
+            },
             EnqueueingPolicy::TopAvg => {
                 let compute = self.top_avg.choose(&enqueue);
                 if compute == Compute::CPU {
@@ -384,7 +384,7 @@ impl QueueingDispatcher {
                     self.enqueue_gpu_check(&enqueue)?;
                     enqueues += 1;
                 }
-            }
+            },
         }
 
         if enqueues == 0 {
@@ -405,11 +405,11 @@ impl QueueingDispatcher {
             ComputeEnum::cpu => {
                 d.n_cpu += 1;
                 d.cpu_prev_t.insert(fid.clone(), self.clock.now());
-            }
+            },
             ComputeEnum::gpu => {
                 d.n_gpu += 1;
                 d.gpu_prev_t.insert(fid.clone(), self.clock.now());
-            }
+            },
             _ => todo!(),
         }
     }
@@ -597,10 +597,10 @@ impl Invoker for QueueingDispatcher {
             true => {
                 info!(tid=%tid, "Invocation complete");
                 Ok(queued.result_ptr.clone())
-            }
+            },
             false => {
                 anyhow::bail!("Invocation was signaled completion but completion value was not set")
-            }
+            },
         }
     }
     fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String> {

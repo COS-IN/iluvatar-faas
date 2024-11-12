@@ -240,7 +240,7 @@ mod registration {
                 {
                     panic!("unexpected error: {:?}", e);
                 }
-            }
+            },
         };
     }
 
@@ -269,7 +269,7 @@ mod registration {
                 if !e_str.contains("Failed to pull image") {
                     panic!("unexpected error: {:?}", e);
                 }
-            }
+            },
         };
     }
 
@@ -500,7 +500,7 @@ mod get_container {
         };
         match c2 {
             Ok(_c2) => panic!("should have gotten an error instead of something"),
-            Err(_c2) => {}
+            Err(_c2) => {},
         }
         assert_eq!(_c1.container.fqdn(), &reg.fqdn);
     }
@@ -576,7 +576,7 @@ mod remove_container {
                 } else {
                     panic!("Unexpected error connecting to gone container {:?}", e);
                 }
-            }
+            },
         }
     }
 

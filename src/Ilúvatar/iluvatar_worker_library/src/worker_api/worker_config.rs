@@ -237,7 +237,7 @@ impl Configuration {
                     Ok(s) => s,
                     Err(e) => {
                         anyhow::bail!("Failed to set override '{}' to '{}' because {}", k, v, e)
-                    }
+                    },
                 };
             }
         }

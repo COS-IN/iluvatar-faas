@@ -287,7 +287,7 @@ impl GpuResourceTracker {
                             error!(tid=%tid, error=%e, "Error loading NVML");
                         }
                         None
-                    }
+                    },
                 };
             }
             let (handle, tx) = tokio_thread(
@@ -530,7 +530,7 @@ impl GpuResourceTracker {
                     };
                     meta.insert(gpu_hardware_id, metadata);
                     ret.insert(gpu_hardware_id, structs);
-                }
+                },
                 Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read record from nvidia-smi"),
             }
         }
@@ -580,13 +580,13 @@ impl GpuResourceTracker {
                             Ok(p) => {
                                 self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
                                 Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
-                            }
+                            },
                             Err(e) => Err(e),
                         },
                         None => {
                             error!(tid=%tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                             Err(tokio::sync::TryAcquireError::NoPermits)
-                        }
+                        },
                     };
                 }
                 let gpu_stat = self.status_info.read();
@@ -605,20 +605,20 @@ impl GpuResourceTracker {
                                     };
                                     stat.num_running += 1;
                                     Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
-                                }
+                                },
                                 Err(e) => Err(e),
                             },
                             None => {
                                 error!(tid=%tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                                 Err(tokio::sync::TryAcquireError::NoPermits)
-                            }
+                            },
                         };
                     }
                 } else {
                     warn!(private_id=gpu_hardware_id, stat=?gpu_stat, "GPU id not found");
                 }
                 Err(tokio::sync::TryAcquireError::NoPermits)
-            }
+            },
             None => self.try_acquire_least_loaded_resource(tid, limit),
         }
     }
@@ -643,7 +643,7 @@ impl GpuResourceTracker {
                     Ok(p) => {
                         self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
                         Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
-                    }
+                    },
                     Err(e) => Err(e),
                 },
                 None => Err(tokio::sync::TryAcquireError::NoPermits),
@@ -674,13 +674,13 @@ impl GpuResourceTracker {
                             };
                             stat.num_running += 1;
                             Ok(GpuToken::new(p, gpu_hardware_id as u32, tid.clone(), self))
-                        }
+                        },
                         Err(e) => Err(e),
                     },
                     None => {
                         error!(tid=%tid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                         Err(tokio::sync::TryAcquireError::NoPermits)
-                    }
+                    },
                 };
             } else {
                 Err(tokio::sync::TryAcquireError::NoPermits)
@@ -755,7 +755,7 @@ impl GpuResourceTracker {
                     }
                 }
                 v.push(gpu)
-            }
+            },
             None => {
                 let keys = self
                     .gpus
@@ -765,7 +765,7 @@ impl GpuResourceTracker {
                     .collect::<Vec<String>>()
                     .join(", ");
                 error!(tid=%tid, keys=keys, gpu_uuid=gpu.gpu_uuid, struct_id=gpu.struct_id, hardware_id=gpu.gpu_hardware_id, "Tried to return illegal GPU")
-            }
+            },
         }
     }
 
@@ -784,7 +784,7 @@ impl GpuResourceTracker {
             Err(e) => {
                 error!(tid=%tid, error=%e, "Failed to call nvidia-smi");
                 return;
-            }
+            },
         };
         let is_empty = (*svc.status_info.read()).is_empty();
         let mut ret: Vec<GpuStatus> = vec![];
@@ -812,11 +812,11 @@ impl GpuResourceTracker {
                             }
                         }
                     }
-                }
+                },
                 Err(e) => {
                     let stdout = String::from_utf8_lossy(&nvidia.stdout);
                     error!(tid=%tid, error=%e, stdout=%stdout, "Failed to deserialized GPU record from nvidia-smi")
-                }
+                },
             }
         }
         if is_empty {
@@ -918,7 +918,7 @@ impl GpuResourceTracker {
                 allocations[gpu.struct_id as usize] = gpu.allocated_mb;
                 let change = old - gpu.allocated_mb;
                 *meta.device_allocated_memory.write() += change;
-            }
+            },
         }
     }
 
@@ -928,7 +928,7 @@ impl GpuResourceTracker {
             Some(meta) => {
                 let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
                 *meta.device_allocated_memory.write() -= curr;
-            }
+            },
         }
     }
     pub fn add(&self, gpu: &GPU) {
@@ -937,7 +937,7 @@ impl GpuResourceTracker {
             Some(meta) => {
                 let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
                 *meta.device_allocated_memory.write() += curr;
-            }
+            },
         }
     }
     pub fn memory_pressure(&self, gpu: &GPU) -> (MemSizeMb, MemSizeMb) {
@@ -946,7 +946,7 @@ impl GpuResourceTracker {
             Some(meta) => {
                 let curr = *meta.device_allocated_memory.read();
                 (curr, meta.hardware_memory_mb)
-            }
+            },
         }
     }
 }

@@ -110,7 +110,7 @@ impl ContainerManager {
             if reclaim > 0 {
                 info!(tid=%tid, amount=reclaim, "Trying to reclaim memory for monitor pool");
                 match service.reclaim_memory(reclaim, &tid).await {
-                    Ok(_) => {}
+                    Ok(_) => {},
                     Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
                 };
             }
@@ -130,7 +130,7 @@ impl ContainerManager {
             None => {
                 error!(tid=%tid, iso=?to_remove.container_type(), "Lifecycle for container not supported");
                 return;
-            }
+            },
         };
         let stdout = cont_lifecycle.read_stdout(&to_remove, &tid).await;
         let stderr = cont_lifecycle.read_stderr(&to_remove, &tid).await;
@@ -139,7 +139,7 @@ impl ContainerManager {
             Ok(_) => (),
             Err(cause) => {
                 error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container")
-            }
+            },
         };
     }
 
@@ -223,7 +223,7 @@ impl ContainerManager {
                 None => {
                     error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported");
                     continue;
-                }
+                },
             };
             new_total_mem += new_usage;
             debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, "updated container memory usage");
@@ -251,7 +251,7 @@ impl ContainerManager {
                 // no available container, cold start
                 let r = reg.clone();
                 EventualItem::Future(self.cold_start(r, tid, compute))
-            }
+            },
         };
         cont
     }
@@ -284,7 +284,7 @@ impl ContainerManager {
                     } else if let Err(e) = self.unhealthy_removal_rx.send(c) {
                         error!(tid=%tid, error=%e, "Failed to send unhealthy container for removal");
                     }
-                }
+                },
                 None => return None,
             }
         }
@@ -342,7 +342,7 @@ impl ContainerManager {
             Err(_) => {
                 error!(tid=%tid, container_id=%container.container_id(), compute=?container.compute_type(), "Unknonwn compute for container");
                 return;
-            }
+            },
         };
 
         container.set_state(ContainerState::Warm);
@@ -355,7 +355,7 @@ impl ContainerManager {
                 if let Err(e) = self.unhealthy_removal_rx.send(container.clone()) {
                     error!(tid=%tid, error=%e, "Failed to send container for removal on return");
                 }
-            }
+            },
         };
     }
 
@@ -370,7 +370,7 @@ impl ContainerManager {
                 Some(g) => {
                     info!(tid=%tid, uuid=%g.gpu_uuid, "Assigning GPU to container");
                     Ok(Some(g))
-                }
+                },
                 None => anyhow::bail!(InsufficientGPUError {}),
             };
         }
@@ -397,7 +397,7 @@ impl ContainerManager {
             Some(c) => c,
             None => {
                 bail_error!(tid=%tid, iso=?chosen_iso, "Lifecycle(s) for container not supported")
-            }
+            },
         };
 
         let gpu = self.get_gpu(tid, compute)?;
@@ -435,7 +435,7 @@ impl ContainerManager {
                 *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
                 self.return_gpu(gpu, tid);
                 return Err(e);
-            }
+            },
         };
 
         match cont_lifecycle
@@ -449,14 +449,14 @@ impl ContainerManager {
                 match cont_lifecycle.remove_container(cont, "default", tid).await {
                     Ok(_) => {
                         return Err(e);
-                    }
+                    },
                     Err(inner_e) => anyhow::bail!(
                         "Encountered a second error after startup failed. Primary error: '{}'; inner error: '{}'",
                         e,
                         inner_e
                     ),
                 };
-            }
+            },
         };
         info!(tid=%tid, image=%reg.image_name, container_id=%cont.container_id(), "Container was launched");
         Ok(cont)
@@ -511,7 +511,7 @@ impl ContainerManager {
                 } else {
                     Err(cause)
                 }
-            }
+            },
         }
     }
 
@@ -614,7 +614,7 @@ impl ContainerManager {
             _ => {
                 error!(tid=%tid, algorithm=%self.resources.eviction, "Unkonwn eviction algorithm");
                 return;
-            }
+            },
         };
         list.sort_by(comparator);
     }
@@ -650,7 +650,7 @@ impl ContainerManager {
                     Some(v) => *v += 1,
                     None => {
                         ret.insert(compute, 1);
-                    }
+                    },
                 }
             }
         }
@@ -680,7 +680,7 @@ impl ContainerManager {
                     Ok(()) => c.set_state(ContainerState::Prewarm),
                     Err(e) => error!(tid=%tid, error=%e, "Error moving data from device"),
                 }
-            }
+            },
             Err(e) => error!(tid=%tid, error=%e, "move_off_device Error casting container to DockerContainer"),
         };
     }

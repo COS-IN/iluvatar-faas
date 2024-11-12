@@ -164,7 +164,7 @@ pub async fn benchmark_controller(
                     Err(e) => {
                         error!("{}", e);
                         continue;
-                    }
+                    },
                 };
 
             'inner: for _ in 0..warm_repeats {
@@ -202,11 +202,11 @@ pub async fn benchmark_controller(
                                     .push(invoke_result.controller_response.duration_us as u128);
                             }
                         }
-                    }
+                    },
                     Err(e) => {
                         error!("{}", e);
                         break 'inner;
-                    }
+                    },
                 }
             }
         }
@@ -239,7 +239,7 @@ pub fn benchmark_worker(
             0 => (),
             _ => {
                 cold_repeats = 1;
-            }
+            },
         };
         let compute = match function.compute.as_ref() {
             Some(c) => Compute::try_from(c)?,
@@ -258,7 +258,7 @@ pub fn benchmark_worker(
             Some(arg) => {
                 dummy.args = Some(arg.clone());
                 args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
-            }
+            },
             None => "{\"name\":\"TESTING\"}".to_string(),
         };
         for supported_compute in compute {
@@ -284,7 +284,7 @@ pub fn benchmark_worker(
                     Err(e) => {
                         error!("{:?}", e);
                         continue;
-                    }
+                    },
                 };
 
                 match args.runtime {
@@ -305,10 +305,10 @@ pub fn benchmark_worker(
                                 Err(e) => {
                                     error!("Invocation error: {}", e);
                                     continue;
-                                }
+                                },
                             };
                         }
-                    }
+                    },
                     duration_sec => {
                         let timeout = Duration::from_secs(duration_sec as u64);
                         let start = now();
@@ -328,10 +328,10 @@ pub fn benchmark_worker(
                                 Err(e) => {
                                     error!("Invocation error: {}", e);
                                     continue;
-                                }
+                                },
                             };
                         }
-                    }
+                    },
                 };
                 if supported_compute != Compute::CPU {
                     match threaded_rt.block_on(worker_clean(&args.host, args.port, &gen_tid(), &factory, None)) {

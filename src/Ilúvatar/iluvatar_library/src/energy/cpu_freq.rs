@@ -29,7 +29,7 @@ impl CpuFreqMonitor {
                 let (h, t) =
                     threading::os_thread(ms, KERNEL_FREQ_WORKER_TID.clone(), Arc::new(Self::kernel_frequencies))?;
                 (Some(h), Some(t))
-            }
+            },
         };
         let hardware = match hardware_freq_ms {
             None | Some(0) => (None, None),
@@ -41,7 +41,7 @@ impl CpuFreqMonitor {
                     Arc::new(Self::hardware_frequencies),
                 )?;
                 (Some(h), Some(t))
-            }
+            },
         };
         let r = Arc::new(CpuFreqMonitor {
             _kernel_worker: kernel.0,
@@ -62,20 +62,20 @@ impl CpuFreqMonitor {
             Ok(b) => b,
             Err(e) => {
                 bail_error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to open cpu freq file")
-            }
+            },
         };
         let mut buff = String::new();
         match opened.read_to_string(&mut buff) {
             Ok(_) => (),
             Err(e) => {
                 bail_error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to read cpu freq file into buffer")
-            }
+            },
         };
         match buff[0..buff.len() - 1].parse::<u64>() {
             Ok(u) => Ok(u),
             Err(e) => {
                 bail_error!(error=%e, tid=%tid, data=%buff, "Unable to parse cpu freq buffer")
-            }
+            },
         }
     }
 
@@ -92,7 +92,7 @@ impl CpuFreqMonitor {
                 Err(e) => {
                     error!(tid=%tid, error=%e, "Failed to read kernel CPU frequencies");
                     return;
-                }
+                },
             };
             frequencies.push(parsed);
         }
@@ -112,7 +112,7 @@ impl CpuFreqMonitor {
                 Err(e) => {
                     error!(tid=%tid, error=%e, "Failed to read hardware CPU frequencies");
                     return;
-                }
+                },
             };
             frequencies.push(parsed);
         }

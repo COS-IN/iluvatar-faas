@@ -152,7 +152,7 @@ impl EnqueuedInvocation {
             false => {
                 *started = true;
                 true
-            }
+            },
         }
     }
 

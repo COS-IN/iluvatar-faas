@@ -78,7 +78,7 @@ impl RegistrationService {
                 Ok(_) => (),
                 Err(e) => {
                     error!(tid=%tid, worker=%reg_worker.name, error=%e, "New worker failed to register function")
-                }
+                },
             };
         }
         self.lb.add_worker(reg_worker.clone(), tid);
@@ -135,7 +135,7 @@ impl RegistrationService {
                     Ok(_) => (),
                     Err(e) => {
                         error!(tid=%tid, worker=%worker.name, error=%e, "Worker failed to register new function")
-                    }
+                    },
                 };
             }
             // let function = Arc::new(function);

@@ -96,7 +96,7 @@ where
             Err(e) => {
                 error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Tokio runtime service thread failed to receive service from channel!");
                 return;
-            }
+            },
         };
         crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
         while crate::continuation::GLOB_CONT_CHECK.check_continue() {
@@ -113,9 +113,9 @@ where
                         Err(_elapsed) => {
                             // check after timeout
                             debug!(tid=%tid, "Waking up worker thread after timeout; waiter did not activate");
-                        }
+                        },
                     }
-                }
+                },
                 None => tokio::time::sleep(Duration::from_millis(sleep_t)).await,
             };
         }
@@ -140,7 +140,7 @@ where
             Err(_) => {
                 error!(tid=%tid, typename=%std::any::type_name::<S>(), "Tokio service thread failed to receive service from channel!");
                 return;
-            }
+            },
         };
         crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
         loop {
@@ -176,7 +176,7 @@ where
             Err(_) => {
                 error!(tid=%tid, typename=%std::any::type_name::<S>(), "Tokio service thread failed to receive service from channel!");
                 return;
-            }
+            },
         };
         crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
         loop {
@@ -221,7 +221,7 @@ where
             // Dummy to match return type
             let handle = std::thread::Builder::new().spawn(|| ())?;
             Ok((handle, tx))
-        }
+        },
         false => {
             let handle = std::thread::Builder::new().name(tid.clone()).spawn(move || {
                 let worker_rt = match build_tokio_runtime(&None, &None, &num_worker_threads, &tid) {
@@ -239,6 +239,6 @@ where
                 };
             })?;
             Ok((handle, tx))
-        }
+        },
     }
 }

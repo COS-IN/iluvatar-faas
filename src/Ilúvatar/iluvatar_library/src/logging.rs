@@ -85,7 +85,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
             let (stdout, guard) = tracing_appender::non_blocking(std::io::stdout());
             drops.push(Box::new(guard));
             Some(tracing_subscriber::fmt::Layer::default().with_writer(stdout).compact())
-        }
+        },
         false => None,
     };
 
@@ -104,7 +104,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
             flame_layer = flame_layer.with_threads_collapsed(true).with_file_and_line(true);
             drops.push(Box::new(_flame_guard));
             Some(flame_layer)
-        }
+        },
         _ => None,
     };
 
@@ -121,6 +121,6 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
         Err(e) => {
             warn!(tid=%tid, error=%e, "Global tracing subscriber was already set");
             Ok(vec![])
-        }
+        },
     }
 }

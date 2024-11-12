@@ -84,7 +84,7 @@ impl ContainerT for DockerContainer {
                 warn!(tid=%tid, container_id=%self.container_id(), "Marking container unhealthy");
                 self.mark_unhealthy();
                 Err(e)
-            }
+            },
         }
     }
 

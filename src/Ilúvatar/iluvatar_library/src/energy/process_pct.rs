@@ -61,15 +61,15 @@ impl ProcessMonitor {
                         Err(e) => {
                             error!(error=%e, tid=%tid, "Failed to parse process cpu percentage");
                             return;
-                        }
+                        },
                     };
                     let cpu_time = items[1];
                     (cpu_pct, cpu_time.to_string())
-                }
+                },
                 Err(e) => {
                     error!(error=%e, tid=%tid, "Failed to call 'ps'");
                     return;
-                }
+                },
             };
 
         let t = match self.timer.now_str() {
@@ -77,7 +77,7 @@ impl ProcessMonitor {
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to get time");
                 return;
-            }
+            },
         };
         let to_write = format!("{},{},{}\n", t, cpu_pct, cpu_time);
         self.write_text(to_write, tid);
@@ -88,7 +88,7 @@ impl ProcessMonitor {
             Ok(f) => Ok(RwLock::new(f)),
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, "Failed to create process monitor output file")
-            }
+            },
         }
     }
 
@@ -98,7 +98,7 @@ impl ProcessMonitor {
             Ok(_) => (),
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to write csv result to process monitor file");
-            }
+            },
         };
     }
 }

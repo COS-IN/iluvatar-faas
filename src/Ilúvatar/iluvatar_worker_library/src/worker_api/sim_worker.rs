@@ -81,7 +81,7 @@ impl WorkerAPI for SimWorkerAPI {
                     error!(tid=%tid, "Async invoke failed");
                     anyhow::bail!("Async invoke failed")
                 }
-            }
+            },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:invoke_async]".to_string())),
         }
     }
@@ -117,9 +117,9 @@ impl WorkerAPI for SimWorkerAPI {
                     true => Ok("".to_string()),
                     false => {
                         bail_error!(tid=%tid, message=%response.message, "Prewarm request failed")
-                    }
+                    },
                 }
-            }
+            },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:prewarm]".to_string())),
         }
     }
@@ -184,7 +184,7 @@ impl WorkerAPI for SimWorkerAPI {
                         "[RCPWorkerAPI:health]".to_string()
                     )),
                 }
-            }
+            },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:register]".to_string())),
         }
     }

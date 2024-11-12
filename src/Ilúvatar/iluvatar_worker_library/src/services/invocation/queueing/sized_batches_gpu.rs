@@ -97,13 +97,13 @@ impl GpuQueuePolicy for SizedBatchGpuQueue {
                 } else {
                     q.push_back(GpuBatch::new(item.clone(), est_time));
                 }
-            }
+            },
             dashmap::mapref::entry::Entry::Vacant(e) => {
                 est_time = self.cmap.get_gpu_cold_time(&item.registration.fqdn);
                 let mut q = VecDeque::new();
                 q.push_back(GpuBatch::new(item.clone(), est_time));
                 e.insert(q);
-            }
+            },
         }
         *self.est_time.lock() += est_time;
         Ok(())

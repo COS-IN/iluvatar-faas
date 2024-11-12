@@ -82,10 +82,10 @@ impl LeastLoadedBalancer {
             Some(w) => {
                 *service.assigned_worker.write() = Some(w.clone());
                 info!(tid=%tid, worker=%worker, "new least loaded worker");
-            }
+            },
             None => {
                 warn!(tid=%tid, worker=%worker, "Cannot update least loaded worker because it was not registered, or no worker has been registered")
-            }
+            },
         };
     }
 
@@ -95,7 +95,7 @@ impl LeastLoadedBalancer {
             Some(w) => Ok(w.clone()),
             None => {
                 bail_error!(tid=%tid, "No worker has been assigned to least loaded variable yet")
-            }
+            },
         }
     }
 }

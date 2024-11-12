@@ -238,13 +238,13 @@ impl GpuQueueingInvoker {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         match self.gpu.try_acquire_resource(None, tid) {
             Ok(c) => ret.push(c.into()),
@@ -252,13 +252,13 @@ impl GpuQueueingInvoker {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         Some(Box::new(ret))
     }
@@ -303,7 +303,7 @@ impl GpuQueueingInvoker {
                         error!(tid=%item.tid, error=%e, "Failed to get a container to run item");
                         self.handle_invocation_error(&item, &e);
                         continue;
-                    }
+                    },
                 };
                 if !was_cold && self.gpu_config.send_driver_memory_hints() {
                     // unwrap is safe, we either have a container or will go to the top of the loop
@@ -326,7 +326,7 @@ impl GpuQueueingInvoker {
             {
                 Ok((result, duration, compute, container_state)) => {
                     item.mark_successful(result, duration, compute, container_state)
-                }
+                },
                 Err(cause) => {
                     error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
                     ctr_lock.as_ref().unwrap().container.mark_unhealthy();
@@ -338,11 +338,11 @@ impl GpuQueueingInvoker {
                             Err(e) => {
                                 item.mark_error(&cause);
                                 error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
-                            }
+                            },
                         };
                     }
                     continue;
-                }
+                },
             };
             // update the container state because the container manager can't do it for us
             ctr_lock.as_ref().unwrap().container.set_state(ContainerState::Warm);
@@ -378,7 +378,7 @@ impl GpuQueueingInvoker {
                 Err(e) => {
                     error!(tid=item.tid, error=%e, "Failed to re-queue item in GPU queue after memory exhaustion");
                     item.mark_error(cause);
-                }
+                },
             };
         } else if let Some(_gpu_err) = cause.downcast_ref::<InsufficientGPUError>() {
             let mut warn_time = self.last_gpu_warning.lock();
@@ -392,7 +392,7 @@ impl GpuQueueingInvoker {
                 Err(e) => {
                     error!(tid=item.tid, error=%e, "Failed to re-queue item after GPU exhaustion");
                     item.mark_error(cause);
-                }
+                },
             };
         } else {
             error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");

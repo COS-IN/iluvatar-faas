@@ -120,12 +120,12 @@ impl GpuQueuePolicy for PaellaGpuQueue {
             dashmap::mapref::entry::Entry::Occupied(mut v) => {
                 let q = v.get_mut();
                 q.queue.push_back(que);
-            }
+            },
             dashmap::mapref::entry::Entry::Vacant(e) => {
                 let mut q = FunctionDetail::new(item.registration.clone());
                 q.queue.push_back(que);
                 e.insert(q);
-            }
+            },
         }
         *self.est_time.lock() += est_time;
         Ok(())

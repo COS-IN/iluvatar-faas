@@ -148,7 +148,7 @@ impl std::fmt::Display for Compute {
                 Err(e) => {
                     tracing::error!(error=%e, "Failed to format Compute");
                     return Err(std::fmt::Error);
-                }
+                },
             };
             if iter.peek().is_some() {
                 f.write_str("|")?;

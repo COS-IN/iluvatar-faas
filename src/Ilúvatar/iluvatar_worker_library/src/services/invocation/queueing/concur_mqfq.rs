@@ -93,13 +93,13 @@ impl Flow {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         match self.gpu.try_acquire_resource(gpu, tid) {
             Ok(c) => ret.push(c.into()),
@@ -107,13 +107,13 @@ impl Flow {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         Some(Box::new(ret))
     }
@@ -138,7 +138,7 @@ impl Flow {
                     error!(tid=%tid, error=%cause, "Error getting new container");
                     None
                 }
-            }
+            },
         }
     }
 
@@ -170,7 +170,7 @@ impl Flow {
                 Ok((result, duration, compute, container_state)) => {
                     info!(tid=%tid, "!!invoke done!!");
                     item.invoke.mark_successful(result, duration, compute, container_state);
-                }
+                },
                 Err(cause) => {
                     debug!(tid=%item.invoke.tid, error=%cause, container_id=%ctr_lck.container.container_id(), "Error on container invoke");
                     self.handle_invocation_error(item.invoke.clone(), cause);
@@ -179,7 +179,7 @@ impl Flow {
                         // container will be removed, but holds onto GPU until deleted
                         ctr_lck.container.add_drop_on_remove(tokens, &item.invoke.tid);
                     }
-                }
+                },
             }
             self.ctrack.remove_item(ct);
             self.queue_signal.notify_waiters();
@@ -312,10 +312,10 @@ impl FuncQueue {
                 tokio::spawn(async move {
                     Arc::new(flow).run(&tid).await;
                 });
-            }
+            },
             Err(e) => {
                 error!(tid=%tid, error=%e, fqdn=%self.registration.fqdn, "Failed to make new Flow queue thread");
-            }
+            },
         }
     }
 
@@ -472,7 +472,7 @@ impl ConcurMqfq {
                 info!("inserting into existing flow");
                 fq.push_flow(item);
                 // fq.global_signal.notify_waiters();
-            }
+            },
             None => {
                 info!("making new flow");
                 let fname = item.registration.fqdn.clone();
@@ -497,7 +497,7 @@ impl ConcurMqfq {
                 qguard.push_flow(item);
                 self.queues.insert(fname, qguard);
                 // sig.notify_waiters();
-            }
+            },
         };
     }
 }

@@ -36,7 +36,7 @@ macro_rules! assert_error {
             Ok(_) => panic!("{}", $noerr),
             Err(e) => {
                 assert_eq!(e.to_string(), $exp);
-            }
+            },
         };
     };
 }
@@ -170,7 +170,7 @@ pub async fn sim_invoker_svc(
                 start_tracing(fake_logging, &worker_name, &TEST_TID)
                     .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
             )
-        }
+        },
         None => None,
     };
     let load_avg = build_load_avg_signal();
@@ -433,7 +433,7 @@ pub async fn get_start_end_time_from_invoke(
             assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
             assert_ne!(result.result_json, "", "result_json should not be empty!");
             (parsed_start, parsed_end)
-        }
+        },
         Err(e) => panic!("Invocation failed: {}", e),
     }
 }

@@ -419,7 +419,7 @@ impl MQFQ {
                 } else {
                     (None, None)
                 }
-            }
+            },
             None => (None, None),
         };
 
@@ -484,7 +484,7 @@ impl MQFQ {
         match serde_json::to_string(&log) {
             Ok(to_write) => {
                 info!(tid=%tid, global_vitual_time=self.mindicator.min(), queue_info=%to_write, "FlowQ details")
-            }
+            },
             Err(e) => error!(tid=%tid, "Failed to convert flowq report to json because {}", e),
         };
         *self.active_flows.write() = active_flows;
@@ -539,11 +539,11 @@ impl MQFQ {
                     item.invoke
                         .mark_successful(result, duration, container.compute_type(), container.state());
                     Some(container)
-                }
+                },
                 Err(cause) => {
                     self.handle_invocation_error(item.invoke.clone(), cause);
                     None
-                }
+                },
             };
             if let Some(mut q) = self.mqfq_set.get_mut(&item.invoke.registration.fqdn) {
                 q.mark_completed();
@@ -605,7 +605,7 @@ impl MQFQ {
                     tokio::spawn(ContainerManager::move_to_device(ctr, t));
                 }
                 n
-            }
+            },
         };
         match invoke_on_container_2(
             reg,
@@ -623,7 +623,7 @@ impl MQFQ {
             Ok((result, dur, container)) => {
                 drop(cpu_token);
                 Ok((result, dur, container))
-            }
+            },
             Err(e) => {
                 debug!(tid=%tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
                 if !ctr_lock.container.is_healthy() {
@@ -632,7 +632,7 @@ impl MQFQ {
                     ctr_lock.container.add_drop_on_remove(gpu_token, tid);
                 }
                 Err(e)
-            }
+            },
         }
     }
 
@@ -647,13 +647,13 @@ impl MQFQ {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         Some(Box::new(ret))
     }
@@ -667,7 +667,7 @@ impl MQFQ {
                 if fq.value_mut().push_flow(item, virtual_time) {
                     self.mindicator.insert(fq.flow_id, fq.start_time_virt).unwrap();
                 }
-            }
+            },
             None => {
                 let fname = item.registration.fqdn.clone();
                 let id = self.mindicator.add_procs(1) - 1;
@@ -691,7 +691,7 @@ impl MQFQ {
                     self.mindicator.insert(qguard.flow_id, qguard.start_time_virt).unwrap();
                 }
                 self.mqfq_set.insert(fname, qguard);
-            }
+            },
         };
         self.signal.notify_waiters();
     }
@@ -1049,11 +1049,11 @@ impl MQFQ {
                         continue;
                     }
                 }
-            }
+            },
             None => {
                 debug!(tid=%tid, qlen=qlen, "No token");
                 None
-            }
+            },
         }
     }
 } // END MQFQ
@@ -1096,7 +1096,7 @@ impl DeviceQueue for MQFQ {
                 let aet = fq.value().avg_active_t;
                 let r = -aet / iat;
                 1.0 - r.exp()
-            }
+            },
             None => 0.0,
         }
     }

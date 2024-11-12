@@ -174,14 +174,14 @@ impl RaplMsr {
             Err(e) => {
                 warn!(error=%e, tid=%tid, cpu=cpu, "Error repositioning MSR file pointer");
                 return 0;
-            }
+            },
         };
         match fd.read_exact(&mut buffer) {
             Ok(_) => (),
             Err(e) => {
                 warn!(error=%e, tid=%tid, cpu=cpu, "Failed to read MSR register");
                 return 0;
-            }
+            },
         };
         let f = u64::from_le_bytes(buffer);
         trace!(tid=%tid, reading=f, offset=offset, "MSR reading");
@@ -193,7 +193,7 @@ impl RaplMsr {
             Ok(f) => f,
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, cpu=0, "Failed to open msr register for CPU 0 to detect if on Intel machine")
-            }
+            },
         };
         // will be 0 if the Intel MSR doesn't work
         // In that case we use AMD ones
@@ -281,7 +281,7 @@ impl RaplMonitor {
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to format time");
                 return;
-            }
+            },
         };
 
         let to_write = format!("{},{}\n", t, rapl_uj);
@@ -293,7 +293,7 @@ impl RaplMonitor {
             Ok(f) => Ok(RwLock::new(f)),
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, "Failed to create RAPL output file")
-            }
+            },
         }
     }
 
@@ -303,7 +303,7 @@ impl RaplMonitor {
             Ok(_) => (),
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to write csv result to RAPL file");
-            }
+            },
         };
     }
 }

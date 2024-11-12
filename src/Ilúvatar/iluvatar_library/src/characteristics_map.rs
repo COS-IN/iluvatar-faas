@@ -20,7 +20,7 @@ pub fn unwrap_val_dur(value: &Values) -> Duration {
         _ => {
             error!(error = "incorrect unwrap", "unwrap_val_dur not of type Duration");
             Duration::new(0, 0)
-        }
+        },
     }
 }
 
@@ -30,7 +30,7 @@ pub fn unwrap_val_f64(value: &Values) -> f64 {
         _ => {
             error!(error = "incorrect unwrap", "unwrap_val_f64 not of type f64");
             0.0
-        }
+        },
     }
 }
 /// A safe comparator for f64 values
@@ -46,7 +46,7 @@ pub fn unwrap_val_u64(value: &Values) -> u64 {
         _ => {
             error!(error = "incorrect unwrap", "unwrap_val_u64 not of type u64");
             0
-        }
+        },
     }
 }
 
@@ -56,7 +56,7 @@ pub fn unwrap_val_str(value: &Values) -> String {
         _ => {
             error!(error = "unwrap_val_str not of type String");
             "None".to_string()
-        }
+        },
     }
 }
 
@@ -171,18 +171,18 @@ impl CharacteristicsMap {
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
-                    }
+                    },
                     None => {
                         v0.insert(chr, value);
-                    }
+                    },
                 }
-            }
+            },
             None => {
                 // dashmap for given fname does not exist create and populate
                 let d = DashMap::new();
                 d.insert(chr, value.clone());
                 self.map.insert(fqdn.to_owned(), d);
-            }
+            },
         }
 
         self
@@ -205,18 +205,18 @@ impl CharacteristicsMap {
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
-                    }
+                    },
                     None => {
                         v0.insert(chr, value);
-                    }
+                    },
                 }
-            }
+            },
             None => {
                 // dashmap for given fname does not exist create and populate
                 let d = DashMap::new();
                 d.insert(chr, value);
                 self.agmap.insert(fqdn.to_owned(), d);
-            }
+            },
         }
 
         self
@@ -238,18 +238,18 @@ impl CharacteristicsMap {
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
-                    }
+                    },
                     None => {
                         v0.insert(chr, value);
-                    }
+                    },
                 }
-            }
+            },
             None => {
                 // dashmap for given fname does not exist create and populate
                 let d = DashMap::new();
                 d.insert(chr, value);
                 self.minmap.insert(fqdn.to_owned(), d);
-            }
+            },
         }
 
         self

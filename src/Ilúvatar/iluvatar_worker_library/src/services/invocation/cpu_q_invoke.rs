@@ -143,7 +143,7 @@ impl CpuQueueingInvoker {
             Some(bypass_duration_ms) => {
                 let exec_time = self.cmap.get_exec_time(&reg.fqdn);
                 exec_time != 0.0 && exec_time < Duration::from_millis(bypass_duration_ms).as_secs_f64()
-            }
+            },
             None => false,
         }
     }
@@ -162,7 +162,7 @@ impl CpuQueueingInvoker {
                 Err(e) => {
                     error!(tid=%tid, error=%e, "Tokio service thread failed to receive service from channel!");
                     return;
-                }
+                },
             };
             while let Some(item) = del_rx.recv().await {
                 let s_c = service.clone();
@@ -173,7 +173,7 @@ impl CpuQueueingInvoker {
                             if let Err(cause) = s_c.enqueue_item(&item) {
                                 s_c.handle_invocation_error(item, cause);
                             };
-                        }
+                        },
                         Err(cause) => s_c.handle_invocation_error(item, cause),
                     };
                 });
@@ -199,11 +199,11 @@ impl CpuQueueingInvoker {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%item.tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => (),
                 };
                 return None;
-            }
+            },
         };
         Some(Box::new(ret))
     }
@@ -254,7 +254,7 @@ impl CpuQueueingInvoker {
                 Ok(_) => self.signal.notify_waiters(),
                 Err(e) => {
                     error!(tid=item.tid, error=%e, "Failed to re-queue item in CPU queue after memory exhaustion")
-                }
+                },
             };
         } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
             warn!(tid=%item.tid, "No GPU available to run item right now");
@@ -266,7 +266,7 @@ impl CpuQueueingInvoker {
                     Ok(_) => self.signal.notify_waiters(),
                     Err(e) => {
                         error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt")
-                    }
+                    },
                 };
             }
         }

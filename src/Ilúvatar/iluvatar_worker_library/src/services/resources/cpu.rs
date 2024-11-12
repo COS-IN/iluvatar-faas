@@ -58,7 +58,7 @@ impl CpuResourceTracker {
 
                 let (h, tx) = tokio_thread(check_dur, CPU_CONCUR_WORKER_TID.clone(), Self::monitor_load);
                 (Some(h), Some(tx))
-            }
+            },
             None => (None, None),
         };
         let svc = Arc::new(CpuResourceTracker {
@@ -107,10 +107,10 @@ impl CpuResourceTracker {
                         Ok(s) => {
                             s.forget();
                             *svc.current_concur.lock() = u32::max(svc.min_concur, current - change);
-                        }
+                        },
                         Err(e) => {
                             error!(tid=%tid, error=%e, "Failed to acquire concurrency semaphore")
-                        }
+                        },
                     };
                 }
             }

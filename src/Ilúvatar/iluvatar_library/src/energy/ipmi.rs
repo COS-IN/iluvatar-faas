@@ -65,10 +65,10 @@ impl IPMI {
                 } else {
                     bail!("Instantaneous wattage line was the incorrect size, was: '{:?}'", strs)
                 }
-            }
+            },
             None => {
                 bail!("Stdout was too short, got '{}'", stdout)
-            }
+            },
         }
     }
 }
@@ -132,7 +132,7 @@ impl IPMIMonitor {
             Err(e) => {
                 error!(tid=%tid, error=%e, "Unable to read ipmi value");
                 return;
-            }
+            },
         };
         let now = self.timer.now();
         *self.latest_reading.write() = (now.unix_timestamp_nanos(), ipmi_uj as f64);
@@ -141,7 +141,7 @@ impl IPMIMonitor {
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to format time");
                 return;
-            }
+            },
         };
         let to_write = format!("{},{}\n", t, ipmi_uj);
         self.write_text(to_write, tid);
@@ -160,7 +160,7 @@ impl IPMIMonitor {
             Ok(_) => (),
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to write csv result to IPMI file");
-            }
+            },
         };
     }
 }

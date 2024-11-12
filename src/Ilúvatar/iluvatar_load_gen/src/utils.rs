@@ -203,7 +203,7 @@ pub fn load_benchmark_data(path: &Option<String>) -> Result<Option<BenchmarkStor
                 Ok(d) => Ok(Some(d)),
                 Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
             }
-        }
+        },
         None => Ok(None),
     }
 }
@@ -254,7 +254,7 @@ pub async fn controller_invoke(
         },
         Err(e) => {
             CompletedControllerInvocation::error(format!("Invocation error: {}", e), name, version, &tid, invoke_start)
-        }
+        },
     };
     Ok(r)
 }
@@ -510,7 +510,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to create csv output '{:?}' file because {}", &path, e);
-        }
+        },
     };
     let to_write =
         "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n".to_string();
@@ -518,7 +518,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
         Ok(_) => (),
         Err(e) => {
             anyhow::bail!("Failed to write json header to '{:?}' of result because {}", &path, e);
-        }
+        },
     };
 
     for worker_invocation in run_results {
@@ -537,7 +537,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
             Err(e) => {
                 error!("Failed to write result to '{:?}' because {}", &path, e);
                 continue;
-            }
+            },
         };
     }
     Ok(())
@@ -548,14 +548,14 @@ pub fn save_result_json<P: AsRef<Path> + std::fmt::Debug, T: Serialize>(path: P,
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to create json output '{:?}' file because {}", &path, e);
-        }
+        },
     };
 
     let to_write = match serde_json::to_string(&results) {
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to convert results to json because {}", e);
-        }
+        },
     };
     f.write_all(to_write.as_bytes())?;
     Ok(())

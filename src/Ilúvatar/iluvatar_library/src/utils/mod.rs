@@ -142,7 +142,7 @@ where
             true => Ok(out),
             false => {
                 bail_error!(tid=%tid, exe=%cmd_pth, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), code=out.status.code(), "Bad error code executing command")
-            }
+            },
         },
         Err(e) => Err(e),
     }
@@ -185,7 +185,7 @@ where
             true => Ok(out),
             false => {
                 bail_error!(tid=%tid, exe=%cmd_pth, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), code=out.status.code(), "Bad error code executing command")
-            }
+            },
         },
         Err(e) => Err(e),
     }
@@ -213,7 +213,7 @@ where
         Ok(out) => Ok(out),
         Err(e) => {
             bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Spawning non-blocking command failed")
-        }
+        },
     }
 }
 
@@ -243,7 +243,7 @@ fn try_create_signal(tid: &TransactionId, kind: SignalKind) -> Result<Signal> {
         Ok(s) => Ok(s),
         Err(e) => {
             bail_error!(error=%e, tid=%tid, kind=kind.as_raw_value(), "Failed to create signal")
-        }
+        },
     }
 }
 

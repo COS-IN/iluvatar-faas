@@ -36,7 +36,7 @@ where
             Poll::Ready(v) => {
                 let elapsed = this.start.elapsed();
                 Poll::Ready((v, elapsed))
-            }
+            },
         }
     }
 }

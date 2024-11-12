@@ -57,7 +57,7 @@ fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms
                 let cold_prewarms = f64::ceil(func.cold_dur_ms as f64 * 1.0 / iat_ms) as u32;
                 prewarms = max(prewarms, cold_prewarms);
                 min(min(prewarms, p), max_prewarms)
-            }
+            },
             None => p,
         },
     }
@@ -184,7 +184,7 @@ fn map_from_benchmark(
                     sim_data.insert(compute, compute_data);
                 }
                 func.sim_invoke_data = Some(sim_data);
-            }
+            },
         }
     }
     info!("A total of {} prewarmed containers", total_prewarms);
@@ -245,7 +245,7 @@ pub fn map_functions_to_prep(
             } else {
                 map_from_args(funcs, default_prewarms, max_prewarms)
             }
-        }
+        },
     }
 }
 
@@ -299,7 +299,7 @@ fn worker_prewarm_functions(
                                 anyhow::bail!("prewarm failed because {}", errors)
                             }
                             tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
+                        },
                     };
                 }
                 Ok(())
@@ -352,7 +352,7 @@ fn prepare_worker(
         RunType::Live => {
             worker_wait_reg(funcs, rt, port, host, factory, CommunicationMethod::RPC, func_data)?;
             worker_prewarm_functions(funcs, host, port, rt, factory, CommunicationMethod::RPC)
-        }
+        },
         RunType::Simulation => {
             worker_wait_reg(
                 funcs,
@@ -364,7 +364,7 @@ fn prepare_worker(
                 func_data,
             )?;
             worker_prewarm_functions(funcs, host, port, rt, factory, CommunicationMethod::SIMULATION)
-        }
+        },
     }
 }
 
@@ -388,7 +388,7 @@ fn worker_wait_reg(
                 None => {
                     cont = false;
                     break;
-                }
+                },
             };
             let f_c = func.func_name.clone();
             let h_c = host.to_owned();
@@ -457,14 +457,14 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to create output file because {}", e);
-        }
+        },
     };
     let to_write = "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us\n";
     match f.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
             anyhow::bail!("Failed to write json of result because {}", e);
-        }
+        },
     };
     for r in results {
         let to_write = format!(
@@ -481,7 +481,7 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             Err(e) => {
                 info!("Failed to write result because {}", e);
                 continue;
-            }
+            },
         };
     }
     Ok(())

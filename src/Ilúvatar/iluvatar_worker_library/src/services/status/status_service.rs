@@ -195,7 +195,7 @@ impl CpuMonitorTrait for CpuHardwareMonitor {
             Ok(r) => r,
             Err(e) => {
                 bail_error!(tid=%tid, "error parsing float from uptime {}: {}", min, e);
-            }
+            },
         };
         *self.signal.write() = load_avg;
 
@@ -286,7 +286,7 @@ impl CPUUtilInstant {
             Ok(f) => BufReader::new(f),
             Err(e) => {
                 return Err(e.into());
-            }
+            },
         };
         loop {
             match b.read_line(&mut ret)? {
@@ -295,7 +295,7 @@ impl CPUUtilInstant {
                     if ret.starts_with("cpu ") {
                         return Ok(ret);
                     }
-                }
+                },
             }
         }
     }
@@ -324,7 +324,7 @@ impl CPUUtilInstant {
                 Ok(v) => Ok(v),
                 Err(e) => {
                     bail_error!(error=%e, tid=%tid, line=%split_line[pos], "Unable to parse string from /proc/stat")
-                }
+                },
             }
         } else {
             bail_error!(expected=pos, actual=split_line.len(), tid=%tid, "/proc/stat line was unexpectedly short!")
