@@ -477,16 +477,34 @@ pub enum ErrorHandling {
     Ignore,
 }
 
-/// Resolve all the tokio threads and return their results
-/// Optionally handle errors from threads
+/// Resolve all the tokio threads and return their results.
+/// Optionally handle errors from threads.
 pub async fn resolve_handles<T>(run_results: Vec<JoinHandle<Result<T>>>, eh: ErrorHandling) -> Result<Vec<T>>
 where
     T: Ord,
 {
     let mut ret = vec![];
-    for h in run_results {
-        match h.await {
-            Ok(r) => match r {
+    for mut h in run_results {
+        let result;
+        loop {
+            // This is ugly, but Rust type system is weird.
+            // We need tick sleep in simulation to allow background threads to keep bring executed.
+            match iluvatar_library::utils::is_simulation() {
+                true => tokio::select! {
+                    r = &mut h => {
+                        result = r;
+                        break;
+                    },
+                    _ = iluvatar_library::tokio_utils::sim_scheduler_tick(1, SimulationGranularity::MS) => ()
+                },
+                false => {
+                    result = h.await;
+                    break;
+                },
+            }
+        }
+        match result {
+            Ok(ok) => match ok {
                 Ok(ok) => ret.push(ok),
                 Err(e) => match eh {
                     ErrorHandling::Raise => return Err(e),
@@ -495,7 +513,7 @@ where
                 },
             },
             Err(thread_e) => error!("Joining error: {}", thread_e),
-        };
+        }
     }
     ret.sort();
     Ok(ret)

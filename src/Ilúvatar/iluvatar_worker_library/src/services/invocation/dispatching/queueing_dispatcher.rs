@@ -277,7 +277,7 @@ impl QueueingDispatcher {
             },
             EnqueueingPolicy::AlwaysGPU => {
                 if reg.supported_compute.contains(Compute::GPU) {
-                    self.enqueue_cpu_check(&enqueue)?;
+                    self.enqueue_gpu_check(&enqueue)?;
                     enqueues += 1;
                 } else {
                     anyhow::bail!(

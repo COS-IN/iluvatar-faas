@@ -108,10 +108,11 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
         _ => None,
     };
 
+    let filter = EnvFilter::builder().parse(&config.level)?;
     let subscriber = tracing_subscriber::fmt()
         .with_timer(ClockWrapper(get_global_clock(tid)?))
         .with_span_events(str_to_span(&config.spanning)?)
-        .with_env_filter(EnvFilter::builder().parse(&config.level)?)
+        .with_env_filter(filter)
         .with_writer(file_writer)
         .json()
         .finish();
