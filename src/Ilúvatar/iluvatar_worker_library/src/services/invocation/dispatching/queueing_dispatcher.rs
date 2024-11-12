@@ -1,5 +1,6 @@
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::invocation::dispatching::landlord::LandlordDispatch;
+use crate::services::invocation::dispatching::popular::{PopularDispatch, TopAvgDispatch};
 use crate::services::invocation::dispatching::EnqueueingPolicy;
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -16,7 +17,7 @@ use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::types::ComputeEnum;
-use iluvatar_library::{transaction::TransactionId, types::Compute};
+use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
 use parking_lot::{Mutex, RwLock};
 use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
@@ -74,6 +75,8 @@ pub struct QueueingDispatcher {
     gpu_queue: Option<Arc<dyn DeviceQueue>>,
     dispatch_state: RwLock<PolymDispatchCtx>,
     landlord: Mutex<LandlordDispatch>,
+    top_avg: TopAvgDispatch,
+    popular: Mutex<PopularDispatch>,
 }
 
 #[allow(dyn_drop)]
@@ -114,7 +117,9 @@ impl QueueingDispatcher {
             )?,
             async_functions: AsyncHelper::new(),
             clock: get_global_clock(tid)?,
+            popular: Mutex::new(PopularDispatch::new()?),
             landlord: Mutex::new(LandlordDispatch::new(&cmap, &invocation_config.landlord_config)?),
+            top_avg: TopAvgDispatch::new(&cmap)?,
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
@@ -234,11 +239,11 @@ impl QueueingDispatcher {
         ));
         let mut enqueues = 0;
 
-        if reg.supported_compute == Compute::CPU {
+        if reg.cpu_only() {
             self.enqueue_cpu_check(&enqueue)?;
             return Ok(enqueue);
         }
-        if reg.supported_compute == Compute::GPU {
+        if reg.gpu_only() {
             self.enqueue_gpu_check(&enqueue)?;
             return Ok(enqueue);
         }
@@ -270,7 +275,7 @@ impl QueueingDispatcher {
                     );
                 }
             }
-            &EnqueueingPolicy::AlwaysGPU => {
+            EnqueueingPolicy::AlwaysGPU => {
                 if reg.supported_compute.contains(Compute::GPU) {
                     self.enqueue_cpu_check(&enqueue)?;
                     enqueues += 1;
@@ -335,21 +340,55 @@ impl QueueingDispatcher {
                 self.hit_tput_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
                 enqueues += 1;
             }
+            EnqueueingPolicy::Speedup => {
+                let cpu = self.cmap.avg_cpu_exec_t(&enqueue.registration.fqdn);
+                let gpu = self.cmap.avg_gpu_exec_t(&enqueue.registration.fqdn);
+                let ratio = cpu / gpu;
+                if ratio > 4.0 {
+                    self.enqueue_gpu_check(&enqueue)?;
+                    enqueues += 1;
+                } else {
+                    self.enqueue_cpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+            }
             EnqueueingPolicy::Landlord => {
                 let compute = self.landlord.lock().choose(&enqueue);
                 if compute == Compute::CPU {
                     self.enqueue_cpu_check(&enqueue)?;
-                    return Ok(enqueue);
+                    enqueues += 1;
                 }
                 if compute == Compute::GPU {
                     self.enqueue_gpu_check(&enqueue)?;
-                    return Ok(enqueue);
+                    enqueues += 1;
+                }
+            }
+            EnqueueingPolicy::Popular => {
+                let compute = self.popular.lock().choose(&enqueue);
+                if compute == Compute::CPU {
+                    self.enqueue_cpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+                if compute == Compute::GPU {
+                    self.enqueue_gpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+            }
+            EnqueueingPolicy::TopAvg => {
+                let compute = self.top_avg.choose(&enqueue);
+                if compute == Compute::CPU {
+                    self.enqueue_cpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+                if compute == Compute::GPU {
+                    self.enqueue_gpu_check(&enqueue)?;
+                    enqueues += 1;
                 }
             }
         }
 
         if enqueues == 0 {
-            anyhow::bail!("Unable to enqueue function invocation, not matching compute");
+            bail_error!(tid=%enqueue.tid, "Unable to enqueue function invocation, not matching compute");
         }
         Ok(enqueue)
     }
@@ -398,13 +437,6 @@ impl QueueingDispatcher {
     ) -> Result<()> {
         // device_wt = exec_time + sqrt(log steps/n), where n is number of times device has been selected for the function
         // Pick device with lowest weight and dispatch
-        if reg.cpu_only() {
-            return self.enqueue_cpu_check(enqueue);
-        }
-        if reg.gpu_only() {
-            return self.enqueue_gpu_check(enqueue);
-        }
-
         let fid = reg.fqdn.as_str(); //function name or fqdn?
 
         let cpu_t = self.cmap.avg_cpu_e2e_t(fid); // supposed to running average?
@@ -444,13 +476,6 @@ impl QueueingDispatcher {
         enqueue: &Arc<EnqueuedInvocation>,
     ) -> Result<()> {
         // the cost is t_recent - t_global_min
-        if reg.cpu_only() {
-            return self.enqueue_cpu_check(enqueue);
-        }
-        if reg.gpu_only() {
-            return self.enqueue_gpu_check(enqueue);
-        }
-
         let eta = 0.3; // learning rate
         let fid = reg.fqdn.as_str();
 
@@ -517,12 +542,6 @@ impl QueueingDispatcher {
         enqueue: &Arc<EnqueuedInvocation>,
     ) -> Result<()> {
         // the cost is t_recent - t_global_min
-        if reg.cpu_only() {
-            return self.enqueue_cpu_check(enqueue);
-        }
-        if reg.gpu_only() {
-            return self.enqueue_gpu_check(enqueue);
-        }
         if let Some(gpu_queue) = &self.gpu_queue {
             let egpu = gpu_queue.est_completion_time(&reg, tid);
             let ecpu = self.cpu_queue.est_completion_time(&reg, tid);
@@ -560,66 +579,6 @@ impl QueueingDispatcher {
             anyhow::bail!("GPU queue was 'None' in hit_tput_dispatch");
         }
     }
-
-    //     /// Proportional to locality, performance, and load
-    //     fn prop_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
-    // 	// ratios of the three main factors?
-    // 	let p_warm_cpu ;
-    // 	let p_warm_gpu ;
-    // 	let r_warm:f64 = p_warm_cpu/p_warm_gpu ;
-
-    // 	let exec_cpu ;
-    // 	let exec_gpu ;
-    // 	let r_exec:f64 = exec_cpu/exec_gpu ; //lower is better, so inverse ?
-
-    // 	let load_cpu ;
-    // 	let load_gpu ;
-    // 	let r_load:f64 = load_cpu/load_gpu;
-
-    // 	let r_all = r_warm * r_exec * r_load ;
-
-    // 	let vec_devices = Vec!["cpu", "gpu"];
-    // 	let choice = self.proportional_selection(r_all, 1.0);
-
-    // 	self.dispatch_state.select_device_for_fn(fid, selected_device);
-    // 	chosen_queue
-    //     }
-
-    //     /// Maximize P_warm/E[E2E time]
-    //     fn local_tput_dispatch(&self,  reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
-    // 	// Estimate cache hit prob? For CPU, the deterministic technique works well. Nearly always close to 1 if present, 0 otherwise.
-    // 	// Can use Che's approx. e^{characteristic-time/iat}. How to compute the characteristic time? OG paper defines it as per-object's max hit reuse distance.
-
-    //     }
-
-    //     /// Multi-armed bandit based dispatch. Load-balancing using stale rewards (latency) and costs (load). Is sticky for locality.
-    //     fn bandit1_dispatch(&self, reg: Arc<RegisteredFunction>, tid: &TransactionId, enqueue: Arc<EnqueuedInvocation>) -> &Arc<dyn DeviceQueue> {
-    // 	// Nothing to do for non-polymorphic functions
-    //         if reg.cpu_only() {
-    //             return &self.cpu_queue;
-    //         }
-    //         if reg.gpu_only() {
-    //             return &self.gpu_queue;
-    //         }
-
-    //         let mut chosen_q ;
-    // 	let mut chosen_device: Compute;
-    // 	let fid = reg.function_name.clone();
-
-    // 	// Three major sources
-    // 	// 1. Locality
-
-    // 	// 2. E2E latency and difference
-
-    // 	// 3. Device loads
-
-    // 	self.dispatch_state.update_device_loads();
-    // 	self.dispatch_state.update_fn_chars(); // implicit?
-
-    // 	self.dispatch_state.update_prev_t(fid, self.clock.now());
-    // 	self.dispatch_state.update_prev_dispath(fid, chosen_device);
-    //         return chosen_q ;
-    //     }
 }
 
 #[tonic::async_trait]

@@ -1,4 +1,5 @@
 pub mod landlord;
+pub mod popular;
 pub mod queueing_dispatcher;
 
 #[derive(Debug, serde::Deserialize)]
@@ -6,6 +7,8 @@ pub mod queueing_dispatcher;
 pub enum EnqueueingPolicy {
     /// Invocations will be placed in any relevant queue, and the first one to start first wins
     All,
+    /// Use ratio of CPU/GPU
+    Speedup,
     /// Always enqueue on the compute that gives shortest compute time
     ShortestExecTime,
     /// Always enqueue on CPU
@@ -22,4 +25,6 @@ pub enum EnqueueingPolicy {
     AlwaysGPU,
     /// Landlord-based policy
     Landlord,
+    TopAvg,
+    Popular,
 }

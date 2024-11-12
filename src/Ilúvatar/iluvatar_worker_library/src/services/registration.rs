@@ -29,14 +29,15 @@ pub struct RegisteredFunction {
 }
 
 impl RegisteredFunction {
+    #[inline(always)]
     pub fn cpu_only(&self) -> bool {
-        self.supported_compute.contains(Compute::CPU) && !self.supported_compute.contains(Compute::GPU)
+        self.supported_compute == Compute::CPU
     }
-
+    #[inline(always)]
     pub fn gpu_only(&self) -> bool {
-        self.supported_compute.contains(Compute::GPU) && !self.supported_compute.contains(Compute::CPU)
+        self.supported_compute == Compute::GPU
     }
-
+    #[inline(always)]
     pub fn polymorphic(&self) -> bool {
         self.supported_compute.contains(Compute::GPU) && self.supported_compute.contains(Compute::CPU)
     }

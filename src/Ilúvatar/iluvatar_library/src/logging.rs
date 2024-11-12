@@ -118,9 +118,9 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
     let subscriber = subscriber.with(stdout_layer).with(energy_layer).with(flame_layer);
     match tracing::subscriber::set_global_default(subscriber) {
         Ok(_) => Ok(drops),
-        Err(e) => { 
+        Err(e) => {
             warn!(tid=%tid, error=%e, "Global tracing subscriber was already set");
             Ok(vec![])
-        },
+        }
     }
 }
