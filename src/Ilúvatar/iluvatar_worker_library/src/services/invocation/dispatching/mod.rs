@@ -2,7 +2,7 @@ pub mod landlord;
 pub mod popular;
 pub mod queueing_dispatcher;
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Copy, Clone, serde::Deserialize)]
 /// The policy by which polymorphic functions will be enqueued in the CPU/GPU/etc. queues
 pub enum EnqueueingPolicy {
     /// Invocations will be placed in any relevant queue, and the first one to start first wins
@@ -25,6 +25,8 @@ pub enum EnqueueingPolicy {
     AlwaysGPU,
     /// Landlord-based policy
     Landlord,
+    LandlordEstTime,
+    LandlordPerFuncRent,
     TopAvg,
     Popular,
 }

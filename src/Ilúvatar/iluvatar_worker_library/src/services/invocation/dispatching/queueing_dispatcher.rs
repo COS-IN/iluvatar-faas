@@ -1,5 +1,5 @@
 use crate::services::containers::containermanager::ContainerManager;
-use crate::services::invocation::dispatching::landlord::LandlordDispatch;
+use crate::services::invocation::dispatching::landlord::get_landlord;
 use crate::services::invocation::dispatching::popular::{PopularDispatch, TopAvgDispatch};
 use crate::services::invocation::dispatching::EnqueueingPolicy;
 #[cfg(feature = "power_cap")]
@@ -74,7 +74,7 @@ pub struct QueueingDispatcher {
     cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Option<Arc<dyn DeviceQueue>>,
     dispatch_state: RwLock<PolymDispatchCtx>,
-    landlord: Mutex<LandlordDispatch>,
+    landlord: Mutex<Box<dyn crate::services::invocation::dispatching::landlord::Landlord>>,
     top_avg: TopAvgDispatch,
     popular: Mutex<PopularDispatch>,
 }
@@ -94,32 +94,38 @@ impl QueueingDispatcher {
         gpu_config: &Option<Arc<GPUResourceConfig>>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
+        let cpu_q = Self::get_invoker_queue(
+            &invocation_config,
+            &cmap,
+            &cont_manager,
+            tid,
+            &function_config,
+            &cpu,
+            #[cfg(feature = "power_cap")]
+            &energy,
+        )?;
+        let gpu_q = Self::get_invoker_gpu_queue(
+            &invocation_config,
+            &cmap,
+            &cont_manager,
+            tid,
+            &function_config,
+            &cpu,
+            &gpu,
+            gpu_config,
+        )?;
+        let policy = invocation_config
+            .enqueueing_policy
+            .as_ref()
+            .unwrap_or(&EnqueueingPolicy::All);
         let svc = Arc::new(QueueingDispatcher {
-            cpu_queue: Self::get_invoker_queue(
-                &invocation_config,
-                &cmap,
-                &cont_manager,
-                tid,
-                &function_config,
-                &cpu,
-                #[cfg(feature = "power_cap")]
-                &energy,
-            )?,
-            gpu_queue: Self::get_invoker_gpu_queue(
-                &invocation_config,
-                &cmap,
-                &cont_manager,
-                tid,
-                &function_config,
-                &cpu,
-                &gpu,
-                gpu_config,
-            )?,
+            popular: Mutex::new(PopularDispatch::new()?),
+            landlord: Mutex::new(get_landlord(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
+            top_avg: TopAvgDispatch::new(&cmap)?,
+            cpu_queue: cpu_q,
+            gpu_queue: gpu_q,
             async_functions: AsyncHelper::new(),
             clock: get_global_clock(tid)?,
-            popular: Mutex::new(PopularDispatch::new()?),
-            landlord: Mutex::new(LandlordDispatch::new(&cmap, &invocation_config.landlord_config)?),
-            top_avg: TopAvgDispatch::new(&cmap)?,
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
@@ -353,7 +359,29 @@ impl QueueingDispatcher {
                 }
             },
             EnqueueingPolicy::Landlord => {
-                let compute = self.landlord.lock().choose(&enqueue);
+                let compute = self.landlord.lock().choose(&enqueue, &tid);
+                if compute == Compute::CPU {
+                    self.enqueue_cpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+                if compute == Compute::GPU {
+                    self.enqueue_gpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+            },
+            EnqueueingPolicy::LandlordEstTime => {
+                let compute = self.landlord.lock().choose(&enqueue, &tid);
+                if compute == Compute::CPU {
+                    self.enqueue_cpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+                if compute == Compute::GPU {
+                    self.enqueue_gpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+            },
+            EnqueueingPolicy::LandlordPerFuncRent => {
+                let compute = self.landlord.lock().choose(&enqueue, &tid);
                 if compute == Compute::CPU {
                     self.enqueue_cpu_check(&enqueue)?;
                     enqueues += 1;
