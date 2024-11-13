@@ -30,7 +30,8 @@ pub fn get_landlord(
             LandlordEstTimeDispatch::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
         },
         EnqueueingPolicy::LandlordPerFuncRent => LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config),
-        pol => anyhow::bail!("Bad policy inside Landlord builder: '{:?}'", pol),
+        // landlord policy not being used, give dummy basic policy
+        _ => LandlordDispatch::boxed(cmap, &invocation_config.landlord_config),
     }
 }
 
@@ -57,8 +58,8 @@ impl LandlordDispatch {
     fn insert(&mut self, fqdn: &str) {
         match self.credits.get_mut(fqdn) {
             None => {
-                let size = self.cmap.avg_gpu_e2e_t(fqdn);
-                self.credits.insert(fqdn.to_string(), size);
+                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn) ;
+                self.credits.insert(fqdn.to_string(), cost);
             },
             Some(c) => {
                 *c += self.cmap.get_gpu_exec_time(fqdn);
@@ -144,8 +145,8 @@ impl LandlordEstTimeDispatch {
     fn insert(&mut self, fqdn: &str) {
         match self.credits.get_mut(fqdn) {
             None => {
-                let size = self.cmap.avg_gpu_e2e_t(fqdn);
-                self.credits.insert(fqdn.to_string(), size);
+                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn) ;
+                self.credits.insert(fqdn.to_string(), cost);
             },
             Some(c) => {
                 *c += self.cmap.get_gpu_exec_time(fqdn);
@@ -222,8 +223,8 @@ impl LandlordPerFuncRent {
     fn insert(&mut self, fqdn: &str) {
         match self.credits.get_mut(fqdn) {
             None => {
-                let size = self.cmap.avg_gpu_e2e_t(fqdn);
-                self.credits.insert(fqdn.to_string(), size);
+                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn) ;
+                self.credits.insert(fqdn.to_string(), cost);
             },
             Some(c) => {
                 *c += self.cmap.get_gpu_exec_time(fqdn);
