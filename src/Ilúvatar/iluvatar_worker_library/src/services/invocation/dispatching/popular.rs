@@ -30,6 +30,44 @@ impl TopAvgDispatch {
     }
 }
 
+/// Schedules the least popular functions to run on GPU
+pub struct LeastPopularDispatch {
+    /// Map of FQDN -> invokes
+    invokes: HashMap<String, u64>,
+    total_invokes: u64,
+    popular_cutoff: f64,
+}
+impl LeastPopularDispatch {
+    pub fn new() -> anyhow::Result<Self> {
+        Ok(Self {
+            invokes: HashMap::new(),
+            total_invokes: 0,
+            popular_cutoff: 0.15,
+        })
+    }
+
+    pub fn choose(&mut self, item: &Arc<EnqueuedInvocation>) -> Compute {
+        self.total_invokes += 1;
+        let invokes = match self.invokes.contains_key(&item.registration.fqdn) {
+            true => {
+                let val = self.invokes.get_mut(&item.registration.fqdn).unwrap();
+                *val += 1;
+                *val
+            },
+            false => {
+                self.invokes.insert(item.registration.fqdn.clone(), 1);
+                1
+            },
+        };
+        let freq = invokes as f64 / self.total_invokes as f64;
+        match freq > self.popular_cutoff {
+            true => Compute::CPU,
+            false => Compute::GPU,
+        }
+    }
+}
+
+/// Schedules the most popular functions to run on GPU
 pub struct PopularDispatch {
     /// Map of FQDN -> invokes
     invokes: HashMap<String, u64>,
@@ -59,7 +97,7 @@ impl PopularDispatch {
             },
         };
         let freq = invokes as f64 / self.total_invokes as f64;
-        match freq > self.popular_cutoff {
+        match freq < self.popular_cutoff {
             true => Compute::CPU,
             false => Compute::GPU,
         }

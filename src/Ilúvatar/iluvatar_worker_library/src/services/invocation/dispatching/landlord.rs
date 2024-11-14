@@ -58,7 +58,7 @@ impl LandlordDispatch {
     fn insert(&mut self, fqdn: &str) {
         match self.credits.get_mut(fqdn) {
             None => {
-                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn) ;
+                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn);
                 self.credits.insert(fqdn.to_string(), cost);
             },
             Some(c) => {
@@ -145,7 +145,7 @@ impl LandlordEstTimeDispatch {
     fn insert(&mut self, fqdn: &str) {
         match self.credits.get_mut(fqdn) {
             None => {
-                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn) ;
+                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn);
                 self.credits.insert(fqdn.to_string(), cost);
             },
             Some(c) => {
@@ -223,7 +223,7 @@ impl LandlordPerFuncRent {
     fn insert(&mut self, fqdn: &str) {
         match self.credits.get_mut(fqdn) {
             None => {
-                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn) ;
+                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn);
                 self.credits.insert(fqdn.to_string(), cost);
             },
             Some(c) => {

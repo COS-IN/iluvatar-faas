@@ -103,6 +103,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             None => return Ok(Response::new(InvokeResponse::error("Function was not registered"))),
         };
         self.cmap.add_iat(&fqdn);
+        debug!(tid=%request.transaction_id, "Sending invocation to invoker");
         let resp = self
             .invoker
             .sync_invocation(reg, request.json_args, request.transaction_id)

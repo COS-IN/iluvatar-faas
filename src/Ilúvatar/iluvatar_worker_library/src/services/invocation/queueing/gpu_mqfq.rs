@@ -192,6 +192,11 @@ impl FlowQ {
         }
     }
 
+    /// Re-add an item to the queue that was previously removed.
+    pub fn reinsert_item(&mut self, item: Arc<MQRequest>) {
+        self.queue.push_front(item);
+    }
+
     /// Return True if should update the global time
     pub fn push_flow(&mut self, item: Arc<EnqueuedInvocation>, vitual_time: f64) -> bool {
         let start_t = f64::max(vitual_time, self.finish_time_virt); // cognizant of weights
@@ -498,14 +503,24 @@ impl MQFQ {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some((next_item, gpu_token)) = self.dispatch(&tid) {
-            // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
+            debug!(tid=%next_item.invoke.tid, "Sending item for dispatch");
+            // This async function the only place which decrements running set and resources avail. Implicit assumption that it won't be concurrently invoked.
             if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, &tid) {
                 let svc = self.clone();
                 tokio::spawn(async move {
                     svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;
                 });
             } else {
-                warn!(tid=%tid, fqdn=%next_item.invoke.registration.fqdn, "Insufficient resources to run item");
+                warn!(tid=%next_item.invoke.tid, fqdn=%next_item.invoke.registration.fqdn, "Insufficient resources to run item");
+                match self.mqfq_set.get_mut(&next_item.invoke.registration.fqdn) {
+                    None => {
+                        next_item
+                            .invoke
+                            .mark_error(&anyhow::format_err!("Failed to re-insert item into MQFQ queue"));
+                        error!(tid=%next_item.invoke.tid, fqdn=%next_item.invoke.registration.fqdn, "Failed to re-insert item into MQFQ queue");
+                    },
+                    Some(mut s) => s.value_mut().reinsert_item(next_item),
+                }
                 break;
             }
         }
@@ -664,11 +679,13 @@ impl MQFQ {
         let virtual_time = self.mindicator.min();
         match self.mqfq_set.get_mut(&item.registration.fqdn) {
             Some(mut fq) => {
+                debug!(tid=%item.tid, "Adding item to existing Q");
                 if fq.value_mut().push_flow(item, virtual_time) {
                     self.mindicator.insert(fq.flow_id, fq.start_time_virt).unwrap();
                 }
             },
             None => {
+                debug!(tid=%item.tid, "Adding item to new Q");
                 let fname = item.registration.fqdn.clone();
                 let id = self.mindicator.add_procs(1) - 1;
                 let weight = match &self.q_config.flow_weights {
@@ -1076,6 +1093,7 @@ impl DeviceQueue for MQFQ {
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
+        debug!(tid = item.tid, "MQFQ queue item");
         self.add_invok_to_flow(item.clone());
         Ok(())
     }

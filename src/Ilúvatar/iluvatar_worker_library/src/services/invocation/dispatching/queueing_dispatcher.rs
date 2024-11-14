@@ -1,6 +1,6 @@
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::invocation::dispatching::landlord::get_landlord;
-use crate::services::invocation::dispatching::popular::{PopularDispatch, TopAvgDispatch};
+use crate::services::invocation::dispatching::popular::{LeastPopularDispatch, PopularDispatch, TopAvgDispatch};
 use crate::services::invocation::dispatching::EnqueueingPolicy;
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -77,6 +77,7 @@ pub struct QueueingDispatcher {
     landlord: Mutex<Box<dyn crate::services::invocation::dispatching::landlord::Landlord>>,
     top_avg: TopAvgDispatch,
     popular: Mutex<PopularDispatch>,
+    least_popular: Mutex<LeastPopularDispatch>,
 }
 
 #[allow(dyn_drop)]
@@ -120,6 +121,7 @@ impl QueueingDispatcher {
             .unwrap_or(&EnqueueingPolicy::All);
         let svc = Arc::new(QueueingDispatcher {
             popular: Mutex::new(PopularDispatch::new()?),
+            least_popular: Mutex::new(LeastPopularDispatch::new()?),
             landlord: Mutex::new(get_landlord(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
             top_avg: TopAvgDispatch::new(&cmap)?,
             cpu_queue: cpu_q,
@@ -393,6 +395,17 @@ impl QueueingDispatcher {
             },
             EnqueueingPolicy::Popular => {
                 let compute = self.popular.lock().choose(&enqueue);
+                if compute == Compute::CPU {
+                    self.enqueue_cpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+                if compute == Compute::GPU {
+                    self.enqueue_gpu_check(&enqueue)?;
+                    enqueues += 1;
+                }
+            },
+            EnqueueingPolicy::LeastPopular => {
+                let compute = self.least_popular.lock().choose(&enqueue);
                 if compute == Compute::CPU {
                     self.enqueue_cpu_check(&enqueue)?;
                     enqueues += 1;

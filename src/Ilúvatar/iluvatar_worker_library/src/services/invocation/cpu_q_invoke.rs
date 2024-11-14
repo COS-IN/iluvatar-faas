@@ -253,7 +253,8 @@ impl CpuQueueingInvoker {
             match self.queue.add_item_to_queue(&item, Some(0)) {
                 Ok(_) => self.signal.notify_waiters(),
                 Err(e) => {
-                    error!(tid=item.tid, error=%e, "Failed to re-queue item in CPU queue after memory exhaustion")
+                    error!(tid=item.tid, error=%e, "Failed to re-queue item in CPU queue after memory exhaustion");
+                    item.mark_error(&e);
                 },
             };
         } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
@@ -265,7 +266,8 @@ impl CpuQueueingInvoker {
                 match self.queue.add_item_to_queue(&item, Some(0)) {
                     Ok(_) => self.signal.notify_waiters(),
                     Err(e) => {
-                        error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt")
+                        error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
+                        item.mark_error(&e);
                     },
                 };
             }
@@ -380,9 +382,11 @@ impl DeviceQueue for CpuQueueingInvoker {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         if self.should_bypass(&item.registration) {
+            debug!(tid = item.tid, "CPU queue bypass");
             self.bypass_rx.send(item.clone())?;
             return Ok(());
         }
+        debug!(tid = item.tid, "CPU queue item");
         self.queue.add_item_to_queue(item, None)?;
         self.signal.notify_waiters();
         Ok(())

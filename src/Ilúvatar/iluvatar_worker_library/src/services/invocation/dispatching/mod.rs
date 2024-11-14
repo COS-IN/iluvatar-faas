@@ -29,4 +29,5 @@ pub enum EnqueueingPolicy {
     LandlordPerFuncRent,
     TopAvg,
     Popular,
+    LeastPopular,
 }

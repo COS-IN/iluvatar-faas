@@ -71,7 +71,10 @@ pub struct TraceArgs {
 
 pub fn run_trace(args: TraceArgs) -> Result<()> {
     match args.target {
-        Target::Worker => worker_trace::trace_worker(args),
+        Target::Worker => match args.setup {
+            RunType::Simulation => worker_trace::simulated_worker(args),
+            RunType::Live => worker_trace::live_worker(args),
+        },
         Target::Controller => match args.setup {
             RunType::Live => controller_trace_live(args),
             RunType::Simulation => controller_trace_sim(args),

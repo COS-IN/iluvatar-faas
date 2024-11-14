@@ -38,23 +38,30 @@ pub struct LoggingConfig {
     pub span_energy_monitoring: bool,
 }
 
-#[allow(dead_code)]
+fn parse_span(span: &str) -> Result<FmtSpan> {
+    Ok(match span {
+        "NEW" => FmtSpan::NEW,
+        "ENTER" => FmtSpan::ENTER,
+        "EXIT" => FmtSpan::EXIT,
+        "CLOSE" => FmtSpan::CLOSE,
+        "NONE" => FmtSpan::NONE,
+        "" => FmtSpan::NONE,
+        "ACTIVE" => FmtSpan::ACTIVE,
+        "FULL" => FmtSpan::FULL,
+        _ => anyhow::bail!("Unknown spanning value {}", span),
+    })
+}
 fn str_to_span(spanning: &str) -> Result<FmtSpan> {
-    let mut fmt = FmtSpan::NONE;
-    for choice in spanning.split('+') {
-        fmt |= match choice {
-            "NEW" => FmtSpan::NEW,
-            "ENTER" => FmtSpan::ENTER,
-            "EXIT" => FmtSpan::EXIT,
-            "CLOSE" => FmtSpan::CLOSE,
-            "NONE" => FmtSpan::NONE,
-            "" => FmtSpan::NONE,
-            "ACTIVE" => FmtSpan::ACTIVE,
-            "FULL" => FmtSpan::FULL,
-            _ => anyhow::bail!("Unknown spanning value {}", choice),
-        }
+    let parts = spanning.split('+').collect::<Vec<&str>>();
+    if parts.is_empty() {
+        return Ok(FmtSpan::NONE);
     }
-    Ok(fmt)
+    let mut parts = parts
+        .iter()
+        .map(|span| parse_span(span))
+        .collect::<Result<Vec<FmtSpan>>>()?;
+    let first_part = parts.pop().unwrap();
+    Ok(parts.into_iter().fold(first_part, |acc, item| item | acc))
 }
 
 pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &TransactionId) -> Result<impl Drop> {

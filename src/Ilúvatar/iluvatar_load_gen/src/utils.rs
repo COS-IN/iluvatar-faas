@@ -396,11 +396,12 @@ pub async fn worker_invoke(
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
-
+    tracing::debug!(tid=%tid, "Sending invocation to worker");
     let (invok_out, invok_lat) = api
         .invoke(name.to_owned(), version.to_owned(), args, tid.to_owned())
         .timed()
         .await;
+    tracing::debug!(tid=%tid, "Invocation returned from worker");
     let c = match invok_out {
         Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
             Ok(b) => CompletedWorkerInvocation {
