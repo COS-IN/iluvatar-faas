@@ -1,7 +1,5 @@
 use crate::services::containers::containermanager::ContainerManager;
-use crate::services::invocation::dispatching::landlord::get_landlord;
-use crate::services::invocation::dispatching::popular::{LeastPopularDispatch, PopularDispatch, TopAvgDispatch};
-use crate::services::invocation::dispatching::EnqueueingPolicy;
+use crate::services::invocation::dispatching::{landlord::get_landlord, popular::get_popular, EnqueueingPolicy};
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::queueing::{concur_mqfq::ConcurMqfq, gpu_mqfq::MQFQ};
@@ -27,6 +25,10 @@ use tracing::{debug, info};
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
+}
+
+pub trait DispatchPolicy: Send + Sync {
+    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute;
 }
 
 #[allow(unused)]
@@ -74,10 +76,8 @@ pub struct QueueingDispatcher {
     cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Option<Arc<dyn DeviceQueue>>,
     dispatch_state: RwLock<PolymDispatchCtx>,
-    landlord: Mutex<Box<dyn crate::services::invocation::dispatching::landlord::Landlord>>,
-    top_avg: TopAvgDispatch,
-    popular: Mutex<PopularDispatch>,
-    least_popular: Mutex<LeastPopularDispatch>,
+    landlord: Mutex<Box<dyn DispatchPolicy>>,
+    popular: Mutex<Box<dyn DispatchPolicy>>,
 }
 
 #[allow(dyn_drop)]
@@ -120,10 +120,8 @@ impl QueueingDispatcher {
             .as_ref()
             .unwrap_or(&EnqueueingPolicy::All);
         let svc = Arc::new(QueueingDispatcher {
-            popular: Mutex::new(PopularDispatch::new()?),
-            least_popular: Mutex::new(LeastPopularDispatch::new()?),
             landlord: Mutex::new(get_landlord(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
-            top_avg: TopAvgDispatch::new(&cmap)?,
+            popular: Mutex::new(get_popular(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
             cpu_queue: cpu_q,
             gpu_queue: gpu_q,
             async_functions: AsyncHelper::new(),
@@ -212,6 +210,18 @@ impl QueueingDispatcher {
         }
     }
 
+    fn enqueue_compute(&self, item: &Arc<EnqueuedInvocation>, compute: Compute) -> Result<u32> {
+        let mut enqueues = 0;
+        if compute.contains(Compute::CPU) {
+            enqueues += 1;
+            self.enqueue_cpu_check(item)?;
+        }
+        if compute.contains(Compute::GPU) {
+            self.enqueue_gpu_check(item)?;
+            enqueues += 1;
+        }
+        Ok(enqueues)
+    }
     fn enqueue_cpu_check(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         Self::enqueue_check(&Some(&self.cpu_queue), item, Compute::CPU)
     }
@@ -229,8 +239,8 @@ impl QueueingDispatcher {
         }
     }
 
-    /// Forms invocation data into a [EnqueuedInvocation] that is returned
-    /// The default implementation also calls [Invoker::add_item_to_queue] to optionally insert that item into the implementation's queue
+    /// Forms invocation data into a [EnqueuedInvocation] that is returned.
+    /// The default implementation also calls [Invoker::add_item_to_queue] to optionally insert that item into the implementation's queue.
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
     fn enqueue_new_invocation(
         &self,
@@ -246,6 +256,14 @@ impl QueueingDispatcher {
             self.clock.now(),
         ));
         let mut enqueues = 0;
+        if self.invocation_config.enqueuing_log_details.unwrap_or(false) {
+            let cpu = self.cpu_queue.est_completion_time(reg, &tid);
+            let gpu = self
+                .gpu_queue
+                .as_ref()
+                .map_or(0.0, |q| q.est_completion_time(reg, &tid));
+            info!(tid=%tid, cpu_est=cpu, gpu_est=gpu, "Est e2e time");
+        }
 
         if reg.cpu_only() {
             self.enqueue_cpu_check(&enqueue)?;
@@ -362,69 +380,39 @@ impl QueueingDispatcher {
             },
             EnqueueingPolicy::Landlord => {
                 let compute = self.landlord.lock().choose(&enqueue, &tid);
-                if compute == Compute::CPU {
-                    self.enqueue_cpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
-                if compute == Compute::GPU {
-                    self.enqueue_gpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
+                enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
             EnqueueingPolicy::LandlordEstTime => {
                 let compute = self.landlord.lock().choose(&enqueue, &tid);
-                if compute == Compute::CPU {
-                    self.enqueue_cpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
-                if compute == Compute::GPU {
-                    self.enqueue_gpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
+                enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
             EnqueueingPolicy::LandlordPerFuncRent => {
                 let compute = self.landlord.lock().choose(&enqueue, &tid);
-                if compute == Compute::CPU {
-                    self.enqueue_cpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
-                if compute == Compute::GPU {
-                    self.enqueue_gpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
+                enqueues += self.enqueue_compute(&enqueue, compute)?;
+            },
+            EnqueueingPolicy::LandlordPerFuncRentHistorical => {
+                let compute = self.landlord.lock().choose(&enqueue, &tid);
+                enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
             EnqueueingPolicy::Popular => {
-                let compute = self.popular.lock().choose(&enqueue);
-                if compute == Compute::CPU {
-                    self.enqueue_cpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
-                if compute == Compute::GPU {
-                    self.enqueue_gpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
+                let compute = self.popular.lock().choose(&enqueue, &tid);
+                enqueues += self.enqueue_compute(&enqueue, compute)?;
+            },
+            EnqueueingPolicy::PopularEstTimeDispatch => {
+                let compute = self.popular.lock().choose(&enqueue, &tid);
+                enqueues += self.enqueue_compute(&enqueue, compute)?;
+            },
+            EnqueueingPolicy::PopularQueueLenDispatch => {
+                let compute = self.popular.lock().choose(&enqueue, &tid);
+                enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
             EnqueueingPolicy::LeastPopular => {
-                let compute = self.least_popular.lock().choose(&enqueue);
-                if compute == Compute::CPU {
-                    self.enqueue_cpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
-                if compute == Compute::GPU {
-                    self.enqueue_gpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
+                let compute = self.popular.lock().choose(&enqueue, &tid);
+                enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
             EnqueueingPolicy::TopAvg => {
-                let compute = self.top_avg.choose(&enqueue);
-                if compute == Compute::CPU {
-                    self.enqueue_cpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
-                if compute == Compute::GPU {
-                    self.enqueue_gpu_check(&enqueue)?;
-                    enqueues += 1;
-                }
+                let compute = self.popular.lock().choose(&enqueue, &tid);
+                enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
         }
 

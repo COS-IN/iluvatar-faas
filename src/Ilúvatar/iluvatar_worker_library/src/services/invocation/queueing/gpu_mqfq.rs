@@ -1073,6 +1073,40 @@ impl MQFQ {
             },
         }
     }
+
+    #[allow(dead_code)]
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+        // sum_q (q_F-q_S) / max_in_flight
+        let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
+        let total_wait = per_flow_wait_times.sum::<f64>() / self.gpu.total_gpus() as f64;
+        let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
+        info!(tid=%tid, qt=total_wait, runtime=exec_time, "GPU estimated completion time of item");
+        
+        total_wait + exec_time
+    }
+    
+    #[allow(dead_code)]
+    fn est_completion_time2(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+        // sum_q (q_F-q_S) / max_in_flight
+        let mut est_time = 0.0;
+        let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
+        if let Some(q) = self.mqfq_set.get(&reg.fqdn) {
+            est_time = match q.state {
+                    // Likely under-estimation
+                MQState::Active => q.est_flow_wait(),
+                    // Likely over-estimation
+                MQState::Throttled => {
+                    let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
+                    per_flow_wait_times.sum::<f64>() / self.gpu.total_gpus() as f64
+                },
+                // Assumes inactive flow will be immediately be active and get to run soon.
+                // Probably under-estimation too
+                MQState::Inactive => 0.0,
+            };
+        }
+        info!(tid=%tid, qt=est_time, runtime=exec_time, "GPU estimated completion time of item");
+        est_time + exec_time
+    }
 } // END MQFQ
 
 impl DeviceQueue for MQFQ {
@@ -1083,13 +1117,7 @@ impl DeviceQueue for MQFQ {
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        // sum_q (q_F-q_S) / max_in_flight
-        let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
-        let total_wait: f64 = per_flow_wait_times.sum();
-
-        debug!(tid=%tid, qt=total_wait, runtime=0.0, "GPU estimated completion time of item");
-
-        (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn)
+        self.est_completion_time2(reg, tid)
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
@@ -1103,7 +1131,7 @@ impl DeviceQueue for MQFQ {
     }
 
     fn warm_hit_probability(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64 {
-        // if flowq doesnt exist or inactive, 0
+        // if flowq doesn't exist or inactive, 0
         // else (active or throttled), but no guarantees
         // Average eviction time for the queue? eviction == q becomes inactive
         // 1 - e^-(AET/iat)
@@ -1117,5 +1145,9 @@ impl DeviceQueue for MQFQ {
             },
             None => 0.0,
         }
+    }
+
+    fn expose_mqfq(&self) -> Option<&DashMap<String, FlowQ>> {
+        Some(&self.mqfq_set)
     }
 }

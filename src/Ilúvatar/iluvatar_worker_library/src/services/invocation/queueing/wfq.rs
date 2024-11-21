@@ -93,7 +93,6 @@ impl WFQueue {
     
 }
 
-#[tonic::async_trait]
 impl InvokerGpuQueuePolicy for WFQueue {
     /// This is limited to the five functions add, peek, pop, len, time
     /// Of which, we len/time are easy. Add should inject function into the right queue based on some property. pop/peek both select the right ``current'' queue and the function within this queue.

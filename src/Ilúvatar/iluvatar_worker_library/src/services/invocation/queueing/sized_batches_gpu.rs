@@ -34,7 +34,6 @@ impl SizedBatchGpuQueue {
     }
 }
 
-#[tonic::async_trait]
 impl GpuQueuePolicy for SizedBatchGpuQueue {
     fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
         let mut ret_min = time::PrimitiveDateTime::MAX.assume_utc();

@@ -175,6 +175,7 @@ pub struct InvocationConfig {
     /// The policy by which the worker decides how to enqueue polymorphic functions
     /// By default it uses [EnqueueingPolicy::All]
     pub enqueueing_policy: Option<EnqueueingPolicy>,
+    pub enqueuing_log_details: Option<bool>,
     /// If present and not zero, invocations with an execution duration less than this
     ///   will bypass concurrency restrictions and be run immediately
     pub bypass_duration_ms: Option<u64>,

@@ -168,9 +168,8 @@ impl RegistrationService {
                                 self.characteristics_map
                                     .add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
                             }
-                            if let Some(hist) = &timings.live_warm_invoke_duration_sec {
-                                rf.historical_runtime_data_sec.insert(dev_compute, hist.clone());
-                            }
+                            rf.historical_runtime_data_sec
+                                .insert(dev_compute, timings.warm_results_sec.clone());
                         }
                     }
                 },

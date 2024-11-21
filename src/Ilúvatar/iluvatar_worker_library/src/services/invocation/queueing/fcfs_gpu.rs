@@ -30,7 +30,6 @@ impl FcfsGpuQueue {
     }
 }
 
-#[tonic::async_trait]
 impl GpuQueuePolicy for FcfsGpuQueue {
     fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
         let r = self.invoke_queue.lock();

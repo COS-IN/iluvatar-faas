@@ -13,10 +13,10 @@ lazy_static::lazy_static! {
   pub static ref CPU_CONCUR_WORKER_TID: TransactionId = "CPUConcurrencyMonitor".to_string();
 }
 
-/// An invoker that scales concurrency based on system load
-/// Prioritizes based on container availability
-/// Increases concurrency by 1 every [crate::worker_api::worker_config::ComputeResourceConfig::concurrency_update_check_ms]
-/// If system load is above [crate::worker_api::worker_config::ComputeResourceConfig::max_load], then the concurrency is reduced by half the distance to [crate::worker_api::worker_config::ComputeResourceConfig::max_oversubscribe] rounded up
+/// An invoker that scales concurrency based on system load.
+/// Prioritizes based on container availability.
+/// Increases concurrency by 1 every [crate::worker_api::worker_config::ComputeResourceConfig::concurrency_update_check_ms].
+/// If system load is above [crate::worker_api::worker_config::ComputeResourceConfig::max_load], then the concurrency is reduced by half the distance to [crate::worker_api::worker_config::ComputeResourceConfig::max_oversubscribe] rounded up.
 pub struct CpuResourceTracker {
     _load_thread: Option<tokio::task::JoinHandle<()>>,
     concurrency_semaphore: Option<Arc<Semaphore>>,
@@ -24,10 +24,9 @@ pub struct CpuResourceTracker {
     min_concur: u32,
     current_concur: Mutex<u32>,
     max_load: Option<f64>,
-    cores: f64,
+    pub cores: f64,
     load_avg: LoadAvg,
 }
-
 impl CpuResourceTracker {
     pub fn new(config: &Arc<CPUResourceConfig>, load_avg: LoadAvg, tid: &TransactionId) -> Result<Arc<Self>> {
         let mut max_concur = 0;
@@ -92,6 +91,13 @@ impl CpuResourceTracker {
             };
         }
         Ok(None)
+    }
+
+    pub fn available_cores(&self) -> usize {
+        if let Some(sem) = &self.concurrency_semaphore {
+            return sem.available_permits();
+        }
+        self.cores as usize
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(svc), fields(tid=%tid)))]

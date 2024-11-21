@@ -68,7 +68,6 @@ impl PaellaGpuQueue {
     }
 }
 
-#[tonic::async_trait]
 impl GpuQueuePolicy for PaellaGpuQueue {
     fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
         let mut min_t = 1000000000.0;

@@ -26,7 +26,6 @@ impl SimWorkerAPI {
 }
 
 #[tonic::async_trait]
-#[allow(unused)]
 impl WorkerAPI for SimWorkerAPI {
     async fn ping(&mut self, tid: TransactionId) -> Result<String> {
         let request = tonic::Request::new(PingRequest {

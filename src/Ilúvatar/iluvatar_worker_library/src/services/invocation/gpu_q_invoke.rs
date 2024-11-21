@@ -450,10 +450,8 @@ impl GpuQueueingInvoker {
         };
         (t, exists)
     }
-    // } //?
 }
 
-#[tonic::async_trait]
 impl DeviceQueue for GpuQueueingInvoker {
     fn queue_len(&self) -> usize {
         self.queue.queue_len()

@@ -27,7 +27,10 @@ pub enum EnqueueingPolicy {
     Landlord,
     LandlordEstTime,
     LandlordPerFuncRent,
+    LandlordPerFuncRentHistorical,
     TopAvg,
     Popular,
+    PopularEstTimeDispatch,
+    PopularQueueLenDispatch,
     LeastPopular,
 }

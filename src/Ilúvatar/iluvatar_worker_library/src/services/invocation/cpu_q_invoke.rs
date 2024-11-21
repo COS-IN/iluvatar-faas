@@ -366,16 +366,21 @@ impl CpuQueueingInvoker {
     }
 }
 
-#[tonic::async_trait]
 impl DeviceQueue for CpuQueueingInvoker {
     fn queue_len(&self) -> usize {
         self.queue.queue_len()
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let qt = self.queue.est_queue_time();
+        let qt = if self.queue_len() <= self.cpu.available_cores() {
+            // If Q is smaller than num of avail CPUs, we don't really have queuing, 
+            // just a race from item being added recently and not popped
+            0.0
+        } else {
+            self.queue.est_queue_time() / self.cpu.cores
+        };
         let (runtime, state) = self.get_est_completion_time_from_containers(reg);
-        debug!(tid=%tid, qt=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
+        info!(tid=%tid, queue_time=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
         qt + runtime
     }
 

@@ -228,10 +228,6 @@ pub struct FunctionInvocationTimings {
     pub warm_invoke_duration_us: Vec<u128>,
     /// cold invocation latency time recorded on worker
     pub cold_invoke_duration_us: Vec<u128>,
-    /// Data from live runtime invocations of the function, with interference from platform, concurrently running invokes, etc.
-    /// Only use to pass data into the simulation.
-    #[serde(skip_serializing)]
-    pub live_warm_invoke_duration_sec: Option<Vec<f64>>,
 }
 impl Default for FunctionInvocationTimings {
     fn default() -> Self {
@@ -250,7 +246,6 @@ impl FunctionInvocationTimings {
             cold_worker_duration_us: Vec::new(),
             warm_invoke_duration_us: Vec::new(),
             cold_invoke_duration_us: Vec::new(),
-            live_warm_invoke_duration_sec: None,
         }
     }
 }

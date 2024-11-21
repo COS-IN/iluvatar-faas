@@ -39,7 +39,6 @@ impl MinHeapEDQueue {
     }
 }
 
-#[tonic::async_trait]
 impl InvokerCpuQueuePolicy for MinHeapEDQueue {
     fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
         let r = self.invoke_queue.lock();

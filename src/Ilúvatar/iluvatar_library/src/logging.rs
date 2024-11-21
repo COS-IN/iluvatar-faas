@@ -20,6 +20,7 @@ pub struct LoggingConfig {
     /// Directory to store logs in, formatted as JSON.
     pub directory: String,
     /// Additionally write logs to stdout.
+    #[serde(default)]
     pub stdout: Option<bool>,
     /// log filename start string
     pub basename: String,
@@ -32,10 +33,16 @@ pub struct LoggingConfig {
     /// A file name to put flame trace data in, file will be placed in [Self::directory] if present, or local directory.
     /// See (here)<https://docs.rs/tracing-flame/latest/tracing_flame/index.html> for details on how this works.
     /// If [None], do not record flame data.
+    #[serde(default)]
     pub flame: Option<String>,
     /// Use live span information to track invocation and background energy usage.
     /// These will then be reported to influx.
+    #[serde(default)]
     pub span_energy_monitoring: bool,
+    /// Include currently entered spans when logging JSON messages.
+    /// See (here for more details)<https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/struct.Json.html#method.with_span_list>
+    #[serde(default)]
+    pub include_spans_json: bool,
 }
 
 fn parse_span(span: &str) -> Result<FmtSpan> {
@@ -122,6 +129,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
         .with_env_filter(filter)
         .with_writer(file_writer)
         .json()
+        .with_span_list(config.include_spans_json)
         .finish();
     let subscriber = subscriber.with(stdout_layer).with(energy_layer).with(flame_layer);
     match tracing::subscriber::set_global_default(subscriber) {

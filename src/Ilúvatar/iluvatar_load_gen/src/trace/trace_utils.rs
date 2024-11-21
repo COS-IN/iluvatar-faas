@@ -168,9 +168,10 @@ fn map_from_benchmark(
                         .get(&compute.try_into().expect("failed to parse compute"))
                         .ok_or_else(|| {
                             anyhow::format_err!(
-                            "failed to find data in bench_data.resource_data for function '{}' with chosen_name '{}'",
+                            "failed to find data in bench_data.resource_data for function '{}' with chosen_name '{}' using compute '{}'",
                             func.func_name,
-                            name
+                            name,
+                            compute
                         )
                         })?;
                     let warm_us = compute_data.warm_invoke_duration_us.iter().sum::<u128>()
