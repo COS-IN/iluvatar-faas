@@ -282,7 +282,11 @@ impl LandlordPerFuncRent {
             },
         }
     }
-    fn charge_rent(&mut self) {
+    
+    fn charge_rent(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
+	let total_rent_due = self.calc_credit(reg, tid);
+
+	// rent is charged proportional to n*exec from each fqdn 
         if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
             let vals = self
                 .credits
@@ -296,17 +300,26 @@ impl LandlordPerFuncRent {
                 })
                 .collect::<Vec<(String, f64, f64)>>();
             let tot = vals.iter().fold(0.0, |acc, (_, x, y)| acc + (x * y));
+
+	    let frac_rent = total_rent_due / tot ; 
+	    
             let _ = vals
                 .into_iter()
-                .map(|(fqdn, len, exec)| self.credits.get_mut(&fqdn).map(|x| *x -= (len * exec) / tot));
+                .map(|(fqdn, len, exec)| self.credits.get_mut(&fqdn).map(|x| *x -= len * exec * frac_rent));
             self.credits.retain(|_fqdn, c| *c > 0.0);
         }
     }
     fn present(&self, fqdn: &str) -> bool {
         self.credits.contains_key(fqdn)
     }
-    fn credit(&mut self, reg: &Arc<RegisteredFunction>) -> Compute {
-        let new_credit = self.cmap.avg_cpu_e2e_t(&reg.fqdn) - self.cmap.avg_gpu_e2e_t(&reg.fqdn);
+
+    fn calc_credit(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+        self._cpu_queue.est_completion_time(reg, tid) - self.gpu_queue.est_completion_time(reg, tid)
+    }
+    
+    fn credit(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute {
+        let new_credit = self.calc_credit(reg, tid); 
+	    // self.cmap.avg_cpu_e2e_t(&reg.fqdn) - self.cmap.avg_gpu_e2e_t(&reg.fqdn);
         if let Some(credit) = self.credits.get_mut(&reg.fqdn) {
             if new_credit < 0.0 {
                 // no benefit! run on CPU
@@ -339,9 +352,9 @@ impl DispatchPolicy for LandlordPerFuncRent {
         }
         if self.present(&item.registration.fqdn) {
             self.log(tid);
-            return self.credit(&item.registration);
+            return self.credit(&item.registration, tid);
         }
-        self.charge_rent();
+        self.charge_rent(&item.registration, tid);
         if self.cache_size() < self.cfg.cache_size as usize {
             // easy insert
             self.insert(&item.registration.fqdn, tid);
@@ -409,6 +422,7 @@ impl LandlordPerFuncRentHistorical {
             info!(tid=%tid, cache=?self.credits, "{}", CACHE_LOG);
         }
     }
+    
     fn credit(&mut self, reg: &Arc<RegisteredFunction>) -> Compute {
         let new_credit = self.cmap.avg_cpu_e2e_t(&reg.fqdn) - self.cmap.avg_gpu_e2e_t(&reg.fqdn);
         if let Some(credit) = self.credits.get_mut(&reg.fqdn) {

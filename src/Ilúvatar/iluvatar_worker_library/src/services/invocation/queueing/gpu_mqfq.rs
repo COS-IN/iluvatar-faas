@@ -35,6 +35,8 @@ lazy_static::lazy_static! {
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
+#[allow(elided_named_lifetimes)]
+
 pub struct MqfqConfig {
     /// maximum allowed flow overrun, in seconds, default 10 sec if missing
     pub allowed_overrun: Option<f64>,
@@ -393,6 +395,7 @@ impl TryFrom<Option<&String>> for MqfqPolicy {
 /// TODO: config with D, T, wts, etc.
 /// TODO: limit number active queues via GPU memory sizing
 #[allow(dyn_drop)]
+#[allow(elided_named_lifetimes)]
 impl MQFQ {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
@@ -1097,7 +1100,7 @@ impl MQFQ {
                     // Likely over-estimation
                 MQState::Throttled => {
                     let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
-                    per_flow_wait_times.sum::<f64>() / self.gpu.total_gpus() as f64
+                    per_flow_wait_times.sum::<f64>() 
                 },
                 // Assumes inactive flow will be immediately be active and get to run soon.
                 // Probably under-estimation too
