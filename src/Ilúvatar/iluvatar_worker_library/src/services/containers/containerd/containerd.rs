@@ -140,7 +140,7 @@ impl ContainerdIsolation {
                         );
                     },
                     Err(e) => {
-                        bail_error!(error=%e, "background receive channel broken!");
+                        bail_error!(error=%e, "ContainerdIsolation background receive channel broken!");
                     },
                 }
             }),

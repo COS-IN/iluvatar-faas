@@ -18,6 +18,7 @@
     __controller_address: "http://{{ controller.host }}:{{ controller.port }}"
     SIGINT: 2
     coded_proxy_env:
+      "RUST_BACKTRACE": 1
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
       "ILUVATAR_WORKER__address" : "{{ __worker_address }}"
@@ -25,6 +26,7 @@
       "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
       "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
       "ILUVATAR_WORKER__logging__spanning": "{{ worker_spanning | default('NEW+CLOSE') }}"
+      "ILUVATAR_WORKER__logging__include_spans_json": "{{ worker_include_spans | default(false) }}"
       "ILUVATAR_WORKER__timeout_sec" : "{{ worker_timeout_sec | default(6000) }}"
       "ILUVATAR_WORKER__tokio_event_interval" : "{{ worker_tokio_event_interval | default(20) }}"
       "ILUVATAR_WORKER__tokio_queue_interval" : "{{ worker_tokio_queue_interval | default(20) }}"
@@ -221,24 +223,40 @@
     poll: 0
     when: mode == "perf"
     environment: "{{proxy_env}}"
-    register: worker_output
+    register: perf_worker_output
 
-  - name: debug print
-    # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
-    run_once: true
-    debug:
-      msg: "{{ worker_output }}"
+  - name: Wait until the worker on this host is up and running
+    block:
+    - name: wait until the worker on this host is up and running
+      ansible.builtin.uri:
+        url:
+          "http://{{__worker_address}}:{{assigned_port}}/ping"
+        validate_certs: "no"
+        # RPC server doesn't accept basic HTTP connections
+        # but we can try connecting to it once it's up and know it's alive
+        status_code: [-1, 0.9, 1.1]
+      register: result
+      until: result.msg == expected
+      retries: 3
+      delay: 1
+      when: mode == "deploy" or mode == "perf"
 
-  - name: wait until the worker on this host is up and running
-    ansible.builtin.uri:
-      url:
-        "http://{{__worker_address}}:{{assigned_port}}/ping"
-      validate_certs: "no"
-      # RPC server doesn't accept basic HTTP connections
-      # but we can try connecting to it once it's up and know it's alive
-      status_code: [-1] #[-1, 0.9, 1.1]
-    register: result
-    until: result.msg == expected
-    retries: 10
-    delay: 5
-    when: mode == "deploy" or mode == "perf"
+    rescue:
+    - name: debug print
+      run_once: true
+      debug:
+        msg: "{{ worker_output }}"
+
+    - name: Read worker stdout
+      slurp:
+        src: "{{ worker_output['results_file'] }}"
+      register: file_data
+      become: yes
+
+    - name: Print stdout
+      debug:
+        msg: "{{ file_data.content | b64decode }}"
+
+    # - name: Fail deploy
+    #   ansible.builtin.fail:
+    #     msg: "Connecting to worker failed!"
