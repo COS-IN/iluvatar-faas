@@ -4,7 +4,7 @@ use ordered_float::OrderedFloat;
 use std::cmp::{min, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 #[derive(Debug, Clone)]
 pub enum Values {
@@ -405,10 +405,10 @@ impl CharacteristicsMap {
 	self.add(fqdn, Characteristics::EstGpu,
 		 Values::F64(xhat), false);
 
+	info!(fqdn=%fqdn, raw_est=%mqfq_est, error=%z , kf_est=%xhat,  "GPU Estimate");
 	// For now we can simply return this 
 	xhat 
     }
-    
     
     pub fn get_best_time(&self, fqdn: &str) -> f64 {
         let c = match self.lookup_min(fqdn, &Characteristics::E2ECpu) {

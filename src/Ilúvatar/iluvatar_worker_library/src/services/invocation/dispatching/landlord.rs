@@ -234,6 +234,9 @@ impl DispatchPolicy for LandlordEstTimeDispatch {
     }
 }
 
+////////////////////
+/// This is the main landlord policy, ignore the rest 
+
 /// Only expected to run with MQFQ for GPU queuing.
 pub struct LandlordPerFuncRent {
     /// Map of FQDN -> credit
@@ -314,7 +317,11 @@ impl LandlordPerFuncRent {
     }
 
     fn calc_credit(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        self._cpu_queue.est_completion_time(reg, tid) - self.gpu_queue.est_completion_time(reg, tid)
+
+	let mqfq_est = self.gpu_queue.est_completion_time(reg, tid) ;
+	let gpu_est = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est) ;
+	
+        self._cpu_queue.est_completion_time(reg, tid) - gpu_est 
     }
     
     fn credit(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute {
@@ -365,6 +372,8 @@ impl DispatchPolicy for LandlordPerFuncRent {
         Compute::CPU
     }
 }
+
+//////////////////////////////////
 
 pub struct LandlordPerFuncRentHistorical {
     /// Map of FQDN -> credit

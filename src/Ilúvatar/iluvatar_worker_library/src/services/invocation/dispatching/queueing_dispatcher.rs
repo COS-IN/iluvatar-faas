@@ -631,14 +631,17 @@ impl Invoker for QueueingDispatcher {
         let result_ptr = queued.result_ptr.lock();
         match result_ptr.completed {
             true => {
-                info!(tid=%tid, "Invocation complete");
 		// TODO: update cmap E2E time, but CPU or GPU?
 		let e2etime = (self.clock.now() - queued.queue_insert_time).as_seconds_f64();
 		let d = self.dispatch_state.read() ;
 		
 		match d.dev_hist.get(&tid) {
-		    Some(&Compute::GPU) => self.cmap.add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false),
-		    _ => self.cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false),
+		    Some(&Compute::GPU) => {
+			self.cmap.add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false) ;			    
+			info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"GPU", "Invocation complete");},
+		    _ => {
+			self.cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false) ;
+			info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"CPU", "Invocation complete");},
 		};
                 Ok(queued.result_ptr.clone())
             },
