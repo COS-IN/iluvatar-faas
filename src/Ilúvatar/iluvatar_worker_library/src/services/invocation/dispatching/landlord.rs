@@ -241,7 +241,6 @@ impl DispatchPolicy for LandlordEstTimeDispatch {
 pub struct LandlordPerFuncRent {
     /// Map of FQDN -> credit
     credits: HashMap<String, f64>,
-    gpu_invokes: HashMap<String, u64>,
     cmap: Arc<CharacteristicsMap>,
     cfg: Arc<LandlordConfig>,
     _cpu_queue: Arc<dyn DeviceQueue>,
@@ -258,7 +257,6 @@ impl LandlordPerFuncRent {
             None => anyhow::bail!("LandlordConfig was empty"),
             Some(c) => Ok(Box::new(Self {
                 credits: HashMap::new(),
-                gpu_invokes: HashMap::new(),
                 cmap: cmap.clone(),
                 cfg: c.clone(),
                 _cpu_queue: cpu_queue.clone(),
@@ -268,9 +266,13 @@ impl LandlordPerFuncRent {
             })),
         }
     }
+
+    
     fn cache_size(&self) -> usize {
         self.credits.len()
     }
+
+    /// 
     fn insert(&mut self, fqdn: &str, tid: &TransactionId) {
         match self.credits.get_mut(fqdn) {
             None => {
@@ -285,11 +287,11 @@ impl LandlordPerFuncRent {
             },
         }
     }
-    
-    fn charge_rent(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
-	let total_rent_due = self.calc_credit(reg, tid);
 
-	// rent is charged proportional to n*exec from each fqdn 
+
+    /// Get the current load on the GPU. total execution time pending
+    #[allow(dead_code)] 
+    fn gpu_load(&self) -> f64 {
         if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
             let vals = self
                 .credits
@@ -302,75 +304,121 @@ impl LandlordPerFuncRent {
                     )
                 })
                 .collect::<Vec<(String, f64, f64)>>();
-            let tot = vals.iter().fold(0.0, |acc, (_, x, y)| acc + (x * y));
+            let total_load = vals.iter().fold(0.0, |acc, (_, x, y)| acc + (x * y));
+	    return total_load
+	}
+	return 0.0 
+    }
+    
+    /// Rent will be charged to all functions based on this 'missing' function's opportunity cost 
+    fn charge_rents(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
+	let total_rent_due = self.opp_cost(reg, tid);
 
-	    let frac_rent = total_rent_due / tot ; 
+	// rent is charged proportional to n*exec from each fqdn
+	
+        if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
+            let vals = self
+                .credits
+                .keys()
+                .map(|fqdn| {
+                    (
+                        fqdn.clone(),
+                        mqfq.get(fqdn).map_or(0.0, |q| q.queue.len() as f64),
+                        self.cmap.get_gpu_exec_time(fqdn),
+                    )
+                })
+                .collect::<Vec<(String, f64, f64)>>();
+            let total_load = vals.iter().fold(0.0, |acc, (_, x, y)| acc + (x * y));
+	    
+	    info!(total_load=%total_load, "GPU Load"); 
+	    
+	    let frac_rent = total_rent_due / total_load ; 
 	    
             let _ = vals
                 .into_iter()
                 .map(|(fqdn, len, exec)| self.credits.get_mut(&fqdn).map(|x| *x -= len * exec * frac_rent));
+
+	    // This might result in some getting evicted. We should know about these? 
             self.credits.retain(|_fqdn, c| *c > 0.0);
         }
     }
+
+    /// Check if locally present. See if credits ok or marked for eviction? 
     fn present(&self, fqdn: &str) -> bool {
+	// See if credits are positive? 
         self.credits.contains_key(fqdn)
     }
 
-    fn calc_credit(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-
+   
+    /// The new credit is equal to the difference between the CPU and GPU execution times
+    /// Equivalent to the opportunity cost of (not) caching the item 
+    fn opp_cost(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
 	let mqfq_est = self.gpu_queue.est_completion_time(reg, tid) ;
 	let gpu_est = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est) ;
+	let cpu_est = self._cpu_queue.est_completion_time(reg, tid) ;
 	
-        self._cpu_queue.est_completion_time(reg, tid) - gpu_est 
+        let diff = cpu_est - gpu_est ;
+
+	info!(tid=%tid, fqdn=%&reg.fqdn, gpu_est=%gpu_est, cpu_est=%cpu_est, 
+	      "Landlord Credit");
+	
+	diff 
     }
-    
-    fn credit(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute {
-        let new_credit = self.calc_credit(reg, tid); 
-	    // self.cmap.avg_cpu_e2e_t(&reg.fqdn) - self.cmap.avg_gpu_e2e_t(&reg.fqdn);
+
+    /// Add new credit. If negative, return new credit instead of accumulating 
+    fn credit(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+        let add_credit = self.opp_cost(reg, tid);
+        if add_credit < 0.0 {
+            // no benefit! run on CPU
+            return add_credit ; 
+        }
+	// self.cmap.avg_cpu_e2e_t(&reg.fqdn) - self.cmap.avg_gpu_e2e_t(&reg.fqdn);
         if let Some(credit) = self.credits.get_mut(&reg.fqdn) {
-            if new_credit < 0.0 {
-                // no benefit! run on CPU
-                return Compute::CPU;
-            }
-            *credit += new_credit;
+            *credit += add_credit;
+	    return credit.clone()  
         }
-        match self.gpu_invokes.get_mut(&reg.fqdn) {
-            None => {
-                self.gpu_invokes.insert(reg.fqdn.clone(), 1);
-            },
-            Some(i) => *i += 1,
-        }
-        Compute::GPU
+	return 0.0 
     }
-    #[inline(always)]
-    fn log(&self, tid: &TransactionId) {
-        if self.cfg.log_cache_info {
-            info!(tid=%tid, cache=?self.credits, "{}", CACHE_LOG);
-        }
+
+    /// Space in the GPU cache.
+    /// TODO: Update using function sizes and gpu load 
+    fn accepting_new(&self) -> bool {
+       self.cache_size() < self.cfg.cache_size as usize 
     }
+
 }
+
 impl DispatchPolicy for LandlordPerFuncRent {
+    
+    /// Main entry point and landlord caching logic
     fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute {
-        if self.cache_size() < self.cfg.cache_size as usize {
-            // easy insert
-            self.insert(&item.registration.fqdn, tid);
-            self.log(tid);
-            return Compute::GPU;
-        }
+
         if self.present(&item.registration.fqdn) {
-            self.log(tid);
-            return self.credit(&item.registration, tid);
+	    let new_credit = self.credit(&item.registration, tid) ;
+	    if new_credit < 0.0 {
+		// this function is marked for eviction 
+		info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
+		return Compute::CPU 
+	    }
+	
+	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Hit");
+	    return Compute::GPU;
         }
-        self.charge_rent(&item.registration, tid);
-        if self.cache_size() < self.cfg.cache_size as usize {
-            // easy insert
+	
+	if self.accepting_new() {
             self.insert(&item.registration.fqdn, tid);
-            self.log(tid);
+	    
+	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Insertion");
             return Compute::GPU;
-        }
-        self.log(tid);
+	}
+
+	info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Miss");
+        self.charge_rents(&item.registration, tid);
+	// add item to the ghost cache and give it some credit? 
         Compute::CPU
     }
+
+    
 }
 
 //////////////////////////////////

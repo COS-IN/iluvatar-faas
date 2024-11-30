@@ -4,7 +4,7 @@ use ordered_float::OrderedFloat;
 use std::cmp::{min, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 #[derive(Debug, Clone)]
 pub enum Values {
@@ -405,7 +405,7 @@ impl CharacteristicsMap {
 	self.add(fqdn, Characteristics::EstGpu,
 		 Values::F64(xhat), false);
 
-	info!(fqdn=%fqdn, raw_est=%mqfq_est, error=%z , kf_est=%xhat,  "GPU Estimate");
+	debug!(fqdn=%fqdn, raw_est=%mqfq_est, error=%z , kf_est=%xhat,  "GPU Estimate");
 	// For now we can simply return this 
 	xhat 
     }
