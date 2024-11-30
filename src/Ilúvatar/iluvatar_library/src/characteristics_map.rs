@@ -382,10 +382,31 @@ impl CharacteristicsMap {
         }
     }
 
+    
     pub fn get_gpu_est(&self, fqdn: &str, mqfq_est: f64) -> f64 {
+	// we have a new estimate. Before that, let's compute the error with the previous estimate and e2e time
+	let prev_est = match self.lookup(fqdn, &Characteristics::EstGpu) {
+	    Some(_c) => unwrap_val_f64(&_c),
+	    _ => mqfq_est, //get full marks initially 
+	};
+	let prev_e2e = match self.lookup(fqdn, &Characteristics::E2EGpu) {
+	    Some(_c) => unwrap_val_f64(&_c),
+	    _ => mqfq_est,
+	};
+	// Kalman Filter notation , see faasmeter paper
+	let z = prev_e2e - prev_est ; //residual error 
+
+	let alpha = 0.2 ;
+	let beta = 0.4 ;
+	// kalman gain is proportional to process noise, in our case is total gpu load difference 
+	let k = 1.0 - (beta + alpha) ;
+	let xhat = (alpha * prev_est) + (beta * mqfq_est) + k * z ;
+
 	self.add(fqdn, Characteristics::EstGpu,
-		 Values::F64(mqfq_est), false);
-	mqfq_est 
+		 Values::F64(xhat), false);
+
+	// For now we can simply return this 
+	xhat 
     }
     
     
