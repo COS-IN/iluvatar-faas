@@ -83,7 +83,6 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
     /// The GPU may already be running functions and we may want to run a single invocation for more fine-grained scheduling.
     /// Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained.
     /// Need approx snapshot of GPU state and capacity. What functions may be resident, memory, etc.
-
     fn pop_queue(&self) -> Option<GpuBatch> {
         let batch_key = self
             .invoke_batches

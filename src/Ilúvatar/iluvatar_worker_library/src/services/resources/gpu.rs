@@ -638,7 +638,7 @@ impl GpuResourceTracker {
                     gpu_hardware_id = meta.hardware_id;
                 }
             }
-            return match self.gpu_metadata.get(&gpu_hardware_id) {
+            match self.gpu_metadata.get(&gpu_hardware_id) {
                 Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
                     Ok(p) => {
                         self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
@@ -647,7 +647,7 @@ impl GpuResourceTracker {
                     Err(e) => Err(e),
                 },
                 None => Err(tokio::sync::TryAcquireError::NoPermits),
-            };
+            }
         } else {
             let limit = limit as f64;
             let gpu_stat = self.status_info.read();
@@ -662,7 +662,7 @@ impl GpuResourceTracker {
             }
             drop(gpu_stat);
             if let Some(gpu_hardware_id) = gpu_hardware_id {
-                return match self.gpu_metadata.get(&(gpu_hardware_id as u32)) {
+                match self.gpu_metadata.get(&(gpu_hardware_id as u32)) {
                     Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
                         Ok(p) => {
                             let mut gpu_stat = self.status_info.write();
@@ -681,7 +681,7 @@ impl GpuResourceTracker {
                         error!(tid=%tid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                         Err(tokio::sync::TryAcquireError::NoPermits)
                     }
-                };
+                }
             } else {
                 Err(tokio::sync::TryAcquireError::NoPermits)
             }

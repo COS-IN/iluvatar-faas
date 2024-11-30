@@ -84,7 +84,7 @@ pub struct SimInvokeData {
 pub type SimulationInvocation = HashMap<Compute, SimInvokeData>;
 
 struct DeserializeFromU64OrString;
-impl<'de> serde::de::Visitor<'de> for DeserializeFromU64OrString {
+impl serde::de::Visitor<'_> for DeserializeFromU64OrString {
     type Value = u64;
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("an integer or a string")
