@@ -21,6 +21,7 @@ use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{debug, info};
+use iluvatar_library::characteristics_map::{Characteristics, Values};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -50,6 +51,8 @@ pub struct PolymDispatchCtx {
     n_cpu: u64,
     /// Total number to GPU
     n_gpu: u64, //Init to 1 to avoid divide by 0
+    /// tid->compute device map aargh
+    dev_hist: HashMap<TransactionId, Compute> 
 }
 
 impl PolymDispatchCtx {
@@ -64,6 +67,7 @@ impl PolymDispatchCtx {
             total_dispatch: 1,
             n_cpu: 1,
             n_gpu: 1,
+	    dev_hist: HashMap::new() 
         }
     }
 }
@@ -388,6 +392,9 @@ impl QueueingDispatcher {
             },
             EnqueueingPolicy::LandlordPerFuncRent => {
                 let compute = self.landlord.lock().choose(&enqueue, &tid);
+		let mut d = self.dispatch_state.write();
+		d.dev_hist.insert(tid.clone(), compute);
+		
                 enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
             EnqueueingPolicy::LandlordPerFuncRentHistorical => {
@@ -625,6 +632,14 @@ impl Invoker for QueueingDispatcher {
         match result_ptr.completed {
             true => {
                 info!(tid=%tid, "Invocation complete");
+		// TODO: update cmap E2E time, but CPU or GPU?
+		let e2etime = (self.clock.now() - queued.queue_insert_time).as_seconds_f64();
+		let d = self.dispatch_state.read() ;
+		
+		match d.dev_hist.get(&tid) {
+		    Some(&Compute::GPU) => self.cmap.add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false),
+		    _ => self.cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false),
+		};
                 Ok(queued.result_ptr.clone())
             },
             false => {

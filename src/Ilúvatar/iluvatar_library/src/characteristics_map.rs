@@ -122,6 +122,14 @@ pub enum Characteristics {
     /// Total end to end latency: queuing plus execution
     E2ECpu,
     E2EGpu,
+
+    /// Time estimate for the E2E GPU and CPU time 
+    EstGpu,
+    EstCpu,
+
+    /// Also store the error?
+    ErrGpu,
+    ErrCpu
 }
 
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc.
@@ -374,6 +382,13 @@ impl CharacteristicsMap {
         }
     }
 
+    pub fn get_gpu_est(&self, fqdn: &str, mqfq_est: f64) -> f64 {
+	self.add(fqdn, Characteristics::EstGpu,
+		 Values::F64(mqfq_est), false);
+	mqfq_est 
+    }
+    
+    
     pub fn get_best_time(&self, fqdn: &str) -> f64 {
         let c = match self.lookup_min(fqdn, &Characteristics::E2ECpu) {
             Some(_c) => unwrap_val_f64(&_c),
