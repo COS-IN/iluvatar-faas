@@ -1081,7 +1081,8 @@ impl MQFQ {
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         // sum_q (q_F-q_S) / max_in_flight
         let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
-        let total_wait = per_flow_wait_times.sum::<f64>() / self.gpu.total_gpus() as f64;
+        let total_wait = per_flow_wait_times.sum::<f64>();
+	// self.gpu.total_gpus() as f64;
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         info!(tid=%tid, qt=total_wait, runtime=exec_time, "GPU estimated completion time of item");
         
