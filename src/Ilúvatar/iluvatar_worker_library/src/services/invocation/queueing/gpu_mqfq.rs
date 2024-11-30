@@ -701,7 +701,7 @@ impl MQFQ {
         tid: &'a TransactionId,
         token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let mut min_time = f64::MAX;
         let mut min_q = None;
         let mut min_time_with_cont = f64::MAX;
@@ -747,7 +747,7 @@ impl MQFQ {
         tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let mut longest_q = 0;
         let mut chosen_q = None;
         let mut min_vt = f64::MAX;
@@ -781,7 +781,7 @@ impl MQFQ {
         tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let mut longest_wait_q = 0.0;
         let mut chosen_q = None;
         let mut min_vt = f64::MAX;
@@ -815,7 +815,7 @@ impl MQFQ {
         tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let mut finish_vt = 0.0;
         let mut chosen_q = None;
         for mut q in self.mqfq_set.iter_mut() {
@@ -847,7 +847,7 @@ impl MQFQ {
         _token: &GpuToken,
         virtual_time: f64,
         cnt: usize,
-    ) -> Vec<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Vec<RefMutMulti<'a, String, FlowQ>> {
         let mut top = vec![];
         for mut q in self.mqfq_set.iter_mut() {
             q.set_idle_throttled(virtual_time);
@@ -887,7 +887,7 @@ impl MQFQ {
         _tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let cnt = self.get_select_num();
         let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().min_by(|q1, q2| q1.in_flight.cmp(&q2.in_flight))
@@ -898,7 +898,7 @@ impl MQFQ {
         _tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let cnt = self.get_select_num();
         let mut top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.sort_by(|a, b| b.queue.len().cmp(&a.queue.len()));
@@ -910,7 +910,7 @@ impl MQFQ {
         _tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let cnt = self.get_select_num();
         let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().max_by(|q1, q2| q1.queue.len().cmp(&q2.queue.len()))
@@ -921,7 +921,7 @@ impl MQFQ {
         _tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let cnt = self.get_select_num();
         let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().min_by(|q1, q2| q1.last_serviced.cmp(&q2.last_serviced))
@@ -932,7 +932,7 @@ impl MQFQ {
         _tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let cnt = self.get_select_num();
         let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
         top.into_iter().choose(&mut rand::thread_rng())
@@ -943,7 +943,7 @@ impl MQFQ {
         _tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         self.mqfq_set
             .iter_mut()
             .map(|mut f| {
@@ -959,7 +959,7 @@ impl MQFQ {
         tid: &'a TransactionId,
         _token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let mut min_q = None;
         let mut min_time = f64::MAX;
         let mut sticky_queue = self.sticky_queue.write();
@@ -999,7 +999,7 @@ impl MQFQ {
         tid: &'a TransactionId,
         token: &GpuToken,
         virtual_time: f64,
-    ) -> Option<RefMutMulti<'_, String, FlowQ>> {
+    ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         match self.policy {
             MqfqPolicy::Default => self.default_next_flow(tid, token, virtual_time),
             MqfqPolicy::QueueLen => self.queue_len_next_flow(tid, token, virtual_time),
