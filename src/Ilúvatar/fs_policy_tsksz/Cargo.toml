@@ -1,0 +1,33 @@
+[package]
+name = "fs_policy_tsksz"
+version = "0.0.3"
+authors = ["Abdul Rehman <abdulrehmanee010@gmail.com>"]
+edition = "2021"
+description = "A simple scheduler that preserves locality for a function cgroup"
+license = "GPL-2.0-only"
+
+[dependencies]
+anyhow = "1.0.65"
+plain = "0.2.3"
+ctrlc = { version = "3.1", features = ["termination"] }
+libbpf-rs = "0.24.1"
+libc = "0.2.137"
+scx_utils = { version = "1.0.7" }
+scx_rustland_core = { version = "2.2.3" }
+
+# Specific to iluvatar 
+iluvatar_library = { path = "../iluvatar_library" }
+iluvatar_worker_library = { path = "../iluvatar_worker_library" }
+clap = { version = "4.5.4", features = ["derive"] }
+ipc-channel = { version = "0.18.1", features = ["memfd"] }
+serde = { version = "1.0" }
+
+[build-dependencies]
+scx_utils = { version = "1.0.7" }
+scx_rustland_core = { version = "2.2.3" }
+
+[features]
+enable_backtrace = []
+
+
+

@@ -1,7 +1,8 @@
 use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation, MinHeapFloat};
 use crate::services::containers::{containermanager::ContainerManager, structs::ContainerState};
+use crate::utils::characteristics_map::CharacteristicsMap;
 use anyhow::Result;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId};
+use iluvatar_library::transaction::TransactionId;
 use parking_lot::Mutex;
 use std::collections::BinaryHeap;
 use std::sync::Arc;

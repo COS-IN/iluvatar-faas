@@ -1,10 +1,42 @@
-use crate::clock::now;
+use crate::services::containers::containermanager::ContainerManager;
+use csv::Writer;
 use dashmap::DashMap;
+use iluvatar_library::clock::get_global_timestamp_ms;
+use iluvatar_library::clock::now;
 use ordered_float::OrderedFloat;
+use serde::{Deserialize, Serialize};
 use std::cmp::{min, Ordering};
+use std::io;
+use std::io::Write;
+use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, error};
+
+use iluvatar_bpf_library::bpf::func_characs::*;
+use iluvatar_library::cgroup_interaction::{
+    diff_cgroupreading, read_cgroup, CGROUPReading, CGROUPReadingV2, CGROUPV2Psi, CGROUPV2PsiVal, KEY_NR_PERIODS,
+    KEY_NR_THROTTLED, KEY_SYSTEM_USEC, KEY_THROTTLED_TIME, KEY_USAGE_USEC, KEY_USER_USEC,
+};
+use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::types::Compute;
+
+use num::cast::AsPrimitive;
+use std::default::Default;
+
+use std::sync::mpsc;
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::Sender;
+
+use serde_json;
+use std::fs::File;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacteristicsPacket {
+    pub fqdn: String,
+    pub e2e: f64,
+}
 
 #[derive(Debug, Clone)]
 pub enum Values {
@@ -72,11 +104,145 @@ impl AgExponential {
         AgExponential { alpha }
     }
 
-    fn accumulate(&self, old: &f64, new: &f64) -> f64 {
-        (new * self.alpha) + (old * (1.0 - self.alpha))
+    fn accumulate<T>(&self, old: T, new: T) -> T
+    where
+        T: AsPrimitive<f64>,
+        f64: AsPrimitive<T>,
+    {
+        let oldf: f64 = old.as_();
+        let newf: f64 = new.as_();
+        let r = (newf * self.alpha) + (oldf * (1.0 - self.alpha));
+        r.as_()
     }
+
+    fn accumulate_vec<T>(&self, old: &[T], new: &[T]) -> Vec<T>
+    where
+        T: AsPrimitive<f64>,
+        f64: AsPrimitive<T>,
+    {
+        let mut result = vec![];
+        if old.len() != new.len() {
+            return new.to_vec();
+        }
+        for (i, val) in old.iter().enumerate() {
+            result.push(self.accumulate(*val, new[i]))
+        }
+        result
+    }
+
     fn accumulate_dur(&self, old: &Duration, new: &Duration) -> Duration {
         new.mul_f64(self.alpha) + old.mul_f64(1.0 - self.alpha)
+    }
+
+    fn accumulate_cgroupreading(&self, old: &CGROUPReading, new: &CGROUPReading) -> CGROUPReading {
+        CGROUPReading {
+            usr: self.accumulate(old.usr, new.usr),
+            sys: self.accumulate(old.sys, new.sys),
+            pcpu_usr: self.accumulate_vec(&old.pcpu_usr, &new.pcpu_usr),
+            pcpu_sys: self.accumulate_vec(&old.pcpu_sys, &new.pcpu_sys),
+            threads: vec![], // if we do accumulate threads it would just
+            // bloat
+            procs: vec![], // same goes for the procs
+            cpustats: [
+                (
+                    KEY_NR_PERIODS.to_string(),
+                    self.accumulate(
+                        *old.cpustats.get(KEY_NR_PERIODS).unwrap_or(&0),
+                        *new.cpustats.get(KEY_NR_PERIODS).unwrap_or(&0),
+                    ),
+                ),
+                (
+                    KEY_NR_THROTTLED.to_string(),
+                    self.accumulate(
+                        *old.cpustats.get(KEY_NR_THROTTLED).unwrap_or(&0),
+                        *new.cpustats.get(KEY_NR_THROTTLED).unwrap_or(&0),
+                    ),
+                ),
+                (
+                    KEY_THROTTLED_TIME.to_string(),
+                    self.accumulate(
+                        *old.cpustats.get(KEY_THROTTLED_TIME).unwrap_or(&0),
+                        *new.cpustats.get(KEY_THROTTLED_TIME).unwrap_or(&0),
+                    ),
+                ),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+            v2: CGROUPReadingV2 {
+                threads: vec![],
+                procs: vec![],
+                cpustats: [
+                    (
+                        KEY_USER_USEC.to_string(),
+                        self.accumulate(
+                            *old.v2.cpustats.get(KEY_USER_USEC).unwrap_or(&0),
+                            *new.v2.cpustats.get(KEY_USER_USEC).unwrap_or(&0),
+                        ),
+                    ),
+                    (
+                        KEY_SYSTEM_USEC.to_string(),
+                        self.accumulate(
+                            *old.v2.cpustats.get(KEY_SYSTEM_USEC).unwrap_or(&0),
+                            *new.v2.cpustats.get(KEY_SYSTEM_USEC).unwrap_or(&0),
+                        ),
+                    ),
+                    (
+                        KEY_USAGE_USEC.to_string(),
+                        self.accumulate(
+                            *old.v2.cpustats.get(KEY_USAGE_USEC).unwrap_or(&0),
+                            *new.v2.cpustats.get(KEY_USAGE_USEC).unwrap_or(&0),
+                        ),
+                    ),
+                ]
+                .iter()
+                .cloned()
+                .collect(),
+
+                cpupsi: CGROUPV2Psi {
+                    some: CGROUPV2PsiVal {
+                        avg10: self.accumulate(old.v2.cpupsi.some.avg10, new.v2.cpupsi.some.avg10),
+                        avg60: self.accumulate(old.v2.cpupsi.some.avg60, new.v2.cpupsi.some.avg60),
+                        avg300: self.accumulate(old.v2.cpupsi.some.avg300, new.v2.cpupsi.some.avg300),
+                        total: self.accumulate(old.v2.cpupsi.some.total, new.v2.cpupsi.some.total),
+                    },
+                    full: CGROUPV2PsiVal {
+                        avg10: self.accumulate(old.v2.cpupsi.full.avg10, new.v2.cpupsi.full.avg10),
+                        avg60: self.accumulate(old.v2.cpupsi.full.avg60, new.v2.cpupsi.full.avg60),
+                        avg300: self.accumulate(old.v2.cpupsi.full.avg300, new.v2.cpupsi.full.avg300),
+                        total: self.accumulate(old.v2.cpupsi.full.total, new.v2.cpupsi.full.total),
+                    },
+                },
+                mempsi: CGROUPV2Psi {
+                    some: CGROUPV2PsiVal {
+                        avg10: self.accumulate(old.v2.mempsi.some.avg10, new.v2.mempsi.some.avg10),
+                        avg60: self.accumulate(old.v2.mempsi.some.avg60, new.v2.mempsi.some.avg60),
+                        avg300: self.accumulate(old.v2.mempsi.some.avg300, new.v2.mempsi.some.avg300),
+                        total: self.accumulate(old.v2.mempsi.some.total, new.v2.mempsi.some.total),
+                    },
+                    full: CGROUPV2PsiVal {
+                        avg10: self.accumulate(old.v2.mempsi.full.avg10, new.v2.mempsi.full.avg10),
+                        avg60: self.accumulate(old.v2.mempsi.full.avg60, new.v2.mempsi.full.avg60),
+                        avg300: self.accumulate(old.v2.mempsi.full.avg300, new.v2.mempsi.full.avg300),
+                        total: self.accumulate(old.v2.mempsi.full.total, new.v2.mempsi.full.total),
+                    },
+                },
+                iopsi: CGROUPV2Psi {
+                    some: CGROUPV2PsiVal {
+                        avg10: self.accumulate(old.v2.iopsi.some.avg10, new.v2.iopsi.some.avg10),
+                        avg60: self.accumulate(old.v2.iopsi.some.avg60, new.v2.iopsi.some.avg60),
+                        avg300: self.accumulate(old.v2.iopsi.some.avg300, new.v2.iopsi.some.avg300),
+                        total: self.accumulate(old.v2.iopsi.some.total, new.v2.iopsi.some.total),
+                    },
+                    full: CGROUPV2PsiVal {
+                        avg10: self.accumulate(old.v2.iopsi.full.avg10, new.v2.iopsi.full.avg10),
+                        avg60: self.accumulate(old.v2.iopsi.full.avg60, new.v2.iopsi.full.avg60),
+                        avg300: self.accumulate(old.v2.iopsi.full.avg300, new.v2.iopsi.full.avg300),
+                        total: self.accumulate(old.v2.iopsi.full.total, new.v2.iopsi.full.total),
+                    },
+                },
+            },
+        }
     }
 }
 
@@ -124,22 +290,63 @@ pub enum Characteristics {
     E2EGpu,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct InvokeDiff {
+    timestamp: i64,
+    fqdn: String,
+    cgroupid: BPF_FMAP_KEY,
+    cgroupstat: CGROUPReading,
+}
+
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc.
 /// TODO: make get/set functions for Characteristics auto-generated
 #[derive(Debug)]
 pub struct CharacteristicsMap {
     /// Most recent fn->{char->value}
-    map: DashMap<String, DashMap<Characteristics, Values>>,
+    pub map: DashMap<String, DashMap<Characteristics, Values>>,
     /// Moving average values
     agmap: DashMap<String, DashMap<Characteristics, Values>>,
     /// Minimum of the values
     minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
     creation_time: Instant,
+    fcmap_tx: Option<Sender<(BPF_FMAP_KEY, CharVal)>>,
+    container_man: Option<Arc<ContainerManager>>,
+    snapshot_invk_start: DashMap<TransactionId, CGROUPReading>,
+    diff_invk: Arc<DashMap<i64, InvokeDiff>>,
+    avg10_invk: Arc<DashMap<String, InvokeDiff>>, // it's an exponential moving average of the invoke diff
+    invk_json_tx: Sender<InvokeDiff>,
+    avg10_json_tx: Sender<InvokeDiff>,
+}
+
+fn build_sink_thread<T: Serialize + std::marker::Send + 'static>(filename: String) -> Sender<T> {
+    let (tx, rx): (Sender<T>, Receiver<T>) = mpsc::channel();
+    thread::spawn(move || {
+        let mut sink = match File::create(filename) {
+            Ok(f) => Box::new(f) as Box<dyn Write>,
+            Err(_) => Box::new(io::stdout()) as Box<dyn Write>,
+        };
+
+        // unbounded receiver waiting for all senders to complete.
+        while let Ok(val) = rx.recv() {
+            // Serialize it to a JSON string.
+            let j = match serde_json::to_string(&val) {
+                Ok(j) => j,
+                Err(_) => "".to_string(),
+            };
+            let _ = sink.write_all(j.as_bytes());
+            let _ = sink.write_all(b"\n");
+        }
+    });
+    tx
 }
 
 impl CharacteristicsMap {
-    pub fn new(ag: AgExponential) -> Self {
+    pub fn new(
+        ag: AgExponential,
+        fcmap_tx: Option<Sender<(BPF_FMAP_KEY, CharVal)>>,
+        container_man: Option<Arc<ContainerManager>>,
+    ) -> Self {
         // TODO: Implement file restore functionality here
 
         CharacteristicsMap {
@@ -148,6 +355,13 @@ impl CharacteristicsMap {
             minmap: DashMap::new(),
             ag,
             creation_time: now(),
+            fcmap_tx,
+            container_man,
+            snapshot_invk_start: DashMap::new(),
+            diff_invk: Arc::new(DashMap::new()),
+            avg10_invk: Arc::new(DashMap::new()),
+            invk_json_tx: build_sink_thread("/tmp/iluvatar/bin/invoke.json".to_string()),
+            avg10_json_tx: build_sink_thread("/tmp/iluvatar/bin/invoke_avg10.json".to_string()),
         }
     }
 
@@ -157,6 +371,21 @@ impl CharacteristicsMap {
         self.add_min(fqdn, chr, value.clone());
 
         let e0 = self.map.get_mut(fqdn);
+
+        if let Some(cm) = &self.container_man {
+            let cgids = cm.container_cgroup_ids(fqdn, Compute::CPU);
+            for cgid in cgids {
+                if let Some(tx) = self.fcmap_tx.as_ref() {
+                    let v = self.avg_cpu_e2e_t(fqdn) * 1000.0; // in ms
+                    let cv = CharVal {
+                        prio: 1,
+                        loc: 2,
+                        e2e: v as u32,
+                    };
+                    let _ = tx.send((cgid, cv));
+                }
+            }
+        }
 
         match e0 {
             // dashself.map of given fqdn
@@ -201,7 +430,7 @@ impl CharacteristicsMap {
                     Some(mut v1) => {
                         *v1 = match &v1.value() {
                             Values::Duration(d) => Values::Duration(self.ag.accumulate_dur(d, &unwrap_val_dur(&value))),
-                            Values::F64(f) => Values::F64(self.ag.accumulate(f, &unwrap_val_f64(&value))),
+                            Values::F64(f) => Values::F64(self.ag.accumulate(*f, unwrap_val_f64(&value))),
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
@@ -253,6 +482,52 @@ impl CharacteristicsMap {
         }
 
         self
+    }
+
+    pub fn start_invoke(&self, _fqdn: &str, tid: &TransactionId) {
+        if let Some(cm) = &self.container_man {
+            let cgroup_id = cm.get_cgroupid_against_tid(tid);
+            if let Some(cgid) = cgroup_id {
+                let reading = read_cgroup(std::str::from_utf8(&cgid).unwrap().to_string()).unwrap();
+                self.snapshot_invk_start.insert(tid.clone(), reading);
+            }
+        }
+    }
+
+    pub fn end_invoke(&self, fqdn: &str, tid: &TransactionId) {
+        if let Some(cm) = &self.container_man {
+            let cgroup_id = cm.remove_cgroupid_against_tid(tid);
+            if let Some(cgid) = cgroup_id {
+                let reading = read_cgroup(std::str::from_utf8(&cgid).unwrap().to_string()).unwrap();
+                if let Some(start_reading) = self.snapshot_invk_start.get(tid) {
+                    let diff = diff_cgroupreading(&start_reading, &reading);
+
+                    let time_now = get_global_timestamp_ms();
+                    let idiff = InvokeDiff {
+                        timestamp: time_now,
+                        fqdn: fqdn.to_string(),
+                        cgroupid: cgid,
+                        cgroupstat: diff.clone(),
+                    };
+                    let _ = self.invk_json_tx.send(idiff.clone());
+                    self.diff_invk.insert(time_now, idiff);
+
+                    let olddiff = match self.avg10_invk.get(fqdn) {
+                        Some(v) => v.cgroupstat.clone(),
+                        None => InvokeDiff::default().cgroupstat,
+                    };
+                    let mvavgdiff = self.ag.accumulate_cgroupreading(&olddiff, &diff);
+                    let imvavgdiff = InvokeDiff {
+                        timestamp: get_global_timestamp_ms(),
+                        fqdn: fqdn.to_string(),
+                        cgroupid: cgid,
+                        cgroupstat: mvavgdiff,
+                    };
+                    let _ = self.avg10_json_tx.send(imvavgdiff.clone());
+                    self.avg10_invk.insert(fqdn.to_string(), imvavgdiff);
+                }
+            }
+        }
     }
 
     pub fn add_iat(&self, fqdn: &str) {
@@ -493,6 +768,18 @@ impl CharacteristicsMap {
             }
         }
     }
+
+    pub fn write_csv(&self, _filename: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let mut wtr = Writer::from_path(_filename)?;
+        wtr.write_record(["func_name", "e2e_time"])?;
+        for e0 in self.map.iter() {
+            let fqdn = e0.key();
+            let exec_time = self.get_exec_time(fqdn);
+            wtr.write_record([fqdn, &exec_time.to_string()])?;
+        }
+        wtr.flush()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -502,7 +789,7 @@ mod charmap {
     #[test]
     fn duration() {
         // Test 4 using Duration datatype for ExecTime
-        let m = CharacteristicsMap::new(AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(AgExponential::new(0.6), None, None);
         println!("--------------------------------------------------------------------");
         println!("Test 4: Using Duration Datatype for ExecTime");
 
@@ -553,7 +840,7 @@ mod charmap {
 
     #[test]
     fn lookup_agg() {
-        let m = CharacteristicsMap::new(AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(AgExponential::new(0.6), None, None);
 
         let push_video = || {
             m.add(
@@ -626,7 +913,7 @@ mod charmap {
 
     #[test]
     fn accumulation() {
-        let m = CharacteristicsMap::new(AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(AgExponential::new(0.6), None, None);
 
         m.add(
             "video_processing.0.0.1",
@@ -703,7 +990,7 @@ mod charmap {
         use float_cmp::approx_eq;
         use std::thread::sleep;
 
-        let m = CharacteristicsMap::new(AgExponential::new(0.6));
+        let m = CharacteristicsMap::new(AgExponential::new(0.6), None, None);
         let fjd_011 = "json_dump.0.1.1".to_string();
 
         let verify_iat_lookup = |fname: &str, val_expc: f64| {

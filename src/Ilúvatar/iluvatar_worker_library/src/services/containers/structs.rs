@@ -1,6 +1,7 @@
 use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{containers::containermanager::ContainerManager, registration::RegisteredFunction};
 use anyhow::Result;
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
 use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
@@ -16,6 +17,9 @@ use tracing::debug;
 pub trait ContainerT: ToAny + Send + Sync {
     /// Invoke the function within the container, passing the json args to it
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)>;
+
+    /// get cgroup id
+    fn get_cgroupid(&self) -> BPF_FMAP_KEY;
 
     /// indicate that the container as been "used" or internal datatsructures should be updated such that it has
     fn touch(&self);

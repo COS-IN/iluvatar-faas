@@ -12,7 +12,7 @@ endif
 RUST_C?=cross
 DEBUG_FLAGS=--all-targets $(TARGET) -j $(NPROCS)
 RELEASE_FLAGS=--lib --bins $(TARGET) -j $(NPROCS) --release
-CARGO_ARGS?=""
+CARGO_ARGS?=
 
 default: debug
 
@@ -23,7 +23,7 @@ clean:
 	@$(RUST_C) clean
 check:
 	@echo "Checking"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) check --all-features $(DEBUG_FLAGS) $(CARGO_ARGS)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) check $(DEBUG_FLAGS) $(CARGO_ARGS)
 release:
 	@echo "Building release"
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(RELEASE_FLAGS) $(CARGO_ARGS)
@@ -37,6 +37,10 @@ tiny:
 debug:
 	@echo "Building debug"
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(DEBUG_FLAGS) $(CARGO_ARGS)
+fix:
+	@echo "Fixing lint errors"
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) fix $(DEBUG_FLAGS) $(CARGO_ARGS)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) clippy --fix --allow-no-vcs --workspace --examples --benches --no-deps -- -Dclippy::suspicious -Dclippy::correctness -Dclippy::perf -Aclippy::single_match -Aclippy::new_without_default -Aclippy::too_many_arguments -Aclippy::type-complexity -Dclippy::from_over_into -Aclippy::redundant-field-names -Dwarnings
 spans:
 	@echo "Building full_spans"
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(RELEASE_FLAGS) $(CARGO_ARGS)

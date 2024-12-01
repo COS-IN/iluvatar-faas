@@ -5,7 +5,7 @@ use crate::services::containers::structs::{Container, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::gpu::GPU;
-use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
+use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits, WorkerConfig};
 use anyhow::Result;
 use client::services::v1::container::Runtime;
 use client::services::v1::snapshots::{snapshots_client::SnapshotsClient, PrepareSnapshotRequest};
@@ -31,44 +31,30 @@ use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
     file::{temp_file_pth, touch, try_remove_pth},
     port::Port,
-    try_get_child_pid,
 };
 use iluvatar_library::{bail_error, bail_error_value, error_value, transaction::TransactionId, types::MemSizeMb};
 use inotify::{Inotify, WatchMask};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::mpsc;
-use std::sync::mpsc::sync_channel;
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
 
-#[derive(Debug, Deserialize)]
-pub struct BGPacket {
-    pid: u32,
-    fqdn: String,
-    container_id: String,
-    tid: TransactionId,
-}
-
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct ContainerdIsolation {
     channel: Option<Channel>,
     namespace_manager: Arc<NamespaceManager>,
+    worker_config: WorkerConfig,
     config: Arc<ContainerResourceConfig>,
     limits_config: Arc<FunctionLimits>,
     docker_config: Option<DockerConfig>,
     downloaded_images: Arc<DashMap<String, bool>>,
     creation_sem: Option<tokio::sync::Semaphore>,
-    tx: Arc<mpsc::SyncSender<BGPacket>>,
-    bg_workqueue: thread::JoinHandle<Result<()>>,
 }
 
 /// A service to handle the low-level details of containerd container lifecycles:
@@ -93,17 +79,9 @@ impl ContainerdIsolation {
         true
     }
 
-    fn send_bg_packet(&self, pid: u32, fqdn: &str, container_id: &str, tid: &TransactionId) {
-        let _ = self.tx.send(BGPacket {
-            pid,
-            fqdn: String::from(fqdn),
-            container_id: container_id.to_owned(),
-            tid: tid.clone(),
-        });
-    }
-
     pub fn new(
         ns_man: Arc<NamespaceManager>,
+        worker_config: WorkerConfig,
         config: Arc<ContainerResourceConfig>,
         limits_config: Arc<FunctionLimits>,
         docker_config: Option<DockerConfig>,
@@ -113,37 +91,17 @@ impl ContainerdIsolation {
             i => Some(tokio::sync::Semaphore::new(i as usize)),
         };
 
-        let (send, recv) = sync_channel(30);
-
         ContainerdIsolation {
             // this is threadsafe if we clone channel
             // https://docs.rs/tonic/0.4.0/tonic/transport/struct.Channel.html#multiplexing-requests
             channel: None,
             namespace_manager: ns_man,
+            worker_config,
             config,
             limits_config,
             docker_config,
             downloaded_images: Arc::new(DashMap::new()),
             creation_sem: sem,
-            tx: Arc::new(send),
-            bg_workqueue: thread::spawn(move || loop {
-                match recv.recv() {
-                    Ok(x) => {
-                        let ccpid = try_get_child_pid(x.pid, 1, 500);
-                        info!(
-                                  tid=%x.tid,
-                                  fqdn=%x.fqdn,
-                                  container_id=%x.container_id,
-                                  pid=%x.pid,
-                                  cpid=%ccpid,
-                                  "tag_pid_mapping"
-                        );
-                    }
-                    Err(e) => {
-                        bail_error!(error=%e, "background receive channel broken!");
-                    }
-                }
-            }),
         }
     }
 
@@ -371,8 +329,12 @@ impl ContainerdIsolation {
         ctd_namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
-        info!(tid=%tid, container_id=%container_id, "Removing container");
         let mut client = TasksClient::new(self.channel());
+        // container_id is of the form rodinia-needle-0.0.1-2DA0B908-D363-B1BD-34A3-C5F6B264FEFE
+        // we only need rodinia-needle-0.0.1
+        let fqdn = container_id.split('-').take(3).collect::<Vec<&str>>().join("-");
+        info!(tid=%tid, container_id=%container_id, fqdn=%fqdn, "Removing container");
+        //self.dtx.send( fqdn );
         self.kill_task(&mut client, container_id, ctd_namespace, tid).await?;
         self.delete_task(&mut client, container_id, ctd_namespace, tid).await?;
 
@@ -737,12 +699,6 @@ impl ContainerIsolationService for ContainerdIsolation {
             Ok(r) => {
                 debug!("Task {}: {:?} started", container.container_id, r);
                 container.task.running = true;
-                self.send_bg_packet(
-                    container.task.pid,
-                    fqdn,
-                    &container.task.container_id.clone().unwrap(),
-                    tid,
-                );
                 Ok(Arc::new(container))
             }
             Err(e) => {
@@ -799,7 +755,9 @@ impl ContainerIsolationService for ContainerdIsolation {
         let mut handles = vec![];
         for container in resp.into_inner().containers {
             let container_id = container.id.clone();
-            info!(tid=%tid, container_id=%container_id, "Removing container");
+            let fqdn = container_id.split('-').take(3).collect::<Vec<&str>>().join("-");
+            info!(tid=%tid, container_id=%container_id, fqdn=%fqdn, "Removing container");
+            //self.dtx.send( fqdn );
 
             let svc_clone = self_src.clone();
             let ns_clone = ctd_namespace.to_string();

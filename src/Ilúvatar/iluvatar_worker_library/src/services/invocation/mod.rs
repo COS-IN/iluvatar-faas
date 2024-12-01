@@ -8,11 +8,12 @@ use crate::services::{
     containers::structs::{ContainerState, ParsedResult},
     registration::RegisteredFunction,
 };
-use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
+use crate::utils::characteristics_map::CharacteristicsMap;
+use crate::utils::characteristics_map::{Characteristics, Values};
+use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig, WorkerConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::clock::Clock;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
+use iluvatar_library::{transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
@@ -56,6 +57,7 @@ pub trait Invoker: Send + Sync {
 pub struct InvokerFactory {
     cont_manager: Arc<ContainerManager>,
     function_config: Arc<FunctionLimits>,
+    worker_config: WorkerConfig,
     invocation_config: Arc<InvocationConfig>,
     cmap: Arc<CharacteristicsMap>,
     cpu: Arc<CpuResourceTracker>,
@@ -69,6 +71,7 @@ impl InvokerFactory {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
         function_config: Arc<FunctionLimits>,
+        worker_config: WorkerConfig,
         invocation_config: Arc<InvocationConfig>,
         cmap: Arc<CharacteristicsMap>,
         cpu: Arc<CpuResourceTracker>,
@@ -79,6 +82,7 @@ impl InvokerFactory {
         InvokerFactory {
             cont_manager,
             function_config,
+            worker_config,
             invocation_config,
             cmap,
             cpu,
@@ -93,6 +97,7 @@ impl InvokerFactory {
         let invoker = QueueingDispatcher::new(
             self.cont_manager.clone(),
             self.function_config.clone(),
+            self.worker_config.clone(),
             self.invocation_config.clone(),
             tid,
             self.cmap.clone(),
@@ -190,6 +195,8 @@ async fn invoke_on_container_2(
     cmap: &Arc<CharacteristicsMap>,
     clock: &Clock,
 ) -> Result<(ParsedResult, Duration, Container)> {
+    cmap.start_invoke(&reg.fqdn, tid);
+
     info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     let (char, time) = match ctr_lock.container.state() {
@@ -197,6 +204,7 @@ async fn invoke_on_container_2(
         ContainerState::Prewarm => (Characteristics::PreWarmTime, data.duration_sec),
         _ => (Characteristics::ColdTime, cold_time_start.elapsed().as_secs_f64()),
     };
+
     cmap.add(&reg.fqdn, char, Values::F64(time), true);
     cmap.add(
         &reg.fqdn,
@@ -206,5 +214,7 @@ async fn invoke_on_container_2(
     );
     let e2etime = (clock.now() - queue_insert_time).as_seconds_f64();
     cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
+    cmap.end_invoke(&reg.fqdn, tid);
+
     Ok((data, duration, ctr_lock.container.clone()))
 }

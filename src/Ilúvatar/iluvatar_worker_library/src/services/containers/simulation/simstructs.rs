@@ -5,6 +5,8 @@ use crate::services::{
     resources::gpu::GPU,
 };
 use anyhow::Result;
+use iluvatar_bpf_library::bpf::func_characs::build_bpf_key;
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
 use iluvatar_library::clock::{now, ContainerTimeFormatter, GlobalClock};
 use iluvatar_library::types::ResultErrorVal;
 use iluvatar_library::{
@@ -187,6 +189,10 @@ impl ContainerT for SimulatorContainer {
             gpu_allocation_mb: 0,
         };
         Ok((result, code_dur))
+    }
+
+    fn get_cgroupid(&self) -> BPF_FMAP_KEY {
+        build_bpf_key("fromsimstruct")
     }
 
     fn touch(&self) {

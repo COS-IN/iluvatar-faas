@@ -8,25 +8,33 @@ use crate::services::registration::RegistrationService;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::status::status_service::{build_load_avg_signal, StatusService};
 use crate::services::worker_health::WorkerHealthService;
+use crate::utils::characteristics_map::{AgExponential, CharacteristicsMap};
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
+use iluvatar_library::bail_error;
+use iluvatar_library::energy::energy_logging::EnergyLogger;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::types::{Compute, HealthStatus, Isolation, ResourceTimings};
-use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
-use iluvatar_library::{characteristics_map::AgExponential, energy::energy_logging::EnergyLogger};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, StatusResponse};
+
 use std::sync::Arc;
 
 pub mod worker_config;
 pub use worker_config as config;
+pub mod fs_scheduler;
 pub mod iluvatar_worker;
 pub mod rpc;
 pub mod sim_worker;
 pub mod worker_comm;
 
+use fs_scheduler::{create_shared_map, launch_scheduler};
+
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
+    // launch the fine grained scheduler
+    launch_scheduler(&worker_config);
+
+    let tx = create_shared_map();
 
     let factory = IsolationFactory::new(worker_config.clone());
     let load_avg = build_load_avg_signal();
@@ -56,6 +64,14 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     .await
     .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make container manger"))?;
 
+    // charateristics map
+    // push the producer end of the channel to the characteristics map
+    let cmap = Arc::new(CharacteristicsMap::new(
+        AgExponential::new(0.6),
+        Some(tx),
+        Some(container_man.clone()),
+    ));
+
     let reg = RegistrationService::new(
         container_man.clone(),
         isos.clone(),
@@ -75,6 +91,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let invoker_fact = InvokerFactory::new(
         container_man.clone(),
         worker_config.limits.clone(),
+        worker_config.clone(),
         worker_config.invocation.clone(),
         cmap.clone(),
         cpu,

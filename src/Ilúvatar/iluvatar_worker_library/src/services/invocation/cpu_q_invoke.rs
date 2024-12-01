@@ -11,9 +11,9 @@ use crate::services::containers::{
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::invoke_on_container;
 use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResourceTracker};
+use crate::utils::characteristics_map::CharacteristicsMap;
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
@@ -345,6 +345,7 @@ impl CpuQueueingInvoker {
             &self.clock,
         )
         .await?;
+
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         drop(permit);
         self.signal.notify_waiters();
