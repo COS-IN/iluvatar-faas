@@ -15,20 +15,23 @@ use crate::utils::port::Port;
 use anyhow::Result;
 use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
-use std::num::ParseIntError;
 use std::process::{Child, Command, Output, Stdio};
 use std::{str, thread, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, info};
 
-pub fn get_child_pid(ppid: u32) -> Result<u32, ParseIntError> {
-    let output = Command::new("pgrep")
-        .arg("-P")
-        .arg(ppid.to_string())
-        .output()
-        .expect("failed to execute process");
-
-    str::from_utf8(&output.stdout).unwrap().trim().parse::<u32>()
+pub fn get_child_pid(ppid: u32) -> Result<u32> {
+  let ppid =  ppid.to_string();
+  let output = execute_cmd("pgrep", vec!["-P", ppid.as_str()], None, &ppid)?;
+    // let output = Command::new("pgrep")
+    //     .arg("-P")
+    //     .arg(ppid.to_string())
+    //     .output();
+    Ok(str::from_utf8(&output.stdout)?.trim().parse::<u32>()?)
+    // match str::from_utf8(&output.stdout) {
+    //     Ok(r) => r.trim().parse::<u32>(),
+    //     Err(e) => Err(e)?,
+    // }
 }
 
 pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {

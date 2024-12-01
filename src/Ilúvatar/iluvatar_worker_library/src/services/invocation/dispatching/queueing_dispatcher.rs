@@ -261,7 +261,9 @@ impl QueueingDispatcher {
         ));
         let mut enqueues = 0;
         if self.invocation_config.enqueuing_log_details.unwrap_or(false) {
+            debug!(tid=%tid, "calc CPU est time");
             let cpu = self.cpu_queue.est_completion_time(reg, &tid);
+            debug!(tid=%tid, "calc GPU est time");
             let gpu = self
                 .gpu_queue
                 .as_ref()
