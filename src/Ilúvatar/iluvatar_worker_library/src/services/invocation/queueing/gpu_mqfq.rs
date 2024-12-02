@@ -1161,7 +1161,7 @@ impl DeviceQueue for MQFQ {
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let q_t = self.est_completion_time3(reg, tid);
+        let q_t = self.est_completion_time1(reg, tid);
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         info!(tid=%tid, qt=q_t, runtime=exec_time, "GPU estimated completion time of item");
         q_t + exec_time

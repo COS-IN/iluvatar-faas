@@ -339,7 +339,7 @@ impl LandlordPerFuncRent {
                 .map(|(fqdn, len, exec)| self.credits.get_mut(&fqdn).map(|x| *x -= len * exec * frac_rent));
 
 	    // This might result in some getting evicted. We should know about these? 
-            self.credits.retain(|_fqdn, c| *c > 0.0);
+            self.credits.retain(|_fqdn, c| *c > 0.0); // we still see functions with negative credit? 
         }
     }
 
@@ -354,12 +354,13 @@ impl LandlordPerFuncRent {
     /// Equivalent to the opportunity cost of (not) caching the item 
     fn opp_cost(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
 	let mqfq_est = self.gpu_queue.est_completion_time(reg, tid) ;
-	let gpu_est = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est) ;
+	let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est) ;
+
 	let cpu_est = self._cpu_queue.est_completion_time(reg, tid) ;
 	
         let diff = cpu_est - gpu_est ;
 
-	info!(tid=%tid, fqdn=%&reg.fqdn, gpu_est=%gpu_est, cpu_est=%cpu_est, 
+	info!(tid=%tid, fqdn=%&reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, 
 	      "Landlord Credit");
 	
 	diff 
@@ -380,10 +381,39 @@ impl LandlordPerFuncRent {
 	return 0.0 
     }
 
+    /// if flowQ is empty, then remove from our cache, because it was marked for eviction?
+    /// Other option is to add a condition that their credits must be negative to be evicted. 
+    fn sync_with_mqfq(&mut self) {
+        if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
+            let mut flowqs = self
+                .credits
+                .keys()
+                .map(|fqdn| {
+                    (
+                        fqdn.clone(),
+                        mqfq.get(fqdn).map_or(0, |q| q.queue.len())
+                    )
+                })
+                .collect::<Vec<(String, usize)>>();
+	    
+	    flowqs.retain(|(_, c)| *c == 0);
+	    
+	    info!(empty=%flowqs.len(), "Removing empty flowqs from gpu cache");
+	    
+	    for (fqdn, c) in &flowqs{
+		self.credits.remove(fqdn); 
+	    }
+	}
+
+    }
+    
     /// Space in the GPU cache.
     /// TODO: Update using function sizes and gpu load 
-    fn accepting_new(&self) -> bool {
-       self.cache_size() < self.cfg.cache_size as usize 
+    fn accepting_new(&mut self) -> bool {
+	// Check here if some functions have been 'evicted'?
+	self.sync_with_mqfq();
+	
+	self.cache_size() < self.cfg.cache_size as usize 
     }
 
 }
@@ -418,7 +448,7 @@ impl DispatchPolicy for LandlordPerFuncRent {
         Compute::CPU
     }
 
-    
+ 
 }
 
 //////////////////////////////////

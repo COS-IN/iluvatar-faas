@@ -4,7 +4,7 @@ use ordered_float::OrderedFloat;
 use std::cmp::{min, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 #[derive(Debug, Clone)]
 pub enum Values {
@@ -382,8 +382,9 @@ impl CharacteristicsMap {
         }
     }
 
+
     
-    pub fn get_gpu_est(&self, fqdn: &str, mqfq_est: f64) -> f64 {
+    pub fn get_gpu_est(&self, fqdn: &str, mqfq_est: f64) -> (f64, f64) {
 	// we have a new estimate. Before that, let's compute the error with the previous estimate and e2e time
 	let prev_est = match self.lookup(fqdn, &Characteristics::EstGpu) {
 	    Some(_c) => unwrap_val_f64(&_c),
@@ -405,9 +406,9 @@ impl CharacteristicsMap {
 	self.add(fqdn, Characteristics::EstGpu,
 		 Values::F64(xhat), false);
 
-	debug!(fqdn=%fqdn, raw_est=%mqfq_est, error=%z , kf_est=%xhat,  "GPU Estimate");
+	info!(fqdn=%fqdn, raw_est=%mqfq_est, error=%z , kf_est=%xhat,  "GPU Estimate");
 	// For now we can simply return this 
-	xhat 
+	(xhat,  z)
     }
     
     pub fn get_best_time(&self, fqdn: &str) -> f64 {
