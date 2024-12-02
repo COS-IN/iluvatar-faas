@@ -55,7 +55,6 @@ impl ContainerIsolationService for SimulatorIsolation {
         tid: &TransactionId,
     ) -> ResultErrorVal<Container, Option<GPU>> {
         let cid = format!("{}-{}", fqdn, GUID::rand());
-        // TODO: Sleep for the "cold start" time of launching the container
         match SimulatorContainer::new(
             &gen_tid(),
             cid,
