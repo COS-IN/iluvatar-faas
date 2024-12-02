@@ -1097,10 +1097,13 @@ impl MQFQ {
                 MQState::Active => q.est_flow_wait(),
                 // Likely over-estimation
                 MQState::Throttled => {
-                    let per_flow_wait_times = self.mqfq_set.iter()
+                    let per_flow_wait_times = self
+                        .mqfq_set
+                        .iter()
                         .filter(|x| x.state == MQState::Active)
                         .map(|x| x.est_flow_wait())
-                        .sum::<f64>() + q.est_flow_wait();
+                        .sum::<f64>()
+                        + q.est_flow_wait();
                     per_flow_wait_times / self.gpu.total_gpus() as f64
                 },
                 // Assumes inactive flow will be immediately be active and get to run soon.
@@ -1114,24 +1117,32 @@ impl MQFQ {
     #[allow(dead_code)]
     fn est_completion_time3(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
         let mut est_time = 0.0;
-        let mut flow_deets = self.get_flow_report().flows.into_iter().map(|f| (f.fqdn.clone(), f)).collect::<std::collections::HashMap<String, FlowQInfo>>();
+        let mut flow_deets = self
+            .get_flow_report()
+            .flows
+            .into_iter()
+            .map(|f| (f.fqdn.clone(), f))
+            .collect::<std::collections::HashMap<String, FlowQInfo>>();
         loop {
-          let min_flow_k = match flow_deets.iter().min_by(|(_, f1), (_, f2)| OrderedFloat(f1.finish_time_virt).cmp(&OrderedFloat(f2.finish_time_virt))) {
-            Some(m) => m.0.clone(),
-            None => return 0.0,
-          };
-          let min_flow = flow_deets.get_mut(&min_flow_k).unwrap();
-          if min_flow.queue_len == 0 {
-            if min_flow_k == reg.fqdn {
-              break;
+            let min_flow_k = match flow_deets
+                .iter()
+                .min_by(|(_, f1), (_, f2)| OrderedFloat(f1.finish_time_virt).cmp(&OrderedFloat(f2.finish_time_virt)))
+            {
+                Some(m) => m.0.clone(),
+                None => return 0.0,
+            };
+            let min_flow = flow_deets.get_mut(&min_flow_k).unwrap();
+            if min_flow.queue_len == 0 {
+                if min_flow_k == reg.fqdn {
+                    break;
+                }
+                flow_deets.remove(&min_flow_k);
+            } else {
+                let time = (min_flow.finish_time_virt - min_flow.start_time_virt) / min_flow.queue_len as f64;
+                est_time += time;
+                min_flow.start_time_virt += time;
+                min_flow.queue_len -= 1;
             }
-            flow_deets.remove(&min_flow_k);
-          } else {
-              let time =  (min_flow.finish_time_virt - min_flow.start_time_virt) / min_flow.queue_len as f64;
-              est_time += time;
-              min_flow.start_time_virt += time;
-              min_flow.queue_len -= 1;
-          }
         }
         est_time
     }
@@ -1144,14 +1155,14 @@ impl DeviceQueue for MQFQ {
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let q_t = self.est_completion_time1(reg, tid) / self.gpu.max_concurrency() as f64;
+        let q_t = self.est_completion_time2(reg, tid) / self.gpu.max_concurrency() as f64;
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         info!(tid=%tid, qt=q_t, runtime=exec_time, "GPU estimated completion time of item");
         q_t + exec_time
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
-        debug!(tid=item.tid, "MQFQ queue item");
+        debug!(tid = item.tid, "MQFQ queue item");
         self.add_invok_to_flow(item.clone());
         Ok(())
     }

@@ -21,17 +21,9 @@ use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, info};
 
 pub fn get_child_pid(ppid: u32) -> Result<u32> {
-  let ppid =  ppid.to_string();
-  let output = execute_cmd("pgrep", vec!["-P", ppid.as_str()], None, &ppid)?;
-    // let output = Command::new("pgrep")
-    //     .arg("-P")
-    //     .arg(ppid.to_string())
-    //     .output();
+    let ppid = ppid.to_string();
+    let output = execute_cmd("pgrep", vec!["-P", ppid.as_str()], None, &ppid)?;
     Ok(str::from_utf8(&output.stdout)?.trim().parse::<u32>()?)
-    // match str::from_utf8(&output.stdout) {
-    //     Ok(r) => r.trim().parse::<u32>(),
-    //     Err(e) => Err(e)?,
-    // }
 }
 
 pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {
