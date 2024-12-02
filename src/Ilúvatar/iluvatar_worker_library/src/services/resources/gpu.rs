@@ -717,6 +717,9 @@ impl GpuResourceTracker {
     pub fn physical_gpus(&self) -> u32 {
         self.gpus.len() as u32
     }
+    pub fn max_concurrency(&self) -> u32 {
+        self.gpu_metadata.iter().map(|g| g.1.max_running).sum::<u32>()
+    }
 
     /// Acquire a GPU so it can be attached to a container.
     /// Returns a pointer to the least-loaded GPU
