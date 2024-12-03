@@ -400,7 +400,7 @@ impl LandlordPerFuncRent {
 	    
 	    info!(empty=%flowqs.len(), "Removing empty flowqs from gpu cache");
 	    
-	    for (fqdn, c) in &flowqs{
+	    for (fqdn, _c) in &flowqs{
 		self.credits.remove(fqdn); 
 	    }
 	}
