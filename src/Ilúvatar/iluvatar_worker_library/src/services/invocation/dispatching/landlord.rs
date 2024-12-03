@@ -322,9 +322,21 @@ impl DispatchPolicy for LandlordPerFuncRent {
     fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute {
 
         if self.present(&item.registration.fqdn) {
+	    // This doesnt decrease credit 
 	    let new_credit = self.calc_add_credit(&item.registration, tid) ;
-	    if new_credit < 0.0 {
+	    // another tunable. Item already in cache. But estimated wait time too high
+	    // This estimate can be wrong? have some probabilistic pass-through here?
+	    // Or it can depend on load?
+	    let can_expand = self.soft_expand() ;
+	    // this is unlikely since usually gpu estimate too high due to high load. but guards against est err
+	    let pos_credit = match self.credits.get(&item.registration.fqdn) {
+		Some(cr) => *cr + new_credit > 0.0 ,
+		_ => false
+	    };
+	    
+	    if new_credit < 0.0 && !can_expand && !pos_credit {
 		// this function is marked for eviction
+		// we really want to minimize this case, function is on gpu already. estimate can be wrong? 
 		self.misses += 1 ; 
 		info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
 		return Compute::CPU 
