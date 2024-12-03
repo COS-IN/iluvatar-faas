@@ -21,6 +21,7 @@ pub struct LandlordConfig {
     // TODO: change this to max_res here and for the ansible scripts .. 
     //pub max_size: f64, // Max actual size of cache considering function footprints (exec times)
     pub log_cache_info: bool,
+    // mode: fixed, autoscaling 
 }
 
 pub fn get_landlord(
@@ -269,6 +270,22 @@ impl LandlordPerFuncRent {
 	    }
 	}
     }
+
+    /// Soft expansion is when we have empty MQFQ queues so can admit a new function, but strictly are over limit
+    fn soft_expand(&mut self) -> bool {
+	
+	let expected_sz = self.current_sz_occup() ;
+	let real_sz = self.gpu_load();
+
+	if real_sz < expected_sz {
+	    // we can let /some/ functions in, but not too many, in case huge bursty arrivals from everyone?
+	    // TODO: Add limits to soft-ex.
+	    // accounting will be tricky 
+	    info!(expected_sz=%expected_sz, real_sz=%real_sz, "Soft expanding");
+	    return true //YOLO 
+	}
+	return false 
+    }
     
     /// Space in the GPU cache.
     /// TODO: Update using function sizes and gpu load 
@@ -280,8 +297,21 @@ impl LandlordPerFuncRent {
 	// factors to consider:
 	// gpu_load (often zero due to small functions)
 	// recent GPU tput?
+	// Maintain small new-function buffer to allow size to exceed
+	// size is based on gpu_load and sum L, and potentially inter arrival times if we want to be really fancy
 	// 
-	self.current_occupancy() < self.cfg.cache_size as usize 
+	// 
+	let remaining = self.cfg.cache_size as usize - self.current_occupancy() ;
+
+	if remaining > 0 {
+	    return true 
+	}
+	// check if we can soft-expand here based on gpu load etc ?
+	if self.soft_expand() {
+	    return true 
+	}
+
+	return false 
     }
 
 }
@@ -310,7 +340,9 @@ impl DispatchPolicy for LandlordPerFuncRent {
         }
 
 	let potential_credits = self.opp_cost(&item.registration, tid) ;
-
+	// for higher cache utilization, we can relax the strict negativity, especially for 'new' functions? 
+	// TODO: maintain map of evicted functions. If function is new, then allow it to run even if negative credit
+	// tradeoff between locality and work conserving 
 	if self.accepting_new() && potential_credits > 0.0 {
             self.admit(&item.registration, tid);
 	    self.insertions += 1 ;
