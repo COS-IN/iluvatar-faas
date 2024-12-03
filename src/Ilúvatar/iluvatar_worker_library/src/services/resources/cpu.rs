@@ -27,6 +27,7 @@ pub struct CpuResourceTracker {
     pub cores: f64,
     load_avg: LoadAvg,
 }
+
 impl CpuResourceTracker {
     pub fn new(config: &Arc<CPUResourceConfig>, load_avg: LoadAvg, tid: &TransactionId) -> Result<Arc<Self>> {
         let mut max_concur = 0;
