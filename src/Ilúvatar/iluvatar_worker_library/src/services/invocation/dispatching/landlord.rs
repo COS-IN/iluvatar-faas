@@ -51,7 +51,7 @@ pub struct LandlordPerFuncRent {
     insertions: u32,
     szhits: f64, //total size of hits
     szmisses: f64, //opportunity cost of misses
-    // Keep a record of landlord operations? <(Insert/hit/miss/evict fqdn)> 
+    // Keep a record of landlord operations? <(Insert/hit/miss/evict fqdn)>
 }
 
 impl LandlordPerFuncRent {
@@ -82,7 +82,7 @@ impl LandlordPerFuncRent {
     }
 
     #[inline(always)]
-    fn landlog (&self, evmsg:&str) {
+    fn landlog(&self, evmsg:&str) {
 	if self.cfg.log_cache_info {
 	    info!(cache=?self.credits, len=%self.current_occupancy(), sz=%self.current_sz_occup(), gpu_load=%self.gpu_load(), hits=%self.hits, misses=%self.misses, insertions=%self.insertions, evictions=%self.evictions, szhits=%self.szhits, szmisses=%self.szmisses, "{}", evmsg); 
 	}
@@ -278,21 +278,23 @@ impl DispatchPolicy for LandlordPerFuncRent {
 
 	    return Compute::GPU;
         }
-	
-	if self.accepting_new() {
+
+	let potential_credits = self.opp_cost(&item.registration, tid) ;
+
+	if self.accepting_new() && potential_credits > 0.0 {
             self.admit(&item.registration, tid);
 	    self.insertions += 1 ;
 	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Insertion");
             return Compute::GPU;
 	}
 
+	// If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss. 
 	self.misses += 1 ;
-	info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Miss");
+	info!(tid=%tid, fqdn=%&item.registration.fqdn, pot_creds=%potential_credits, "Cache Miss");
         self.charge_rents(&item.registration, tid);
 	// add item to the ghost cache and give it some credit? 
         Compute::CPU
     }
-
  
 }
 
