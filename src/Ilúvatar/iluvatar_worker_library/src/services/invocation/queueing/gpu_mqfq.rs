@@ -35,7 +35,6 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Debug, Deserialize)]
-
 #[allow(unused)]
 #[allow(elided_named_lifetimes)]
 
@@ -1093,10 +1092,10 @@ impl MQFQ {
         let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
 
         let total_wait = per_flow_wait_times.sum::<f64>();
-	// self.gpu.total_gpus() as f64;
+        // self.gpu.total_gpus() as f64;
         let exec_time = self.cmap.get_gpu_exec_time(&_reg.fqdn);
         info!(tid=%_tid, qt=%total_wait, runtime=%exec_time, "GPU estimated completion time of item");
-        
+
         total_wait + exec_time
     }
 
