@@ -22,7 +22,7 @@ use tracing::{debug, info};
 
 pub fn get_child_pid(ppid: u32) -> Result<u32> {
     let ppid = ppid.to_string();
-    let output = execute_cmd("pgrep", vec!["-P", ppid.as_str()], None, &ppid)?;
+    let output = execute_cmd("/usr/bin/pgrep", vec!["-P", ppid.as_str()], None, &ppid)?;
     Ok(str::from_utf8(&output.stdout)?.trim().parse::<u32>()?)
 }
 

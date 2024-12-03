@@ -1,11 +1,13 @@
 use crate::clock::now;
+use crate::types::Compute;
 use dashmap::DashMap;
 use ordered_float::OrderedFloat;
+use parking_lot::RwLock;
 use std::cmp::{min, Ordering};
+use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, error, info};
-use crate::types::Compute;
 
 #[derive(Debug, Clone)]
 pub enum Values {
@@ -124,13 +126,44 @@ pub enum Characteristics {
     E2ECpu,
     E2EGpu,
 
-    /// Time estimate for the E2E GPU and CPU time 
+    /// Time estimate for the E2E GPU and CPU time
     EstGpu,
     EstCpu,
 
     /// Also store the error?
     ErrGpu,
-    ErrCpu
+    ErrCpu,
+}
+
+#[derive(Debug)]
+struct DeviceTput {
+    tput_record: VecDeque<(Instant, f64)>,
+}
+impl DeviceTput {
+    fn new() -> Self {
+        DeviceTput {
+            tput_record: VecDeque::new(),
+        }
+    }
+    /// Items must be inserted in monotonically increasing with respect to time.
+    fn insert(&mut self, time: Instant, exec_time: f64) {
+        self.tput_record.push_front((time, exec_time));
+        if self.tput_record.len() > 20 {
+            self.tput_record.pop_back();
+        }
+    }
+    /// Get the throughput / second.
+    /// Returns 0 if not enough items are in buffer
+    fn get_tput(&self) -> f64 {
+        if !self.tput_record.is_empty() {
+            let tput_sum = self.tput_record.iter().fold(0.0, |acc, i| acc + i.1);
+            let elapsed = (self.tput_record.front().unwrap().0 - self.tput_record.back().unwrap().0).as_secs_f64();
+            if elapsed != 0.0 {
+                return tput_sum / elapsed;
+            }
+        }
+        0.0
+    }
 }
 
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc.
@@ -144,19 +177,22 @@ pub struct CharacteristicsMap {
     /// Minimum of the values
     minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
+    cpu_tput: RwLock<DeviceTput>,
+    gpu_tput: RwLock<DeviceTput>,
     creation_time: Instant,
 }
 
 impl CharacteristicsMap {
     pub fn new(ag: AgExponential) -> Self {
         // TODO: Implement file restore functionality here
-
         CharacteristicsMap {
             map: DashMap::new(),
             agmap: DashMap::new(),
             minmap: DashMap::new(),
             ag,
             creation_time: now(),
+            cpu_tput: RwLock::new(DeviceTput::new()),
+            gpu_tput: RwLock::new(DeviceTput::new()),
         }
     }
 
@@ -286,6 +322,19 @@ impl CharacteristicsMap {
         );
     }
 
+    pub fn add_gpu_tput(&self, time: f64) {
+        self.gpu_tput.write().insert(now(), time);
+    }
+    pub fn add_cpu_tput(&self, time: f64) {
+        self.cpu_tput.write().insert(now(), time);
+    }
+    pub fn get_gpu_tput(&self) -> f64 {
+        self.gpu_tput.read().get_tput()
+    }
+    pub fn get_cpu_tput(&self) -> f64 {
+        self.cpu_tput.read().get_tput()
+    }
+
     /// Most recent value
     pub fn lookup(&self, fqdn: &str, chr: &Characteristics) -> Option<Values> {
         let e0 = self.map.get(fqdn)?;
@@ -383,35 +432,32 @@ impl CharacteristicsMap {
         }
     }
 
-
-    
     pub fn get_gpu_est(&self, fqdn: &str, mqfq_est: f64) -> (f64, f64) {
-	// we have a new estimate. Before that, let's compute the error with the previous estimate and e2e time
-	let prev_est = match self.lookup(fqdn, &Characteristics::EstGpu) {
-	    Some(_c) => unwrap_val_f64(&_c),
-	    _ => mqfq_est, //get full marks initially 
-	};
-	let prev_e2e = match self.lookup(fqdn, &Characteristics::E2EGpu) {
-	    Some(_c) => unwrap_val_f64(&_c),
-	    _ => mqfq_est,
-	};
-	// Kalman Filter notation , see faasmeter paper
-	let z = prev_e2e - prev_est ; //residual error 
+        // we have a new estimate. Before that, let's compute the error with the previous estimate and e2e time
+        let prev_est = match self.lookup(fqdn, &Characteristics::EstGpu) {
+            Some(_c) => unwrap_val_f64(&_c),
+            _ => mqfq_est, //get full marks initially
+        };
+        let prev_e2e = match self.lookup(fqdn, &Characteristics::E2EGpu) {
+            Some(_c) => unwrap_val_f64(&_c),
+            _ => mqfq_est,
+        };
+        // Kalman Filter notation , see faasmeter paper
+        let z = prev_e2e - prev_est; //residual error
 
-	let alpha = 0.2 ;
-	let beta = 0.4 ;
-	// kalman gain is proportional to process noise, in our case is total gpu load difference 
-	let k = 1.0 - (beta + alpha) ;
-	let xhat = (alpha * prev_est) + (beta * mqfq_est) + k * z ;
+        let alpha = 0.2;
+        let beta = 0.4;
+        // kalman gain is proportional to process noise, in our case is total gpu load difference
+        let k = 1.0 - (beta + alpha);
+        let xhat = (alpha * prev_est) + (beta * mqfq_est) + k * z;
 
-	self.add(fqdn, Characteristics::EstGpu,
-		 Values::F64(xhat), false);
+        self.add(fqdn, Characteristics::EstGpu, Values::F64(xhat), false);
 
-	info!(fqdn=%fqdn, raw_est=%mqfq_est, error=%z , kf_est=%xhat,  "GPU Estimate");
-	// For now we can simply return this 
-	(xhat,  z)
+        info!(fqdn=%fqdn, raw_est=%mqfq_est, error=%z , kf_est=%xhat,  "GPU Estimate");
+        // For now we can simply return this
+        (xhat, z)
     }
-    
+
     pub fn get_best_time(&self, fqdn: &str) -> f64 {
         let c = match self.lookup_min(fqdn, &Characteristics::E2ECpu) {
             Some(_c) => unwrap_val_f64(&_c),
@@ -520,8 +566,17 @@ impl CharacteristicsMap {
 
     /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute device.
     /// (Cold, Warm, PreWarm, Exec, E2E)
-    pub fn get_characteristics(&self, compute: Compute) -> anyhow::Result<(Characteristics, Characteristics, Characteristics, Characteristics, Characteristics)> {
-        if compute == Compute::CPU {
+    pub fn get_characteristics(
+        &self,
+        compute: &Compute,
+    ) -> anyhow::Result<(
+        Characteristics,
+        Characteristics,
+        Characteristics,
+        Characteristics,
+        Characteristics,
+    )> {
+        if compute == &Compute::CPU {
             Ok((
                 Characteristics::ColdTime,
                 Characteristics::WarmTime,
@@ -529,7 +584,7 @@ impl CharacteristicsMap {
                 Characteristics::ExecTime,
                 Characteristics::E2ECpu,
             ))
-        } else if compute == Compute::GPU {
+        } else if compute == &Compute::GPU {
             Ok((
                 Characteristics::GpuColdTime,
                 Characteristics::GpuWarmTime,
@@ -541,7 +596,6 @@ impl CharacteristicsMap {
             anyhow::bail!("Unknown compute to get characteristics for registration: {:?}", compute)
         }
     }
-
 
     pub fn dump(&self) {
         for e0 in self.map.iter() {
@@ -801,5 +855,45 @@ mod charmap {
          *      1  1.0
          *      2  1.6
          */
+    }
+}
+
+#[cfg(test)]
+mod device_tput {
+    use super::*;
+    use std::ops::Add;
+
+    #[test]
+    fn items_added() {
+        let c = now();
+        let mut tracker = DeviceTput::new();
+        tracker.insert(c, 0.1);
+        tracker.insert(c, 0.1);
+        tracker.insert(c, 0.1);
+        assert_eq!(tracker.tput_record.len(), 3);
+    }
+
+    #[test]
+    fn max_buff_size() {
+        let c = now();
+        let mut tracker = DeviceTput::new();
+        for _ in 0..40 {
+            tracker.insert(c, 0.1);
+        }
+        assert_eq!(tracker.tput_record.len(), 20);
+    }
+
+    #[test]
+    fn tput() {
+        let c = now();
+        let mut tracker = DeviceTput::new();
+        for _ in 0..5 {
+            tracker.insert(c, 1.0);
+        }
+        let c2 = c.add(Duration::from_secs_f64(5.0));
+        for _ in 0..5 {
+            tracker.insert(c2, 1.0);
+        }
+        assert_eq!(tracker.get_tput(), 2.0);
     }
 }
