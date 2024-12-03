@@ -5,6 +5,7 @@ use std::cmp::{min, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, error, info};
+use crate::types::Compute;
 
 #[derive(Debug, Clone)]
 pub enum Values {
@@ -84,36 +85,36 @@ impl AgExponential {
 /// CharacteristicsMap Implementation  
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Characteristics {
-    /// Running avg of _all_ times on CPU for invocations
-    /// Recorded by CpuQueueingInvoker::invoke_on_container
+    /// Running avg of _all_ times on CPU for invocations.
+    /// Recorded by invoke_on_container_2
     ExecTime,
-    /// Time on CPU for a warm invocation
-    /// Recorded by CpuQueueingInvoker::invoke_on_container
+    /// Time on CPU for a warm invocation.
+    /// Recorded by invoke_on_container_2
     WarmTime,
-    /// Time on CPU for a pre-warmed invocation
+    /// Time on CPU for a pre-warmed invocation.
     /// The container was previously started, but no invocation was run on it
-    /// Recorded by CpuQueueingInvoker::invoke_on_container
+    /// Recorded by invoke_on_container_2
     PreWarmTime,
-    /// E2E time for a CPU cold start
-    /// Recorded by CpuQueueingInvoker::invoke_on_container
+    /// E2E time for a CPU cold start.
+    /// Recorded by invoke_on_container_2
     ColdTime,
-    /// Running avg of _all_ times on GPU for invocations
-    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    /// Running avg of _all_ times on GPU for invocations.
+    /// Recorded by invoke_on_container_2
     GpuExecTime,
-    /// Time on GPU for a warm invocation
-    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    /// Time on GPU for a warm invocation.
+    /// Recorded by invoke_on_container_2
     GpuWarmTime,
-    /// Time on GPU for a pre-warmed invocation
+    /// Time on GPU for a pre-warmed invocation.
     /// The container was previously started, but no invocation was run on it
-    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    /// Recorded by invoke_on_container_2
     GpuPreWarmTime,
-    /// E2E time for a GPU cold start
-    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    /// E2E time for a GPU cold start.
+    /// Recorded by invoke_on_container_2
     GpuColdTime,
-    /// The last time an invocation happened
+    /// The last time an invocation happened.
     /// Recorded internally by the [CharacteristicsMap::add_iat] function
     LastInvTime,
-    /// The running avg IAT
+    /// The running avg IAT.
     /// Recorded by iluvatar_worker_library::worker_api::iluvatar_worker::IluvatarWorkerImpl::invoke and iluvatar_worker_library::worker_api::iluvatar_worker::IluvatarWorkerImpl::invoke_async
     IAT,
     /// The running avg memory usage
@@ -516,6 +517,31 @@ impl CharacteristicsMap {
             Values::Str(v) => Values::Str(v.clone()),
         }
     }
+
+    /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute device.
+    /// (Cold, Warm, PreWarm, Exec, E2E)
+    pub fn get_characteristics(&self, compute: Compute) -> anyhow::Result<(Characteristics, Characteristics, Characteristics, Characteristics, Characteristics)> {
+        if compute == Compute::CPU {
+            Ok((
+                Characteristics::ColdTime,
+                Characteristics::WarmTime,
+                Characteristics::PreWarmTime,
+                Characteristics::ExecTime,
+                Characteristics::E2ECpu,
+            ))
+        } else if compute == Compute::GPU {
+            Ok((
+                Characteristics::GpuColdTime,
+                Characteristics::GpuWarmTime,
+                Characteristics::GpuPreWarmTime,
+                Characteristics::GpuExecTime,
+                Characteristics::E2EGpu,
+            ))
+        } else {
+            anyhow::bail!("Unknown compute to get characteristics for registration: {:?}", compute)
+        }
+    }
+
 
     pub fn dump(&self) {
         for e0 in self.map.iter() {

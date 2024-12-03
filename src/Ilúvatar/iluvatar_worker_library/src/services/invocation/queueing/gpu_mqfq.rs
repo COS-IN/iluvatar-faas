@@ -1130,31 +1130,55 @@ impl MQFQ {
     #[allow(dead_code)]
     fn est_completion_time3(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
         let mut est_time = 0.0;
+        let allowed_overrun = missing_default(&self.q_config.allowed_overrun, 10.0);
         let mut flow_deets = self
             .get_flow_report()
             .flows
             .into_iter()
-            .map(|f| (f.fqdn.clone(), f))
-            .collect::<std::collections::HashMap<String, FlowQInfo>>();
+            .map(|mut f| {
+                if f.fqdn == reg.fqdn {
+                    f.queue_len += 1;
+                    if f.state == MQState::Inactive {
+                        f.state = MQState::Throttled;
+                        f.start_time_virt = f.finish_time_virt;
+                    }
+                    f.finish_time_virt += self.cmap.get_gpu_exec_time(&reg.fqdn);
+                }
+                f
+            })
+            .collect::<Vec<FlowQInfo>>();
         loop {
-            let min_flow_k = match flow_deets
-                .iter()
-                .min_by(|(_, f1), (_, f2)| OrderedFloat(f1.finish_time_virt).cmp(&OrderedFloat(f2.finish_time_virt)))
+            flow_deets.sort_by(|f1, f2| OrderedFloat(f1.finish_time_virt).cmp(&OrderedFloat(f2.finish_time_virt)));
+            flow_deets.sort_by(|f1, f2| f1.queue_len.cmp(&f2.queue_len));
+            flow_deets.sort_by(|f1, f2| f1.in_flight.cmp(&f2.in_flight));
+            match flow_deets
+                .iter_mut()
+                .filter(|f| f.state == MQState::Active && f.queue_len > 0)
+                .next()
             {
-                Some(m) => m.0.clone(),
+                Some(min_flow) => {
+                    let time = (min_flow.finish_time_virt - min_flow.start_time_virt) / min_flow.queue_len as f64;
+                    est_time += time;
+                    min_flow.start_time_virt += time;
+                    min_flow.queue_len -= 1;
+                },
                 None => return 0.0,
             };
-            let min_flow = flow_deets.get_mut(&min_flow_k).unwrap();
-            if min_flow.queue_len == 0 {
-                if min_flow_k == reg.fqdn {
-                    break;
+            let vt = match flow_deets.iter().map(|q| OrderedFloat(q.start_time_virt)).min() {
+                None => break,
+                Some(vt) => vt.0,
+            };
+            flow_deets.iter_mut().for_each(|q| {
+                if q.start_time_virt - vt <= allowed_overrun {
+                    q.state = MQState::Active;
+                } else {
+                    q.state = MQState::Throttled;
                 }
-                flow_deets.remove(&min_flow_k);
-            } else {
-                let time = (min_flow.finish_time_virt - min_flow.start_time_virt) / min_flow.queue_len as f64;
-                est_time += time;
-                min_flow.start_time_virt += time;
-                min_flow.queue_len -= 1;
+            });
+            for q in flow_deets.iter() {
+                if q.fqdn == reg.fqdn && q.queue_len == 0 && q.state == MQState::Active {
+                    return est_time;
+                }
             }
         }
         est_time

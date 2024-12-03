@@ -10,7 +10,7 @@ use crate::services::{
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dispatching::queueing_dispatcher::QueueingDispatcher;
-use iluvatar_library::characteristics_map::{Characteristics, Values};
+use iluvatar_library::characteristics_map::Values;
 use iluvatar_library::clock::Clock;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
@@ -192,19 +192,20 @@ async fn invoke_on_container_2(
 ) -> Result<(ParsedResult, Duration, Container)> {
     info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
+    let chars = cmap.get_characteristics(ctr_lock.container.compute_type())?;
     let (char, time) = match ctr_lock.container.state() {
-        ContainerState::Warm => (Characteristics::WarmTime, data.duration_sec),
-        ContainerState::Prewarm => (Characteristics::PreWarmTime, data.duration_sec),
-        _ => (Characteristics::ColdTime, cold_time_start.elapsed().as_secs_f64()),
+        ContainerState::Warm => (chars.1, data.duration_sec),
+        ContainerState::Prewarm => (chars.2, data.duration_sec),
+        _ => (chars.0, cold_time_start.elapsed().as_secs_f64()),
     };
     cmap.add(&reg.fqdn, char, Values::F64(time), true);
     cmap.add(
         &reg.fqdn,
-        Characteristics::ExecTime,
+        chars.3,
         Values::F64(data.duration_sec),
         true,
     );
     let e2etime = (clock.now() - queue_insert_time).as_seconds_f64();
-    cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
+    cmap.add(&reg.fqdn, chars.4, Values::F64(e2etime), true);
     Ok((data, duration, ctr_lock.container.clone()))
 }

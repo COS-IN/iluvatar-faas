@@ -2,7 +2,7 @@ use super::containers::{containermanager::ContainerManager, ContainerIsolationCo
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
 use iluvatar_library::{
-    characteristics_map::{Characteristics, CharacteristicsMap, Values},
+    characteristics_map::{CharacteristicsMap, Values},
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::calculate_fqdn,
@@ -149,7 +149,7 @@ impl RegistrationService {
                     for dev_compute in compute.into_iter() {
                         if let Some(timings) = r.get(&dev_compute.try_into()?) {
                             debug!(tid=%tid, compute=%dev_compute, from_compute=%compute, fqdn=%fqdn, timings=?r, "Registering timings for function");
-                            let (cold, warm, exec, e2e) = Self::get_characteristics(dev_compute)?;
+                            let (cold, warm, _prewarm, exec, e2e) = self.characteristics_map.get_characteristics(dev_compute)?;
                             for v in timings.cold_results_sec.iter() {
                                 self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
                             }
@@ -182,29 +182,6 @@ impl RegistrationService {
         self.cm.register(&ret, tid)?;
         info!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "function was successfully registered");
         Ok(ret)
-    }
-
-    /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute device
-    fn get_characteristics(
-        compute: Compute,
-    ) -> Result<(Characteristics, Characteristics, Characteristics, Characteristics)> {
-        if compute == Compute::CPU {
-            Ok((
-                Characteristics::ColdTime,
-                Characteristics::WarmTime,
-                Characteristics::ExecTime,
-                Characteristics::E2ECpu,
-            ))
-        } else if compute == Compute::GPU {
-            Ok((
-                Characteristics::GpuColdTime,
-                Characteristics::GpuWarmTime,
-                Characteristics::GpuExecTime,
-                Characteristics::E2EGpu,
-            ))
-        } else {
-            anyhow::bail!("Unknown compute to get characteristics for registration: {:?}", compute)
-        }
     }
 
     pub fn get_registration(&self, fqdn: &str) -> Option<Arc<RegisteredFunction>> {
