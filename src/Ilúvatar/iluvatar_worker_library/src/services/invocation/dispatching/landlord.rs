@@ -17,7 +17,7 @@ const INSERT_LOG: &str = "Adding function to cache";
 
 #[derive(Debug, Deserialize)]
 pub struct LandlordConfig {
-    pub cache_size: u32,
+    pub cache_size: u32, // currently just the number of functions 
     pub log_cache_info: bool,
 }
 
@@ -36,7 +36,6 @@ pub fn get_landlord(
     }
 }
 
-
 /// Only expected to run with MQFQ for GPU queuing.
 pub struct LandlordPerFuncRent {
     /// Map of FQDN -> credit
@@ -45,7 +44,13 @@ pub struct LandlordPerFuncRent {
     cfg: Arc<LandlordConfig>,
     _cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Arc<dyn DeviceQueue>,
+    hits: u32,
+    evictions: u32,
+    misses: u32,
+    insertions: u32,
+    // Keep a record of landlord operations? <(Insert/hit/miss/evict fqdn)> 
 }
+
 impl LandlordPerFuncRent {
     pub fn boxed(
         cmap: &Arc<CharacteristicsMap>,
@@ -63,10 +68,20 @@ impl LandlordPerFuncRent {
                 gpu_queue: gpu_queue
                     .clone()
                     .ok_or_else(|| anyhow::anyhow!("GPU queue was empty trying to create LandlordPerFuncRent"))?,
+		hits:0,
+		evictions:0,
+		misses:0,
+		insertions:0,
             })),
         }
     }
 
+    #[inline(always)]
+    fn landlog (&self, evmsg:&str) {
+	if self.cfg.log_cache_info {
+	    info!(cache=?self.credits, hits=%self.hits, misses=%self.misses, insertions=%self.insertions, evictions=%self.evictions,  "{}", evmsg); 
+	}
+    }
     
     fn cache_size(&self) -> usize {
         self.credits.len()
@@ -140,7 +155,8 @@ impl LandlordPerFuncRent {
 
 	    // This might result in some getting evicted. We should know about these? 
             self.credits.retain(|_fqdn, c| *c > 0.0); // we still see functions with negative credit?
-	    info!(tid=%tid, cache=?self.credits, "{}", "Post Rent Credits");	    
+
+	    self.landlog("Post Rent"); 
         }
     }
 
@@ -186,7 +202,7 @@ impl LandlordPerFuncRent {
     /// Other option is to add a condition that their credits must be negative to be evicted. 
     fn sync_with_mqfq(&mut self) {
 	info!(cache=?self.credits, "{}", "Before Landlord Sync");
-
+	
         if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
             let mut flowqs = self
                 .credits
@@ -207,7 +223,8 @@ impl LandlordPerFuncRent {
 		if let Some(cr) = self.credits.get(fqdn) {
 		    if *cr < 0.0 {
 			info!(fqdn=%fqdn , "Removing from gpu cache, empty FlowQ"); 
-			self.credits.remove(fqdn); 
+			self.credits.remove(fqdn);
+			self.evictions += 1; 
 		    }
 		}
 	    }
@@ -237,19 +254,20 @@ impl DispatchPolicy for LandlordPerFuncRent {
 		info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
 		return Compute::CPU 
 	    }
-	
+	    self.hits += 1 ;
 	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Hit");
-	    info!(tid=%tid, cache=?self.credits, "{}", "Post Hit Credits");	    
+	    self.landlog("Post Hit");
 	    return Compute::GPU;
         }
 	
 	if self.accepting_new() {
             self.insert(&item.registration.fqdn, tid);
-	    
+	    self.insertions += 1 ;
 	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Insertion");
             return Compute::GPU;
 	}
 
+	self.misses += 1 ;
 	info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Miss");
         self.charge_rents(&item.registration, tid);
 	// add item to the ghost cache and give it some credit? 
