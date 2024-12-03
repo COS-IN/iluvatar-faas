@@ -17,8 +17,9 @@ use tracing::info;
 
 #[derive(Debug, Deserialize)]
 pub struct LandlordConfig {
-    pub max_res: u32, // Max number of functions we are admitting, regardless of size 
-    pub max_size: f64, // Max actual size of cache considering function footprints (exec times)
+    pub cache_size: u32, // Max number of functions we are admitting, regardless of size
+    // TODO: change this to max_res here and for the ansible scripts .. 
+    //pub max_size: f64, // Max actual size of cache considering function footprints (exec times)
     pub log_cache_info: bool,
 }
 
@@ -30,6 +31,16 @@ pub fn get_landlord(
     gpu_queue: &Option<Arc<dyn DeviceQueue>>,
 ) -> Result<Box<dyn DispatchPolicy>> {
     match pol {
+	EnqueueingPolicy::Landlord =>  LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue),
+        EnqueueingPolicy::LandlordEstTime => {
+	    LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+        },
+        EnqueueingPolicy::LandlordPerFuncRent => {
+            LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+        },
+        EnqueueingPolicy::LandlordPerFuncRentHistorical => {
+	    LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+        },
         // landlord policy not being used, give dummy basic policy
         _ => {
 	    LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
@@ -251,7 +262,7 @@ impl LandlordPerFuncRent {
 	// Check here if some functions have been 'evicted'?
 	self.sync_with_mqfq();
 	
-	self.current_occupancy() < self.cfg.max_res as usize 
+	self.current_occupancy() < self.cfg.cache_size as usize 
     }
 
 }
