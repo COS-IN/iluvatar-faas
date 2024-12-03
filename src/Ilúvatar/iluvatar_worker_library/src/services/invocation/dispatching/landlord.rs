@@ -153,7 +153,11 @@ impl LandlordPerFuncRent {
     /// Rent will be charged to all functions based on this 'missing' function's opportunity cost 
     fn charge_rents(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
 	let total_rent_due = self.opp_cost(reg, tid);
-
+	// opp cost can be negative! Dont charge rent in that case
+	if total_rent_due < 0.0 {
+	    info!("Not charging negative rent");
+	    return 
+	}
 	// rent is charged proportional to n*exec from each fqdn
 	
         if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
@@ -243,13 +247,23 @@ impl LandlordPerFuncRent {
 	    flowqs.retain(|(_, c)| *c == 0);
 	    
 	    info!(empty=%flowqs.len(), "Removing empty flowqs from gpu cache");
-	    // This is agressive eviction from an anticipatory TTL perspective? We can allow some negative rents? 
+	    // This seems like important to tune.
+	    // If rents are not enough then functions can get "stuck" in the cache if they have enough credits
+	    // Agressive option is to ignore credit, which has too much churn.
+	    // Maybe compromise is to give the functions a penalty in credits? 
 	    for (fqdn, _c) in &flowqs{
-		if let Some(cr) = self.credits.get(fqdn) {
+		if let Some(cr) = self.credits.get_mut(fqdn) {
 		    if *cr < 0.0 {
 			info!(fqdn=%fqdn , "Removing from gpu cache, empty FlowQ"); 
 			self.credits.remove(fqdn);
 			self.evictions += 1; 
+		    }
+		    // Function has positive credit, but should be penalized somehow for having empty queue 
+		    else {
+			
+			let penalty = self.cmap.get_gpu_exec_time(fqdn) ;
+			info!(fqdn=%fqdn, penalty=%penalty, orig_cred=%cr, "Penalizing function"); 
+			*cr -= penalty ;
 		    }
 		}
 	    }
@@ -261,7 +275,12 @@ impl LandlordPerFuncRent {
     fn accepting_new(&mut self) -> bool {
 	// Check here if some functions have been 'evicted'?
 	self.sync_with_mqfq();
-	
+
+	// auto-scaling comes here? Do we want to expand?
+	// factors to consider:
+	// gpu_load (often zero due to small functions)
+	// recent GPU tput?
+	// 
 	self.current_occupancy() < self.cfg.cache_size as usize 
     }
 
