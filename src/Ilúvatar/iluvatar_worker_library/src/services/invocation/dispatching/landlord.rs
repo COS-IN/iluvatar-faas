@@ -13,11 +13,12 @@ use std::sync::Arc;
 use tracing::info;
 
 //const CACHE_LOG: &str = "Landlord cache";
-const INSERT_LOG: &str = "Adding function to cache";
+//const INSERT_LOG: &str = "Adding function to cache";
 
 #[derive(Debug, Deserialize)]
 pub struct LandlordConfig {
-    pub cache_size: u32, // currently just the number of functions 
+    pub max_res: u32, // Max number of functions we are admitting, regardless of size 
+    pub max_size: f64, // Max actual size of cache considering function footprints (exec times)
     pub log_cache_info: bool,
 }
 
@@ -48,6 +49,8 @@ pub struct LandlordPerFuncRent {
     evictions: u32,
     misses: u32,
     insertions: u32,
+    szhits: f64, //total size of hits
+    szmisses: f64, //opportunity cost of misses
     // Keep a record of landlord operations? <(Insert/hit/miss/evict fqdn)> 
 }
 
@@ -72,6 +75,8 @@ impl LandlordPerFuncRent {
 		evictions:0,
 		misses:0,
 		insertions:0,
+		szhits:0.0,
+		szmisses:0.0,
             })),
         }
     }
@@ -79,30 +84,39 @@ impl LandlordPerFuncRent {
     #[inline(always)]
     fn landlog (&self, evmsg:&str) {
 	if self.cfg.log_cache_info {
-	    info!(cache=?self.credits, hits=%self.hits, misses=%self.misses, insertions=%self.insertions, evictions=%self.evictions,  "{}", evmsg); 
+	    info!(cache=?self.credits, len=%self.current_occupancy(), sz=%self.current_sz_occup(), gpu_load=%self.gpu_load(), hits=%self.hits, misses=%self.misses, insertions=%self.insertions, evictions=%self.evictions, szhits=%self.szhits, szmisses=%self.szmisses, "{}", evmsg); 
 	}
     }
-    
-    fn cache_size(&self) -> usize {
+
+    /// Number of resident functions.
+    fn current_occupancy(&self) -> usize {
         self.credits.len()
     }
 
-    /// 
-    fn insert(&mut self, fqdn: &str, tid: &TransactionId) {
-        match self.credits.get_mut(fqdn) {
+    /// Sum of the gpu exec times of resident functions 
+    fn current_sz_occup(&self) -> f64 {
+	let sizes:Vec<_> = self.credits.keys().map(|fqdn| self.cmap.get_gpu_exec_time(fqdn)).collect() ;
+	let total_sz = sizes.iter().sum() ;
+	total_sz 
+    }
+
+    /// Admit and insert New function 
+    fn admit(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) {
+	let fqdn = reg.fqdn.clone() ; 
+        match self.credits.get_mut(&fqdn) {
             None => {
-                let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn);
+		// Most likely this is a new function, so avg e2e times will have low confidence?
+		// other place we are using opp_cost which uses a better estimator.
+		let cost = self.opp_cost(reg, _tid) ;
+                //let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn);
                 self.credits.insert(fqdn.to_string(), cost);
-                if self.cfg.log_cache_info {
-                    info!(tid=%tid, fqdn=%fqdn, "{}", INSERT_LOG);
-                }
             },
             Some(c) => {
-                *c += self.cmap.get_gpu_exec_time(fqdn);
+		// This should not be happening? 
+                *c += self.cmap.get_gpu_exec_time(&fqdn);
             },
         }
     }
-
 
     /// Get the current load on the GPU. total execution time pending
     #[allow(dead_code)] 
@@ -184,7 +198,7 @@ impl LandlordPerFuncRent {
     }
 
     /// Add new credit. If negative, return new credit instead of accumulating 
-    fn credit(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    fn calc_add_credit(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         let add_credit = self.opp_cost(reg, tid);
         if add_credit < 0.0 {
             // no benefit! run on CPU
@@ -237,7 +251,7 @@ impl LandlordPerFuncRent {
 	// Check here if some functions have been 'evicted'?
 	self.sync_with_mqfq();
 	
-	self.cache_size() < self.cfg.cache_size as usize 
+	self.current_occupancy() < self.cfg.max_res as usize 
     }
 
 }
@@ -248,20 +262,25 @@ impl DispatchPolicy for LandlordPerFuncRent {
     fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute {
 
         if self.present(&item.registration.fqdn) {
-	    let new_credit = self.credit(&item.registration, tid) ;
+	    let new_credit = self.calc_add_credit(&item.registration, tid) ;
 	    if new_credit < 0.0 {
-		// this function is marked for eviction 
+		// this function is marked for eviction
+		self.misses += 1 ; 
 		info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
 		return Compute::CPU 
 	    }
+	    
 	    self.hits += 1 ;
+	    self.szhits += self.cmap.get_gpu_exec_time(&item.registration.fqdn);
+	    // We've seen this function before so its size is more likely to be accurate 
 	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Hit");
 	    self.landlog("Post Hit");
+
 	    return Compute::GPU;
         }
 	
 	if self.accepting_new() {
-            self.insert(&item.registration.fqdn, tid);
+            self.admit(&item.registration, tid);
 	    self.insertions += 1 ;
 	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Insertion");
             return Compute::GPU;
