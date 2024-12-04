@@ -37,19 +37,19 @@ pub fn get_landlord(
     gpu_queue: &Option<Arc<dyn DeviceQueue>>,
 ) -> Result<Box<dyn DispatchPolicy>> {
     match pol {
-	EnqueueingPolicy::Landlord =>  Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue),
+	EnqueueingPolicy::Landlord =>  Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, String::from("LL")),
         EnqueueingPolicy::LRU => {
-	    Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+	    Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, String::from("LRU"))
         },
         EnqueueingPolicy::LFU => {
-            Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+            Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, String::from("LFU"))
         },
         EnqueueingPolicy::LandlordFixed => {
-	    Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+	    Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, String::from("LLF"))
         },
         // landlord policy not being used, give dummy basic policy
         _ => {
-	    Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+	    Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, String::from("LL"))
 	},
     }
 }
@@ -62,6 +62,7 @@ pub struct Landlord {
     cfg: Arc<LandlordConfig>,
     _cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Arc<dyn DeviceQueue>,
+    cachepol: String, 
     residents: HashMap<String, (u32, OffsetDateTime)>, // fqdn -> invoc counts, last access. Do we keep evicted as well?
     nonresidents: HashMap<String, (u32, OffsetDateTime)>, // functions we let go
     clock: Clock, 
@@ -80,12 +81,14 @@ impl Landlord {
         cfg: &Option<Arc<LandlordConfig>>,
         cpu_queue: &Arc<dyn DeviceQueue>,
         gpu_queue: &Option<Arc<dyn DeviceQueue>>,
+	cachepol: String, 
     ) -> Result<Box<dyn DispatchPolicy>> {
         match cfg {
             None => anyhow::bail!("LandlordConfig was empty"),
             Some(c) => Ok(Box::new(Self {
                 credits: HashMap::new(),
 		residents: HashMap::new(),
+		cachepol: cachepol, 
 		nonresidents: HashMap::new(),
 		clock: get_global_clock(&"clock".to_string()).unwrap(),
                 cmap: cmap.clone(),
@@ -186,9 +189,25 @@ impl Landlord {
 	}
 	return 0.0 
     }
+
+    fn charge_rents(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
+	match self.cachepol.as_str() {
+	    "LRU" => {self.charge_rent_constant()},
+	    "LFU" => {self.charge_rent_constant()}, 
+	    _ => self.charge_rents_ll(reg, tid)
+	}
+    }
+
+    /// For LRU and LFU, always decrement by one for all 
+    fn charge_rent_constant(&mut self) {
+	for value in self.credits.values_mut() {
+	    *value = *value - 1.0
+	}
+    }
+    
     
     /// Rent will be charged to all functions based on this 'missing' function's opportunity cost 
-    fn charge_rents(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
+    fn charge_rents_ll(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
 	let total_rent_due = self.opp_cost(reg, tid);
 	// opp cost can be negative! Dont charge rent in that case
 	if total_rent_due < 0.0 {
@@ -236,15 +255,25 @@ impl Landlord {
     /// The new credit is equal to the difference between the CPU and GPU execution times
     /// Equivalent to the opportunity cost of (not) caching the item 
     fn opp_cost(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+	
 	let mqfq_est = self.gpu_queue.est_completion_time(reg, tid) ;
 	let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est) ;
 
 	let cpu_est = self._cpu_queue.est_completion_time(reg, tid) ;
-	
-        let diff = cpu_est - gpu_est ;
 
 	info!(tid=%tid, fqdn=%&reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, 
 	      "Landlord Credit");
+
+	let diff = match self.cachepol.as_str() {
+	    "LFU" => 1.0 ,
+	    "LRU" => {
+		match self.credits.contains_key(&reg.fqdn) {
+		    true => 0.0, //LRU no extra credit, max is 1 
+		    false => 1.0 
+		}
+	    },
+	    _ => cpu_est - gpu_est,
+	};
 	
 	diff 
     }
@@ -311,7 +340,9 @@ impl Landlord {
 
     /// Soft expansion is when we have empty MQFQ queues so can admit a new function, but strictly are over limit
     fn soft_expand(&mut self) -> bool {
-	
+	if self.cachepol !="LL" {
+	    return false
+	}
 	let expected_sz = self.current_sz_occup() ;
 	let real_sz = self.gpu_load();
 
