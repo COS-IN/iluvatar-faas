@@ -11,6 +11,11 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
+//use crate::clock::now;
+//use std::time::Duration;
+use time::OffsetDateTime;
+//use tokio::time::Instant;
+use iluvatar_library::clock::{get_global_clock, Clock};
 
 //const CACHE_LOG: &str = "Landlord cache";
 //const INSERT_LOG: &str = "Adding function to cache";
@@ -57,6 +62,9 @@ pub struct LandlordPerFuncRent {
     cfg: Arc<LandlordConfig>,
     _cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Arc<dyn DeviceQueue>,
+    residents: HashMap<String, (u32, OffsetDateTime)>, // fqdn -> invoc counts, last access. Do we keep evicted as well?
+    nonresidents: HashMap<String, (u32, OffsetDateTime)>, // functions we let go
+    clock: Clock, 
     hits: u32,
     evictions: u32,
     misses: u32,
@@ -77,6 +85,9 @@ impl LandlordPerFuncRent {
             None => anyhow::bail!("LandlordConfig was empty"),
             Some(c) => Ok(Box::new(Self {
                 credits: HashMap::new(),
+		residents: HashMap::new(),
+		nonresidents: HashMap::new(),
+		clock: get_global_clock(&"clock".to_string()).unwrap(),
                 cmap: cmap.clone(),
                 cfg: c.clone(),
                 _cpu_queue: cpu_queue.clone(),
@@ -96,7 +107,7 @@ impl LandlordPerFuncRent {
     #[inline(always)]
     fn landlog(&self, evmsg:&str) {
 	if self.cfg.log_cache_info {
-	    info!(cache=?self.credits, len=%self.current_occupancy(), sz=%self.current_sz_occup(), gpu_load=%self.gpu_load(), hits=%self.hits, misses=%self.misses, insertions=%self.insertions, evictions=%self.evictions, szhits=%self.szhits, szmisses=%self.szmisses, "{}", evmsg); 
+	    info!(cache=?self.credits, len=%self.current_occupancy(), sz=%self.current_sz_occup(), gpu_load=%self.gpu_load(), residents=?self.residents, nonresidents=?self.nonresidents, hits=%self.hits, misses=%self.misses, insertions=%self.insertions, evictions=%self.evictions, szhits=%self.szhits, szmisses=%self.szmisses, "{}", evmsg); 
 	}
     }
 
@@ -112,6 +123,22 @@ impl LandlordPerFuncRent {
 	total_sz 
     }
 
+    fn update_nonres(&mut self, fqdn: &str) {
+	let tnow = self.clock.now(); 
+	match self.nonresidents.get_mut(fqdn) {
+	    None => {self.nonresidents.insert(fqdn.to_string(), (1, tnow));},
+	    Some((c, t)) => {*c = *c+1 ; *t = tnow;},
+	}
+    }
+
+    fn update_res(&mut self, fqdn: &str) {
+	let tnow = self.clock.now(); 
+	match self.residents.get_mut(fqdn) {
+	    None => {self.residents.insert(fqdn.to_string(), (1, tnow));},
+	    Some((c, t)) => {*c = *c+1 ; *t = tnow;},
+	}
+    }
+    
     /// Admit and insert New function 
     fn admit(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) {
 	let fqdn = reg.fqdn.clone() ; 
@@ -257,7 +284,9 @@ impl LandlordPerFuncRent {
 		    if *cr < 0.0 {
 			info!(fqdn=%fqdn , "Removing from gpu cache, empty FlowQ"); 
 			self.credits.remove(fqdn);
-			self.evictions += 1; 
+			self.evictions += 1;
+			// Do we update residents here? So
+			self.residents.remove(fqdn); 
 		    }
 		    // Function has positive credit, but should be penalized somehow for having empty queue 
 		    else {
@@ -339,6 +368,8 @@ impl DispatchPolicy for LandlordPerFuncRent {
 		// we really want to minimize this case, function is on gpu already. estimate can be wrong? 
 		self.misses += 1 ; 
 		info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
+		self.update_nonres(&item.registration.fqdn);
+		
 		return Compute::CPU 
 	    }
 	    
@@ -347,7 +378,7 @@ impl DispatchPolicy for LandlordPerFuncRent {
 	    // We've seen this function before so its size is more likely to be accurate 
 	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Hit");
 	    self.landlog("Post Hit");
-
+	    self.update_res(&item.registration.fqdn); 
 	    return Compute::GPU;
         }
 
@@ -359,12 +390,15 @@ impl DispatchPolicy for LandlordPerFuncRent {
             self.admit(&item.registration, tid);
 	    self.insertions += 1 ;
 	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Insertion");
+	    self.update_res(&item.registration.fqdn); 
             return Compute::GPU;
 	}
 
 	// If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss. 
 	self.misses += 1 ;
 	info!(tid=%tid, fqdn=%&item.registration.fqdn, pot_creds=%potential_credits, "Cache Miss");
+	self.update_nonres(&item.registration.fqdn.clone());
+	
         self.charge_rents(&item.registration, tid);
 	// add item to the ghost cache and give it some credit? 
         Compute::CPU
