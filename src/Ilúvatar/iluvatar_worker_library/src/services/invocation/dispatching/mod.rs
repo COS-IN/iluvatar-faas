@@ -25,9 +25,9 @@ pub enum EnqueueingPolicy {
     AlwaysGPU,
     /// Landlord-based policy
     Landlord,
-    LandlordEstTime,
-    LandlordPerFuncRent,
-    LandlordPerFuncRentHistorical,
+    LandlordFixed,
+    LRU,
+    LFU,
     TopAvg,
     Popular,
     PopularEstTimeDispatch,

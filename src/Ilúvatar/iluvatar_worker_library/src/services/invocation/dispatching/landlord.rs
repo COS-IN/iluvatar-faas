@@ -37,25 +37,25 @@ pub fn get_landlord(
     gpu_queue: &Option<Arc<dyn DeviceQueue>>,
 ) -> Result<Box<dyn DispatchPolicy>> {
     match pol {
-	EnqueueingPolicy::Landlord =>  LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue),
-        EnqueueingPolicy::LandlordEstTime => {
-	    LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+	EnqueueingPolicy::Landlord =>  Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue),
+        EnqueueingPolicy::LRU => {
+	    Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
         },
-        EnqueueingPolicy::LandlordPerFuncRent => {
-            LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+        EnqueueingPolicy::LFU => {
+            Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
         },
-        EnqueueingPolicy::LandlordPerFuncRentHistorical => {
-	    LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+        EnqueueingPolicy::LandlordFixed => {
+	    Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
         },
         // landlord policy not being used, give dummy basic policy
         _ => {
-	    LandlordPerFuncRent::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
+	    Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue)
 	},
     }
 }
 
 /// Only expected to run with MQFQ for GPU queuing.
-pub struct LandlordPerFuncRent {
+pub struct Landlord {
     /// Map of FQDN -> credit
     credits: HashMap<String, f64>,
     cmap: Arc<CharacteristicsMap>,
@@ -74,7 +74,7 @@ pub struct LandlordPerFuncRent {
     // Keep a record of landlord operations? <(Insert/hit/miss/evict fqdn)>
 }
 
-impl LandlordPerFuncRent {
+impl Landlord {
     pub fn boxed(
         cmap: &Arc<CharacteristicsMap>,
         cfg: &Option<Arc<LandlordConfig>>,
@@ -136,6 +136,15 @@ impl LandlordPerFuncRent {
 	match self.residents.get_mut(fqdn) {
 	    None => {self.residents.insert(fqdn.to_string(), (1, tnow));},
 	    Some((c, t)) => {*c = *c+1 ; *t = tnow;},
+	}
+    }
+
+    /// Allow functions which havent used the GPU ever 
+    #[allow(dead_code)] 
+    fn new_func_bonus(&self, fqdn: &str) -> bool {
+	match self.residents.get(fqdn) {
+	    None => true ,
+	    Some((_c, _t)) => false,
 	}
     }
     
@@ -285,12 +294,12 @@ impl LandlordPerFuncRent {
 			info!(fqdn=%fqdn , "Removing from gpu cache, empty FlowQ"); 
 			self.credits.remove(fqdn);
 			self.evictions += 1;
-			// Do we update residents here? So
-			self.residents.remove(fqdn); 
+			// Do we update residents here? NO. lets keep historical residence info
+			// Function may have been 'temporarily' evicted. More useful for determining novelty, GPU hit % per func, etc . Thus a function can be in BOTH resident and non-resident sets 
+			//self.residents.remove(fqdn); 
 		    }
 		    // Function has positive credit, but should be penalized somehow for having empty queue 
 		    else {
-			
 			let penalty = self.cmap.get_gpu_exec_time(fqdn) ;
 			info!(fqdn=%fqdn, penalty=%penalty, orig_cred=%cr, "Penalizing function"); 
 			*cr -= penalty ;
@@ -319,7 +328,7 @@ impl LandlordPerFuncRent {
     /// Space in the GPU cache.
     /// TODO: Update using function sizes and gpu load 
     fn accepting_new(&mut self) -> bool {
-	// Check here if some functions have been 'evicted'?
+	// Check here if some functions have been 'evicted'? All evictions happen here 
 	self.sync_with_mqfq();
 
 	// auto-scaling comes here? Do we want to expand?
@@ -345,7 +354,7 @@ impl LandlordPerFuncRent {
 
 }
 
-impl DispatchPolicy for LandlordPerFuncRent {
+impl DispatchPolicy for Landlord {
     
     /// Main entry point and landlord caching logic
     fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute {
@@ -358,6 +367,7 @@ impl DispatchPolicy for LandlordPerFuncRent {
 	    // Or it can depend on load?
 	    let can_expand = self.soft_expand() ;
 	    // this is unlikely since usually gpu estimate too high due to high load. but guards against est err
+	    // Function may have accumulated enough positive credit. Make this probabilistic based on residence times etc? 
 	    let pos_credit = match self.credits.get(&item.registration.fqdn) {
 		Some(cr) => *cr + new_credit > 0.0 ,
 		_ => false
@@ -407,4 +417,7 @@ impl DispatchPolicy for LandlordPerFuncRent {
 }
 
 //////////////////////////////////
+
+
+
 
