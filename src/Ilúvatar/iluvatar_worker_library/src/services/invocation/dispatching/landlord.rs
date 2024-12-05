@@ -394,6 +394,70 @@ impl Landlord {
 	}
 	return false
     }
+
+    /// Will always evict item with smallest access time 
+    fn try_lru_evict(&mut self) -> bool {
+        if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
+            let mut pot_victims = self
+                .credits
+                .keys()
+                .map(|fqdn| {
+                    (
+                        fqdn.clone(),
+                        mqfq.get(fqdn).map_or(0, |q| q.queue.len())
+                    )
+                })
+                .collect::<Vec<(String, usize)>>();
+	    
+	    pot_victims.retain(|(_, c)| *c == 0);
+
+	    if pot_victims.len() == 0 {
+		return false 
+	    }
+	    info!(empty=%pot_victims.len(), "Trying to find victim");
+	    
+	    let v_wallt = pot_victims.iter().map(|(f, _t)|
+					  {(f.clone(), self.residents.get(f).unwrap().1).clone()})
+		.collect::<Vec<(String, OffsetDateTime)>>(); 
+
+	    let victim = v_wallt.iter().min_by(|a, b|  a.1.partial_cmp(&b.1).unwrap()).unwrap();
+	    self.evict_victim(&victim.0);
+	    return true ;
+	}
+	return false 
+    }
+
+    /// Least Frequently Used Eviction 
+    fn try_lfu_evict(&mut self) -> bool {
+        if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
+            let mut pot_victims = self
+                .credits
+                .keys()
+                .map(|fqdn| {
+                    (
+                        fqdn.clone(),
+                        mqfq.get(fqdn).map_or(0, |q| q.queue.len())
+                    )
+                })
+                .collect::<Vec<(String, usize)>>();
+	    
+	    pot_victims.retain(|(_, c)| *c == 0);
+
+	    if pot_victims.len() == 0 {
+		return false 
+	    }
+	    info!(empty=%pot_victims.len(), "Trying to find victim");
+	    
+	    let v_wallt = pot_victims.iter().map(|(f, _t)|
+					  {(f.clone(), self.residents.get(f).unwrap().0).clone()})
+		.collect::<Vec<(String, u32)>>(); 
+
+	    let victim = v_wallt.iter().min_by(|a, b|  a.1.partial_cmp(&b.1).unwrap()).unwrap();
+	    self.evict_victim(&victim.0);
+	    return true ;
+	}
+	return false 	
+    }
     
     /// For functions not in cache, accumulate how much credit they already have. 
     fn accum_potential_credits(&mut self, fqdn: &str, newc: f64) -> f64 {
@@ -513,7 +577,12 @@ impl DispatchPolicy for Landlord {
 	}
 
         self.charge_rents(&item.registration, tid);
-	let accept_new = self.try_find_victim(acc_pot_credits);
+
+	let accept_new = match self.cachepol.as_str() {
+	    "LRU" => self.try_lru_evict(),
+	    "LFU" => self.try_lfu_evict(),
+	    _ => self.try_find_victim(acc_pot_credits),
+	};
 
 	if accept_new {
 	    // We found space!
