@@ -36,8 +36,6 @@ lazy_static::lazy_static! {
 
 #[derive(Debug, Deserialize)]
 #[allow(unused)]
-#[allow(elided_named_lifetimes)]
-
 pub struct MqfqConfig {
     /// maximum allowed flow overrun, in seconds, default 10 sec if missing
     pub allowed_overrun: Option<f64>,
@@ -1152,8 +1150,7 @@ impl MQFQ {
             flow_deets.sort_by(|f1, f2| f1.in_flight.cmp(&f2.in_flight));
             match flow_deets
                 .iter_mut()
-                .filter(|f| f.state == MQState::Active && f.queue_len > 0)
-                .next()
+                .find(|f| f.state == MQState::Active && f.queue_len > 0)
             {
                 Some(min_flow) => {
                     let time = (min_flow.finish_time_virt - min_flow.start_time_virt) / min_flow.queue_len as f64;

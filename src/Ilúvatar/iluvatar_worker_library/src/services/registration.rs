@@ -159,12 +159,8 @@ impl RegistrationService {
                                 self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
                                 self.characteristics_map
                                     .add(&fqdn, warm, Values::F64(*v / 1_000_000.0), true);
-                                self.characteristics_map.add(
-                                    &fqdn,
-                                    prewarm,
-                                    Values::F64(*v as f64 / 1_000_000.0),
-                                    true,
-                                );
+                                self.characteristics_map
+                                    .add(&fqdn, prewarm, Values::F64(*v / 1_000_000.0), true);
                             }
                             for v in timings.cold_worker_duration_us.iter() {
                                 self.characteristics_map

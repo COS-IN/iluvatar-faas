@@ -386,14 +386,13 @@ impl QueueingDispatcher {
             },
             EnqueueingPolicy::Landlord => {
                 let compute = self.landlord.lock().choose(&enqueue, &tid);
-		let mut d = self.dispatch_state.write();
+                let mut d = self.dispatch_state.write();
                 d.dev_hist.insert(tid.clone(), compute);
                 enqueues += self.enqueue_compute(&enqueue, compute)?;
-
             },
             EnqueueingPolicy::LRU => {
                 let compute = self.landlord.lock().choose(&enqueue, &tid);
-		let mut d = self.dispatch_state.write();
+                let mut d = self.dispatch_state.write();
                 d.dev_hist.insert(tid.clone(), compute);
                 enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
@@ -405,7 +404,7 @@ impl QueueingDispatcher {
             },
             EnqueueingPolicy::LandlordFixed => {
                 let compute = self.landlord.lock().choose(&enqueue, &tid);
-		let mut d = self.dispatch_state.write();
+                let mut d = self.dispatch_state.write();
                 d.dev_hist.insert(tid.clone(), compute);
                 enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
