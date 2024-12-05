@@ -65,6 +65,7 @@ pub struct Landlord {
     cachepol: String, 
     residents: HashMap<String, (u32, OffsetDateTime)>, // fqdn -> invoc counts, last access. Do we keep evicted as well?
     nonresidents: HashMap<String, (u32, OffsetDateTime)>, // functions we let go
+    lostcredits: HashMap<String, f64>, 
     clock: Clock, 
     hits: u32,
     evictions: u32,
@@ -90,6 +91,7 @@ impl Landlord {
 		residents: HashMap::new(),
 		cachepol: cachepol, 
 		nonresidents: HashMap::new(),
+		lostcredits : HashMap::new(),
 		clock: get_global_clock(&"clock".to_string()).unwrap(),
                 cmap: cmap.clone(),
                 cfg: c.clone(),
@@ -167,6 +169,10 @@ impl Landlord {
                 *c += self.cmap.get_gpu_exec_time(&fqdn);
             },
         }
+	self.insertions += 1 ;
+	info!(fqdn=%&reg.fqdn, "Cache Insertion");
+	self.update_res(&reg.fqdn);
+	self.lostcredits.remove(&reg.fqdn);
     }
 
     /// Get the current load on the GPU. total execution time pending
@@ -338,26 +344,99 @@ impl Landlord {
 	}
     }
 
+    /// Evict the function from GPU credits 
+    fn evict_victim(&mut self, fqdn: &str) {
+	self.credits.remove(fqdn);
+	self.evictions += 1;
+	self.landlog("Eviction"); 
+    }
+    
+    /// Main eviction routine. Find a victim whose remaining credits are lower than offered. 
+    fn try_find_victim(&mut self, acc_pot_credits: f64) -> bool {
+        if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
+            let mut pot_victims = self
+                .credits
+                .keys()
+                .map(|fqdn| {
+                    (
+                        fqdn.clone(),
+                        mqfq.get(fqdn).map_or(0, |q| q.queue.len())
+                    )
+                })
+                .collect::<Vec<(String, usize)>>();
+	    
+	    pot_victims.retain(|(_, c)| *c == 0);
+
+	    if pot_victims.len() == 0 {
+		return false 
+	    }
+
+	    info!(empty=%pot_victims.len(), other=%acc_pot_credits, "Trying to find victim");
+
+	    let v_creds = pot_victims.iter().map(|(f, _c)|
+					  {(f.clone(), self.credits.get(f).unwrap_or(&0.0).clone())})
+		.collect::<Vec<(String, f64)>>(); 
+
+	    // for these potential victims, sort by credits?
+	    let victim = v_creds.iter().min_by(|a, b|  a.1.partial_cmp(&b.1).unwrap()).unwrap();
+	    
+	    info!(victim=%victim.0, counter=%acc_pot_credits, "Victim vs counter offer");
+	    let deficit = victim.1 - acc_pot_credits ;
+	    if deficit > 0.0 {
+		// victim has more credits,
+		return false
+	    }
+	    else {
+		// qs is do we evict it here? or somewhere else?
+		self.evict_victim(&victim.0); 
+		return true
+	    }
+	}
+	return false
+    }
+    
+    /// For functions not in cache, accumulate how much credit they already have. 
+    fn accum_potential_credits(&mut self, fqdn: &str, newc: f64) -> f64 {
+	let acc = match self.lostcredits.get_mut(fqdn) {
+	    Some(c) => {
+		*c = *c + newc;
+		*c
+	    },
+	    _ => {
+		self.lostcredits.insert(fqdn.to_string(), newc);
+		newc
+	    },
+	};
+	return acc 
+    }
+    
     /// Soft expansion is when we have empty MQFQ queues so can admit a new function, but strictly are over limit
     fn soft_expand(&mut self) -> bool {
+
+	let remaining = self.cfg.cache_size as usize - self.current_occupancy() ;
+
+	if remaining > 0 {
+	    return true
+	}
+	// Expand for LRU etc? 
 	if self.cachepol !="LL" {
 	    return false
 	}
 	let expected_sz = self.current_sz_occup() ;
 	let real_sz = self.gpu_load();
 
-	if real_sz < expected_sz {
+	if real_sz < 0.5 * expected_sz {
 	    // we can let /some/ functions in, but not too many, in case huge bursty arrivals from everyone?
 	    // TODO: Add limits to soft-ex.
 	    // accounting will be tricky 
 	    info!(expected_sz=%expected_sz, real_sz=%real_sz, "Soft expanding");
-	    return true //YOLO 
+	    return true; //YOLO 
 	}
-	return false 
+	return false;
     }
     
     /// Space in the GPU cache.
-    /// TODO: Update using function sizes and gpu load 
+    #[allow(dead_code)]
     fn accepting_new(&mut self) -> bool {
 	// Check here if some functions have been 'evicted'? All evictions happen here 
 	self.sync_with_mqfq();
@@ -379,7 +458,6 @@ impl Landlord {
 	if self.soft_expand() {
 	    return true 
 	}
-
 	return false 
     }
 
@@ -390,13 +468,14 @@ impl DispatchPolicy for Landlord {
     /// Main entry point and landlord caching logic
     fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute {
 
+	let can_expand = self.soft_expand() ;
+	
         if self.present(&item.registration.fqdn) {
 	    // This doesnt decrease credit 
 	    let new_credit = self.calc_add_credit(&item.registration, tid) ;
 	    // another tunable. Item already in cache. But estimated wait time too high
 	    // This estimate can be wrong? have some probabilistic pass-through here?
 	    // Or it can depend on load?
-	    let can_expand = self.soft_expand() ;
 	    // this is unlikely since usually gpu estimate too high due to high load. but guards against est err
 	    // Function may have accumulated enough positive credit. Make this probabilistic based on residence times etc? 
 	    let pos_credit = match self.credits.get(&item.registration.fqdn) {
@@ -406,11 +485,10 @@ impl DispatchPolicy for Landlord {
 	    
 	    if new_credit < 0.0 && !can_expand && !pos_credit {
 		// this function is marked for eviction
-		// we really want to minimize this case, function is on gpu already. estimate can be wrong? 
+		// we really want to minimize this case, function is on gpu already. estimate can be wrong?
 		self.misses += 1 ; 
 		info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
-		self.update_nonres(&item.registration.fqdn);
-		
+		self.update_nonres(&item.registration.fqdn);		
 		return Compute::CPU 
 	    }
 	    
@@ -424,25 +502,31 @@ impl DispatchPolicy for Landlord {
         }
 
 	let potential_credits = self.opp_cost(&item.registration, tid) ;
+	let acc_pot_credits = self.accum_potential_credits(&item.registration.fqdn, potential_credits) ; 
+	
 	// for higher cache utilization, we can relax the strict negativity, especially for 'new' functions? 
 	// TODO: maintain map of evicted functions. If function is new, then allow it to run even if negative credit
 	// tradeoff between locality and work conserving 
-	if self.accepting_new() && potential_credits > 0.0 {
-            self.admit(&item.registration, tid);
-	    self.insertions += 1 ;
-	    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Insertion");
-	    self.update_res(&item.registration.fqdn); 
+	if can_expand  && potential_credits > 0.0 { //worried about estimation error falsely leading to neg creds 
+            self.admit(&item.registration, tid); // TODO: clear acc_pot_credits 
             return Compute::GPU;
 	}
 
-	// If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss. 
-	self.misses += 1 ;
-	info!(tid=%tid, fqdn=%&item.registration.fqdn, pot_creds=%potential_credits, "Cache Miss");
-	self.update_nonres(&item.registration.fqdn.clone());
-	
         self.charge_rents(&item.registration, tid);
-	// add item to the ghost cache and give it some credit? 
-        Compute::CPU
+	let accept_new = self.try_find_victim(acc_pot_credits);
+
+	if accept_new {
+	    // We found space!
+	    self.admit(&item.registration, tid); 
+            return Compute::GPU;
+	}
+	else {   
+	    // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss. 
+	    self.misses += 1 ;
+	    info!(tid=%tid, fqdn=%&item.registration.fqdn, pot_creds=%potential_credits, "Cache Miss");
+	    self.update_nonres(&item.registration.fqdn.clone());
+            Compute::CPU
+	}
     }
  
 }
