@@ -340,7 +340,14 @@ impl Landlord {
         info!(empty=%pot_victims.len(), other=%acc_pot_credits, "Trying to find victim");
         match pot_victims
             .into_iter()
-            .map(|(f, _c)| (self.credits.get(&f).map_or(OrderedFloat(0.0), |c| OrderedFloat(*c)), f))
+            .map(|(f, _c)| {
+                (
+                    self.credits
+                        .get(&f)
+                        .map_or(OrderedFloat(f64::MIN), |c| OrderedFloat(*c)),
+                    f,
+                )
+            })
             .min_by(|a, b| a.0.cmp(&b.0))
         {
             None => false,
