@@ -66,7 +66,9 @@ pub struct Landlord {
     szhits: f64,
     /// Opportunity cost of misses
     szmisses: f64,
-    // Keep a record of landlord operations? <(Insert/hit/miss/evict fqdn)>
+    // Reason for misses
+    negcredits: u32,
+    capacitymiss: u32, 
 }
 
 impl Landlord {
@@ -98,6 +100,8 @@ impl Landlord {
                 insertions: 0,
                 szhits: 0.0,
                 szmisses: 0.0,
+		negcredits: 0,
+		capacitymiss: 0
             })),
         }
     }
@@ -106,8 +110,9 @@ impl Landlord {
     fn landlog(&self, evmsg: &str) {
         if self.cfg.log_cache_info {
             info!(cache=?self.credits, len=%self.current_occupancy(), sz=%self.current_sz_occup(), gpu_load=%self.gpu_load(),
-				residents=?self.residents, nonresidents=?self.nonresidents, hits=%self.hits, misses=%self.misses,
-				insertions=%self.insertions, evictions=%self.evictions, szhits=%self.szhits, szmisses=%self.szmisses, "{}", evmsg);
+		  residents=?self.residents, nonresidents=?self.nonresidents, hits=%self.hits, misses=%self.misses,
+		  insertions=%self.insertions, evictions=%self.evictions, negcredits=%self.negcredits, capacitymiss=%self.capacitymiss,
+		  szhits=%self.szhits, szmisses=%self.szmisses, "{}", evmsg);
         }
     }
 
@@ -436,7 +441,7 @@ impl Landlord {
         let expected_sz = self.current_sz_occup();
         let real_sz = self.gpu_load();
 
-        if real_sz < 0.5 * expected_sz {
+        if real_sz < 0.9 * expected_sz {
             // we can let /some/ functions in, but not too many, in case huge bursty arrivals from everyone?
             // TODO: Add limits to soft-ex.
             // accounting will be tricky
@@ -490,20 +495,28 @@ impl DispatchPolicy for Landlord {
                 Some(cr) => *cr + new_credit > 0.0,
                 _ => false,
             };
-
-            if new_credit < 0.0 && !can_expand && !pos_credit {
-                // this function is marked for eviction
-                // we really want to minimize this case, function is on gpu already. estimate can be wrong?
-                self.misses += 1;
-                info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
-                self.update_nonres(&item.registration.fqdn);
-                return Compute::CPU;
-            }
-
+	    
+            if new_credit < 0.0 {
+		// !can_expand was here 
+		if !pos_credit {
+                    // this function is marked for eviction
+                    // we really want to minimize this case, function is on gpu already. estimate can be wrong?
+                    self.misses += 1;
+		    self.negcredits += 1; 
+                    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
+                    self.update_nonres(&item.registration.fqdn);
+                    return Compute::CPU;
+		}
+		// TODO: Neg-credit lottery? 
+	    }
+	    //The new_credit can still be negative here but we havent updated (decreased) the item's total credit.
+	    //These items will still be charged rent though. Need the negative credit case to be probabilistic
+	    // handle all neg credit in one place
+	    
             self.hits += 1;
             self.szhits += self.cmap.get_gpu_exec_time(&item.registration.fqdn);
             // We've seen this function before so its size is more likely to be accurate
-            info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Hit");
+            info!(tid=%tid, fqdn=%&item.registration.fqdn, opp_cost=%new_credit, "Cache Hit");
             self.landlog("Post Hit");
             self.update_res(&item.registration.fqdn);
             return Compute::GPU;
@@ -536,6 +549,7 @@ impl DispatchPolicy for Landlord {
         } else {
             // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss.
             self.misses += 1;
+	    self.capacitymiss += 1;
             info!(tid=%tid, fqdn=%&item.registration.fqdn, pot_creds=%potential_credits, "Cache Miss");
             self.update_nonres(&item.registration.fqdn.clone());
             Compute::CPU
