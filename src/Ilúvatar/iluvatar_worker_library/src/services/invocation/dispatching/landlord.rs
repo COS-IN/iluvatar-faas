@@ -436,7 +436,7 @@ impl Landlord {
         let expected_sz = self.current_sz_occup();
         let real_sz = self.gpu_load();
 
-        if real_sz < 0.5 * expected_sz {
+        if real_sz < 0.9 * expected_sz {
             // we can let /some/ functions in, but not too many, in case huge bursty arrivals from everyone?
             // TODO: Add limits to soft-ex.
             // accounting will be tricky
