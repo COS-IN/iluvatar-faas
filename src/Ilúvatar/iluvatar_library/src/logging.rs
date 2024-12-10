@@ -5,11 +5,12 @@ use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
 use anyhow::Result;
 use std::{path::PathBuf, sync::Arc};
-use tracing::warn;
+use tracing::{info, warn};
 use tracing_flame::FlameLayer;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::registry::Registry;
 
 #[derive(Debug, serde::Deserialize, Default, Clone)]
 /// Details about how/where to log to
@@ -58,33 +59,54 @@ fn str_to_span(spanning: &str) -> Result<FmtSpan> {
 }
 
 pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &TransactionId) -> Result<impl Drop> {
-    let fname = format!("{}.log", config.basename.clone());
-    let buff = PathBuf::new();
-    ensure_dir(&buff.join(&config.directory))?;
-    let dir = match std::fs::canonicalize(config.directory.clone()) {
-        Ok(d) => d,
-        Err(e) => anyhow::bail!("Failed to canonicalize log file '{}', error: '{}'", config.directory, e),
-    };
-    ensure_dir(&dir)?;
-
-    let full_path = std::path::Path::new(&dir).join(&fname);
-    println!("Logging to {}", full_path.to_string_lossy());
-    if full_path.exists() {
-        match std::fs::remove_file(full_path) {
-            Ok(_) => (),
-            Err(e) => anyhow::bail!("Failed to remove old log file because '{}'", e),
-        };
-    }
-
-    let appender = tracing_appender::rolling::never(dir, fname);
-    let (file_writer, guard) = tracing_appender::non_blocking(appender);
     #[allow(dyn_drop)]
-    let mut drops: Vec<Box<dyn Drop>> = vec![Box::new(guard)];
+    let mut drops: Vec<Box<dyn Drop>> = vec![];
+
+    let file_layer = match config.directory.is_empty() {
+        true => None,
+        false => {
+            let fname = format!("{}.log", config.basename.clone());
+            let buff = PathBuf::new();
+            ensure_dir(&buff.join(&config.directory))?;
+            let dir = match std::fs::canonicalize(config.directory.clone()) {
+                Ok(d) => d,
+                Err(e) => anyhow::bail!("Failed to canonicalize log file '{}', error: '{}'", config.directory, e),
+            };
+            ensure_dir(&dir)?;
+
+            let full_path = std::path::Path::new(&dir).join(&fname);
+            println!("Logging to {}", full_path.to_string_lossy());
+            if full_path.exists() {
+                match std::fs::remove_file(full_path) {
+                    Ok(_) => (),
+                    Err(e) => anyhow::bail!("Failed to remove old log file because '{}'", e),
+                };
+            }
+
+            let appender = tracing_appender::rolling::never(dir, fname);
+            let (file_writer, guard) = tracing_appender::non_blocking(appender);
+            drops.push(Box::new(guard));
+            Some(
+                tracing_subscriber::fmt::Layer::default()
+                    .with_span_events(str_to_span(&config.spanning)?)
+                    .with_timer(ClockWrapper(get_global_clock(tid)?))
+                    .with_writer(file_writer)
+                    .compact()
+                    .json(),
+            )
+        }
+    };
+
     let stdout_layer = match config.stdout.unwrap_or(false) {
         true => {
             let (stdout, guard) = tracing_appender::non_blocking(std::io::stdout());
             drops.push(Box::new(guard));
-            Some(tracing_subscriber::fmt::Layer::default().with_writer(stdout).compact())
+            Some(
+                tracing_subscriber::fmt::Layer::default()
+                    .with_timer(ClockWrapper(get_global_clock(tid)?))
+                    .with_writer(stdout)
+                    .compact(),
+            )
         }
         false => None,
     };
@@ -107,17 +129,14 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
         }
         _ => None,
     };
-
-    let subscriber = tracing_subscriber::fmt()
-        .with_timer(ClockWrapper(get_global_clock(tid)?))
-        .with_span_events(str_to_span(&config.spanning)?)
-        .with_env_filter(EnvFilter::builder().parse(&config.level)?)
-        .with_writer(file_writer)
-        .json()
-        .finish();
-    let subscriber = subscriber.with(stdout_layer).with(energy_layer).with(flame_layer);
+    let subscriber = Registry::default()
+        .with(EnvFilter::builder().parse(&config.level)?)
+        .with(file_layer)
+        .with(stdout_layer)
+        .with(energy_layer)
+        .with(flame_layer);
     match tracing::subscriber::set_global_default(subscriber) {
-        Ok(_) => (),
+        Ok(_) => info!(tid=%tid, "logger initialized"),
         Err(e) => warn!(tid=%tid, error=%e, "Global tracing subscriber was already set"),
     };
     Ok(drops)
