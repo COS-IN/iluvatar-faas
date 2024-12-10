@@ -132,10 +132,10 @@ impl QueueingDispatcher {
             gpu_queue: gpu_q,
             async_functions: AsyncHelper::new(),
             clock: get_global_clock(tid)?,
+            running_avg_speedup: Mutex::new(invocation_config.speedup_ratio.unwrap_or(4.0)),
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
-            running_avg_speedup: Mutex::new(4.0),
         });
         debug!(tid=%tid, "Created QueueingInvoker");
         Ok(svc)
@@ -253,7 +253,7 @@ impl QueueingDispatcher {
             self.clock.now(),
         ));
         let mut enqueues = 0;
-        if self.invocation_config.enqueuing_log_details.unwrap_or(false) {
+        if self.invocation_config.log_details() {
             debug!(tid=%tid, "calc CPU est time");
             let cpu = self.cpu_queue.est_completion_time(reg, &tid);
             debug!(tid=%tid, "calc GPU est time");
@@ -335,6 +335,13 @@ impl QueueingDispatcher {
                 }
                 if let Some((_, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
                     enqueues += self.enqueue_compute(&enqueue, *c)?;
+                    if self.invocation_config.log_details() {
+                        if c == &Compute::GPU {
+                            info!(tid=%tid, fqdn=%enqueue.registration.fqdn, "Cache Hit");
+                        } else {
+                            info!(tid=%tid, fqdn=%enqueue.registration.fqdn, pot_creds=0.0, "Cache Miss");
+                        }
+                    }
                 }
             },
             EnqueueingPolicy::UCB1 => {
@@ -353,7 +360,7 @@ impl QueueingDispatcher {
                 let cpu = self.cmap.avg_cpu_exec_t(&enqueue.registration.fqdn);
                 let gpu = self.cmap.avg_gpu_exec_t(&enqueue.registration.fqdn);
                 let ratio = cpu / gpu;
-                if ratio > 4.0 {
+                if ratio > self.invocation_config.speedup_ratio.unwrap_or(4.0) {
                     let mut opts = vec![];
                     if reg.supported_compute.contains(Compute::CPU) {
                         opts.push((self.cpu_queue.est_completion_time(reg, &tid), Compute::CPU));
@@ -365,9 +372,19 @@ impl QueueingDispatcher {
                     }
                     if let Some((_, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
                         enqueues += self.enqueue_compute(&enqueue, *c)?;
+                        if self.invocation_config.log_details() {
+                            if c == &Compute::GPU {
+                                info!(tid=%tid, fqdn=%enqueue.registration.fqdn, "Cache Hit");
+                            } else {
+                                info!(tid=%tid, fqdn=%enqueue.registration.fqdn, pot_creds=1.0, "Cache Miss");
+                            }
+                        }
                     }
                 } else {
                     self.cpu_queue.enqueue_item(&enqueue)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enqueue.registration.fqdn, pot_creds=0.0, "Cache Miss");
+                    }
                     enqueues += 1;
                 }
             },
@@ -379,6 +396,7 @@ impl QueueingDispatcher {
                 let new_avg = *avg * 0.9 + ratio * 0.1;
                 *avg = new_avg;
                 drop(avg);
+                info!(tid=%tid, new_avg=new_avg, "running avg");
                 if ratio > new_avg {
                     let mut opts = vec![];
                     if reg.supported_compute.contains(Compute::CPU) {
@@ -391,9 +409,66 @@ impl QueueingDispatcher {
                     }
                     if let Some((_, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
                         enqueues += self.enqueue_compute(&enqueue, *c)?;
+                        if self.invocation_config.log_details() {
+                            if c == &Compute::GPU {
+                                info!(tid=%tid, fqdn=%enqueue.registration.fqdn, "Cache Hit");
+                            } else {
+                                info!(tid=%tid, fqdn=%enqueue.registration.fqdn, pot_creds=1.0, "Cache Miss");
+                            }
+                        }
                     }
                 } else {
                     self.cpu_queue.enqueue_item(&enqueue)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enqueue.registration.fqdn, pot_creds=0.0, "Cache Miss");
+                    }
+                    enqueues += 1;
+                }
+            },
+            EnqueueingPolicy::QueueAdjustAvgEstSpeedup => {
+                let cpu = self.cmap.avg_cpu_exec_t(&enqueue.registration.fqdn);
+                let gpu = self.cmap.avg_gpu_exec_t(&enqueue.registration.fqdn);
+                let ratio = cpu / gpu;
+                if ratio > *self.running_avg_speedup.lock() {
+                    let mut opts = vec![];
+                    if reg.supported_compute.contains(Compute::CPU) {
+                        opts.push((self.cpu_queue.est_completion_time(reg, &tid), Compute::CPU));
+                    }
+                    if reg.supported_compute.contains(Compute::GPU) {
+                        if let Some(gpu_queue) = &self.gpu_queue {
+                            opts.push((gpu_queue.est_completion_time(reg, &tid), Compute::GPU));
+                        }
+                    }
+                    if let Some((_, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
+                        enqueues += self.enqueue_compute(&enqueue, *c)?;
+                        if c == &Compute::GPU {
+                            if self.invocation_config.log_details() {
+                                info!(tid=%tid, fqdn=%enqueue.registration.fqdn, "Cache Hit");
+                            }
+                            if let Some(gpu_queue) = &self.gpu_queue {
+                                let q_len = gpu_queue.queue_len();
+                                let mut avg = self.running_avg_speedup.lock();
+                                if q_len <= 1 {
+                                    *avg = *avg * 0.99;
+                                } else if q_len >= 3 {
+                                    // *avg = *avg * 1.05;
+                                    *avg = self.invocation_config.speedup_ratio.unwrap_or(4.0);
+                                } else {
+                                    // *avg = *avg * 0.975;
+                                }
+                                info!(tid=%tid, new_avg=*avg, "running avg");
+                            }
+                        } else {
+                            if self.invocation_config.log_details() {
+                                info!(tid=%tid, fqdn=%enqueue.registration.fqdn, pot_creds=1.0, "Cache Miss");
+                            }
+                        }
+                    }
+                } else {
+                    self.cpu_queue.enqueue_item(&enqueue)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enqueue.registration.fqdn, pot_creds=0.0, "Cache Miss");
+                    }
                     enqueues += 1;
                 }
             },
@@ -401,55 +476,34 @@ impl QueueingDispatcher {
                 let cpu = self.cmap.avg_cpu_exec_t(&enqueue.registration.fqdn);
                 let gpu = self.cmap.avg_gpu_exec_t(&enqueue.registration.fqdn);
                 let ratio = cpu / gpu;
-                if ratio > 4.0 {
+                if ratio > self.invocation_config.speedup_ratio.unwrap_or(4.0) {
                     self.enqueue_gpu_check(&enqueue)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enqueue.registration.fqdn, "Cache Hit");
+                    }
                     enqueues += 1;
                 } else {
                     self.cpu_queue.enqueue_item(&enqueue)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enqueue.registration.fqdn, pot_creds=1.0, "Cache Miss");
+                    }
                     enqueues += 1;
                 }
             },
-            EnqueueingPolicy::Landlord => {
+            EnqueueingPolicy::Landlord
+            | EnqueueingPolicy::LRU
+            | EnqueueingPolicy::LFU
+            | EnqueueingPolicy::LandlordFixed => {
                 let compute = self.landlord.lock().choose(&enqueue, &tid);
                 let mut d = self.dispatch_state.write();
                 d.dev_hist.insert(tid.clone(), compute);
                 enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
-            EnqueueingPolicy::LRU => {
-                let compute = self.landlord.lock().choose(&enqueue, &tid);
-                let mut d = self.dispatch_state.write();
-                d.dev_hist.insert(tid.clone(), compute);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::LFU => {
-                let compute = self.landlord.lock().choose(&enqueue, &tid);
-                let mut d = self.dispatch_state.write();
-                d.dev_hist.insert(tid.clone(), compute);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::LandlordFixed => {
-                let compute = self.landlord.lock().choose(&enqueue, &tid);
-                let mut d = self.dispatch_state.write();
-                d.dev_hist.insert(tid.clone(), compute);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::Popular => {
-                let compute = self.popular.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::PopularEstTimeDispatch => {
-                let compute = self.popular.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::PopularQueueLenDispatch => {
-                let compute = self.popular.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::LeastPopular => {
-                let compute = self.popular.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::TopAvg => {
+            EnqueueingPolicy::Popular
+            | EnqueueingPolicy::PopularEstTimeDispatch
+            | EnqueueingPolicy::PopularQueueLenDispatch
+            | EnqueueingPolicy::LeastPopular
+            | EnqueueingPolicy::TopAvg => {
                 let compute = self.popular.lock().choose(&enqueue, &tid);
                 enqueues += self.enqueue_compute(&enqueue, compute)?;
             },

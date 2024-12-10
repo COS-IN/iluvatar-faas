@@ -12,6 +12,7 @@ pub enum EnqueueingPolicy {
     /// Mix of speedup ratio and estimated time
     EstSpeedup,
     RunningAvgEstSpeedup,
+    QueueAdjustAvgEstSpeedup,
     /// Always enqueue on the compute that gives shortest compute time
     ShortestExecTime,
     /// Always enqueue on CPU

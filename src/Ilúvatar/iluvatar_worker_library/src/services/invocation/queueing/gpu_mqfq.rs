@@ -1087,14 +1087,15 @@ impl MQFQ {
     fn est_completion_time1(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
         // sum_q (q_F-q_S) / max_in_flight
 
-        let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
+        // let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
 
-        let total_wait = per_flow_wait_times.sum::<f64>();
+        // let total_wait = per_flow_wait_times.sum::<f64>();
         // self.gpu.total_gpus() as f64;
-        let exec_time = self.cmap.get_gpu_exec_time(&_reg.fqdn);
-        info!(tid=%_tid, qt=%total_wait, runtime=%exec_time, "GPU estimated completion time of item");
+        // let exec_time = self.cmap.get_gpu_exec_time(&_reg.fqdn);
+        // info!(tid=%_tid, qt=%total_wait, runtime=%exec_time, "GPU estimated completion time of item");
 
-        total_wait + exec_time
+        // total_wait + exec_time
+        self.mqfq_set.iter().map(|x| x.value().est_flow_wait()).sum::<f64>()
     }
 
     #[allow(dead_code)]
@@ -1183,12 +1184,11 @@ impl MQFQ {
 
 impl DeviceQueue for MQFQ {
     fn queue_len(&self) -> usize {
-        let per_flow_q_len = self.mqfq_set.iter().map(|x| x.queue.len());
-        per_flow_q_len.sum::<usize>()
+        self.mqfq_set.iter().map(|x| x.queue.len()).sum::<usize>()
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let q_t = self.est_completion_time1(reg, tid);
+        let q_t = self.est_completion_time1(reg, tid) / self.gpu.max_concurrency() as f64;
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         info!(tid=%tid, qt=q_t, runtime=exec_time, "GPU estimated completion time of item");
         q_t + exec_time
