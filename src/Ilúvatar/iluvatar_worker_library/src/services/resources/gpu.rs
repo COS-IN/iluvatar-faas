@@ -373,7 +373,7 @@ impl GpuResourceTracker {
         };
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
         let entrypoint = vec!["/usr/bin/nvidia-cuda-mps-control".to_owned(), "-f".to_owned()];
-        docker
+        match docker
             .docker_run(
                 tid,
                 img_name,
@@ -387,6 +387,10 @@ impl GpuResourceTracker {
                 Some(entrypoint),
             )
             .await
+        {
+            Ok(_cgroup_id) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 
     fn set_gpus_shared(tid: &TransactionId) -> Result<()> {

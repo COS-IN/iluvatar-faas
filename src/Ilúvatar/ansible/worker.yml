@@ -123,6 +123,14 @@
       remote_src: "{{__remote_bin_src}}"
     become: yes
 
+  - name: copy fs_policy_tsksz 
+    ansible.builtin.copy:
+      src: "{{__bin_src}}/fs_policy_tsksz"
+      dest: "{{bin_dir}}/"
+      mode: "preserve"
+      remote_src: "{{__remote_bin_src}}"
+    become: yes
+
   - name: copy worker config
     ansible.builtin.copy:
       src: "{{__bin_src}}/{{worker.config_name}}"

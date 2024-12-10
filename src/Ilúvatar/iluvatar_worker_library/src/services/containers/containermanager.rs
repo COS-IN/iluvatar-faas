@@ -9,11 +9,13 @@ use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
 use dashmap::DashMap;
 use futures::Future;
+use iluvatar_bpf_library::bpf::func_characs::BPF_FMAP_KEY;
 use iluvatar_library::threading::{tokio_notify_thread, tokio_runtime, tokio_sender_thread, EventualItem};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
 use parking_lot::RwLock;
 use std::cmp::Ordering;
+use std::fmt;
 use std::sync::{atomic::AtomicU32, Arc};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Notify;
@@ -51,7 +53,33 @@ pub struct ContainerManager {
     outstanding_containers: DashMap<String, AtomicU32>,
 }
 
+impl fmt::Debug for ContainerManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ContainerManager").finish()
+    }
+}
+
 impl ContainerManager {
+    pub fn get_cgroupid_against_tid(&self, tid: &TransactionId) -> Option<BPF_FMAP_KEY> {
+        if let Some(v) = self.cpu_containers.get_cgroupid_against_tid(tid) {
+            return Some(v);
+        }
+        if let Some(v) = self.gpu_containers.get_cgroupid_against_tid(tid) {
+            return Some(v);
+        }
+        None
+    }
+
+    pub fn remove_cgroupid_against_tid(&self, tid: &TransactionId) -> Option<BPF_FMAP_KEY> {
+        if let Some(v) = self.cpu_containers.remove_cgroupid_against_tid(tid) {
+            return Some(v);
+        }
+        if let Some(v) = self.gpu_containers.remove_cgroupid_against_tid(tid) {
+            return Some(v);
+        }
+        None
+    }
+
     pub async fn boxed(
         resources: Arc<ContainerResourceConfig>,
         cont_isolations: ContainerIsolationCollection,
@@ -187,6 +215,18 @@ impl ContainerManager {
             return ContainerState::Cold;
         }
         ret
+    }
+
+    /// Returns the best possible idle container's [ContainerState] at this time
+    /// Can be either running or idle, if [ContainerState::Cold], then possibly no container found
+    pub fn container_cgroup_ids(&self, fqdn: &str, compute: Compute) -> Vec<BPF_FMAP_KEY> {
+        let mut cgroupids = vec![];
+        if compute == Compute::CPU {
+            cgroupids.extend(self.cpu_containers.get_cgroup_ids(fqdn));
+        } else if compute == Compute::GPU {
+            cgroupids.extend(self.gpu_containers.get_cgroup_ids(fqdn));
+        }
+        cgroupids
     }
 
     /// The number of containers for the given FQDN that are not idle

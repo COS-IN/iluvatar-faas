@@ -5,5 +5,9 @@ passthrough = ["ARCH=amd64", "GO_VERSION=1.22.0", "CNI_VERSION=v1.1.1", "GOPATH=
 default-target = "x86_64-unknown-linux-gnu"    # use this target if none is explicitly provided
 pre-build = [                                  # additional commands to run prior to building the package
     "dpkg --add-architecture $CROSS_DEB_ARCH", 
-    "apt-get update && apt-get --assume-yes install protobuf-compiler iproute2 wget curl runc bridge-utils iptables net-tools sysstat"
+    "apt-get update && apt-get --assume-yes install protobuf-compiler iproute2 wget curl runc bridge-utils iptables net-tools sysstat libelf-dev lsb-release wget software-properties-common gnupg",
+    "wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh &&  ./llvm.sh  all &&  ln -s /usr/bin/ld.lld-18 /usr/bin/ld.lld &&  ln -s /usr/bin/clang-18 /usr/bin/clang &&  ln -s /usr/bin/clang++-18 /usr/bin/clang++ && rm llvm.sh"
 ]
+
+
+

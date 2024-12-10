@@ -1,8 +1,8 @@
 use super::containers::{containermanager::ContainerManager, ContainerIsolationCollection};
+use crate::utils::characteristics_map::{Characteristics, CharacteristicsMap, Values};
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
 use iluvatar_library::{
-    characteristics_map::{Characteristics, CharacteristicsMap, Values},
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::calculate_fqdn,
