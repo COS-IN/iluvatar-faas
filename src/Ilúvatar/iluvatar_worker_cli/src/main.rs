@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    start_tracing(
+    let _drops = start_tracing(
         Arc::new(LoggingConfig {
             level: "INFO".to_string(),
             stdout: Some(true),
