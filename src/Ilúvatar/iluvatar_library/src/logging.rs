@@ -71,6 +71,43 @@ fn str_to_span(spanning: &str) -> Result<FmtSpan> {
     Ok(parts.into_iter().fold(first_part, |acc, item| item | acc))
 }
 
+fn panic_hook() {
+    std::panic::set_hook(Box::new(move |info| {
+        println!("!!Thread panicked!!");
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let thread = std::thread::current();
+        let thread = thread.name().unwrap_or("<unnamed>");
+
+        let msg = match info.payload().downcast_ref::<&'static str>() {
+            Some(s) => *s,
+            None => match info.payload().downcast_ref::<String>() {
+                Some(s) => &**s,
+                None => "Box<Any>",
+            },
+        };
+
+        match info.location() {
+            Some(location) => {
+                tracing::error!(
+                    target: "panic", "thread '{}' panicked at '{}': {}:{}{:?}",
+                    thread,
+                    msg,
+                    location.file(),
+                    location.line(),
+                    backtrace
+                );
+            },
+            None => tracing::error!(
+                target: "panic",
+                "thread '{}' panicked at '{}'{:?}",
+                thread,
+                msg,
+                backtrace
+            ),
+        }
+    }));
+}
+
 pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &TransactionId) -> Result<impl Drop> {
     let fname = format!("{}.log", config.basename.clone());
     let buff = PathBuf::new();
@@ -133,7 +170,10 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
         .finish();
     let subscriber = subscriber.with(stdout_layer).with(energy_layer).with(flame_layer);
     match tracing::subscriber::set_global_default(subscriber) {
-        Ok(_) => Ok(drops),
+        Ok(_) => {
+            panic_hook();
+            Ok(drops)
+        },
         Err(e) => {
             warn!(tid=%tid, error=%e, "Global tracing subscriber was already set");
             Ok(vec![])

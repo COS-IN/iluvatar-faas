@@ -52,8 +52,6 @@ pub struct PolymDispatchCtx {
     n_cpu: u64,
     /// Total number to GPU
     n_gpu: u64, //Init to 1 to avoid divide by 0
-    /// tid->compute device map aargh
-    dev_hist: HashMap<TransactionId, Compute>,
 }
 
 impl PolymDispatchCtx {
@@ -68,7 +66,6 @@ impl PolymDispatchCtx {
             total_dispatch: 1,
             n_cpu: 1,
             n_gpu: 1,
-            dev_hist: HashMap::new(),
         }
     }
 }
@@ -449,7 +446,7 @@ impl QueueingDispatcher {
                                 let q_len = gpu_queue.queue_len();
                                 let mut avg = self.running_avg_speedup.lock();
                                 if q_len <= 1 {
-                                    *avg = *avg * 0.99;
+                                    *avg *= 0.99;
                                 } else if q_len >= 3 {
                                     // *avg = *avg * 1.05;
                                     *avg = self.invocation_config.speedup_ratio.unwrap_or(4.0);
@@ -459,6 +456,7 @@ impl QueueingDispatcher {
                                 info!(tid=%tid, new_avg=*avg, "running avg");
                             }
                         } else {
+                            #[allow(clippy::collapsible_else_if)]
                             if self.invocation_config.log_details() {
                                 info!(tid=%tid, fqdn=%enqueue.registration.fqdn, pot_creds=1.0, "Cache Miss");
                             }
@@ -495,8 +493,6 @@ impl QueueingDispatcher {
             | EnqueueingPolicy::LFU
             | EnqueueingPolicy::LandlordFixed => {
                 let compute = self.landlord.lock().choose(&enqueue, &tid);
-                let mut d = self.dispatch_state.write();
-                d.dev_hist.insert(tid.clone(), compute);
                 enqueues += self.enqueue_compute(&enqueue, compute)?;
             },
             EnqueueingPolicy::Popular
@@ -717,26 +713,20 @@ impl Invoker for QueueingDispatcher {
         let result_ptr = queued.result_ptr.lock();
         match result_ptr.completed {
             true => {
-                // TODO: update cmap E2E time, but CPU or GPU?
                 let e2etime = (self.clock.now() - queued.queue_insert_time).as_seconds_f64();
-                let d = self.dispatch_state.read();
-
-                match d.dev_hist.get(&tid) {
-                    Some(&Compute::GPU) => {
-                        self.cmap
-                            .add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false);
-                        info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"GPU", "Invocation complete");
-                    },
-                    _ => {
-                        self.cmap
-                            .add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false);
-                        info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"CPU", "Invocation complete");
-                    },
-                };
+                if result_ptr.compute == Compute::GPU {
+                    self.cmap
+                        .add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false);
+                    info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"GPU", "Invocation complete");
+                } else {
+                    self.cmap
+                        .add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false);
+                    info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"CPU", "Invocation complete");
+                }
                 Ok(queued.result_ptr.clone())
             },
             false => {
-                anyhow::bail!("Invocation was signaled completion but completion value was not set")
+                bail_error!(tid=%tid, "Invocation was signaled completion but completion value was not set")
             },
         }
     }
@@ -754,8 +744,7 @@ impl Invoker for QueueingDispatcher {
             (Compute::CPU, self.cpu_queue.queue_len()),
             (Compute::GPU, self.gpu_queue.as_ref().map_or(0, |g| g.queue_len())),
         ]
-        .iter()
-        .cloned()
+        .into_iter()
         .collect()
     }
 

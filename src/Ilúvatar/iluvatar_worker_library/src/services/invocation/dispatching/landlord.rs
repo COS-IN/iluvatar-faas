@@ -68,7 +68,7 @@ pub struct Landlord {
     szmisses: f64,
     // Reason for misses
     negcredits: u32,
-    capacitymiss: u32, 
+    capacitymiss: u32,
 }
 
 impl Landlord {
@@ -100,8 +100,8 @@ impl Landlord {
                 insertions: 0,
                 szhits: 0.0,
                 szmisses: 0.0,
-		negcredits: 0,
-		capacitymiss: 0
+                negcredits: 0,
+                capacitymiss: 0,
             })),
         }
     }
@@ -429,7 +429,7 @@ impl Landlord {
 
     /// Soft expansion is when we have empty MQFQ queues so can admit a new function, but strictly are over limit
     fn soft_expand(&mut self) -> bool {
-        let remaining = self.cfg.cache_size as usize - self.current_occupancy();
+        let remaining = self.cfg.cache_size as i32 - self.current_occupancy() as i32;
 
         if remaining > 0 {
             return true;
@@ -465,7 +465,7 @@ impl Landlord {
         // size is based on gpu_load and sum L, and potentially inter arrival times if we want to be really fancy
         //
         //
-        let remaining = self.cfg.cache_size as usize - self.current_occupancy();
+        let remaining = self.cfg.cache_size as i32 - self.current_occupancy() as i32;
 
         if remaining > 0 {
             return true;
@@ -495,24 +495,24 @@ impl DispatchPolicy for Landlord {
                 Some(cr) => *cr + new_credit > 0.0,
                 _ => false,
             };
-	    
+
             if new_credit < 0.0 {
-		// !can_expand was here 
-		if !pos_credit {
+                // !can_expand was here
+                if !pos_credit {
                     // this function is marked for eviction
                     // we really want to minimize this case, function is on gpu already. estimate can be wrong?
                     self.misses += 1;
-		    self.negcredits += 1; 
+                    self.negcredits += 1;
                     info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
                     self.update_nonres(&item.registration.fqdn);
                     return Compute::CPU;
-		}
-		// TODO: Neg-credit lottery? 
-	    }
-	    //The new_credit can still be negative here but we havent updated (decreased) the item's total credit.
-	    //These items will still be charged rent though. Need the negative credit case to be probabilistic
-	    // handle all neg credit in one place
-	    
+                }
+                // TODO: Neg-credit lottery?
+            }
+            //The new_credit can still be negative here but we havent updated (decreased) the item's total credit.
+            //These items will still be charged rent though. Need the negative credit case to be probabilistic
+            // handle all neg credit in one place
+
             self.hits += 1;
             self.szhits += self.cmap.get_gpu_exec_time(&item.registration.fqdn);
             // We've seen this function before so its size is more likely to be accurate
@@ -549,7 +549,7 @@ impl DispatchPolicy for Landlord {
         } else {
             // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss.
             self.misses += 1;
-	    self.capacitymiss += 1;
+            self.capacitymiss += 1;
             info!(tid=%tid, fqdn=%&item.registration.fqdn, pot_creds=%potential_credits, "Cache Miss");
             self.update_nonres(&item.registration.fqdn.clone());
             Compute::CPU
