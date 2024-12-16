@@ -19,7 +19,8 @@ use tracing::info;
 pub struct LandlordConfig {
     pub cache_size: u32, // Max number of functions we are admitting, regardless of size
     // TODO: change this to max_res here and for the ansible scripts ..
-    //pub max_size: f64, // Max actual size of cache considering function footprints (exec times)
+    pub max_size: f64, // Max actual size of cache considering function footprints (exec times)
+    pub load_thresh: f64, // fraction for the admission control 
     pub log_cache_info: bool,
     // mode: fixed, autoscaling
 }
@@ -290,6 +291,7 @@ impl Landlord {
 
     /// if flowQ is empty, then remove from our cache, because it was marked for eviction?
     /// Other option is to add a condition that their credits must be negative to be evicted.
+    #[allow(dead_code)]
     fn sync_with_mqfq(&mut self) {
         info!(cache=?self.credits, "{}", "Before Landlord Sync");
         if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
@@ -428,6 +430,7 @@ impl Landlord {
     }
 
     /// Soft expansion is when we have empty MQFQ queues so can admit a new function, but strictly are over limit
+    #[allow(dead_code)]
     fn soft_expand(&mut self) -> bool {
         let remaining = self.cfg.cache_size as i32 - self.current_occupancy() as i32;
 
@@ -451,108 +454,103 @@ impl Landlord {
         false
     }
 
-    /// Space in the GPU cache.
+    /// Active functions footprint smaller than capacity
     #[allow(dead_code)]
     fn accepting_new(&mut self) -> bool {
-        // Check here if some functions have been 'evicted'? All evictions happen here
-        self.sync_with_mqfq();
-
-        // auto-scaling comes here? Do we want to expand?
-        // factors to consider:
-        // gpu_load (often zero due to small functions)
-        // recent GPU tput?
-        // Maintain small new-function buffer to allow size to exceed
-        // size is based on gpu_load and sum L, and potentially inter arrival times if we want to be really fancy
-        //
-        //
-        let remaining = self.cfg.cache_size as i32 - self.current_occupancy() as i32;
-
-        if remaining > 0 {
-            return true;
-        }
-        // check if we can soft-expand here based on gpu load etc ?
-        if self.soft_expand() {
-            return true;
-        }
-        false
+        //let remaining_slots = self.cfg.cache_size as i32 - self.current_occupancy() as i32 ;
+	let remaining_sz = self.cfg.max_size - self.current_sz_occup() ; 
+	return remaining_sz > 0.0	    
     }
-}
 
-impl DispatchPolicy for Landlord {
-    /// Main entry point and landlord caching logic
-    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute {
-        let can_expand = self.soft_expand();
-
-        if self.present(&item.registration.fqdn) {
-            // This doesnt decrease credit
-            let new_credit = self.calc_add_credit(&item.registration, tid);
-            // another tunable. Item already in cache. But estimated wait time too high
-            // This estimate can be wrong? have some probabilistic pass-through here?
-            // Or it can depend on load?
-            // this is unlikely since usually gpu estimate too high due to high load. but guards against est err
-            // Function may have accumulated enough positive credit. Make this probabilistic based on residence times etc?
-            let pos_credit = match self.credits.get(&item.registration.fqdn) {
-                Some(cr) => *cr + new_credit > 0.0,
-                _ => false,
-            };
-
-            if new_credit < 0.0 {
-                // !can_expand was here
-                if !pos_credit {
-                    // this function is marked for eviction
-                    // we really want to minimize this case, function is on gpu already. estimate can be wrong?
-                    self.misses += 1;
-                    self.negcredits += 1;
-                    info!(tid=%tid, fqdn=%&item.registration.fqdn, "Negative Credit Miss");
-                    self.update_nonres(&item.registration.fqdn);
-                    return Compute::CPU;
-                }
-                // TODO: Neg-credit lottery?
-            }
-            //The new_credit can still be negative here but we havent updated (decreased) the item's total credit.
-            //These items will still be charged rent though. Need the negative credit case to be probabilistic
-            // handle all neg credit in one place
-
-            self.hits += 1;
-            self.szhits += self.cmap.get_gpu_exec_time(&item.registration.fqdn);
-            // We've seen this function before so its size is more likely to be accurate
-            info!(tid=%tid, fqdn=%&item.registration.fqdn, opp_cost=%new_credit, "Cache Hit");
-            self.landlog("Post Hit");
-            self.update_res(&item.registration.fqdn);
-            return Compute::GPU;
-        }
-
+    /// Main admission control. We have space, but should be admit? Depends on load, other heuristics
+    fn admit_filter(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> bool {
         let potential_credits = self.opp_cost(&item.registration, tid);
         let acc_pot_credits = self.accum_potential_credits(&item.registration.fqdn, potential_credits);
 
-        // for higher cache utilization, we can relax the strict negativity, especially for 'new' functions?
-        // TODO: maintain map of evicted functions. If function is new, then allow it to run even if negative credit
-        // tradeoff between locality and work conserving
-        if can_expand && potential_credits > 0.0 {
-            //worried about estimation error falsely leading to neg creds
-            self.admit(&item.registration, tid); // TODO: clear acc_pot_credits
-            return Compute::GPU;
-        }
+	// this is the place for static criteria 
+	
+	let gpu_load_factor = self.gpu_load() / self.cfg.max_size ;
+	if gpu_load_factor < self.cfg.load_thresh {
+	    //  we are under-loaded, so only the potential_credits check is enough
+	    info!(fqdn=%&item.registration.fqdn, gpu_load=%self.gpu_load(), "ADMIT_LOW_LOAD");
+	    return potential_credits > 0.0 
+	}
+	// if above load thresh, the bar is higher, i.e., it must compete with some inactive function and have enough to evict
 
-        self.charge_rents(&item.registration, tid);
-
-        let accept_new = match self.cachepol.as_str() {
+	// need some relative comparison with the 
+        let victim_found = match self.cachepol.as_str() {
             "LRU" => self.try_lru_evict(),
             "LFU" => self.try_lfu_evict(),
             _ => self.try_find_victim(acc_pot_credits),
         };
+	if !victim_found {
+	    info!("DENY_VICTIM");
+	    return false 
+	}
+	info!("ADMIT_VICTIM");
+	return true 
+    }
 
-        if accept_new {
+
+}
+
+//////////////////////////////
+
+impl DispatchPolicy for Landlord {
+    /// Main entry point and landlord caching logic
+    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute {
+
+        if self.present(&item.registration.fqdn) {
+            // This doesnt decrease credit
+            let new_credit = self.calc_add_credit(&item.registration, tid);
+            let pos_credit = match self.credits.get(&item.registration.fqdn) {
+                Some(cr) => *cr + new_credit > 0.0,
+                _ => false,
+            };
+            if !pos_credit {
+                // this function is marked for eviction
+                // we really want to minimize this case, function is on gpu already. estimate can be wrong?
+                self.misses += 1;
+                self.negcredits += 1;
+                info!(tid=%tid, fqdn=%&item.registration.fqdn, "MISS_INSUFFICIENT_CREDITS");
+                self.update_nonres(&item.registration.fqdn);
+                return Compute::CPU;
+            }
+            self.hits += 1;
+            self.szhits += self.cmap.get_gpu_exec_time(&item.registration.fqdn);
+            // We've seen this function before so its size is more likely to be accurate
+            info!(tid=%tid, fqdn=%&item.registration.fqdn, opp_cost=%new_credit, "Cache Hit");
+            self.landlog("HIT_PRESENT");
+            self.update_res(&item.registration.fqdn);
+            return Compute::GPU;
+        }
+	
+	// not present. Either insert/admit or MISS. Charge rents in every case 
+	self.charge_rents(&item.registration, tid);
+	
+	let can_insert = self.accepting_new();
+	if !can_insert {
+            self.misses += 1;
+            self.capacitymiss += 1;
+            info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Miss Capacity");
+            self.update_nonres(&item.registration.fqdn.clone());
+            return Compute::CPU
+	}
+
+	// now the tricky admission criteria. We have space so can insert, but should we? 
+	let can_admit = self.admit_filter(item, tid); 
+	
+        if can_admit {
             // We found space!
             self.admit(&item.registration, tid);
-            Compute::GPU
+            return Compute::GPU
         } else {
             // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss.
             self.misses += 1;
             self.capacitymiss += 1;
-            info!(tid=%tid, fqdn=%&item.registration.fqdn, pot_creds=%potential_credits, "Cache Miss");
+            info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Miss Admission");
             self.update_nonres(&item.registration.fqdn.clone());
-            Compute::CPU
+            return Compute::CPU
         }
     }
 }
