@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::info;
+use rand::Rng; 
 
 #[derive(Debug, Deserialize)]
 pub struct LandlordConfig {
@@ -178,6 +179,7 @@ impl Landlord {
             },
         }
         self.insertions += 1;
+	self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);	
         info!(fqdn=%&reg.fqdn, "Cache Insertion");
         self.update_res(&reg.fqdn);
         self.lostcredits.remove(&reg.fqdn);
@@ -465,8 +467,23 @@ impl Landlord {
     /// Main admission control. We have space, but should be admit? Depends on load, other heuristics
     fn admit_filter(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> bool {
         let potential_credits = self.opp_cost(&item.registration, tid);
+	// get the number of gpu invokes for this function? 
         let acc_pot_credits = self.accum_potential_credits(&item.registration.fqdn, potential_credits);
-
+	let (n_gpu, _) = self.residents.get(&item.registration.fqdn).unwrap_or(&(0, OffsetDateTime::UNIX_EPOCH));
+		   
+	// The new function and empty GPU bonus is here.. ?
+	if self.gpu_load() < 0.2 * self.cfg.max_size {
+	    // this is low load. Chance = 1/1+n_gpu
+	    let p_new = 1.0/(1.0+*n_gpu as f64);
+	    // remember this is irrespective of the potential credits 
+	    let r = rand::thread_rng().gen_range(0.0..1.0);
+	    if r < p_new {
+		// won the lottery!
+		info!("ADMISSION LOTTERY");
+		return true 
+	    }
+	}
+	
 	// this is the place for static criteria 
 	
 	let gpu_load_factor = self.gpu_load() / self.cfg.max_size ;
@@ -512,7 +529,8 @@ impl DispatchPolicy for Landlord {
                 // we really want to minimize this case, function is on gpu already. estimate can be wrong?
                 self.misses += 1;
                 self.negcredits += 1;
-                info!(tid=%tid, fqdn=%&item.registration.fqdn, "MISS_INSUFFICIENT_CREDITS");
+		self.szmisses += self.cmap.get_gpu_exec_time(&item.registration.fqdn);	
+                info!(tid=%tid, fqdn=%&item.registration.fqdn,"MISS_INSUFFICIENT_CREDITS");
                 self.update_nonres(&item.registration.fqdn);
                 return Compute::CPU;
             }
@@ -524,7 +542,7 @@ impl DispatchPolicy for Landlord {
             self.update_res(&item.registration.fqdn);
             return Compute::GPU;
         }
-	
+
 	// not present. Either insert/admit or MISS. Charge rents in every case 
 	self.charge_rents(&item.registration, tid);
 	
@@ -532,6 +550,7 @@ impl DispatchPolicy for Landlord {
 	if !can_insert {
             self.misses += 1;
             self.capacitymiss += 1;
+	    self.szmisses += self.cmap.get_gpu_exec_time(&item.registration.fqdn);	
             info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Miss Capacity");
             self.update_nonres(&item.registration.fqdn.clone());
             return Compute::CPU
@@ -548,6 +567,7 @@ impl DispatchPolicy for Landlord {
             // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss.
             self.misses += 1;
             self.capacitymiss += 1;
+	    self.szmisses += self.cmap.get_gpu_exec_time(&item.registration.fqdn);	
             info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Miss Admission");
             self.update_nonres(&item.registration.fqdn.clone());
             return Compute::CPU

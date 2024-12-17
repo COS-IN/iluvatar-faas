@@ -112,6 +112,8 @@
 
       "ILUVATAR_WORKER__invocation__landlord_config__cache_size" : "{{ lnd_cache_size | default(10) }}"
       "ILUVATAR_WORKER__invocation__landlord_config__log_cache_info" : "{{ lnd_cache_log | default(false) }}"
+      "ILUVATAR_WORKER__invocation__landlord_config__max_size" : "{{ lnd_max_size | default(10.0) }}"
+      "ILUVATAR_WORKER__invocation__landlord_config__load_thresh" : "{{ lnd_load_thresh | default(2.0) }}"
 
 
     proxy_env: "{{ coded_proxy_env | combine(worker.environment, recursive=True) }}"
