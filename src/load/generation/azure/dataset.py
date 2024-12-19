@@ -154,29 +154,33 @@ def join_day_one(datapath: str, force: bool, debug: bool = False, iats: bool = T
   else:
     raise Exception("unable to generate dataframe, fell through")
 
+def iat_invoke_times(iat_mean: float, iat_std: float, duration_min:int, scale: float = 1.0):
+  secs_p_min = 60
+  milis_p_sec = 1000
+  end_ms = duration_min * secs_p_min * milis_p_sec
+  rng = np.random.default_rng(None)
+  trace = list(rng.normal(loc=iat_mean, scale=iat_std, size=int(end_ms/iat_mean)).cumsum()*scale)
+  time = trace[-1]
+  while time < end_ms:
+    sample = ceil(rng.normal(loc=iat_mean, scale=iat_std)*scale)
+    while sample < 0:
+      sample = ceil(rng.normal(loc=iat_mean, scale=iat_std)*scale)
+    time += int(sample)
+    if time < end_ms:
+      trace.append(time)
+  return list(filter(lambda x: x < end_ms, trace))
+
 def iat_trace_row(func_name, row, duration_min:int, scale: float = 1.0):
   """
   Create invocations for the function using the function's IAT
   """
-  secs_p_min = 60
-  milis_p_sec = 1000
-  trace = list()
   cold_dur = int(row["Maximum"])
   warm_dur = int(row["percentile_Average_25"])
   mean = float(row["IAT_mean"]) * scale
   std = float(row["IAT_std"])
   mem = int(row["divvied"])
-  rng = np.random.default_rng(None)
-  time = 0
-  end_ms = duration_min * secs_p_min * milis_p_sec
-  while time < end_ms:
-    sample = int(rng.normal(loc=mean, scale=std))
-    while sample < 0:
-      sample = int(rng.normal(loc=mean, scale=std))
-    time += sample
-    trace.append(time)
-
-  trace = [ (func_name, int(t)) for t in trace if t < end_ms]
+  trace = iat_invoke_times(mean, std, duration_min, scale)
+  trace = [(func_name, int(t)) for t in trace]
   return trace, (func_name, cold_dur, warm_dur, mem, mean)
 
 def real_trace_row(func_name, row, min_start=0, min_end=1440):

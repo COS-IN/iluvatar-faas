@@ -165,7 +165,7 @@ fn map_from_benchmark(
                     })?;
                     let compute_data: &iluvatar_library::types::FunctionInvocationTimings = bench_data
                         .resource_data
-                        .get(&compute.try_into().expect("failed to parse compute"))
+                        .get(&compute.try_into()?)
                         .ok_or_else(|| {
                             anyhow::format_err!(
                             "failed to find data in bench_data.resource_data for function '{}' with chosen_name '{}' using compute '{}'",
@@ -273,10 +273,7 @@ fn worker_prewarm_functions(
             let fct_cln = factory.clone();
             let compute = func
                 .parsed_compute
-                .expect("Did not have a `parsed_compute` in prewarm")
-                .into_iter()
-                .max()
-                .expect("Did not get a max for `parsed_compute` in prewarm");
+                .ok_or_else(|| anyhow::anyhow!("Function {} did not have a `parsed_compute` in prewarm", func_name))?;
             prewarm_calls.push(async move {
                 let mut errors = "Prewarm errors:".to_string();
                 let mut it = (1..4).peekable();
@@ -400,10 +397,10 @@ fn worker_wait_reg(
             };
             let comp = func
                 .parsed_compute
-                .expect("Did not have a `parsed_compute` when going to register");
+                .ok_or_else(|| anyhow::anyhow!("Function {} did not have a `parsed_compute` when going to register", f_c))?;
             let isol = func
                 .parsed_isolation
-                .expect("Did not have a `parsed_isolation` when going to register");
+                .ok_or_else(|| anyhow::anyhow!("Function {} did not have a `parsed_isolation` when going to register", f_c))?;
             let mem = func.mem_mb;
             let func_timings = match &func.chosen_name {
                 Some(chosen_name) => match bench_data.as_ref() {

@@ -1085,16 +1085,6 @@ impl MQFQ {
 
     #[allow(dead_code)]
     fn est_completion_time1(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
-        // sum_q (q_F-q_S) / max_in_flight
-
-        // let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
-
-        // let total_wait = per_flow_wait_times.sum::<f64>();
-        // self.gpu.total_gpus() as f64;
-        // let exec_time = self.cmap.get_gpu_exec_time(&_reg.fqdn);
-        // info!(tid=%_tid, qt=%total_wait, runtime=%exec_time, "GPU estimated completion time of item");
-
-        // total_wait + exec_time
         self.mqfq_set.iter().map(|x| x.value().est_flow_wait()).sum::<f64>()
     }
 
@@ -1126,9 +1116,10 @@ impl MQFQ {
     }
 
     #[allow(dead_code)]
-    fn est_completion_time3(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
+    fn est_completion_time3(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         let mut est_time = 0.0;
         let allowed_overrun = missing_default(&self.q_config.allowed_overrun, 10.0);
+        let cnt = self.get_select_num();
         let mut flow_deets = self
             .get_flow_report()
             .flows
@@ -1146,37 +1137,55 @@ impl MQFQ {
             })
             .collect::<Vec<FlowQInfo>>();
         loop {
-            flow_deets.sort_by(|f1, f2| OrderedFloat(f1.finish_time_virt).cmp(&OrderedFloat(f2.finish_time_virt)));
-            flow_deets.sort_by(|f1, f2| f1.queue_len.cmp(&f2.queue_len));
-            flow_deets.sort_by(|f1, f2| f1.in_flight.cmp(&f2.in_flight));
-            match flow_deets
-                .iter_mut()
-                .find(|f| f.state == MQState::Active && f.queue_len > 0)
-            {
+            flow_deets.sort_by(|f1, f2| OrderedFloat(f2.finish_time_virt).cmp(&OrderedFloat(f1.finish_time_virt)));
+            let mut keep_flows = vec![];
+            let mut other = vec![];
+            while keep_flows.len() < cnt {
+                if let Some(q) = flow_deets.pop() {
+                    if q.state == MQState::Active && q.queue_len > 0 {
+                        keep_flows.push(q);
+                    } else {
+                        other.push(q);
+                        // break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            flow_deets.extend(other);
+            keep_flows.sort_by(|f1, f2| f2.queue_len.cmp(&f1.queue_len));
+            // min by
+            keep_flows.sort_by(|f1, f2| f1.in_flight.cmp(&f2.in_flight));
+            match keep_flows.first_mut() {
                 Some(min_flow) => {
                     let time = (min_flow.finish_time_virt - min_flow.start_time_virt) / min_flow.queue_len as f64;
                     est_time += time;
                     min_flow.start_time_virt += time;
                     min_flow.queue_len -= 1;
                 },
-                None => return 0.0,
+                None => {
+                    warn!(tid=%tid, "keep_flows was somehow empty!");
+                    break;
+                },
             };
-            let vt = match flow_deets.iter().map(|q| OrderedFloat(q.start_time_virt)).min() {
-                None => break,
+            flow_deets.extend(keep_flows);
+            let vt = match flow_deets.iter().filter(|q| q.queue_len != 0).map(|q| OrderedFloat(q.start_time_virt)).min() {
+                None => {
+                    info!(tid=%tid, "No valid flow_deets to find new min_vt");
+                    break;
+                },
                 Some(vt) => vt.0,
             };
-            flow_deets.iter_mut().for_each(|q| {
+            for q in flow_deets.iter_mut() {
                 if q.start_time_virt - vt <= allowed_overrun {
                     q.state = MQState::Active;
+                    if q.fqdn == reg.fqdn && q.queue_len == 0 {
+                        return est_time;
+                    }
                 } else {
                     q.state = MQState::Throttled;
                 }
-            });
-            for q in flow_deets.iter() {
-                if q.fqdn == reg.fqdn && q.queue_len == 0 && q.state == MQState::Active {
-                    return est_time;
-                }
-            }
+            };
         }
         est_time
     }
@@ -1188,7 +1197,7 @@ impl DeviceQueue for MQFQ {
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let q_t = self.est_completion_time1(reg, tid) / self.gpu.max_concurrency() as f64;
+        let q_t = self.est_completion_time3(reg, tid) / self.gpu.max_concurrency() as f64;
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         info!(tid=%tid, qt=q_t, runtime=exec_time, "GPU estimated completion time of item");
         q_t + exec_time
