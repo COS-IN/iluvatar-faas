@@ -95,6 +95,10 @@ pub trait DeviceQueue: Send + Sync {
     fn expose_mqfq(&self) -> Option<&dashmap::DashMap<String, gpu_mqfq::FlowQ>> {
         None
     }
+
+    fn expose_flow_report(&self) -> Option<gpu_mqfq::MqfqInfo> {
+	None
+    }
 }
 
 #[derive(Debug)]

@@ -341,14 +341,16 @@ struct FlowQInfo {
     start_time_virt: f64,
     finish_time_virt: f64,
     in_flight: i32,
+    pending_load: f64, 
     queue_len: usize,
     avg_active_t: f64,
     num_active_periods: i32,
 }
 #[derive(Debug, serde::Serialize)]
-struct MqfqInfo {
+pub struct MqfqInfo {
     flows: Vec<FlowQInfo>,
     active_flows: u32,
+    pub active_load: f64, 
 }
 
 enum MqfqPolicy {
@@ -481,6 +483,7 @@ impl MQFQ {
     fn get_flow_report(&self) -> MqfqInfo {
         let mut flows = vec![];
         let mut active_flows = 0;
+	let mut active_load = 0.0;
         for q in self.mqfq_set.iter() {
             if q.state == MQState::Active {
                 active_flows += 1;
@@ -492,13 +495,15 @@ impl MQFQ {
                 start_time_virt: q.start_time_virt,
                 finish_time_virt: q.finish_time_virt,
                 in_flight: q.in_flight,
+		pending_load: q.in_flight as f64 * self.cmap.get_gpu_exec_time(&q.fqdn), 
                 queue_len: q.queue.len(),
                 avg_active_t: q.avg_active_t,
                 num_active_periods: q.num_active_periods,
             };
+	    active_load += info.pending_load.clone() ;
             flows.push(info);
         }
-        MqfqInfo { flows, active_flows }
+        MqfqInfo { flows, active_flows, active_load }
     }
 
     async fn gpu_wait_on_queue(invoker_svc: Arc<Self>, tid: TransactionId) {
@@ -1233,4 +1238,12 @@ impl DeviceQueue for MQFQ {
     fn expose_mqfq(&self) -> Option<&DashMap<String, FlowQ>> {
         Some(&self.mqfq_set)
     }
+
+    fn expose_flow_report(&self) -> Option<MqfqInfo>
+    {
+	let fr = self.get_flow_report();
+	Some(fr)
+    }
+	   
+    
 }

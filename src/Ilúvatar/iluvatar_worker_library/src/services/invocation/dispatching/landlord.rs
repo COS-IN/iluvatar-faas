@@ -185,14 +185,29 @@ impl Landlord {
         self.lostcredits.remove(&reg.fqdn);
     }
 
+    // We have flowqinfo.inflight which counts number of functions but not their exec time
+    // Average exec time of the cache ? 
+    fn get_mqfq_active_load(&self) -> f64 {
+	//let running = self.gpu_queue.running();
+	if let Some(flow_report) = self.gpu_queue.expose_flow_report() {
+	    let total_active = flow_report.active_load.clone();
+	    return total_active 
+	}
+	0.0
+    }
+    
     /// Get the current load on the GPU. total execution time pending
     fn gpu_load(&self) -> f64 {
+	
         if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
-            return self.credits.keys().fold(0.0, |acc, fqdn| {
+            let enqueued_load = self.credits.keys().fold(0.0, |acc, fqdn| {
                 acc + (mqfq.get(fqdn).map_or(0.0, |q| q.queue.len() as f64) * self.cmap.get_gpu_exec_time(fqdn))
             });
+	    return enqueued_load + self.get_mqfq_active_load();
+	    // multiply this by the average cache exec time? We can know the active functions though? 
         }
         0.0
+	//Often 0 and too low, doesnt capture functions executing on GPU (queue may be empty).
     }
 
     fn charge_rents(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
@@ -458,23 +473,46 @@ impl Landlord {
 
     /// Active functions footprint smaller than capacity
     #[allow(dead_code)]
-    fn accepting_new(&mut self) -> bool {
+    #[inline(always)]
+    fn accepting_new(&self) -> bool {
         //let remaining_slots = self.cfg.cache_size as i32 - self.current_occupancy() as i32 ;
 	let remaining_sz = self.cfg.max_size - self.current_sz_occup() ; 
 	return remaining_sz > 0.0	    
     }
 
-    /// Main admission control. We have space, but should be admit? Depends on load, other heuristics
+    /// Based on eviction policy, return true if managed to evict victim
+    fn try_evict_pol(&mut self, acc_pot_credits: f64) -> bool {
+        let victim_found = match self.cachepol.as_str() {
+            "LRU" => self.try_lru_evict(),
+            "LFU" => self.try_lfu_evict(),
+            _ => self.try_find_victim(acc_pot_credits),
+        };
+	return victim_found 
+    }
+    
+    /// Main admission control. We may have space, but should be admit? Depends on load, other heuristics
     fn admit_filter(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> bool {
         let potential_credits = self.opp_cost(&item.registration, tid);
 	// get the number of gpu invokes for this function? 
         let acc_pot_credits = self.accum_potential_credits(&item.registration.fqdn, potential_credits);
-	let (n_gpu, _) = self.residents.get(&item.registration.fqdn).unwrap_or(&(0, OffsetDateTime::UNIX_EPOCH));
-		   
-	// The new function and empty GPU bonus is here.. ?
+	let (n_gpu, _) = self.residents.get(&item.registration.fqdn).unwrap_or(&(0, OffsetDateTime::UNIX_EPOCH)).clone();
+	
+	let mut _eviction_attempted  = false ;
+	let mut _eviction_success = false ;
+	
+	// try to see if cache is full and if so, try evicting
+	// if cache is full, should we always try to evict, irrespective of credits?
+	// 
+	if !self.accepting_new() {
+	    _eviction_attempted = true;
+	    _eviction_success = self.try_evict_pol(100000000000.0); 
+	}
+	// At this point we've made some space, and the real admission control starts, is this new fqdn worthy?
+	
+	// A1. New function bonus on low GPU load 
 	if self.gpu_load() < 0.2 * self.cfg.max_size {
 	    // this is low load. Chance = 1/1+n_gpu
-	    let p_new = 1.0/(1.0+*n_gpu as f64);
+	    let p_new = 1.0/(1.0+n_gpu as f64);
 	    // remember this is irrespective of the potential credits 
 	    let r = rand::thread_rng().gen_range(0.0..1.0);
 	    if r < p_new {
@@ -484,7 +522,10 @@ impl Landlord {
 	    }
 	}
 	
-	// this is the place for static criteria 
+	// A2. this is the place for static criteria. Nothing yet.
+
+	// A3. Also an underload condition but different threshold? Can be merged with A1.
+	// Admit if potential credits are enough without evicting 
 	
 	let gpu_load_factor = self.gpu_load() / self.cfg.max_size ;
 	if gpu_load_factor < self.cfg.load_thresh {
@@ -492,22 +533,30 @@ impl Landlord {
 	    info!(fqdn=%&item.registration.fqdn, gpu_load=%self.gpu_load(), "ADMIT_LOW_LOAD");
 	    return potential_credits > 0.0 
 	}
-	// if above load thresh, the bar is higher, i.e., it must compete with some inactive function and have enough to evict
+	// A4. if above load thresh, the bar is higher, i.e., it must compete with some inactive function and have enough to evict
 
-	// need some relative comparison with the 
-        let victim_found = match self.cachepol.as_str() {
-            "LRU" => self.try_lru_evict(),
-            "LFU" => self.try_lfu_evict(),
-            _ => self.try_find_victim(acc_pot_credits),
-        };
+	// if eviction_attempted {
+	//     if eviction_success {
+	// 	// victim has already been found, not need to evict again
+	// 	info!("ADMIT_VICTIM");
+	// 	return true 
+	//     }
+	//     else {
+	// 	info!("DENY_VICTIM");
+	// 	return false 
+	//     }
+	// }
+//	else { // cache was not full earlier, so try here 
+        let victim_found = self.try_evict_pol(acc_pot_credits); 
 	if !victim_found {
 	    info!("DENY_VICTIM");
 	    return false 
 	}
 	info!("ADMIT_VICTIM");
 	return true 
+//	}
+	
     }
-
 
 }
 
@@ -545,18 +594,8 @@ impl DispatchPolicy for Landlord {
 
 	// not present. Either insert/admit or MISS. Charge rents in every case 
 	self.charge_rents(&item.registration, tid);
-	
-	let can_insert = self.accepting_new();
-	if !can_insert {
-            self.misses += 1;
-            self.capacitymiss += 1;
-	    self.szmisses += self.cmap.get_gpu_exec_time(&item.registration.fqdn);	
-            info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Miss Capacity");
-            self.update_nonres(&item.registration.fqdn.clone());
-            return Compute::CPU
-	}
-
-	// now the tricky admission criteria. We have space so can insert, but should we? 
+		
+	// now the tricky admission criteria. We may have space to insert, but should we? 
 	let can_admit = self.admit_filter(item, tid); 
 	
         if can_admit {
