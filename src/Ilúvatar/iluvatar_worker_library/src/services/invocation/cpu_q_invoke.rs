@@ -21,7 +21,6 @@ use std::{
     sync::{atomic::AtomicU32, Arc},
     time::Duration,
 };
-use time::OffsetDateTime;
 use tokio::sync::{mpsc::UnboundedSender, Notify};
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -222,16 +221,7 @@ impl CpuQueueingInvoker {
     /// On failure, [Invoker::handle_invocation_error] is called
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
     async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
-        match self
-            .invoke(
-                &item.registration,
-                &item.json_args,
-                &item.tid,
-                item.queue_insert_time,
-                Some(permit),
-            )
-            .await
-        {
+        match self.invoke(&item, Some(permit)).await {
             Ok((result, duration, compute, state)) => item.mark_successful(result, duration, compute, state),
             Err(cause) => self.handle_invocation_error(item, cause),
         };
@@ -294,6 +284,7 @@ impl CpuQueueingInvoker {
             &item.json_args,
             &item.tid,
             remove_time,
+            item.est_completion_time,
             &ctr_lock,
             self.clock.format_time(remove_time)?,
             now(),
@@ -316,30 +307,31 @@ impl CpuQueueingInvoker {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
     async fn invoke<'a>(
         &'a self,
-        reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a str,
-        tid: &'a TransactionId,
-        queue_insert_time: OffsetDateTime,
+        item: &'a Arc<EnqueuedInvocation>,
         permit: Option<Box<dyn Drop + Send>>,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        debug!(tid=%tid, "Internal invocation starting");
+        debug!(tid=%item.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
         let start = now();
-        let ctr_lock = match self.cont_manager.acquire_container(reg, tid, Compute::CPU) {
+        let ctr_lock = match self
+            .cont_manager
+            .acquire_container(&item.registration, &item.tid, Compute::CPU)
+        {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => n?,
         };
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (data, duration, compute_type, state) = invoke_on_container(
-            reg,
-            json_args,
-            tid,
-            queue_insert_time,
+            &item.registration,
+            &item.json_args,
+            &item.tid,
+            item.queue_insert_time,
+            item.est_completion_time,
             &ctr_lock,
             remove_time,
             start,

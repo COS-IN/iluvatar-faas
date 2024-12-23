@@ -13,6 +13,7 @@ pub enum EnqueueingPolicy {
     EstSpeedup,
     RunningAvgEstSpeedup,
     QueueAdjustAvgEstSpeedup,
+    TCPEstSpeedup,
     /// Always enqueue on the compute that gives shortest compute time
     ShortestExecTime,
     /// Always enqueue on CPU

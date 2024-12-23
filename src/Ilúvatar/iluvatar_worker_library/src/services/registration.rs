@@ -149,7 +149,7 @@ impl RegistrationService {
                     for dev_compute in compute.into_iter() {
                         if let Some(timings) = r.get(&dev_compute.try_into()?) {
                             debug!(tid=%tid, compute=%dev_compute, from_compute=%compute, fqdn=%fqdn, timings=?r, "Registering timings for function");
-                            let (cold, warm, prewarm, exec, e2e) =
+                            let (cold, warm, prewarm, exec, e2e, _) =
                                 self.characteristics_map.get_characteristics(&dev_compute)?;
                             for v in timings.cold_results_sec.iter() {
                                 self.characteristics_map.add(&fqdn, cold, Values::F64(*v), true);

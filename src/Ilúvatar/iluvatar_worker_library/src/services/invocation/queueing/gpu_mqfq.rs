@@ -28,6 +28,7 @@ use std::time::Duration;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
+use iluvatar_library::characteristics_map::Characteristics;
 
 lazy_static::lazy_static! {
   pub static ref MQFQ_GPU_QUEUE_WORKER_TID: TransactionId = "MQFQ_GPU_Queue".to_string();
@@ -545,17 +546,7 @@ impl MQFQ {
         let ct = self.clock.now();
         self.ctrack.add_item(ct);
         if item.invoke.lock() {
-            let container = match self
-                .invoke(
-                    &item.invoke.registration,
-                    &item.invoke.json_args,
-                    &item.invoke.tid,
-                    item.invoke.queue_insert_time,
-                    cpu_token,
-                    gpu_token,
-                )
-                .await
-            {
+            let container = match self.invoke(&item.invoke, cpu_token, gpu_token).await {
                 Ok((result, duration, container)) => {
                     item.invoke
                         .mark_successful(result, duration, container.compute_type(), container.state());
@@ -601,38 +592,39 @@ impl MQFQ {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, gpu_token, cpu_token), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoke, gpu_token, cpu_token), fields(tid=%invoke.tid)))]
     async fn invoke<'a>(
         &'a self,
-        reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a str,
-        tid: &'a TransactionId,
-        queue_insert_time: OffsetDateTime,
+        invoke: &'a Arc<EnqueuedInvocation>,
         cpu_token: DroppableToken,
         gpu_token: DroppableToken,
     ) -> Result<(ParsedResult, Duration, Container)> {
-        debug!(tid=%tid, "Internal invocation starting");
+        debug!(tid=%invoke.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
         let start = now();
-        let ctr_lock = match self.cont_manager.acquire_container(reg, tid, Compute::GPU) {
+        let ctr_lock = match self
+            .cont_manager
+            .acquire_container(&invoke.registration, &invoke.tid, Compute::GPU)
+        {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => {
                 let n = n?;
                 if self.gpu_config.send_driver_memory_hints() {
                     let ctr = n.container.clone();
-                    let t = tid.clone();
+                    let t = invoke.tid.clone();
                     tokio::spawn(ContainerManager::move_to_device(ctr, t));
                 }
                 n
             },
         };
         match invoke_on_container_2(
-            reg,
-            json_args,
-            tid,
-            queue_insert_time,
+            &invoke.registration,
+            &invoke.json_args,
+            &invoke.tid,
+            invoke.queue_insert_time,
+            invoke.est_completion_time,
             &ctr_lock,
             remove_time,
             start,
@@ -646,11 +638,11 @@ impl MQFQ {
                 Ok((result, dur, container))
             },
             Err(e) => {
-                debug!(tid=%tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
+                debug!(tid=%invoke.tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
                 if !ctr_lock.container.is_healthy() {
-                    debug!(tid=%tid, container_id=%ctr_lock.container.container_id(), "Adding gpu token to drop_on_remove for container");
+                    debug!(tid=%invoke.tid, container_id=%ctr_lock.container.container_id(), "Adding gpu token to drop_on_remove for container");
                     // container will be removed, but holds onto GPU until deleted
-                    ctr_lock.container.add_drop_on_remove(gpu_token, tid);
+                    ctr_lock.container.add_drop_on_remove(gpu_token, &invoke.tid);
                 }
                 Err(e)
             },
@@ -1169,7 +1161,12 @@ impl MQFQ {
                 },
             };
             flow_deets.extend(keep_flows);
-            let vt = match flow_deets.iter().filter(|q| q.queue_len != 0).map(|q| OrderedFloat(q.start_time_virt)).min() {
+            let vt = match flow_deets
+                .iter()
+                .filter(|q| q.queue_len != 0)
+                .map(|q| OrderedFloat(q.start_time_virt))
+                .min()
+            {
                 None => {
                     info!(tid=%tid, "No valid flow_deets to find new min_vt");
                     break;
@@ -1185,7 +1182,7 @@ impl MQFQ {
                 } else {
                     q.state = MQState::Throttled;
                 }
-            };
+            }
         }
         est_time
     }
@@ -1197,10 +1194,18 @@ impl DeviceQueue for MQFQ {
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let q_t = self.est_completion_time3(reg, tid) / self.gpu.max_concurrency() as f64;
+        let concur = self.gpu.max_concurrency() as f64;
+        let q_t = self.est_completion_time1(reg, tid) / concur;
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
-        info!(tid=%tid, qt=q_t, runtime=exec_time, "GPU estimated completion time of item");
-        q_t + exec_time
+        let mut err_time = 0.0;
+        if self.queue_len() > 0 {
+            err_time = match self.cmap.lookup_agg(&reg.fqdn, &Characteristics::QueueErrGpu) {
+                None => 0.0,
+                Some(x) => iluvatar_library::characteristics_map::unwrap_val_f64(&x) / concur,
+            };
+        }
+        info!(tid=%tid, qt=q_t, runtime=exec_time, err=err_time, "GPU estimated completion time of item");
+        q_t + exec_time + err_time
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {

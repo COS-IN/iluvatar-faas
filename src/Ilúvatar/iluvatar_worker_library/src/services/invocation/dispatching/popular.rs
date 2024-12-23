@@ -1,28 +1,104 @@
 use crate::services::invocation::dispatching::{queueing_dispatcher::DispatchPolicy, EnqueueingPolicy};
-use crate::services::invocation::queueing::{DeviceQueue, EnqueuedInvocation};
+use crate::services::invocation::queueing::DeviceQueue;
+use crate::services::registration::RegisteredFunction;
 use crate::worker_api::config::InvocationConfig;
+use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::clock::now;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
+use ordered_float::OrderedFloat;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::time::Instant;
+use tracing::info;
 
 pub fn get_popular(
     pol: EnqueueingPolicy,
     cmap: &Arc<CharacteristicsMap>,
-    _invocation_config: &Arc<InvocationConfig>,
+    invocation_config: &Arc<InvocationConfig>,
     cpu_queue: &Arc<dyn DeviceQueue>,
     gpu_queue: &Option<Arc<dyn DeviceQueue>>,
-) -> anyhow::Result<Box<dyn DispatchPolicy>> {
+) -> Result<Box<dyn DispatchPolicy>> {
     match pol {
         EnqueueingPolicy::TopAvg => TopAvgDispatch::boxed(cmap),
         EnqueueingPolicy::LeastPopular => LeastPopularDispatch::boxed(),
         EnqueueingPolicy::Popular => PopularDispatch::boxed(),
         EnqueueingPolicy::PopularEstTimeDispatch => PopularEstTimeDispatch::boxed(cpu_queue, gpu_queue),
         EnqueueingPolicy::PopularQueueLenDispatch => PopularQueueLenDispatch::boxed(cpu_queue, gpu_queue),
+        EnqueueingPolicy::TCPEstSpeedup => TCPEstSpeedup::boxed(cpu_queue, gpu_queue, cmap, invocation_config),
         // popular policy not being used, give dummy basic policy
         _ => LeastPopularDispatch::boxed(),
+    }
+}
+
+struct TCPEstSpeedup {
+    cpu_queue: Arc<dyn DeviceQueue>,
+    gpu_queue: Arc<dyn DeviceQueue>,
+    cmap: Arc<CharacteristicsMap>,
+    invocation_config: Arc<InvocationConfig>,
+    running_avg_speedup: f64,
+    last_avg_update: Instant,
+    max_ratio: f64,
+}
+impl TCPEstSpeedup {
+    fn boxed(
+        cpu_queue: &Arc<dyn DeviceQueue>,
+        gpu_queue: &Option<Arc<dyn DeviceQueue>>,
+        cmap: &Arc<CharacteristicsMap>,
+        invocation_config: &Arc<InvocationConfig>,
+    ) -> Result<Box<dyn DispatchPolicy>> {
+        Ok(Box::new(Self {
+            running_avg_speedup: invocation_config.speedup_ratio.unwrap_or(4.0),
+            invocation_config: invocation_config.clone(),
+            cmap: cmap.clone(),
+            cpu_queue: cpu_queue.clone(),
+            gpu_queue: gpu_queue
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("GPU queue was empty trying to create PopularQueueLenDispatch"))?,
+            last_avg_update: now(),
+            max_ratio: 0.0,
+        }))
+    }
+}
+impl DispatchPolicy for TCPEstSpeedup {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute {
+        let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
+        let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
+        let ratio = cpu / gpu;
+        self.max_ratio = f64::max(self.max_ratio, ratio);
+
+        if self.last_avg_update.elapsed().as_secs_f64() > 5.0 {
+            let q_len = self.gpu_queue.queue_len();
+            if q_len <= 1 {
+                self.running_avg_speedup *= 0.99;
+            } else if q_len >= 5 {
+                self.running_avg_speedup = f64::min(self.max_ratio, self.running_avg_speedup * 1.1);
+            }
+            info!(tid=%tid, new_avg=self.running_avg_speedup, "running avg");
+            self.last_avg_update = now();
+        }
+        let compute = if ratio > self.running_avg_speedup {
+            let mut opts = vec![];
+            if reg.supported_compute.contains(Compute::CPU) {
+                opts.push((self.cpu_queue.est_completion_time(&reg, &tid), Compute::CPU));
+            }
+            if reg.supported_compute.contains(Compute::GPU) {
+                opts.push((self.gpu_queue.est_completion_time(&reg, &tid), Compute::GPU));
+            }
+            if let Some((_, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
+                *c
+            } else {
+                Compute::CPU
+            }
+        } else {
+            if self.invocation_config.log_details() {
+                info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=0.0, "Cache Miss");
+            }
+            Compute::CPU
+        };
+        compute
     }
 }
 
@@ -40,9 +116,9 @@ impl TopAvgDispatch {
     }
 }
 impl DispatchPolicy for TopAvgDispatch {
-    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, _tid: &TransactionId) -> Compute {
-        let iat = self.cmap.get_iat(&item.registration.fqdn);
-        self.iats.write().insert(item.registration.fqdn.clone(), iat);
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Compute {
+        let iat = self.cmap.get_iat(&reg.fqdn);
+        self.iats.write().insert(reg.fqdn.clone(), iat);
         let iats = self.iats.read().values().copied().collect::<Vec<f64>>();
         let avg = iats.iter().sum::<f64>() / iats.len() as f64;
         match iat > avg {
@@ -69,16 +145,16 @@ impl LeastPopularDispatch {
     }
 }
 impl DispatchPolicy for LeastPopularDispatch {
-    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, _tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Compute {
         self.total_invokes += 1;
-        let invokes = match self.invokes.contains_key(&item.registration.fqdn) {
+        let invokes = match self.invokes.contains_key(&reg.fqdn) {
             true => {
-                let val = self.invokes.get_mut(&item.registration.fqdn).unwrap();
+                let val = self.invokes.get_mut(&reg.fqdn).unwrap();
                 *val += 1;
                 *val
             },
             false => {
-                self.invokes.insert(item.registration.fqdn.clone(), 1);
+                self.invokes.insert(reg.fqdn.clone(), 1);
                 1
             },
         };
@@ -107,16 +183,16 @@ impl PopularDispatch {
     }
 }
 impl DispatchPolicy for PopularDispatch {
-    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, _tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Compute {
         self.total_invokes += 1;
-        let invokes = match self.invokes.contains_key(&item.registration.fqdn) {
+        let invokes = match self.invokes.contains_key(&reg.fqdn) {
             true => {
-                let val = self.invokes.get_mut(&item.registration.fqdn).unwrap();
+                let val = self.invokes.get_mut(&reg.fqdn).unwrap();
                 *val += 1;
                 *val
             },
             false => {
-                self.invokes.insert(item.registration.fqdn.clone(), 1);
+                self.invokes.insert(reg.fqdn.clone(), 1);
                 1
             },
         };
@@ -157,16 +233,16 @@ impl PopularQueueLenDispatch {
     }
 }
 impl DispatchPolicy for PopularQueueLenDispatch {
-    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, _tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Compute {
         self.total_invokes += 1;
-        let invokes = match self.invokes.contains_key(&item.registration.fqdn) {
+        let invokes = match self.invokes.contains_key(&reg.fqdn) {
             true => {
-                let val = self.invokes.get_mut(&item.registration.fqdn).unwrap();
+                let val = self.invokes.get_mut(&reg.fqdn).unwrap();
                 *val += 1;
                 *val
             },
             false => {
-                self.invokes.insert(item.registration.fqdn.clone(), 1);
+                self.invokes.insert(reg.fqdn.clone(), 1);
                 1
             },
         };
@@ -208,16 +284,16 @@ impl PopularEstTimeDispatch {
     }
 }
 impl DispatchPolicy for PopularEstTimeDispatch {
-    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, _tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute {
         self.total_invokes += 1;
-        let invokes = match self.invokes.contains_key(&item.registration.fqdn) {
+        let invokes = match self.invokes.contains_key(&reg.fqdn) {
             true => {
-                let val = self.invokes.get_mut(&item.registration.fqdn).unwrap();
+                let val = self.invokes.get_mut(&reg.fqdn).unwrap();
                 *val += 1;
                 *val
             },
             false => {
-                self.invokes.insert(item.registration.fqdn.clone(), 1);
+                self.invokes.insert(reg.fqdn.clone(), 1);
                 1
             },
         };
@@ -225,8 +301,8 @@ impl DispatchPolicy for PopularEstTimeDispatch {
         match freq < self.popular_cutoff {
             true => Compute::CPU,
             false => {
-                let cpu = self.cpu_queue.est_completion_time(&item.registration, &item.tid);
-                let gpu = self.gpu_queue.est_completion_time(&item.registration, &item.tid);
+                let cpu = self.cpu_queue.est_completion_time(&reg, &tid);
+                let gpu = self.gpu_queue.est_completion_time(&reg, &tid);
                 match cpu < gpu {
                     true => Compute::CPU,
                     false => Compute::GPU,

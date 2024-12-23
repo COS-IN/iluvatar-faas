@@ -152,6 +152,7 @@ async fn invoke_on_container(
     json_args: &str,
     tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
+    est_completion_time: f64,
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
@@ -163,6 +164,7 @@ async fn invoke_on_container(
         json_args,
         tid,
         queue_insert_time,
+        est_completion_time,
         ctr_lock,
         remove_time,
         cold_time_start,
@@ -184,6 +186,7 @@ async fn invoke_on_container_2(
     json_args: &str,
     tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
+    est_completion_time: f64,
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
@@ -201,8 +204,16 @@ async fn invoke_on_container_2(
     };
     cmap.add(&reg.fqdn, char, Values::F64(time), true);
     cmap.add(&reg.fqdn, chars.3, Values::F64(data.duration_sec), true);
-    let e2etime = (clock.now() - queue_insert_time).as_seconds_f64();
+    let now = clock.now();
+    let e2etime = (now - queue_insert_time).as_seconds_f64();
     cmap.add(&reg.fqdn, chars.4, Values::F64(e2etime), true);
+    let err = e2etime - est_completion_time;
+    // if est_completion_time >= 0.0 {
+    //     err = (now - (queue_insert_time + Duration::from_secs_f64(est_completion_time))).as_seconds_f64();
+    // } else {
+    //     err = (now - (queue_insert_time - Duration::from_secs_f64(f64::abs(est_completion_time)))).as_seconds_f64();
+    // }
+    cmap.add(&reg.fqdn, chars.5, Values::F64(err), true);
     if compute == Compute::CPU {
         cmap.add_cpu_tput(time);
     } else if compute == Compute::GPU {

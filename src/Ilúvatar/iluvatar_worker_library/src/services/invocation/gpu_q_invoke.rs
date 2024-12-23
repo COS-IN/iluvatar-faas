@@ -29,7 +29,6 @@ use std::{
     sync::{atomic::AtomicU32, Arc},
     time::Duration,
 };
-use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -316,10 +315,7 @@ impl GpuQueueingInvoker {
                 .invoke(
                     // unwrap is safe, we either have a container or will go to the top of the loop
                     ctr_lock.as_ref().unwrap(),
-                    &item.registration,
-                    &item.json_args,
-                    &item.tid,
-                    item.queue_insert_time,
+                    &item,
                     start,
                 )
                 .await
@@ -408,25 +404,23 @@ impl GpuQueueingInvoker {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, ctr_lock, cold_time_start), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, ctr_lock, cold_time_start), fields(tid=%item.tid)))]
     async fn invoke<'a>(
         &'a self,
         ctr_lock: &'a ContainerLock,
-        reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a str,
-        tid: &'a TransactionId,
-        queue_insert_time: OffsetDateTime,
+        item: &'a Arc<EnqueuedInvocation>,
         cold_time_start: Instant,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        debug!(tid=%tid, "Internal invocation starting");
+        debug!(tid=%item.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (data, duration, compute_type, state) = invoke_on_container(
-            reg,
-            json_args,
-            tid,
-            queue_insert_time,
+            &item.registration,
+            &item.json_args,
+            &item.tid,
+            item.queue_insert_time,
+            item.est_completion_time,
             ctr_lock,
             remove_time,
             cold_time_start,
@@ -458,11 +452,10 @@ impl DeviceQueue for GpuQueueingInvoker {
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let qt = self.queue.est_queue_time();
-        let tracked = self.completion_tracker.next_avail().as_seconds_f64();
+        let qt = self.queue.est_queue_time() / self.gpu.max_concurrency() as f64;
         let (runtime, state) = self.get_est_completion_time_from_containers_gpu(reg);
-        debug!(tid=%tid, qt=qt, state=?state, tracked=tracked, runtime=runtime, "GPU estimated completion time of item");
-        qt + tracked + runtime
+        debug!(tid=%tid, qt=qt, state=?state, runtime=runtime, "GPU estimated completion time of item");
+        qt + runtime
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
@@ -506,6 +499,7 @@ mod gpu_batch_tests {
             name.to_string(),
             name.to_string(),
             clock.now(),
+            0.0,
         ))
     }
 
