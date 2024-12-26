@@ -131,8 +131,8 @@ pub enum Characteristics {
     EstCpu,
 
     /// Also store the error?
-    ErrGpu,
-    ErrCpu,
+    QueueErrGpu,
+    QueueErrCpu,
 }
 
 #[derive(Debug)]
@@ -565,11 +565,12 @@ impl CharacteristicsMap {
     }
 
     /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute device.
-    /// (Cold, Warm, PreWarm, Exec, E2E)
+    /// (Cold, Warm, PreWarm, Exec, E2E, QueueEstErr)
     pub fn get_characteristics(
         &self,
         compute: &Compute,
     ) -> anyhow::Result<(
+        Characteristics,
         Characteristics,
         Characteristics,
         Characteristics,
@@ -583,6 +584,7 @@ impl CharacteristicsMap {
                 Characteristics::PreWarmTime,
                 Characteristics::ExecTime,
                 Characteristics::E2ECpu,
+                Characteristics::QueueErrCpu,
             ))
         } else if compute == &Compute::GPU {
             Ok((
@@ -591,6 +593,7 @@ impl CharacteristicsMap {
                 Characteristics::GpuPreWarmTime,
                 Characteristics::GpuExecTime,
                 Characteristics::E2EGpu,
+                Characteristics::QueueErrGpu,
             ))
         } else {
             anyhow::bail!("Unknown compute to get characteristics for registration: {:?}", compute)

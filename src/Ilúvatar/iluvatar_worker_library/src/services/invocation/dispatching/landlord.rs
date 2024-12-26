@@ -1,6 +1,6 @@
 use crate::services::invocation::dispatching::queueing_dispatcher::DispatchPolicy;
 use crate::services::invocation::dispatching::EnqueueingPolicy;
-use crate::services::invocation::queueing::{DeviceQueue, EnqueuedInvocation};
+use crate::services::invocation::queueing::DeviceQueue;
 use crate::services::registration::RegisteredFunction;
 use crate::worker_api::config::InvocationConfig;
 use anyhow::Result;
@@ -9,19 +9,19 @@ use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
+use rand::Rng;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::info;
-use rand::Rng; 
 
 #[derive(Debug, Deserialize)]
 pub struct LandlordConfig {
     pub cache_size: u32, // Max number of functions we are admitting, regardless of size
     // TODO: change this to max_res here and for the ansible scripts ..
-    pub max_size: f64, // Max actual size of cache considering function footprints (exec times)
-    pub load_thresh: f64, // fraction for the admission control 
+    pub max_size: f64,    // Max actual size of cache considering function footprints (exec times)
+    pub load_thresh: f64, // fraction for the admission control
     pub log_cache_info: bool,
     // mode: fixed, autoscaling
 }
@@ -164,12 +164,20 @@ impl Landlord {
     }
 
     /// Admit and insert New function
-    fn admit(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
+    fn admit(
+        &mut self,
+        reg: &Arc<RegisteredFunction>,
+        mqfq_est: f64,
+        gpu_est: f64,
+        cpu_est: f64,
+        est_err: f64,
+        tid: &TransactionId,
+    ) {
         match self.credits.get_mut(&reg.fqdn) {
             None => {
                 // Most likely this is a new function, so avg e2e times will have low confidence?
                 // other place we are using opp_cost which uses a better estimator.
-                let cost = self.opp_cost(reg, tid);
+                let cost = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
                 //let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn);
                 self.credits.insert(reg.fqdn.to_string(), cost);
             },
@@ -179,7 +187,7 @@ impl Landlord {
             },
         }
         self.insertions += 1;
-	self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);	
+        self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);
         info!(fqdn=%&reg.fqdn, "Cache Insertion");
         self.update_res(&reg.fqdn);
         self.lostcredits.remove(&reg.fqdn);
@@ -210,11 +218,19 @@ impl Landlord {
 	//Often 0 and too low, doesnt capture functions executing on GPU (queue may be empty).
     }
 
-    fn charge_rents(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
+    fn charge_rents(
+        &mut self,
+        reg: &Arc<RegisteredFunction>,
+        mqfq_est: f64,
+        gpu_est: f64,
+        cpu_est: f64,
+        est_err: f64,
+        tid: &TransactionId,
+    ) {
         match self.cachepol.as_str() {
             "LRU" => self.charge_rent_constant(),
             "LFU" => self.charge_rent_constant(),
-            _ => self.charge_rents_ll(reg, tid),
+            _ => self.charge_rents_ll(reg, mqfq_est, gpu_est, cpu_est, est_err, tid),
         }
     }
 
@@ -226,8 +242,16 @@ impl Landlord {
     }
 
     /// Rent will be charged to all functions based on this 'missing' function's opportunity cost
-    fn charge_rents_ll(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) {
-        let total_rent_due = self.opp_cost(reg, tid);
+    fn charge_rents_ll(
+        &mut self,
+        reg: &Arc<RegisteredFunction>,
+        mqfq_est: f64,
+        gpu_est: f64,
+        cpu_est: f64,
+        est_err: f64,
+        tid: &TransactionId,
+    ) {
+        let total_rent_due = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
         // opp cost can be negative! Don't charge rent in that case
         if total_rent_due < 0.0 {
             info!("Not charging negative rent");
@@ -274,10 +298,18 @@ impl Landlord {
 
     /// The new credit is equal to the difference between the CPU and GPU execution times
     /// Equivalent to the opportunity cost of (not) caching the item
-    fn opp_cost(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let mqfq_est = self.gpu_queue.est_completion_time(reg, tid);
-        let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
-        let cpu_est = self.cpu_queue.est_completion_time(reg, tid);
+    fn opp_cost(
+        &self,
+        reg: &Arc<RegisteredFunction>,
+        mqfq_est: f64,
+        gpu_est: f64,
+        cpu_est: f64,
+        est_err: f64,
+        tid: &TransactionId,
+    ) -> f64 {
+        // let mqfq_est = self.gpu_queue.est_completion_time(reg, tid);
+        // let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
+        // let cpu_est = self.cpu_queue.est_completion_time(reg, tid);
         info!(tid=%tid, fqdn=%&reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, "Landlord Credit");
 
         match self.cachepol.as_str() {
@@ -291,8 +323,16 @@ impl Landlord {
     }
 
     /// Add new credit. If negative, return new credit instead of accumulating
-    fn calc_add_credit(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let add_credit = self.opp_cost(reg, tid);
+    fn calc_add_credit(
+        &mut self,
+        reg: &Arc<RegisteredFunction>,
+        mqfq_est: f64,
+        gpu_est: f64,
+        cpu_est: f64,
+        est_err: f64,
+        tid: &TransactionId,
+    ) -> f64 {
+        let add_credit = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
         if add_credit < 0.0 {
             // no benefit! run on CPU
             return add_credit;
@@ -476,8 +516,8 @@ impl Landlord {
     #[inline(always)]
     fn accepting_new(&self) -> bool {
         //let remaining_slots = self.cfg.cache_size as i32 - self.current_occupancy() as i32 ;
-	let remaining_sz = self.cfg.max_size - self.current_sz_occup() ; 
-	return remaining_sz > 0.0	    
+        let remaining_sz = self.cfg.max_size - self.current_sz_occup();
+        return remaining_sz > 0.0;
     }
 
     /// Based on eviction policy, return true if managed to evict victim
@@ -564,12 +604,15 @@ impl Landlord {
 
 impl DispatchPolicy for Landlord {
     /// Main entry point and landlord caching logic
-    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute {
+        let mqfq_est = self.gpu_queue.est_completion_time(reg, tid);
+        let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
+        let cpu_est = self.cpu_queue.est_completion_time(reg, tid);
 
-        if self.present(&item.registration.fqdn) {
+        if self.present(&reg.fqdn) {
             // This doesnt decrease credit
-            let new_credit = self.calc_add_credit(&item.registration, tid);
-            let pos_credit = match self.credits.get(&item.registration.fqdn) {
+            let new_credit = self.calc_add_credit(&reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
+            let pos_credit = match self.credits.get(&reg.fqdn) {
                 Some(cr) => *cr + new_credit > 0.0,
                 _ => false,
             };
@@ -578,38 +621,38 @@ impl DispatchPolicy for Landlord {
                 // we really want to minimize this case, function is on gpu already. estimate can be wrong?
                 self.misses += 1;
                 self.negcredits += 1;
-		self.szmisses += self.cmap.get_gpu_exec_time(&item.registration.fqdn);	
-                info!(tid=%tid, fqdn=%&item.registration.fqdn,"MISS_INSUFFICIENT_CREDITS");
-                self.update_nonres(&item.registration.fqdn);
+                self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
+                info!(tid=%tid, fqdn=%&reg.fqdn,"MISS_INSUFFICIENT_CREDITS");
+                self.update_nonres(&reg.fqdn);
                 return Compute::CPU;
             }
             self.hits += 1;
-            self.szhits += self.cmap.get_gpu_exec_time(&item.registration.fqdn);
+            self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);
             // We've seen this function before so its size is more likely to be accurate
-            info!(tid=%tid, fqdn=%&item.registration.fqdn, opp_cost=%new_credit, "Cache Hit");
+            info!(tid=%tid, fqdn=%&reg.fqdn, opp_cost=%new_credit, "Cache Hit");
             self.landlog("HIT_PRESENT");
-            self.update_res(&item.registration.fqdn);
+            self.update_res(&reg.fqdn);
             return Compute::GPU;
         }
 
 	// not present. Either insert/admit or MISS. Charge rents in every case 
-	self.charge_rents(&item.registration, tid);
+	self.charge_rents(&reg, tid);
 		
 	// now the tricky admission criteria. We may have space to insert, but should we? 
 	let can_admit = self.admit_filter(item, tid); 
 	
         if can_admit {
             // We found space!
-            self.admit(&item.registration, tid);
-            return Compute::GPU
+            self.admit(&reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
+            Compute::GPU
         } else {
             // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss.
             self.misses += 1;
             self.capacitymiss += 1;
-	    self.szmisses += self.cmap.get_gpu_exec_time(&item.registration.fqdn);	
-            info!(tid=%tid, fqdn=%&item.registration.fqdn, "Cache Miss Admission");
-            self.update_nonres(&item.registration.fqdn.clone());
-            return Compute::CPU
+            self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
+            info!(tid=%tid, fqdn=%&reg.fqdn, "Cache Miss Admission");
+            self.update_nonres(&reg.fqdn.clone());
+            Compute::CPU
         }
     }
 }

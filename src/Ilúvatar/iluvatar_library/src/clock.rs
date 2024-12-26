@@ -27,7 +27,7 @@ pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
     Ok(clk)
 }
 
-/// Get the current [Instance]
+/// Get the current [Instant]
 #[inline(always)]
 pub fn now() -> Instant {
     // allow here because we want all code to use this method
