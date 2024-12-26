@@ -10,6 +10,7 @@ use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
+use iluvatar_library::characteristics_map::Characteristics;
 use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::utils::missing_default;
@@ -28,7 +29,6 @@ use std::time::Duration;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
-use iluvatar_library::characteristics_map::Characteristics;
 
 lazy_static::lazy_static! {
   pub static ref MQFQ_GPU_QUEUE_WORKER_TID: TransactionId = "MQFQ_GPU_Queue".to_string();
@@ -1195,7 +1195,7 @@ impl DeviceQueue for MQFQ {
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         let concur = self.gpu.max_concurrency() as f64;
-        let q_t = self.est_completion_time1(reg, tid) / concur;
+        let q_t = self.est_completion_time3(reg, tid) / concur;
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         let mut err_time = 0.0;
         if self.queue_len() > 0 {

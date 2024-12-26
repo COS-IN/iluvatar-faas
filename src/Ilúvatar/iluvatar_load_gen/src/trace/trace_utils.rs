@@ -395,12 +395,18 @@ fn worker_wait_reg(
                 Some(i) => i.clone(),
                 None => anyhow::bail!("Unable to get prepared `image_name` for function '{}'", id),
             };
-            let comp = func
-                .parsed_compute
-                .ok_or_else(|| anyhow::anyhow!("Function {} did not have a `parsed_compute` when going to register", f_c))?;
-            let isol = func
-                .parsed_isolation
-                .ok_or_else(|| anyhow::anyhow!("Function {} did not have a `parsed_isolation` when going to register", f_c))?;
+            let comp = func.parsed_compute.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Function {} did not have a `parsed_compute` when going to register",
+                    f_c
+                )
+            })?;
+            let isol = func.parsed_isolation.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Function {} did not have a `parsed_isolation` when going to register",
+                    f_c
+                )
+            })?;
             let mem = func.mem_mb;
             let func_timings = match &func.chosen_name {
                 Some(chosen_name) => match bench_data.as_ref() {
