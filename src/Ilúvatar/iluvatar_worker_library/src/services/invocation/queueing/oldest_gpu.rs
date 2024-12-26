@@ -120,6 +120,7 @@ mod oldest_batch {
             name.to_string(),
             get_global_clock(&gen_tid()).unwrap().now(),
             0.0,
+            0.0,
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -144,6 +145,7 @@ mod oldest_batch {
             name.to_string(),
             name.to_string(),
             get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
             0.0,
         ));
         m.add(
@@ -177,6 +179,7 @@ mod oldest_batch {
             name.to_string(),
             get_global_clock(&gen_tid()).unwrap().now(),
             0.0,
+            0.0,
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -198,6 +201,7 @@ mod oldest_batch {
             name.to_string(),
             name.to_string(),
             get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
             0.0,
         ));
         m.add(

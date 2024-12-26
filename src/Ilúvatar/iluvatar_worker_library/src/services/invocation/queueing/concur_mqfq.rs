@@ -160,6 +160,7 @@ impl Flow {
                 &item.invoke.tid,
                 item.invoke.queue_insert_time,
                 item.invoke.est_completion_time,
+                item.invoke.insert_time_load,
                 &ctr_lck,
                 self.clock.format_time(remove_time).unwrap_or_else(|_| "".to_string()),
                 start,
@@ -510,14 +511,17 @@ impl DeviceQueue for ConcurMqfq {
         per_flow_q_len.sum::<usize>()
     }
 
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
         // sum_q (q_F-q_S) / max_in_flight
         let per_flow_wait_times = self.queues.iter().map(|x| x.value().est_flow_wait());
         let total_wait: f64 = per_flow_wait_times.sum();
 
         debug!(tid=%tid, qt=total_wait, runtime=0.0, "GPU estimated completion time of item");
 
-        (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn)
+        (
+            (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn),
+            total_wait,
+        )
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {

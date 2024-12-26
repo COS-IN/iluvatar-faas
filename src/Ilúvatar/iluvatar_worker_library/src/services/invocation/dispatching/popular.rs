@@ -63,7 +63,7 @@ impl TCPEstSpeedup {
     }
 }
 impl DispatchPolicy for TCPEstSpeedup {
-    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64) {
         let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
         let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
         let ratio = cpu / gpu;
@@ -79,7 +79,7 @@ impl DispatchPolicy for TCPEstSpeedup {
             info!(tid=%tid, new_avg=self.running_avg_speedup, "running avg");
             self.last_avg_update = now();
         }
-        let compute = if ratio > self.running_avg_speedup {
+        if ratio > self.running_avg_speedup {
             let mut opts = vec![];
             if reg.supported_compute.contains(Compute::CPU) {
                 opts.push((self.cpu_queue.est_completion_time(&reg, &tid), Compute::CPU));
@@ -87,18 +87,17 @@ impl DispatchPolicy for TCPEstSpeedup {
             if reg.supported_compute.contains(Compute::GPU) {
                 opts.push((self.gpu_queue.est_completion_time(&reg, &tid), Compute::GPU));
             }
-            if let Some((_, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
-                *c
+            if let Some(((_est_time, load), c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
+                (*c, *load)
             } else {
-                Compute::CPU
+                (Compute::CPU, 0.0)
             }
         } else {
             if self.invocation_config.log_details() {
                 info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=0.0, "Cache Miss");
             }
-            Compute::CPU
-        };
-        compute
+            (Compute::CPU, 0.0)
+        }
     }
 }
 
@@ -116,14 +115,14 @@ impl TopAvgDispatch {
     }
 }
 impl DispatchPolicy for TopAvgDispatch {
-    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64) {
         let iat = self.cmap.get_iat(&reg.fqdn);
         self.iats.write().insert(reg.fqdn.clone(), iat);
         let iats = self.iats.read().values().copied().collect::<Vec<f64>>();
         let avg = iats.iter().sum::<f64>() / iats.len() as f64;
         match iat > avg {
-            true => Compute::CPU,
-            false => Compute::GPU,
+            true => (Compute::CPU, 0.0),
+            false => (Compute::GPU, 0.0),
         }
     }
 }
@@ -145,7 +144,7 @@ impl LeastPopularDispatch {
     }
 }
 impl DispatchPolicy for LeastPopularDispatch {
-    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64) {
         self.total_invokes += 1;
         let invokes = match self.invokes.contains_key(&reg.fqdn) {
             true => {
@@ -160,8 +159,8 @@ impl DispatchPolicy for LeastPopularDispatch {
         };
         let freq = invokes as f64 / self.total_invokes as f64;
         match freq > self.popular_cutoff {
-            true => Compute::CPU,
-            false => Compute::GPU,
+            true => (Compute::CPU, 0.0),
+            false => (Compute::GPU, 0.0),
         }
     }
 }
@@ -183,7 +182,7 @@ impl PopularDispatch {
     }
 }
 impl DispatchPolicy for PopularDispatch {
-    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64) {
         self.total_invokes += 1;
         let invokes = match self.invokes.contains_key(&reg.fqdn) {
             true => {
@@ -198,8 +197,8 @@ impl DispatchPolicy for PopularDispatch {
         };
         let freq = invokes as f64 / self.total_invokes as f64;
         match freq < self.popular_cutoff {
-            true => Compute::CPU,
-            false => Compute::GPU,
+            true => (Compute::CPU, 0.0),
+            false => (Compute::GPU, 0.0),
         }
     }
 }
@@ -233,7 +232,7 @@ impl PopularQueueLenDispatch {
     }
 }
 impl DispatchPolicy for PopularQueueLenDispatch {
-    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64) {
         self.total_invokes += 1;
         let invokes = match self.invokes.contains_key(&reg.fqdn) {
             true => {
@@ -248,10 +247,10 @@ impl DispatchPolicy for PopularQueueLenDispatch {
         };
         let freq = invokes as f64 / self.total_invokes as f64;
         match freq < self.popular_cutoff {
-            true => Compute::CPU,
+            true => (Compute::CPU, 0.0),
             false => match self.gpu_queue.queue_len() > self.queue_len {
-                true => Compute::CPU,
-                false => Compute::GPU,
+                true => (Compute::CPU, 0.0),
+                false => (Compute::GPU, 0.0),
             },
         }
     }
@@ -284,7 +283,7 @@ impl PopularEstTimeDispatch {
     }
 }
 impl DispatchPolicy for PopularEstTimeDispatch {
-    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64) {
         self.total_invokes += 1;
         let invokes = match self.invokes.contains_key(&reg.fqdn) {
             true => {
@@ -299,13 +298,13 @@ impl DispatchPolicy for PopularEstTimeDispatch {
         };
         let freq = invokes as f64 / self.total_invokes as f64;
         match freq < self.popular_cutoff {
-            true => Compute::CPU,
+            true => (Compute::CPU, 0.0),
             false => {
                 let cpu = self.cpu_queue.est_completion_time(&reg, &tid);
                 let gpu = self.gpu_queue.est_completion_time(&reg, &tid);
                 match cpu < gpu {
-                    true => Compute::CPU,
-                    false => Compute::GPU,
+                    true => (Compute::CPU, 0.0),
+                    false => (Compute::GPU, 0.0),
                 }
             },
         }

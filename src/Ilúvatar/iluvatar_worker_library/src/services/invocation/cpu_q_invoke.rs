@@ -285,6 +285,7 @@ impl CpuQueueingInvoker {
             &item.tid,
             remove_time,
             item.est_completion_time,
+            item.insert_time_load,
             &ctr_lock,
             self.clock.format_time(remove_time)?,
             now(),
@@ -332,6 +333,7 @@ impl CpuQueueingInvoker {
             &item.tid,
             item.queue_insert_time,
             item.est_completion_time,
+            item.insert_time_load,
             &ctr_lock,
             remove_time,
             start,
@@ -363,7 +365,7 @@ impl DeviceQueue for CpuQueueingInvoker {
         self.queue.queue_len()
     }
 
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
         let qt = if self.queue_len() <= self.cpu.available_cores() {
             // If Q is smaller than num of avail CPUs, we don't really have queuing,
             // just a race from item being added recently and not popped
@@ -373,7 +375,7 @@ impl DeviceQueue for CpuQueueingInvoker {
         };
         let (runtime, state) = self.get_est_completion_time_from_containers(reg);
         info!(tid=%tid, queue_time=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
-        qt + runtime
+        (qt + runtime, 0.0)
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]

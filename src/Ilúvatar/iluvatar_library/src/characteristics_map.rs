@@ -1,4 +1,5 @@
 use crate::clock::now;
+use crate::linear_reg::LinearReg;
 use crate::types::Compute;
 use dashmap::DashMap;
 use ordered_float::OrderedFloat;
@@ -179,6 +180,8 @@ pub struct CharacteristicsMap {
     ag: AgExponential,
     cpu_tput: RwLock<DeviceTput>,
     gpu_tput: RwLock<DeviceTput>,
+    gpu_load_lin_reg: RwLock<LinearReg>,
+    func_gpu_load_lin_reg: DashMap<String, LinearReg>,
     creation_time: Instant,
 }
 
@@ -193,6 +196,8 @@ impl CharacteristicsMap {
             creation_time: now(),
             cpu_tput: RwLock::new(DeviceTput::new()),
             gpu_tput: RwLock::new(DeviceTput::new()),
+            gpu_load_lin_reg: RwLock::new(LinearReg::new()),
+            func_gpu_load_lin_reg: DashMap::new(),
         }
     }
 
@@ -538,6 +543,28 @@ impl CharacteristicsMap {
             0.0
         }
     }
+
+    pub fn insert_gpu_load_est(&self, fqdn: &String, x: f64, y: f64) {
+        self.gpu_load_lin_reg.write().insert(x, y);
+        match self.func_gpu_load_lin_reg.get_mut(fqdn) {
+            None => {
+                let mut lr = LinearReg::new();
+                lr.insert(x,y);
+                self.func_gpu_load_lin_reg.insert(fqdn.clone(), lr);
+            },
+            Some(mut lr) => lr.value_mut().insert(x,y),
+        };
+    }
+    pub fn predict_gpu_load_est(&self, x: f64) -> f64 {
+        self.gpu_load_lin_reg.read().predict(x)
+    }
+    pub fn func_predict_gpu_load_est(&self, fqdn: &String, x: f64) -> f64 {
+        match self.func_gpu_load_lin_reg.get(fqdn) {
+            None => 0.0,
+            Some(lr) => lr.value().predict(x),
+        }
+    }
+
 
     /// Tuple of cpu,gpu weights for polymorphic functions
     pub fn get_dispatch_wts(&self, fqdn: &str) -> (f64, f64) {

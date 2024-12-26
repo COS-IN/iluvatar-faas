@@ -146,13 +146,14 @@ pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
 /// [Duration]: The E2E latency between the worker and the container
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
-#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap) fields(tid=%tid)))]
+#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=%tid)))]
 async fn invoke_on_container(
     reg: &Arc<RegisteredFunction>,
     json_args: &str,
     tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
     est_completion_time: f64,
+    insert_time_load: f64,
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
@@ -165,6 +166,7 @@ async fn invoke_on_container(
         tid,
         queue_insert_time,
         est_completion_time,
+        insert_time_load,
         ctr_lock,
         remove_time,
         cold_time_start,
@@ -180,13 +182,14 @@ async fn invoke_on_container(
 /// [Duration]: The E2E latency between the worker and the container
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
-#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap) fields(tid=%tid)))]
+#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=%tid)))]
 async fn invoke_on_container_2(
     reg: &Arc<RegisteredFunction>,
     json_args: &str,
     tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
     est_completion_time: f64,
+    insert_time_load: f64,
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
@@ -208,15 +211,11 @@ async fn invoke_on_container_2(
     let e2etime = (now - queue_insert_time).as_seconds_f64();
     cmap.add(&reg.fqdn, chars.4, Values::F64(e2etime), true);
     let err = e2etime - est_completion_time;
-    // if est_completion_time >= 0.0 {
-    //     err = (now - (queue_insert_time + Duration::from_secs_f64(est_completion_time))).as_seconds_f64();
-    // } else {
-    //     err = (now - (queue_insert_time - Duration::from_secs_f64(f64::abs(est_completion_time)))).as_seconds_f64();
-    // }
     cmap.add(&reg.fqdn, chars.5, Values::F64(err), true);
     if compute == Compute::CPU {
         cmap.add_cpu_tput(time);
     } else if compute == Compute::GPU {
+        cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
         cmap.add_gpu_tput(time);
     }
     Ok((data, duration, ctr_lock.container.clone()))

@@ -11,6 +11,7 @@ pub mod clock;
 pub mod continuation;
 pub mod energy;
 pub mod influx;
+mod linear_reg;
 pub mod logging;
 pub mod mindicator;
 pub mod threading;

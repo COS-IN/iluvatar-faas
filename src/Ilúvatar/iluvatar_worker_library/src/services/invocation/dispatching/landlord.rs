@@ -193,27 +193,14 @@ impl Landlord {
         self.lostcredits.remove(&reg.fqdn);
     }
 
-    // We have flowqinfo.inflight which counts number of functions but not their exec time
-    // Average exec time of the cache ?
-    fn get_mqfq_active_load(&self) -> f64 {
-        //let running = self.gpu_queue.running();
-        match self.gpu_queue.expose_flow_report() {
-            Some(flow_report) => flow_report.active_load,
-            None => 0.0,
-        }
-    }
-
     /// Get the current load on the GPU. total execution time pending
     fn gpu_load(&self) -> f64 {
-        if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
-            let enqueued_load = self.credits.keys().fold(0.0, |acc, fqdn| {
-                acc + (mqfq.get(fqdn).map_or(0.0, |q| q.queue.len() as f64) * self.cmap.get_gpu_exec_time(fqdn))
-            });
-            return enqueued_load + self.get_mqfq_active_load();
+        match self.gpu_queue.expose_flow_report() {
             // multiply this by the average cache exec time? We can know the active functions though?
+            Some(flow_report) => flow_report.active_load + flow_report.pending_load,
+            //Often 0 and too low, doesn't capture functions executing on GPU (queue may be empty).
+            None => 0.0,
         }
-        0.0
-        //Often 0 and too low, doesnt capture functions executing on GPU (queue may be empty).
     }
 
     fn charge_rents(
@@ -610,10 +597,10 @@ impl Landlord {
 
 impl DispatchPolicy for Landlord {
     /// Main entry point and landlord caching logic
-    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute {
-        let mqfq_est = self.gpu_queue.est_completion_time(reg, tid);
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64) {
+        let (mqfq_est, gpu_load) = self.gpu_queue.est_completion_time(reg, tid);
         let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
-        let cpu_est = self.cpu_queue.est_completion_time(reg, tid);
+        let (cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, tid);
 
         if self.present(&reg.fqdn) {
             // This doesnt decrease credit
@@ -630,7 +617,7 @@ impl DispatchPolicy for Landlord {
                 self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
                 info!(tid=%tid, fqdn=%&reg.fqdn,"MISS_INSUFFICIENT_CREDITS");
                 self.update_nonres(&reg.fqdn);
-                return Compute::CPU;
+                return (Compute::CPU, cpu_load);
             }
             self.hits += 1;
             self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);
@@ -638,7 +625,7 @@ impl DispatchPolicy for Landlord {
             info!(tid=%tid, fqdn=%&reg.fqdn, opp_cost=%new_credit, "Cache Hit");
             self.landlog("HIT_PRESENT");
             self.update_res(&reg.fqdn);
-            return Compute::GPU;
+            return (Compute::GPU, gpu_load);
         }
 
         // not present. Either insert/admit or MISS. Charge rents in every case
@@ -650,7 +637,7 @@ impl DispatchPolicy for Landlord {
         if can_admit {
             // We found space!
             self.admit(&reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
-            Compute::GPU
+            (Compute::GPU, gpu_load)
         } else {
             // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss.
             self.misses += 1;
@@ -658,7 +645,7 @@ impl DispatchPolicy for Landlord {
             self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
             info!(tid=%tid, fqdn=%&reg.fqdn, "Cache Miss Admission");
             self.update_nonres(&reg.fqdn.clone());
-            Compute::CPU
+            (Compute::CPU, cpu_load)
         }
     }
 }

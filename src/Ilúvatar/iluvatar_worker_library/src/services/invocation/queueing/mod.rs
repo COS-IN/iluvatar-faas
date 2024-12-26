@@ -78,7 +78,8 @@ pub trait DeviceQueue: Send + Sync {
     fn queue_len(&self) -> usize;
 
     /// The estimated time from now the item would be completed if run on the device, in seconds.
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64;
+    /// (est_time, est_load)
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64);
 
     /// Insert an item into the queue.
     /// If an error is returned, the item was not enqueued.
@@ -117,6 +118,8 @@ pub struct EnqueuedInvocation {
     pub queue_insert_time: OffsetDateTime,
     /// Estimated time (in seconds) from insertion that the function will have completed executing.
     pub est_completion_time: f64,
+    /// Estimated device load upon queue insertion.
+    pub insert_time_load: f64,
 }
 
 impl EnqueuedInvocation {
@@ -126,6 +129,7 @@ impl EnqueuedInvocation {
         tid: TransactionId,
         queue_insert_time: OffsetDateTime,
         est_completion_time: f64,
+        insert_time_load: f64,
     ) -> Self {
         EnqueuedInvocation {
             registration,
@@ -133,6 +137,7 @@ impl EnqueuedInvocation {
             tid,
             queue_insert_time,
             est_completion_time,
+            insert_time_load,
             result_ptr: InvocationResult::boxed(),
             signal: Notify::new(),
             started: Mutex::new(false),
@@ -280,6 +285,7 @@ mod heapstructs {
                 name.to_string(),
                 clock.now(),
                 0.0,
+                0.0,
             )),
             priority,
             0.0,
@@ -343,6 +349,7 @@ mod heapstructs {
                 name.to_string(),
                 clock.now(),
                 0.0,
+                0.0,
             )),
             priority,
             0.0,
@@ -399,7 +406,14 @@ mod heapstructs {
             historical_runtime_data_sec: HashMap::new(),
         });
         MinHeapEnqueuedInvocation::new(
-            Arc::new(EnqueuedInvocation::new(rf, name.to_string(), name.to_string(), t, 0.0)),
+            Arc::new(EnqueuedInvocation::new(
+                rf,
+                name.to_string(),
+                name.to_string(),
+                t,
+                0.0,
+                0.0,
+            )),
             t,
             0.0,
         )

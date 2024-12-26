@@ -30,7 +30,8 @@ lazy_static::lazy_static! {
 }
 
 pub trait DispatchPolicy: Send + Sync {
-    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute;
+    /// Returns the selected device to enqueue the function's invocation, plus the load on that device.
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64);
 }
 
 #[allow(unused)]
@@ -221,6 +222,7 @@ impl QueueingDispatcher {
         tid: &TransactionId,
         insert_t: OffsetDateTime,
         est_comp_time: f64,
+        insert_time_load: f64,
     ) -> Arc<EnqueuedInvocation> {
         Arc::new(EnqueuedInvocation::new(
             reg.clone(),
@@ -228,6 +230,7 @@ impl QueueingDispatcher {
             tid.clone(),
             insert_t,
             est_comp_time,
+            insert_time_load,
         ))
     }
     fn enqueue_compute(&self, item: &Arc<EnqueuedInvocation>, compute: Compute) -> Result<u32> {
@@ -269,17 +272,17 @@ impl QueueingDispatcher {
             let gpu = self
                 .gpu_queue
                 .as_ref()
-                .map_or(0.0, |q| q.est_completion_time(reg, &tid));
-            info!(tid=%tid, cpu_est=cpu, gpu_est=gpu, "Est e2e time");
+                .map_or(0.0, |q| q.est_completion_time(reg, &tid).0);
+            info!(tid=%tid, cpu_est=cpu.0, gpu_est=gpu, "Est e2e time");
         }
 
         if reg.cpu_only() {
-            let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+            let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, 0.0);
             self.cpu_queue.enqueue_item(&enq)?;
             return Ok(enq);
         }
         if reg.gpu_only() {
-            let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+            let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, 0.0);
             self.enqueue_gpu_check(&enq)?;
             return Ok(enq);
         }
@@ -291,7 +294,7 @@ impl QueueingDispatcher {
             .unwrap_or(&EnqueueingPolicy::All);
         match policy {
             EnqueueingPolicy::All => {
-                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, 0.0);
                 if reg.supported_compute.contains(Compute::GPU) {
                     self.enqueue_gpu_check(&enq)?;
                     enqueues += 1;
@@ -303,7 +306,7 @@ impl QueueingDispatcher {
                 new_item = Some(enq);
             },
             EnqueueingPolicy::AlwaysCPU => {
-                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, 0.0);
                 if reg.supported_compute.contains(Compute::CPU) {
                     self.cpu_queue.enqueue_item(&enq)?;
                     enqueues += 1;
@@ -317,7 +320,7 @@ impl QueueingDispatcher {
             },
             EnqueueingPolicy::AlwaysGPU => {
                 if reg.supported_compute.contains(Compute::GPU) {
-                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, 0.0);
                     self.enqueue_gpu_check(&enq)?;
                     new_item = Some(enq);
                     enqueues += 1;
@@ -337,7 +340,7 @@ impl QueueingDispatcher {
                     opts.push((self.cmap.get_gpu_exec_time(&reg.fqdn), Compute::GPU));
                 }
                 if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
-                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est, 0.0);
                     enqueues += self.enqueue_compute(&enq, *c)?;
                     new_item = Some(enq);
                 }
@@ -352,8 +355,8 @@ impl QueueingDispatcher {
                         opts.push((gpu_queue.est_completion_time(reg, &tid), Compute::GPU));
                     }
                 }
-                if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
-                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                if let Some(((est, load), c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est, *load);
                     enqueues += self.enqueue_compute(&enq, *c)?;
                     if self.invocation_config.log_details() {
                         if c == &Compute::GPU {
@@ -394,8 +397,8 @@ impl QueueingDispatcher {
                             opts.push((gpu_queue.est_completion_time(reg, &tid), Compute::GPU));
                         }
                     }
-                    if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
-                        let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                    if let Some(((est, load), c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
+                        let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est, *load);
                         enqueues += self.enqueue_compute(&enq, *c)?;
                         if self.invocation_config.log_details() {
                             if c == &Compute::GPU {
@@ -407,7 +410,7 @@ impl QueueingDispatcher {
                         new_item = Some(enq);
                     }
                 } else {
-                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu);
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu, 0.0);
                     self.cpu_queue.enqueue_item(&enq)?;
                     if self.invocation_config.log_details() {
                         info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=0.0, "Cache Miss");
@@ -435,8 +438,8 @@ impl QueueingDispatcher {
                             opts.push((gpu_queue.est_completion_time(reg, &tid), Compute::GPU));
                         }
                     }
-                    if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
-                        let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                    if let Some(((est, load), c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
+                        let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est, *load);
                         enqueues += self.enqueue_compute(&enq, *c)?;
                         if self.invocation_config.log_details() {
                             if c == &Compute::GPU {
@@ -448,7 +451,7 @@ impl QueueingDispatcher {
                         new_item = Some(enq);
                     }
                 } else {
-                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu);
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu, 0.0);
                     self.cpu_queue.enqueue_item(&enq)?;
                     if self.invocation_config.log_details() {
                         info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=0.0, "Cache Miss");
@@ -471,8 +474,8 @@ impl QueueingDispatcher {
                             opts.push((gpu_queue.est_completion_time(reg, &tid), Compute::GPU));
                         }
                     }
-                    if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
-                        let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                    if let Some(((est, load), c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
+                        let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est, *load);
                         enqueues += self.enqueue_compute(&enq, *c)?;
                         if c == &Compute::GPU {
                             if self.invocation_config.log_details() {
@@ -500,7 +503,7 @@ impl QueueingDispatcher {
                         new_item = Some(enq);
                     }
                 } else {
-                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu);
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu, 0.0);
                     self.cpu_queue.enqueue_item(&enq)?;
                     if self.invocation_config.log_details() {
                         info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=0.0, "Cache Miss");
@@ -514,7 +517,7 @@ impl QueueingDispatcher {
                 let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
                 let ratio = cpu / gpu;
                 if ratio > self.invocation_config.speedup_ratio.unwrap_or(4.0) {
-                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, gpu);
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, gpu, 0.0);
                     self.enqueue_gpu_check(&enq)?;
                     if self.invocation_config.log_details() {
                         info!(tid=%tid, fqdn=%enq.registration.fqdn, "Cache Hit");
@@ -522,7 +525,7 @@ impl QueueingDispatcher {
                     new_item = Some(enq);
                     enqueues += 1;
                 } else {
-                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu);
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu, 0.0);
                     self.cpu_queue.enqueue_item(&enq)?;
                     if self.invocation_config.log_details() {
                         info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=1.0, "Cache Miss");
@@ -535,8 +538,8 @@ impl QueueingDispatcher {
             | EnqueueingPolicy::LRU
             | EnqueueingPolicy::LFU
             | EnqueueingPolicy::LandlordFixed => {
-                let compute = self.landlord.lock().choose(&reg, &tid);
-                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+                let (compute, load) = self.landlord.lock().choose(&reg, &tid);
+                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
                 enqueues += self.enqueue_compute(&enq, compute)?;
                 new_item = Some(enq);
             },
@@ -546,8 +549,8 @@ impl QueueingDispatcher {
             | EnqueueingPolicy::LeastPopular
             | EnqueueingPolicy::TopAvg
             | EnqueueingPolicy::TCPEstSpeedup => {
-                let compute = self.popular.lock().choose(&reg, &tid);
-                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+                let (compute, load) = self.popular.lock().choose(&reg, &tid);
+                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
                 enqueues += self.enqueue_compute(&enq, compute)?;
                 new_item = Some(enq);
             },
@@ -714,8 +717,8 @@ impl QueueingDispatcher {
     ) -> Result<()> {
         // the cost is t_recent - t_global_min
         if let Some(gpu_queue) = &self.gpu_queue {
-            let egpu = gpu_queue.est_completion_time(&reg, tid);
-            let ecpu = self.cpu_queue.est_completion_time(&reg, tid);
+            let (egpu, _) = gpu_queue.est_completion_time(&reg, tid);
+            let (ecpu, _) = self.cpu_queue.est_completion_time(&reg, tid);
 
             let tnow = self.clock.now();
 

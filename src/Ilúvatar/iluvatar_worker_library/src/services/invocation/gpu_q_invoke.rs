@@ -421,6 +421,7 @@ impl GpuQueueingInvoker {
             &item.tid,
             item.queue_insert_time,
             item.est_completion_time,
+            item.insert_time_load,
             ctr_lock,
             remove_time,
             cold_time_start,
@@ -451,11 +452,12 @@ impl DeviceQueue for GpuQueueingInvoker {
         self.queue.queue_len()
     }
 
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let qt = self.queue.est_queue_time() / self.gpu.max_concurrency() as f64;
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
+        let est_qt = self.queue.est_queue_time();
+        let qt = est_qt / self.gpu.max_concurrency() as f64;
         let (runtime, state) = self.get_est_completion_time_from_containers_gpu(reg);
         debug!(tid=%tid, qt=qt, state=?state, runtime=runtime, "GPU estimated completion time of item");
-        qt + runtime
+        (qt + runtime, est_qt)
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
@@ -499,6 +501,7 @@ mod gpu_batch_tests {
             name.to_string(),
             name.to_string(),
             clock.now(),
+            0.0,
             0.0,
         ))
     }

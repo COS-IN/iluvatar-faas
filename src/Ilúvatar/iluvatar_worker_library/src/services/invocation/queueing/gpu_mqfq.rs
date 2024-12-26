@@ -68,6 +68,8 @@ enum MqfqTimeEst {
     V1,
     V2,
     V3,
+    LinReg,
+    PerFuncLinReg,
 }
 impl Default for MqfqTimeEst {
     fn default() -> Self {
@@ -358,6 +360,7 @@ struct FlowQInfo {
     start_time_virt: f64,
     finish_time_virt: f64,
     in_flight: i32,
+    active_load: f64,
     pending_load: f64,
     queue_len: usize,
     avg_active_t: f64,
@@ -368,6 +371,7 @@ pub struct MqfqInfo {
     flows: Vec<FlowQInfo>,
     active_flows: u32,
     pub active_load: f64,
+    pub pending_load: f64,
 }
 
 enum MqfqPolicy {
@@ -501,6 +505,7 @@ impl MQFQ {
         let mut flows = vec![];
         let mut active_flows = 0;
         let mut active_load = 0.0;
+        let mut pending_load = 0.0;
         for q in self.mqfq_set.iter() {
             if q.state == MQState::Active {
                 active_flows += 1;
@@ -512,18 +517,21 @@ impl MQFQ {
                 start_time_virt: q.start_time_virt,
                 finish_time_virt: q.finish_time_virt,
                 in_flight: q.in_flight,
-                pending_load: q.in_flight as f64 * self.cmap.get_gpu_exec_time(&q.fqdn),
+                pending_load: q.est_flow_wait(),
+                active_load: q.in_flight as f64 * self.cmap.get_gpu_exec_time(&q.fqdn),
                 queue_len: q.queue.len(),
                 avg_active_t: q.avg_active_t,
                 num_active_periods: q.num_active_periods,
             };
-            active_load += info.pending_load.clone();
+            active_load += info.active_load;
+            pending_load += info.pending_load;
             flows.push(info);
         }
         MqfqInfo {
             flows,
             active_flows,
             active_load,
+            pending_load,
         }
     }
 
@@ -650,6 +658,7 @@ impl MQFQ {
             &invoke.tid,
             invoke.queue_insert_time,
             invoke.est_completion_time,
+            invoke.insert_time_load,
             &ctr_lock,
             remove_time,
             start,
@@ -1208,6 +1217,18 @@ impl MQFQ {
         }
         est_time
     }
+
+    fn est_time_linreg(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
+        let report = self.get_flow_report();
+        let load = report.pending_load + report.active_load;
+        (self.cmap.predict_gpu_load_est(load), load)
+    }
+
+    fn per_func_est_time_linreg(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
+        let report = self.get_flow_report();
+        let load = report.pending_load + report.active_load;
+        (self.cmap.func_predict_gpu_load_est(&reg.fqdn, load), load)
+    }
 } // END MQFQ
 
 impl DeviceQueue for MQFQ {
@@ -1215,13 +1236,15 @@ impl DeviceQueue for MQFQ {
         self.mqfq_set.iter().map(|x| x.queue.len()).sum::<usize>()
     }
 
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
         let concur = self.gpu.max_concurrency() as f64;
-        let q_t = match self.q_config.time_estimation {
-            MqfqTimeEst::V1 => self.est_completion_time1(reg, tid),
-            MqfqTimeEst::V2 => self.est_completion_time2(reg, tid),
-            MqfqTimeEst::V3 => self.est_completion_time3(reg, tid),
-        } / concur;
+        let (q_t, load) = match self.q_config.time_estimation {
+            MqfqTimeEst::V1 => (self.est_completion_time1(reg, tid)/concur, 0.0),
+            MqfqTimeEst::V2 => (self.est_completion_time2(reg, tid)/concur, 0.0),
+            MqfqTimeEst::V3 => (self.est_completion_time3(reg, tid)/concur, 0.0),
+            MqfqTimeEst::LinReg => self.est_time_linreg(reg, tid),
+            MqfqTimeEst::PerFuncLinReg => self.per_func_est_time_linreg(reg, tid),
+        };
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         let mut err_time = 0.0;
         if self.q_config.add_estimation_error && self.queue_len() > 0 {
@@ -1231,7 +1254,7 @@ impl DeviceQueue for MQFQ {
             };
         }
         info!(tid=%tid, qt=q_t, runtime=exec_time, err=err_time, "GPU estimated completion time of item");
-        q_t + exec_time + err_time
+        (q_t + exec_time + err_time, load)
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
