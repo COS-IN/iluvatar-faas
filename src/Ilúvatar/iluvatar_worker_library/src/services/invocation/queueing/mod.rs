@@ -97,7 +97,7 @@ pub trait DeviceQueue: Send + Sync {
     }
 
     fn expose_flow_report(&self) -> Option<gpu_mqfq::MqfqInfo> {
-	None
+        None
     }
 }
 
