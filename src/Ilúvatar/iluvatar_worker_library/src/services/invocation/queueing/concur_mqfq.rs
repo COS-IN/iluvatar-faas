@@ -159,6 +159,7 @@ impl Flow {
                 &item.invoke.json_args,
                 &item.invoke.tid,
                 item.invoke.queue_insert_time,
+                item.invoke.est_completion_time,
                 &ctr_lck,
                 self.clock.format_time(remove_time).unwrap_or_else(|_| "".to_string()),
                 start,

@@ -3,7 +3,7 @@ use guid_create::GUID;
 pub type TransactionId = String;
 
 pub fn gen_tid() -> TransactionId {
-    GUID::rand().to_string().to_lowercase().replace('-', "to")
+    GUID::rand().to_string().to_lowercase().replace('-', "")
 }
 
 lazy_static::lazy_static! {
@@ -19,5 +19,5 @@ lazy_static::lazy_static! {
   pub static ref ENERGY_MONITOR_TID: TransactionId = "EnergyMonitor".to_string();
   pub static ref WORKER_ENERGY_LOGGER_TID: TransactionId = "WorkerEnergyLogger".to_string();
   pub static ref ENERGY_LOGGER_PS_TID: TransactionId = "EnergyLoggerPS".to_string();
-  pub static ref LIVE_WORKER_LOAD_TID: TransactionId = "LiveWOrkerLoad".to_string();
+  pub static ref LIVE_WORKER_LOAD_TID: TransactionId = "LiveWorkerLoad".to_string();
 }

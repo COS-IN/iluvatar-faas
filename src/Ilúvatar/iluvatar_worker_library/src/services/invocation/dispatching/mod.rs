@@ -9,6 +9,11 @@ pub enum EnqueueingPolicy {
     All,
     /// Use ratio of CPU/GPU
     Speedup,
+    /// Mix of speedup ratio and estimated time
+    EstSpeedup,
+    RunningAvgEstSpeedup,
+    QueueAdjustAvgEstSpeedup,
+    TCPEstSpeedup,
     /// Always enqueue on the compute that gives shortest compute time
     ShortestExecTime,
     /// Always enqueue on CPU
@@ -25,9 +30,9 @@ pub enum EnqueueingPolicy {
     AlwaysGPU,
     /// Landlord-based policy
     Landlord,
-    LandlordEstTime,
-    LandlordPerFuncRent,
-    LandlordPerFuncRentHistorical,
+    LandlordFixed,
+    LRU,
+    LFU,
     TopAvg,
     Popular,
     PopularEstTimeDispatch,

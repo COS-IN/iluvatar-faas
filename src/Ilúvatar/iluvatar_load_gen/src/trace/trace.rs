@@ -1,5 +1,5 @@
 use crate::utils::{LoadType, RunType, Target};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use controller_trace::{controller_trace_live, controller_trace_sim};
 use iluvatar_library::tokio_utils::SimulationGranularity;
@@ -89,7 +89,7 @@ fn load_metadata(path: &str) -> Result<HashMap<String, Function>> {
     };
     let mut ret = HashMap::new();
     for result in rdr.deserialize() {
-        let mut func: Function = result.expect("Error deserializing metadata");
+        let mut func: Function = result.map_err(|e| anyhow!("Error deserializing metadata {}", e))?;
         if func.func_name.starts_with("lookbusy") {
             func.use_lookbusy = Some(true);
         }

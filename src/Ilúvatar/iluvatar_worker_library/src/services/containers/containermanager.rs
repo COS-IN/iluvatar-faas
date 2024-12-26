@@ -515,19 +515,22 @@ impl ContainerManager {
         }
     }
 
-    /// Prewarm a container for the requested function
+    /// Prewarm a container(s) for the requested function.
+    /// Creates one container for each listed `compute`.
     ///
     /// # Errors
-    /// Can error if not already registered and full info isn't provided
-    /// Other errors caused by starting/registered the function apply
+    /// Can error if not already registered and full info isn't provided.
+    /// Other errors caused by starting/registered the function apply.
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
     pub async fn prewarm(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<()> {
-        let container = self.launch_container_internal(reg, tid, compute).await?;
-        container.set_state(ContainerState::Prewarm);
-        let pool = self.get_resource_pool(compute)?;
-        pool.add_idle_container(container, tid);
-        self.prioritiy_notify.notify_waiters();
-        info!(tid=%tid, fqdn=%reg.fqdn, "function was successfully prewarmed");
+        for spec_comp in compute.into_iter() {
+            let container = self.launch_container_internal(reg, tid, spec_comp).await?;
+            container.set_state(ContainerState::Prewarm);
+            let pool = self.get_resource_pool(spec_comp)?;
+            pool.add_idle_container(container, tid);
+            self.prioritiy_notify.notify_waiters();
+            info!(tid=%tid, fqdn=%reg.fqdn, compute=%spec_comp, "function was successfully prewarmed");
+        }
         Ok(())
     }
 

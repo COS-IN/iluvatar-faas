@@ -97,6 +97,7 @@
       "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('serial') }}"
       "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
       "ILUVATAR_WORKER__invocation__enqueuing_log_details" : "{{ worker_enqueueing_details | default(false) }}"
+      "ILUVATAR_WORKER__invocation__speedup_ratio" : "{{ worker_speedup_ratio | default(4.0) }}"
 
       # Status config
       "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
@@ -111,6 +112,8 @@
 
       "ILUVATAR_WORKER__invocation__landlord_config__cache_size" : "{{ lnd_cache_size | default(10) }}"
       "ILUVATAR_WORKER__invocation__landlord_config__log_cache_info" : "{{ lnd_cache_log | default(false) }}"
+      "ILUVATAR_WORKER__invocation__landlord_config__max_size" : "{{ lnd_max_size | default(10.0) }}"
+      "ILUVATAR_WORKER__invocation__landlord_config__load_thresh" : "{{ lnd_load_thresh | default(2.0) }}"
 
 
     proxy_env: "{{ coded_proxy_env | combine(worker.environment, recursive=True) }}"

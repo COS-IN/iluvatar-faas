@@ -10,7 +10,7 @@ use crate::services::{
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dispatching::queueing_dispatcher::QueueingDispatcher;
-use iluvatar_library::characteristics_map::{Characteristics, Values};
+use iluvatar_library::characteristics_map::Values;
 use iluvatar_library::clock::Clock;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
@@ -152,6 +152,7 @@ async fn invoke_on_container(
     json_args: &str,
     tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
+    est_completion_time: f64,
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
@@ -163,6 +164,7 @@ async fn invoke_on_container(
         json_args,
         tid,
         queue_insert_time,
+        est_completion_time,
         ctr_lock,
         remove_time,
         cold_time_start,
@@ -184,6 +186,7 @@ async fn invoke_on_container_2(
     json_args: &str,
     tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
+    est_completion_time: f64,
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
@@ -192,19 +195,29 @@ async fn invoke_on_container_2(
 ) -> Result<(ParsedResult, Duration, Container)> {
     info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
+    let compute = ctr_lock.container.compute_type();
+    let chars = cmap.get_characteristics(&compute)?;
     let (char, time) = match ctr_lock.container.state() {
-        ContainerState::Warm => (Characteristics::WarmTime, data.duration_sec),
-        ContainerState::Prewarm => (Characteristics::PreWarmTime, data.duration_sec),
-        _ => (Characteristics::ColdTime, cold_time_start.elapsed().as_secs_f64()),
+        ContainerState::Warm => (chars.1, data.duration_sec),
+        ContainerState::Prewarm => (chars.2, data.duration_sec),
+        _ => (chars.0, cold_time_start.elapsed().as_secs_f64()),
     };
     cmap.add(&reg.fqdn, char, Values::F64(time), true);
-    cmap.add(
-        &reg.fqdn,
-        Characteristics::ExecTime,
-        Values::F64(data.duration_sec),
-        true,
-    );
-    let e2etime = (clock.now() - queue_insert_time).as_seconds_f64();
-    cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
+    cmap.add(&reg.fqdn, chars.3, Values::F64(data.duration_sec), true);
+    let now = clock.now();
+    let e2etime = (now - queue_insert_time).as_seconds_f64();
+    cmap.add(&reg.fqdn, chars.4, Values::F64(e2etime), true);
+    let err = e2etime - est_completion_time;
+    // if est_completion_time >= 0.0 {
+    //     err = (now - (queue_insert_time + Duration::from_secs_f64(est_completion_time))).as_seconds_f64();
+    // } else {
+    //     err = (now - (queue_insert_time - Duration::from_secs_f64(f64::abs(est_completion_time)))).as_seconds_f64();
+    // }
+    cmap.add(&reg.fqdn, chars.5, Values::F64(err), true);
+    if compute == Compute::CPU {
+        cmap.add_cpu_tput(time);
+    } else if compute == Compute::GPU {
+        cmap.add_gpu_tput(time);
+    }
     Ok((data, duration, ctr_lock.container.clone()))
 }

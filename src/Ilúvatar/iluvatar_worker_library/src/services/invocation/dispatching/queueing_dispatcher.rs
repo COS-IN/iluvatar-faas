@@ -13,9 +13,11 @@ use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracke
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
+use ordered_float::OrderedFloat;
 use parking_lot::{Mutex, RwLock};
 use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
@@ -28,7 +30,7 @@ lazy_static::lazy_static! {
 }
 
 pub trait DispatchPolicy: Send + Sync {
-    fn choose(&mut self, item: &Arc<EnqueuedInvocation>, tid: &TransactionId) -> Compute;
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Compute;
 }
 
 #[allow(unused)]
@@ -78,6 +80,7 @@ pub struct QueueingDispatcher {
     dispatch_state: RwLock<PolymDispatchCtx>,
     landlord: Mutex<Box<dyn DispatchPolicy>>,
     popular: Mutex<Box<dyn DispatchPolicy>>,
+    running_avg_speedup: Mutex<f64>,
 }
 
 #[allow(dyn_drop)]
@@ -126,6 +129,7 @@ impl QueueingDispatcher {
             gpu_queue: gpu_q,
             async_functions: AsyncHelper::new(),
             clock: get_global_clock(tid)?,
+            running_avg_speedup: Mutex::new(invocation_config.speedup_ratio.unwrap_or(4.0)),
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
@@ -210,11 +214,27 @@ impl QueueingDispatcher {
         }
     }
 
+    fn make_enqueue(
+        &self,
+        reg: &Arc<RegisteredFunction>,
+        json_args: String,
+        tid: &TransactionId,
+        insert_t: OffsetDateTime,
+        est_comp_time: f64,
+    ) -> Arc<EnqueuedInvocation> {
+        Arc::new(EnqueuedInvocation::new(
+            reg.clone(),
+            json_args,
+            tid.clone(),
+            insert_t,
+            est_comp_time,
+        ))
+    }
     fn enqueue_compute(&self, item: &Arc<EnqueuedInvocation>, compute: Compute) -> Result<u32> {
         let mut enqueues = 0;
         if compute.contains(Compute::CPU) {
             enqueues += 1;
-            self.enqueue_cpu_check(item)?;
+            self.cpu_queue.enqueue_item(item)?;
         }
         if compute.contains(Compute::GPU) {
             self.enqueue_gpu_check(item)?;
@@ -222,20 +242,10 @@ impl QueueingDispatcher {
         }
         Ok(enqueues)
     }
-    fn enqueue_cpu_check(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
-        Self::enqueue_check(&Some(&self.cpu_queue), item, Compute::CPU)
-    }
     fn enqueue_gpu_check(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
-        Self::enqueue_check(&self.gpu_queue.as_ref(), item, Compute::GPU)
-    }
-    fn enqueue_check(
-        q: &Option<&Arc<dyn DeviceQueue>>,
-        item: &Arc<EnqueuedInvocation>,
-        compute: Compute,
-    ) -> Result<()> {
-        match q {
+        match self.gpu_queue.as_ref() {
             Some(q) => q.enqueue_item(item),
-            None => anyhow::bail!("No queue present for compute '{}'", compute),
+            None => anyhow::bail!("No queue present for compute '{}'", Compute::GPU),
         }
     }
 
@@ -249,14 +259,10 @@ impl QueueingDispatcher {
         tid: TransactionId,
     ) -> Result<Arc<EnqueuedInvocation>> {
         debug!(tid=%tid, "Enqueueing invocation");
-        let enqueue = Arc::new(EnqueuedInvocation::new(
-            reg.clone(),
-            json_args,
-            tid.clone(),
-            self.clock.now(),
-        ));
+        let mut new_item = None;
+        let insert_t = self.clock.now();
         let mut enqueues = 0;
-        if self.invocation_config.enqueuing_log_details.unwrap_or(false) {
+        if self.invocation_config.log_details() {
             debug!(tid=%tid, "calc CPU est time");
             let cpu = self.cpu_queue.est_completion_time(reg, &tid);
             debug!(tid=%tid, "calc GPU est time");
@@ -268,12 +274,14 @@ impl QueueingDispatcher {
         }
 
         if reg.cpu_only() {
-            self.enqueue_cpu_check(&enqueue)?;
-            return Ok(enqueue);
+            let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+            self.cpu_queue.enqueue_item(&enq)?;
+            return Ok(enq);
         }
         if reg.gpu_only() {
-            self.enqueue_gpu_check(&enqueue)?;
-            return Ok(enqueue);
+            let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+            self.enqueue_gpu_check(&enq)?;
+            return Ok(enq);
         }
 
         let policy = self
@@ -283,19 +291,23 @@ impl QueueingDispatcher {
             .unwrap_or(&EnqueueingPolicy::All);
         match policy {
             EnqueueingPolicy::All => {
+                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
                 if reg.supported_compute.contains(Compute::GPU) {
-                    self.enqueue_gpu_check(&enqueue)?;
+                    self.enqueue_gpu_check(&enq)?;
                     enqueues += 1;
                 }
                 if reg.supported_compute.contains(Compute::CPU) {
-                    self.enqueue_cpu_check(&enqueue)?;
+                    self.cpu_queue.enqueue_item(&enq)?;
                     enqueues += 1;
                 }
+                new_item = Some(enq);
             },
             EnqueueingPolicy::AlwaysCPU => {
+                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
                 if reg.supported_compute.contains(Compute::CPU) {
-                    self.enqueue_cpu_check(&enqueue)?;
+                    self.cpu_queue.enqueue_item(&enq)?;
                     enqueues += 1;
+                    new_item = Some(enq);
                 } else {
                     anyhow::bail!(
                         "Cannot enqueue invocation using {:?} strategy because invocation does not support CPU-only",
@@ -305,7 +317,9 @@ impl QueueingDispatcher {
             },
             EnqueueingPolicy::AlwaysGPU => {
                 if reg.supported_compute.contains(Compute::GPU) {
-                    self.enqueue_gpu_check(&enqueue)?;
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+                    self.enqueue_gpu_check(&enq)?;
+                    new_item = Some(enq);
                     enqueues += 1;
                 } else {
                     anyhow::bail!(
@@ -317,115 +331,237 @@ impl QueueingDispatcher {
             EnqueueingPolicy::ShortestExecTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
-                    opts.push((self.cmap.get_exec_time(&reg.fqdn), Some(&self.cpu_queue), Compute::CPU));
+                    opts.push((self.cmap.get_exec_time(&reg.fqdn), Compute::CPU));
                 }
                 if reg.supported_compute.contains(Compute::GPU) {
-                    opts.push((
-                        self.cmap.get_gpu_exec_time(&reg.fqdn),
-                        self.gpu_queue.as_ref(),
-                        Compute::GPU,
-                    ));
+                    opts.push((self.cmap.get_gpu_exec_time(&reg.fqdn), Compute::GPU));
                 }
-                let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
-                if let Some((_, q, c)) = best {
-                    Self::enqueue_check(q, &enqueue, *c)?;
-                    enqueues += 1;
+                if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                    enqueues += self.enqueue_compute(&enq, *c)?;
+                    new_item = Some(enq);
                 }
             },
             EnqueueingPolicy::EstCompTime => {
                 let mut opts = vec![];
                 if reg.supported_compute.contains(Compute::CPU) {
-                    opts.push((
-                        self.cpu_queue.est_completion_time(reg, &tid),
-                        Some(&self.cpu_queue),
-                        Compute::CPU,
-                    ));
+                    opts.push((self.cpu_queue.est_completion_time(reg, &tid), Compute::CPU));
                 }
                 if reg.supported_compute.contains(Compute::GPU) {
                     if let Some(gpu_queue) = &self.gpu_queue {
-                        opts.push((
-                            gpu_queue.est_completion_time(reg, &tid),
-                            self.gpu_queue.as_ref(),
-                            Compute::GPU,
-                        ));
+                        opts.push((gpu_queue.est_completion_time(reg, &tid), Compute::GPU));
                     }
                 }
-                let best = opts.iter().min_by_key(|i| ordered_float::OrderedFloat(i.0));
-                if let Some((_, q, c)) = best {
-                    Self::enqueue_check(q, &enqueue, *c)?;
-                    enqueues += 1;
+                if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                    enqueues += self.enqueue_compute(&enq, *c)?;
+                    if self.invocation_config.log_details() {
+                        if c == &Compute::GPU {
+                            info!(tid=%tid, fqdn=%enq.registration.fqdn, "Cache Hit");
+                        } else {
+                            info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=0.0, "Cache Miss");
+                        }
+                    }
+                    new_item = Some(enq);
                 }
             },
             EnqueueingPolicy::UCB1 => {
-                self.ucb1_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
-                enqueues += 1;
+                anyhow::bail!("UCB1 not implemented");
+                // self.ucb1_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
+                // enqueues += 1;
             },
             EnqueueingPolicy::MWUA => {
-                self.mwua_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
-                enqueues += 1;
+                anyhow::bail!("MWUA not implemented");
+                // self.mwua_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
+                // enqueues += 1;
             },
             EnqueueingPolicy::HitTput => {
-                self.hit_tput_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
-                enqueues += 1;
+                anyhow::bail!("HitTput not implemented");
+                // self.hit_tput_dispatch(reg.clone(), &tid.clone(), &enqueue)?;
+                // enqueues += 1;
             },
-            EnqueueingPolicy::Speedup => {
-                let cpu = self.cmap.avg_cpu_exec_t(&enqueue.registration.fqdn);
-                let gpu = self.cmap.avg_gpu_exec_t(&enqueue.registration.fqdn);
+            EnqueueingPolicy::EstSpeedup => {
+                let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
+                let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
                 let ratio = cpu / gpu;
-                if ratio > 4.0 {
-                    self.enqueue_gpu_check(&enqueue)?;
-                    enqueues += 1;
+                if ratio > self.invocation_config.speedup_ratio.unwrap_or(4.0) {
+                    let mut opts = vec![];
+                    if reg.supported_compute.contains(Compute::CPU) {
+                        opts.push((self.cpu_queue.est_completion_time(reg, &tid), Compute::CPU));
+                    }
+                    if reg.supported_compute.contains(Compute::GPU) {
+                        if let Some(gpu_queue) = &self.gpu_queue {
+                            opts.push((gpu_queue.est_completion_time(reg, &tid), Compute::GPU));
+                        }
+                    }
+                    if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
+                        let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                        enqueues += self.enqueue_compute(&enq, *c)?;
+                        if self.invocation_config.log_details() {
+                            if c == &Compute::GPU {
+                                info!(tid=%tid, fqdn=%enq.registration.fqdn, "Cache Hit");
+                            } else {
+                                info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=1.0, "Cache Miss");
+                            }
+                        }
+                        new_item = Some(enq);
+                    }
                 } else {
-                    self.enqueue_cpu_check(&enqueue)?;
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu);
+                    self.cpu_queue.enqueue_item(&enq)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=0.0, "Cache Miss");
+                    }
+                    new_item = Some(enq);
                     enqueues += 1;
                 }
             },
-            EnqueueingPolicy::Landlord => {
-                let compute = self.landlord.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
+            EnqueueingPolicy::RunningAvgEstSpeedup => {
+                let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
+                let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
+                let ratio = cpu / gpu;
+                let mut avg = self.running_avg_speedup.lock();
+                let new_avg = *avg * 0.9 + ratio * 0.1;
+                *avg = new_avg;
+                drop(avg);
+                info!(tid=%tid, new_avg=new_avg, "running avg");
+                if ratio > new_avg {
+                    let mut opts = vec![];
+                    if reg.supported_compute.contains(Compute::CPU) {
+                        opts.push((self.cpu_queue.est_completion_time(reg, &tid), Compute::CPU));
+                    }
+                    if reg.supported_compute.contains(Compute::GPU) {
+                        if let Some(gpu_queue) = &self.gpu_queue {
+                            opts.push((gpu_queue.est_completion_time(reg, &tid), Compute::GPU));
+                        }
+                    }
+                    if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
+                        let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                        enqueues += self.enqueue_compute(&enq, *c)?;
+                        if self.invocation_config.log_details() {
+                            if c == &Compute::GPU {
+                                info!(tid=%tid, fqdn=%enq.registration.fqdn, "Cache Hit");
+                            } else {
+                                info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=1.0, "Cache Miss");
+                            }
+                        }
+                        new_item = Some(enq);
+                    }
+                } else {
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu);
+                    self.cpu_queue.enqueue_item(&enq)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=0.0, "Cache Miss");
+                    }
+                    new_item = Some(enq);
+                    enqueues += 1;
+                }
             },
-            EnqueueingPolicy::LandlordEstTime => {
-                let compute = self.landlord.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
+            EnqueueingPolicy::QueueAdjustAvgEstSpeedup => {
+                let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
+                let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
+                let ratio = cpu / gpu;
+                if ratio > *self.running_avg_speedup.lock() {
+                    let mut opts = vec![];
+                    if reg.supported_compute.contains(Compute::CPU) {
+                        opts.push((self.cpu_queue.est_completion_time(reg, &tid), Compute::CPU));
+                    }
+                    if reg.supported_compute.contains(Compute::GPU) {
+                        if let Some(gpu_queue) = &self.gpu_queue {
+                            opts.push((gpu_queue.est_completion_time(reg, &tid), Compute::GPU));
+                        }
+                    }
+                    if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
+                        let enq = self.make_enqueue(reg, json_args, &tid, insert_t, *est);
+                        enqueues += self.enqueue_compute(&enq, *c)?;
+                        if c == &Compute::GPU {
+                            if self.invocation_config.log_details() {
+                                info!(tid=%tid, fqdn=%enq.registration.fqdn, "Cache Hit");
+                            }
+                            if let Some(gpu_queue) = &self.gpu_queue {
+                                let q_len = gpu_queue.queue_len();
+                                let mut avg = self.running_avg_speedup.lock();
+                                if q_len <= 1 {
+                                    *avg *= 0.99;
+                                } else if q_len >= 3 {
+                                    // *avg = *avg * 1.05;
+                                    *avg = self.invocation_config.speedup_ratio.unwrap_or(4.0);
+                                } else {
+                                    // *avg = *avg * 0.975;
+                                }
+                                info!(tid=%tid, new_avg=*avg, "running avg");
+                            }
+                        } else {
+                            #[allow(clippy::collapsible_else_if)]
+                            if self.invocation_config.log_details() {
+                                info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=1.0, "Cache Miss");
+                            }
+                        }
+                        new_item = Some(enq);
+                    }
+                } else {
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu);
+                    self.cpu_queue.enqueue_item(&enq)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=0.0, "Cache Miss");
+                    }
+                    new_item = Some(enq);
+                    enqueues += 1;
+                }
             },
-            EnqueueingPolicy::LandlordPerFuncRent => {
-                let compute = self.landlord.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
+            EnqueueingPolicy::Speedup => {
+                let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
+                let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
+                let ratio = cpu / gpu;
+                if ratio > self.invocation_config.speedup_ratio.unwrap_or(4.0) {
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, gpu);
+                    self.enqueue_gpu_check(&enq)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enq.registration.fqdn, "Cache Hit");
+                    }
+                    new_item = Some(enq);
+                    enqueues += 1;
+                } else {
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, cpu);
+                    self.cpu_queue.enqueue_item(&enq)?;
+                    if self.invocation_config.log_details() {
+                        info!(tid=%tid, fqdn=%enq.registration.fqdn, pot_creds=1.0, "Cache Miss");
+                    }
+                    new_item = Some(enq);
+                    enqueues += 1;
+                }
             },
-            EnqueueingPolicy::LandlordPerFuncRentHistorical => {
-                let compute = self.landlord.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
+            EnqueueingPolicy::Landlord
+            | EnqueueingPolicy::LRU
+            | EnqueueingPolicy::LFU
+            | EnqueueingPolicy::LandlordFixed => {
+                let compute = self.landlord.lock().choose(&reg, &tid);
+                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+                enqueues += self.enqueue_compute(&enq, compute)?;
+                new_item = Some(enq);
             },
-            EnqueueingPolicy::Popular => {
-                let compute = self.popular.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::PopularEstTimeDispatch => {
-                let compute = self.popular.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::PopularQueueLenDispatch => {
-                let compute = self.popular.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::LeastPopular => {
-                let compute = self.popular.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
-            },
-            EnqueueingPolicy::TopAvg => {
-                let compute = self.popular.lock().choose(&enqueue, &tid);
-                enqueues += self.enqueue_compute(&enqueue, compute)?;
+            EnqueueingPolicy::Popular
+            | EnqueueingPolicy::PopularEstTimeDispatch
+            | EnqueueingPolicy::PopularQueueLenDispatch
+            | EnqueueingPolicy::LeastPopular
+            | EnqueueingPolicy::TopAvg
+            | EnqueueingPolicy::TCPEstSpeedup => {
+                let compute = self.popular.lock().choose(&reg, &tid);
+                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0);
+                enqueues += self.enqueue_compute(&enq, compute)?;
+                new_item = Some(enq);
             },
         }
 
         if enqueues == 0 {
-            bail_error!(tid=%enqueue.tid, "Unable to enqueue function invocation, not matching compute");
+            bail_error!(tid=%tid, "Unable to enqueue function invocation, not matching compute");
         }
-        Ok(enqueue)
+        new_item.ok_or_else(|| anyhow::anyhow!("Enqueued item was never created"))
     }
 
     // Ideally should be in the ctx struct, but mutability?
     /// Should be in its struct, but mutable borrow etc
+    #[allow(dead_code)]
     fn select_device_for_fn(&self, fid: String, device: ComputeEnum) {
         let mut d = self.dispatch_state.write();
 
@@ -446,6 +582,7 @@ impl QueueingDispatcher {
     }
 
     /// Given two weights, return 0 or 1 probabilistically
+    #[allow(dead_code)]
     fn proportional_selection(&self, wa: f64, wb: f64) -> i32 {
         // let mut rng = rand::thread_rng();
         let wt = wa + wb;
@@ -460,6 +597,7 @@ impl QueueingDispatcher {
 
     // https://jeremykun.com/2013/10/28/optimism-in-the-face-of-uncertainty-the-ucb1-algorithm/
     /// Upper-confidence bound on the execution latency. Or the E2E time?
+    #[allow(dead_code)]
     fn ucb1_dispatch(
         &self,
         reg: Arc<RegisteredFunction>,
@@ -500,6 +638,7 @@ impl QueueingDispatcher {
 
     // Shrinking dartboard : Geulen, Sascha, Berthold Vöcking, and Melanie Winkler. "Regret Minimization for Online Buffering Problems Using the Weighted Majority Algorithm." COLT. 2010.
     /// Multiplicative Weights Update Algorithm
+    #[allow(dead_code)]
     fn mwua_dispatch(
         &self,
         reg: Arc<RegisteredFunction>,
@@ -561,11 +700,12 @@ impl QueueingDispatcher {
 
         match selected_device {
             ComputeEnum::gpu => self.enqueue_gpu_check(enqueue),
-            _ => self.enqueue_cpu_check(enqueue),
+            _ => self.cpu_queue.enqueue_item(enqueue),
         }
     }
 
     /// Prob. of warm hit divided by avg e2e time. per-fn wts
+    #[allow(dead_code)]
     fn hit_tput_dispatch(
         &self,
         reg: Arc<RegisteredFunction>,
@@ -604,7 +744,7 @@ impl QueueingDispatcher {
             let n = self.proportional_selection(rcpu, rgpu);
             match n {
                 0 => self.enqueue_gpu_check(enqueue),
-                _ => self.enqueue_cpu_check(enqueue),
+                _ => self.cpu_queue.enqueue_item(enqueue),
             }
         } else {
             anyhow::bail!("GPU queue was 'None' in hit_tput_dispatch");
@@ -626,11 +766,20 @@ impl Invoker for QueueingDispatcher {
         let result_ptr = queued.result_ptr.lock();
         match result_ptr.completed {
             true => {
-                info!(tid=%tid, "Invocation complete");
+                let e2etime = (self.clock.now() - queued.queue_insert_time).as_seconds_f64();
+                if result_ptr.compute == Compute::GPU {
+                    self.cmap
+                        .add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false);
+                    info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"GPU", "Invocation complete");
+                } else {
+                    self.cmap
+                        .add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false);
+                    info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"CPU", "Invocation complete");
+                }
                 Ok(queued.result_ptr.clone())
             },
             false => {
-                anyhow::bail!("Invocation was signaled completion but completion value was not set")
+                bail_error!(tid=%tid, "Invocation was signaled completion but completion value was not set")
             },
         }
     }
@@ -648,8 +797,7 @@ impl Invoker for QueueingDispatcher {
             (Compute::CPU, self.cpu_queue.queue_len()),
             (Compute::GPU, self.gpu_queue.as_ref().map_or(0, |g| g.queue_len())),
         ]
-        .iter()
-        .cloned()
+        .into_iter()
         .collect()
     }
 
