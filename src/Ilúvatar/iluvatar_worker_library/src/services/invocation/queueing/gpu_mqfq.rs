@@ -57,6 +57,22 @@ pub struct MqfqConfig {
     /// Minimum number of flows to choose between for [MqfqPolicy]::Select* policies
     /// Default is 3 if [None] or [Some(0)]
     pub flow_select_cnt: Option<f64>,
+    #[serde(default)]
+    time_estimation: MqfqTimeEst,
+    #[serde(default = "bool::default")]
+    add_estimation_error: bool,
+}
+
+#[derive(Debug, Deserialize)]
+enum MqfqTimeEst {
+    V1,
+    V2,
+    V3
+}
+impl Default for MqfqTimeEst {
+    fn default() -> Self {
+        Self::V3
+    }
 }
 
 /// Multi-Queue Fair Queueing.
@@ -1075,12 +1091,10 @@ impl MQFQ {
         }
     }
 
-    #[allow(dead_code)]
     fn est_completion_time1(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
         self.mqfq_set.iter().map(|x| x.value().est_flow_wait()).sum::<f64>()
     }
 
-    #[allow(dead_code)]
     fn est_completion_time2(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
         // sum_q (q_F-q_S) / max_in_flight
         let mut est_time = 0.0;
@@ -1107,7 +1121,6 @@ impl MQFQ {
         est_time
     }
 
-    #[allow(dead_code)]
     fn est_completion_time3(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         let mut est_time = 0.0;
         let allowed_overrun = missing_default(&self.q_config.allowed_overrun, 10.0);
@@ -1195,10 +1208,14 @@ impl DeviceQueue for MQFQ {
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
         let concur = self.gpu.max_concurrency() as f64;
-        let q_t = self.est_completion_time3(reg, tid) / concur;
+        let q_t = match self.q_config.time_estimation {
+            MqfqTimeEst::V1 => self.est_completion_time1(reg, tid),
+            MqfqTimeEst::V2 => self.est_completion_time2(reg, tid),
+            MqfqTimeEst::V3 => self.est_completion_time3(reg, tid),
+        } / concur;
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         let mut err_time = 0.0;
-        if self.queue_len() > 0 {
+        if self.q_config.add_estimation_error && self.queue_len() > 0 {
             err_time = match self.cmap.lookup_agg(&reg.fqdn, &Characteristics::QueueErrGpu) {
                 None => 0.0,
                 Some(x) => iluvatar_library::characteristics_map::unwrap_val_f64(&x) / concur,

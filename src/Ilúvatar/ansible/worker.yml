@@ -109,6 +109,8 @@
       "ILUVATAR_WORKER__invocation__mqfq_config__ttl_sec" : "{{ mqfq_ttl_sec | default(2.0) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__weight_logging_ms" : "{{ mqfq_weight_logging_ms | default(0) }}"
       "ILUVATAR_WORKER__invocation__mqfq_config__flow_select_cnt" : "{{ mqfq_flow_select_cnt | default(0) }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__time_estimation" : "{{ mqfq_time_estimation | default('V3') }}"
+      "ILUVATAR_WORKER__invocation__mqfq_config__add_estimation_error" : "{{ mqfq_add_estimation_error | default(false) }}"
 
       "ILUVATAR_WORKER__invocation__landlord_config__cache_size" : "{{ lnd_cache_size | default(10) }}"
       "ILUVATAR_WORKER__invocation__landlord_config__log_cache_info" : "{{ lnd_cache_log | default(false) }}"

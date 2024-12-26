@@ -159,7 +159,7 @@ def iat_invoke_times(iat_mean: float, iat_std: float, duration_min:int, scale: f
   milis_p_sec = 1000
   end_ms = duration_min * secs_p_min * milis_p_sec
   rng = np.random.default_rng(None)
-  trace = list(rng.normal(loc=iat_mean, scale=iat_std, size=int(end_ms/iat_mean)).cumsum()*scale)
+  trace = list(np.ceil(rng.normal(loc=iat_mean, scale=iat_std, size=int(end_ms/iat_mean)).cumsum()*scale))
   time = trace[-1]
   while time < end_ms:
     sample = ceil(rng.normal(loc=iat_mean, scale=iat_std)*scale)
