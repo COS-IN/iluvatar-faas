@@ -70,6 +70,7 @@ enum MqfqTimeEst {
     V3,
     LinReg,
     PerFuncLinReg,
+    FallbackLinReg,
 }
 impl Default for MqfqTimeEst {
     fn default() -> Self {
@@ -1229,6 +1230,15 @@ impl MQFQ {
         let load = report.pending_load + report.active_load;
         (self.cmap.func_predict_gpu_load_est(&reg.fqdn, load), load)
     }
+    fn fallback_est_time_linreg(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
+        let report = self.get_flow_report();
+        let load = report.pending_load + report.active_load;
+        let mut predict = self.cmap.func_predict_gpu_load_est(&reg.fqdn, load);
+        if predict == 0.0 {
+            predict = self.cmap.predict_gpu_load_est(load);
+        }
+        (predict, load)
+    }
 } // END MQFQ
 
 impl DeviceQueue for MQFQ {
@@ -1244,6 +1254,7 @@ impl DeviceQueue for MQFQ {
             MqfqTimeEst::V3 => (self.est_completion_time3(reg, tid)/concur, 0.0),
             MqfqTimeEst::LinReg => self.est_time_linreg(reg, tid),
             MqfqTimeEst::PerFuncLinReg => self.per_func_est_time_linreg(reg, tid),
+            MqfqTimeEst::FallbackLinReg => self.fallback_est_time_linreg(reg, tid),
         };
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         let mut err_time = 0.0;
