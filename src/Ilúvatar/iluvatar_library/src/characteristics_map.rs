@@ -450,8 +450,8 @@ impl CharacteristicsMap {
         // Kalman Filter notation , see faasmeter paper
         let z = prev_e2e - prev_est; //residual error
 
-        let alpha = 0.2;
-        let beta = 0.4;
+        let alpha = 0.1;
+        let beta = 0.7;
         // kalman gain is proportional to process noise, in our case is total gpu load difference
         let k = 1.0 - (beta + alpha);
         let xhat = (alpha * prev_est) + (beta * mqfq_est) + k * z;

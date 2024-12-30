@@ -1253,7 +1253,13 @@ impl DeviceQueue for MQFQ {
                 Some(x) => iluvatar_library::characteristics_map::unwrap_val_f64(&x) / concur,
             };
         }
-        info!(tid=%tid, qt=q_t, runtime=exec_time, err=err_time, "GPU estimated completion time of item");
+	let raw_est = self.est_completion_time2(reg, tid)/concur ;
+        info!(tid=%tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");
+	// match self.q_config.time_estimation {
+	//     MqfqTimeEst::LinReg => (q_t, load),
+	//     MqfqTimeEst::PerFuncLinReg => (q_t, load),
+	//     _ => (q_t + exec_time + err_time, load)
+	// }
         (q_t + exec_time + err_time, load)
     }
 

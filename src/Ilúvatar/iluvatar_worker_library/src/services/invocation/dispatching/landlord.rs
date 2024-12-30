@@ -303,7 +303,7 @@ impl Landlord {
                 true => 0.0, // LRU no extra credit, max is 1
                 false => 1.0,
             },
-            _ => cpu_est - gpu_est,
+            _ => cpu_est - gpu_est, //gpu_est, gpu_est is the KF. mqfq_est is 'raw' but should be fine if we are using linear regression 
         }
     }
 
