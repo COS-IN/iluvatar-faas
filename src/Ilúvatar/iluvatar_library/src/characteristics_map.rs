@@ -549,22 +549,23 @@ impl CharacteristicsMap {
         match self.func_gpu_load_lin_reg.get_mut(fqdn) {
             None => {
                 let mut lr = LinearReg::new();
-                lr.insert(x,y);
+                lr.insert(x, y);
                 self.func_gpu_load_lin_reg.insert(fqdn.clone(), lr);
             },
-            Some(mut lr) => lr.value_mut().insert(x,y),
+            Some(mut lr) => lr.value_mut().insert(x, y),
         };
     }
+    /// Returns [-1.0] if insufficient data exists for interpolation.
     pub fn predict_gpu_load_est(&self, x: f64) -> f64 {
         self.gpu_load_lin_reg.read().predict(x)
     }
+    /// Returns [-1.0] if insufficient data exists for interpolation.
     pub fn func_predict_gpu_load_est(&self, fqdn: &String, x: f64) -> f64 {
         match self.func_gpu_load_lin_reg.get(fqdn) {
-            None => 0.0,
+            None => -1.0,
             Some(lr) => lr.value().predict(x),
         }
     }
-
 
     /// Tuple of cpu,gpu weights for polymorphic functions
     pub fn get_dispatch_wts(&self, fqdn: &str) -> (f64, f64) {

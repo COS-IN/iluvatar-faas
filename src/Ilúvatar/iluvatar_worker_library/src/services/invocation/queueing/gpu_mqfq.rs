@@ -215,7 +215,14 @@ impl FlowQ {
 
     /// Re-add an item to the queue that was previously removed.
     pub fn reinsert_item(&mut self, item: Arc<MQRequest>) {
+        self.start_time_virt = item.start_time_virt;
+        self.finish_time_virt = f64::max(self.finish_time_virt, item.finish_time_virt);
         self.queue.push_front(item);
+
+        self.mindicator.insert(self.flow_id, self.start_time_virt).unwrap();
+        if self.state != MQState::Active {
+            self.update_state(MQState::Active);
+        }
     }
 
     /// Return True if should update the global time.
@@ -1081,6 +1088,7 @@ impl MQFQ {
             debug!(tid=%tid, qlen=qlen, "Empty queue");
             return None;
         }
+        let mut cnt = 0;
         match self.get_token(tid) {
             Some(token) => {
                 loop {
@@ -1095,11 +1103,15 @@ impl MQFQ {
                             return Some((i, token.into()));
                         } else {
                             debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "Empty flow chosen");
-                            continue;
+                            cnt += 1;
                         }
                     } else {
                         debug!(tid=%tid, qlen=qlen, "No chosen flow");
-                        continue;
+                        cnt += 1;
+                    }
+                    if cnt > 100 {
+                        error!(tid=%tid, "Failed to get flow after many iterations, despite non-empty queue.");
+                        return None;
                     }
                 }
             },
@@ -1115,7 +1127,6 @@ impl MQFQ {
     }
 
     fn est_completion_time2(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
-        // sum_q (q_F-q_S) / max_in_flight
         let mut est_time = 0.0;
         if let Some(q) = self.mqfq_set.get(&reg.fqdn) {
             est_time = match q.state {
@@ -1222,19 +1233,26 @@ impl MQFQ {
     fn est_time_linreg(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
         let report = self.get_flow_report();
         let load = report.pending_load + report.active_load;
-        (self.cmap.predict_gpu_load_est(load), load)
+        let mut predict = self.cmap.predict_gpu_load_est(load);
+        if predict == -1.0 {
+            predict = 0.0;
+        }
+        (f64::max(predict, 0.0), load)
     }
-
     fn per_func_est_time_linreg(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
         let report = self.get_flow_report();
         let load = report.pending_load + report.active_load;
-        (self.cmap.func_predict_gpu_load_est(&reg.fqdn, load), load)
+        let mut predict = self.cmap.func_predict_gpu_load_est(&reg.fqdn, load);
+        if predict == -1.0 {
+            predict = 0.0;
+        }
+        (f64::max(predict, 0.0), load)
     }
     fn fallback_est_time_linreg(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
         let report = self.get_flow_report();
         let load = report.pending_load + report.active_load;
         let mut predict = self.cmap.func_predict_gpu_load_est(&reg.fqdn, load);
-        if predict == 0.0 {
+        if predict == -1.0 {
             predict = self.cmap.predict_gpu_load_est(load);
         }
         (predict, load)
@@ -1249,9 +1267,9 @@ impl DeviceQueue for MQFQ {
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
         let concur = self.gpu.max_concurrency() as f64;
         let (q_t, load) = match self.q_config.time_estimation {
-            MqfqTimeEst::V1 => (self.est_completion_time1(reg, tid)/concur, 0.0),
-            MqfqTimeEst::V2 => (self.est_completion_time2(reg, tid)/concur, 0.0),
-            MqfqTimeEst::V3 => (self.est_completion_time3(reg, tid)/concur, 0.0),
+            MqfqTimeEst::V1 => (self.est_completion_time1(reg, tid) / concur, 0.0),
+            MqfqTimeEst::V2 => (self.est_completion_time2(reg, tid) / concur, 0.0),
+            MqfqTimeEst::V3 => (self.est_completion_time3(reg, tid) / concur, 0.0),
             MqfqTimeEst::LinReg => self.est_time_linreg(reg, tid),
             MqfqTimeEst::PerFuncLinReg => self.per_func_est_time_linreg(reg, tid),
             MqfqTimeEst::FallbackLinReg => self.fallback_est_time_linreg(reg, tid),
@@ -1264,13 +1282,8 @@ impl DeviceQueue for MQFQ {
                 Some(x) => iluvatar_library::characteristics_map::unwrap_val_f64(&x) / concur,
             };
         }
-	let raw_est = self.est_completion_time2(reg, tid)/concur ;
+        let raw_est = self.est_completion_time2(reg, tid) / concur;
         info!(tid=%tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");
-	// match self.q_config.time_estimation {
-	//     MqfqTimeEst::LinReg => (q_t, load),
-	//     MqfqTimeEst::PerFuncLinReg => (q_t, load),
-	//     _ => (q_t + exec_time + err_time, load)
-	// }
         (q_t + exec_time + err_time, load)
     }
 

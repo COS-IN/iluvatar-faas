@@ -10,7 +10,7 @@ python3 -m pip install virtualenv
 python3 -m venv --clear examples-venv
 source ./examples-venv/bin/activate
 python3 -m pip install --upgrade pip --no-warn-script-location
-python3 -m pip install ansible numpy pandas matplotlib --no-warn-script-location
+python3 -m pip install ansible==6.7.0 ansible-core==2.13.7 numpy pandas matplotlib --no-warn-script-location
 deactivate
 
 name=$(ip route get 8.8.8.8 | awk '{ print $5; exit }')

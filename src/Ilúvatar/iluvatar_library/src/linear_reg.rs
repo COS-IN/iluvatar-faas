@@ -1,6 +1,7 @@
 use num_traits::Pow;
 
 #[derive(Debug)]
+/// Linear regression calculator
 pub struct LinearReg {
     xs: Vec<f64>,
     ys: Vec<f64>,
@@ -42,7 +43,12 @@ impl LinearReg {
             self.intercept = (sum_of_y * sum_square_x - sum_of_x * sum_of_x_by_y) / div;
         }
     }
+    /// Returns [-1.0] if insufficient data exists for interpolation.
     pub fn predict(&self, x: f64) -> f64 {
-        self.slope * x + self.intercept
+        if self.slope != self.intercept && self.intercept != 0.0 {
+            self.slope * x + self.intercept
+        } else {
+            -1.0
+        }
     }
 }
