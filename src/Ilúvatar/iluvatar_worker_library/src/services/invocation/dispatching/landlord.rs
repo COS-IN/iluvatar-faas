@@ -22,6 +22,7 @@ pub struct LandlordConfig {
     // TODO: change this to max_res here and for the ansible scripts ..
     pub max_size: f64,    // Max actual size of cache considering function footprints (exec times)
     pub load_thresh: f64, // fraction for the admission control
+    pub slowdown_thresh: f64, // T_GPU < L_GPU * slowdown_thresh 
     pub log_cache_info: bool,
     // mode: fixed, autoscaling
 }
@@ -545,29 +546,46 @@ impl Landlord {
         // At this point we've made some space, and the real admission control starts, is this new fqdn worthy?
 
         // A1. New function bonus on low GPU load
-        if self.gpu_load() < 0.2 * self.cfg.max_size {
+	let gpu_load_factor = self.gpu_load() / self.cfg.max_size;
+        //if self.gpu_load() < 0.2 * self.cfg.max_size {
+	if gpu_load_factor < self.cfg.load_thresh {
+	    info!(fqdn=%&reg.fqdn, gpu_load=%self.gpu_load(), "ADMIT_LOW_LOAD");
             // this is low load. Chance = 1/1+n_gpu
             let p_new = 1.0 / (1.0 + n_gpu as f64);
-            // remember this is irrespective of the potential credits
+            // Irrespective of the potential credits
             let r = rand::thread_rng().gen_range(0.0..1.0);
             if r < p_new {
                 // won the lottery!
                 info!("ADMISSION LOTTERY");
                 return true;
             }
+            return potential_credits > 0.0;
         }
+
+	let l_gpu = self.cmap.get_gpu_exec_time(&reg.fqdn);
+	let fn_slowdown = gpu_est/l_gpu;
+	
+	if fn_slowdown > self.cfg.slowdown_thresh {
+	    // This is the high load condition. 
+	    //spin the dice again?
+	    info!(fqdn=%&reg.fqdn, gpu_load=%self.gpu_load(), "DENY_HIGH_LOAD");
+	    return false; 
+	    // let l_cpu = self.cmap.get_exec_time(&reg.fqdn) + 0.001; // in case zero? 
+	    // let p_cpu = l_gpu/l_cpu; //for some functions this can be really small, 
+	    // let r = rand::thread_rng().gen_range(0.0..1.0);
+	    // if r < p_cpu {
+	    // 	return true; 
+	    // }
+	    // return false;
+	}
 
         // A2. this is the place for static criteria. Nothing yet.
 
         // A3. Also an underload condition but different threshold? Can be merged with A1.
         // Admit if potential credits are enough without evicting
 
-        let gpu_load_factor = self.gpu_load() / self.cfg.max_size;
-        if gpu_load_factor < self.cfg.load_thresh {
             //  we are under-loaded, so only the potential_credits check is enough
-            info!(fqdn=%&reg.fqdn, gpu_load=%self.gpu_load(), "ADMIT_LOW_LOAD");
-            return potential_credits > 0.0;
-        }
+        
         // A4. if above load thresh, the bar is higher, i.e., it must compete with some inactive function and have enough to evict
 
         // if eviction_attempted {
