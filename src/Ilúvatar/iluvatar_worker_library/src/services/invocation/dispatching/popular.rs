@@ -73,7 +73,7 @@ impl DispatchPolicy for TCPEstSpeedup {
             let q_len = self.gpu_queue.queue_len();
             if q_len <= 1 {
                 self.running_avg_speedup *= 0.99;
-            } else if q_len >= 5 {
+            } else if q_len >= 10 {
                 self.running_avg_speedup = f64::min(self.max_ratio, self.running_avg_speedup * 1.1);
             }
             info!(tid=%tid, new_avg=self.running_avg_speedup, "running avg");

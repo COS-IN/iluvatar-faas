@@ -1127,28 +1127,28 @@ impl MQFQ {
     }
 
     fn est_completion_time2(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
-        let mut est_time = 0.0;
-        if let Some(q) = self.mqfq_set.get(&reg.fqdn) {
-            est_time = match q.state {
-                // Likely under-estimation
-                MQState::Active => q.est_flow_wait(),
-                // Likely over-estimation
-                MQState::Throttled => {
-                    let per_flow_wait_times = self
-                        .mqfq_set
-                        .iter()
-                        .filter(|x| x.state == MQState::Active)
-                        .map(|x| x.est_flow_wait())
-                        .sum::<f64>()
-                        + q.est_flow_wait();
-                    per_flow_wait_times / self.gpu.total_gpus() as f64
-                },
-                // Assumes inactive flow will be immediately be active and get to run soon.
-                // Probably under-estimation too
-                MQState::Inactive => 0.0,
-            };
+        let (state, est_flow_wait) = match self.mqfq_set.get(&reg.fqdn) {
+            None => (MQState::Inactive, 0.0),
+            Some(q) => (q.state, q.est_flow_wait()),
+        };
+        match state {
+            // Likely under-estimation
+            MQState::Active => est_flow_wait,
+            // Likely over-estimation
+            MQState::Throttled => {
+                let per_flow_wait_times = self
+                    .mqfq_set
+                    .iter()
+                    .filter(|x| x.state == MQState::Active)
+                    .map(|x| x.est_flow_wait())
+                    .sum::<f64>()
+                    + est_flow_wait;
+                per_flow_wait_times / self.gpu.total_gpus() as f64
+            },
+            // Assumes inactive flow will be immediately be active and get to run soon.
+            // Probably under-estimation too
+            MQState::Inactive => 0.0,
         }
-        est_time
     }
 
     fn est_completion_time3(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
@@ -1255,7 +1255,7 @@ impl MQFQ {
         if predict == -1.0 {
             predict = self.cmap.predict_gpu_load_est(load);
         }
-        (predict, load)
+        (f64::max(predict, 0.0), load)
     }
 } // END MQFQ
 

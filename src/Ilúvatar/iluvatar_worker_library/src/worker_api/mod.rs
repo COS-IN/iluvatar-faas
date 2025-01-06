@@ -80,6 +80,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         cpu,
         gpu_resource.clone(),
         worker_config.container_resources.gpu_resource.clone(),
+        &reg,
         #[cfg(feature = "power_cap")]
         energy_limit.clone(),
     );

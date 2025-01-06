@@ -1,6 +1,7 @@
 pub mod landlord;
 pub mod popular;
 pub mod queueing_dispatcher;
+mod greedy_weight;
 
 #[derive(Debug, Copy, Clone, serde::Deserialize)]
 /// The policy by which polymorphic functions will be enqueued in the CPU/GPU/etc. queues
@@ -14,6 +15,7 @@ pub enum EnqueueingPolicy {
     RunningAvgEstSpeedup,
     QueueAdjustAvgEstSpeedup,
     TCPEstSpeedup,
+    GreedyWeights,
     /// Always enqueue on the compute that gives shortest compute time
     ShortestExecTime,
     /// Always enqueue on CPU

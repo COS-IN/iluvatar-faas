@@ -8,7 +8,7 @@ use crate::services::invocation::{
     async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
     InvocationResultPtr, Invoker,
 };
-use crate::services::registration::RegisteredFunction;
+use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
@@ -23,6 +23,7 @@ use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{debug, info};
+use crate::services::invocation::dispatching::greedy_weight::GreedyWeights;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -81,6 +82,7 @@ pub struct QueueingDispatcher {
     dispatch_state: RwLock<PolymDispatchCtx>,
     landlord: Mutex<Box<dyn DispatchPolicy>>,
     popular: Mutex<Box<dyn DispatchPolicy>>,
+    greedy_weight: Arc<GreedyWeights>,
     running_avg_speedup: Mutex<f64>,
 }
 
@@ -97,6 +99,7 @@ impl QueueingDispatcher {
         cpu: Arc<CpuResourceTracker>,
         gpu: Option<Arc<GpuResourceTracker>>,
         gpu_config: &Option<Arc<GPUResourceConfig>>,
+        reg: &Arc<RegistrationService>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
         let cpu_q = Self::get_invoker_queue(
@@ -126,6 +129,7 @@ impl QueueingDispatcher {
         let svc = Arc::new(QueueingDispatcher {
             landlord: Mutex::new(get_landlord(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
             popular: Mutex::new(get_popular(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
+            greedy_weight: GreedyWeights::boxed(&cmap, &invocation_config, &cpu_q, &gpu_q, reg)?,
             cpu_queue: cpu_q,
             gpu_queue: gpu_q,
             async_functions: AsyncHelper::new(),
@@ -548,12 +552,18 @@ impl QueueingDispatcher {
             | EnqueueingPolicy::PopularQueueLenDispatch
             | EnqueueingPolicy::LeastPopular
             | EnqueueingPolicy::TopAvg
-            | EnqueueingPolicy::TCPEstSpeedup => {
+            | EnqueueingPolicy::TCPEstSpeedup  => {
                 let (compute, load) = self.popular.lock().choose(&reg, &tid);
                 let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
                 enqueues += self.enqueue_compute(&enq, compute)?;
                 new_item = Some(enq);
             },
+            EnqueueingPolicy::GreedyWeights => {
+                let (compute, load) = self.greedy_weight.choose(&reg, &tid);
+                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
+                enqueues += self.enqueue_compute(&enq, compute)?;
+                new_item = Some(enq);
+            }
         }
 
         if enqueues == 0 {
