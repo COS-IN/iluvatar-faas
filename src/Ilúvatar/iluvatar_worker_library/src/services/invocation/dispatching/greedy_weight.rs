@@ -61,7 +61,7 @@ impl GreedyWeights {
             data.push( (OrderedFloat(opp), OrderedFloat(load), fqdn) );
         }
         data.sort_by(|i1, i2| i2.0.cmp(&i1.0));
-        tracing::info!(tid=%_tid, data=?data, "Sorted function loads");
+        // tracing::info!(tid=%_tid, data=?data, "Sorted function loads");
         let mut allow_set = HashSet::new();
         for i in 0..(data.len() / 3) {
             allow_set.insert(data[i].2.clone());

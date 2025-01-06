@@ -82,7 +82,7 @@ pub struct QueueingDispatcher {
     dispatch_state: RwLock<PolymDispatchCtx>,
     landlord: Mutex<Box<dyn DispatchPolicy>>,
     popular: Mutex<Box<dyn DispatchPolicy>>,
-    greedy_weight: Arc<GreedyWeights>,
+    greedy_weight: Option<Arc<GreedyWeights>>,
     running_avg_speedup: Mutex<f64>,
 }
 
@@ -126,10 +126,14 @@ impl QueueingDispatcher {
             .enqueueing_policy
             .as_ref()
             .unwrap_or(&EnqueueingPolicy::All);
+        let gw = match policy {
+            EnqueueingPolicy::GreedyWeights => Some(GreedyWeights::boxed(&cmap, &invocation_config, &cpu_q, &gpu_q, reg)?),
+            _ => None
+        };
         let svc = Arc::new(QueueingDispatcher {
             landlord: Mutex::new(get_landlord(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
             popular: Mutex::new(get_popular(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
-            greedy_weight: GreedyWeights::boxed(&cmap, &invocation_config, &cpu_q, &gpu_q, reg)?,
+            greedy_weight: gw,
             cpu_queue: cpu_q,
             gpu_queue: gpu_q,
             async_functions: AsyncHelper::new(),
@@ -559,10 +563,12 @@ impl QueueingDispatcher {
                 new_item = Some(enq);
             },
             EnqueueingPolicy::GreedyWeights => {
-                let (compute, load) = self.greedy_weight.choose(&reg, &tid);
-                let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
-                enqueues += self.enqueue_compute(&enq, compute)?;
-                new_item = Some(enq);
+                if let Some(gw) = &self.greedy_weight {
+                    let (compute, load) = gw.choose(&reg, &tid);
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
+                    enqueues += self.enqueue_compute(&enq, compute)?;
+                    new_item = Some(enq);
+                }
             }
         }
 
