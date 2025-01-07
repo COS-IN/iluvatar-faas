@@ -553,7 +553,7 @@ impl MQFQ {
         while let Some((next_item, gpu_token)) = self.dispatch(&tid) {
             debug!(tid=%next_item.invoke.tid, "Sending item for dispatch");
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it won't be concurrently invoked.
-            if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, &tid) {
+            if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, &tid).await {
                 let svc = self.clone();
                 tokio::spawn(async move {
                     svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;
@@ -691,22 +691,15 @@ impl MQFQ {
         }
     }
 
-    /// Returns an owned permit if there are sufficient resources to run a function
-    /// A return value of [None] means the resources failed to be acquired
-    fn acquire_resources_to_run(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Option<DroppableToken> {
+    /// Blocks until an owned permit can be acquired to run a function.
+    /// A return value of [None] means the resources failed to be acquired.
+    async fn acquire_resources_to_run(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Option<DroppableToken> {
         let mut ret: Vec<DroppableToken> = vec![];
-        match self.cpu.try_acquire_cores(reg, tid) {
+        match self.cpu.acquire_cores(reg, tid).await {
             Ok(Some(c)) => ret.push(Box::new(c)),
             Ok(_) => (),
-            Err(e) => {
-                match e {
-                    tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    },
-                    tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
-                    },
-                };
+            Err(_) => {
+                error!(tid=%tid, "CPU Resource Monitor `acquire_cores` returned a closed error!");
                 return None;
             },
         };

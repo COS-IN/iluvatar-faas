@@ -11,6 +11,7 @@ use iluvatar_library::{
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
@@ -182,6 +183,7 @@ pub struct InvocationConfig {
     pub bypass_duration_ms: Option<u64>,
     pub mqfq_config: Option<Arc<MqfqConfig>>,
     pub landlord_config: Option<Arc<LandlordConfig>>,
+    pub greedy_weight_config: Option<Arc<GreedyWeightConfig>>,
 }
 impl InvocationConfig {
     pub fn log_details(&self) -> bool {

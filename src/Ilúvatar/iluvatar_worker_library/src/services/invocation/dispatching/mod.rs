@@ -1,7 +1,7 @@
 pub mod landlord;
 pub mod popular;
 pub mod queueing_dispatcher;
-mod greedy_weight;
+pub mod greedy_weight;
 
 #[derive(Debug, Copy, Clone, serde::Deserialize)]
 /// The policy by which polymorphic functions will be enqueued in the CPU/GPU/etc. queues

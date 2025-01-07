@@ -10,12 +10,40 @@ use anyhow::Result;
 use ordered_float::OrderedFloat;
 use crate::services::invocation::queueing::DeviceQueue;
 use crate::services::registration::{RegisteredFunction, RegistrationService};
-use crate::worker_api::config::InvocationConfig;
+
+#[derive(serde::Deserialize, Debug)]
+pub enum AllowPolicy {
+    TopThird,
+    TopQuarter,
+    LoadLimit,
+    QueueTput,
+}
+impl Default for AllowPolicy {
+    fn default() -> Self {
+        Self::TopThird
+    }
+}
+#[derive(serde::Deserialize, Debug)]
+pub struct GreedyWeightConfig {
+    #[serde(default)]
+    allow: AllowPolicy,
+    #[serde(default)]
+    allow_load: f64,
+    #[serde(default)]
+    log: bool,
+}
+#[derive(Debug)]
+struct FuncInfo {
+    fqdn: String,
+    load: f64,
+    tput: f64,
+    opp_cost: OrderedFloat<f64>,
+}
 
 #[allow(unused)]
 pub struct GreedyWeights {
     cmap: Arc<CharacteristicsMap>,
-    _invocation_config: Arc<InvocationConfig>,
+    config: Arc<GreedyWeightConfig>,
     reg: Arc<RegistrationService>,
     allow_set: RwLock<HashSet<String>>,
     cpu_queue: Arc<dyn DeviceQueue>,
@@ -24,9 +52,9 @@ pub struct GreedyWeights {
 }
 impl GreedyWeights {
     pub fn boxed(cmap: &Arc<CharacteristicsMap>,
-             invocation_config: &Arc<InvocationConfig>,
              cpu_queue: &Arc<dyn DeviceQueue>,
              gpu_queue: &Option<Arc<dyn DeviceQueue>>,
+             config: &Option<Arc<GreedyWeightConfig>>,
              reg: &Arc<RegistrationService>,) -> Result<Arc<Self>> {
         let (trd, tx) = threading::tokio_thread(10000, "greedy_w_bkg".to_string(), Self::update_set);
         let svc = Arc::new(Self {
@@ -35,13 +63,62 @@ impl GreedyWeights {
             gpu_queue: gpu_queue
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("GPU queue was empty trying to create GreedyWeights"))?,
-                _invocation_config: invocation_config.clone(),
+            config: config.clone()
+                .ok_or_else(|| anyhow::anyhow!("GreedyWeightConfig was empty trying to create GreedyWeights"))?,
             reg: reg.clone(),
             allow_set: RwLock::new(HashSet::new()),
             _thread: trd
         });
         tx.send(svc.clone())?;
         Ok(svc)
+    }
+
+    fn allow_size(&self, fun_data: &Vec<FuncInfo>, num: usize) -> (HashSet<String>, f64) {
+        let mut allowed_load = 0.0;
+        let mut allow_set = HashSet::new();
+        for info in fun_data.iter() {
+            allowed_load += info.load;
+            allow_set.insert(info.fqdn.clone());
+            if allow_set.len() >= num {
+                break;
+            }
+        }
+        (allow_set, allowed_load)
+    }
+
+    fn allow_load(&self, fun_data: &Vec<FuncInfo>, load: f64) -> (HashSet<String>, f64) {
+        let mut allowed_load = 0.0;
+        let mut allow_set = HashSet::new();
+        for info in fun_data.iter() {
+            allowed_load += info.load;
+            allow_set.insert(info.fqdn.clone());
+            if allowed_load >= load {
+                break;
+            }
+        }
+        (allow_set, allowed_load)
+    }
+
+    fn queue_tput(&self, fun_data: &Vec<FuncInfo>) -> (HashSet<String>, f64) {
+        let mut allowed_load = 0.0;
+        let mut allowed_tput = 0.0;
+        let mut allow_set = HashSet::new();
+        let gpu_tput = self.cmap.get_gpu_tput();
+        if self.gpu_queue.queue_len() > 10 {
+            for info in fun_data.iter() {
+                allowed_load += info.load;
+                allowed_tput += info.tput;
+                allow_set.insert(info.fqdn.clone());
+                if allowed_tput >= gpu_tput {
+                    break;
+                }
+            }
+        } else {
+            // mul by num GPUs
+            allow_set = HashSet::from_iter(fun_data.iter().take(16).map(|f| f.fqdn.clone()));
+        }
+
+        (allow_set, allowed_load)
     }
 
     async fn update_set(self: Arc<Self>, _tid: String) {
@@ -58,28 +135,26 @@ impl GreedyWeights {
             }
             let opp = (cpu - gpu) / iat;
             let load = gpu * (1.0/iat);
-            data.push( (OrderedFloat(opp), OrderedFloat(load), fqdn) );
+            data.push(FuncInfo {
+                opp_cost: OrderedFloat(opp),
+                tput: 1.0/iat,
+                fqdn,
+                load,
+            });
         }
-        data.sort_by(|i1, i2| i2.0.cmp(&i1.0));
-        // tracing::info!(tid=%_tid, data=?data, "Sorted function loads");
-        let mut allow_set = HashSet::new();
-        for i in 0..(data.len() / 3) {
-            allow_set.insert(data[i].2.clone());
-        }
-        let allowed_load = 0.0;
+        data.sort_by(|i1, i2| i2.opp_cost.cmp(&i1.opp_cost));
         // TODO: a better way to allow functions in
-        // Based on per-func applied load applied to GPU? 
+        // Based on per-func applied load applied to GPU?
         // Allow fractions of a funcs invocations to go through?
-        
-        // let mut allowed_load = 0.0;
-        // for (_opp, load, fqdn) in data.into_iter() {
-        //     allowed_load += load.0;
-        //     allow_set.insert(fqdn);
-        //     if allowed_load >= 3.0 {
-        //         break;
-        //     }
-        // }
-        tracing::info!(tid=%_tid, allowed_load=allowed_load, allow_set=?allow_set, "GPU allowed functions");
+        let (allow_set, allowed_load) = match self.config.allow {
+            AllowPolicy::TopThird => self.allow_size(&data, data.len() / 3),
+            AllowPolicy::TopQuarter => self.allow_size(&data, data.len() / 4),
+            AllowPolicy::LoadLimit => self.allow_load(&data, self.config.allow_load),
+            AllowPolicy::QueueTput => self.queue_tput(&data),
+        };
+        if self.config.log {
+            tracing::info!(tid=%_tid, allowed_load=allowed_load, allow_set=?allow_set, data=?data, "Sorted function allowed GPU");
+        }
         *self.allow_set.write() = allow_set;
     }
 

@@ -127,7 +127,7 @@ impl QueueingDispatcher {
             .as_ref()
             .unwrap_or(&EnqueueingPolicy::All);
         let gw = match policy {
-            EnqueueingPolicy::GreedyWeights => Some(GreedyWeights::boxed(&cmap, &invocation_config, &cpu_q, &gpu_q, reg)?),
+            EnqueueingPolicy::GreedyWeights => Some(GreedyWeights::boxed(&cmap, &cpu_q, &gpu_q, &invocation_config.greedy_weight_config, reg)?),
             _ => None
         };
         let svc = Arc::new(QueueingDispatcher {
