@@ -1,15 +1,16 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-use parking_lot::RwLock;
-use tokio::task::JoinHandle;
+use crate::services::invocation::queueing::DeviceQueue;
+use crate::services::registration::{RegisteredFunction, RegistrationService};
+use crate::services::resources::gpu::GpuResourceTracker;
+use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::threading;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
-use anyhow::Result;
 use ordered_float::OrderedFloat;
-use crate::services::invocation::queueing::DeviceQueue;
-use crate::services::registration::{RegisteredFunction, RegistrationService};
+use parking_lot::RwLock;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 #[derive(serde::Deserialize, Debug)]
 pub enum AllowPolicy {
@@ -48,14 +49,18 @@ pub struct GreedyWeights {
     allow_set: RwLock<HashSet<String>>,
     cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Arc<dyn DeviceQueue>,
-    _thread: JoinHandle<()>
+    gpu: Arc<GpuResourceTracker>,
+    _thread: JoinHandle<()>,
 }
 impl GreedyWeights {
-    pub fn boxed(cmap: &Arc<CharacteristicsMap>,
-             cpu_queue: &Arc<dyn DeviceQueue>,
-             gpu_queue: &Option<Arc<dyn DeviceQueue>>,
-             config: &Option<Arc<GreedyWeightConfig>>,
-             reg: &Arc<RegistrationService>,) -> Result<Arc<Self>> {
+    pub fn boxed(
+        cmap: &Arc<CharacteristicsMap>,
+        cpu_queue: &Arc<dyn DeviceQueue>,
+        gpu_queue: &Option<Arc<dyn DeviceQueue>>,
+        config: &Option<Arc<GreedyWeightConfig>>,
+        reg: &Arc<RegistrationService>,
+        gpu: &Option<Arc<GpuResourceTracker>>,
+    ) -> Result<Arc<Self>> {
         let (trd, tx) = threading::tokio_thread(10000, "greedy_w_bkg".to_string(), Self::update_set);
         let svc = Arc::new(Self {
             cmap: cmap.clone(),
@@ -63,17 +68,27 @@ impl GreedyWeights {
             gpu_queue: gpu_queue
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("GPU queue was empty trying to create GreedyWeights"))?,
-            config: config.clone()
+            gpu: gpu
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("GpuResourceTracker was empty trying to create GreedyWeights"))?,
+            config: config
+                .clone()
                 .ok_or_else(|| anyhow::anyhow!("GreedyWeightConfig was empty trying to create GreedyWeights"))?,
             reg: reg.clone(),
             allow_set: RwLock::new(HashSet::new()),
-            _thread: trd
+            _thread: trd,
         });
         tx.send(svc.clone())?;
         Ok(svc)
     }
 
-    fn allow_size(&self, fun_data: &Vec<FuncInfo>, num: usize) -> (HashSet<String>, f64) {
+    /// Limit cache size to the total number of possible GPU containers.
+    fn max_size(&self, poss_size: usize) -> usize {
+        usize::min(self.gpu.total_gpus() as usize, poss_size)
+    }
+
+    fn allow_size(&self, fun_data: &[FuncInfo], num: usize) -> (HashSet<String>, f64) {
+        let num = self.max_size(num);
         let mut allowed_load = 0.0;
         let mut allow_set = HashSet::new();
         for info in fun_data.iter() {
@@ -86,20 +101,20 @@ impl GreedyWeights {
         (allow_set, allowed_load)
     }
 
-    fn allow_load(&self, fun_data: &Vec<FuncInfo>, load: f64) -> (HashSet<String>, f64) {
+    fn allow_load(&self, fun_data: &[FuncInfo], load: f64) -> (HashSet<String>, f64) {
         let mut allowed_load = 0.0;
         let mut allow_set = HashSet::new();
         for info in fun_data.iter() {
             allowed_load += info.load;
             allow_set.insert(info.fqdn.clone());
-            if allowed_load >= load {
+            if allowed_load >= load || allow_set.len() >= self.max_size(fun_data.len()) {
                 break;
             }
         }
         (allow_set, allowed_load)
     }
 
-    fn queue_tput(&self, fun_data: &Vec<FuncInfo>) -> (HashSet<String>, f64) {
+    fn queue_tput(&self, fun_data: &[FuncInfo]) -> (HashSet<String>, f64) {
         let mut allowed_load = 0.0;
         let mut allowed_tput = 0.0;
         let mut allow_set = HashSet::new();
@@ -109,7 +124,7 @@ impl GreedyWeights {
                 allowed_load += info.load;
                 allowed_tput += info.tput;
                 allow_set.insert(info.fqdn.clone());
-                if allowed_tput >= gpu_tput {
+                if allowed_tput >= gpu_tput || allow_set.len() >= self.max_size(fun_data.len()) {
                     break;
                 }
             }
@@ -134,10 +149,10 @@ impl GreedyWeights {
                 iat = 100.0; // unknown IAT, make large
             }
             let opp = (cpu - gpu) / iat;
-            let load = gpu * (1.0/iat);
+            let load = gpu * (1.0 / iat);
             data.push(FuncInfo {
                 opp_cost: OrderedFloat(opp),
-                tput: 1.0/iat,
+                tput: 1.0 / iat,
                 fqdn,
                 load,
             });
@@ -175,7 +190,7 @@ impl GreedyWeights {
                 //     (Compute::GPU, 0.0)
                 // }
             },
-            false => (Compute::CPU, 0.0)
+            false => (Compute::CPU, 0.0),
         }
     }
 }

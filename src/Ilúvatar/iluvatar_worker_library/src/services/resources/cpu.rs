@@ -109,7 +109,7 @@ impl CpuResourceTracker {
         }
         Ok(None)
     }
-    
+
     pub fn available_cores(&self) -> usize {
         if let Some(sem) = &self.concurrency_semaphore {
             return sem.available_permits();

@@ -188,7 +188,7 @@ impl Landlord {
         }
         self.insertions += 1;
         self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);
-        info!(fqdn=%&reg.fqdn, "Cache Insertion");
+        info!(fqdn=%reg.fqdn, "Cache Insertion");
         self.update_res(&reg.fqdn);
         self.lostcredits.remove(&reg.fqdn);
     }
@@ -295,7 +295,7 @@ impl Landlord {
         // let mqfq_est = self.gpu_queue.est_completion_time(reg, tid);
         // let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
         // let cpu_est = self.cpu_queue.est_completion_time(reg, tid);
-        info!(tid=%tid, fqdn=%&reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, "Landlord Credit");
+        info!(tid=%tid, fqdn=%reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, "Landlord Credit");
 
         match self.cachepol.as_str() {
             "LFU" => 1.0,
@@ -523,14 +523,13 @@ impl Landlord {
         est_err: f64,
         tid: &TransactionId,
     ) -> bool {
-        let potential_credits = self.opp_cost(&reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
+        let potential_credits = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
         // get the number of gpu invokes for this function?
         let acc_pot_credits = self.accum_potential_credits(&reg.fqdn, potential_credits);
-        let (n_gpu, _) = self
+        let n_gpu = self
             .residents
             .get(&reg.fqdn)
-            .unwrap_or(&(0, OffsetDateTime::UNIX_EPOCH))
-            .clone();
+            .unwrap_or(&(0, OffsetDateTime::UNIX_EPOCH)).0;
 
         let mut _eviction_attempted = false;
         let mut _eviction_success = false;
@@ -565,7 +564,7 @@ impl Landlord {
         let gpu_load_factor = self.gpu_load() / self.cfg.max_size;
         if gpu_load_factor < self.cfg.load_thresh {
             //  we are under-loaded, so only the potential_credits check is enough
-            info!(fqdn=%&reg.fqdn, gpu_load=%self.gpu_load(), "ADMIT_LOW_LOAD");
+            info!(fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), "ADMIT_LOW_LOAD");
             return potential_credits > 0.0;
         }
         // A4. if above load thresh, the bar is higher, i.e., it must compete with some inactive function and have enough to evict
@@ -588,7 +587,7 @@ impl Landlord {
             return false;
         }
         info!("ADMIT_VICTIM");
-        return true;
+        true
         //	}
     }
 }
@@ -604,7 +603,7 @@ impl DispatchPolicy for Landlord {
 
         if self.present(&reg.fqdn) {
             // This doesnt decrease credit
-            let new_credit = self.calc_add_credit(&reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
+            let new_credit = self.calc_add_credit(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
             let pos_credit = match self.credits.get(&reg.fqdn) {
                 Some(cr) => *cr + new_credit > 0.0,
                 _ => false,
@@ -615,7 +614,7 @@ impl DispatchPolicy for Landlord {
                 self.misses += 1;
                 self.negcredits += 1;
                 self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
-                info!(tid=%tid, fqdn=%&reg.fqdn,"MISS_INSUFFICIENT_CREDITS");
+                info!(tid=%tid, fqdn=%reg.fqdn,"MISS_INSUFFICIENT_CREDITS");
                 self.update_nonres(&reg.fqdn);
                 return (Compute::CPU, cpu_load);
             }
@@ -629,21 +628,21 @@ impl DispatchPolicy for Landlord {
         }
 
         // not present. Either insert/admit or MISS. Charge rents in every case
-        self.charge_rents(&reg, mqfq_est, gpu_est, cpu_est, est_err, &tid);
+        self.charge_rents(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
 
         // now the tricky admission criteria. We may have space to insert, but should we?
-        let can_admit = self.admit_filter(reg, mqfq_est, gpu_est, cpu_est, est_err, &tid);
+        let can_admit = self.admit_filter(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
 
         if can_admit {
             // We found space!
-            self.admit(&reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
+            self.admit(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
             (Compute::GPU, gpu_load)
         } else {
             // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss.
             self.misses += 1;
             self.capacitymiss += 1;
             self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
-            info!(tid=%tid, fqdn=%&reg.fqdn, "Cache Miss Admission");
+            info!(tid=%tid, fqdn=%reg.fqdn, "Cache Miss Admission");
             self.update_nonres(&reg.fqdn.clone());
             (Compute::CPU, cpu_load)
         }

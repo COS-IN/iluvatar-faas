@@ -3,6 +3,7 @@ use super::containers::structs::{Container, ContainerLock};
 use super::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
+use crate::services::registration::RegistrationService;
 use crate::services::{
     containers::structs::{ContainerState, ParsedResult},
     registration::RegisteredFunction,
@@ -18,7 +19,6 @@ use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::time::Instant;
 use tracing::info;
-use crate::services::registration::RegistrationService;
 
 pub mod async_tracker;
 pub mod completion_time_tracker;

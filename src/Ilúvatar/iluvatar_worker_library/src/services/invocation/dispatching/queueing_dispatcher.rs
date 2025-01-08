@@ -1,4 +1,5 @@
 use crate::services::containers::containermanager::ContainerManager;
+use crate::services::invocation::dispatching::greedy_weight::GreedyWeights;
 use crate::services::invocation::dispatching::{landlord::get_landlord, popular::get_popular, EnqueueingPolicy};
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -23,7 +24,6 @@ use rand::Rng;
 use std::{collections::HashMap, sync::Arc};
 use time::OffsetDateTime;
 use tracing::{debug, info};
-use crate::services::invocation::dispatching::greedy_weight::GreedyWeights;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
@@ -72,6 +72,7 @@ impl PolymDispatchCtx {
     }
 }
 
+#[allow(unused)]
 pub struct QueueingDispatcher {
     async_functions: AsyncHelper,
     invocation_config: Arc<InvocationConfig>,
@@ -84,6 +85,7 @@ pub struct QueueingDispatcher {
     popular: Mutex<Box<dyn DispatchPolicy>>,
     greedy_weight: Option<Arc<GreedyWeights>>,
     running_avg_speedup: Mutex<f64>,
+    gpu_config: Option<Arc<GPUResourceConfig>>,
 }
 
 #[allow(dyn_drop)]
@@ -127,8 +129,15 @@ impl QueueingDispatcher {
             .as_ref()
             .unwrap_or(&EnqueueingPolicy::All);
         let gw = match policy {
-            EnqueueingPolicy::GreedyWeights => Some(GreedyWeights::boxed(&cmap, &cpu_q, &gpu_q, &invocation_config.greedy_weight_config, reg)?),
-            _ => None
+            EnqueueingPolicy::GreedyWeights => Some(GreedyWeights::boxed(
+                &cmap,
+                &cpu_q,
+                &gpu_q,
+                &invocation_config.greedy_weight_config,
+                reg,
+                &gpu,
+            )?),
+            _ => None,
         };
         let svc = Arc::new(QueueingDispatcher {
             landlord: Mutex::new(get_landlord(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
@@ -142,6 +151,7 @@ impl QueueingDispatcher {
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
+            gpu_config: gpu_config.clone(),
         });
         debug!(tid=%tid, "Created QueueingInvoker");
         Ok(svc)
@@ -436,6 +446,8 @@ impl QueueingDispatcher {
                 *avg = new_avg;
                 drop(avg);
                 info!(tid=%tid, new_avg=new_avg, "running avg");
+                // let avg_scale = self.gpu_config.as_ref().map_or(1, |c| c.count) as f64;
+                // if ratio > (new_avg / avg_scale) {
                 if ratio > new_avg {
                     let mut opts = vec![];
                     if reg.supported_compute.contains(Compute::CPU) {
@@ -546,7 +558,7 @@ impl QueueingDispatcher {
             | EnqueueingPolicy::LRU
             | EnqueueingPolicy::LFU
             | EnqueueingPolicy::LandlordFixed => {
-                let (compute, load) = self.landlord.lock().choose(&reg, &tid);
+                let (compute, load) = self.landlord.lock().choose(reg, &tid);
                 let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
                 enqueues += self.enqueue_compute(&enq, compute)?;
                 new_item = Some(enq);
@@ -556,20 +568,20 @@ impl QueueingDispatcher {
             | EnqueueingPolicy::PopularQueueLenDispatch
             | EnqueueingPolicy::LeastPopular
             | EnqueueingPolicy::TopAvg
-            | EnqueueingPolicy::TCPEstSpeedup  => {
-                let (compute, load) = self.popular.lock().choose(&reg, &tid);
+            | EnqueueingPolicy::TCPEstSpeedup => {
+                let (compute, load) = self.popular.lock().choose(reg, &tid);
                 let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
                 enqueues += self.enqueue_compute(&enq, compute)?;
                 new_item = Some(enq);
             },
             EnqueueingPolicy::GreedyWeights => {
                 if let Some(gw) = &self.greedy_weight {
-                    let (compute, load) = gw.choose(&reg, &tid);
+                    let (compute, load) = gw.choose(reg, &tid);
                     let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
                     enqueues += self.enqueue_compute(&enq, compute)?;
                     new_item = Some(enq);
                 }
-            }
+            },
         }
 
         if enqueues == 0 {
@@ -738,17 +750,15 @@ impl QueueingDispatcher {
 
             let tnow = self.clock.now();
 
-            let fqdn = &reg.fqdn;
-
             let b = self.dispatch_state.read();
             // let last_gpu = b.gpu_prev_t.get(fqdn);
-            let iat_gpu = match b.gpu_prev_t.get(fqdn) {
+            let iat_gpu = match b.gpu_prev_t.get(&reg.fqdn) {
                 Some(tg) => (tnow - *tg).as_seconds_f64(),
                 _ => 10000.0, //infinity essentially
             };
 
             // let last_cpu = b.cpu_prev_t.get(fqdn);
-            let iat_cpu = match b.cpu_prev_t.get(fqdn) {
+            let iat_cpu = match b.cpu_prev_t.get(&reg.fqdn) {
                 Some(tg) => (tnow - *tg).as_seconds_f64(),
                 _ => 10000.0, //infinity essentially
             };
@@ -789,11 +799,11 @@ impl Invoker for QueueingDispatcher {
                 if result_ptr.compute == Compute::GPU {
                     self.cmap
                         .add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false);
-                    info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"GPU", "Invocation complete");
+                    info!(tid=%tid, fqdn=%reg.fqdn, e2etime=%e2etime, device=%"GPU", "Invocation complete");
                 } else {
                     self.cmap
                         .add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false);
-                    info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"CPU", "Invocation complete");
+                    info!(tid=%tid, fqdn=%reg.fqdn, e2etime=%e2etime, device=%"CPU", "Invocation complete");
                 }
                 Ok(queued.result_ptr.clone())
             },

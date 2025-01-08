@@ -1,3 +1,4 @@
+use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
 use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
 use config::{Config, File};
@@ -11,7 +12,6 @@ use iluvatar_library::{
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct Configuration {
