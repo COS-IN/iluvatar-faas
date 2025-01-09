@@ -285,13 +285,13 @@ impl QueueingDispatcher {
         let mut enqueues = 0;
         if self.invocation_config.log_details() {
             debug!(tid=%tid, "calc CPU est time");
-            let cpu = self.cpu_queue.est_completion_time(reg, &tid);
+            let (cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, &tid);
             debug!(tid=%tid, "calc GPU est time");
-            let gpu = self
+            let (gpu_est, gpu_load) = self
                 .gpu_queue
                 .as_ref()
-                .map_or(0.0, |q| q.est_completion_time(reg, &tid).0);
-            info!(tid=%tid, cpu_est=cpu.0, gpu_est=gpu, "Est e2e time");
+                .map_or((0.0,0.0), |q| q.est_completion_time(reg, &tid));
+            info!(tid=%tid, cpu_est=cpu_est, cpu_load=cpu_load, gpu_est=gpu_est, gpu_load=gpu_load, "Est e2e time");
         }
 
         if reg.cpu_only() {
@@ -577,6 +577,13 @@ impl QueueingDispatcher {
             EnqueueingPolicy::GreedyWeights => {
                 if let Some(gw) = &self.greedy_weight {
                     let (compute, load) = gw.choose(reg, &tid);
+                    if self.invocation_config.log_details() {
+                        if compute == Compute::GPU {
+                            info!(tid=%tid, fqdn=%reg.fqdn, "Cache Hit");
+                        } else {
+                            info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=0.0, "Cache Miss");
+                        }
+                    }
                     let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
                     enqueues += self.enqueue_compute(&enq, compute)?;
                     new_item = Some(enq);

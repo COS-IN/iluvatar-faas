@@ -120,6 +120,9 @@
       "ILUVATAR_WORKER__invocation__greedy_weight_config__allow" : "{{ greedy_policy | default('TopThird') }}"
       "ILUVATAR_WORKER__invocation__greedy_weight_config__allow_load" : "{{ greedy_load | default(2.0) }}"
       "ILUVATAR_WORKER__invocation__greedy_weight_config__log" : "{{ greedy_log | default(false) }}"
+      "ILUVATAR_WORKER__invocation__greedy_weight_config__cache_size" : "{{ greedy_cache_size | default(0) }}"
+      "ILUVATAR_WORKER__invocation__greedy_weight_config__fixed_assignment" : "{{ greedy_fixed_assignment | default(false) }}"
+
 
     proxy_env: "{{ coded_proxy_env | combine(worker.environment, recursive=True) }}"
 
@@ -160,7 +163,7 @@
     run_once: true
 
   - name: Kill running worker process distrib
-    shell: "kill -s INT {{ item }}"
+    shell: "kill -9 {{ item }}"
     when: (ansible_host != "127.0.0.1" and ansible_host != "localhost") and mode == "clean"
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes

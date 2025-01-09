@@ -529,7 +529,8 @@ impl Landlord {
         let n_gpu = self
             .residents
             .get(&reg.fqdn)
-            .unwrap_or(&(0, OffsetDateTime::UNIX_EPOCH)).0;
+            .unwrap_or(&(0, OffsetDateTime::UNIX_EPOCH))
+            .0;
 
         let mut _eviction_attempted = false;
         let mut _eviction_success = false;
