@@ -3,6 +3,7 @@ use super::containers::structs::{Container, ContainerLock};
 use super::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
+use crate::services::registration::RegistrationService;
 use crate::services::{
     containers::structs::{ContainerState, ParsedResult},
     registration::RegisteredFunction,
@@ -61,6 +62,7 @@ pub struct InvokerFactory {
     cpu: Arc<CpuResourceTracker>,
     gpu_resources: Option<Arc<GpuResourceTracker>>,
     gpu_config: Option<Arc<GPUResourceConfig>>,
+    reg: Arc<RegistrationService>,
     #[cfg(feature = "power_cap")]
     energy: Arc<EnergyLimiter>,
 }
@@ -74,6 +76,7 @@ impl InvokerFactory {
         cpu: Arc<CpuResourceTracker>,
         gpu_resources: Option<Arc<GpuResourceTracker>>,
         gpu_config: Option<Arc<GPUResourceConfig>>,
+        reg: &Arc<RegistrationService>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Self {
         InvokerFactory {
@@ -84,6 +87,7 @@ impl InvokerFactory {
             cpu,
             gpu_resources,
             gpu_config,
+            reg: reg.clone(),
             #[cfg(feature = "power_cap")]
             energy,
         }
@@ -99,6 +103,7 @@ impl InvokerFactory {
             self.cpu.clone(),
             self.gpu_resources.clone(),
             &self.gpu_config,
+            &self.reg,
             #[cfg(feature = "power_cap")]
             self.energy.clone(),
         )?;

@@ -128,6 +128,7 @@ pub async fn full_sim_invoker(
         cpu.clone(),
         gpu_resource.clone(),
         cfg.container_resources.gpu_resource.clone(),
+        &reg,
         #[cfg(feature = "power_cap")]
         energy,
     );
@@ -222,6 +223,7 @@ pub async fn sim_invoker_svc(
         cpu,
         gpu_resource,
         cfg.container_resources.gpu_resource.clone(),
+        &reg,
         #[cfg(feature = "power_cap")]
         energy,
     );
@@ -316,6 +318,7 @@ pub async fn test_invoker_svc(
         cpu,
         gpu_resource,
         cfg.container_resources.gpu_resource.clone(),
+        &reg,
         #[cfg(feature = "power_cap")]
         energy,
     );

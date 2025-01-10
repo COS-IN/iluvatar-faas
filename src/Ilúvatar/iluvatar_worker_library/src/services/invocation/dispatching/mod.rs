@@ -1,3 +1,4 @@
+pub mod greedy_weight;
 pub mod landlord;
 pub mod popular;
 pub mod queueing_dispatcher;
@@ -14,6 +15,7 @@ pub enum EnqueueingPolicy {
     RunningAvgEstSpeedup,
     QueueAdjustAvgEstSpeedup,
     TCPEstSpeedup,
+    GreedyWeights,
     /// Always enqueue on the compute that gives shortest compute time
     ShortestExecTime,
     /// Always enqueue on CPU

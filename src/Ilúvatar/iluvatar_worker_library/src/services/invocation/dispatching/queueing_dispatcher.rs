@@ -1,4 +1,5 @@
 use crate::services::containers::containermanager::ContainerManager;
+use crate::services::invocation::dispatching::greedy_weight::GreedyWeights;
 use crate::services::invocation::dispatching::{landlord::get_landlord, popular::get_popular, EnqueueingPolicy};
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -8,7 +9,7 @@ use crate::services::invocation::{
     async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
     InvocationResultPtr, Invoker,
 };
-use crate::services::registration::RegisteredFunction;
+use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
@@ -71,6 +72,7 @@ impl PolymDispatchCtx {
     }
 }
 
+#[allow(unused)]
 pub struct QueueingDispatcher {
     async_functions: AsyncHelper,
     invocation_config: Arc<InvocationConfig>,
@@ -81,7 +83,9 @@ pub struct QueueingDispatcher {
     dispatch_state: RwLock<PolymDispatchCtx>,
     landlord: Mutex<Box<dyn DispatchPolicy>>,
     popular: Mutex<Box<dyn DispatchPolicy>>,
+    greedy_weight: Option<Arc<GreedyWeights>>,
     running_avg_speedup: Mutex<f64>,
+    gpu_config: Option<Arc<GPUResourceConfig>>,
 }
 
 #[allow(dyn_drop)]
@@ -97,6 +101,7 @@ impl QueueingDispatcher {
         cpu: Arc<CpuResourceTracker>,
         gpu: Option<Arc<GpuResourceTracker>>,
         gpu_config: &Option<Arc<GPUResourceConfig>>,
+        reg: &Arc<RegistrationService>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
         let cpu_q = Self::get_invoker_queue(
@@ -123,9 +128,21 @@ impl QueueingDispatcher {
             .enqueueing_policy
             .as_ref()
             .unwrap_or(&EnqueueingPolicy::All);
+        let gw = match policy {
+            EnqueueingPolicy::GreedyWeights => Some(GreedyWeights::boxed(
+                &cmap,
+                &cpu_q,
+                &gpu_q,
+                &invocation_config.greedy_weight_config,
+                reg,
+                &gpu,
+            )?),
+            _ => None,
+        };
         let svc = Arc::new(QueueingDispatcher {
             landlord: Mutex::new(get_landlord(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
             popular: Mutex::new(get_popular(*policy, &cmap, &invocation_config, &cpu_q, &gpu_q)?),
+            greedy_weight: gw,
             cpu_queue: cpu_q,
             gpu_queue: gpu_q,
             async_functions: AsyncHelper::new(),
@@ -134,6 +151,7 @@ impl QueueingDispatcher {
             invocation_config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(&cmap)),
             cmap,
+            gpu_config: gpu_config.clone(),
         });
         debug!(tid=%tid, "Created QueueingInvoker");
         Ok(svc)
@@ -267,13 +285,13 @@ impl QueueingDispatcher {
         let mut enqueues = 0;
         if self.invocation_config.log_details() {
             debug!(tid=%tid, "calc CPU est time");
-            let cpu = self.cpu_queue.est_completion_time(reg, &tid);
+            let (cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, &tid);
             debug!(tid=%tid, "calc GPU est time");
-            let gpu = self
+            let (gpu_est, gpu_load) = self
                 .gpu_queue
                 .as_ref()
-                .map_or(0.0, |q| q.est_completion_time(reg, &tid).0);
-            info!(tid=%tid, cpu_est=cpu.0, gpu_est=gpu, "Est e2e time");
+                .map_or((0.0,0.0), |q| q.est_completion_time(reg, &tid));
+            info!(tid=%tid, cpu_est=cpu_est, cpu_load=cpu_load, gpu_est=gpu_est, gpu_load=gpu_load, "Est e2e time");
         }
 
         if reg.cpu_only() {
@@ -428,6 +446,8 @@ impl QueueingDispatcher {
                 *avg = new_avg;
                 drop(avg);
                 info!(tid=%tid, new_avg=new_avg, "running avg");
+                // let avg_scale = self.gpu_config.as_ref().map_or(1, |c| c.count) as f64;
+                // if ratio > (new_avg / avg_scale) {
                 if ratio > new_avg {
                     let mut opts = vec![];
                     if reg.supported_compute.contains(Compute::CPU) {
@@ -538,7 +558,7 @@ impl QueueingDispatcher {
             | EnqueueingPolicy::LRU
             | EnqueueingPolicy::LFU
             | EnqueueingPolicy::LandlordFixed => {
-                let (compute, load) = self.landlord.lock().choose(&reg, &tid);
+                let (compute, load) = self.landlord.lock().choose(reg, &tid);
                 let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
                 enqueues += self.enqueue_compute(&enq, compute)?;
                 new_item = Some(enq);
@@ -549,10 +569,25 @@ impl QueueingDispatcher {
             | EnqueueingPolicy::LeastPopular
             | EnqueueingPolicy::TopAvg
             | EnqueueingPolicy::TCPEstSpeedup => {
-                let (compute, load) = self.popular.lock().choose(&reg, &tid);
+                let (compute, load) = self.popular.lock().choose(reg, &tid);
                 let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
                 enqueues += self.enqueue_compute(&enq, compute)?;
                 new_item = Some(enq);
+            },
+            EnqueueingPolicy::GreedyWeights => {
+                if let Some(gw) = &self.greedy_weight {
+                    let (compute, load) = gw.choose(reg, &tid);
+                    if self.invocation_config.log_details() {
+                        if compute == Compute::GPU {
+                            info!(tid=%tid, fqdn=%reg.fqdn, "Cache Hit");
+                        } else {
+                            info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=0.0, "Cache Miss");
+                        }
+                    }
+                    let enq = self.make_enqueue(reg, json_args, &tid, insert_t, 0.0, load);
+                    enqueues += self.enqueue_compute(&enq, compute)?;
+                    new_item = Some(enq);
+                }
             },
         }
 
@@ -722,17 +757,15 @@ impl QueueingDispatcher {
 
             let tnow = self.clock.now();
 
-            let fqdn = &reg.fqdn;
-
             let b = self.dispatch_state.read();
             // let last_gpu = b.gpu_prev_t.get(fqdn);
-            let iat_gpu = match b.gpu_prev_t.get(fqdn) {
+            let iat_gpu = match b.gpu_prev_t.get(&reg.fqdn) {
                 Some(tg) => (tnow - *tg).as_seconds_f64(),
                 _ => 10000.0, //infinity essentially
             };
 
             // let last_cpu = b.cpu_prev_t.get(fqdn);
-            let iat_cpu = match b.cpu_prev_t.get(fqdn) {
+            let iat_cpu = match b.cpu_prev_t.get(&reg.fqdn) {
                 Some(tg) => (tnow - *tg).as_seconds_f64(),
                 _ => 10000.0, //infinity essentially
             };
@@ -773,11 +806,11 @@ impl Invoker for QueueingDispatcher {
                 if result_ptr.compute == Compute::GPU {
                     self.cmap
                         .add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false);
-                    info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"GPU", "Invocation complete");
+                    info!(tid=%tid, fqdn=%reg.fqdn, e2etime=%e2etime, device=%"GPU", "Invocation complete");
                 } else {
                     self.cmap
                         .add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false);
-                    info!(tid=%tid, fqdn=%&reg.fqdn, e2etime=%e2etime, device=%"CPU", "Invocation complete");
+                    info!(tid=%tid, fqdn=%reg.fqdn, e2etime=%e2etime, device=%"CPU", "Invocation complete");
                 }
                 Ok(queued.result_ptr.clone())
             },

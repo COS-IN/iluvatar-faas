@@ -1,3 +1,4 @@
+use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
 use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
 use config::{Config, File};
@@ -182,6 +183,7 @@ pub struct InvocationConfig {
     pub bypass_duration_ms: Option<u64>,
     pub mqfq_config: Option<Arc<MqfqConfig>>,
     pub landlord_config: Option<Arc<LandlordConfig>>,
+    pub greedy_weight_config: Option<Arc<GreedyWeightConfig>>,
 }
 impl InvocationConfig {
     pub fn log_details(&self) -> bool {

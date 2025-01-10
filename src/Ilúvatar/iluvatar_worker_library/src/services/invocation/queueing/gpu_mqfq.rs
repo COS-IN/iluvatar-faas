@@ -554,7 +554,10 @@ impl MQFQ {
         while let Some((next_item, gpu_token)) = self.dispatch(&tid) {
             debug!(tid=%next_item.invoke.tid, "Sending item for dispatch");
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it won't be concurrently invoked.
-            if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, &tid) {
+            if let Some(cpu_token) = self
+                .acquire_resources_to_run(&next_item.invoke.registration, &tid)
+                .await
+            {
                 let svc = self.clone();
                 tokio::spawn(async move {
                     svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;
@@ -692,22 +695,19 @@ impl MQFQ {
         }
     }
 
-    /// Returns an owned permit if there are sufficient resources to run a function
-    /// A return value of [None] means the resources failed to be acquired
-    fn acquire_resources_to_run(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Option<DroppableToken> {
+    /// Blocks until an owned permit can be acquired to run a function.
+    /// A return value of [None] means the resources failed to be acquired.
+    async fn acquire_resources_to_run(
+        &self,
+        reg: &Arc<RegisteredFunction>,
+        tid: &TransactionId,
+    ) -> Option<DroppableToken> {
         let mut ret: Vec<DroppableToken> = vec![];
-        match self.cpu.try_acquire_cores(reg, tid) {
+        match self.cpu.acquire_cores(reg, tid).await {
             Ok(Some(c)) => ret.push(Box::new(c)),
             Ok(_) => (),
-            Err(e) => {
-                match e {
-                    tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    },
-                    tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
-                    },
-                };
+            Err(_) => {
+                error!(tid=%tid, "CPU Resource Monitor `acquire_cores` returned a closed error!");
                 return None;
             },
         };
@@ -1128,28 +1128,28 @@ impl MQFQ {
     }
 
     fn est_completion_time2(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
-        let mut est_time = 0.0;
-        if let Some(q) = self.mqfq_set.get(&reg.fqdn) {
-            est_time = match q.state {
-                // Likely under-estimation
-                MQState::Active => q.est_flow_wait(),
-                // Likely over-estimation
-                MQState::Throttled => {
-                    let per_flow_wait_times = self
-                        .mqfq_set
-                        .iter()
-                        .filter(|x| x.state == MQState::Active)
-                        .map(|x| x.est_flow_wait())
-                        .sum::<f64>()
-                        + q.est_flow_wait();
-                    per_flow_wait_times / self.gpu.total_gpus() as f64
-                },
-                // Assumes inactive flow will be immediately be active and get to run soon.
-                // Probably under-estimation too
-                MQState::Inactive => 0.0,
-            };
+        let (state, est_flow_wait) = match self.mqfq_set.get(&reg.fqdn) {
+            None => (MQState::Inactive, 0.0),
+            Some(q) => (q.state, q.est_flow_wait()),
+        };
+        match state {
+            // Likely under-estimation
+            MQState::Active => est_flow_wait,
+            // Likely over-estimation
+            MQState::Throttled => {
+                let per_flow_wait_times = self
+                    .mqfq_set
+                    .iter()
+                    .filter(|x| x.state == MQState::Active)
+                    .map(|x| x.est_flow_wait())
+                    .sum::<f64>()
+                    + est_flow_wait;
+                per_flow_wait_times / self.gpu.total_gpus() as f64
+            },
+            // Assumes inactive flow will be immediately be active and get to run soon.
+            // Probably under-estimation too
+            MQState::Inactive => 0.0,
         }
-        est_time
     }
 
     fn est_completion_time3(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
@@ -1256,7 +1256,7 @@ impl MQFQ {
         if predict == -1.0 {
             predict = self.cmap.predict_gpu_load_est(load);
         }
-        (predict, load)
+        (f64::max(predict, 0.0), load)
     }
 
     /// Use a combination of a global model, per-func regression, and some kalman filtering? 

@@ -73,7 +73,7 @@ impl DispatchPolicy for TCPEstSpeedup {
             let q_len = self.gpu_queue.queue_len();
             if q_len <= 1 {
                 self.running_avg_speedup *= 0.99;
-            } else if q_len >= 5 {
+            } else if q_len >= 10 {
                 self.running_avg_speedup = f64::min(self.max_ratio, self.running_avg_speedup * 1.1);
             }
             info!(tid=%tid, new_avg=self.running_avg_speedup, "running avg");
@@ -82,10 +82,10 @@ impl DispatchPolicy for TCPEstSpeedup {
         if ratio > self.running_avg_speedup {
             let mut opts = vec![];
             if reg.supported_compute.contains(Compute::CPU) {
-                opts.push((self.cpu_queue.est_completion_time(&reg, &tid), Compute::CPU));
+                opts.push((self.cpu_queue.est_completion_time(reg, tid), Compute::CPU));
             }
             if reg.supported_compute.contains(Compute::GPU) {
-                opts.push((self.gpu_queue.est_completion_time(&reg, &tid), Compute::GPU));
+                opts.push((self.gpu_queue.est_completion_time(reg, tid), Compute::GPU));
             }
             if let Some(((_est_time, load), c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
                 (*c, *load)
@@ -300,8 +300,8 @@ impl DispatchPolicy for PopularEstTimeDispatch {
         match freq < self.popular_cutoff {
             true => (Compute::CPU, 0.0),
             false => {
-                let cpu = self.cpu_queue.est_completion_time(&reg, &tid);
-                let gpu = self.gpu_queue.est_completion_time(&reg, &tid);
+                let cpu = self.cpu_queue.est_completion_time(reg, tid);
+                let gpu = self.gpu_queue.est_completion_time(reg, tid);
                 match cpu < gpu {
                     true => (Compute::CPU, 0.0),
                     false => (Compute::GPU, 0.0),

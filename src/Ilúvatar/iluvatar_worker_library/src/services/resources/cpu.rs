@@ -78,8 +78,8 @@ impl CpuResourceTracker {
         Ok(svc)
     }
 
-    /// Return a permit for the function to run on its registered number of cores
-    /// If the semaphore is [None], then no permits are being tracked
+    /// Return a permit for the function to run on its registered number of cores.
+    /// If the semaphore is [None], then no permits are being tracked.
     pub fn try_acquire_cores(
         &self,
         reg: &Arc<RegisteredFunction>,
@@ -87,6 +87,22 @@ impl CpuResourceTracker {
     ) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::TryAcquireError> {
         if let Some(sem) = &self.concurrency_semaphore {
             return match sem.clone().try_acquire_many_owned(reg.cpus) {
+                Ok(p) => Ok(Some(p)),
+                Err(e) => Err(e),
+            };
+        }
+        Ok(None)
+    }
+
+    /// Blocks until an owned permit can be acquired for the function to run on its registered number of cores.
+    /// If the semaphore is [None], then no permits are being tracked.
+    pub async fn acquire_cores(
+        &self,
+        reg: &Arc<RegisteredFunction>,
+        _tid: &TransactionId,
+    ) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::AcquireError> {
+        if let Some(sem) = &self.concurrency_semaphore {
+            return match sem.clone().acquire_many_owned(reg.cpus).await {
                 Ok(p) => Ok(Some(p)),
                 Err(e) => Err(e),
             };
