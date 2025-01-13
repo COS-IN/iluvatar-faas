@@ -71,6 +71,7 @@ enum MqfqTimeEst {
     LinReg,
     PerFuncLinReg,
     FallbackLinReg,
+    GlobalLinReg,
 }
 impl Default for MqfqTimeEst {
     fn default() -> Self {
@@ -377,7 +378,7 @@ struct FlowQInfo {
 #[derive(Debug, serde::Serialize)]
 pub struct MqfqInfo {
     flows: Vec<FlowQInfo>,
-    active_flows: u32,
+    pub active_flows: u32,
     pub active_load: f64,
     pub pending_load: f64,
 }
@@ -1257,6 +1258,22 @@ impl MQFQ {
         }
         (f64::max(predict, 0.0), load)
     }
+
+    /// Use a combination of a global model, per-func regression, and some kalman filtering? 
+    fn global_est_time(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
+        let report = self.get_flow_report();
+        let load = report.pending_load + report.active_load;
+	let theta_mqfq = 2.0;
+	
+	let t_global = theta_mqfq*load;
+	
+        let _t_linreg = self.cmap.func_predict_gpu_load_est(&reg.fqdn, load);
+
+	(t_global, load) 
+    }
+
+
+    
 } // END MQFQ
 
 impl DeviceQueue for MQFQ {
@@ -1284,10 +1301,12 @@ impl DeviceQueue for MQFQ {
             MqfqTimeEst::LinReg => self.est_time_linreg(reg, tid),
             MqfqTimeEst::PerFuncLinReg => self.per_func_est_time_linreg(reg, tid),
             MqfqTimeEst::FallbackLinReg => self.fallback_est_time_linreg(reg, tid),
+	    MqfqTimeEst::GlobalLinReg => self.global_est_time(reg, tid),
         };
         let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
         let mut err_time = 0.0;
         if self.q_config.add_estimation_error && self.queue_len() > 0 {
+	    // ALERT: We dont currently store this, so always zero, REMOVE 
             err_time = match self.cmap.lookup_agg(&reg.fqdn, &Characteristics::QueueErrGpu) {
                 None => 0.0,
                 Some(x) => iluvatar_library::characteristics_map::unwrap_val_f64(&x) / concur,

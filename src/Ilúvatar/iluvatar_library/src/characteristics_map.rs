@@ -433,6 +433,8 @@ impl CharacteristicsMap {
         (xhat, z)
     }
 
+    
+
     pub fn get_best_time(&self, fqdn: &str) -> f64 {
         let c = match self.lookup_min(fqdn, &Characteristics::E2ECpu) {
             Some(_c) => unwrap_val_f64(&_c),
