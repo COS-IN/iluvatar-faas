@@ -1,10 +1,7 @@
-use super::{
-    completion_time_tracker::CompletionTimeTracker,
-    queueing::{
-        fcfs_gpu::FcfsGpuQueue, oldest_gpu::BatchGpuQueue, sized_batches_gpu::SizedBatchGpuQueue, DeviceQueue,
-        EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat,
-    },
-};
+use super::{completion_time_tracker::CompletionTimeTracker, queueing::{
+    fcfs_gpu::FcfsGpuQueue, oldest_gpu::BatchGpuQueue, sized_batches_gpu::SizedBatchGpuQueue, DeviceQueue,
+    EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat,
+}, QueueLoad};
 use crate::services::invocation::queueing::paella::PaellaGpuQueue;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::{
@@ -450,6 +447,16 @@ impl GpuQueueingInvoker {
 impl DeviceQueue for GpuQueueingInvoker {
     fn queue_len(&self) -> usize {
         self.queue.queue_len()
+    }
+
+    fn queue_load(&self) -> QueueLoad {
+        let load = self.queue.est_queue_time();
+        QueueLoad {
+            len: self.queue.queue_len(),
+            load: load,
+            load_avg: load / self.gpu.max_concurrency() as f64,
+            tput: self.cmap.get_gpu_tput(),
+        }
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {

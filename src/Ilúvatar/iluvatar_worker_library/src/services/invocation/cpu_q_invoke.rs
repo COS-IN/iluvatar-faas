@@ -9,7 +9,7 @@ use crate::services::containers::{
 };
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
-use crate::services::invocation::invoke_on_container;
+use crate::services::invocation::{invoke_on_container, QueueLoad};
 use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
@@ -364,7 +364,15 @@ impl DeviceQueue for CpuQueueingInvoker {
     fn queue_len(&self) -> usize {
         self.queue.queue_len()
     }
-
+    fn queue_load(&self) -> QueueLoad {
+        let load = self.queue.est_queue_time();
+        QueueLoad {
+            len: self.queue.queue_len(),
+            load: load,
+            load_avg: load / self.cpu.cores,
+            tput: self.cmap.get_cpu_tput(),
+        }
+    }
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
         let qt = if self.queue_len() <= self.cpu.available_cores() {
             // If Q is smaller than num of avail CPUs, we don't really have queuing,

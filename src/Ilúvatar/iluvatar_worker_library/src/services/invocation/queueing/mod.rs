@@ -1,4 +1,4 @@
-use super::{InvocationResult, InvocationResultPtr};
+use super::{InvocationResult, InvocationResultPtr, QueueLoad};
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::structs::{ContainerState, ParsedResult};
 use crate::services::registration::RegisteredFunction;
@@ -77,6 +77,8 @@ pub trait DeviceQueue: Send + Sync {
     /// The length of items waiting to be run on the device.
     fn queue_len(&self) -> usize;
 
+    fn queue_load(&self) -> QueueLoad;
+    
     /// The estimated time from now the item would be completed if run on the device, in seconds.
     /// (est_time, est_load)
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64);

@@ -26,6 +26,7 @@ pub enum AllowPolicy {
     /// Specific number of functions allowed in.
     /// Use [GreedyWeightConfig::cache_size].
     Fixed,
+    Incremental,
 }
 impl Default for AllowPolicy {
     fn default() -> Self {
@@ -55,7 +56,14 @@ struct FuncInfo {
     fqdn: String,
     load: f64,
     tput: f64,
+    iat: f64,
     opp_cost: OrderedFloat<f64>,
+}
+#[allow(unused)]
+struct CacheData {
+    size: usize,
+    old_tput: f64,
+    old_load_avg: f64,
 }
 
 type AllowSet = HashMap<String, usize>;
@@ -68,6 +76,7 @@ pub struct GreedyWeights {
     cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Arc<dyn DeviceQueue>,
     gpu: Arc<GpuResourceTracker>,
+    last_load: RwLock<CacheData>,
     _thread: JoinHandle<()>,
 }
 impl GreedyWeights {
@@ -79,8 +88,9 @@ impl GreedyWeights {
         reg: &Arc<RegistrationService>,
         gpu: &Option<Arc<GpuResourceTracker>>,
     ) -> Result<Arc<Self>> {
-        let (trd, tx) = threading::tokio_thread(10000, "greedy_w_bkg".to_string(), Self::update_set);
+        let (trd, tx) = threading::tokio_thread(3000, "greedy_w_bkg".to_string(), Self::update_set);
         let svc = Arc::new(Self {
+            last_load: RwLock::new(CacheData { size:5, old_tput:0.0, old_load_avg:0.0 } ),
             cmap: cmap.clone(),
             cpu_queue: cpu_queue.clone(),
             gpu_queue: gpu_queue
@@ -169,6 +179,27 @@ impl GreedyWeights {
         (allow_set, allowed_load)
     }
 
+    fn incremental(&self, fun_data: &[FuncInfo]) -> (AllowSet, f64) {
+        let q_load = self.gpu_queue.queue_load();
+        let mut old_load = self.last_load.write();
+        let mut new_cache_size = old_load.size;
+        if q_load.load_avg == 0.0 && fun_data.len() != 0 && fun_data.iter().fold(0.0, |acc, f| acc + f.iat) != 0.0 {
+            new_cache_size += 1;
+        }
+        else if q_load.tput >= 0.75 && q_load.load_avg >= 15.0 {
+            new_cache_size = usize::max(1, new_cache_size-1);
+        }
+        else if q_load.tput >= 0.6 || q_load.load_avg >= 5.0 {
+            new_cache_size += 1;
+        }
+        *old_load = CacheData {
+            size: new_cache_size,
+            old_load_avg: q_load.load_avg,
+            old_tput: q_load.tput,
+        };
+        self.allow_size(fun_data, new_cache_size)
+    }
+
     async fn update_set(self: Arc<Self>, _tid: String) {
         let mut data = vec![];
         for fqdn in self.reg.registered_funcs() {
@@ -178,6 +209,7 @@ impl GreedyWeights {
             }
             let cpu = self.cmap.avg_cpu_exec_t(&fqdn);
             let mut iat = self.cmap.get_iat(&fqdn);
+            let real_iat = iat;
             if iat == 0.0 {
                 iat = 100.0; // unknown IAT, make large
             }
@@ -187,6 +219,7 @@ impl GreedyWeights {
                 opp_cost: OrderedFloat(opp),
                 tput: 1.0 / iat,
                 fqdn,
+                iat: real_iat,
                 load,
             });
         }
@@ -200,6 +233,7 @@ impl GreedyWeights {
             AllowPolicy::LoadLimit => self.allow_load(&data, self.config.allow_load),
             AllowPolicy::QueueTput => self.queue_tput(&data),
             AllowPolicy::Fixed => self.fixed_size(&data),
+            AllowPolicy::Incremental => self.incremental(&data),
         };
         if self.config.log {
             tracing::info!(tid=%_tid, allowed_load=allowed_load, allow_set=?allow_set, data=?data, "Sorted function allowed GPU");

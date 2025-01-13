@@ -18,6 +18,7 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{debug, info};
+use crate::services::invocation::InvokerLoad;
 
 #[allow(unused)]
 pub struct StatusService {
@@ -60,6 +61,7 @@ impl StatusService {
             current_status: Mutex::new(Arc::new(WorkerStatus {
                 cpu_queue_len: 0,
                 gpu_queue_len: 0,
+                queue_load: InvokerLoad::default(),
                 used_mem: 0,
                 total_mem: 0,
                 cpu_us: 0.0,
@@ -113,8 +115,9 @@ impl StatusService {
             gpu_utilization,
             used_mem,
             total_mem,
-            cpu_queue_len: *queue_lengths.get(&Compute::CPU).unwrap_or(&0) as i64,
-            gpu_queue_len: *queue_lengths.get(&Compute::GPU).unwrap_or(&0) as i64,
+            cpu_queue_len: queue_lengths.get(&Compute::CPU).map_or(0, |q| q.len) as i64,
+            gpu_queue_len: queue_lengths.get(&Compute::GPU).map_or(0, |q| q.len) as i64,
+            queue_load: queue_lengths,
             cpu_us: computed_util.cpu_user + computed_util.cpu_nice,
             cpu_sy: computed_util.cpu_system
                 + computed_util.cpu_irq

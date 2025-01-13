@@ -5,10 +5,7 @@ use crate::services::invocation::dispatching::{landlord::get_landlord, popular::
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::queueing::{concur_mqfq::ConcurMqfq, gpu_mqfq::MQFQ};
 use crate::services::invocation::queueing::{DeviceQueue, EnqueuedInvocation};
-use crate::services::invocation::{
-    async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
-    InvocationResultPtr, Invoker,
-};
+use crate::services::invocation::{async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker, InvocationResultPtr, Invoker, InvokerLoad, QueueLoad};
 use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
@@ -290,8 +287,8 @@ impl QueueingDispatcher {
             let (gpu_est, gpu_load) = self
                 .gpu_queue
                 .as_ref()
-                .map_or((0.0,0.0), |q| q.est_completion_time(reg, &tid));
-            info!(tid=%tid, cpu_est=cpu_est, cpu_load=cpu_load, gpu_est=gpu_est, gpu_load=gpu_load, "Est e2e time");
+                .map_or((0.0, 0.0), |q| q.est_completion_time(reg, &tid));
+            info!(tid=%tid, cpu_est=cpu_est, cpu_load=cpu_load, gpu_est=gpu_est, gpu_load=gpu_load, gpu_tput=self.cmap.get_gpu_tput(),"Est e2e time");
         }
 
         if reg.cpu_only() {
@@ -828,10 +825,10 @@ impl Invoker for QueueingDispatcher {
     }
 
     /// The queue length of both CPU and GPU queues
-    fn queue_len(&self) -> std::collections::HashMap<Compute, usize> {
+    fn queue_len(&self) -> InvokerLoad {
         [
-            (Compute::CPU, self.cpu_queue.queue_len()),
-            (Compute::GPU, self.gpu_queue.as_ref().map_or(0, |g| g.queue_len())),
+            (Compute::CPU, self.cpu_queue.queue_load()),
+            (Compute::GPU, self.gpu_queue.as_ref().map_or(QueueLoad::default(), |g| g.queue_load())),
         ]
         .into_iter()
         .collect()

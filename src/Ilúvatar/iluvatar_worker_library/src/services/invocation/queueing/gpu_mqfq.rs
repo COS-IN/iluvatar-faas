@@ -3,7 +3,7 @@ use crate::services::containers::{
     containermanager::ContainerManager,
     structs::{Container, ParsedResult},
 };
-use crate::services::invocation::{completion_time_tracker::CompletionTimeTracker, invoke_on_container_2};
+use crate::services::invocation::{completion_time_tracker::CompletionTimeTracker, invoke_on_container_2, QueueLoad};
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
@@ -1262,6 +1262,17 @@ impl MQFQ {
 impl DeviceQueue for MQFQ {
     fn queue_len(&self) -> usize {
         self.mqfq_set.iter().map(|x| x.queue.len()).sum::<usize>()
+    }
+
+    fn queue_load(&self) -> QueueLoad {
+        let rpt = self.get_flow_report();
+        let load = rpt.pending_load + rpt.active_load;
+        QueueLoad {
+            len: rpt.flows.iter().fold(0, |acc, f| acc + f.queue_len),
+            load: load,
+            load_avg: load / self.gpu.max_concurrency() as f64,
+            tput: self.cmap.get_gpu_tput(),
+        }
     }
 
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {

@@ -4,7 +4,7 @@ use std::fmt::Display;
 pub use status_service::StatusService;
 
 use iluvatar_library::types::MemSizeMb;
-
+use crate::services::invocation::InvokerLoad;
 use super::resources::gpu::GpuStatus;
 
 #[derive(Debug, serde::Serialize)]
@@ -14,6 +14,7 @@ pub struct WorkerStatus {
     pub cpu_queue_len: i64,
     /// length of the invoker GPU queue
     pub gpu_queue_len: i64,
+    pub queue_load: InvokerLoad,
     /// amount of memory used by containers
     pub used_mem: MemSizeMb,
     /// amount of memory usable by containers, used and unused

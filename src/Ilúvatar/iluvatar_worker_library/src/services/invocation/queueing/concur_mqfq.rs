@@ -3,7 +3,7 @@ use super::{DeviceQueue, EnqueuedInvocation};
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::structs::ContainerLock;
 use crate::services::invocation::completion_time_tracker::CompletionTimeTracker;
-use crate::services::invocation::invoke_on_container;
+use crate::services::invocation::{invoke_on_container, QueueLoad};
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::{GpuResourceTracker, GPU};
@@ -510,7 +510,9 @@ impl DeviceQueue for ConcurMqfq {
         let per_flow_q_len = self.queues.iter().map(|x| x.value().queue.read().len());
         per_flow_q_len.sum::<usize>()
     }
-
+    fn queue_load(&self) -> QueueLoad {
+        QueueLoad::default()
+    }
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
         // sum_q (q_F-q_S) / max_in_flight
         let per_flow_wait_times = self.queues.iter().map(|x| x.value().est_flow_wait());

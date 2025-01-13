@@ -29,6 +29,15 @@ pub mod energy_limiter;
 mod gpu_q_invoke;
 pub mod queueing;
 
+#[derive(Default, Debug, serde::Serialize)]
+pub struct QueueLoad {
+    pub len: usize,
+    pub load: f64,
+    pub load_avg: f64,
+    pub tput: f64,
+}
+pub type InvokerLoad = std::collections::HashMap<Compute, QueueLoad>;
+
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
 /// Overriding functions _must_ re-implement [tracing::info] level log statements for consistency
@@ -48,7 +57,7 @@ pub trait Invoker: Send + Sync {
     /// Check the status of the result, if found is returned destructively
     fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<iluvatar_rpc::rpc::InvokeResponse>;
     /// Number of invocations enqueued on each compute
-    fn queue_len(&self) -> std::collections::HashMap<Compute, usize>;
+    fn queue_len(&self) -> InvokerLoad;
     /// Number of running invocations
     fn running_funcs(&self) -> u32;
 }
