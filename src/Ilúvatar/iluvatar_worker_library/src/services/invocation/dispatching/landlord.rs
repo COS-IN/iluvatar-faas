@@ -204,6 +204,13 @@ impl Landlord {
         }
     }
 
+    fn gpu_active_flows(&self) -> u32 {
+        match self.gpu_queue.expose_flow_report() {
+            Some(flow_report) => flow_report.active_flows,
+            None => 0
+        }
+    }
+
     fn charge_rents(
         &mut self,
         reg: &Arc<RegisteredFunction>,
@@ -295,16 +302,23 @@ impl Landlord {
     ) -> f64 {
         // let mqfq_est = self.gpu_queue.est_completion_time(reg, tid);
         // let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
-        // let cpu_est = self.cpu_queue.est_completion_time(reg, tid);
-        info!(tid=%tid, fqdn=%reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, "Landlord Credit");
+        let _cpu_q = self.cpu_queue.est_completion_time(reg, tid);
+	
+	let n_active = self.gpu_active_flows() as f64 ;
+	let epsilon = 0.05;
+	// with 4 active functions, this is a 20% buffer 
+	let gpu_est_total = gpu_est * (1.0 + epsilon*n_active) ; 
+	let cpu_est_total = f64::max(cpu_est, self.cmap.get_exec_time(&reg.fqdn));
 
+        info!(tid=%tid, fqdn=%reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, cpu_exec=%self.cmap.get_exec_time(&reg.fqdn), gpu_est_total=%gpu_est_total, cpu_est_total=%cpu_est_total,  "Landlord Credit");
+	
         match self.cachepol.as_str() {
             "LFU" => 1.0,
             "LRU" => match self.present(&reg.fqdn) {
                 true => 0.0, // LRU no extra credit, max is 1
                 false => 1.0,
             },
-            _ => cpu_est - gpu_est, //gpu_est, gpu_est is the KF. mqfq_est is 'raw' but should be fine if we are using linear regression
+            _ => cpu_est_total - gpu_est_total, //gpu_est, gpu_est is the KF. mqfq_est is 'raw' but should be fine if we are using linear regression
         }
     }
 
@@ -499,6 +513,7 @@ impl Landlord {
 
     /// Active functions footprint smaller than capacity
     #[inline(always)]
+    #[allow(dead_code)]
     fn accepting_new(&self) -> bool {
         //let remaining_slots = self.cfg.cache_size as i32 - self.current_occupancy() as i32 ;
         let remaining_sz = self.cfg.max_size - self.current_sz_occup();
@@ -539,26 +554,24 @@ impl Landlord {
         // try to see if cache is full and if so, try evicting
         // if cache is full, should we always try to evict, irrespective of credits?
         //
-        if !self.accepting_new() {
-            _eviction_attempted = true;
-            _eviction_success = self.try_evict_pol(100000000000.0);
-        }
+
         // At this point we've made some space, and the real admission control starts, is this new fqdn worthy?
 
         // A1. New function bonus on low GPU load
+	
+	let p_new = 1.0 / (1.0 + n_gpu as f64);
+        // Irrespective of the potential credits
+        let r = rand::thread_rng().gen_range(0.0..1.0);
+        if r < p_new {
+            // won the lottery!
+            info!(fqdn=%reg.fqdn, "ADMISSION LOTTERY");
+            return true;
+        }
+	
 	let gpu_load_factor = self.gpu_load() / self.cfg.max_size;
         //if self.gpu_load() < 0.2 * self.cfg.max_size {
 	if gpu_load_factor < self.cfg.load_thresh {
-	    info!(fqdn=%&reg.fqdn, gpu_load=%self.gpu_load(), "ADMIT_LOW_LOAD");
             // this is low load. Chance = 1/1+n_gpu
-            let p_new = 1.0 / (1.0 + n_gpu as f64);
-            // Irrespective of the potential credits
-            let r = rand::thread_rng().gen_range(0.0..1.0);
-            if r < p_new {
-                // won the lottery!
-                info!("ADMISSION LOTTERY");
-                return true;
-            }
 	    info!(fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), pot_creds=%potential_credits, "ADMIT_LOW_LOAD");
             return potential_credits > 0.0;
         }
@@ -569,7 +582,12 @@ impl Landlord {
 	if fn_slowdown > self.cfg.slowdown_thresh {
 	    // This is the high load condition. 
 	    //spin the dice again?
-	    info!(fqdn=%&reg.fqdn, gpu_load=%self.gpu_load(), "DENY_HIGH_LOAD");
+	    info!(fqdn=%&reg.fqdn, fn_slowdown=%fn_slowdown, gpu_load=%self.gpu_load(), "DENY_HIGH_LOAD");
+	    //force evict here since overloaded 
+	    if !self.accepting_new() {
+                _eviction_attempted = true;
+                _eviction_success = self.try_evict_pol(100000000000.0);
+            }
 	    return false; 
 	    // let l_cpu = self.cmap.get_exec_time(&reg.fqdn) + 0.001; // in case zero? 
 	    // let p_cpu = l_gpu/l_cpu; //for some functions this can be really small, 
@@ -585,29 +603,15 @@ impl Landlord {
         // A3. Also an underload condition but different threshold? Can be merged with A1.
         // Admit if potential credits are enough without evicting
 
-            //  we are under-loaded, so only the potential_credits check is enough
-
         // A4. if above load thresh, the bar is higher, i.e., it must compete with some inactive function and have enough to evict
 
-        // if eviction_attempted {
-        //     if eviction_success {
-        // 	// victim has already been found, not need to evict again
-        // 	info!("ADMIT_VICTIM");
-        // 	return true
-        //     }
-        //     else {
-        // 	info!("DENY_VICTIM");
-        // 	return false
-        //     }
-        // }
-        //	else { // cache was not full earlier, so try here
         let victim_found = self.try_evict_pol(acc_pot_credits);
         if !victim_found {
-            info!("DENY_VICTIM");
+            info!(fqdn=%&reg.fqdn, acc_pot_credits=%acc_pot_credits, "DENY_VICTIM");
             return false;
         }
-        info!("ADMIT_VICTIM");
-        true
+        info!(fqdn=%&reg.fqdn, acc_pot_credits=%acc_pot_credits, "ADMIT_VICTIM");
+        return true;
         //	}
     }
 }
@@ -634,7 +638,7 @@ impl DispatchPolicy for Landlord {
                 self.misses += 1;
                 self.negcredits += 1;
                 self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
-                info!(tid=%tid, fqdn=%reg.fqdn,"MISS_INSUFFICIENT_CREDITS");
+                info!(tid=%tid, fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), "MISS_INSUFFICIENT_CREDITS");
                 self.update_nonres(&reg.fqdn);
                 return (Compute::CPU, cpu_load);
             }

@@ -378,7 +378,7 @@ struct FlowQInfo {
 #[derive(Debug, serde::Serialize)]
 pub struct MqfqInfo {
     flows: Vec<FlowQInfo>,
-    active_flows: u32,
+    pub active_flows: u32,
     pub active_load: f64,
     pub pending_load: f64,
 }
@@ -1265,11 +1265,11 @@ impl MQFQ {
         let load = report.pending_load + report.active_load;
 	let theta_mqfq = 2.0;
 	
-	let T_global = theta_mqfq*load;
+	let t_global = theta_mqfq*load;
 	
-        let T_linreg = self.cmap.func_predict_gpu_load_est(&reg.fqdn, load);
+        let _t_linreg = self.cmap.func_predict_gpu_load_est(&reg.fqdn, load);
 
-	(T_global, load) 
+	(t_global, load) 
     }
 
 
