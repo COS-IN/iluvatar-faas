@@ -655,7 +655,13 @@ impl DispatchPolicy for Landlord {
         let (mqfq_est, gpu_load) = self.gpu_queue.est_completion_time(reg, tid);
         let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
         let (cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, tid);
+	let  szaware = match self.cachepol.as_str() {
+	    "LFU" => false,
+            "LRU" => false,
+	    _ => true,
+        };
 
+	
         if self.present(&reg.fqdn) {
             // This doesnt decrease credit
             let new_credit = self.calc_add_credit(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
@@ -663,7 +669,7 @@ impl DispatchPolicy for Landlord {
                 Some(cr) => *cr + new_credit > 0.0,
                 _ => false,
             };
-            if !pos_credit {
+            if szaware && !pos_credit {
                 // this function is marked for eviction
                 // we really want to minimize this case, function is on gpu already. estimate can be wrong?
                 self.misses += 1;
