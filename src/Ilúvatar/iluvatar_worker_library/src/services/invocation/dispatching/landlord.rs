@@ -24,6 +24,7 @@ pub struct LandlordConfig {
     pub load_thresh: f64, // fraction for the admission control
     pub slowdown_thresh: f64, // T_GPU < L_GPU * slowdown_thresh 
     pub log_cache_info: bool,
+    pub fixed_mode: bool, 
     // mode: fixed, autoscaling
 }
 
@@ -529,6 +530,31 @@ impl Landlord {
         }
     }
 
+    /// No auto-scaling or load-based admission. Fixed cache size. 
+    fn fixed_admit_filter(
+        &mut self,
+        reg: &Arc<RegisteredFunction>,
+    ) -> bool {
+	
+	if self.accepting_new() {
+	    info!(fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), pot_creds=0, "INSERT_FREE");
+	    return true; 
+        }
+	
+	// else, we need to evict forecefully 
+	//let potential_credits = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
+	//let acc_pot_credits = self.accum_potential_credits(&reg.fqdn, potential_credits);
+
+        let victim_found = self.try_evict_pol(1000000000.0);
+        if !victim_found {
+            info!(fqdn=%&reg.fqdn, acc_pot_credits=0, "DENY_VICTIM");
+            return false;
+        }
+        info!(fqdn=%&reg.fqdn, acc_pot_credits=0, "ADMIT_VICTIM");
+        return true;
+
+    }
+    
     /// Main admission control. We may have space, but should be admit? Depends on load, other heuristics
     fn admit_filter(
         &mut self,
@@ -539,6 +565,11 @@ impl Landlord {
         est_err: f64,
         tid: &TransactionId,
     ) -> bool {
+
+	if self.cfg.fixed_mode {
+	    return self.fixed_admit_filter(reg); 
+	}
+	
         let potential_credits = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
         // get the number of gpu invokes for this function?
         let acc_pot_credits = self.accum_potential_credits(&reg.fqdn, potential_credits);
