@@ -90,7 +90,11 @@ impl GreedyWeights {
     ) -> Result<Arc<Self>> {
         let (trd, tx) = threading::tokio_thread(3000, "greedy_w_bkg".to_string(), Self::update_set);
         let svc = Arc::new(Self {
-            last_load: RwLock::new(CacheData { size:5, old_tput:0.0, old_load_avg:0.0 } ),
+            last_load: RwLock::new(CacheData {
+                size: 5,
+                old_tput: 0.0,
+                old_load_avg: 0.0,
+            }),
             cmap: cmap.clone(),
             cpu_queue: cpu_queue.clone(),
             gpu_queue: gpu_queue
@@ -183,13 +187,11 @@ impl GreedyWeights {
         let q_load = self.gpu_queue.queue_load();
         let mut old_load = self.last_load.write();
         let mut new_cache_size = old_load.size;
-        if q_load.load_avg == 0.0 && fun_data.len() != 0 && fun_data.iter().fold(0.0, |acc, f| acc + f.iat) != 0.0 {
+        if q_load.load_avg == 0.0 && !fun_data.is_empty() && fun_data.iter().fold(0.0, |acc, f| acc + f.iat) != 0.0 {
             new_cache_size += 1;
-        }
-        else if q_load.tput >= 0.75 && q_load.load_avg >= 15.0 {
-            new_cache_size = usize::max(1, new_cache_size-1);
-        }
-        else if q_load.tput >= 0.6 || q_load.load_avg >= 5.0 {
+        } else if q_load.tput >= 0.75 && q_load.load_avg >= 15.0 {
+            new_cache_size = usize::max(1, new_cache_size - 1);
+        } else if q_load.tput >= 0.6 || q_load.load_avg >= 5.0 {
             new_cache_size += 1;
         }
         *old_load = CacheData {

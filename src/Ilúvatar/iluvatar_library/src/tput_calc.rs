@@ -35,9 +35,9 @@ impl DeviceTput {
 #[cfg(test)]
 mod device_tput {
     use super::*;
+    use crate::clock::now;
     use std::ops::Add;
     use std::time::Duration;
-    use crate::clock::now;
 
     #[test]
     fn items_added() {

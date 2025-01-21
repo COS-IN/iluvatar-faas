@@ -1,7 +1,11 @@
-use super::{completion_time_tracker::CompletionTimeTracker, queueing::{
-    fcfs_gpu::FcfsGpuQueue, oldest_gpu::BatchGpuQueue, sized_batches_gpu::SizedBatchGpuQueue, DeviceQueue,
-    EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat,
-}, QueueLoad};
+use super::{
+    completion_time_tracker::CompletionTimeTracker,
+    queueing::{
+        fcfs_gpu::FcfsGpuQueue, oldest_gpu::BatchGpuQueue, sized_batches_gpu::SizedBatchGpuQueue, DeviceQueue,
+        EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat,
+    },
+    QueueLoad,
+};
 use crate::services::invocation::queueing::paella::PaellaGpuQueue;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::{

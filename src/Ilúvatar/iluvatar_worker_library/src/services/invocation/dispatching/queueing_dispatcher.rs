@@ -5,7 +5,10 @@ use crate::services::invocation::dispatching::{landlord::get_landlord, popular::
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::queueing::{concur_mqfq::ConcurMqfq, gpu_mqfq::MQFQ};
 use crate::services::invocation::queueing::{DeviceQueue, EnqueuedInvocation};
-use crate::services::invocation::{async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker, InvocationResultPtr, Invoker, InvokerLoad, QueueLoad};
+use crate::services::invocation::{
+    async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
+    InvocationResultPtr, Invoker, InvokerLoad, QueueLoad,
+};
 use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
@@ -828,7 +831,10 @@ impl Invoker for QueueingDispatcher {
     fn queue_len(&self) -> InvokerLoad {
         [
             (Compute::CPU, self.cpu_queue.queue_load()),
-            (Compute::GPU, self.gpu_queue.as_ref().map_or(QueueLoad::default(), |g| g.queue_load())),
+            (
+                Compute::GPU,
+                self.gpu_queue.as_ref().map_or(QueueLoad::default(), |g| g.queue_load()),
+            ),
         ]
         .into_iter()
         .collect()

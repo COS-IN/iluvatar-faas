@@ -67,7 +67,9 @@ impl HttpContainerClient {
         let response = match builder.send().await {
             Ok(r) => r,
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, container_id=%container_id, "HTTP error when trying to connect to container");
+                bail_error!(tid=%tid, inner=std::error::Error::source(&e),
+                    status=?e.status(), error=%e, container_id=%container_id,
+                    "HTTP error when trying to connect to container");
             },
         };
         Ok((response, start.elapsed()))
@@ -140,7 +142,9 @@ impl HttpContainerClient {
         let response = match builder.send().await {
             Ok(r) => r,
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, container_id=%container_id, "HTTP error when trying to connect to container")
+                bail_error!(tid=%tid, inner=std::error::Error::source(&e),
+                    status=?e.status(), error=%e, container_id=%container_id,
+                    "HTTP error when trying to connect to container");
             },
         };
         let status = response.status();
@@ -156,7 +160,9 @@ impl HttpContainerClient {
         let response = match builder.send().await {
             Ok(r) => r,
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, container_id=%container_id, "HTTP error when trying to connect to container")
+                bail_error!(tid=%tid, inner=std::error::Error::source(&e),
+                    status=?e.status(), error=%e, container_id=%container_id,
+                    "HTTP error when trying to connect to container");
             },
         };
         let status = response.status();

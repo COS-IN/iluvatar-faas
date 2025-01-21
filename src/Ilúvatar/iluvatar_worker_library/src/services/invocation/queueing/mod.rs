@@ -78,7 +78,7 @@ pub trait DeviceQueue: Send + Sync {
     fn queue_len(&self) -> usize;
 
     fn queue_load(&self) -> QueueLoad;
-    
+
     /// The estimated time from now the item would be completed if run on the device, in seconds.
     /// (est_time, est_load)
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64);

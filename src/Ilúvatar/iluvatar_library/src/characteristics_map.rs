@@ -1,5 +1,6 @@
 use crate::clock::now;
 use crate::linear_reg::LinearReg;
+use crate::tput_calc::DeviceTput;
 use crate::types::Compute;
 use dashmap::DashMap;
 use ordered_float::OrderedFloat;
@@ -8,7 +9,6 @@ use std::cmp::{min, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, error, info};
-use crate::tput_calc::DeviceTput;
 
 #[derive(Debug, Clone)]
 pub enum Values {
@@ -135,7 +135,6 @@ pub enum Characteristics {
     QueueErrGpu,
     QueueErrCpu,
 }
-
 
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc.
 /// TODO: make get/set functions for Characteristics auto-generated
@@ -432,8 +431,6 @@ impl CharacteristicsMap {
         // For now we can simply return this
         (xhat, z)
     }
-
-    
 
     pub fn get_best_time(&self, fqdn: &str) -> f64 {
         let c = match self.lookup_min(fqdn, &Characteristics::E2ECpu) {

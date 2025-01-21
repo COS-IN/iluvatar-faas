@@ -1,4 +1,5 @@
 use super::WorkerStatus;
+use crate::services::invocation::InvokerLoad;
 use crate::services::{
     containers::containermanager::ContainerManager, invocation::Invoker, resources::gpu::GpuResourceTracker,
 };
@@ -18,7 +19,6 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{debug, info};
-use crate::services::invocation::InvokerLoad;
 
 #[allow(unused)]
 pub struct StatusService {

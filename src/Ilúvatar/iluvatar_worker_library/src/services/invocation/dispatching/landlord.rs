@@ -20,11 +20,11 @@ use tracing::info;
 pub struct LandlordConfig {
     pub cache_size: u32, // Max number of functions we are admitting, regardless of size
     // TODO: change this to max_res here and for the ansible scripts ..
-    pub max_size: f64,    // Max actual size of cache considering function footprints (exec times)
-    pub load_thresh: f64, // fraction for the admission control
-    pub slowdown_thresh: f64, // T_GPU < L_GPU * slowdown_thresh 
+    pub max_size: f64,        // Max actual size of cache considering function footprints (exec times)
+    pub load_thresh: f64,     // fraction for the admission control
+    pub slowdown_thresh: f64, // T_GPU < L_GPU * slowdown_thresh
     pub log_cache_info: bool,
-    pub fixed_mode: bool, 
+    pub fixed_mode: bool,
     // mode: fixed, autoscaling
 }
 
@@ -208,7 +208,7 @@ impl Landlord {
     fn gpu_active_flows(&self) -> u32 {
         match self.gpu_queue.expose_flow_report() {
             Some(flow_report) => flow_report.active_flows,
-            None => 0
+            None => 0,
         }
     }
 
@@ -304,15 +304,15 @@ impl Landlord {
         // let mqfq_est = self.gpu_queue.est_completion_time(reg, tid);
         // let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
         let _cpu_q = self.cpu_queue.est_completion_time(reg, tid);
-	
-	let n_active = self.gpu_active_flows() as f64 ;
-	let epsilon = 0.05;
-	// with 4 active functions, this is a 20% buffer 
-	let gpu_est_total = gpu_est * (1.0 + epsilon*n_active) ; 
-	let cpu_est_total = f64::max(cpu_est, self.cmap.get_exec_time(&reg.fqdn));
+
+        let n_active = self.gpu_active_flows() as f64;
+        let epsilon = 0.05;
+        // with 4 active functions, this is a 20% buffer
+        let gpu_est_total = gpu_est * (1.0 + epsilon * n_active);
+        let cpu_est_total = f64::max(cpu_est, self.cmap.get_exec_time(&reg.fqdn));
 
         info!(tid=%tid, fqdn=%reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, cpu_exec=%self.cmap.get_exec_time(&reg.fqdn), gpu_est_total=%gpu_est_total, cpu_est_total=%cpu_est_total,  "Landlord Credit");
-	
+
         match self.cachepol.as_str() {
             "LFU" => 1.0,
             "LRU" => match self.present(&reg.fqdn) {
@@ -530,20 +530,16 @@ impl Landlord {
         }
     }
 
-    /// No auto-scaling or load-based admission. Fixed cache size. 
-    fn fixed_admit_filter(
-        &mut self,
-        reg: &Arc<RegisteredFunction>,
-    ) -> bool {
-	
-	if self.accepting_new() {
-	    info!(fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), pot_creds=0, "INSERT_FREE");
-	    return true; 
+    /// No auto-scaling or load-based admission. Fixed cache size.
+    fn fixed_admit_filter(&mut self, reg: &Arc<RegisteredFunction>) -> bool {
+        if self.accepting_new() {
+            info!(fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), pot_creds=0, "INSERT_FREE");
+            return true;
         }
-	
-	// else, we need to evict forecefully 
-	//let potential_credits = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
-	//let acc_pot_credits = self.accum_potential_credits(&reg.fqdn, potential_credits);
+
+        // else, we need to evict forecefully
+        //let potential_credits = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
+        //let acc_pot_credits = self.accum_potential_credits(&reg.fqdn, potential_credits);
 
         let victim_found = self.try_evict_pol(1000000000.0);
         if !victim_found {
@@ -551,10 +547,9 @@ impl Landlord {
             return false;
         }
         info!(fqdn=%&reg.fqdn, acc_pot_credits=0, "ADMIT_VICTIM");
-        return true;
-
+        true
     }
-    
+
     /// Main admission control. We may have space, but should be admit? Depends on load, other heuristics
     fn admit_filter(
         &mut self,
@@ -565,11 +560,10 @@ impl Landlord {
         est_err: f64,
         tid: &TransactionId,
     ) -> bool {
+        if self.cfg.fixed_mode {
+            return self.fixed_admit_filter(reg);
+        }
 
-	if self.cfg.fixed_mode {
-	    return self.fixed_admit_filter(reg); 
-	}
-	
         let potential_credits = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
         // get the number of gpu invokes for this function?
         let acc_pot_credits = self.accum_potential_credits(&reg.fqdn, potential_credits);
@@ -589,8 +583,8 @@ impl Landlord {
         // At this point we've made some space, and the real admission control starts, is this new fqdn worthy?
 
         // A1. New function bonus on low GPU load
-	
-	let p_new = 1.0 / (1.0 + n_gpu as f64);
+
+        let p_new = 1.0 / (1.0 + n_gpu as f64);
         // Irrespective of the potential credits
         let r = rand::thread_rng().gen_range(0.0..1.0);
         if r < p_new {
@@ -598,36 +592,36 @@ impl Landlord {
             info!(fqdn=%reg.fqdn, "ADMISSION LOTTERY");
             return true;
         }
-	
-	let gpu_load_factor = self.gpu_load() / self.cfg.max_size;
+
+        let gpu_load_factor = self.gpu_load() / self.cfg.max_size;
         //if self.gpu_load() < 0.2 * self.cfg.max_size {
-	if gpu_load_factor < self.cfg.load_thresh {
+        if gpu_load_factor < self.cfg.load_thresh {
             // this is low load. Chance = 1/1+n_gpu
-	    info!(fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), pot_creds=%potential_credits, "ADMIT_LOW_LOAD");
+            info!(fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), pot_creds=%potential_credits, "ADMIT_LOW_LOAD");
             return potential_credits > 0.0;
         }
 
-	let l_gpu = self.cmap.get_gpu_exec_time(&reg.fqdn);
-	let fn_slowdown = gpu_est/l_gpu;
-	
-	if fn_slowdown > self.cfg.slowdown_thresh {
-	    // This is the high load condition. 
-	    //spin the dice again?
-	    info!(fqdn=%&reg.fqdn, fn_slowdown=%fn_slowdown, gpu_load=%self.gpu_load(), "DENY_HIGH_LOAD");
-	    //force evict here since overloaded 
-	    if !self.accepting_new() {
+        let l_gpu = self.cmap.get_gpu_exec_time(&reg.fqdn);
+        let fn_slowdown = gpu_est / l_gpu;
+
+        if fn_slowdown > self.cfg.slowdown_thresh {
+            // This is the high load condition.
+            //spin the dice again?
+            info!(fqdn=%&reg.fqdn, fn_slowdown=%fn_slowdown, gpu_load=%self.gpu_load(), "DENY_HIGH_LOAD");
+            //force evict here since overloaded
+            if !self.accepting_new() {
                 _eviction_attempted = true;
                 _eviction_success = self.try_evict_pol(100000000000.0);
             }
-	    return false; 
-	    // let l_cpu = self.cmap.get_exec_time(&reg.fqdn) + 0.001; // in case zero? 
-	    // let p_cpu = l_gpu/l_cpu; //for some functions this can be really small, 
-	    // let r = rand::thread_rng().gen_range(0.0..1.0);
-	    // if r < p_cpu {
-	    // 	return true; 
-	    // }
-	    // return false;
-	}
+            return false;
+            // let l_cpu = self.cmap.get_exec_time(&reg.fqdn) + 0.001; // in case zero?
+            // let p_cpu = l_gpu/l_cpu; //for some functions this can be really small,
+            // let r = rand::thread_rng().gen_range(0.0..1.0);
+            // if r < p_cpu {
+            // 	return true;
+            // }
+            // return false;
+        }
 
         // A2. this is the place for static criteria. Nothing yet.
 
@@ -642,8 +636,7 @@ impl Landlord {
             return false;
         }
         info!(fqdn=%&reg.fqdn, acc_pot_credits=%acc_pot_credits, "ADMIT_VICTIM");
-        return true;
-        //	}
+        true
     }
 }
 
@@ -655,13 +648,8 @@ impl DispatchPolicy for Landlord {
         let (mqfq_est, gpu_load) = self.gpu_queue.est_completion_time(reg, tid);
         let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
         let (cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, tid);
-	let  szaware = match self.cachepol.as_str() {
-	    "LFU" => false,
-            "LRU" => false,
-	    _ => true,
-        };
+        let szaware = !matches!(self.cachepol.as_str(), "LFU" | "LRU");
 
-	
         if self.present(&reg.fqdn) {
             // This doesnt decrease credit
             let new_credit = self.calc_add_credit(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);

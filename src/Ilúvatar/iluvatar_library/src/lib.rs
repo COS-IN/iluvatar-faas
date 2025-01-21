@@ -16,5 +16,5 @@ pub mod logging;
 pub mod mindicator;
 pub mod threading;
 pub mod tokio_utils;
-pub mod types;
 mod tput_calc;
+pub mod types;

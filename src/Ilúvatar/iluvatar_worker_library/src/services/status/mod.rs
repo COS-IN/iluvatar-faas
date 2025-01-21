@@ -3,9 +3,9 @@ use std::fmt::Display;
 
 pub use status_service::StatusService;
 
-use iluvatar_library::types::MemSizeMb;
-use crate::services::invocation::InvokerLoad;
 use super::resources::gpu::GpuStatus;
+use crate::services::invocation::InvokerLoad;
+use iluvatar_library::types::MemSizeMb;
 
 #[derive(Debug, serde::Serialize)]
 /// Load metrics recorded by the local machine
