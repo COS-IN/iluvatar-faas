@@ -369,22 +369,20 @@ impl QueueingDispatcher {
             info!(tid=%tid, cpu_est=cpu_est, cpu_load=cpu_load, gpu_est=gpu_est, gpu_load=gpu_load, gpu_tput=self.cmap.get_gpu_tput(),"Est e2e time");
         }
 
-        if reg.cpu_only() {
-            return self.enqueue_compute(reg, json_args, tid, Compute::CPU, insert_t, NO_ESTIMATE, NO_ESTIMATE);
-        }
-        if reg.gpu_only() {
-            return self.enqueue_compute(reg, json_args, tid, Compute::GPU, insert_t, NO_ESTIMATE, NO_ESTIMATE);
-        }
-
-        let (compute, load, est_time) = self.policy.choose(reg, &tid);
-        if self.invocation_config.log_details() {
-            if compute == Compute::GPU {
-                info!(tid=%tid, fqdn=%reg.fqdn, "Cache Hit");
-            } else {
-                info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss");
+        bitflags::bitflags_match!(reg.supported_compute, {
+            Compute::GPU => self.enqueue_compute(reg, json_args, tid, Compute::CPU, insert_t, NO_ESTIMATE, NO_ESTIMATE),
+            Compute::CPU => self.enqueue_compute(reg, json_args, tid, Compute::GPU, insert_t, NO_ESTIMATE, NO_ESTIMATE),
+            _ => {
+                let (compute, load, est_time) = self.policy.choose(reg, &tid);
+                if self.invocation_config.log_details() {
+                    bitflags::bitflags_match!(compute, {
+                        Compute::GPU => info!(tid=%tid, fqdn=%reg.fqdn, "Cache Hit"),
+                        _ => info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss")
+                    });
+                }
+                self.enqueue_compute(reg, json_args, tid, Compute::GPU, insert_t, est_time, load)
             }
-        }
-        self.enqueue_compute(reg, json_args, tid, Compute::GPU, insert_t, est_time, load)
+        })
     }
 }
 

@@ -339,7 +339,7 @@ mod gpu {
             .unwrap_or_else(|e| panic!("Invocation failed: {}", e));
         let invoke = invoke.lock();
         assert_eq!(
-            invoke.compute.into_iter().len(),
+            invoke.compute.into_iter().count(),
             1,
             "Invoke compute was {:?}",
             invoke.compute

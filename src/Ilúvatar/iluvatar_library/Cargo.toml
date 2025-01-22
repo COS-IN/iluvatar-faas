@@ -31,7 +31,7 @@ dashmap = "6.0"
 parking_lot = "0.12.1"
 tokio = { version = "1.19", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot", "signal", "fs"] }
 ordered-float = "3.4.0"
-bitflags = "1.3"
+bitflags = {  version = "2.8", features = ["serde"] }
 http = "0.2.1"
 influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 num-traits = "0.2"

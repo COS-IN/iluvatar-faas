@@ -33,7 +33,7 @@ impl TryInto<CommunicationMethod> for u32 {
 }
 
 bitflags! {
-  #[derive(serde::Deserialize, serde::Serialize)]
+  #[derive(serde::Deserialize, serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
   #[serde(transparent)]
   /// The compute methods that a function supports. XXX Rename this ComputeDevice
   /// Having each one of these means it can run on each compute independently.
@@ -43,7 +43,7 @@ bitflags! {
     const GPU = 0b00000010;
     const FPGA = 0b00000100;
   }
-  #[derive(serde::Deserialize, serde::Serialize)]
+  #[derive(serde::Deserialize, serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
   #[serde(transparent)]
   /// The isolation mechanism the function supports.
   /// e.g. our Docker images are OCI-compliant and can be run by Docker or Containerd, so could specify `CONTAINERD|DOCKER` or `CONTAINERD`
@@ -90,19 +90,19 @@ impl TryInto<ComputeEnum> for &Compute {
     }
     type Error = anyhow::Error;
 }
-impl IntoIterator for Compute {
-    type Item = Compute;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    /// Get a list of the individual compute components in the [Compute] bitmap
-    fn into_iter(self) -> Self::IntoIter {
-        vec![Compute::CPU, Compute::GPU, Compute::FPGA]
-            .into_iter()
-            .filter(|x| self.contains(*x))
-            .collect::<Vec<Compute>>()
-            .into_iter()
-    }
-}
+// impl IntoIterator for Compute {
+//     type Item = Compute;
+//     type IntoIter = std::vec::IntoIter<Self::Item>;
+//
+//     /// Get a list of the individual compute components in the [Compute] bitmap
+//     fn into_iter(self) -> Self::IntoIter {
+//         vec![Compute::CPU, Compute::GPU, Compute::FPGA]
+//             .into_iter()
+//             .filter(|x| self.contains(*x))
+//             .collect::<Vec<Compute>>()
+//             .into_iter()
+//     }
+// }
 impl From<Vec<ComputeEnum>> for Compute {
     fn from(i: Vec<ComputeEnum>) -> Self {
         let mut r = Compute::empty();
