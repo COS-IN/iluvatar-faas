@@ -1,4 +1,5 @@
-use crate::services::invocation::queueing::DeviceQueue;
+use crate::services::invocation::dispatching::{queueing_dispatcher::DispatchPolicy, QueueMap, NO_ESTIMATE};
+use crate::services::invocation::QueueLoad;
 use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::gpu::GpuResourceTracker;
 use anyhow::Result;
@@ -73,8 +74,7 @@ pub struct GreedyWeights {
     config: Arc<GreedyWeightConfig>,
     reg: Arc<RegistrationService>,
     allow_set: RwLock<AllowSet>,
-    cpu_queue: Arc<dyn DeviceQueue>,
-    gpu_queue: Arc<dyn DeviceQueue>,
+    que_map: QueueMap,
     gpu: Arc<GpuResourceTracker>,
     last_load: RwLock<CacheData>,
     _thread: JoinHandle<()>,
@@ -82,12 +82,11 @@ pub struct GreedyWeights {
 impl GreedyWeights {
     pub fn boxed(
         cmap: &Arc<CharacteristicsMap>,
-        cpu_queue: &Arc<dyn DeviceQueue>,
-        gpu_queue: &Option<Arc<dyn DeviceQueue>>,
+        que_map: QueueMap,
         config: &Option<Arc<GreedyWeightConfig>>,
         reg: &Arc<RegistrationService>,
         gpu: &Option<Arc<GpuResourceTracker>>,
-    ) -> Result<Arc<Self>> {
+    ) -> Result<Arc<dyn DispatchPolicy>> {
         let (trd, tx) = threading::tokio_thread(3000, "greedy_w_bkg".to_string(), Self::update_set);
         let svc = Arc::new(Self {
             last_load: RwLock::new(CacheData {
@@ -96,10 +95,7 @@ impl GreedyWeights {
                 old_load_avg: 0.0,
             }),
             cmap: cmap.clone(),
-            cpu_queue: cpu_queue.clone(),
-            gpu_queue: gpu_queue
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("GPU queue was empty trying to create GreedyWeights"))?,
+            que_map,
             gpu: gpu
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("GpuResourceTracker was empty trying to create GreedyWeights"))?,
@@ -152,7 +148,7 @@ impl GreedyWeights {
         let mut allowed_tput = 0.0;
         let mut allow_set = AllowSet::new();
         let gpu_tput = self.cmap.get_gpu_tput();
-        if self.gpu_queue.queue_len() > 10 {
+        if self.que_map.get(&Compute::GPU).map_or(0, |q| q.queue_len()) > 10 {
             for info in fun_data.iter() {
                 allowed_load += info.load;
                 allowed_tput += info.tput;
@@ -184,7 +180,10 @@ impl GreedyWeights {
     }
 
     fn incremental(&self, fun_data: &[FuncInfo]) -> (AllowSet, f64) {
-        let q_load = self.gpu_queue.queue_load();
+        let q_load = self
+            .que_map
+            .get(&Compute::GPU)
+            .map_or_else(QueueLoad::default, |q| q.queue_load());
         let mut old_load = self.last_load.write();
         let mut new_cache_size = old_load.size;
         if q_load.load_avg == 0.0 && !fun_data.is_empty() && fun_data.iter().fold(0.0, |acc, f| acc + f.iat) != 0.0 {
@@ -242,8 +241,10 @@ impl GreedyWeights {
         }
         *self.allow_set.write() = allow_set;
     }
+}
 
-    pub fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64) {
+impl DispatchPolicy for GreedyWeights {
+    fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
         let lck = self.allow_set.read();
         let cache_size = lck.len();
         let entry = lck.get(&reg.fqdn).cloned();
@@ -251,24 +252,20 @@ impl GreedyWeights {
         match entry {
             Some(pos) => {
                 if self.config.fixed_assignment || pos <= (cache_size / 2) {
-                    return (Compute::GPU, 0.0);
+                    return (Compute::GPU, NO_ESTIMATE, NO_ESTIMATE);
                 }
                 let mut opts = vec![];
-                let mut cpu_load = 0.0;
-                if reg.supported_compute.contains(Compute::CPU) {
-                    let (cpu_est, load) = self.cpu_queue.est_completion_time(reg, tid);
-                    cpu_load = load;
-                    opts.push(((cpu_est, cpu_load), Compute::CPU));
-                }
-                if reg.supported_compute.contains(Compute::GPU) {
-                    opts.push((self.gpu_queue.est_completion_time(reg, tid), Compute::GPU));
+                for c in reg.supported_compute.into_iter() {
+                    if let Some(q) = self.que_map.get(&c) {
+                        opts.push((q.est_completion_time(reg, tid), c));
+                    }
                 }
                 match opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
-                    Some(((_est, load), c)) => (*c, *load),
-                    None => (Compute::CPU, cpu_load),
+                    Some(((est, load), c)) => (*c, *load, *est),
+                    None => (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE),
                 }
             },
-            None => (Compute::CPU, 0.0),
+            None => (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE),
         }
     }
 }

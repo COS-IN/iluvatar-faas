@@ -1,5 +1,5 @@
 use crate::services::invocation::dispatching::queueing_dispatcher::DispatchPolicy;
-use crate::services::invocation::dispatching::EnqueueingPolicy;
+use crate::services::invocation::dispatching::{EnqueueingPolicy, QueueMap};
 use crate::services::invocation::queueing::DeviceQueue;
 use crate::services::registration::RegisteredFunction;
 use crate::worker_api::config::InvocationConfig;
@@ -9,6 +9,7 @@ use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
+use parking_lot::Mutex;
 use rand::Rng;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -32,20 +33,15 @@ pub fn get_landlord(
     pol: EnqueueingPolicy,
     cmap: &Arc<CharacteristicsMap>,
     invocation_config: &Arc<InvocationConfig>,
-    cpu_queue: &Arc<dyn DeviceQueue>,
-    gpu_queue: &Option<Arc<dyn DeviceQueue>>,
-) -> Result<Box<dyn DispatchPolicy>> {
+    que_map: QueueMap,
+) -> Result<Arc<dyn DispatchPolicy>> {
     match pol {
-        EnqueueingPolicy::Landlord => {
-            Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, "LL")
-        },
-        EnqueueingPolicy::LRU => Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, "LRU"),
-        EnqueueingPolicy::LFU => Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, "LFU"),
-        EnqueueingPolicy::LandlordFixed => {
-            Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, "LLF")
-        },
+        EnqueueingPolicy::Landlord => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL"),
+        EnqueueingPolicy::LRU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LRU"),
+        EnqueueingPolicy::LFU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LFU"),
+        EnqueueingPolicy::LandlordFixed => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLF"),
         // landlord policy not being used, give dummy basic policy
-        _ => Landlord::boxed(cmap, &invocation_config.landlord_config, cpu_queue, gpu_queue, "LL"),
+        _ => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL"),
     }
 }
 
@@ -55,8 +51,8 @@ pub struct Landlord {
     credits: HashMap<String, f64>,
     cmap: Arc<CharacteristicsMap>,
     cfg: Arc<LandlordConfig>,
-    cpu_queue: Arc<dyn DeviceQueue>,
     gpu_queue: Arc<dyn DeviceQueue>,
+    cpu_queue: Arc<dyn DeviceQueue>,
     cachepol: String,
     residents: HashMap<String, (u32, OffsetDateTime)>, // fqdn -> invoc counts, last access. Do we keep evicted as well?
     nonresidents: HashMap<String, (u32, OffsetDateTime)>, // functions we let go
@@ -79,13 +75,12 @@ impl Landlord {
     pub fn boxed(
         cmap: &Arc<CharacteristicsMap>,
         cfg: &Option<Arc<LandlordConfig>>,
-        cpu_queue: &Arc<dyn DeviceQueue>,
-        gpu_queue: &Option<Arc<dyn DeviceQueue>>,
+        que_map: QueueMap,
         cachepol: &str,
-    ) -> Result<Box<dyn DispatchPolicy>> {
+    ) -> Result<Self> {
         match cfg {
             None => anyhow::bail!("LandlordConfig was empty"),
-            Some(c) => Ok(Box::new(Self {
+            Some(c) => Ok(Self {
                 credits: HashMap::new(),
                 residents: HashMap::new(),
                 cachepol: cachepol.to_string(),
@@ -94,10 +89,14 @@ impl Landlord {
                 clock: get_global_clock(&"clock".to_string())?,
                 cmap: cmap.clone(),
                 cfg: c.clone(),
-                cpu_queue: cpu_queue.clone(),
-                gpu_queue: gpu_queue
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("GPU queue was empty trying to create LandlordPerFuncRent"))?,
+                gpu_queue: que_map
+                    .get(&Compute::GPU)
+                    .ok_or_else(|| anyhow::anyhow!("GPU queue was missing trying to create GreedyWeights"))?
+                    .clone(),
+                cpu_queue: que_map
+                    .get(&Compute::CPU)
+                    .ok_or_else(|| anyhow::anyhow!("CPU queue was missing trying to create GreedyWeights"))?
+                    .clone(),
                 hits: 0,
                 evictions: 0,
                 misses: 0,
@@ -106,7 +105,7 @@ impl Landlord {
                 szmisses: 0.0,
                 negcredits: 0,
                 capacitymiss: 0,
-            })),
+            }),
         }
     }
 
@@ -638,13 +637,9 @@ impl Landlord {
         info!(fqdn=%&reg.fqdn, acc_pot_credits=%acc_pot_credits, "ADMIT_VICTIM");
         true
     }
-}
 
-//////////////////////////////
-
-impl DispatchPolicy for Landlord {
     /// Main entry point and landlord caching logic
-    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64) {
+    fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
         let (mqfq_est, gpu_load) = self.gpu_queue.est_completion_time(reg, tid);
         let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
         let (cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, tid);
@@ -665,7 +660,7 @@ impl DispatchPolicy for Landlord {
                 self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
                 info!(tid=%tid, fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), "MISS_INSUFFICIENT_CREDITS");
                 self.update_nonres(&reg.fqdn);
-                return (Compute::CPU, cpu_load);
+                return (Compute::CPU, cpu_load, cpu_est);
             }
             self.hits += 1;
             self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);
@@ -673,7 +668,7 @@ impl DispatchPolicy for Landlord {
             info!(tid=%tid, fqdn=%&reg.fqdn, opp_cost=%new_credit, "Cache Hit");
             self.landlog("HIT_PRESENT");
             self.update_res(&reg.fqdn);
-            return (Compute::GPU, gpu_load);
+            return (Compute::GPU, gpu_load, gpu_est);
         }
 
         // not present. Either insert/admit or MISS. Charge rents in every case
@@ -685,7 +680,7 @@ impl DispatchPolicy for Landlord {
         if can_admit {
             // We found space!
             self.admit(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
-            (Compute::GPU, gpu_load)
+            (Compute::GPU, gpu_load, gpu_est)
         } else {
             // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss.
             self.misses += 1;
@@ -693,9 +688,30 @@ impl DispatchPolicy for Landlord {
             self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
             info!(tid=%tid, fqdn=%reg.fqdn, "Cache Miss Admission");
             self.update_nonres(&reg.fqdn.clone());
-            (Compute::CPU, cpu_load)
+            (Compute::CPU, cpu_load, cpu_est)
         }
     }
 }
 
-//////////////////////////////////
+//////////////////////////////
+
+struct LLWrap {
+    ll: Mutex<Landlord>,
+}
+impl LLWrap {
+    pub fn boxed(
+        cmap: &Arc<CharacteristicsMap>,
+        cfg: &Option<Arc<LandlordConfig>>,
+        que_map: QueueMap,
+        cachepol: &str,
+    ) -> Result<Arc<dyn DispatchPolicy>> {
+        let ll = Landlord::boxed(cmap, cfg, que_map, cachepol)?;
+        Ok(Arc::new(Self { ll: Mutex::new(ll) }))
+    }
+}
+
+impl DispatchPolicy for LLWrap {
+    fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
+        self.ll.lock().choose(reg, tid)
+    }
+}
