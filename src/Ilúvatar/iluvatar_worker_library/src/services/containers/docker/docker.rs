@@ -149,7 +149,7 @@ impl DockerIsolation {
                 }
             }
 
-            if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
+            if self.config.gpu_resource.as_ref().is_some_and(|c| c.mps_enabled()) {
                 info!(tid=%tid, container_id=%container_id, threads=device.thread_pct, memory=device.allotted_mb, "Container running inside MPS context");
                 host_config.ipc_mode = Some("host".to_owned());
                 mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
@@ -162,7 +162,7 @@ impl DockerIsolation {
                 .config
                 .gpu_resource
                 .as_ref()
-                .map_or(false, |c| c.driver_hook_enabled())
+                .is_some_and(|c| c.driver_hook_enabled())
             {
                 env.push("LD_PRELOAD=/app/libgpushare.so");
             }
