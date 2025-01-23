@@ -19,12 +19,18 @@ use tracing::info;
 
 #[derive(Debug, Deserialize)]
 pub struct LandlordConfig {
+    #[serde(default)]
     pub cache_size: u32, // Max number of functions we are admitting, regardless of size
     // TODO: change this to max_res here and for the ansible scripts ..
+    #[serde(default)]
     pub max_size: f64,        // Max actual size of cache considering function footprints (exec times)
+    #[serde(default)]
     pub load_thresh: f64,     // fraction for the admission control
+    #[serde(default)]
     pub slowdown_thresh: f64, // T_GPU < L_GPU * slowdown_thresh
+    #[serde(default)]
     pub log_cache_info: bool,
+    #[serde(default)]
     pub fixed_mode: bool,
     // mode: fixed, autoscaling
 }
