@@ -73,11 +73,11 @@ impl GpuQueuePolicy for BatchGpuQueue {
             dashmap::mapref::entry::Entry::Occupied(mut v) => {
                 est_time = self.cmap.get_gpu_exec_time(&item.registration.fqdn);
                 v.get_mut().add(item.clone(), est_time);
-            }
+            },
             dashmap::mapref::entry::Entry::Vacant(e) => {
                 est_time = self.cmap.get_gpu_cold_time(&item.registration.fqdn);
                 e.insert(GpuBatch::new(item.clone(), est_time));
-            }
+            },
         }
         *self.est_time.lock() += est_time;
         Ok(())
@@ -119,6 +119,8 @@ mod oldest_batch {
             name.to_string(),
             name.to_string(),
             get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
+            0.0,
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -143,6 +145,8 @@ mod oldest_batch {
             name.to_string(),
             name.to_string(),
             get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
+            0.0,
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -174,6 +178,8 @@ mod oldest_batch {
             name.to_string(),
             name.to_string(),
             get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
+            0.0,
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -195,6 +201,8 @@ mod oldest_batch {
             name.to_string(),
             name.to_string(),
             get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
+            0.0,
         ));
         m.add(
             &invoke2.registration.fqdn,

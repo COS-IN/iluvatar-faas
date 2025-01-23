@@ -1,16 +1,17 @@
-use self::queueing_dispatcher::QueueingDispatcher;
 use super::containers::containermanager::ContainerManager;
 use super::containers::structs::{Container, ContainerLock};
 use super::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
+use crate::services::registration::RegistrationService;
 use crate::services::{
     containers::structs::{ContainerState, ParsedResult},
     registration::RegisteredFunction,
 };
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::{Characteristics, Values};
+use dispatching::queueing_dispatcher::QueueingDispatcher;
+use iluvatar_library::characteristics_map::Values;
 use iluvatar_library::clock::Clock;
 use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
@@ -22,11 +23,20 @@ use tracing::info;
 pub mod async_tracker;
 pub mod completion_time_tracker;
 mod cpu_q_invoke;
+pub mod dispatching;
 #[cfg(feature = "power_cap")]
 pub mod energy_limiter;
 mod gpu_q_invoke;
 pub mod queueing;
-mod queueing_dispatcher;
+
+#[derive(Default, Debug, serde::Serialize)]
+pub struct QueueLoad {
+    pub len: usize,
+    pub load: f64,
+    pub load_avg: f64,
+    pub tput: f64,
+}
+pub type InvokerLoad = std::collections::HashMap<Compute, QueueLoad>;
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
@@ -47,7 +57,7 @@ pub trait Invoker: Send + Sync {
     /// Check the status of the result, if found is returned destructively
     fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<iluvatar_rpc::rpc::InvokeResponse>;
     /// Number of invocations enqueued on each compute
-    fn queue_len(&self) -> std::collections::HashMap<Compute, usize>;
+    fn queue_len(&self) -> InvokerLoad;
     /// Number of running invocations
     fn running_funcs(&self) -> u32;
 }
@@ -61,6 +71,7 @@ pub struct InvokerFactory {
     cpu: Arc<CpuResourceTracker>,
     gpu_resources: Option<Arc<GpuResourceTracker>>,
     gpu_config: Option<Arc<GPUResourceConfig>>,
+    reg: Arc<RegistrationService>,
     #[cfg(feature = "power_cap")]
     energy: Arc<EnergyLimiter>,
 }
@@ -74,6 +85,7 @@ impl InvokerFactory {
         cpu: Arc<CpuResourceTracker>,
         gpu_resources: Option<Arc<GpuResourceTracker>>,
         gpu_config: Option<Arc<GPUResourceConfig>>,
+        reg: &Arc<RegistrationService>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Self {
         InvokerFactory {
@@ -84,6 +96,7 @@ impl InvokerFactory {
             cpu,
             gpu_resources,
             gpu_config,
+            reg: reg.clone(),
             #[cfg(feature = "power_cap")]
             energy,
         }
@@ -99,6 +112,7 @@ impl InvokerFactory {
             self.cpu.clone(),
             self.gpu_resources.clone(),
             &self.gpu_config,
+            &self.reg,
             #[cfg(feature = "power_cap")]
             self.energy.clone(),
         )?;
@@ -146,12 +160,14 @@ pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
 /// [Duration]: The E2E latency between the worker and the container
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
-#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap) fields(tid=%tid)))]
+#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=%tid)))]
 async fn invoke_on_container(
     reg: &Arc<RegisteredFunction>,
     json_args: &str,
     tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
+    est_completion_time: f64,
+    insert_time_load: f64,
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
@@ -163,6 +179,8 @@ async fn invoke_on_container(
         json_args,
         tid,
         queue_insert_time,
+        est_completion_time,
+        insert_time_load,
         ctr_lock,
         remove_time,
         cold_time_start,
@@ -178,12 +196,14 @@ async fn invoke_on_container(
 /// [Duration]: The E2E latency between the worker and the container
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
-#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap) fields(tid=%tid)))]
+#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=%tid)))]
 async fn invoke_on_container_2(
     reg: &Arc<RegisteredFunction>,
     json_args: &str,
     tid: &TransactionId,
     queue_insert_time: OffsetDateTime,
+    est_completion_time: f64,
+    insert_time_load: f64,
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
@@ -192,19 +212,25 @@ async fn invoke_on_container_2(
 ) -> Result<(ParsedResult, Duration, Container)> {
     info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
+    let compute = ctr_lock.container.compute_type();
+    let chars = cmap.get_characteristics(&compute)?;
     let (char, time) = match ctr_lock.container.state() {
-        ContainerState::Warm => (Characteristics::WarmTime, data.duration_sec),
-        ContainerState::Prewarm => (Characteristics::PreWarmTime, data.duration_sec),
-        _ => (Characteristics::ColdTime, cold_time_start.elapsed().as_secs_f64()),
+        ContainerState::Warm => (chars.1, data.duration_sec),
+        ContainerState::Prewarm => (chars.2, data.duration_sec),
+        _ => (chars.0, cold_time_start.elapsed().as_secs_f64()),
     };
     cmap.add(&reg.fqdn, char, Values::F64(time), true);
-    cmap.add(
-        &reg.fqdn,
-        Characteristics::ExecTime,
-        Values::F64(data.duration_sec),
-        true,
-    );
-    let e2etime = (clock.now() - queue_insert_time).as_seconds_f64();
-    cmap.add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), true);
+    cmap.add(&reg.fqdn, chars.3, Values::F64(data.duration_sec), true);
+    let now = clock.now();
+    let e2etime = (now - queue_insert_time).as_seconds_f64();
+    cmap.add(&reg.fqdn, chars.4, Values::F64(e2etime), true);
+    let err = e2etime - est_completion_time;
+    cmap.add(&reg.fqdn, chars.5, Values::F64(err), true);
+    if compute == Compute::CPU {
+        cmap.add_cpu_tput(time);
+    } else if compute == Compute::GPU {
+        cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
+        cmap.add_gpu_tput(time);
+    }
     Ok((data, duration, ctr_lock.container.clone()))
 }

@@ -1,10 +1,14 @@
 use crate::clock::now;
+use crate::linear_reg::LinearReg;
+use crate::tput_calc::DeviceTput;
+use crate::types::Compute;
 use dashmap::DashMap;
 use ordered_float::OrderedFloat;
+use parking_lot::RwLock;
 use std::cmp::{min, Ordering};
 use std::time::Duration;
 use tokio::time::Instant;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 #[derive(Debug, Clone)]
 pub enum Values {
@@ -20,7 +24,7 @@ pub fn unwrap_val_dur(value: &Values) -> Duration {
         _ => {
             error!(error = "incorrect unwrap", "unwrap_val_dur not of type Duration");
             Duration::new(0, 0)
-        }
+        },
     }
 }
 
@@ -30,7 +34,7 @@ pub fn unwrap_val_f64(value: &Values) -> f64 {
         _ => {
             error!(error = "incorrect unwrap", "unwrap_val_f64 not of type f64");
             0.0
-        }
+        },
     }
 }
 /// A safe comparator for f64 values
@@ -46,7 +50,7 @@ pub fn unwrap_val_u64(value: &Values) -> u64 {
         _ => {
             error!(error = "incorrect unwrap", "unwrap_val_u64 not of type u64");
             0
-        }
+        },
     }
 }
 
@@ -56,7 +60,7 @@ pub fn unwrap_val_str(value: &Values) -> String {
         _ => {
             error!(error = "unwrap_val_str not of type String");
             "None".to_string()
-        }
+        },
     }
 }
 
@@ -84,36 +88,36 @@ impl AgExponential {
 /// CharacteristicsMap Implementation  
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Characteristics {
-    /// Running avg of _all_ times on CPU for invocations
-    /// Recorded by CpuQueueingInvoker::invoke_on_container
+    /// Running avg of _all_ times on CPU for invocations.
+    /// Recorded by invoke_on_container_2
     ExecTime,
-    /// Time on CPU for a warm invocation
-    /// Recorded by CpuQueueingInvoker::invoke_on_container
+    /// Time on CPU for a warm invocation.
+    /// Recorded by invoke_on_container_2
     WarmTime,
-    /// Time on CPU for a pre-warmed invocation
+    /// Time on CPU for a pre-warmed invocation.
     /// The container was previously started, but no invocation was run on it
-    /// Recorded by CpuQueueingInvoker::invoke_on_container
+    /// Recorded by invoke_on_container_2
     PreWarmTime,
-    /// E2E time for a CPU cold start
-    /// Recorded by CpuQueueingInvoker::invoke_on_container
+    /// E2E time for a CPU cold start.
+    /// Recorded by invoke_on_container_2
     ColdTime,
-    /// Running avg of _all_ times on GPU for invocations
-    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    /// Running avg of _all_ times on GPU for invocations.
+    /// Recorded by invoke_on_container_2
     GpuExecTime,
-    /// Time on GPU for a warm invocation
-    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    /// Time on GPU for a warm invocation.
+    /// Recorded by invoke_on_container_2
     GpuWarmTime,
-    /// Time on GPU for a pre-warmed invocation
+    /// Time on GPU for a pre-warmed invocation.
     /// The container was previously started, but no invocation was run on it
-    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    /// Recorded by invoke_on_container_2
     GpuPreWarmTime,
-    /// E2E time for a GPU cold start
-    /// Recorded by GpuQueueingInvoker::invoke_on_container
+    /// E2E time for a GPU cold start.
+    /// Recorded by invoke_on_container_2
     GpuColdTime,
-    /// The last time an invocation happened
+    /// The last time an invocation happened.
     /// Recorded internally by the [CharacteristicsMap::add_iat] function
     LastInvTime,
-    /// The running avg IAT
+    /// The running avg IAT.
     /// Recorded by iluvatar_worker_library::worker_api::iluvatar_worker::IluvatarWorkerImpl::invoke and iluvatar_worker_library::worker_api::iluvatar_worker::IluvatarWorkerImpl::invoke_async
     IAT,
     /// The running avg memory usage
@@ -122,6 +126,14 @@ pub enum Characteristics {
     /// Total end to end latency: queuing plus execution
     E2ECpu,
     E2EGpu,
+
+    /// Time estimate for the E2E GPU and CPU time
+    EstGpu,
+    EstCpu,
+
+    /// Also store the error?
+    QueueErrGpu,
+    QueueErrCpu,
 }
 
 /// Historical execution characteristics of functions. Cold/warm times, energy, etc.
@@ -135,19 +147,26 @@ pub struct CharacteristicsMap {
     /// Minimum of the values
     minmap: DashMap<String, DashMap<Characteristics, Values>>,
     ag: AgExponential,
+    cpu_tput: RwLock<DeviceTput>,
+    gpu_tput: RwLock<DeviceTput>,
+    gpu_load_lin_reg: RwLock<LinearReg>,
+    func_gpu_load_lin_reg: DashMap<String, LinearReg>,
     creation_time: Instant,
 }
 
 impl CharacteristicsMap {
     pub fn new(ag: AgExponential) -> Self {
         // TODO: Implement file restore functionality here
-
         CharacteristicsMap {
             map: DashMap::new(),
             agmap: DashMap::new(),
             minmap: DashMap::new(),
             ag,
             creation_time: now(),
+            cpu_tput: RwLock::new(DeviceTput::new()),
+            gpu_tput: RwLock::new(DeviceTput::new()),
+            gpu_load_lin_reg: RwLock::new(LinearReg::new()),
+            func_gpu_load_lin_reg: DashMap::new(),
         }
     }
 
@@ -171,18 +190,18 @@ impl CharacteristicsMap {
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
-                    }
+                    },
                     None => {
                         v0.insert(chr, value);
-                    }
+                    },
                 }
-            }
+            },
             None => {
                 // dashmap for given fname does not exist create and populate
                 let d = DashMap::new();
                 d.insert(chr, value.clone());
                 self.map.insert(fqdn.to_owned(), d);
-            }
+            },
         }
 
         self
@@ -205,18 +224,18 @@ impl CharacteristicsMap {
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
-                    }
+                    },
                     None => {
                         v0.insert(chr, value);
-                    }
+                    },
                 }
-            }
+            },
             None => {
                 // dashmap for given fname does not exist create and populate
                 let d = DashMap::new();
                 d.insert(chr, value);
                 self.agmap.insert(fqdn.to_owned(), d);
-            }
+            },
         }
 
         self
@@ -238,18 +257,18 @@ impl CharacteristicsMap {
                             Values::U64(_) => todo!(),
                             Values::Str(_) => todo!(),
                         };
-                    }
+                    },
                     None => {
                         v0.insert(chr, value);
-                    }
+                    },
                 }
-            }
+            },
             None => {
                 // dashmap for given fname does not exist create and populate
                 let d = DashMap::new();
                 d.insert(chr, value);
                 self.minmap.insert(fqdn.to_owned(), d);
-            }
+            },
         }
 
         self
@@ -275,6 +294,19 @@ impl CharacteristicsMap {
             Values::Duration(time_now_elapsed),
             false,
         );
+    }
+
+    pub fn add_gpu_tput(&self, time: f64) {
+        self.gpu_tput.write().insert(now(), time);
+    }
+    pub fn add_cpu_tput(&self, time: f64) {
+        self.cpu_tput.write().insert(now(), time);
+    }
+    pub fn get_gpu_tput(&self) -> f64 {
+        self.gpu_tput.read().get_tput()
+    }
+    pub fn get_cpu_tput(&self) -> f64 {
+        self.cpu_tput.read().get_tput()
     }
 
     /// Most recent value
@@ -374,6 +406,32 @@ impl CharacteristicsMap {
         }
     }
 
+    pub fn get_gpu_est(&self, fqdn: &str, mqfq_est: f64) -> (f64, f64) {
+        // we have a new estimate. Before that, let's compute the error with the previous estimate and e2e time
+        let prev_est = match self.lookup(fqdn, &Characteristics::EstGpu) {
+            Some(_c) => unwrap_val_f64(&_c),
+            _ => mqfq_est, //get full marks initially
+        };
+        let prev_e2e = match self.lookup(fqdn, &Characteristics::E2EGpu) {
+            Some(_c) => unwrap_val_f64(&_c),
+            _ => mqfq_est,
+        };
+        // Kalman Filter notation , see faasmeter paper
+        let z = prev_e2e - prev_est; //residual error
+
+        let alpha = 0.1;
+        let beta = 0.7;
+        // kalman gain is proportional to process noise, in our case is total gpu load difference
+        let k = 1.0 - (beta + alpha);
+        let xhat = (alpha * prev_est) + (beta * mqfq_est) + k * z;
+
+        self.add(fqdn, Characteristics::EstGpu, Values::F64(xhat), false);
+
+        info!(fqdn=%fqdn, raw_est=%mqfq_est, error=%z , kf_est=%xhat,  "GPU Estimate");
+        // For now we can simply return this
+        (xhat, z)
+    }
+
     pub fn get_best_time(&self, fqdn: &str) -> f64 {
         let c = match self.lookup_min(fqdn, &Characteristics::E2ECpu) {
             Some(_c) => unwrap_val_f64(&_c),
@@ -455,6 +513,29 @@ impl CharacteristicsMap {
         }
     }
 
+    pub fn insert_gpu_load_est(&self, fqdn: &String, x: f64, y: f64) {
+        self.gpu_load_lin_reg.write().insert(x, y);
+        match self.func_gpu_load_lin_reg.get_mut(fqdn) {
+            None => {
+                let mut lr = LinearReg::new();
+                lr.insert(x, y);
+                self.func_gpu_load_lin_reg.insert(fqdn.clone(), lr);
+            },
+            Some(mut lr) => lr.value_mut().insert(x, y),
+        };
+    }
+    /// Returns [-1.0] if insufficient data exists for interpolation.
+    pub fn predict_gpu_load_est(&self, x: f64) -> f64 {
+        self.gpu_load_lin_reg.read().predict(x)
+    }
+    /// Returns [-1.0] if insufficient data exists for interpolation.
+    pub fn func_predict_gpu_load_est(&self, fqdn: &String, x: f64) -> f64 {
+        match self.func_gpu_load_lin_reg.get(fqdn) {
+            None => -1.0,
+            Some(lr) => lr.value().predict(x),
+        }
+    }
+
     /// Tuple of cpu,gpu weights for polymorphic functions
     pub fn get_dispatch_wts(&self, fqdn: &str) -> (f64, f64) {
         let mut wcpu = 0.0;
@@ -477,6 +558,42 @@ impl CharacteristicsMap {
             Values::U64(v) => Values::U64(*v),
             Values::Duration(v) => Values::Duration(*v),
             Values::Str(v) => Values::Str(v.clone()),
+        }
+    }
+
+    /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute device.
+    /// (Cold, Warm, PreWarm, Exec, E2E, QueueEstErr)
+    pub fn get_characteristics(
+        &self,
+        compute: &Compute,
+    ) -> anyhow::Result<(
+        Characteristics,
+        Characteristics,
+        Characteristics,
+        Characteristics,
+        Characteristics,
+        Characteristics,
+    )> {
+        if compute == &Compute::CPU {
+            Ok((
+                Characteristics::ColdTime,
+                Characteristics::WarmTime,
+                Characteristics::PreWarmTime,
+                Characteristics::ExecTime,
+                Characteristics::E2ECpu,
+                Characteristics::QueueErrCpu,
+            ))
+        } else if compute == &Compute::GPU {
+            Ok((
+                Characteristics::GpuColdTime,
+                Characteristics::GpuWarmTime,
+                Characteristics::GpuPreWarmTime,
+                Characteristics::GpuExecTime,
+                Characteristics::E2EGpu,
+                Characteristics::QueueErrGpu,
+            ))
+        } else {
+            anyhow::bail!("Unknown compute to get characteristics for registration: {:?}", compute)
         }
     }
 

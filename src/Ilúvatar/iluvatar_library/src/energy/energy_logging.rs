@@ -37,14 +37,14 @@ impl EnergyLogger {
                                 anyhow::bail!(
                                     "Failed to start perf because the log file could not be formatted properly"
                                 );
-                            }
+                            },
                         };
                         if let Some(ms) = config.perf_freq_ms {
                             Some(start_perf_stat(&f, tid, ms).await?)
                         } else {
                             None
                         }
-                    }
+                    },
                     false => None,
                 };
 
@@ -59,14 +59,14 @@ impl EnergyLogger {
                                 anyhow::bail!(
                                     "Failed to start tegra because the log file could not be formatted properly"
                                 );
-                            }
+                            },
                         };
                         if let Some(ms) = config.tegra_freq_ms {
                             Some(start_tegrastats(&f, tid, ms).await?)
                         } else {
                             None
                         }
-                    }
+                    },
                     false => None,
                 };
 
@@ -74,7 +74,7 @@ impl EnergyLogger {
                     true => {
                         debug!(tid=%tid, "Starting IPMI energy monitoring");
                         Some(IPMIMonitor::boxed(config.clone(), tid)?)
-                    }
+                    },
                     false => None,
                 };
 
@@ -82,7 +82,7 @@ impl EnergyLogger {
                     true => {
                         debug!(tid=%tid, "Starting rapl energy monitoring");
                         Some(RaplMonitor::boxed(config.clone(), tid)?)
-                    }
+                    },
                     false => None,
                 };
 
@@ -90,7 +90,7 @@ impl EnergyLogger {
                     true => {
                         debug!(tid=%tid, "Starting process energy monitoring");
                         Some(ProcessMonitor::boxed(config.clone(), tid)?)
-                    }
+                    },
                     false => None,
                 };
 
@@ -102,11 +102,11 @@ impl EnergyLogger {
                             config.hardware_cpu_frequencies_freq_ms,
                             tid,
                         )?)
-                    }
+                    },
                     false => None,
                 };
                 (perf_child, tegra_child, ipmi, rapl, proc, cpu_mon)
-            }
+            },
             None => (None, None, None, None, None, None),
         };
 

@@ -1,4 +1,5 @@
 use super::WorkerStatus;
+use crate::services::invocation::InvokerLoad;
 use crate::services::{
     containers::containermanager::ContainerManager, invocation::Invoker, resources::gpu::GpuResourceTracker,
 };
@@ -60,6 +61,7 @@ impl StatusService {
             current_status: Mutex::new(Arc::new(WorkerStatus {
                 cpu_queue_len: 0,
                 gpu_queue_len: 0,
+                queue_load: InvokerLoad::default(),
                 used_mem: 0,
                 total_mem: 0,
                 cpu_us: 0.0,
@@ -113,8 +115,9 @@ impl StatusService {
             gpu_utilization,
             used_mem,
             total_mem,
-            cpu_queue_len: *queue_lengths.get(&Compute::CPU).unwrap_or(&0) as i64,
-            gpu_queue_len: *queue_lengths.get(&Compute::GPU).unwrap_or(&0) as i64,
+            cpu_queue_len: queue_lengths.get(&Compute::CPU).map_or(0, |q| q.len) as i64,
+            gpu_queue_len: queue_lengths.get(&Compute::GPU).map_or(0, |q| q.len) as i64,
+            queue_load: queue_lengths,
             cpu_us: computed_util.cpu_user + computed_util.cpu_nice,
             cpu_sy: computed_util.cpu_system
                 + computed_util.cpu_irq
@@ -179,6 +182,7 @@ impl CpuHardwareMonitor {
 #[async_trait::async_trait]
 impl CpuMonitorTrait for CpuHardwareMonitor {
     fn cpu_util(&self, tid: &TransactionId) -> Result<(CPUUtilPcts, f64)> {
+        debug!(tid=%tid, "Computing system utilization");
         let now = CPUUtilInstant::get(tid)?;
         let mut last = self.last_instant_usage.lock();
         let diff = &now - &*last;
@@ -194,7 +198,7 @@ impl CpuMonitorTrait for CpuHardwareMonitor {
             Ok(r) => r,
             Err(e) => {
                 bail_error!(tid=%tid, "error parsing float from uptime {}: {}", min, e);
-            }
+            },
         };
         *self.signal.write() = load_avg;
 
@@ -217,12 +221,13 @@ impl CpuSimMonitor {
     }
 }
 impl CpuMonitorTrait for CpuSimMonitor {
-    fn cpu_util(&self, _tid: &TransactionId) -> Result<(CPUUtilPcts, f64)> {
+    fn cpu_util(&self, tid: &TransactionId) -> Result<(CPUUtilPcts, f64)> {
+        debug!(tid=%tid, "Computing system utilization");
         // additional 0.5 to account for system work
         let running = self.invoker.running_funcs() as f64 + 0.5;
-        let lck = self.signal.write();
+        let mut lck = self.signal.write();
         let load_avg = (running * 0.5) + (*lck * (1.0 - 0.5));
-        *self.signal.write() = load_avg;
+        *lck = load_avg;
         Ok((
             CPUUtilPcts {
                 read_diff: Duration::from_micros(0),
@@ -284,7 +289,7 @@ impl CPUUtilInstant {
             Ok(f) => BufReader::new(f),
             Err(e) => {
                 return Err(e.into());
-            }
+            },
         };
         loop {
             match b.read_line(&mut ret)? {
@@ -293,7 +298,7 @@ impl CPUUtilInstant {
                     if ret.starts_with("cpu ") {
                         return Ok(ret);
                     }
-                }
+                },
             }
         }
     }
@@ -322,7 +327,7 @@ impl CPUUtilInstant {
                 Ok(v) => Ok(v),
                 Err(e) => {
                     bail_error!(error=%e, tid=%tid, line=%split_line[pos], "Unable to parse string from /proc/stat")
-                }
+                },
             }
         } else {
             bail_error!(expected=pos, actual=split_line.len(), tid=%tid, "/proc/stat line was unexpectedly short!")

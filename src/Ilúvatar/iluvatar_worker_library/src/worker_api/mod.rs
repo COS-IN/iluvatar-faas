@@ -80,6 +80,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         cpu,
         gpu_resource.clone(),
         worker_config.container_resources.gpu_resource.clone(),
+        &reg,
         #[cfg(feature = "power_cap")]
         energy_limit.clone(),
     );
@@ -114,7 +115,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
                 tid,
             )
             .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make influx updater"))?
-        }
+        },
         None => None,
     };
 
@@ -135,7 +136,9 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
 #[tonic::async_trait]
 pub trait WorkerAPI {
+    /// Ping the worker to check if it is up and accessible.
     async fn ping(&mut self, tid: TransactionId) -> Result<String>;
+    /// Invoke the specified function with json-formatted arguments.
     async fn invoke(
         &mut self,
         function_name: String,
@@ -143,6 +146,8 @@ pub trait WorkerAPI {
         args: String,
         tid: TransactionId,
     ) -> Result<InvokeResponse>;
+    /// Async invoke the specified function with json-formatted arguments.
+    /// Returns a cookie to query results.
     async fn invoke_async(
         &mut self,
         function_name: String,
@@ -150,7 +155,9 @@ pub trait WorkerAPI {
         args: String,
         tid: TransactionId,
     ) -> Result<String>;
+    /// Query the async invocation.
     async fn invoke_async_check(&mut self, cookie: &str, tid: TransactionId) -> Result<InvokeResponse>;
+    /// Prewarm a container for the function, can pass multiple values in `compute` and one container will be made for each.
     async fn prewarm(
         &mut self,
         function_name: String,
@@ -158,6 +165,7 @@ pub trait WorkerAPI {
         tid: TransactionId,
         compute: Compute,
     ) -> Result<String>;
+    /// Register a new function.
     async fn register(
         &mut self,
         function_name: String,
@@ -171,7 +179,10 @@ pub trait WorkerAPI {
         compute: Compute,
         timings: Option<&ResourceTimings>,
     ) -> Result<String>;
+    /// Get worker status.
     async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse>;
+    /// Test worker health.
     async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus>;
+    /// Make worker clean up containers, etc.
     async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse>;
 }

@@ -76,7 +76,7 @@ impl EnergyLimiter {
 
                 tracing::debug!(fname=%fname, "power cap check j_cap({}) < j_cap({})", j_predicted, j_cap);
                 return j_predicted < j_cap;
-            }
+            },
             PowerCapVersion::V1 => {
                 let (_t, p) = self.energy.get_latest_reading();
                 let j = self.get_energy(cmap, fname, p);
@@ -85,7 +85,7 @@ impl EnergyLimiter {
 
                 tracing::debug!(fname=%fname, "power cap check j_predicted(p({}) * freq({})) + j({})  <= j_cap({})", p, self.reading_freq_sec, j, j_cap);
                 return j_predicted + j <= j_cap;
-            }
+            },
         }
     }
 

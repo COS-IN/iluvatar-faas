@@ -135,7 +135,7 @@ impl ContainerT for SimulatorContainer {
             Ok(d) => d,
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, args=%json_args, "Unable to deserialize run time information")
-            }
+            },
         };
 
         let was_cold = self.state() == ContainerState::Cold;
@@ -150,7 +150,7 @@ impl ContainerT for SimulatorContainer {
                     Some(history_data) => {
                         let idx = sample(&mut thread_rng(), history_data.len(), 1);
                         history_data[idx.index(0)]
-                    }
+                    },
                     None => data.warm_dur_ms as f64 / 1000.0 * 1.2,
                 },
             }, // 1.2 multplication from concurrency degredation on CPU

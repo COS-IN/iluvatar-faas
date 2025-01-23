@@ -32,7 +32,6 @@ impl MinHeapQueue {
     }
 }
 
-#[tonic::async_trait]
 impl InvokerCpuQueuePolicy for MinHeapQueue {
     fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
         let r = self.invoke_queue.lock();
@@ -43,7 +42,7 @@ impl InvokerCpuQueuePolicy for MinHeapQueue {
     fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
         let mut invoke_queue = self.invoke_queue.lock();
         let v = invoke_queue.pop().unwrap();
-        *self.est_time.lock() += v.est_wall_time;
+        *self.est_time.lock() -= v.est_wall_time;
         let v = v.item;
         let top = invoke_queue.peek();
         let func_name = match top {

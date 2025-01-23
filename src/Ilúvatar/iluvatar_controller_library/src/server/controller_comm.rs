@@ -47,11 +47,11 @@ impl ControllerAPIFactory {
                         Ok(api) => api,
                         Err(e) => {
                             bail_error!(tid=%tid, host=%host, host=%e, "Unable to create API for controller")
-                        }
+                        },
                     };
                     self.rpc_apis.insert(host.to_owned(), api.clone());
                     Ok(Arc::new(api) as ControllerAPI)
-                }
+                },
             },
             CommunicationMethod::SIMULATION => {
                 let api = match self.try_get_simapi(host) {
@@ -67,11 +67,11 @@ impl ControllerAPIFactory {
                             let api = Arc::new(api);
                             vacant.insert(api.clone());
                             api
-                        }
+                        },
                     },
                 };
                 Ok(api as ControllerAPI)
-            }
+            },
         }
     }
 }

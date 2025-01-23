@@ -64,11 +64,11 @@ impl WorkerAPIFactory {
                         Ok(api) => api,
                         Err(e) => {
                             bail_error!(tid=%tid, worker=%worker, error=%e, "Unable to create API for worker")
-                        }
+                        },
                     };
                     self.rpc_apis.insert(worker.to_owned(), api.clone());
                     Ok(Box::new(api))
-                }
+                },
             },
             CommunicationMethod::SIMULATION => {
                 let api = match self.try_get_simapi(worker) {
@@ -80,18 +80,18 @@ impl WorkerAPIFactory {
                                 match crate::worker_api::worker_config::Configuration::boxed(&Some(host), None) {
                                     Ok(w) => w,
                                     Err(e) => {
-                                        anyhow::bail!("Failed to load config because '{:?}'", e)
-                                    }
+                                        anyhow::bail!("Failed to load simulation config because '{:?}'", e)
+                                    },
                                 };
                             let api = create_worker(worker_config, tid).await?;
                             let api = Arc::new(api);
                             vacant.insert(api.clone());
                             api
-                        }
+                        },
                     },
                 };
                 Ok(Box::new(SimWorkerAPI::new(api)))
-            }
+            },
         }
     }
 }

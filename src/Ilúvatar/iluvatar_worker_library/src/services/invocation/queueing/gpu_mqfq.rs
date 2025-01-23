@@ -3,13 +3,14 @@ use crate::services::containers::{
     containermanager::ContainerManager,
     structs::{Container, ParsedResult},
 };
-use crate::services::invocation::{completion_time_tracker::CompletionTimeTracker, invoke_on_container_2};
+use crate::services::invocation::{completion_time_tracker::CompletionTimeTracker, invoke_on_container_2, QueueLoad};
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
+use iluvatar_library::characteristics_map::Characteristics;
 use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::utils::missing_default;
@@ -18,6 +19,7 @@ use iluvatar_library::{
     mindicator::Mindicator,
     threading::{tokio_runtime, tokio_thread, EventualItem},
 };
+use ordered_float::OrderedFloat;
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use serde::Deserialize;
@@ -55,6 +57,26 @@ pub struct MqfqConfig {
     /// Minimum number of flows to choose between for [MqfqPolicy]::Select* policies
     /// Default is 3 if [None] or [Some(0)]
     pub flow_select_cnt: Option<f64>,
+    #[serde(default)]
+    time_estimation: MqfqTimeEst,
+    #[serde(default = "bool::default")]
+    add_estimation_error: bool,
+}
+
+#[derive(Debug, Deserialize)]
+enum MqfqTimeEst {
+    V1,
+    V2,
+    V3,
+    LinReg,
+    PerFuncLinReg,
+    FallbackLinReg,
+    GlobalLinReg,
+}
+impl Default for MqfqTimeEst {
+    fn default() -> Self {
+        Self::V3
+    }
 }
 
 /// Multi-Queue Fair Queueing.
@@ -192,7 +214,19 @@ impl FlowQ {
         }
     }
 
-    /// Return True if should update the global time
+    /// Re-add an item to the queue that was previously removed.
+    pub fn reinsert_item(&mut self, item: Arc<MQRequest>) {
+        self.start_time_virt = item.start_time_virt;
+        self.finish_time_virt = f64::max(self.finish_time_virt, item.finish_time_virt);
+        self.queue.push_front(item);
+
+        self.mindicator.insert(self.flow_id, self.start_time_virt).unwrap();
+        if self.state != MQState::Active {
+            self.update_state(MQState::Active);
+        }
+    }
+
+    /// Return True if should update the global time.
     pub fn push_flow(&mut self, item: Arc<EnqueuedInvocation>, vitual_time: f64) -> bool {
         let start_t = f64::max(vitual_time, self.finish_time_virt); // cognizant of weights
         let service_avg = self.service_avg(&item);
@@ -335,14 +369,18 @@ struct FlowQInfo {
     start_time_virt: f64,
     finish_time_virt: f64,
     in_flight: i32,
+    active_load: f64,
+    pending_load: f64,
     queue_len: usize,
     avg_active_t: f64,
     num_active_periods: i32,
 }
 #[derive(Debug, serde::Serialize)]
-struct MqfqInfo {
+pub struct MqfqInfo {
     flows: Vec<FlowQInfo>,
-    active_flows: u32,
+    pub active_flows: u32,
+    pub active_load: f64,
+    pub pending_load: f64,
 }
 
 enum MqfqPolicy {
@@ -388,6 +426,7 @@ impl TryFrom<Option<&String>> for MqfqPolicy {
 /// TODO: config with D, T, wts, etc.
 /// TODO: limit number active queues via GPU memory sizing
 #[allow(dyn_drop)]
+#[allow(elided_named_lifetimes)]
 impl MQFQ {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
@@ -419,7 +458,7 @@ impl MQFQ {
                 } else {
                     (None, None)
                 }
-            }
+            },
             None => (None, None),
         };
 
@@ -461,8 +500,21 @@ impl MQFQ {
     }
 
     async fn report_queue(self: Arc<Self>, tid: TransactionId) {
+        let log = self.get_flow_report();
+        match serde_json::to_string(&log) {
+            Ok(to_write) => {
+                info!(tid=%tid, global_vitual_time=self.mindicator.min(), queue_info=%to_write, "FlowQ details")
+            },
+            Err(e) => error!(tid=%tid, "Failed to convert flowq report to json because {}", e),
+        };
+        *self.active_flows.write() = log.active_flows;
+    }
+
+    fn get_flow_report(&self) -> MqfqInfo {
         let mut flows = vec![];
         let mut active_flows = 0;
+        let mut active_load = 0.0;
+        let mut pending_load = 0.0;
         for q in self.mqfq_set.iter() {
             if q.state == MQState::Active {
                 active_flows += 1;
@@ -474,20 +526,22 @@ impl MQFQ {
                 start_time_virt: q.start_time_virt,
                 finish_time_virt: q.finish_time_virt,
                 in_flight: q.in_flight,
+                pending_load: q.est_flow_wait(),
+                active_load: q.in_flight as f64 * self.cmap.get_gpu_exec_time(&q.fqdn),
                 queue_len: q.queue.len(),
                 avg_active_t: q.avg_active_t,
                 num_active_periods: q.num_active_periods,
             };
+            active_load += info.active_load;
+            pending_load += info.pending_load;
             flows.push(info);
         }
-        let log = MqfqInfo { flows, active_flows };
-        match serde_json::to_string(&log) {
-            Ok(to_write) => {
-                info!(tid=%tid, global_vitual_time=self.mindicator.min(), queue_info=%to_write, "FlowQ details")
-            }
-            Err(e) => error!(tid=%tid, "Failed to convert flowq report to json because {}", e),
-        };
-        *self.active_flows.write() = active_flows;
+        MqfqInfo {
+            flows,
+            active_flows,
+            active_load,
+            pending_load,
+        }
     }
 
     async fn gpu_wait_on_queue(invoker_svc: Arc<Self>, tid: TransactionId) {
@@ -498,14 +552,27 @@ impl MQFQ {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some((next_item, gpu_token)) = self.dispatch(&tid) {
-            // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
-            if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, &tid) {
+            debug!(tid=%next_item.invoke.tid, "Sending item for dispatch");
+            // This async function the only place which decrements running set and resources avail. Implicit assumption that it won't be concurrently invoked.
+            if let Some(cpu_token) = self
+                .acquire_resources_to_run(&next_item.invoke.registration, &tid)
+                .await
+            {
                 let svc = self.clone();
                 tokio::spawn(async move {
                     svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;
                 });
             } else {
-                warn!(tid=%tid, fqdn=%next_item.invoke.registration.fqdn, "Insufficient resources to run item");
+                warn!(tid=%next_item.invoke.tid, fqdn=%next_item.invoke.registration.fqdn, "Insufficient resources to run item");
+                match self.mqfq_set.get_mut(&next_item.invoke.registration.fqdn) {
+                    None => {
+                        next_item
+                            .invoke
+                            .mark_error(&anyhow::format_err!("Failed to re-insert item into MQFQ queue"));
+                        error!(tid=%next_item.invoke.tid, fqdn=%next_item.invoke.registration.fqdn, "Failed to re-insert item into MQFQ queue");
+                    },
+                    Some(mut s) => s.value_mut().reinsert_item(next_item),
+                }
                 break;
             }
         }
@@ -524,26 +591,16 @@ impl MQFQ {
         let ct = self.clock.now();
         self.ctrack.add_item(ct);
         if item.invoke.lock() {
-            let container = match self
-                .invoke(
-                    &item.invoke.registration,
-                    &item.invoke.json_args,
-                    &item.invoke.tid,
-                    item.invoke.queue_insert_time,
-                    cpu_token,
-                    gpu_token,
-                )
-                .await
-            {
+            let container = match self.invoke(&item.invoke, cpu_token, gpu_token).await {
                 Ok((result, duration, container)) => {
                     item.invoke
                         .mark_successful(result, duration, container.compute_type(), container.state());
                     Some(container)
-                }
+                },
                 Err(cause) => {
                     self.handle_invocation_error(item.invoke.clone(), cause);
                     None
-                }
+                },
             };
             if let Some(mut q) = self.mqfq_set.get_mut(&item.invoke.registration.fqdn) {
                 q.mark_completed();
@@ -580,38 +637,40 @@ impl MQFQ {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, gpu_token, cpu_token), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoke, gpu_token, cpu_token), fields(tid=%invoke.tid)))]
     async fn invoke<'a>(
         &'a self,
-        reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a str,
-        tid: &'a TransactionId,
-        queue_insert_time: OffsetDateTime,
+        invoke: &'a Arc<EnqueuedInvocation>,
         cpu_token: DroppableToken,
         gpu_token: DroppableToken,
     ) -> Result<(ParsedResult, Duration, Container)> {
-        debug!(tid=%tid, "Internal invocation starting");
+        debug!(tid=%invoke.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
         let start = now();
-        let ctr_lock = match self.cont_manager.acquire_container(reg, tid, Compute::GPU) {
+        let ctr_lock = match self
+            .cont_manager
+            .acquire_container(&invoke.registration, &invoke.tid, Compute::GPU)
+        {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => {
                 let n = n?;
                 if self.gpu_config.send_driver_memory_hints() {
                     let ctr = n.container.clone();
-                    let t = tid.clone();
+                    let t = invoke.tid.clone();
                     tokio::spawn(ContainerManager::move_to_device(ctr, t));
                 }
                 n
-            }
+            },
         };
         match invoke_on_container_2(
-            reg,
-            json_args,
-            tid,
-            queue_insert_time,
+            &invoke.registration,
+            &invoke.json_args,
+            &invoke.tid,
+            invoke.queue_insert_time,
+            invoke.est_completion_time,
+            invoke.insert_time_load,
             &ctr_lock,
             remove_time,
             start,
@@ -623,52 +682,52 @@ impl MQFQ {
             Ok((result, dur, container)) => {
                 drop(cpu_token);
                 Ok((result, dur, container))
-            }
+            },
             Err(e) => {
-                debug!(tid=%tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
+                debug!(tid=%invoke.tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
                 if !ctr_lock.container.is_healthy() {
-                    debug!(tid=%tid, container_id=%ctr_lock.container.container_id(), "Adding gpu token to drop_on_remove for container");
+                    debug!(tid=%invoke.tid, container_id=%ctr_lock.container.container_id(), "Adding gpu token to drop_on_remove for container");
                     // container will be removed, but holds onto GPU until deleted
-                    ctr_lock.container.add_drop_on_remove(gpu_token, tid);
+                    ctr_lock.container.add_drop_on_remove(gpu_token, &invoke.tid);
                 }
                 Err(e)
-            }
+            },
         }
     }
 
-    /// Returns an owned permit if there are sufficient resources to run a function
-    /// A return value of [None] means the resources failed to be acquired
-    fn acquire_resources_to_run(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Option<DroppableToken> {
+    /// Blocks until an owned permit can be acquired to run a function.
+    /// A return value of [None] means the resources failed to be acquired.
+    async fn acquire_resources_to_run(
+        &self,
+        reg: &Arc<RegisteredFunction>,
+        tid: &TransactionId,
+    ) -> Option<DroppableToken> {
         let mut ret: Vec<DroppableToken> = vec![];
-        match self.cpu.try_acquire_cores(reg, tid) {
+        match self.cpu.acquire_cores(reg, tid).await {
             Ok(Some(c)) => ret.push(Box::new(c)),
             Ok(_) => (),
-            Err(e) => {
-                match e {
-                    tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
-                    tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
-                    }
-                };
+            Err(_) => {
+                error!(tid=%tid, "CPU Resource Monitor `acquire_cores` returned a closed error!");
                 return None;
-            }
+            },
         };
         Some(Box::new(ret))
     }
 
     /// Get or create FlowQ
     fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) {
-        // let vitual_time = *self.vitual_time.read();
         let virtual_time = self.mindicator.min();
         match self.mqfq_set.get_mut(&item.registration.fqdn) {
             Some(mut fq) => {
+                debug!(tid=%item.tid, "Adding item to existing Q");
                 if fq.value_mut().push_flow(item, virtual_time) {
-                    self.mindicator.insert(fq.flow_id, fq.start_time_virt).unwrap();
+                    if let Err(e) = self.mindicator.insert(fq.flow_id, fq.start_time_virt) {
+                        error!(error=%e, vt=virtual_time, "Error adding VT to mindicator");
+                    }
                 }
-            }
+            },
             None => {
+                debug!(tid=%item.tid, "Adding item to new Q");
                 let fname = item.registration.fqdn.clone();
                 let id = self.mindicator.add_procs(1) - 1;
                 let weight = match &self.q_config.flow_weights {
@@ -688,10 +747,12 @@ impl MQFQ {
                     &self.clock,
                 );
                 if qguard.push_flow(item, virtual_time) {
-                    self.mindicator.insert(qguard.flow_id, qguard.start_time_virt).unwrap();
+                    if let Err(e) = self.mindicator.insert(qguard.flow_id, qguard.start_time_virt) {
+                        error!(error=%e, vt=virtual_time, "Error adding VT to mindicator");
+                    }
                 }
                 self.mqfq_set.insert(fname, qguard);
-            }
+            },
         };
         self.signal.notify_waiters();
     }
@@ -1028,6 +1089,7 @@ impl MQFQ {
             debug!(tid=%tid, qlen=qlen, "Empty queue");
             return None;
         }
+        let mut cnt = 0;
         match self.get_token(tid) {
             Some(token) => {
                 loop {
@@ -1042,40 +1104,218 @@ impl MQFQ {
                             return Some((i, token.into()));
                         } else {
                             debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "Empty flow chosen");
-                            continue;
+                            cnt += 1;
                         }
                     } else {
                         debug!(tid=%tid, qlen=qlen, "No chosen flow");
-                        continue;
+                        cnt += 1;
+                    }
+                    if cnt > 100 {
+                        error!(tid=%tid, "Failed to get flow after many iterations, despite non-empty queue.");
+                        return None;
                     }
                 }
-            }
+            },
             None => {
                 debug!(tid=%tid, qlen=qlen, "No token");
                 None
+            },
+        }
+    }
+
+    fn est_completion_time1(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
+        self.mqfq_set.iter().map(|x| x.value().est_flow_wait()).sum::<f64>()
+    }
+
+    fn est_completion_time2(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> f64 {
+        let (state, est_flow_wait) = match self.mqfq_set.get(&reg.fqdn) {
+            None => (MQState::Inactive, 0.0),
+            Some(q) => (q.state, q.est_flow_wait()),
+        };
+        match state {
+            // Likely under-estimation
+            MQState::Active => est_flow_wait,
+            // Likely over-estimation
+            MQState::Throttled => {
+                let per_flow_wait_times = self
+                    .mqfq_set
+                    .iter()
+                    .filter(|x| x.state == MQState::Active)
+                    .map(|x| x.est_flow_wait())
+                    .sum::<f64>()
+                    + est_flow_wait;
+                per_flow_wait_times / self.gpu.total_gpus() as f64
+            },
+            // Assumes inactive flow will be immediately be active and get to run soon.
+            // Probably under-estimation too
+            MQState::Inactive => 0.0,
+        }
+    }
+
+    fn est_completion_time3(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+        let mut est_time = 0.0;
+        let allowed_overrun = missing_default(&self.q_config.allowed_overrun, 10.0);
+        let cnt = self.get_select_num();
+        let mut flow_deets = self
+            .get_flow_report()
+            .flows
+            .into_iter()
+            .map(|mut f| {
+                if f.fqdn == reg.fqdn {
+                    f.queue_len += 1;
+                    if f.state == MQState::Inactive {
+                        f.state = MQState::Throttled;
+                        f.start_time_virt = f.finish_time_virt;
+                    }
+                    f.finish_time_virt += self.cmap.get_gpu_exec_time(&reg.fqdn);
+                }
+                f
+            })
+            .collect::<Vec<FlowQInfo>>();
+        loop {
+            flow_deets.sort_by(|f1, f2| OrderedFloat(f2.finish_time_virt).cmp(&OrderedFloat(f1.finish_time_virt)));
+            let mut keep_flows = vec![];
+            let mut other = vec![];
+            while keep_flows.len() < cnt {
+                if let Some(q) = flow_deets.pop() {
+                    if q.state == MQState::Active && q.queue_len > 0 {
+                        keep_flows.push(q);
+                    } else {
+                        other.push(q);
+                        // break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            flow_deets.extend(other);
+            keep_flows.sort_by(|f1, f2| f2.queue_len.cmp(&f1.queue_len));
+            // min by
+            keep_flows.sort_by(|f1, f2| f1.in_flight.cmp(&f2.in_flight));
+            match keep_flows.first_mut() {
+                Some(min_flow) => {
+                    let time = (min_flow.finish_time_virt - min_flow.start_time_virt) / min_flow.queue_len as f64;
+                    est_time += time;
+                    min_flow.start_time_virt += time;
+                    min_flow.queue_len -= 1;
+                },
+                None => {
+                    warn!(tid=%tid, "keep_flows was somehow empty!");
+                    break;
+                },
+            };
+            flow_deets.extend(keep_flows);
+            let vt = match flow_deets
+                .iter()
+                .filter(|q| q.queue_len != 0)
+                .map(|q| OrderedFloat(q.start_time_virt))
+                .min()
+            {
+                None => {
+                    info!(tid=%tid, "No valid flow_deets to find new min_vt");
+                    break;
+                },
+                Some(vt) => vt.0,
+            };
+            for q in flow_deets.iter_mut() {
+                if q.start_time_virt - vt <= allowed_overrun {
+                    q.state = MQState::Active;
+                    if q.fqdn == reg.fqdn && q.queue_len == 0 {
+                        return est_time;
+                    }
+                } else {
+                    q.state = MQState::Throttled;
+                }
             }
         }
+        est_time
+    }
+
+    fn est_time_linreg(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
+        let report = self.get_flow_report();
+        let load = report.pending_load + report.active_load;
+        let mut predict = self.cmap.predict_gpu_load_est(load);
+        if predict == -1.0 {
+            predict = 0.0;
+        }
+        (f64::max(predict, 0.0), load)
+    }
+    fn per_func_est_time_linreg(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
+        let report = self.get_flow_report();
+        let load = report.pending_load + report.active_load;
+        let mut predict = self.cmap.func_predict_gpu_load_est(&reg.fqdn, load);
+        if predict == -1.0 {
+            predict = 0.0;
+        }
+        (f64::max(predict, 0.0), load)
+    }
+    fn fallback_est_time_linreg(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
+        let report = self.get_flow_report();
+        let load = report.pending_load + report.active_load;
+        let mut predict = self.cmap.func_predict_gpu_load_est(&reg.fqdn, load);
+        if predict == -1.0 {
+            predict = self.cmap.predict_gpu_load_est(load);
+        }
+        (f64::max(predict, 0.0), load)
+    }
+
+    /// Use a combination of a global model, per-func regression, and some kalman filtering?
+    fn global_est_time(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (f64, f64) {
+        let report = self.get_flow_report();
+        let load = report.pending_load + report.active_load;
+        let theta_mqfq = 2.0;
+
+        let t_global = theta_mqfq * load;
+
+        let _t_linreg = self.cmap.func_predict_gpu_load_est(&reg.fqdn, load);
+
+        (t_global, load)
     }
 } // END MQFQ
 
 impl DeviceQueue for MQFQ {
     fn queue_len(&self) -> usize {
-        // sum(self.mqfq_set.iter().map(|x| x.len()))
-        let per_flow_q_len = self.mqfq_set.iter().map(|x| x.value().queue.len());
-        per_flow_q_len.sum::<usize>()
+        self.mqfq_set.iter().map(|x| x.queue.len()).sum::<usize>()
     }
 
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        // sum_q (q_F-q_S) / max_in_flight
-        let per_flow_wait_times = self.mqfq_set.iter().map(|x| x.value().est_flow_wait());
-        let total_wait: f64 = per_flow_wait_times.sum();
+    fn queue_load(&self) -> QueueLoad {
+        let rpt = self.get_flow_report();
+        let load = rpt.pending_load + rpt.active_load;
+        QueueLoad {
+            len: rpt.flows.iter().fold(0, |acc, f| acc + f.queue_len),
+            load: load,
+            load_avg: load / self.gpu.max_concurrency() as f64,
+            tput: self.cmap.get_gpu_tput(),
+        }
+    }
 
-        debug!(tid=%tid, qt=total_wait, runtime=0.0, "GPU estimated completion time of item");
-
-        (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn)
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
+        let concur = self.gpu.max_concurrency() as f64;
+        let (q_t, load) = match self.q_config.time_estimation {
+            MqfqTimeEst::V1 => (self.est_completion_time1(reg, tid) / concur, 0.0),
+            MqfqTimeEst::V2 => (self.est_completion_time2(reg, tid) / concur, 0.0),
+            MqfqTimeEst::V3 => (self.est_completion_time3(reg, tid) / concur, 0.0),
+            MqfqTimeEst::LinReg => self.est_time_linreg(reg, tid),
+            MqfqTimeEst::PerFuncLinReg => self.per_func_est_time_linreg(reg, tid),
+            MqfqTimeEst::FallbackLinReg => self.fallback_est_time_linreg(reg, tid),
+            MqfqTimeEst::GlobalLinReg => self.global_est_time(reg, tid),
+        };
+        let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
+        let mut err_time = 0.0;
+        if self.q_config.add_estimation_error && self.queue_len() > 0 {
+            // ALERT: We dont currently store this, so always zero, REMOVE
+            err_time = match self.cmap.lookup_agg(&reg.fqdn, &Characteristics::QueueErrGpu) {
+                None => 0.0,
+                Some(x) => iluvatar_library::characteristics_map::unwrap_val_f64(&x) / concur,
+            };
+        }
+        let raw_est = self.est_completion_time2(reg, tid) / concur;
+        info!(tid=%tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");
+        (q_t + exec_time + err_time, load)
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
+        debug!(tid = item.tid, "MQFQ queue item");
         self.add_invok_to_flow(item.clone());
         Ok(())
     }
@@ -1085,7 +1325,7 @@ impl DeviceQueue for MQFQ {
     }
 
     fn warm_hit_probability(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64 {
-        // if flowq doesnt exist or inactive, 0
+        // if flowq doesn't exist or inactive, 0
         // else (active or throttled), but no guarantees
         // Average eviction time for the queue? eviction == q becomes inactive
         // 1 - e^-(AET/iat)
@@ -1096,8 +1336,16 @@ impl DeviceQueue for MQFQ {
                 let aet = fq.value().avg_active_t;
                 let r = -aet / iat;
                 1.0 - r.exp()
-            }
+            },
             None => 0.0,
         }
+    }
+
+    fn expose_mqfq(&self) -> Option<&DashMap<String, FlowQ>> {
+        Some(&self.mqfq_set)
+    }
+
+    fn expose_flow_report(&self) -> Option<MqfqInfo> {
+        Some(self.get_flow_report())
     }
 }

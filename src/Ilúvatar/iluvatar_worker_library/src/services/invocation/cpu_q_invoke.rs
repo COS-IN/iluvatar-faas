@@ -9,7 +9,7 @@ use crate::services::containers::{
 };
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
-use crate::services::invocation::invoke_on_container;
+use crate::services::invocation::{invoke_on_container, QueueLoad};
 use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
@@ -21,7 +21,6 @@ use std::{
     sync::{atomic::AtomicU32, Arc},
     time::Duration,
 };
-use time::OffsetDateTime;
 use tokio::sync::{mpsc::UnboundedSender, Notify};
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -143,7 +142,7 @@ impl CpuQueueingInvoker {
             Some(bypass_duration_ms) => {
                 let exec_time = self.cmap.get_exec_time(&reg.fqdn);
                 exec_time != 0.0 && exec_time < Duration::from_millis(bypass_duration_ms).as_secs_f64()
-            }
+            },
             None => false,
         }
     }
@@ -162,7 +161,7 @@ impl CpuQueueingInvoker {
                 Err(e) => {
                     error!(tid=%tid, error=%e, "Tokio service thread failed to receive service from channel!");
                     return;
-                }
+                },
             };
             while let Some(item) = del_rx.recv().await {
                 let s_c = service.clone();
@@ -173,7 +172,7 @@ impl CpuQueueingInvoker {
                             if let Err(cause) = s_c.enqueue_item(&item) {
                                 s_c.handle_invocation_error(item, cause);
                             };
-                        }
+                        },
                         Err(cause) => s_c.handle_invocation_error(item, cause),
                     };
                 });
@@ -199,11 +198,11 @@ impl CpuQueueingInvoker {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%item.tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => (),
                 };
                 return None;
-            }
+            },
         };
         Some(Box::new(ret))
     }
@@ -222,16 +221,7 @@ impl CpuQueueingInvoker {
     /// On failure, [Invoker::handle_invocation_error] is called
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
     async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
-        match self
-            .invoke(
-                &item.registration,
-                &item.json_args,
-                &item.tid,
-                item.queue_insert_time,
-                Some(permit),
-            )
-            .await
-        {
+        match self.invoke(&item, Some(permit)).await {
             Ok((result, duration, compute, state)) => item.mark_successful(result, duration, compute, state),
             Err(cause) => self.handle_invocation_error(item, cause),
         };
@@ -253,8 +243,9 @@ impl CpuQueueingInvoker {
             match self.queue.add_item_to_queue(&item, Some(0)) {
                 Ok(_) => self.signal.notify_waiters(),
                 Err(e) => {
-                    error!(tid=item.tid, error=%e, "Failed to re-queue item in CPU queue after memory exhaustion")
-                }
+                    error!(tid=item.tid, error=%e, "Failed to re-queue item in CPU queue after memory exhaustion");
+                    item.mark_error(&e);
+                },
             };
         } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
             warn!(tid=%item.tid, "No GPU available to run item right now");
@@ -265,8 +256,9 @@ impl CpuQueueingInvoker {
                 match self.queue.add_item_to_queue(&item, Some(0)) {
                     Ok(_) => self.signal.notify_waiters(),
                     Err(e) => {
-                        error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt")
-                    }
+                        error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
+                        item.mark_error(&e);
+                    },
                 };
             }
         }
@@ -292,6 +284,8 @@ impl CpuQueueingInvoker {
             &item.json_args,
             &item.tid,
             remove_time,
+            item.est_completion_time,
+            item.insert_time_load,
             &ctr_lock,
             self.clock.format_time(remove_time)?,
             now(),
@@ -314,30 +308,32 @@ impl CpuQueueingInvoker {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, permit), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
     async fn invoke<'a>(
         &'a self,
-        reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a str,
-        tid: &'a TransactionId,
-        queue_insert_time: OffsetDateTime,
+        item: &'a Arc<EnqueuedInvocation>,
         permit: Option<Box<dyn Drop + Send>>,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        debug!(tid=%tid, "Internal invocation starting");
+        debug!(tid=%item.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
         let start = now();
-        let ctr_lock = match self.cont_manager.acquire_container(reg, tid, Compute::CPU) {
+        let ctr_lock = match self
+            .cont_manager
+            .acquire_container(&item.registration, &item.tid, Compute::CPU)
+        {
             EventualItem::Future(f) => f.await?,
             EventualItem::Now(n) => n?,
         };
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (data, duration, compute_type, state) = invoke_on_container(
-            reg,
-            json_args,
-            tid,
-            queue_insert_time,
+            &item.registration,
+            &item.json_args,
+            &item.tid,
+            item.queue_insert_time,
+            item.est_completion_time,
+            item.insert_time_load,
             &ctr_lock,
             remove_time,
             start,
@@ -364,25 +360,40 @@ impl CpuQueueingInvoker {
     }
 }
 
-#[tonic::async_trait]
 impl DeviceQueue for CpuQueueingInvoker {
     fn queue_len(&self) -> usize {
         self.queue.queue_len()
     }
-
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let qt = self.queue.est_queue_time();
+    fn queue_load(&self) -> QueueLoad {
+        let load = self.queue.est_queue_time();
+        QueueLoad {
+            len: self.queue.queue_len(),
+            load: load,
+            load_avg: load / self.cpu.cores,
+            tput: self.cmap.get_cpu_tput(),
+        }
+    }
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
+        let qt = if self.queue_len() <= self.cpu.available_cores() {
+            // If Q is smaller than num of avail CPUs, we don't really have queuing,
+            // just a race from item being added recently and not popped
+            0.0
+        } else {
+            self.queue.est_queue_time() / f64::min(self.cpu.cores, self.queue_len() as f64)
+        };
         let (runtime, state) = self.get_est_completion_time_from_containers(reg);
-        debug!(tid=%tid, qt=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
-        qt + runtime
+        info!(tid=%tid, queue_time=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
+        (qt + runtime, 0.0)
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         if self.should_bypass(&item.registration) {
+            debug!(tid = item.tid, "CPU queue bypass");
             self.bypass_rx.send(item.clone())?;
             return Ok(());
         }
+        debug!(tid = item.tid, "CPU queue item");
         self.queue.add_item_to_queue(item, None)?;
         self.signal.notify_waiters();
         Ok(())

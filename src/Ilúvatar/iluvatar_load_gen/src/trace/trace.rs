@@ -1,5 +1,5 @@
 use crate::utils::{LoadType, RunType, Target};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use controller_trace::{controller_trace_live, controller_trace_sim};
 use iluvatar_library::tokio_utils::SimulationGranularity;
@@ -71,7 +71,10 @@ pub struct TraceArgs {
 
 pub fn run_trace(args: TraceArgs) -> Result<()> {
     match args.target {
-        Target::Worker => worker_trace::trace_worker(args),
+        Target::Worker => match args.setup {
+            RunType::Simulation => worker_trace::simulated_worker(args),
+            RunType::Live => worker_trace::live_worker(args),
+        },
         Target::Controller => match args.setup {
             RunType::Live => controller_trace_live(args),
             RunType::Simulation => controller_trace_sim(args),
@@ -86,7 +89,7 @@ fn load_metadata(path: &str) -> Result<HashMap<String, Function>> {
     };
     let mut ret = HashMap::new();
     for result in rdr.deserialize() {
-        let mut func: Function = result.expect("Error deserializing metadata");
+        let mut func: Function = result.map_err(|e| anyhow!("Error deserializing metadata {}", e))?;
         if func.func_name.starts_with("lookbusy") {
             func.use_lookbusy = Some(true);
         }

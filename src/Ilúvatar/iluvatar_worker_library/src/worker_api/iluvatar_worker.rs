@@ -103,6 +103,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             None => return Ok(Response::new(InvokeResponse::error("Function was not registered"))),
         };
         self.cmap.add_iat(&fqdn);
+        debug!(tid=%request.transaction_id, "Sending invocation to invoker");
         let resp = self
             .invoker
             .sync_invocation(reg, request.json_args, request.transaction_id)
@@ -119,11 +120,11 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     container_state: result.container_state.into(),
                 };
                 Ok(Response::new(reply))
-            }
+            },
             Err(e) => {
                 error!("Invoke failed with error: {}", e);
                 Ok(Response::new(InvokeResponse::error(&e.to_string())))
-            }
+            },
         }
     }
 
@@ -142,7 +143,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     lookup_cookie: "".to_string(),
                     success: false,
                 }));
-            }
+            },
         };
         self.cmap.add_iat(&fqdn);
         let resp = self
@@ -156,14 +157,14 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     success: true,
                 };
                 Ok(Response::new(reply))
-            }
+            },
             Err(e) => {
                 error!("Failed to launch an async invocation with error '{}'", e);
                 Ok(Response::new(InvokeAsyncResponse {
                     lookup_cookie: "".to_string(),
                     success: false,
                 }))
-            }
+            },
         }
     }
 
@@ -182,7 +183,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             Err(e) => {
                 error!(tid=%request.transaction_id, error=%e, "Failed to check async invocation status");
                 Ok(Response::new(InvokeResponse::error(&e.to_string())))
-            }
+            },
         }
     }
 
@@ -200,7 +201,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     message: "{ \"Error\": \"Function was not registered\" }".into(),
                 };
                 return Ok(Response::new(resp));
-            }
+            },
         };
         let compute: Compute = request.compute.into();
         if !reg.supported_compute.intersects(compute) {
@@ -222,7 +223,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     message: "".to_string(),
                 };
                 Ok(Response::new(resp))
-            }
+            },
             Err(e) => {
                 error!(tid=%request.transaction_id, error=%e, "Container prewarm failed");
                 let resp = PrewarmResponse {
@@ -230,7 +231,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     message: format!("{{ \"Error\": \"{}\" }}", e),
                 };
                 Ok(Response::new(resp))
-            }
+            },
         }
     }
 
@@ -248,7 +249,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     function_json_result: "{\"Ok\": \"function registered\"}".into(),
                 };
                 Ok(Response::new(reply))
-            }
+            },
             Err(msg) => {
                 error!(tid=%tid, error=%msg, "Registration failed");
                 let reply = RegisterResponse {
@@ -256,7 +257,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     function_json_result: format!("{{\"Error\": \"Error during registration: '{:?}\"}}", msg),
                 };
                 Ok(Response::new(reply))
-            }
+            },
         }
     }
 

@@ -4,7 +4,6 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
-#[allow(unused)]
 pub struct Configuration {
     /// name for the server
     pub name: String,
@@ -20,7 +19,6 @@ pub struct Configuration {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(unused)]
 /// configuration for the load balancer
 pub struct LoadBalancingConfig {
     /// the load balancing algorithm to use

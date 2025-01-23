@@ -3,6 +3,18 @@
 A list of possible improvements and changes to the base platform.
 In no particular order.
 
+## Improve Ansible interoperability
+
+[This library](https://ansible.readthedocs.io/projects/runner/en/latest/) allows calling `ansible-playbook` via Python code.
+Allow calling Ilúvatar Ansible scripts via this interface.
+Allow this abstraction to be easily called from external Python code.
+Make sure to use `kwargs` to avoid large numbers of function arguments.
+
+## Create Jupyter notebooks for examples
+
+Instead of shell scripts to run examples, do it with Jupyter notebooks.
+Can add in graphing & analysis too.
+
 ## Monitor GPU utilization on Jetson platform
 
 Jetson requires using `tegrastats` to get utilization numbers.
@@ -11,7 +23,7 @@ Can cause dispatches to be blocked or broken on Jetson.
 
 ## Switch/Enable networking via unix sockets
 
-Using HTTP connections to send/receive invocations has some networking overhead and scaling issues at high throughput.
+Using HTTP connections to send/receive invocations to containers has some networking overhead and scaling issues at high throughput.
 This can cause blocks of up to 60 seconds on some calls.
 Both the worker code and the server running inside the container must be updated to this new format.
 
@@ -43,12 +55,6 @@ Which containers, etc., belong to the worker, the bridge and network veths too.
 Currently startup on a remote machine via ansible runs the worker and controller as a background ansible job.
 This is a hack and not the ideal way to deploy this as software.
 Putting this as a linux daemon with the start/stop/restart paradigm would be better.
-
-## Disable-able worker registration
-
-Currently worker registration with the controller always happens, and on failure an error is added to the log.
-This whole process should be skipped based on config.
-If registration is attempted and fails, the worker should exit.
 
 ## Split running and cached memory usage
 

@@ -28,8 +28,9 @@ enum Commands {
 
 fn start_logging(path: &str, stdout: bool) -> anyhow::Result<impl Drop> {
     iluvatar_library::logging::start_tracing(
+        // TODO: use proper logging config
         Arc::new(iluvatar_library::logging::LoggingConfig {
-            level: "INFO".to_string(),
+            level: "info".to_string(),
             stdout: Some(stdout),
             spanning: "NONE".to_string(),
             directory: path.to_owned(),

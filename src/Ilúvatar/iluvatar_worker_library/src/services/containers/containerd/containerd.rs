@@ -80,7 +80,7 @@ impl ContainerdIsolation {
             Err(e) => {
                 warn!(tid=%tid, error=?e, "Failed to connect to containerd socket");
                 return false;
-            }
+            },
         };
         let mut client = VersionClient::new(channel);
         let _: client::tonic::Response<VersionResponse> = match client.version(()).await {
@@ -88,7 +88,7 @@ impl ContainerdIsolation {
             Err(e) => {
                 warn!(tid=%tid, error=?e, "Failed to query Containerd version");
                 return false;
-            }
+            },
         };
         true
     }
@@ -138,10 +138,10 @@ impl ContainerdIsolation {
                                   cpid=%ccpid,
                                   "tag_pid_mapping"
                         );
-                    }
+                    },
                     Err(e) => {
-                        bail_error!(error=%e, "background receive channel broken!");
-                    }
+                        bail_error!(error=%e, "ContainerdIsolation background receive channel broken!");
+                    },
                 }
             }),
         }
@@ -263,7 +263,7 @@ impl ContainerdIsolation {
                     }
                     // sleep a little and hope the process has terminated in that time
                     tokio::time::sleep(Duration::from_millis(5)).await;
-                }
+                },
             };
         }
     }
@@ -287,14 +287,14 @@ impl ContainerdIsolation {
             Ok(_) => {
                 debug!(tid=%tid, response=?resp, "Delete task response");
                 Ok(())
-            }
+            },
             Err(e) => {
                 match e.code() {
                     // task crashed and was removed
                     Code::NotFound => {
                         warn!(tid=%tid, container_id=%container_id, "Task for container was missing when it was attempted to be delete. Usually the process crashed");
                         Ok(())
-                    }
+                    },
                     _ => anyhow::bail!(
                         "[{}] Attempt to delete task in container '{}' failed with error: {}",
                         tid,
@@ -302,7 +302,7 @@ impl ContainerdIsolation {
                         e
                     ),
                 }
-            }
+            },
         }
     }
 
@@ -324,7 +324,7 @@ impl ContainerdIsolation {
 
         let resp = client.kill(req).await;
         match &resp {
-            Ok(_) => {}
+            Ok(_) => {},
             Err(e) => {
                 if e.code() == Code::NotFound {
                     // task crashed and was removed
@@ -332,7 +332,7 @@ impl ContainerdIsolation {
                 } else {
                     bail_error!(tid=%tid, container_id=%container_id, error=%e, "Attempt to kill task in container failed");
                 }
-            }
+            },
         };
         debug!(tid=%tid, response=?resp, "Kill task response");
         Ok(())
@@ -436,12 +436,12 @@ impl ContainerdIsolation {
                         Err(e) => bail_error!(tid=%tid, error=%e, "JSON error getting ImageManifest"),
                     };
                 layer_item.config().to_owned()
-            }
+            },
             "application/vnd.docker.distribution.manifest.v2+json" => {
                 let config_index: ImageManifest = serde_json::from_slice(&content)?;
                 debug!(tid=%tid, manifest=?config_index, "config ImageManifest");
                 config_index.config().to_owned()
-            }
+            },
             _ => anyhow::bail!("Don't know how to handle unknown image media type '{}'", media_type),
         };
 
@@ -515,7 +515,7 @@ impl ContainerdIsolation {
                         stderr
                     )
                 }
-            }
+            },
         }
     }
 
@@ -541,10 +541,10 @@ impl ContainerdIsolation {
                 Ok(p) => {
                     debug!(tid=%tid, "Acquired containerd creation semaphore");
                     Some(p)
-                }
+                },
                 Err(e) => {
                     bail_error_value!(error=%e, "Error trying to acquire containerd creation semaphore", device_resource);
-                }
+                },
             },
             None => None,
         };
@@ -588,7 +588,7 @@ impl ContainerdIsolation {
             Ok(resp) => resp,
             Err(e) => {
                 bail_error_value!(tid=%tid, error=%e, "Containerd failed to create container", device_resource);
-            }
+            },
         };
 
         debug!(tid=%tid, response=?resp, "Container created");
@@ -599,7 +599,7 @@ impl ContainerdIsolation {
                 drop(permit);
                 debug!(tid=%tid, "Dropped containerd creation semaphore after load_mounts error");
                 return Err((e, device_resource));
-            }
+            },
         };
         debug!(tid=%tid, "Mounts loaded");
 
@@ -657,7 +657,7 @@ impl ContainerdIsolation {
                         tid,
                     )?)
                 }
-            }
+            },
             Err(e) => {
                 drop(permit);
                 debug!(tid=%tid, "Dropped containerd containerd creation semaphore after error");
@@ -668,7 +668,7 @@ impl ContainerdIsolation {
                     return err_val(e, device_resource);
                 };
                 bail_error_value!(tid=%tid, error=%e, "Create task failed", device_resource);
-            }
+            },
         }
     }
 
@@ -744,10 +744,10 @@ impl ContainerIsolationService for ContainerdIsolation {
                     tid,
                 );
                 Ok(Arc::new(container))
-            }
+            },
             Err(e) => {
                 bail_error_value!(tid=%tid, error=%e, "Starting task failed", crate::services::containers::structs::ContainerT::revoke_device(&container));
-            }
+            },
         }
     }
 
@@ -793,7 +793,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             Ok(resp) => resp,
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, "Containerd failed to list containers");
-            }
+            },
         };
         debug!(tid=%tid, response=?resp, "Container list response");
         let mut handles = vec![];
@@ -808,7 +808,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 let fut = match svc_clone.as_any().downcast_ref::<ContainerdIsolation>() {
                     Some(i) => {
                         futures::future::Either::Left(i.remove_container_internal(&container_id, &ns_clone, &tid_clone))
-                    }
+                    },
                     None => futures::future::Either::Right(async {
                         anyhow::bail!(
                             "Failed to cast ContainerT type {} to {:?}",
@@ -829,12 +829,12 @@ impl ContainerIsolationService for ContainerdIsolation {
                     Err(e) => {
                         error!(tid=%tid, error=%e, "Encountered an error on container cleanup");
                         failed += 1;
-                    }
+                    },
                 },
                 Err(e) => {
                     error!(tid=%tid, error=%e, "Encountered an error joining thread for container cleanup");
                     failed += 1;
-                }
+                },
             }
         }
         if failed > 0 {
@@ -876,7 +876,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                         Err(e) => bail_error!(error=%e, tid=%tid, "Deleting inotify watch failed"),
                     };
                     break;
-                }
+                },
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     if start.elapsed().as_millis() as u64 >= timeout_ms {
                         let stdout = self.read_stdout(container, tid).await;
@@ -887,10 +887,10 @@ impl ContainerIsolationService for ContainerdIsolation {
                         }
                         bail_error!(tid=%tid, container_id=%container.container_id(), stdout=%stdout, stderr=%stderr, "Timeout while reading inotify events for container");
                     }
-                }
+                },
                 _ => {
                     bail_error!(tid=%tid, container_id=%container.container_id(), "Error while reading inotify events for container")
-                }
+                },
             };
             tokio::time::sleep(std::time::Duration::from_micros(100)).await;
         }
@@ -905,7 +905,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 warn!(tid=%tid, error=%e, "Error casting container to ContainerdContainer");
                 container.mark_unhealthy();
                 return container.get_curr_mem_usage();
-            }
+            },
         };
         let contents = match std::fs::read_to_string(format!("/proc/{}/statm", cast_container.task.pid)) {
             Ok(c) => c,
@@ -913,7 +913,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 warn!(tid=%tid, error=%e, container_id=%cast_container.container_id, "Error trying to read container /proc/<pid>/statm");
                 container.mark_unhealthy();
                 return container.get_curr_mem_usage();
-            }
+            },
         };
         let split: Vec<&str> = contents.split(' ').collect();
         // https://linux.die.net/man/5/proc
@@ -926,7 +926,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 warn!(tid=%tid, error=%e, vmrss=%vmrss, "Error trying to parse virtual memory resource set size");
                 container.mark_unhealthy();
                 container.get_curr_mem_usage()
-            }
+            },
         });
         container.get_curr_mem_usage()
     }
@@ -938,7 +938,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             Err(e) => {
                 error!(tid=%tid, container_id=%container.container_id(), error=%e, "Error reading container");
                 format!("STDOUT_READ_ERROR: {}", e)
-            }
+            },
         }
     }
     async fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
@@ -948,7 +948,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             Err(e) => {
                 error!(tid=%tid, container_id=%container.container_id(), error=%e, "Error reading container");
                 format!("STDERR_READ_ERROR: {}", e)
-            }
+            },
         }
     }
 }

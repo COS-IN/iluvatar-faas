@@ -40,9 +40,6 @@ impl ContainerIsolationService for SimulatorIsolation {
         vec![Isolation::CONTAINERD, Isolation::DOCKER]
     }
 
-    /// creates and starts the entrypoint for a container based on the given image
-    /// Run inside the specified namespace
-    /// returns a new, unique ID representing it
     async fn run_container(
         &self,
         fqdn: &str,
@@ -73,12 +70,10 @@ impl ContainerIsolationService for SimulatorIsolation {
         }
     }
 
-    /// Removed the specified container in the containerd namespace
     async fn remove_container(&self, container: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
         Ok(())
     }
 
-    /// Read through an image's digest to find it's snapshot base
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,

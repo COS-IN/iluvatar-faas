@@ -3,7 +3,7 @@ use crate::trace::prepare_function_args;
 use crate::utils::{wait_elapsed_live, wait_elapsed_sim};
 use crate::{
     trace::trace_utils::worker_prepare_functions,
-    utils::{resolve_handles, save_result_json, save_worker_result_csv, worker_invoke, RunType, VERSION},
+    utils::{resolve_handles, save_result_json, save_worker_result_csv, worker_invoke, VERSION},
 };
 use anyhow::Result;
 use iluvatar_library::clock::{get_global_clock, now};
@@ -18,13 +18,6 @@ use iluvatar_worker_library::worker_api::{worker_comm::WorkerAPIFactory, worker_
 use std::path::Path;
 use std::sync::Arc;
 use tracing::{debug, info};
-
-pub fn trace_worker(args: TraceArgs) -> Result<()> {
-    match args.setup {
-        RunType::Simulation => simulated_worker(args),
-        RunType::Live => live_worker(args),
-    }
-}
 
 fn run_invokes(
     tid: &TransactionId,
@@ -111,7 +104,7 @@ fn run_invokes(
     save_result_json(p, &results)
 }
 
-fn simulated_worker(args: TraceArgs) -> Result<()> {
+pub fn simulated_worker(args: TraceArgs) -> Result<()> {
     let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
     iluvatar_library::utils::set_simulation(tid)?;
     let worker_config_pth = args
@@ -136,7 +129,7 @@ fn simulated_worker(args: TraceArgs) -> Result<()> {
     )
 }
 
-fn live_worker(args: TraceArgs) -> Result<()> {
+pub fn live_worker(args: TraceArgs) -> Result<()> {
     let tid: &TransactionId = &iluvatar_library::transaction::LIVE_WORKER_LOAD_TID;
     let factory = WorkerAPIFactory::boxed();
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;

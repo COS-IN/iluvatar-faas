@@ -46,7 +46,7 @@ impl CompletionTimeTracker {
         match pos {
             Ok(p) => {
                 items.remove(p);
-            }
+            },
             Err(_) => (),
         };
     }

@@ -21,6 +21,7 @@ pub struct LoggingConfig {
     /// Directory to store logs in, formatted as JSON.
     pub directory: String,
     /// Additionally write logs to stdout.
+    #[serde(default)]
     pub stdout: Option<bool>,
     /// log filename start string
     pub basename: String,
@@ -33,29 +34,79 @@ pub struct LoggingConfig {
     /// A file name to put flame trace data in, file will be placed in [Self::directory] if present, or local directory.
     /// See (here)<https://docs.rs/tracing-flame/latest/tracing_flame/index.html> for details on how this works.
     /// If [None], do not record flame data.
+    #[serde(default)]
     pub flame: Option<String>,
     /// Use live span information to track invocation and background energy usage.
     /// These will then be reported to influx.
+    #[serde(default)]
     pub span_energy_monitoring: bool,
+    /// Include currently entered spans when logging JSON messages.
+    /// See (here for more details)<https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/struct.Json.html#method.with_span_list>
+    #[serde(default)]
+    pub include_spans_json: bool,
 }
 
-#[allow(dead_code)]
+fn parse_span(span: &str) -> Result<FmtSpan> {
+    Ok(match span {
+        "NEW" => FmtSpan::NEW,
+        "ENTER" => FmtSpan::ENTER,
+        "EXIT" => FmtSpan::EXIT,
+        "CLOSE" => FmtSpan::CLOSE,
+        "NONE" => FmtSpan::NONE,
+        "" => FmtSpan::NONE,
+        "ACTIVE" => FmtSpan::ACTIVE,
+        "FULL" => FmtSpan::FULL,
+        _ => anyhow::bail!("Unknown spanning value {}", span),
+    })
+}
 fn str_to_span(spanning: &str) -> Result<FmtSpan> {
-    let mut fmt = FmtSpan::NONE;
-    for choice in spanning.split('+') {
-        fmt |= match choice {
-            "NEW" => FmtSpan::NEW,
-            "ENTER" => FmtSpan::ENTER,
-            "EXIT" => FmtSpan::EXIT,
-            "CLOSE" => FmtSpan::CLOSE,
-            "NONE" => FmtSpan::NONE,
-            "" => FmtSpan::NONE,
-            "ACTIVE" => FmtSpan::ACTIVE,
-            "FULL" => FmtSpan::FULL,
-            _ => anyhow::bail!("Unknown spanning value {}", choice),
-        }
+    let parts = spanning.split('+').collect::<Vec<&str>>();
+    if parts.is_empty() {
+        return Ok(FmtSpan::NONE);
     }
-    Ok(fmt)
+    let mut parts = parts
+        .iter()
+        .map(|span| parse_span(span))
+        .collect::<Result<Vec<FmtSpan>>>()?;
+    let first_part = parts.pop().unwrap();
+    Ok(parts.into_iter().fold(first_part, |acc, item| item | acc))
+}
+
+fn panic_hook() {
+    std::panic::set_hook(Box::new(move |info| {
+        println!("!!Thread panicked!!");
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let thread = std::thread::current();
+        let thread = thread.name().unwrap_or("<unnamed>");
+
+        let msg = match info.payload().downcast_ref::<&'static str>() {
+            Some(s) => *s,
+            None => match info.payload().downcast_ref::<String>() {
+                Some(s) => &**s,
+                None => "Box<Any>",
+            },
+        };
+
+        match info.location() {
+            Some(location) => {
+                tracing::error!(
+                    target: "panic", "thread '{}' panicked at '{}': {}:{}{:?}",
+                    thread,
+                    msg,
+                    location.file(),
+                    location.line(),
+                    backtrace
+                );
+            },
+            None => tracing::error!(
+                target: "panic",
+                "thread '{}' panicked at '{}'{:?}",
+                thread,
+                msg,
+                backtrace
+            ),
+        }
+    }));
 }
 
 pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &TransactionId) -> Result<impl Drop> {
@@ -94,7 +145,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
                     .compact()
                     .json(),
             )
-        }
+        },
     };
 
     let stdout_layer = match config.stdout.unwrap_or(false) {
@@ -107,7 +158,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
                     .with_writer(stdout)
                     .compact(),
             )
-        }
+        },
         false => None,
     };
 
@@ -126,7 +177,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
             flame_layer = flame_layer.with_threads_collapsed(true).with_file_and_line(true);
             drops.push(Box::new(_flame_guard));
             Some(flame_layer)
-        }
+        },
         _ => None,
     };
     let subscriber = Registry::default()
@@ -136,8 +187,14 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
         .with(energy_layer)
         .with(flame_layer);
     match tracing::subscriber::set_global_default(subscriber) {
-        Ok(_) => info!(tid=%tid, "logger initialized"),
-        Err(e) => warn!(tid=%tid, error=%e, "Global tracing subscriber was already set"),
-    };
-    Ok(drops)
+        Ok(_) => {
+            panic_hook();
+            info!(tid=%tid, "Logger initialized");
+            Ok(drops)
+        },
+        Err(e) => {
+            warn!(tid=%tid, error=%e, "Global tracing subscriber was already set");
+            Ok(vec![])
+        },
+    }
 }

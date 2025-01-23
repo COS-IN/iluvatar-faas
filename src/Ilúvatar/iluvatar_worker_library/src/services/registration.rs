@@ -2,7 +2,7 @@ use super::containers::{containermanager::ContainerManager, ContainerIsolationCo
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
 use iluvatar_library::{
-    characteristics_map::{Characteristics, CharacteristicsMap, Values},
+    characteristics_map::{CharacteristicsMap, Values},
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::calculate_fqdn,
@@ -29,14 +29,15 @@ pub struct RegisteredFunction {
 }
 
 impl RegisteredFunction {
+    #[inline(always)]
     pub fn cpu_only(&self) -> bool {
-        self.supported_compute.contains(Compute::CPU) && !self.supported_compute.contains(Compute::GPU)
+        self.supported_compute == Compute::CPU
     }
-
+    #[inline(always)]
     pub fn gpu_only(&self) -> bool {
-        self.supported_compute.contains(Compute::GPU) && !self.supported_compute.contains(Compute::CPU)
+        self.supported_compute == Compute::GPU
     }
-
+    #[inline(always)]
     pub fn polymorphic(&self) -> bool {
         self.supported_compute.contains(Compute::GPU) && self.supported_compute.contains(Compute::CPU)
     }
@@ -148,7 +149,8 @@ impl RegistrationService {
                     for dev_compute in compute.into_iter() {
                         if let Some(timings) = r.get(&dev_compute.try_into()?) {
                             debug!(tid=%tid, compute=%dev_compute, from_compute=%compute, fqdn=%fqdn, timings=?r, "Registering timings for function");
-                            let (cold, warm, exec, e2e) = Self::get_characteristics(dev_compute)?;
+                            let (cold, warm, prewarm, exec, e2e, _) =
+                                self.characteristics_map.get_characteristics(&dev_compute)?;
                             for v in timings.cold_results_sec.iter() {
                                 self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
                             }
@@ -164,15 +166,20 @@ impl RegistrationService {
                             for v in timings.warm_worker_duration_us.iter() {
                                 self.characteristics_map
                                     .add(&fqdn, warm, Values::F64(*v as f64 / 1_000_000.0), true);
+                                self.characteristics_map.add(
+                                    &fqdn,
+                                    prewarm,
+                                    Values::F64(*v as f64 / 1_000_000.0),
+                                    true,
+                                );
                                 self.characteristics_map
                                     .add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
                             }
-                            if let Some(hist) = &timings.live_warm_invoke_duration_sec {
-                                rf.historical_runtime_data_sec.insert(dev_compute, hist.clone());
-                            }
+                            rf.historical_runtime_data_sec
+                                .insert(dev_compute, timings.warm_results_sec.clone());
                         }
                     }
-                }
+                },
                 Err(e) => anyhow::bail!("Failed to parse resource timings because {:?}", e),
             };
         }
@@ -184,27 +191,8 @@ impl RegistrationService {
         Ok(ret)
     }
 
-    /// Get the Cold, Warm, and Execution time [Characteristics] specific to the given compute device
-    fn get_characteristics(
-        compute: Compute,
-    ) -> Result<(Characteristics, Characteristics, Characteristics, Characteristics)> {
-        if compute == Compute::CPU {
-            Ok((
-                Characteristics::ColdTime,
-                Characteristics::WarmTime,
-                Characteristics::ExecTime,
-                Characteristics::E2ECpu,
-            ))
-        } else if compute == Compute::GPU {
-            Ok((
-                Characteristics::GpuColdTime,
-                Characteristics::GpuWarmTime,
-                Characteristics::GpuExecTime,
-                Characteristics::E2EGpu,
-            ))
-        } else {
-            anyhow::bail!("Unknown compute to get characteristics for registration: {:?}", compute)
-        }
+    pub fn registered_funcs(&self) -> Vec<String> {
+        self.reg_map.read().keys().cloned().collect()
     }
 
     pub fn get_registration(&self, fqdn: &str) -> Option<Arc<RegisteredFunction>> {

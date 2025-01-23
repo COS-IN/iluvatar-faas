@@ -99,7 +99,7 @@ impl ContainerPool {
             Some(mut pool_list) => (*pool_list).push(container),
             None => {
                 pool.insert(container.fqdn().clone(), vec![container]);
-            }
+            },
         }
     }
 
@@ -112,7 +112,7 @@ impl ContainerPool {
                     debug!(tid=%tid, container_id=%c.container_id(), name=%self.pool_name, pool_type=?PoolType::Idle, "Removing random container from pool");
                     self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running);
                     Some(c)
-                }
+                },
                 None => None,
             },
             None => None,
@@ -125,10 +125,10 @@ impl ContainerPool {
             Some(c) => {
                 self.add_container(c, &self.idle_pool, tid, PoolType::Idle);
                 Ok(())
-            }
+            },
             None => {
                 bail_error!(tid=%tid, container_id=%container.container_id(), "Supposedly running container was not found in running pool")
-            }
+            },
         }
     }
 
@@ -144,7 +144,7 @@ impl ContainerPool {
                     }
                 }
                 false
-            }
+            },
             None => false,
         }
     }
@@ -173,7 +173,7 @@ impl ContainerPool {
                     ret = std::cmp::max(ret, cont.state());
                 }
                 ret
-            }
+            },
             None => ret,
         }
     }
@@ -230,7 +230,7 @@ impl ContainerPool {
                 } else {
                     None
                 }
-            }
+            },
             None => None,
         }
     }

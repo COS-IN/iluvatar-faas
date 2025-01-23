@@ -32,7 +32,7 @@ where
                 let name = s.name();
                 let target = s.metadata().target();
                 self.monitor.span_close(id.into_u64(), name, target);
-            }
+            },
             None => (),
         };
     }
@@ -45,7 +45,7 @@ where
                 let mut visitor = DataExtractorVisitor::new();
                 attrs.record(&mut visitor);
                 self.monitor.span_create(id.into_u64(), visitor, name, target);
-            }
+            },
             None => (),
         };
     }

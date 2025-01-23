@@ -18,7 +18,6 @@ impl Queueless {
     }
 }
 
-#[tonic::async_trait]
 #[allow(dyn_drop)]
 impl InvokerCpuQueuePolicy for Queueless {
     fn queue_len(&self) -> usize {

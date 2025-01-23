@@ -63,7 +63,7 @@ impl LoadService {
                 Err(e) => {
                     warn!(error=%e, tid=%tid, "Unable to get status of simulation worker");
                     continue;
-                }
+                },
             };
             match self.config.load_metric.as_str() {
                 "loadavg" => update.insert(
@@ -77,7 +77,7 @@ impl LoadService {
                 _ => {
                     error!(tid=%tid, metric=%self.config.load_metric, "Unknown load metric");
                     return;
-                }
+                },
             };
         }
 
@@ -117,7 +117,7 @@ impl LoadService {
                     if ret.is_empty() {
                         warn!(tid=%tid, "Did not get any data in the last 5 minutes using the load metric '{}'", self.config.load_metric.as_str());
                     }
-                }
+                },
                 Err(e) => error!(tid=%tid, error=%e, "Failed to query worker status to InfluxDB"),
             },
             None => error!(tid=%tid, "Influx client was not created during live run"),

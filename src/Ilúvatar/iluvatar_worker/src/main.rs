@@ -54,10 +54,10 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                             .map_or(0, |g| g.count),
                     })
                     .await?
-                }
+                },
                 Err(e) => bail_error!(tid=%tid, error=%e, controller_url=url, "Failed to connect to load balancer"),
             }
-        }
+        },
         _ => debug!(tid=%tid, "Skipping controller registration"),
     };
     info!(tid=%tid, "Starting RPC server");
@@ -103,7 +103,7 @@ fn main() -> Result<()> {
                     tid,
                 )?;
                 worker_rt.block_on(clean(server_config, tid))?;
-            }
+            },
         },
         None => {
             let server_config = Configuration::boxed(&cli.config.as_deref(), None)?;
@@ -115,7 +115,7 @@ fn main() -> Result<()> {
                 tid,
             )?;
             worker_rt.block_on(run(server_config, tid))?;
-        }
+        },
     }
     Ok(())
 }

@@ -3,7 +3,7 @@ use super::{DeviceQueue, EnqueuedInvocation};
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::structs::ContainerLock;
 use crate::services::invocation::completion_time_tracker::CompletionTimeTracker;
-use crate::services::invocation::invoke_on_container;
+use crate::services::invocation::{invoke_on_container, QueueLoad};
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::{GpuResourceTracker, GPU};
@@ -93,13 +93,13 @@ impl Flow {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         match self.gpu.try_acquire_resource(gpu, tid) {
             Ok(c) => ret.push(c.into()),
@@ -107,13 +107,13 @@ impl Flow {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         Some(Box::new(ret))
     }
@@ -138,7 +138,7 @@ impl Flow {
                     error!(tid=%tid, error=%cause, "Error getting new container");
                     None
                 }
-            }
+            },
         }
     }
 
@@ -159,6 +159,8 @@ impl Flow {
                 &item.invoke.json_args,
                 &item.invoke.tid,
                 item.invoke.queue_insert_time,
+                item.invoke.est_completion_time,
+                item.invoke.insert_time_load,
                 &ctr_lck,
                 self.clock.format_time(remove_time).unwrap_or_else(|_| "".to_string()),
                 start,
@@ -170,7 +172,7 @@ impl Flow {
                 Ok((result, duration, compute, container_state)) => {
                     info!(tid=%tid, "!!invoke done!!");
                     item.invoke.mark_successful(result, duration, compute, container_state);
-                }
+                },
                 Err(cause) => {
                     debug!(tid=%item.invoke.tid, error=%cause, container_id=%ctr_lck.container.container_id(), "Error on container invoke");
                     self.handle_invocation_error(item.invoke.clone(), cause);
@@ -179,7 +181,7 @@ impl Flow {
                         // container will be removed, but holds onto GPU until deleted
                         ctr_lck.container.add_drop_on_remove(tokens, &item.invoke.tid);
                     }
-                }
+                },
             }
             self.ctrack.remove_item(ct);
             self.queue_signal.notify_waiters();
@@ -312,10 +314,10 @@ impl FuncQueue {
                 tokio::spawn(async move {
                     Arc::new(flow).run(&tid).await;
                 });
-            }
+            },
             Err(e) => {
                 error!(tid=%tid, error=%e, fqdn=%self.registration.fqdn, "Failed to make new Flow queue thread");
-            }
+            },
         }
     }
 
@@ -472,7 +474,7 @@ impl ConcurMqfq {
                 info!("inserting into existing flow");
                 fq.push_flow(item);
                 // fq.global_signal.notify_waiters();
-            }
+            },
             None => {
                 info!("making new flow");
                 let fname = item.registration.fqdn.clone();
@@ -497,7 +499,7 @@ impl ConcurMqfq {
                 qguard.push_flow(item);
                 self.queues.insert(fname, qguard);
                 // sig.notify_waiters();
-            }
+            },
         };
     }
 }
@@ -508,15 +510,20 @@ impl DeviceQueue for ConcurMqfq {
         let per_flow_q_len = self.queues.iter().map(|x| x.value().queue.read().len());
         per_flow_q_len.sum::<usize>()
     }
-
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    fn queue_load(&self) -> QueueLoad {
+        QueueLoad::default()
+    }
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
         // sum_q (q_F-q_S) / max_in_flight
         let per_flow_wait_times = self.queues.iter().map(|x| x.value().est_flow_wait());
         let total_wait: f64 = per_flow_wait_times.sum();
 
         debug!(tid=%tid, qt=total_wait, runtime=0.0, "GPU estimated completion time of item");
 
-        (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn)
+        (
+            (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn),
+            total_wait,
+        )
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {

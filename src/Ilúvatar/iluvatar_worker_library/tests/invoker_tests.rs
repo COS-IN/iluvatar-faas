@@ -96,7 +96,7 @@ mod invoke {
                 assert_ne!(result.result_json, "");
                 assert_eq!(result.compute, Compute::CPU);
                 assert_eq!(result.container_state, ContainerState::Prewarm);
-            }
+            },
             Err(e) => panic!("Invocation failed: {}", e),
         }
     }
@@ -147,7 +147,7 @@ mod invoke {
                 assert_ne!(result.result_json, "");
                 assert_eq!(result.compute, Compute::CPU);
                 assert_eq!(result.container_state, ContainerState::Cold);
-            }
+            },
             Err(e) => panic!("Invocation failed: {}", e),
         }
     }
@@ -216,11 +216,11 @@ mod invoke_async {
                             } else {
                                 panic!("unkonwn response from async invocation check: {:?}", result);
                             }
-                        }
+                        },
                         Err(e) => panic!("Async invocation check failed: {}", e),
                     }
                 }
-            }
+            },
             Err(e) => panic!("Async invocation failed: {}", e),
         }
     }
@@ -281,11 +281,11 @@ mod invoke_async {
                             } else {
                                 panic!("unkonwn response from async invocation check: {:?}", result);
                             }
-                        }
+                        },
                         Err(e) => panic!("Async invocation check failed: {}", e),
                     }
                 }
-            }
+            },
             Err(e) => panic!("Async invocation failed: {}", e),
         }
     }

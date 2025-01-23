@@ -27,7 +27,7 @@ impl MemoryResourceTracker {
             Ok(p) => {
                 p.forget();
                 true
-            }
+            },
             Err(_) => false,
         }
     }

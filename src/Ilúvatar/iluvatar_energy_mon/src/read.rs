@@ -90,43 +90,43 @@ impl LogMonitor {
                                 match span.name.as_str() {
                                     INVOKE_ID => {
                                         self.remove_invoke_transaction(&span.uuid, &span);
-                                    }
+                                    },
                                     REGISTER_API_ID => {
                                         overhead_ns +=
                                             self.remove_worker_transaction(&span.uuid, &span, &mut timing_data);
-                                    }
+                                    },
                                     INVOKE_API_ID => {
                                         overhead_ns +=
                                             self.remove_worker_transaction(&span.uuid, &span, &mut timing_data);
-                                    }
+                                    },
                                     // TODO: account for background work done here
                                     _ => (),
                                 };
-                            }
+                            },
                             "new" => {
                                 self.functions.insert(span.name.clone());
                                 self.total_spans += 1;
                                 match span.name.as_str() {
                                     INVOKE_ID => {
                                         self.invocation_spans.insert(span.uuid.clone(), span);
-                                    }
+                                    },
                                     REGISTER_API_ID => {
                                         self.worker_spans.insert(span.uuid.clone(), span);
-                                    }
+                                    },
                                     INVOKE_API_ID => {
                                         self.worker_spans.insert(span.uuid.clone(), span);
-                                    }
+                                    },
                                     // TODO: account for background work done here
                                     _ => (),
                                 }
-                            }
+                            },
                             _ => (),
                         }
-                    }
+                    },
                     Err(e) => {
                         error!("len:{}; Span was missing something! \n '{}'", buff.len(), buff);
                         anyhow::bail!(e)
-                    }
+                    },
                 }
             }
             buff.clear();
@@ -144,10 +144,10 @@ impl LogMonitor {
                 match s.span.fqdn() {
                     Some(f) => {
                         self.invocation_durations.insert(span.span.tid.clone(), (f, time_ns));
-                    }
+                    },
                     None => error!("Span didn't have a valid FQDN: {:?}", s),
                 }
-            }
+            },
             None => error!("Tried to remove {} that wasn't found", id),
         }
     }
@@ -163,17 +163,17 @@ impl LogMonitor {
                             Some(v) => *v += *invoke_ns,
                             None => {
                                 timing_data.insert(fqdn.clone(), *invoke_ns);
-                            }
+                            },
                         };
                         overhead
-                    }
+                    },
                     None => time_ns,
                 }
-            }
+            },
             None => {
                 error!("Tried to remove {} that wasn't found", id);
                 0
-            }
+            },
         }
     }
 }

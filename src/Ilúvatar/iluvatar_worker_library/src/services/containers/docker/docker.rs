@@ -67,14 +67,14 @@ impl DockerIsolation {
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Failed to connect to docker");
                 return false;
-            }
+            },
         };
         match docker.version().await {
             Ok(_) => true,
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Failed to query docker version");
                 false
-            }
+            },
         }
     }
 
@@ -125,7 +125,7 @@ impl DockerIsolation {
                     exposed.insert(port.clone(), HashMap::new());
                 }
                 Some(exposed)
-            }
+            },
             None => None,
         };
         let mut volumes = vec![];
@@ -149,7 +149,7 @@ impl DockerIsolation {
                 }
             }
 
-            if self.config.gpu_resource.as_ref().map_or(false, |c| c.mps_enabled()) {
+            if self.config.gpu_resource.as_ref().is_some_and(|c| c.mps_enabled()) {
                 info!(tid=%tid, container_id=%container_id, threads=device.thread_pct, memory=device.allotted_mb, "Container running inside MPS context");
                 host_config.ipc_mode = Some("host".to_owned());
                 mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
@@ -162,7 +162,7 @@ impl DockerIsolation {
                 .config
                 .gpu_resource
                 .as_ref()
-                .map_or(false, |c| c.driver_hook_enabled())
+                .is_some_and(|c| c.driver_hook_enabled())
             {
                 env.push("LD_PRELOAD=/app/libgpushare.so");
             }
@@ -180,7 +180,7 @@ impl DockerIsolation {
                 if let Some(ports) = ports {
                     port_bindings.extend(ports)
                 }
-            }
+            },
             None => host_config.port_bindings = ports,
         };
         let options = CreateContainerOptions {
@@ -231,10 +231,10 @@ impl DockerIsolation {
                 Ok(r) => match r {
                     bollard::container::LogOutput::StdErr { message } => {
                         stderr = String::from_utf8_lossy(&message).to_string()
-                    }
+                    },
                     bollard::container::LogOutput::StdOut { message } => {
                         stdout = String::from_utf8_lossy(&message).to_string()
-                    }
+                    },
                     _ => (),
                 },
                 Err(e) => bail_error!(tid=%tid, error=%e, "Failed to get Docker logs"),
@@ -308,10 +308,10 @@ impl ContainerIsolationService for DockerIsolation {
                 Ok(p) => {
                     debug!(tid=%tid, "Acquired docker creation semaphore");
                     Some(p)
-                }
+                },
                 Err(e) => {
                     bail_error_value!(error=%e, tid=%tid, "Error trying to acquire docker creation semaphore", device_resource);
-                }
+                },
             },
             None => None,
         };
@@ -453,10 +453,10 @@ impl ContainerIsolationService for DockerIsolation {
                     if err.contains("Booting worker with pid") {
                         break;
                     }
-                }
+                },
                 Err(e) => {
                     bail_error!(tid=%tid, container_id=%container.container_id(), error=%e, "Timeout while reading inotify events for docker container")
-                }
+                },
             };
             if start.elapsed().as_millis() as u64 >= timeout_ms {
                 let (stdout, stderr) = self.get_logs(container.container_id(), tid).await?;
@@ -479,7 +479,7 @@ impl ContainerIsolationService for DockerIsolation {
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Error casting container to DockerContainer");
                 return container.get_curr_mem_usage();
-            }
+            },
         };
         let options = StatsOptions {
             stream: false,
@@ -496,12 +496,12 @@ impl ContainerIsolationService for DockerIsolation {
                         container.set_curr_mem_usage(usage_mb);
                         return usage_mb;
                     }
-                }
+                },
                 Err(e) => {
                     error!(tid=%tid, error=%e, "Failed to query stats");
                     container.mark_unhealthy();
                     return container.get_curr_mem_usage();
-                }
+                },
             }
         }
         warn!(tid=%tid, container_id=%container.container_id(), "Fell out of bottom of stats stream loop");

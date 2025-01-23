@@ -53,21 +53,21 @@ impl AsyncService {
                     Ok(r) => r,
                     Err(e) => {
                         bail_error!(tid=%tid, error=%e, "Got an error trying to deserialize async check message")
-                    }
+                    },
                 };
                 match json.get("Status") {
                     // if we have this key then the invocation is still running
                     Some(stat) => {
                         debug!(tid=%tid, status=%stat, "async invoke check status");
                         Ok(None)
-                    }
+                    },
                     None => match json.get("Error") {
                         // if we have this key then the invocation failed for some reason
                         Some(err_msg) => anyhow::bail!(err_msg.clone()),
                         None => {
                             // really should never get here
                             bail_error!(tid=%tid, json=%result.json_result, "Got an unknown json response from checking async invocation status");
-                        }
+                        },
                     },
                 }
             }

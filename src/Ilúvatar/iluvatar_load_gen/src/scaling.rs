@@ -144,7 +144,7 @@ async fn scaling_thread(
         Err(e) => {
             error!("thread {} registration failed because {}", thread_id, e);
             std::process::exit(1);
-        }
+        },
     };
     barrier.wait().await;
 
@@ -161,7 +161,7 @@ async fn scaling_thread(
                     error!("thread {} prewarm failed because {}", thread_id, errors);
                     std::process::exit(1);
                 }
-            }
+            },
         };
     }
     barrier.wait().await;
@@ -178,7 +178,7 @@ async fn scaling_thread(
             Some(arg) => {
                 dummy.args = Some(arg.clone());
                 args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
-            }
+            },
             None => "{\"name\":\"TESTING\"}".to_string(),
         };
         match worker_invoke(
@@ -196,11 +196,11 @@ async fn scaling_thread(
         {
             Ok(worker_invocation) => {
                 data.push(worker_invocation);
-            }
+            },
             Err(_) => {
                 errors += 1;
                 continue;
-            }
+            },
         };
 
         if start.elapsed() > stopping {

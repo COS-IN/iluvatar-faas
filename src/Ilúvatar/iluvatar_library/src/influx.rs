@@ -64,7 +64,7 @@ impl InfluxClient {
                     Some(org_id) => return Ok(org_id),
                     None => {
                         bail_error!(tid=%tid, "Found an organization with a matching name, but it had no ID!")
-                    }
+                    },
                 }
             }
         }
@@ -79,7 +79,7 @@ impl InfluxClient {
                     anyhow::bail!("Response from Influx on key '{}' had unexpected value '{}'", key, t)
                 }
                 Ok(())
-            }
+            },
             None => anyhow::bail!("Response from Influx did not have expected member '{}'", key),
         }
     }
@@ -101,10 +101,10 @@ impl InfluxClient {
                             )?;
                             info!(tid=%tid, "Bucket {} already exists", name);
                             Ok(())
-                        }
+                        },
                         Err(_) => anyhow::bail!(format!("Unknown error format: '{}'", text)),
                     }
-                }
+                },
                 _ => anyhow::bail!(format!("HTTP error on creating bucket: {} {}", status, text)),
             },
             RequestError::Serializing { source } => anyhow::bail!(source.to_string()),

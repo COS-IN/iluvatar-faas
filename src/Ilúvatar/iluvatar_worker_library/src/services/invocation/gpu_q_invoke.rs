@@ -4,6 +4,7 @@ use super::{
         fcfs_gpu::FcfsGpuQueue, oldest_gpu::BatchGpuQueue, sized_batches_gpu::SizedBatchGpuQueue, DeviceQueue,
         EnqueuedInvocation, MinHeapEnqueuedInvocation, MinHeapFloat,
     },
+    QueueLoad,
 };
 use crate::services::invocation::queueing::paella::PaellaGpuQueue;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
@@ -29,7 +30,6 @@ use std::{
     sync::{atomic::AtomicU32, Arc},
     time::Duration,
 };
-use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
@@ -238,13 +238,13 @@ impl GpuQueueingInvoker {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         match self.gpu.try_acquire_resource(None, tid) {
             Ok(c) => ret.push(c.into()),
@@ -252,13 +252,13 @@ impl GpuQueueingInvoker {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         Some(Box::new(ret))
     }
@@ -303,7 +303,7 @@ impl GpuQueueingInvoker {
                         error!(tid=%item.tid, error=%e, "Failed to get a container to run item");
                         self.handle_invocation_error(&item, &e);
                         continue;
-                    }
+                    },
                 };
                 if !was_cold && self.gpu_config.send_driver_memory_hints() {
                     // unwrap is safe, we either have a container or will go to the top of the loop
@@ -316,17 +316,14 @@ impl GpuQueueingInvoker {
                 .invoke(
                     // unwrap is safe, we either have a container or will go to the top of the loop
                     ctr_lock.as_ref().unwrap(),
-                    &item.registration,
-                    &item.json_args,
-                    &item.tid,
-                    item.queue_insert_time,
+                    &item,
                     start,
                 )
                 .await
             {
                 Ok((result, duration, compute, container_state)) => {
                     item.mark_successful(result, duration, compute, container_state)
-                }
+                },
                 Err(cause) => {
                     error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
                     ctr_lock.as_ref().unwrap().container.mark_unhealthy();
@@ -338,11 +335,11 @@ impl GpuQueueingInvoker {
                             Err(e) => {
                                 item.mark_error(&cause);
                                 error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
-                            }
+                            },
                         };
                     }
                     continue;
-                }
+                },
             };
             // update the container state because the container manager can't do it for us
             ctr_lock.as_ref().unwrap().container.set_state(ContainerState::Warm);
@@ -378,7 +375,7 @@ impl GpuQueueingInvoker {
                 Err(e) => {
                     error!(tid=item.tid, error=%e, "Failed to re-queue item in GPU queue after memory exhaustion");
                     item.mark_error(cause);
-                }
+                },
             };
         } else if let Some(_gpu_err) = cause.downcast_ref::<InsufficientGPUError>() {
             let mut warn_time = self.last_gpu_warning.lock();
@@ -392,7 +389,7 @@ impl GpuQueueingInvoker {
                 Err(e) => {
                     error!(tid=item.tid, error=%e, "Failed to re-queue item after GPU exhaustion");
                     item.mark_error(cause);
-                }
+                },
             };
         } else {
             error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
@@ -408,25 +405,24 @@ impl GpuQueueingInvoker {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args, queue_insert_time, ctr_lock, cold_time_start), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, ctr_lock, cold_time_start), fields(tid=%item.tid)))]
     async fn invoke<'a>(
         &'a self,
         ctr_lock: &'a ContainerLock,
-        reg: &'a Arc<RegisteredFunction>,
-        json_args: &'a str,
-        tid: &'a TransactionId,
-        queue_insert_time: OffsetDateTime,
+        item: &'a Arc<EnqueuedInvocation>,
         cold_time_start: Instant,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        debug!(tid=%tid, "Internal invocation starting");
+        debug!(tid=%item.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (data, duration, compute_type, state) = invoke_on_container(
-            reg,
-            json_args,
-            tid,
-            queue_insert_time,
+            &item.registration,
+            &item.json_args,
+            &item.tid,
+            item.queue_insert_time,
+            item.est_completion_time,
+            item.insert_time_load,
             ctr_lock,
             remove_time,
             cold_time_start,
@@ -450,21 +446,29 @@ impl GpuQueueingInvoker {
         };
         (t, exists)
     }
-    // } //?
 }
 
-#[tonic::async_trait]
 impl DeviceQueue for GpuQueueingInvoker {
     fn queue_len(&self) -> usize {
         self.queue.queue_len()
     }
 
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
-        let qt = self.queue.est_queue_time();
-        let tracked = self.completion_tracker.next_avail().as_seconds_f64();
+    fn queue_load(&self) -> QueueLoad {
+        let load = self.queue.est_queue_time();
+        QueueLoad {
+            len: self.queue.queue_len(),
+            load: load,
+            load_avg: load / self.gpu.max_concurrency() as f64,
+            tput: self.cmap.get_gpu_tput(),
+        }
+    }
+
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
+        let est_qt = self.queue.est_queue_time();
+        let qt = est_qt / self.gpu.max_concurrency() as f64;
         let (runtime, state) = self.get_est_completion_time_from_containers_gpu(reg);
-        debug!(tid=%tid, qt=qt, state=?state, tracked=tracked, runtime=runtime, "GPU estimated completion time of item");
-        qt + tracked + runtime
+        debug!(tid=%tid, qt=qt, state=?state, runtime=runtime, "GPU estimated completion time of item");
+        (qt + runtime, est_qt)
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
@@ -508,6 +512,8 @@ mod gpu_batch_tests {
             name.to_string(),
             name.to_string(),
             clock.now(),
+            0.0,
+            0.0,
         ))
     }
 

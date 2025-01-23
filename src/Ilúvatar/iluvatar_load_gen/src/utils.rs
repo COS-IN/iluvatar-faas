@@ -203,7 +203,7 @@ pub fn load_benchmark_data(path: &Option<String>) -> Result<Option<BenchmarkStor
                 Ok(d) => Ok(Some(d)),
                 Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
             }
-        }
+        },
         None => Ok(None),
     }
 }
@@ -254,7 +254,7 @@ pub async fn controller_invoke(
         },
         Err(e) => {
             CompletedControllerInvocation::error(format!("Invocation error: {}", e), name, version, &tid, invoke_start)
-        }
+        },
     };
     Ok(r)
 }
@@ -396,11 +396,12 @@ pub async fn worker_invoke(
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
-
+    tracing::debug!(tid=%tid, "Sending invocation to worker");
     let (invok_out, invok_lat) = api
         .invoke(name.to_owned(), version.to_owned(), args, tid.to_owned())
         .timed()
         .await;
+    tracing::debug!(tid=%tid, "Invocation returned from worker");
     let c = match invok_out {
         Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
             Ok(b) => CompletedWorkerInvocation {
@@ -477,16 +478,34 @@ pub enum ErrorHandling {
     Ignore,
 }
 
-/// Resolve all the tokio threads and return their results
-/// Optionally handle errors from threads
+/// Resolve all the tokio threads and return their results.
+/// Optionally handle errors from threads.
 pub async fn resolve_handles<T>(run_results: Vec<JoinHandle<Result<T>>>, eh: ErrorHandling) -> Result<Vec<T>>
 where
     T: Ord,
 {
     let mut ret = vec![];
-    for h in run_results {
-        match h.await {
-            Ok(r) => match r {
+    for mut h in run_results {
+        let result;
+        loop {
+            // This is ugly, but Rust type system is weird.
+            // We need tick sleep in simulation to allow background threads to keep bring executed.
+            match iluvatar_library::utils::is_simulation() {
+                true => tokio::select! {
+                    r = &mut h => {
+                        result = r;
+                        break;
+                    },
+                    _ = iluvatar_library::tokio_utils::sim_scheduler_tick(1, SimulationGranularity::MS) => ()
+                },
+                false => {
+                    result = h.await;
+                    break;
+                },
+            }
+        }
+        match result {
+            Ok(ok) => match ok {
                 Ok(ok) => ret.push(ok),
                 Err(e) => match eh {
                     ErrorHandling::Raise => return Err(e),
@@ -495,7 +514,7 @@ where
                 },
             },
             Err(thread_e) => error!("Joining error: {}", thread_e),
-        };
+        }
     }
     ret.sort();
     Ok(ret)
@@ -510,7 +529,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to create csv output '{:?}' file because {}", &path, e);
-        }
+        },
     };
     let to_write =
         "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n".to_string();
@@ -518,7 +537,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
         Ok(_) => (),
         Err(e) => {
             anyhow::bail!("Failed to write json header to '{:?}' of result because {}", &path, e);
-        }
+        },
     };
 
     for worker_invocation in run_results {
@@ -537,7 +556,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
             Err(e) => {
                 error!("Failed to write result to '{:?}' because {}", &path, e);
                 continue;
-            }
+            },
         };
     }
     Ok(())
@@ -548,14 +567,14 @@ pub fn save_result_json<P: AsRef<Path> + std::fmt::Debug, T: Serialize>(path: P,
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to create json output '{:?}' file because {}", &path, e);
-        }
+        },
     };
 
     let to_write = match serde_json::to_string(&results) {
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to convert results to json because {}", e);
-        }
+        },
     };
     f.write_all(to_write.as_bytes())?;
     Ok(())

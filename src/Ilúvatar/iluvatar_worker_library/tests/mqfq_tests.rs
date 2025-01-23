@@ -113,6 +113,8 @@ fn item() -> Arc<EnqueuedInvocation> {
         sim_args().unwrap(),
         name.to_string(),
         clock.now(),
+        0.0,
+        0.0,
     ))
 }
 

@@ -57,7 +57,7 @@ fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms
                 let cold_prewarms = f64::ceil(func.cold_dur_ms as f64 * 1.0 / iat_ms) as u32;
                 prewarms = max(prewarms, cold_prewarms);
                 min(min(prewarms, p), max_prewarms)
-            }
+            },
             None => p,
         },
     }
@@ -165,12 +165,13 @@ fn map_from_benchmark(
                     })?;
                     let compute_data: &iluvatar_library::types::FunctionInvocationTimings = bench_data
                         .resource_data
-                        .get(&compute.try_into().expect("failed to parse compute"))
+                        .get(&compute.try_into()?)
                         .ok_or_else(|| {
                             anyhow::format_err!(
-                            "failed to find data in bench_data.resource_data for function '{}' with chosen_name '{}'",
+                            "failed to find data in bench_data.resource_data for function '{}' with chosen_name '{}' using compute '{}'",
                             func.func_name,
-                            name
+                            name,
+                            compute
                         )
                         })?;
                     let warm_us = compute_data.warm_invoke_duration_us.iter().sum::<u128>()
@@ -184,7 +185,7 @@ fn map_from_benchmark(
                     sim_data.insert(compute, compute_data);
                 }
                 func.sim_invoke_data = Some(sim_data);
-            }
+            },
         }
     }
     info!("A total of {} prewarmed containers", total_prewarms);
@@ -245,7 +246,7 @@ pub fn map_functions_to_prep(
             } else {
                 map_from_args(funcs, default_prewarms, max_prewarms)
             }
-        }
+        },
     }
 }
 
@@ -272,10 +273,7 @@ fn worker_prewarm_functions(
             let fct_cln = factory.clone();
             let compute = func
                 .parsed_compute
-                .expect("Did not have a `parsed_compute` in prewarm")
-                .into_iter()
-                .max()
-                .expect("Did not get a max for `parsed_compute` in prewarm");
+                .ok_or_else(|| anyhow::anyhow!("Function {} did not have a `parsed_compute` in prewarm", func_name))?;
             prewarm_calls.push(async move {
                 let mut errors = "Prewarm errors:".to_string();
                 let mut it = (1..4).peekable();
@@ -299,7 +297,7 @@ fn worker_prewarm_functions(
                                 anyhow::bail!("prewarm failed because {}", errors)
                             }
                             tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
+                        },
                     };
                 }
                 Ok(())
@@ -352,7 +350,7 @@ fn prepare_worker(
         RunType::Live => {
             worker_wait_reg(funcs, rt, port, host, factory, CommunicationMethod::RPC, func_data)?;
             worker_prewarm_functions(funcs, host, port, rt, factory, CommunicationMethod::RPC)
-        }
+        },
         RunType::Simulation => {
             worker_wait_reg(
                 funcs,
@@ -364,7 +362,7 @@ fn prepare_worker(
                 func_data,
             )?;
             worker_prewarm_functions(funcs, host, port, rt, factory, CommunicationMethod::SIMULATION)
-        }
+        },
     }
 }
 
@@ -388,7 +386,7 @@ fn worker_wait_reg(
                 None => {
                     cont = false;
                     break;
-                }
+                },
             };
             let f_c = func.func_name.clone();
             let h_c = host.to_owned();
@@ -397,12 +395,18 @@ fn worker_wait_reg(
                 Some(i) => i.clone(),
                 None => anyhow::bail!("Unable to get prepared `image_name` for function '{}'", id),
             };
-            let comp = func
-                .parsed_compute
-                .expect("Did not have a `parsed_compute` when going to register");
-            let isol = func
-                .parsed_isolation
-                .expect("Did not have a `parsed_isolation` when going to register");
+            let comp = func.parsed_compute.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Function {} did not have a `parsed_compute` when going to register",
+                    f_c
+                )
+            })?;
+            let isol = func.parsed_isolation.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Function {} did not have a `parsed_isolation` when going to register",
+                    f_c
+                )
+            })?;
             let mem = func.mem_mb;
             let func_timings = match &func.chosen_name {
                 Some(chosen_name) => match bench_data.as_ref() {
@@ -457,14 +461,14 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to create output file because {}", e);
-        }
+        },
     };
     let to_write = "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us\n";
     match f.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
             anyhow::bail!("Failed to write json of result because {}", e);
-        }
+        },
     };
     for r in results {
         let to_write = format!(
@@ -481,7 +485,7 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             Err(e) => {
                 info!("Failed to write result because {}", e);
                 continue;
-            }
+            },
         };
     }
     Ok(())

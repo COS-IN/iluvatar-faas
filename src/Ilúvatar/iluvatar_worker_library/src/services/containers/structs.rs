@@ -74,7 +74,7 @@ where
                 std::any::type_name::<Container>(),
                 std::any::type_name::<T>()
             );
-        }
+        },
     }
 }
 
@@ -109,7 +109,7 @@ impl ParsedResult {
             Ok(p) => Ok(p),
             Err(e) => {
                 bail_error!(error=%e, tid=%tid, value=%from, "Failed to parse json from invocation return")
-            }
+            },
         }
     }
 

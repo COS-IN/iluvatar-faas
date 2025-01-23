@@ -27,7 +27,7 @@ pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
     Ok(clk)
 }
 
-/// Get the current [Instance]
+/// Get the current [Instant]
 #[inline(always)]
 pub fn now() -> Instant {
     // allow here because we want all code to use this method
@@ -97,7 +97,7 @@ fn format_offset_time(clock: &dyn GlobalClock, w: &mut Writer<'_>) -> std::fmt::
         Err(e) => {
             println!("time formatting error: {}", e);
             return Err(std::fmt::Error {});
-        }
+        },
     };
     w.write_str(s.as_str())
 }

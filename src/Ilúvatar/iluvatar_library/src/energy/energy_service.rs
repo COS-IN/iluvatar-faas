@@ -59,7 +59,7 @@ impl EnergyMonitorService {
                 Err(_) => {
                     error!(tid=%tid, "energy monitor thread failed to receive service from channel!");
                     return;
-                }
+                },
             };
             debug!(tid=%tid, "energy monitor worker started");
             let rapl = match RAPL::new() {
@@ -67,14 +67,14 @@ impl EnergyMonitorService {
                 Err(e) => {
                     error!(error=%e, tid=%tid, "Creating RAPL interface failed");
                     return;
-                }
+                },
             };
             let mut curr_rapl = match rapl.record() {
                 Ok(r) => r,
                 Err(e) => {
                     error!(error=%e, tid=%tid, "Recording RAPL information failed");
                     return;
-                }
+                },
             };
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(20));
@@ -83,14 +83,14 @@ impl EnergyMonitorService {
                     Err(e) => {
                         error!(error=%e, tid=%tid, "Recording RAPL information failed");
                         continue;
-                    }
+                    },
                 };
                 let (time, uj) = match rapl.difference(&new_rapl, &curr_rapl, tid) {
                     Ok(r) => r,
                     Err(e) => {
                         error!(error=%e, tid=%tid, "Computing RAPL change failed");
                         continue;
-                    }
+                    },
                 };
 
                 if svc.monitor_energy(tid, time, uj) {
@@ -114,11 +114,11 @@ impl EnergyMonitorService {
                 Some(time) => {
                     *time += time_ns;
                     tot_time_ns += time_ns;
-                }
+                },
                 None => {
                     function_data.insert(fqdn.as_str(), *time_ns);
                     tot_time_ns += time_ns;
-                }
+                },
             }
         }
 
@@ -164,28 +164,28 @@ impl EnergyMonitorService {
             INVOKE_TARGET => match name {
                 "ContainerdContainer::invoke" => {
                     self.invocation_spans.insert(span_id, data);
-                }
+                },
                 i => trace!("invoke open: {} {}", i, name),
             },
             WORKER_API_TARGET => match name {
                 "register" => {
                     self.worker_spans.insert(span_id, data);
-                }
+                },
                 "invoke" => {
                     self.worker_spans.insert(span_id, data);
-                }
+                },
                 i => trace!("api open: {} {}", i, name),
             },
             NAMESPACE_TARGET => match name {
                 "monitor_pool" => {
                     self.worker_spans.insert(span_id, data);
-                }
+                },
                 _ => (),
             },
             CONTAINER_MGR_TARGET => match name {
                 "monitor_pool" => {
                     self.worker_spans.insert(span_id, data);
-                }
+                },
                 _ => (),
             },
             _ => (),
@@ -200,7 +200,7 @@ impl EnergyMonitorService {
                 //    avoid double-counting
                 "ContainerdContainer::invoke" => {
                     self.remove_invoke_transaction(span_id);
-                }
+                },
                 i => trace!("invoke close: {} {}", i, name),
             },
             WORKER_API_TARGET => match name {
@@ -233,10 +233,10 @@ impl EnergyMonitorService {
                             .as_mut()
                             .unwrap()
                             .insert(s.transaction_id.unwrap(), (f, time_ns));
-                    }
+                    },
                     None => panic!("Completed invocation span didn't have a valid FQDN: {:?}", s),
                 }
-            }
+            },
             None => panic!("Tried to remove a span {} that wasn't found", id),
         }
     }
@@ -260,14 +260,14 @@ impl EnergyMonitorService {
                             Some(mut v) => *v += invoke_ns,
                             None => {
                                 self.timing_data.insert(fqdn.clone(), invoke_ns);
-                            }
+                            },
                         };
                         overhead
-                    }
+                    },
                     None => time_ns,
                 };
                 *self.overhead_ns.write() += overhead;
-            }
+            },
             None => panic!("Tried to remove a span {} that wasn't found", id),
         }
     }
