@@ -377,11 +377,11 @@ impl QueueingDispatcher {
                 if self.invocation_config.log_details() {
                     match chosen_compute {
                         Compute::GPU => info!(tid=%tid, fqdn=%reg.fqdn, "Cache Hit"),
-                        _ => info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss")
+                        _ => info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss"),
                     }
                 }
                 self.enqueue_compute(reg, json_args, tid, chosen_compute, insert_t, est_time, load)
-            }
+            },
         }
     }
 }
