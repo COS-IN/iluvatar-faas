@@ -26,13 +26,13 @@ worker_pid=$(echo $!)
 Register a function with the worker.
 
 ```sh
-../../target/debug/iluvatar_worker_cli --address "127.0.0.1" --port 8079 register --name "hello" --version 1 --image "docker.io/alfuerst/hello-iluvatar-action:latest" --memory 128 --cpu 1
+../../target/debug/iluvatar_worker_cli --host "127.0.0.1" --port 8079 register --name "hello" --version 1 --image "docker.io/alfuerst/hello-iluvatar-action:latest" --memory 128 --cpu 1
 ```
 
 Invoke the newly registered function, passing custom arguments.
 
 ```sh
-../../target/debug/iluvatar_worker_cli --address "127.0.0.1" --port 8079 invoke --name "hello" --version 1 -a name=`whoami`
+../../target/debug/iluvatar_worker_cli --host "127.0.0.1" --port 8079 invoke --name "hello" --version 1 -a name=`whoami`
 ```
 
 Kill the worker running in the background.
