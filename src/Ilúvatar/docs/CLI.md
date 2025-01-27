@@ -10,7 +10,7 @@ It is not designed to apply substantial load to the system, that should be done 
 'nuff said.
 
 ```bash
-iluvatar_worker_cli --address localhost -port 8000 ping
+iluvatar_worker_cli --host localhost -port 8000 ping
 ```
 
 ### Invoke
@@ -19,7 +19,7 @@ Invoke a function with specific args, no arguments is allowed.
 The result of the function is returned
 
 ```bash
-iluvatar_worker_cli --address localhost -port 8000 invoke --name invoke -a key=value -a key1=value1
+iluvatar_worker_cli --host localhost -port 8000 invoke --name invoke -a key=value -a key1=value1
 ```
 
 ### Asynchronous Invoke
@@ -28,7 +28,7 @@ Invoke a function asynchronously with specific args, no arguments is allowed.
 A cookie identifying the results when they are ready is returned.
 
 ```bash
-iluvatar_worker_cli --address localhost -port 8000 invoke-async --name invoke
+iluvatar_worker_cli --host localhost -port 8000 invoke-async --name invoke
 ```
 
 ### Asynchronous Invoke Check

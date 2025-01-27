@@ -2,7 +2,7 @@
 
 ## Try it out
 
-Easily set up your machine to run Ilúvatar [here](docs/SETUP.md), then try out [some of](docs/FUNCTIONS.md) our [examples](docs/LOAD.md).
+Easily set up your machine to run Ilúvatar [here](./SETUP.md), then try out [some of](./FUNCTIONS.md) our [examples](./LOAD.md).
 
 ## Development
 
