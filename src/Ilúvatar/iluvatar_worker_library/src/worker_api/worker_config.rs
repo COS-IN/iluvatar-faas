@@ -37,7 +37,8 @@ pub struct Configuration {
     /// full URL to access the controller/load balancer, required for worker registration.
     /// If missing or empty, the worker will not try and register with the controller.
     /// If registration fails, the worker will exit.
-    pub load_balancer_url: Option<String>,
+    pub load_balancer_host: Option<String>,
+    pub load_balancer_port: Option<Port>,
     /// Optional because energy monitoring is not required
     pub energy: Option<Arc<EnergyConfig>>,
     pub invocation: Arc<InvocationConfig>,

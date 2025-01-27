@@ -382,7 +382,7 @@ impl DeviceQueue for CpuQueueingInvoker {
             self.queue.est_queue_time() / f64::min(self.cpu.cores, self.queue_len() as f64)
         };
         let (runtime, state) = self.get_est_completion_time_from_containers(reg);
-        info!(tid=%tid, queue_time=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
+        debug!(tid=%tid, queue_time=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
         (qt + runtime, 0.0)
     }
 

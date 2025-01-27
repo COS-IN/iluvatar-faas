@@ -65,10 +65,10 @@ impl RPCWorkerAPI {
 }
 
 impl Clone for RPCWorkerAPI {
-    /// A fast method for duplicating the Worker API
-    /// Use this instead of concurently sharing
+    /// A fast method for duplicating the Worker API.
+    /// Use this instead of concurrently sharing.
     fn clone(&self) -> Self {
-        RPCWorkerAPI {
+        Self {
             client: self.client.clone(),
         }
     }

@@ -24,14 +24,25 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
         Ok(w) => w,
         Err(e) => bail_error!(tid=%tid, error=%e, "Error creating worker on startup"),
     };
-    let addr = format!("{}:{}", server_config.address, server_config.port);
+    let compute = worker.supported_compute().bits();
+    let isolation = worker.supported_isolation().bits();
 
-    match &server_config.load_balancer_url {
-        Some(url) if !url.is_empty() => {
+    info!(tid=%tid, "Starting RPC server");
+    debug!(config=?server_config, "Worker configuration");
+    let addr = format!("{}:{}", server_config.address, server_config.port);
+    let _j = tokio::spawn(
+        Server::builder()
+            .timeout(Duration::from_secs(server_config.timeout_sec))
+            .add_service(IluvatarWorkerServer::new(worker))
+            .serve(addr.parse()?),
+    );
+
+    match &server_config.load_balancer_host {
+        Some(host) if !host.is_empty() => {
             match ControllerAPIFactory::boxed()
                 .get_controller_api(
-                    &server_config.address,
-                    server_config.port,
+                    &host,
+                    server_config.load_balancer_port.ok_or_else(|| anyhow::anyhow!("Load balancer host provided, but not port"))?,
                     CommunicationMethod::RPC,
                     tid,
                 )
@@ -45,29 +56,21 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                         port: server_config.port.into(),
                         memory: server_config.container_resources.memory_mb,
                         cpus: server_config.container_resources.cpu_resource.count,
-                        compute: worker.supported_compute().bits(),
-                        isolation: worker.supported_isolation().bits(),
+                        compute: compute,
+                        isolation: isolation,
                         gpus: server_config
                             .container_resources
                             .gpu_resource
                             .as_ref()
                             .map_or(0, |g| g.count),
                     })
-                    .await?
+                        .await?
                 },
-                Err(e) => bail_error!(tid=%tid, error=%e, controller_url=url, "Failed to connect to load balancer"),
+                Err(e) => bail_error!(tid=%tid, error=%e, controller_host=host, port=server_config.load_balancer_port, "Failed to connect to load balancer"),
             }
         },
-        _ => debug!(tid=%tid, "Skipping controller registration"),
+        _ => info!(tid=%tid, "Skipping controller registration"),
     };
-    info!(tid=%tid, "Starting RPC server");
-    debug!(config=?server_config, "Worker configuration");
-    let _j = tokio::spawn(
-        Server::builder()
-            .timeout(Duration::from_secs(server_config.timeout_sec))
-            .add_service(IluvatarWorkerServer::new(worker))
-            .serve(addr.parse()?),
-    );
 
     wait_for_exit_signal(tid).await?;
     Ok(())

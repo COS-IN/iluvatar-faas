@@ -30,3 +30,8 @@ detailed-spans/*.png
 !detailed-spans/example-timeline.png
 
 paper-repro/results
+
+results/
+temp-results/
+*.json
+*.csv

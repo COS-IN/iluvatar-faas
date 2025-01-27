@@ -1,16 +1,18 @@
-#!/bin/sh
+#!/bin/bash
 
 # This script prepares dependencies and configuration to run the samples on the landing page and in this directory.
 # It is expecting to be run in the same directory as it is located.
 # You should have already ran the `setup.sh` script in the parent directory to install dependencies for the worker and load generator
 
+venv_name="examples-venv"
+
 sudo apt install -y jq python3-pip python3-venv
 cargo install cross --git https://github.com/cross-rs/cross
 python3 -m pip install virtualenv
-python3 -m venv --clear examples-venv
-source ./examples-venv/bin/activate
+python3 -m venv --clear $venv_name
+source ./$venv_name/bin/activate
 python3 -m pip install --upgrade pip --no-warn-script-location
-python3 -m pip install ansible==6.7.0 ansible-core==2.13.7 numpy pandas matplotlib --no-warn-script-location
+python3 -m pip install -r ../../../load/reqs.txt --no-warn-script-location
 deactivate
 
 name=$(ip route get 8.8.8.8 | awk '{ print $5; exit }')

@@ -110,7 +110,8 @@
       "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
       "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
       "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
-      "ILUVATAR_WORKER__load_balancer_url" : "http://{{ controller.host }}:{{ controller.port }}"
+      "ILUVATAR_WORKER__load_balancer_host" : "{{ controller.host }}"
+      "ILUVATAR_WORKER__load_balancer_port" : "{{ controller.port }}"
       "ILUVATAR_WORKER__timeout_sec" : "{{ worker_timeout_sec | default(6000) }}"
       # Container resources
       "ILUVATAR_WORKER__container_resources__memory_mb" : "{{ worker_memory_mb | default(2048) }}"
