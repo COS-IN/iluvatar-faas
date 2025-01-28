@@ -52,7 +52,8 @@ keys_backup = os.path.join(os.getenv("HOME"), ".ssh/authorized_keys_bak")
 keys_src = os.path.join(os.getenv("HOME"), ".ssh/authorized_keys")
 shutil.copy(keys_src, keys_backup)
 
-passphrase = "cluster-trace-example"
+# Ansible doesn't allow passing the ssh key password via command line, so we only support unencrpyted keys currently.
+_passphrase = "cluster-trace-example"
 ssh_key = "./example-ssh"
 # Demonstrate using SSH key to connect to 'remote' machines for setup
 # even if this example is all local, still uses SSH connection for Ansible

@@ -67,7 +67,7 @@ This file must conform to the expected [pip syntax](https://pip.pypa.io/en/stabl
 
 There are build scripts [such as this one](../../load/functions/python3/build-cpu.py) located in the relevant folders for creating Docker images from the various code snippets, plus installing their required dependencies.
 Running these various scripts will compile all the functions into Docker images and push them to Docker Hub.
-You will need to pass a repository name that you have write permission to via arguments to the script, along with an optional version for the image.
+**NOTE**: You will need to pass a Docker repository name (the `--repo` flag) that you have write permission to via arguments to the script, along with an optional version for the image.
 
 ```bash
 foo@cosin:~$ ./build-cpu.py --repo=cosin --version=latest

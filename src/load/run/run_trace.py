@@ -36,7 +36,7 @@ def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE
     pwd = os.getcwd()
     os.chdir(ilu_home)
     build_args = ["make", build.make_name()]
-    run_cmd(build_args, log_file)
+    _run_cmd(build_args, log_file)
     os.chdir(pwd)
 
 
@@ -68,7 +68,7 @@ class RunTarget(Enum):
             return "iluvatar.yml"
 
 
-def has_results(results_dir, function_trace_name, log_file):
+def _has_results(results_dir, function_trace_name, log_file):
     output_json = os.path.join(results_dir, f"output-full-{function_trace_name}.json")
     output_csv = os.path.join(results_dir, f"output-{function_trace_name}.csv")
     worker_log = os.path.join(results_dir, f"worker_worker1.log")
@@ -99,7 +99,7 @@ def has_results(results_dir, function_trace_name, log_file):
     return True
 
 
-def run_ansible_clean(log_file, kwargs):
+def _run_ansible_clean(log_file, kwargs):
     run_args = [
         "ansible-playbook",
         "-i",
@@ -122,10 +122,10 @@ def run_ansible_clean(log_file, kwargs):
 
     if kwargs["private_ssh_key"] is not None:
         run_args.append(f"--private-key={kwargs['private_ssh_key']}")
-    run_cmd(run_args, log_file)
+    _run_cmd(run_args, log_file)
 
 
-def copy_logs(log_file, results_dir, kwargs):
+def _copy_logs(log_file, results_dir, kwargs):
     if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
         for subdir in os.listdir(kwargs["worker_log_dir"]):
             src = os.path.join(kwargs["worker_log_dir"], subdir)
@@ -146,29 +146,29 @@ def copy_logs(log_file, results_dir, kwargs):
                 scp.get(f"{kwargs['worker_log_dir']}/*", results_dir, recursive=True)
 
 
-def pre_run_cleanup(
+def _pre_run_cleanup(
     log_file,
     results_dir,
     kwargs,
 ):
-    run_ansible_clean(log_file, kwargs)
+    _run_ansible_clean(log_file, kwargs)
     clean_dir = os.path.join(results_dir, "precleanup")
     os.makedirs(clean_dir, exist_ok=True)
-    copy_logs(log_file, clean_dir, kwargs)
+    _copy_logs(log_file, clean_dir, kwargs)
 
 
-def remote_cleanup(
+def _remote_cleanup(
     log_file,
     results_dir,
     kwargs,
 ):
     print("Cleanup:", results_dir)
-    copy_logs(log_file, results_dir, kwargs)
-    run_ansible_clean(log_file, kwargs)
+    _copy_logs(log_file, results_dir, kwargs)
+    _run_ansible_clean(log_file, kwargs)
 
     if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
         if results_dir != kwargs["worker_log_dir"]:
-            run_cmd(["rm", "-rf", kwargs["worker_log_dir"]], log_file, shell=False)
+            _run_cmd(["rm", "-rf", kwargs["worker_log_dir"]], log_file, shell=False)
     else:
         from paramiko import SSHClient
         import paramiko
@@ -182,7 +182,7 @@ def remote_cleanup(
             ssh.exec_command(f"sudo rm -rf {kwargs['worker_log_dir']}")
 
 
-def run_cmd(cmd_args, log_file, shell: bool = False):
+def _run_cmd(cmd_args, log_file, shell: bool = False):
     opened_log = False
     if type(log_file) is str:
         log_file = open(log_file, "a")
@@ -223,7 +223,7 @@ def run_cmd(cmd_args, log_file, shell: bool = False):
             log_file.close()
 
 
-def run_ansible(
+def _run_ansible(
     log_file,
     kwargs,
 ):
@@ -260,10 +260,10 @@ def run_ansible(
         run_args.extend(ansible_args)
     elif type(kwargs["ansible_args"]) == list and len(kwargs["ansible_args"]) > 0:
         run_args.extend(kwargs["ansible_args"])
-    run_cmd(run_args, log_file)
+    _run_cmd(run_args, log_file)
 
 
-def run_load(log_file, results_dir, input_csv, metadata, kwargs):
+def _run_load(log_file, results_dir, input_csv, metadata, kwargs):
     setup = "live"
     if kwargs["simulation"]:
         setup = "simulation"
@@ -317,7 +317,7 @@ def run_load(log_file, results_dir, input_csv, metadata, kwargs):
         load_args.append(kwargs["sim_gran"])
         load_args.append("--tick-step")
         load_args.append(kwargs["tick_step"])
-    run_cmd(load_args, log_file)
+    _run_cmd(load_args, log_file)
 
 
 runner_config_kwargs = [
@@ -466,11 +466,18 @@ def run_live(
     queue: CustQueue,
     **kwargs,
 ):
+    """
+    Run the given experiment on a live system, using `queue` for host control.
+    `trace_in`: input csv of invocations
+    `trace_meta`: csv of function metadata for registration
+    `results_dir`: where to store all results
+    `kwargs`: custom config for the experimental run
+    """
     kwargs = default_kwargs.overwrite(**kwargs)
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
 
-    if not kwargs["force"] and has_results(
+    if not kwargs["force"] and _has_results(
         results_dir, kwargs["function_trace_name"], log_file
     ):
         print(f"Skipping {results_dir}")
@@ -487,14 +494,14 @@ def run_live(
 
             with open(log_file, "w") as log_file_fp:
                 try:
-                    pre_run_cleanup(
+                    _pre_run_cleanup(
                         log_file_fp,
                         results_dir,
                         kwargs,
                     )
-                    run_ansible(log_file_fp, kwargs)
+                    _run_ansible(log_file_fp, kwargs)
                     sleep(5)
-                    run_load(
+                    _run_load(
                         log_file_fp,
                         results_dir,
                         trace_in,
@@ -502,7 +509,7 @@ def run_live(
                         kwargs,
                     )
                     sleep(5)
-                    remote_cleanup(
+                    _remote_cleanup(
                         log_file_fp,
                         results_dir,
                         kwargs,
@@ -513,7 +520,7 @@ def run_live(
                     log_file_fp.write("\n")
                     log_file_fp.write(traceback.format_exc())
                     log_file_fp.write("\n")
-                    remote_cleanup(
+                    _remote_cleanup(
                         log_file_fp,
                         results_dir,
                         kwargs,
@@ -527,13 +534,20 @@ def run_sim(
     results_dir,
     **kwargs,
 ):
+    """
+    Run the given experiment as a simulation.
+    `trace_in`: input CSV of invocations
+    `trace_meta`: CSV of function metadata for registration
+    `results_dir`: where to store all results
+    `kwargs`: custom config for the experimental run
+    """
     kwargs = default_kwargs.overwrite(**kwargs)
     kwargs["host"] = "NOT_SET_SIMULATION"
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
     kwargs["simulation"] = True
 
-    if not kwargs["force"] and has_results(
+    if not kwargs["force"] and _has_results(
         results_dir, kwargs["function_trace_name"], log_file
     ):
         print(f"Skipping {results_dir}")
@@ -564,7 +578,7 @@ def run_sim(
         json.dump(json_data, f, indent=4)
 
     print(f"Running {results_dir}")
-    run_load(
+    _run_load(
         log_file,
         results_dir,
         trace_in,

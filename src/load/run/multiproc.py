@@ -24,6 +24,10 @@ class CustManager(BaseManager):
 
 
 class CustQueue:
+    """
+    A multiprocessing queue for distributing access to shared hosts during an experiment run.
+    """
+
     def __init__(self, items: List[Tuple[str, str]], queue: Queue):
         """
         Takes a list of environment names and host addresses to insert into new queue.
@@ -33,6 +37,12 @@ class CustQueue:
         self.queue = queue
 
     def get(self):
+        """
+        Items from this should be passed to a new HeldHost and used in a `with` statement.
+        ```
+        with HeldHost(queue.get(), queue) as held_host:
+        ```
+        """
         item = self.queue.get()
         return item
         # Python bug? process hangs if trying to return this
@@ -50,7 +60,11 @@ m = CustManager()
 m.start()
 
 
-def make_host_queue(host_names: List[str]):
+def make_host_queue(host_names: List[Tuple[str, str]]):
+    """
+    Create a new shared host queue with the given host information.
+    Pairs of (<Ansible host environment name>, <hostname/IP address>)
+    """
     return m.CustQueue(host_names, m2.Queue())
 
 

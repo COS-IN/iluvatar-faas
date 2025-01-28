@@ -53,7 +53,7 @@ Each host in your environment is then supplied with the values specified auto-ma
 
 For writing new playbooks, such variables can simply be extraced like this: `servers[ansible_host].internal_ip`.
 
-## Running commands
+## Running individual commands
 
 You **MUST** run the clean command first if the services have been set up before on the target machine(s).
 
