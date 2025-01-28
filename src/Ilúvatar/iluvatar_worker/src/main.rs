@@ -27,9 +27,9 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     let compute = worker.supported_compute().bits();
     let isolation = worker.supported_isolation().bits();
 
-    info!(tid=%tid, "Starting RPC server");
-    debug!(config=?server_config, "Worker configuration");
     let addr = format!("{}:{}", server_config.address, server_config.port);
+    info!(tid=%tid, address=%addr, "Starting RPC server");
+    debug!(config=?server_config, "Worker configuration");
     let _j = tokio::spawn(
         Server::builder()
             .timeout(Duration::from_secs(server_config.timeout_sec))

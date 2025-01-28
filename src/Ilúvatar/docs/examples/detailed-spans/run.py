@@ -17,12 +17,6 @@ os.makedirs(worker_log_dir, exist_ok=True)
 # build the solution
 rust_build(ILU_HOME, None, build_level)
 
-ansible_args = [
-    "-e",
-    "worker_snapshotter=overlayfs",
-    "-e",
-    f"worker_memory_buffer={1024}",
-]
 ansible_dir = os.path.join(ILU_HOME, "ansible")
 kwargs = {
     "ilu_home": ILU_HOME,
@@ -32,7 +26,7 @@ kwargs = {
     "build_level": build_level,
     "cores": CORES,
     "memory": MEMORY,
-    "ansible_args": ansible_args,
+    "snapshotter": "overlayfs",
     "worker_status_ms": 500,
     "worker_log_dir": worker_log_dir,
     "cpu_queue_policy": "fcfs",

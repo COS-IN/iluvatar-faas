@@ -12,13 +12,11 @@
     __remote_bin_src: "{{ remote_bin_src | default(false) }}"
     __controller_address: "{{ controller_address | default(servers[ansible_host].internal_ip) }}"
     coded_proxy_env:
+      # This section is for environment variables defined/managed by Ansible ONLY. 
+      # Other config should be passed in via 'controller.environment'
       "ILUVATAR_CONTROLLER__name": "{{ controller.host }}"
       "ILUVATAR_CONTROLLER__port": "{{ controller.port }}"
       "ILUVATAR_CONTROLLER__address": "{{ __controller_address | default('localhost') }}"
-      "ILUVATAR_CONTROLLER__logging__directory" : "{{ controller_log_dir | default('/tmp/iluvatar/logs') }}"
-      "ILUVATAR_CONTROLLER__logging__level" : "{{ controller_log_level | default('info') }}"
-      "ILUVATAR_CONTROLLER__load_balancer__algorithm" : "{{ controller.algorithm }}"
-      "ILUVATAR_CONTROLLER__load_balancer__load_metric" : "{{ controller.load_metric }}"
       "ILUVATAR_CONTROLLER__influx__host" : "{{ influx.address }}"
       "ILUVATAR_CONTROLLER__influx__org" : "{{ influx.organization }}"
       "ILUVATAR_CONTROLLER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token }}"

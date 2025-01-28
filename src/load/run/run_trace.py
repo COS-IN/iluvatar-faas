@@ -7,6 +7,7 @@ import traceback
 from enum import Enum
 from copy import deepcopy
 import shutil
+from config import LoadConfig
 
 from multiproc import *
 from ansible import *
@@ -29,6 +30,14 @@ class BuildTarget(Enum):
             return "debug"
         elif self == self.RELEASE or self == self.RELEASE_SPANS:
             return "release"
+
+
+def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE):
+    pwd = os.getcwd()
+    os.chdir(ilu_home)
+    build_args = ["make", build.make_name()]
+    run_cmd(build_args, log_file)
+    os.chdir(pwd)
 
 
 class RunType(Enum):
@@ -90,31 +99,33 @@ def has_results(results_dir, function_trace_name, log_file):
     return True
 
 
-def run_ansible_clean(log_file, **kwargs):
+def run_ansible_clean(log_file, kwargs):
     run_args = [
         "ansible-playbook",
         "-i",
         kwargs["ansible_host_file"],
         os.path.join(kwargs["ilu_home"], "ansible", kwargs["target"].yml()),
-        "-e",
-        kwargs["ansible_hosts_addrs"],
-        "-e",
-        "mode=clean",
-        "-e",
-        f"target={kwargs['build_level'].path_name()}",
-        "-e",
-        f"worker_log_dir={kwargs['worker_log_dir']}",
-        "-e",
-        f"worker_log_level={kwargs['log_level']}",
     ]
+    env_args = [kwargs["ansible_hosts_addrs"], "mode=clean"]
+
+    worker_env = kwargs.to_env_var_dict("worker")
+    worker_env = json.dumps({"worker_environment": worker_env})
+    env_args.append(worker_env)
+    if kwargs["target"] == RunTarget.CONTROLLER:
+        controller_env = kwargs.to_env_var_dict("controller")
+        controller_env = json.dumps({"controller": {"environment": controller_env}})
+        env_args.append(controller_env)
+
+    for env_arg in env_args:
+        run_args.append("-e")
+        run_args.append(env_arg)
+
     if kwargs["private_ssh_key"] is not None:
         run_args.append(f"--private-key={kwargs['private_ssh_key']}")
-        # if kwargs["private_ssh_key_pass"] is not None:
-        #     run_args.append(f"--private-key=={kwargs['private_ssh_key_pass']}")
     run_cmd(run_args, log_file)
 
 
-def copy_logs(log_file, results_dir, **kwargs):
+def copy_logs(log_file, results_dir, kwargs):
     if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
         for subdir in os.listdir(kwargs["worker_log_dir"]):
             src = os.path.join(kwargs["worker_log_dir"], subdir)
@@ -138,22 +149,22 @@ def copy_logs(log_file, results_dir, **kwargs):
 def pre_run_cleanup(
     log_file,
     results_dir,
-    **kwargs,
+    kwargs,
 ):
-    run_ansible_clean(log_file, **kwargs)
+    run_ansible_clean(log_file, kwargs)
     clean_dir = os.path.join(results_dir, "precleanup")
     os.makedirs(clean_dir, exist_ok=True)
-    copy_logs(log_file, clean_dir, **kwargs)
+    copy_logs(log_file, clean_dir, kwargs)
 
 
 def remote_cleanup(
     log_file,
     results_dir,
-    **kwargs,
+    kwargs,
 ):
     print("Cleanup:", results_dir)
-    copy_logs(log_file, results_dir, **kwargs)
-    run_ansible_clean(log_file, **kwargs)
+    copy_logs(log_file, results_dir, kwargs)
+    run_ansible_clean(log_file, kwargs)
 
     if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
         if results_dir != kwargs["worker_log_dir"]:
@@ -214,70 +225,29 @@ def run_cmd(cmd_args, log_file, shell: bool = False):
 
 def run_ansible(
     log_file,
-    **kwargs,
+    kwargs,
 ):
     env_args = [
         kwargs["ansible_hosts_addrs"],
         "mode=deploy",
         f"target={kwargs['build_level'].path_name()}",
-        f"worker_memory_mb={kwargs['memory']}",
-        f"worker_cores={kwargs['cores']}",
-        f"worker_log_dir={kwargs['worker_log_dir']}",
-        f"worker_cpu_queue_policy={kwargs['cpu_queue_policy']}",
-        f"worker_status_ms={kwargs['stat_update']}",
-        f"worker_enqueueing={kwargs['enqueueing']}",
-        f"use_driver_hook={kwargs['use_driver']}",
-        f"funcs_per_device={kwargs['fpd']}",
-        f"standalone_mps={kwargs['mps']}",
-        f"worker_gpus={kwargs['gpus']}",
-        f"worker_gpu_queue={kwargs['gpu_queue']}",
-        f"gpu_limit_on_utilization={kwargs['gpu_util']}",
-        f"gpu_prefetch_memory={kwargs['prefetch']}",
-        f"worker_concurrent_creation={kwargs['concurrent_creation']}",
-        f"gpu_concurrent_running={kwargs['gpu_running']}",
-        f"gpu_status_update={kwargs['stat_update']}",
-        f"mig_shares={kwargs['mig_shares']}",
-        f"mqfq_allowed_overrun={kwargs['allowed_overrun']}",
-        f"worker_log_level={kwargs['log_level']}",
-        f"mqfq_service_average={kwargs['service_average']}",
-        f"worker_gpu_queue_policy={kwargs['gpu_queue_policy']}",
-        f"mqfq_ttl_sec={kwargs['mqfq_ttl_sec']}",
-        f"mqfq_weight_logging_ms={0}",
-        f"mqfq_flow_select_cnt={kwargs['select_cnt']}",
-        f"lnd_cache_size={kwargs['cache_size']}",
-        f"lnd_max_size={kwargs['lnd_max_size']}",
-        f"lnd_load_thresh={kwargs['lnd_load_thresh']}",
-        f"lnd_slowdown_thresh={kwargs['lnd_slowdown_thresh']}",
-        f"mqfq_add_estimation_error={kwargs['mqfq_add_estimation_error']}",
-        f"mqfq_time_estimation={kwargs['mqfq_time_estimation']}",
-        f"greedy_policy={kwargs['greedy_policy']}",
-        f"greedy_load={kwargs['greedy_load']}",
-        f"greedy_log={kwargs['greedy_log']}",
-        f"greedy_cache_size={kwargs['greedy_cache_size']}",
-        f"greedy_fixed_assignment={kwargs['greedy_fixed_assignment']}",
-        f"worker_spanning={kwargs['worker_spanning']}",
-        "lnd_cache_log=true",
-        "worker_enqueueing_details=true",
-        "worker_ipmi_log_freq_ms=0",
-        "worker_perf_log_freq_ms=0",
-        "worker_rapl_log_freq_ms=0",
-        f"controller_log_dir={kwargs['controller_log_dir']}",
-        f"controller_port={kwargs['controller_port']}",
-        f"controller_algorithm={kwargs['controller_algorithm']}",
-        f"controller_load_metric={kwargs['controller_load_metric']}",
-        f"controller_log_level={kwargs['log_level']}",
-        f"influx_enabled={kwargs['influx_enabled']}",
     ]
-    if kwargs["log_level"] == "debug":
-        env_args += [f"worker_include_spans={True}"]
+    worker_env = kwargs.to_env_var_dict("worker")
+    worker_env = json.dumps({"worker_environment": worker_env})
+    env_args.append(worker_env)
+    if kwargs["target"] == RunTarget.CONTROLLER:
+        controller_env = kwargs.to_env_var_dict("controller")
+        controller_env = json.dumps({"controller": {"environment": controller_env}})
+        env_args.append(controller_env)
+    if kwargs["target"] == RunTarget.CONTROLLER:
+        env_args.append("cluster=true")
+
     run_args = [
         "ansible-playbook",
         "-i",
         kwargs["ansible_host_file"],
         os.path.join(kwargs["ilu_home"], "ansible", kwargs["target"].yml()),
     ]
-    if kwargs["target"] == RunTarget.CONTROLLER:
-        env_args.append("cluster=true")
     if kwargs["private_ssh_key"] is not None:
         run_args.append(f"--private-key={kwargs['private_ssh_key']}")
 
@@ -293,7 +263,7 @@ def run_ansible(
     run_cmd(run_args, log_file)
 
 
-def run_load(log_file, results_dir, input_csv, metadata, **kwargs):
+def run_load(log_file, results_dir, input_csv, metadata, kwargs):
     setup = "live"
     if kwargs["simulation"]:
         setup = "simulation"
@@ -350,97 +320,143 @@ def run_load(log_file, results_dir, input_csv, metadata, **kwargs):
     run_cmd(load_args, log_file)
 
 
-def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE):
-    pwd = os.getcwd()
-    os.chdir(ilu_home)
-    build_args = ["make", build.make_name()]
-    run_cmd(build_args, log_file)
-    os.chdir(pwd)
-
-
-runner_config_kwargs = {
-    "ilu_home": "NOT_SET",
-    "ansible_dir": "NOT_SET",
-    "ansible_hosts_addrs": "NOT_SET",
-    "benchmark_file": "NOT_SET",
-    "build_level": BuildTarget.RELEASE,
-    "force": False,
-    "function_trace_name": "chosen-ecdf",
-    "host": "NOT_SET",
-    "host_queue": None,
-    "private_ssh_key": None,
-    "private_ssh_key_pass": None,
-}
+runner_config_kwargs = [
+    ("ilu_home", "NOT_SET"),
+    ("ansible_dir", "NOT_SET"),
+    ("ansible_hosts_addrs", "NOT_SET"),
+    ("benchmark_file", "NOT_SET"),
+    ("build_level", BuildTarget.RELEASE),
+    ("force", False),
+    ("function_trace_name", "chosen-ecdf"),
+    ("host", "NOT_SET"),
+    ("host_queue", None),
+    ("private_ssh_key", None),
+    ("private_ssh_key_pass", None),
+    ("ansible_args", []),
+]
 
 load_gen_kwargs = {
-    "load_type": "functions",
-    "prewarm": 1,
-    "simulation": None,
-    "tick_step": 300,
-    "sim_gran": "us",
-    "num_workers": 1,
-    "target": RunTarget.WORKER,
+    ("load_type", "functions"),
+    ("prewarm", 1),
+    ("simulation", None),
+    ("tick_step", 300),
+    ("sim_gran", "us"),
+    ("num_workers", 1),
+    ("target", RunTarget.WORKER),
 }
 
 controller_kwargs = {
-    "controller_log_dir": "/tmp/iluvatar/logs/ansible",
-    "controller_port": "8089",
-    "controller_algorithm": "LeastLoaded",
-    "controller_load_metric": "loadavg",
+    ("controller_log_dir", "/tmp/iluvatar/logs/ansible", ("logging", "directory")),
+    ("controller_log_level", "info", ("logging", "level")),
+    ("controller_port", 8079, ("port",)),
+    ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm")),
+    ("controller_thread_sleep_ms", 5000, ("load_balancer", "thread_sleep_ms")),
+    ("controller_load_metric", "loadavg", ("load_balancer", "load_metric")),
 }
 worker_kwargs = {
-    "influx_enabled": False,
-    "ansible_args": [],
-    "log_level": "info",
-    "worker_spanning": "NONE",
-    "worker_log_dir": "/tmp/iluvatar/logs/ansible",
-    "worker_port": 8070,
-    "memory": 20 * 1024,
-    "cores": 12,
-    "gpus": 0,
-    "fpd": 16,
-    "mps": False,
-    "use_driver": True,
-    "prefetch": True,
-    "gpu_util": 95,
-    "concurrent_creation": 5,
-    "gpu_running": 2,
-    "stat_update": 500,
-    "allowed_overrun": 5.0,
-    "service_average": 0.0,
-    "mqfq_ttl_sec": -1.5,
-    "select_cnt": 20,
-    "enqueueing": "All",
-    "cpu_queue": "serial",
-    "cpu_queue_policy": "minheap_ed",
-    "gpu_queue": "mqfq",
-    "gpu_queue_policy": "mqfq_select_out_len",
-    "mqfq_time_estimation": "FallbackLinReg",
-    "mqfq_add_estimation_error": False,
-    "cache_size": 10,
-    "lnd_max_size": 20,
-    "lnd_load_thresh": 5.0,
-    "lnd_slowdown_thresh": 6.0,
-    "mig_shares": 0,
-    "log_cache_info": False,
-    "enqueuing_log_details": False,
-    "greedy_load": 3.0,
-    "greedy_policy": "TopQuarter",
-    "greedy_log": False,
-    "greedy_cache_size": 0,
-    "greedy_fixed_assignment": False,
-    "lnd_fixed_mode": False,
+    ("worker_port", 8070, ("port",)),
+    ("load_balancer_url", "", ("load_balancer_url",)),
+    # invoke basics
+    ("memory", 20 * 1024, ("container_resources", "memory_mb")),
+    ("cores", 12, ("container_resources", "cpu_resource", "count")),
+    ("cpu_queue", "serial", ("invocation", "queues", "cpu")),
+    ("cpu_queue_policy", "minheap_ed", ("invocation", "queue_policies", "cpu")),
+    ("gpu_queue", "mqfq", ("invocation", "queues", "gpu")),
+    (
+        "gpu_queue_policy",
+        "mqfq_select_out_len",
+        ("invocation", "queue_policies", "gpu"),
+    ),
+    ("enqueueing", "All", ("invocation", "enqueueing_policy")),
+    ("invoke_queue_sleep_ms", 500, ("invocation", "queue_sleep_ms")),
+    ("enqueuing_log_details", False, ("invocation", "enqueuing_log_details")),
+    # logging
+    ("log_level", "info", ("logging", "level")),
+    ("worker_spanning", "NONE", ("logging", "spanning")),
+    ("worker_log_dir", "/tmp/iluvatar/logs/ansible", ("logging", "directory")),
+    ("worker_status_ms", 500, ("status", "report_freq_ms")),
+    # energy
+    ("ipmi_freq_ms", 0, ("energy", "ipmi_freq_ms")),
+    ("ipmi_pass_file", "", ("energy", "ipmi_pass_file")),
+    ("ipmi_ip_addr", "", ("energy", "ipmi_ip_addr")),
+    ("perf_freq_ms", 0, ("energy", "perf_freq_ms")),
+    ("rapl_freq_ms", 0, ("energy", "rapl_freq_ms")),
+    ("energy_log_folder", "/tmp/iluvatar/logs/ansible", ("energy", "log_folder")),
+    ("process_freq_ms", 0, ("energy", "process_freq_ms")),
+    ("tegra_freq_ms", 0, ("energy", "tegra_freq_ms")),
+    # gpu
+    ("gpus", 0, ("container_resources", "gpu_resource", "count")),
+    ("fpd", 16, ("container_resources", "gpu_resource", "funcs_per_device")),
+    (
+        "per_func_gpu_memory",
+        16 * 1024,
+        ("container_resources", "gpu_resource", "per_func_memory_mb"),
+    ),
+    ("mps", False, ("container_resources", "gpu_resource", "use_standalone_mps")),
+    (
+        "gpu_stat_check",
+        500,
+        ("container_resources", "gpu_resource", "status_update_freq_ms"),
+    ),
+    ("use_driver", True, ("container_resources", "gpu_resource", "use_driver_hook")),
+    ("prefetch", True, ("container_resources", "gpu_resource", "prefetch_memory")),
+    ("gpu_util", 95, ("container_resources", "gpu_resource", "limit_on_utilization")),
+    (
+        "gpu_running",
+        2,
+        ("container_resources", "gpu_resource", "concurrent_running_funcs"),
+    ),
+    # containers
+    ("concurrent_creation", 5, ("container_resources", "concurrent_creation")),
+    ("snapshotter", "zfs", ("container_resources", "snapshotter")),
+    ("worker_memory_buffer", 1024, ("container_resources", "memory_buffer_mb")),
+    # influx
+    ("influx_enabled", False, ("influx", "enabled")),
+    ("influx_freq", 500, ("influx", "update_freq_ms")),
+    # mqfq
+    ("allowed_overrun", 5.0, ("invocation", "mqfq_config", "allowed_overrun")),
+    ("service_average", 0.0, ("invocation", "mqfq_config", "service_average")),
+    ("mqfq_ttl_sec", -1.5, ("invocation", "mqfq_config", "ttl_sec")),
+    ("select_cnt", 20, ("invocation", "mqfq_config", "flow_select_cnt")),
+    (
+        "mqfq_weight_logging_ms",
+        0,
+        ("invocation", "mqfq_config", "mqfq_weight_logging_ms"),
+    ),
+    (
+        "mqfq_time_estimation",
+        "FallbackLinReg",
+        ("invocation", "mqfq_config", "time_estimation"),
+    ),
+    (
+        "mqfq_add_estimation_error",
+        False,
+        ("invocation", "mqfq_config", "add_estimation_error"),
+    ),
+    # landlord
+    ("cache_size", 10, ("invocation", "landlord_config", "cache_size")),
+    ("lnd_max_size", 20, ("invocation", "landlord_config", "max_size")),
+    ("lnd_load_thresh", 5.0, ("invocation", "landlord_config", "load_thresh")),
+    ("lnd_slowdown_thresh", 6.0, ("invocation", "landlord_config", "slowdown_thresh")),
+    ("log_cache_info", False, ("invocation", "landlord_config", "log_cache_info")),
+    ("lnd_fixed_mode", False, ("invocation", "landlord_config", "fixed_mode")),
+    # greedy
+    ("greedy_load", 3.0, ("invocation", "greedy_weight_config", "allow_load")),
+    ("greedy_policy", "TopQuarter", ("invocation", "greedy_weight_config", "allow")),
+    ("greedy_log", False, ("invocation", "greedy_weight_config", "log")),
+    ("greedy_cache_size", 0, ("invocation", "greedy_weight_config", "cache_size")),
+    (
+        "greedy_fixed_assignment",
+        False,
+        ("invocation", "greedy_weight_config", "fixed_assignment"),
+    ),
 }
 
-default_kwargs = {
-    # runner config
-    **runner_config_kwargs,
-    # load gen config
-    **load_gen_kwargs,
-    # iluvatar config
-    **worker_kwargs,
-    **controller_kwargs,
-}
+default_kwargs = LoadConfig()
+default_kwargs.bulk_add("runner", runner_config_kwargs)
+default_kwargs.bulk_add("load", load_gen_kwargs)
+default_kwargs.bulk_add("controller", controller_kwargs)
+default_kwargs.bulk_add("worker", worker_kwargs)
 
 
 def run_live(
@@ -450,7 +466,7 @@ def run_live(
     queue: CustQueue,
     **kwargs,
 ):
-    kwargs = {**default_kwargs, **kwargs}
+    kwargs = default_kwargs.overwrite(**kwargs)
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
 
@@ -474,22 +490,22 @@ def run_live(
                     pre_run_cleanup(
                         log_file_fp,
                         results_dir,
-                        **kwargs,
+                        kwargs,
                     )
-                    run_ansible(log_file=log_file_fp, **kwargs)
+                    run_ansible(log_file_fp, kwargs)
                     sleep(5)
                     run_load(
                         log_file_fp,
                         results_dir,
                         trace_in,
                         trace_meta,
-                        **kwargs,
+                        kwargs,
                     )
                     sleep(5)
                     remote_cleanup(
                         log_file_fp,
                         results_dir,
-                        **kwargs,
+                        kwargs,
                     )
                 except Exception as e:
                     log_file_fp.write("Exception encountered:\n")
@@ -500,7 +516,7 @@ def run_live(
                     remote_cleanup(
                         log_file_fp,
                         results_dir,
-                        **kwargs,
+                        kwargs,
                     )
                     raise e
 
@@ -511,107 +527,11 @@ def run_sim(
     results_dir,
     **kwargs,
 ):
-    kwargs = {**default_kwargs, **kwargs}
+    kwargs = default_kwargs.overwrite(**kwargs)
     kwargs["host"] = "NOT_SET_SIMULATION"
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
     kwargs["simulation"] = True
-    if kwargs["target"] == RunTarget.CONTROLLER:
-        controller_config_file = os.path.join(results_dir, "controller.json")
-        src = os.path.join(
-            kwargs["ilu_home"], "iluvatar_controller/src/controller.dev.json"
-        )
-        shutil.copy(src, controller_config_file)
-        kwargs["controller_config_file"] = controller_config_file
-
-    src = os.path.join(
-        kwargs["ilu_home"], "iluvatar_controller/src/controller.dev.json"
-    )
-    worker_config_file = os.path.join(results_dir, "worker.json")
-    shutil.copy(src, worker_config_file)
-    kwargs["worker_config_file"] = worker_config_file
-
-    with open("./worker.dev.json") as js:
-        config = json.load(js)
-
-        def add(path, val):
-            c = config
-            for p in path[:-1]:
-                if p in c:
-                    pass
-                else:
-                    c[p] = dict()
-                c = c[p]
-            c[path[-1]] = val
-
-        add(["container_resources", "memory_mb"], kwargs["memory"])
-        add(["container_resources", "cpu_resource", "count"], kwargs["cores"])
-        add(["invocation", "queues", "cpu"], "serial")
-        add(["invocation", "queue_policies", "cpu"], kwargs["cpu_queue_policy"])
-        add(["invocation", "queue_sleep_ms"], kwargs["stat_update"])
-        add(["invocation", "enqueueing_policy"], kwargs["enqueueing"])
-        add(["invocation", "queues", "gpu"], kwargs["gpu_queue"])
-        add(["invocation", "queue_policies", "gpu"], kwargs["gpu_queue_policy"])
-
-        add(["logging", "level"], kwargs["log_level"])
-        add(["logging", "directory"], results_dir)
-        add(["status", "report_freq_ms"], kwargs["stat_update"])
-
-        add(["container_resources", "gpu_resource", "count"], kwargs["gpus"])
-        add(["container_resources", "gpu_resource", "per_func_memory_mb"], 16 * 1024)
-        add(["container_resources", "gpu_resource", "memory_mb"], 16 * 1024)
-        add(["container_resources", "gpu_resource", "funcs_per_device"], kwargs["fpd"])
-        add(
-            ["container_resources", "gpu_resource", "concurrent_running_funcs"],
-            kwargs["gpu_running"],
-        )
-        add(
-            ["container_resources", "gpu_resource", "use_driver_hook"],
-            kwargs["prefetch"],
-        )
-        add(["container_resources", "pool_freq_ms"], 1000)
-        add(["invocation", "mqfq_config", "allowed_overrun"], kwargs["allowed_overrun"])
-        add(["invocation", "mqfq_config", "service_average"], kwargs["service_average"])
-        add(["invocation", "mqfq_config", "ttl_sec"], kwargs["mqfq_ttl_sec"])
-        add(["invocation", "mqfq_config", "weight_logging_ms"], 0)
-        add(["invocation", "mqfq_config", "flow_select_cnt"], kwargs["select_cnt"])
-        add(
-            ["invocation", "mqfq_config", "time_estimation"],
-            kwargs["mqfq_time_estimation"],
-        )
-        add(
-            ["invocation", "mqfq_config", "add_estimation_error"],
-            kwargs["mqfq_add_estimation_error"],
-        )
-
-        add(["invocation", "landlord_config", "cache_size"], int(kwargs["cache_size"]))
-        add(
-            ["invocation", "landlord_config", "log_cache_info"],
-            kwargs["log_cache_info"],
-        )
-        add(["invocation", "landlord_config", "max_size"], kwargs["lnd_max_size"])
-        add(["invocation", "landlord_config", "load_thresh"], kwargs["lnd_load_thresh"])
-        add(["invocation", "landlord_config", "fixed_mode"], kwargs["lnd_fixed_mode"])
-        add(
-            ["invocation", "landlord_config", "slowdown_thresh"],
-            kwargs["lnd_slowdown_thresh"],
-        )
-        add(["invocation", "enqueuing_log_details"], kwargs["enqueuing_log_details"])
-
-        add(["invocation", "greedy_weight_config", "allow"], kwargs["greedy_policy"])
-        add(["invocation", "greedy_weight_config", "allow_load"], kwargs["greedy_load"])
-        add(["invocation", "greedy_weight_config", "log"], kwargs["greedy_log"])
-        add(
-            ["invocation", "greedy_weight_config", "cache_size"],
-            kwargs["greedy_cache_size"],
-        )
-        add(
-            ["invocation", "greedy_weight_config", "fixed_assignment"],
-            kwargs["greedy_fixed_assignment"],
-        )
-
-        with open(worker_config_file, "w") as dump:
-            json.dump(config, dump)
 
     if not kwargs["force"] and has_results(
         results_dir, kwargs["function_trace_name"], log_file
@@ -619,11 +539,35 @@ def run_sim(
         print(f"Skipping {results_dir}")
         return
 
+    if kwargs["target"] == RunTarget.CONTROLLER:
+        controller_config_file = os.path.join(results_dir, "controller.json")
+        src = os.path.join(
+            kwargs["ilu_home"], "iluvatar_controller/src/controller.dev.json"
+        )
+        shutil.copy(src, controller_config_file)
+        kwargs["controller_config_file"] = controller_config_file
+        with open(kwargs["controller_config_file"], "r+") as f:
+            json_data = json.load(f)
+            kwargs.to_json("controller", json_data)
+            f.seek(0)
+            json.dump(json_data, f, indent=4)
+
+    src = os.path.join(kwargs["ilu_home"], "iluvatar_worker/src/worker.dev.json")
+    worker_config_file = os.path.join(results_dir, "worker.json")
+    shutil.copy(src, worker_config_file)
+    kwargs["worker_config_file"] = worker_config_file
+
+    with open(kwargs["worker_config_file"], "r+") as f:
+        json_data = json.load(f)
+        kwargs.to_json("worker", json_data)
+        f.seek(0)
+        json.dump(json_data, f, indent=4)
+
     print(f"Running {results_dir}")
     run_load(
         log_file,
         results_dir,
         trace_in,
         trace_meta,
-        **kwargs,
+        kwargs,
     )

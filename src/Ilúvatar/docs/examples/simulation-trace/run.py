@@ -25,9 +25,14 @@ kwargs = {
     "worker_status_ms": 500,
     "worker_log_dir": worker_log_dir,
     "cpu_queue_policy": "fcfs",
-    "target": RunTarget.WORKER,
+    "target": RunTarget.CONTROLLER,
+    "controller_thread_sleep_ms": 6000,
+    "controller_load_metric": "running",
+    "num_workers": 2,
     "prewarm": 1,
     "benchmark_file": benchmark,
+    "force": True,
+    "worker_port": 5000,
 }
 # run entire experiment
 run_sim(
