@@ -1,5 +1,5 @@
 import json
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict
 from collections import defaultdict
 import os, pickle
 import numpy as np
@@ -7,8 +7,13 @@ import pandas as pd
 from copy import deepcopy
 from multiprocessing import Pool
 from functools import reduce
-
-from ..run.run_trace import RunType, RunTarget
+from ..run.run_trace import (
+    RunType,
+    RunTarget,
+    has_results,
+    trace_base_name,
+    trace_output,
+)
 
 
 def get_from_dict(dataDict, mapList, default):
@@ -17,14 +22,6 @@ def get_from_dict(dataDict, mapList, default):
         return reduce(dict.get, mapList, dataDict)
     except TypeError:
         return default
-
-
-def trace_output(type, trace_in):
-    addtl = ""
-    if type == "json":
-        addtl = "-full"
-    name = trace_in.split(".")[0]
-    return f"output{addtl}-{name}.{type}"
 
 
 def format_bench_data(func: str) -> str:
@@ -62,39 +59,44 @@ class LogParser:
     Class to help parse logs from the result of a single experiment.
 
     Currently only works with a single worker, and iffy on cluster support
+    TODO: improve this for multiple workers & controller support
+    TODO: improve for external plugability
     """
 
     def __init__(
         self,
-        folder_path,
-        input_csv,
-        metadata_csv,
+        folder_path: str,
+        input_csv: str,
+        metadata_csv: str,
         benchmark_file: str = None,
         run_type: RunType = RunType.LIVE,
         target: RunTarget = RunTarget.WORKER,
+        run_data: Optional[Dict] = None,
     ):
+        """
+        run_data: metadata about the experimental run
+        """
         self.source = folder_path
         self.input_csv = input_csv
         self.metadata_csv = metadata_csv
         self.target = target
         self.run_type = run_type
+        self.run_data = run_data
 
-        input_basename = os.path.basename(self.input_csv)
-        csv = os.path.join(folder_path, trace_output("csv", input_basename))
-        log = os.path.join(folder_path, "worker_worker1.log")
-        if self.run_type.is_sim():
-            log = os.path.join(folder_path, "load_gen.log")
-        json = os.path.join(folder_path, trace_output("json", input_basename))
-        self.load_gen = os.path.join(folder_path, "load_gen.log")
-
-        has_csv = os.path.isfile(csv)
-        has_log = os.path.isfile(log)
-        if not has_csv or not has_log:
+        if not has_results(folder_path, self.input_csv):
             raise Exception(f"Missing logs in '{folder_path}'")
 
-        self.results_csv = csv
-        self.results_log = log
-        self.results_json = json
+        if self.run_type.is_sim():
+            log = os.path.join(folder_path, "load_gen.log")
+        self.load_gen = os.path.join(folder_path, "load_gen.log")
+
+        self.results_csv = os.path.join(
+            folder_path, trace_output("csv", self.input_csv)
+        )
+        self.results_log = os.path.join(folder_path, "worker_worker1.log")
+        self.results_json = os.path.join(
+            folder_path, trace_output("json", self.input_csv)
+        )
         self.benchmark_file = benchmark_file
         self.benchmark_data = None
 
@@ -142,7 +144,6 @@ class LogParser:
     status_data = []
 
     def parse_status(self, log):
-        # {"timestamp":"2024-03-23 16:29:53.340644488","level":"INFO","fields":{"message":"current load status","tid":"Status","status":"{\"cpu_queue_len\":0,\"gpu_queue_len\":227,\"used_mem\":-27348,\"total_mem\":204800,\"cpu_us\":1.8986021281034844,\"cpu_sy\":1.4500312956394743,\"cpu_id\":96.65136657625703,\"cpu_wa\":0.0,\"load_avg_1minute\":1.27,\"num_system_cores\":96,\"num_running_funcs\":0,\"num_containers\":3,\"gpu_utilization\":[{\"gpu_uuid\":\"GPU-1f76a0b9-71c4-73d5-d9d7-95308fcd4226\",\"pstate\":\"P0\",\"memory_total\":16280,\"memory_used\":1571,\"instant_utilization_gpu\":0.0,\"utilization_gpu\":1.1145477457769821,\"utilization_memory\":0.038400000067554,\"power_draw\":31.370918634264637,\"power_limit\":250.0,\"num_running\":1,\"est_utilization_gpu\":1.1145477457769821}]}"},"target":"iluvatar_worker_library::services::status::status_service"}
         t = pd.to_datetime(log["timestamp"])
         status = json.loads(log["fields"]["status"])
         gpu_util = sum(
@@ -597,3 +598,123 @@ class LogParser:
             cpu_times = cpus["cpu_est_sec"] - cpus["queue_exec_sec"]
             times = pd.concat([cpu_times, gpu_times])
             self.invokes_df["est_sec_diff"] = times
+
+
+def _load_single_data(
+    folder_path: str,
+    input_csv: str,
+    metadata_csv: str,
+    benchmark_file: str,
+    run_type: RunType,
+    target: RunTarget,
+    include_errors: bool = False,
+    fail_if_errors: bool = False,
+    run_data: Optional[Dict] = None,
+) -> LogParser:
+    parser = LogParser(
+        folder_path, input_csv, metadata_csv, benchmark_file, run_type, target, run_data
+    )
+    parser.parse_logs()
+    return parser
+
+
+def _recurse(
+    path: str,
+    folder_structure: List[str],
+    trace_in: str,
+    depth=0,
+    data=None,
+) -> List[Tuple[str, str]]:
+    csv_files = []
+    if data is None:
+        data = dict()
+    if not os.path.exists(path):
+        return csv_files
+    for sub_pth in os.listdir(path):
+        pth = os.path.join(path, sub_pth)
+        if os.path.isdir(pth):
+            if depth >= len(folder_structure):
+                return csv_files
+
+            if has_results(pth, trace_in):
+                recur = deepcopy(data)
+                recur[folder_structure[depth]] = sub_pth
+                csv_files.append((pth, recur))
+            else:
+                recur = deepcopy(data)
+                recur[folder_structure[depth]] = sub_pth
+                csv_files += _recurse(
+                    pth,
+                    folder_structure,
+                    trace_in,
+                    depth + 1,
+                    recur,
+                )
+    return csv_files
+
+
+def parse_data(
+    start_folder: str,
+    input_csv: str,
+    metadata_csv: str,
+    benchmark_file: str,
+    folder_structure: List[str],
+    run_type: RunType,
+    target: RunTarget,
+    filter_fn=None,
+    include_errors=False,
+    fail_if_errors: bool = False,
+    num_procs: Optional[int] = None,
+) -> List[LogParser]:
+    """
+    Bulk load experiment results from a structured folder.
+    Uses a Python multiprocessing Pool to load them.
+    `num_procs`: number of sub-processes to make in Pool.
+
+    An example of using this function:
+    ```
+    def filter_fn(found_results):
+        ret = []
+        for pth, run_data in found_results:
+            if int(run_data["cpu_cores"]) != 16:
+                ret.append((pth, run_data))
+        return ret
+
+    folder_structure = ["cpu_queue", "cpu_cores"]
+    parse_data(
+        results_dir,
+        input_csv,
+        meta_csv,
+        benchmark,
+        folder_structure,
+        RunType.SIM,
+        RunTarget.WORKER,
+        filter_fn=filter_fn,
+    )
+    ```
+    """
+    csv_files = _recurse(start_folder, folder_structure, input_csv)
+    if filter_fn is not None:
+        csv_files = filter_fn(csv_files)
+    if len(csv_files) == 0:
+        raise Exception(f"Could not get any results in '{start_folder}'")
+
+    load_data = []
+    for pth, run_data in csv_files:
+        load_data.append(
+            (
+                pth,
+                input_csv,
+                metadata_csv,
+                benchmark_file,
+                run_type,
+                target,
+                include_errors,
+                fail_if_errors,
+                run_data,
+            )
+        )
+
+    with Pool(num_procs) as p:
+        parsed_data = p.starmap(_load_single_data, load_data)
+    return parsed_data

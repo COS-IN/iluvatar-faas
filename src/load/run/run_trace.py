@@ -67,9 +67,17 @@ class RunTarget(Enum):
             return "iluvatar.yml"
 
 
-def _has_results(results_dir, function_trace_name, log_file):
-    output_json = os.path.join(results_dir, f"output-full-{function_trace_name}.json")
-    output_csv = os.path.join(results_dir, f"output-{function_trace_name}.csv")
+def trace_output(type, trace_in):
+    basename = trace_base_name(trace_in)
+    addtl = ""
+    if type == "json":
+        addtl = "-full"
+    return f"output{addtl}-{basename}.{type}"
+
+
+def has_results(results_dir, function_trace_name):
+    output_json = os.path.join(results_dir, trace_output("json", function_trace_name))
+    output_csv = os.path.join(results_dir, trace_output("csv", function_trace_name))
     worker_log = os.path.join(results_dir, f"worker_worker1.log")
     if not os.path.exists(output_json):
         return False
@@ -80,7 +88,6 @@ def _has_results(results_dir, function_trace_name, log_file):
         worker_log = os.path.join(results_dir, f"load_gen.log")
         if not os.path.exists(worker_log):
             return False
-
     with open(output_json) as f:
         if len(f.readlines()) == 0:
             return False
@@ -96,6 +103,10 @@ def _has_results(results_dir, function_trace_name, log_file):
         if len(f.readlines()) < 100:
             return False
     return True
+
+
+def trace_base_name(trace_in_csv: str):
+    return os.path.splitext(os.path.basename(trace_in_csv))[0]
 
 
 def _run_ansible_clean(log_file, kwargs):
@@ -475,11 +486,9 @@ def run_live(
     kwargs = default_kwargs.overwrite(**kwargs)
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
-    kwargs["function_trace_name"] = os.path.splitext(os.path.basename(trace_in))[0]
+    kwargs["function_trace_name"] = trace_base_name(trace_in)
 
-    if not kwargs["force"] and _has_results(
-        results_dir, kwargs["function_trace_name"], log_file
-    ):
+    if not kwargs["force"] and has_results(results_dir, kwargs["function_trace_name"]):
         print(f"Skipping {results_dir}")
     else:
         with HeldHost(queue.get(), queue) as held_host:
@@ -546,11 +555,9 @@ def run_sim(
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
     kwargs["simulation"] = True
-    kwargs["function_trace_name"] = os.path.splitext(os.path.basename(trace_in))[0]
+    kwargs["function_trace_name"] = trace_base_name(trace_in)
 
-    if not kwargs["force"] and _has_results(
-        results_dir, kwargs["function_trace_name"], log_file
-    ):
+    if not kwargs["force"] and has_results(results_dir, kwargs["function_trace_name"]):
         print(f"Skipping {results_dir}")
         return
 

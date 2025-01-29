@@ -111,10 +111,9 @@ fig, ax = plt.subplots()
 plt.tight_layout()
 fig.set_size_inches(5, 3)
 
-print(parser.invokes_df.columns)
 labels = []
 for i, (func, df) in enumerate(parser.invokes_df.groupby("function_name")):
-    ax.bar(i, height=df["e2e_overhead"].mean())
+    ax.bar(i, height=df["e2e_overhead"].mean(), yerr=df["e2e_overhead"].std())
     labels.append(func)
 
 

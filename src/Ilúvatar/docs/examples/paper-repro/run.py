@@ -1,21 +1,25 @@
 import sys, os
 
-sys.path.append("../../../../load/run")
-from run_trace import rust_build, run_sim, RunTarget, BuildTarget, run_cmd
+ILU_HOME = "../../.."
+
+sys.path.append(os.path.join(ILU_HOME, ".."))
+from load.run.run_trace import rust_build, run_sim, RunTarget, BuildTarget
 from multiprocessing import Pool
 
-ILU_HOME = "../../.."
 build_level = BuildTarget.RELEASE
-build_level = BuildTarget.DEBUG
 benchmark = "../benchmark/worker_function_benchmarks.json"
 
 # build the solution
 rust_build(ILU_HOME, None, build_level)
 
+input_csv = "./trace/trace.csv"
+meta_csv = "./trace/metadata-trace.csv"
+results_dir = os.path.join(os.getcwd(), "results")
+
 
 def run_experiment(cpu_queue, cores):
     worker_log_dir = os.path.join(os.getcwd(), "temp_results", cpu_queue, str(cores))
-    results_dir = os.path.join(os.getcwd(), "results", cpu_queue, str(cores))
+    exp_results_dir = os.path.join(os.getcwd(), results_dir, cpu_queue, str(cores))
     os.makedirs(results_dir, exist_ok=True)
     os.makedirs(worker_log_dir, exist_ok=True)
 
@@ -32,28 +36,101 @@ def run_experiment(cpu_queue, cores):
         "benchmark_file": benchmark,
     }
     # run entire experiment
-    run_sim("./trace/trace.csv", "./trace/metadata-trace.csv", results_dir, **kwargs)
-    log_file = os.path.join(results_dir, "orchestration.log")
-    run_cmd(
-        [
-            "python3",
-            "plot_status.py",
-            "-l",
-            results_dir,
-            "-t",
-            "trace",
-            "--out",
-            results_dir,
-        ],
-        log_file,
-    )
+    run_sim(input_csv, meta_csv, exp_results_dir, **kwargs)
+    log_file = os.path.join(exp_results_dir, "orchestration.log")
+    # run_cmd(
+    #     [
+    #         "python3",
+    #         "plot_status.py",
+    #         "-l",
+    #         results_dir,
+    #         "-t",
+    #         "trace",
+    #         "--out",
+    #         results_dir,
+    #     ],
+    #     log_file,
+    # )
 
 
 experiments = []
-for cores in [0, 18, 20]:
+for cores in [0, 10, 15, 16, 20]:
     experiments.append(("fcfs", cores))
-for cores in [18, 20]:
+for cores in [10, 15, 16, 20]:
     experiments.append(("minheap", cores))
 
 with Pool() as p:
     p.starmap(run_experiment, experiments)
+
+## plot some results
+from load.analysis import LogParser, parse_data
+from load.run.run_trace import RunTarget, RunType
+import matplotlib as mpl
+
+mpl.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+
+mpl.rcParams.update({"font.size": 14})
+mpl.rcParams["pdf.fonttype"] = 42
+mpl.rcParams["ps.fonttype"] = 42
+
+folder_structure = ["cpu_queue", "cpu_cores"]
+
+
+def filter_fn(found_results):
+    ret = []
+    for pth, run_data in found_results:
+        # filter some set of results we do or don't want
+        if int(run_data["cpu_cores"]) != 16:
+            ret.append((pth, run_data))
+    return ret
+
+
+parsed_data = parse_data(
+    results_dir,
+    input_csv,
+    meta_csv,
+    benchmark,
+    folder_structure,
+    RunType.SIM,
+    RunTarget.WORKER,
+    filter_fn=filter_fn,
+)
+
+fig, ax = plt.subplots()
+plt.tight_layout()
+fig.set_size_inches(5, 3)
+
+pt = 0
+labels = []
+
+fcfs_parsed_data = filter(lambda x: x.run_data["cpu_queue"] == "fcfs", parsed_data)
+minheap_parsed_data = filter(
+    lambda x: x.run_data["cpu_queue"] == "minheap", parsed_data
+)
+
+fcfs_parsed_data = sorted(fcfs_parsed_data, key=lambda x: int(x.run_data["cpu_cores"]))
+minheap_parsed_data = sorted(
+    minheap_parsed_data, key=lambda x: int(x.run_data["cpu_cores"])
+)
+
+for parser in fcfs_parsed_data:
+    df = parser.invokes_df
+    ax.bar(pt, height=df["e2e_sec"].mean(), yerr=df["e2e_sec"].std(), color="red")
+    labels.append(parser.run_data["cpu_cores"])
+    pt += 1
+
+for parser in minheap_parsed_data:
+    df = parser.invokes_df
+    ax.bar(pt, height=df["e2e_sec"].mean(), yerr=df["e2e_sec"].std(), color="blue")
+    labels.append(parser.run_data["cpu_cores"])
+    pt += 1
+
+ax.set_xticks(list(range(len(labels))))
+ax.set_xticklabels(labels)
+ax.legend(handles=[Patch(color="red"), Patch(color="blue")], labels=["FCFS", "MinHeap"])
+ax.set_ylabel("Platform Overhead (sec.)")
+ax.set_xlabel("Function Name")
+plt.savefig(os.path.join(results_dir, "e2e_time.png"), bbox_inches="tight")
+plt.close(fig)
