@@ -1,9 +1,10 @@
 import sys, os
 
-sys.path.append("../../../../load/run")
-from run_trace import rust_build, run_live, RunTarget, BuildTarget, LOCALHOST_Q
-
 ILU_HOME = "../../.."
+
+sys.path.append(os.path.join(ILU_HOME, ".."))
+from load.run.run_trace import rust_build, run_live, RunTarget, BuildTarget, LOCALHOST_Q
+
 CORES = 2
 MEMORY = 4096
 build_level = BuildTarget.RELEASE
@@ -32,7 +33,45 @@ kwargs = {
     "prewarm": 1,
     "snapshotter": "overlayfs",
     "benchmark_file": benchmark,
-    "force": True,
+    # "force": True,
 }
 # run entire experiment
-run_live("./in.csv", "./meta.csv", results_dir, LOCALHOST_Q, **kwargs)
+input_csv = "./in.csv"
+meta_csv = "./meta.csv"
+run_live(input_csv, meta_csv, results_dir, LOCALHOST_Q, **kwargs)
+
+
+## plot some results
+from load.analysis import LogParser
+from load.run.run_trace import RunTarget, RunType
+import matplotlib as mpl
+
+mpl.use("Agg")
+import matplotlib.pyplot as plt
+
+mpl.rcParams.update({"font.size": 14})
+mpl.rcParams["pdf.fonttype"] = 42
+mpl.rcParams["ps.fonttype"] = 42
+
+
+parser = LogParser(
+    results_dir, input_csv, meta_csv, benchmark, RunType.LIVE, RunTarget.WORKER
+)
+parser.parse_logs()
+
+fig, ax = plt.subplots()
+plt.tight_layout()
+fig.set_size_inches(5, 3)
+
+labels = []
+for i, (func, df) in enumerate(parser.invokes_df.groupby("function_name")):
+    ax.bar(i, height=len(df[~df["was_cold"]]) / len(df))
+    labels.append(func)
+
+
+ax.set_xticks(list(range(len(labels))))
+ax.set_xticklabels(labels)
+ax.set_ylabel("Warm Hit %")
+ax.set_xlabel("Function Name")
+plt.savefig(os.path.join(results_dir, "warm_hits.png"), bbox_inches="tight")
+plt.close(fig)

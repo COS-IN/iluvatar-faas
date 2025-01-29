@@ -147,7 +147,7 @@ pub struct CompletedControllerInvocation {
     pub function_name: String,
     pub function_version: String,
     pub invoke_start: String,
-    pub transaction_id: TransactionId,
+    pub tid: TransactionId,
 }
 impl CompletedControllerInvocation {
     pub fn error(msg: String, name: &str, version: &str, tid: &TransactionId, invoke_start: String) -> Self {
@@ -171,7 +171,7 @@ impl CompletedControllerInvocation {
             function_name: name.to_owned(),
             function_version: version.to_owned(),
             invoke_start,
-            transaction_id: tid.clone(),
+            tid: tid.clone(),
         }
     }
 }
@@ -239,7 +239,7 @@ pub async fn controller_invoke(
                 function_name: name.to_owned(),
                 function_version: version.to_owned(),
                 invoke_start,
-                transaction_id: tid,
+                tid: tid,
             },
             Err(e) => CompletedControllerInvocation::error(
                 format!(

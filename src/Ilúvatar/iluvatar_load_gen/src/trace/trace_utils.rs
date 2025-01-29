@@ -111,7 +111,7 @@ fn map_from_benchmark(
         if let Some((_last, elements)) = func.func_name.split('-').collect::<Vec<&str>>().split_last() {
             let name = elements.join("-");
             if bench.data.contains_key(&name) && func.image_name.is_some() {
-                info!(tid=%tid, function=%func.func_name, "Function mapped to self name in benchmark");
+                info!(tid=%tid, function=%func.func_name, chosen_code=%name, "Function mapped to self name in benchmark");
                 func.chosen_name = Some(name);
             }
         }
@@ -453,7 +453,7 @@ fn worker_wait_reg(
 pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args: &TraceArgs) -> Result<()> {
     let pth = Path::new(&args.input_csv);
     let p = Path::new(&args.out_folder).join(format!(
-        "output-full{}.json",
+        "output-full-{}.json",
         pth.file_stem().unwrap().to_str().unwrap()
     ));
     save_result_json(p, &results)?;
@@ -466,7 +466,7 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             anyhow::bail!("Failed to create output file because {}", e);
         },
     };
-    let to_write = "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us\n";
+    let to_write = "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n";
     match f.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
@@ -475,13 +475,14 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
     };
     for r in results {
         let to_write = format!(
-            "{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{}\n",
             r.controller_response.success,
             r.function_name,
             r.function_output.body.cold,
             r.controller_response.duration_us,
             r.function_output.body.latency,
-            r.client_latency_us
+            r.client_latency_us,
+            r.tid,
         );
         match f.write_all(to_write.as_bytes()) {
             Ok(_) => (),

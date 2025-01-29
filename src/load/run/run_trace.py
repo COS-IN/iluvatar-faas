@@ -7,10 +7,9 @@ import traceback
 from enum import Enum
 from copy import deepcopy
 import shutil
-from config import LoadConfig
+from .config import LoadConfig
 
-from multiproc import *
-from ansible import *
+from .multiproc import *
 
 
 class BuildTarget(Enum):
@@ -113,7 +112,7 @@ def _run_ansible_clean(log_file, kwargs):
     env_args.append(worker_env)
     if kwargs["target"] == RunTarget.CONTROLLER:
         controller_env = kwargs.to_env_var_dict("controller")
-        controller_env = json.dumps({"controller": {"environment": controller_env}})
+        controller_env = json.dumps({"controller_environment": controller_env})
         env_args.append(controller_env)
 
     for env_arg in env_args:
@@ -237,7 +236,7 @@ def _run_ansible(
     env_args.append(worker_env)
     if kwargs["target"] == RunTarget.CONTROLLER:
         controller_env = kwargs.to_env_var_dict("controller")
-        controller_env = json.dumps({"controller": {"environment": controller_env}})
+        controller_env = json.dumps({"controller_environment": controller_env})
         env_args.append(controller_env)
     if kwargs["target"] == RunTarget.CONTROLLER:
         env_args.append("cluster=true")
@@ -348,7 +347,7 @@ load_gen_kwargs = {
 controller_kwargs = {
     ("controller_log_dir", "/tmp/iluvatar/logs/ansible", ("logging", "directory")),
     ("controller_log_level", "info", ("logging", "level")),
-    ("controller_port", 8079, ("port",)),
+    ("controller_port", 8089, ("port",)),
     ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm")),
     ("controller_thread_sleep_ms", 5000, ("load_balancer", "thread_sleep_ms")),
     ("controller_load_metric", "loadavg", ("load_balancer", "load_metric")),
@@ -476,6 +475,7 @@ def run_live(
     kwargs = default_kwargs.overwrite(**kwargs)
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
+    kwargs["function_trace_name"] = os.path.splitext(os.path.basename(trace_in))[0]
 
     if not kwargs["force"] and _has_results(
         results_dir, kwargs["function_trace_name"], log_file
@@ -546,6 +546,7 @@ def run_sim(
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
     kwargs["simulation"] = True
+    kwargs["function_trace_name"] = os.path.splitext(os.path.basename(trace_in))[0]
 
     if not kwargs["force"] and _has_results(
         results_dir, kwargs["function_trace_name"], log_file

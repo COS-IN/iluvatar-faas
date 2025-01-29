@@ -1,9 +1,10 @@
 import sys, os
 
-sys.path.append("../../../../load/run")
-from run_trace import (
+ILU_HOME = "../../.."
+
+sys.path.append(os.path.join(ILU_HOME, ".."))
+from load.run.run_trace import (
     rust_build,
-    run_cmd,
     run_live,
     RunTarget,
     BuildTarget,
@@ -12,7 +13,6 @@ from run_trace import (
 import shutil
 from Crypto.PublicKey import RSA
 
-ILU_HOME = "../../.."
 CORES = 2
 MEMORY = 4096
 build_level = BuildTarget.RELEASE
@@ -28,6 +28,7 @@ rust_build(ILU_HOME, None, build_level)
 
 ansible_dir = os.path.join(ILU_HOME, "ansible")
 kwargs = {
+    "controller_log_level": "debug",
     "ilu_home": ILU_HOME,
     "ansible_hosts_addrs": "@"
     + os.path.join(ansible_dir, "group_vars/local_addresses.yml"),
@@ -72,11 +73,13 @@ with open(keys_src, "a") as f:
 
 kwargs["private_ssh_key"] = os.path.join(os.getcwd(), ssh_key)
 
+input_csv = "four-functions.csv"
+meta_csv = "four-functions-metadata.csv"
 try:
     # run entire experiment
     run_live(
-        "four-functions.csv",
-        "four-functions-metadata.csv",
+        input_csv,
+        meta_csv,
         results_dir,
         SSH_Q,
         **kwargs,
@@ -84,3 +87,40 @@ try:
     pass
 finally:
     shutil.move(keys_backup, keys_src)
+
+
+## plot some results
+from load.analysis import LogParser
+from load.run.run_trace import RunTarget, RunType
+import matplotlib as mpl
+
+mpl.use("Agg")
+import matplotlib.pyplot as plt
+
+mpl.rcParams.update({"font.size": 14})
+mpl.rcParams["pdf.fonttype"] = 42
+mpl.rcParams["ps.fonttype"] = 42
+
+
+parser = LogParser(
+    results_dir, input_csv, meta_csv, benchmark, RunType.LIVE, RunTarget.CONTROLLER
+)
+parser.parse_logs()
+
+fig, ax = plt.subplots()
+plt.tight_layout()
+fig.set_size_inches(5, 3)
+
+print(parser.invokes_df.columns)
+labels = []
+for i, (func, df) in enumerate(parser.invokes_df.groupby("function_name")):
+    ax.bar(i, height=df["e2e_overhead"].mean())
+    labels.append(func)
+
+
+ax.set_xticks(list(range(len(labels))))
+ax.set_xticklabels(labels)
+ax.set_ylabel("Platform Overhead (sec.)")
+ax.set_xlabel("Function Name")
+plt.savefig(os.path.join(results_dir, "overhead.png"), bbox_inches="tight")
+plt.close(fig)
