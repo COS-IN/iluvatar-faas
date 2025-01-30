@@ -34,6 +34,7 @@ kwargs = {
     "snapshotter": "overlayfs",
     "benchmark_file": benchmark,
     # "force": True,
+    "enqueuing_log_details": True,
 }
 # run entire experiment
 input_csv = "./in.csv"
@@ -57,7 +58,10 @@ mpl.rcParams["ps.fonttype"] = 42
 parser = LogParser(
     results_dir, input_csv, meta_csv, benchmark, RunType.LIVE, RunTarget.WORKER
 )
-parser.parse_logs()
+parser.parse_logs(fail_if_errors=False)
+print(parser.invokes_df.columns)
+print(parser.invokes_df["est_sec_diff"])
+print(parser.metadata_df)
 
 fig, ax = plt.subplots()
 plt.tight_layout()

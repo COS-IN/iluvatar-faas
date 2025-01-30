@@ -63,13 +63,58 @@ with Pool() as p:
     p.starmap(run_experiment, experiments)
 
 ## plot some results
-from load.analysis import LogParser, parse_data
+from load.analysis import LogParser, parse_data, BaseParser
+from load.analysis.log_parser import *
 from load.run.run_trace import RunTarget, RunType
+from collections import defaultdict
+import pandas as pd
 import matplotlib as mpl
 
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+
+
+@LogParser.register_parser
+class ReuseDistanceParser(BaseParser):
+    """
+    An example of injecting a custom parser, computing reuse distances of invocations
+    """
+
+    def __init__(self, main_parser: LogParser):
+        super().__init__(main_parser)
+        self.reuse_distances = defaultdict(list)
+        self.last_seen = {}
+
+    def calc_reuse(self, log):
+        tid = log["fields"]["tid"]
+        invoke = self.main_parser.invokes_df[self.main_parser.invokes_df.index == tid]
+        if len(invoke) == 0:
+            # invocation had an error somewhere
+            return
+        fname = invoke.iloc[0]["function_name"]
+        if fname in self.last_seen:
+            distance = self.last_seen[fname]
+            for k in self.last_seen.keys():
+                self.last_seen[k] += 1
+            self.last_seen[fname] = 0
+            self.reuse_distances[fname].append(distance)
+        else:
+            self.last_seen[fname] = 0
+
+    def log_completed(self):
+        reuse_data = []
+        for name, data in self.reuse_distances.items():
+            reuse_data.append((name, np.mean(data)))
+        df = pd.DataFrame.from_records(
+            reuse_data, columns=["func_name", "avg_reuse_dis"], index="func_name"
+        )
+        self.main_parser.metadata_df = self.main_parser.metadata_df.join(df)
+
+    parser_map = {
+        "Item starting to execute": calc_reuse,
+    }
+
 
 mpl.rcParams.update({"font.size": 14})
 mpl.rcParams["pdf.fonttype"] = 42
@@ -98,39 +143,95 @@ parsed_data = parse_data(
     filter_fn=filter_fn,
 )
 
-fig, ax = plt.subplots()
-plt.tight_layout()
-fig.set_size_inches(5, 3)
 
-pt = 0
-labels = []
+def plot_overhead():
+    fig, ax = plt.subplots()
+    plt.tight_layout()
+    fig.set_size_inches(5, 3)
 
-fcfs_parsed_data = filter(lambda x: x.run_data["cpu_queue"] == "fcfs", parsed_data)
-minheap_parsed_data = filter(
-    lambda x: x.run_data["cpu_queue"] == "minheap", parsed_data
-)
+    pt = 0
+    labels = []
 
-fcfs_parsed_data = sorted(fcfs_parsed_data, key=lambda x: int(x.run_data["cpu_cores"]))
-minheap_parsed_data = sorted(
-    minheap_parsed_data, key=lambda x: int(x.run_data["cpu_cores"])
-)
+    fcfs_parsed_data = filter(lambda x: x.run_data["cpu_queue"] == "fcfs", parsed_data)
+    minheap_parsed_data = filter(
+        lambda x: x.run_data["cpu_queue"] == "minheap", parsed_data
+    )
 
-for parser in fcfs_parsed_data:
-    df = parser.invokes_df
-    ax.bar(pt, height=df["e2e_sec"].mean(), yerr=df["e2e_sec"].std(), color="red")
-    labels.append(parser.run_data["cpu_cores"])
-    pt += 1
+    fcfs_parsed_data = sorted(
+        fcfs_parsed_data, key=lambda x: int(x.run_data["cpu_cores"])
+    )
+    minheap_parsed_data = sorted(
+        minheap_parsed_data, key=lambda x: int(x.run_data["cpu_cores"])
+    )
 
-for parser in minheap_parsed_data:
-    df = parser.invokes_df
-    ax.bar(pt, height=df["e2e_sec"].mean(), yerr=df["e2e_sec"].std(), color="blue")
-    labels.append(parser.run_data["cpu_cores"])
-    pt += 1
+    for parser in fcfs_parsed_data:
+        df = parser.invokes_df
+        ax.bar(pt, height=df["e2e_sec"].mean(), yerr=df["e2e_sec"].std(), color="red")
+        labels.append(parser.run_data["cpu_cores"])
+        pt += 1
 
-ax.set_xticks(list(range(len(labels))))
-ax.set_xticklabels(labels)
-ax.legend(handles=[Patch(color="red"), Patch(color="blue")], labels=["FCFS", "MinHeap"])
-ax.set_ylabel("Platform Overhead (sec.)")
-ax.set_xlabel("Function Name")
-plt.savefig(os.path.join(results_dir, "e2e_time.png"), bbox_inches="tight")
-plt.close(fig)
+    for parser in minheap_parsed_data:
+        df = parser.invokes_df
+        ax.bar(pt, height=df["e2e_sec"].mean(), yerr=df["e2e_sec"].std(), color="blue")
+        labels.append(parser.run_data["cpu_cores"])
+        pt += 1
+
+    ax.set_xticks(list(range(len(labels))))
+    ax.set_xticklabels(labels)
+    ax.legend(
+        handles=[Patch(color="red"), Patch(color="blue")], labels=["FCFS", "MinHeap"]
+    )
+    ax.set_ylabel("Platform Overhead (sec.)")
+    ax.set_xlabel("CPU Cores experiment")
+    plt.savefig(os.path.join(results_dir, "e2e_time.png"), bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_reuse():
+    fig, ax = plt.subplots()
+    plt.tight_layout()
+    fig.set_size_inches(5, 3)
+
+    pt = 0
+    labels = []
+
+    fcfs_parsed_data = filter(lambda x: x.run_data["cpu_queue"] == "fcfs", parsed_data)
+    minheap_parsed_data = filter(
+        lambda x: x.run_data["cpu_queue"] == "minheap", parsed_data
+    )
+
+    fcfs_parsed_data = sorted(
+        fcfs_parsed_data, key=lambda x: int(x.run_data["cpu_cores"])
+    )
+    minheap_parsed_data = sorted(
+        minheap_parsed_data, key=lambda x: int(x.run_data["cpu_cores"])
+    )
+
+    for parser in fcfs_parsed_data:
+        box = ax.boxplot(parser.metadata_df["avg_reuse_dis"], positions=[pt])
+        for item in ["boxes", "whiskers", "fliers", "caps"]:
+            plt.setp(box[item], color="red")
+
+        labels.append(parser.run_data["cpu_cores"])
+        pt += 1
+
+    for parser in minheap_parsed_data:
+        box = ax.boxplot(parser.metadata_df["avg_reuse_dis"], positions=[pt])
+        for item in ["boxes", "whiskers", "fliers", "caps"]:
+            plt.setp(box[item], color="blue")
+        labels.append(parser.run_data["cpu_cores"])
+        pt += 1
+
+    ax.set_xticks(list(range(len(labels))))
+    ax.set_xticklabels(labels)
+    ax.legend(
+        handles=[Patch(color="red"), Patch(color="blue")], labels=["FCFS", "MinHeap"]
+    )
+    ax.set_ylabel("Resuse Distance")
+    ax.set_xlabel("CPU Cores experiment")
+    plt.savefig(os.path.join(results_dir, "reuse.png"), bbox_inches="tight")
+    plt.close(fig)
+
+
+plot_overhead()
+plot_reuse()
