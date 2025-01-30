@@ -22,4 +22,4 @@ For example.
 ILUVATAR_CONTROLLER__load_balancer__algorithm='RoundRobin' ./iluvatar_controller --config /my/config/path.json
 ```
 
-See [this Rust file](../iluvatar_controller_library/src/controller/controller_config.rs) for details on the configuration file and their descriptions.
+See [this Rust file](../iluvatar_controller_library/src/server/controller_config.rs) for details on the configuration file and their descriptions.

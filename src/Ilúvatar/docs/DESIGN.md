@@ -17,7 +17,7 @@ The worker comprises a number of components.
 1. **Resource control:** CPU, GPU, and memory resources can be used by several parts of the system. Components [here](../iluvatar_worker_library/src/services/resources/) ensure that they are never over-allocated unless specified by configuration.
 1. **System monitoring:** captured Linux metrics are used by various policies in the worker. This is managed by the [status service](../iluvatar_worker_library/src/services/status/status_service.rs)
 
-Information on running the Ilúvatar worker can be found [here](docs/WORKER.md).
+Information on running the Ilúvatar worker can be found [here](./WORKER.md).
 
 ### Invocation Details
 
@@ -49,7 +49,7 @@ It also pulls worker data from InfluxDB, and monitors worker health to avoid rou
 On function registration, the controller is responsible in making sure all workers receive the registration information for functions that will execute on any worker.
 Currently, it registers all functions on all workers.
 
-Information on running the Ilúvatar controller can be found [here](docs/CONTROLLER.md)
+Information on running the Ilúvatar controller can be found [here](./CONTROLLER.md)
 
 ## Load Generator
 
@@ -61,7 +61,7 @@ A number of other vital features are implemented by the load generation framewor
 1. **Trace generation:** creating traces for clusters of different scales, with realistic characteristics mapped from Azure usage data.
 1. **Function benchmarking:** capture performance behavior of known functions to use in experiments.
 
-Details on using the load generation framework for both controller and worker can be found [here](docs/LOAD.md).
+Details on using the load generation framework for both controller and worker can be found [here](./LOAD.md).
 
 ## Time series Database
 
