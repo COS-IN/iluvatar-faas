@@ -41,8 +41,10 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
         Some(host) if !host.is_empty() => {
             match ControllerAPIFactory::boxed()
                 .get_controller_api(
-                    &host,
-                    server_config.load_balancer_port.ok_or_else(|| anyhow::anyhow!("Load balancer host provided, but not port"))?,
+                    host,
+                    server_config
+                        .load_balancer_port
+                        .ok_or_else(|| anyhow::anyhow!("Load balancer host provided, but not port"))?,
                     CommunicationMethod::RPC,
                     tid,
                 )
@@ -64,9 +66,11 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                             .as_ref()
                             .map_or(0, |g| g.count),
                     })
-                        .await?
+                    .await?
                 },
-                Err(e) => bail_error!(tid=%tid, error=%e, controller_host=host, port=server_config.load_balancer_port, "Failed to connect to load balancer"),
+                Err(e) => {
+                    bail_error!(tid=%tid, error=%e, controller_host=host, port=server_config.load_balancer_port, "Failed to connect to load balancer")
+                },
             }
         },
         _ => info!(tid=%tid, "Skipping controller registration"),

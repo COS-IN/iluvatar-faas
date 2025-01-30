@@ -236,6 +236,6 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         threaded_rt,
         &controller_config_pth,
         CommunicationMethod::SIMULATION,
-        tid
+        tid,
     )
 }

@@ -336,7 +336,16 @@ pub fn worker_prepare_functions(
     max_prewarms: u32,
     tid: &TransactionId,
 ) -> Result<()> {
-    map_functions_to_prep(runtype, load_type, &func_data, funcs, prewarms, trace_pth, max_prewarms, tid)?;
+    map_functions_to_prep(
+        runtype,
+        load_type,
+        &func_data,
+        funcs,
+        prewarms,
+        trace_pth,
+        max_prewarms,
+        tid,
+    )?;
     prepare_worker(funcs, host, port, runtype, rt, factory, &func_data)
 }
 
