@@ -55,6 +55,17 @@ def get_bench_data(func, compute, metric, benchmark_data):
     return benchmark_data[bench_name]["resource_data"][compute][metric]
 
 
+def timestamp_to_pddate(time):
+    try:
+        return pd.to_datetime(time)
+    except:
+        ptime = pd.to_datetime(time, format="%Y-%m-%d %H:%M:%S:%f+")
+        ptime = ptime.replace(tzinfo=tz.tzutc())
+        local = ptime.astimezone(tz.tzlocal())
+        local = local.replace(tzinfo=None)
+        return local
+
+
 class BaseParser:
     """
     A base class to allow injection of custom log parsing code into a re-usable log parsing setup.
@@ -160,6 +171,105 @@ class LogParser:
     def has_benchmark_data(self):
         return self.benchmark_file is not None
 
+    def load_rapl(self):
+        path = os.path.join(self.source, "energy-rapl.log")
+        try:
+            rapl_df = pd.read_csv(path)
+        except FileNotFoundError:
+            return
+        max_rapl_uj = rapl_df["rapl_uj"].max()
+        try:
+            # TODO: pass your own max rapl value in somehow
+            with open(
+                "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/max_energy_range_uj",
+            ) as f:
+                max_rapl_uj = int(f.read())
+        except:
+            pass
+        rapl_data = []
+        for i in range(1, len(rapl_df["rapl_uj"])):
+            left = int(rapl_df["rapl_uj"][i - 1])
+            right = int(rapl_df["rapl_uj"][i])
+            if right < left:
+                uj = right + (max_rapl_uj - left)
+            else:
+                uj = right - left
+            rapl_data.append(uj)
+
+        rapl_data.append(rapl_data[-1])
+        rapl_df["rapl_uj_diff"] = pd.Series(rapl_data, index=rapl_df.index)
+
+        self.rapl_df = rapl_df
+
+    def load_perf(self):
+        """
+        Load a perf log into a dataframe
+        The multiple reported metrics are each put into their own column
+        """
+        perf_log = os.path.join(self.source, "energy-perf.log")
+
+        try:
+            f = open(perf_log, "r")
+            first_line = f.readline()
+            start_date = first_line[len("# started on ") :].strip(whitespace)
+            # 'Mon Aug 29 15:04:17 2022'
+            start_date = datetime.strptime(start_date, "%a %b %d %H:%M:%S %Y")
+        except FileNotFoundError:
+            return
+
+        # https://www.man7.org/linux/man-pages/man1/perf-stat.1.html#top_of_page
+        # CSV FORMAT
+        cols = [
+            "timestamp",
+            "perf_stat",
+            "unit",
+            "event_name",
+            "counter_runtime",
+            "pct_time_counter_running",
+        ]
+        df = pd.read_csv(
+            perf_log, skiprows=2, names=cols, usecols=[i for i in range(len(cols))]
+        )
+
+        def time_to_ns(x) -> int:
+            if np.isnan(x):
+                raise Exception("Got a nan value instead of a real time!")
+            new_date = start_date + timedelta(seconds=x)
+            new_date = datetime.combine(new_date.date(), new_date.time(), None)
+            # 2022-09-14 11:54:00.793313159
+            return new_date.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        df["timestamp"] = df["timestamp"].apply(lambda x: time_to_ns(x))
+
+        df_energy_pkg = df[df["event_name"] == "power/energy-pkg/"].copy()
+        df_energy_ram = df[df["event_name"] == "power/energy-ram/"].copy()
+        df_instructions = df[df["event_name"] == "inst_retired.any"].copy()
+
+        df_energy_pkg.index = pd.DatetimeIndex(df_energy_pkg["timestamp"])
+        df_energy_pkg.rename(columns={"perf_stat": "energy_pkg"}, inplace=True)
+
+        df_energy_ram.index = pd.DatetimeIndex(df_energy_ram["timestamp"])
+        df_energy_ram.rename(columns={"perf_stat": "energy_ram"}, inplace=True)
+
+        df_instructions.index = pd.DatetimeIndex(df_instructions["timestamp"])
+        df_instructions.rename(
+            columns={"perf_stat": "retired_instructions"}, inplace=True
+        )
+
+        df = df_energy_pkg.join(df_energy_ram["energy_ram"])
+        df = df.join(df_instructions["retired_instructions"])
+        self.perf_df = df
+
+    def load_ipmi(self):
+        try:
+            cols = ["timestamp", "ipmi"]
+            ipmi_log = os.path.join(self.source, "energy-ipmi.log")
+            df = pd.read_csv(ipmi_log, skiprows=1, names=cols)
+            df["timestamp"] = df["timestamp"].apply(timestamp_to_pddate)
+            self.ipmi_df = df
+        except FileNotFoundError:
+            return
+
     def _parse_worker_log(self):
         with open(self.results_log) as f:
             for log in f.readlines():
@@ -191,6 +301,9 @@ class LogParser:
                 )
         if not include_errors:
             self.invokes_df = self.invokes_df[self.invokes_df["success"]]
+        self.load_rapl()
+        self.load_ipmi()
+        self.load_perf()
 
         with open(self.results_json) as f:
             self.json_data = json.load(f)
