@@ -15,121 +15,25 @@
     __remote_bin_src: "{{ remote_bin_src | default(false) }}"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     __hardware_interface: "{{ hardware_interface | default(servers[ansible_host].hardware_interface) }}"
-    __controller_address: "http://{{ controller.host }}:{{ controller.port }}"
     SIGINT: 2
-    coded_proxy_env:
+    ansible_proxy_env:
+      # This section is for environment variables defined/managed by Ansible ONLY. 
+      # Other config should be passed in via 'worker.environment'
       "RUST_BACKTRACE": 1
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
       "ILUVATAR_WORKER__address" : "{{ __worker_address }}"
       "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
-      "ILUVATAR_WORKER__logging__directory": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
-      "ILUVATAR_WORKER__logging__level": "{{ worker_log_level | default('info') }}"
-      "ILUVATAR_WORKER__logging__spanning": "{{ worker_spanning | default('NEW+CLOSE') }}"
-      "ILUVATAR_WORKER__logging__include_spans_json": "{{ worker_include_spans | default(false) }}"
-      "ILUVATAR_WORKER__timeout_sec" : "{{ worker_timeout_sec | default(6000) }}"
-      "ILUVATAR_WORKER__tokio_event_interval" : "{{ worker_tokio_event_interval | default(20) }}"
-      "ILUVATAR_WORKER__tokio_queue_interval" : "{{ worker_tokio_queue_interval | default(20) }}"
-      "ILUVATAR_WORKER__load_balancer_url" : "{{ __controller_address if cluster else ''}}"
-
-      # Influx config
+      "ILUVATAR_WORKER__load_balancer_host" : "{{ controller.host if cluster else '' }}"
+      "ILUVATAR_WORKER__load_balancer_port" : "{{ controller.port }}"
       "ILUVATAR_WORKER__influx__host" : "{{ influx.address }}"
       "ILUVATAR_WORKER__influx__org" : "{{ influx.organization }}"
       "ILUVATAR_WORKER__influx__token" : "{{ hostvars[ groups['influx']|first ].influx_token | default('') }}"
-      "ILUVATAR_WORKER__influx__enabled" : "{{ influx.enabled }}"
-      "ILUVATAR_WORKER__influx__update_freq_ms" : "{{ influx.update_freq_ms }}"
-
-      # Limits
-      "ILUVATAR_WORKER__limits__mem_max_mb" : "{{ worker_mem_max | default(5000) }}"
-
-      # Container resources
-      "ILUVATAR_WORKER__container_resources__memory_mb" : "{{ worker_memory_mb | default(2048) }}"
-      "ILUVATAR_WORKER__container_resources__eviction" : "{{ worker_eviction | default('LRU') }}"
-      "ILUVATAR_WORKER__container_resources__startup_timeout_ms" : "{{ worker_startup_timeout_ms | default(10000) }}"
-      "ILUVATAR_WORKER__container_resources__pool_freq_ms" : "{{ worker_cm_pool_freq_ms | default(1000) }}"
-      "ILUVATAR_WORKER__container_resources__concurrent_creation" : "{{ worker_concurrent_creation | default(5) }}"
-      "ILUVATAR_WORKER__container_resources__memory_buffer_mb" : "{{ worker_memory_buffer | default(0) }}"
-      "ILUVATAR_WORKER__container_resources__snapshotter" : "{{ worker_snapshotter | default('zfs') }}"
-      "ILUVATAR_WORKER__container_resources__cpu_resource__count" : "{{ worker_cores | default(4) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__count" : "{{ worker_gpus | default(0) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__is_tegra" : "{{ worker_is_tegra | default(false) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__use_standalone_mps" : "{{ standalone_mps | default(false) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__per_func_memory_mb" : "{{ per_func_memory_mb | default(2048) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__mps_limit_active_threads" : "{{ mps_limit_threads | default(false) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__use_driver_hook" : "{{ use_driver_hook | default(false) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__funcs_per_device" : "{{ funcs_per_device | default(0) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__limit_on_utilization" : "{{ gpu_limit_on_utilization | default(0) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__concurrent_running_funcs" : "{{ gpu_concurrent_running | default(0) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__prefetch_memory" : "{{ gpu_prefetch_memory | default(false) }}"
-      "ILUVATAR_WORKER__container_resources__gpu_resource__status_update_freq_ms" : "{{ gpu_status_update | default(0) }}"
-
-      # Docker
-      "ILUVATAR_WORKER__container_resources__docker_config__auth__username" : "{{ docker_username | default('') }}"
-      "ILUVATAR_WORKER__container_resources__docker_config__auth__password" : "{{ docker_password | default('') }}"
-      "ILUVATAR_WORKER__container_resources__docker_config__auth__repository" : "{{ docker_repository | default('') }}"
-
-      # Networking
-      "ILUVATAR_WORKER__networking__pool_size" : "{{ worker_pool_size | default(10) }}"
-      "ILUVATAR_WORKER__networking__use_pool" : "{{ worker_use_pool | default(true) }}"
-      "ILUVATAR_WORKER__networking__pool_freq_ms" : "{{ worker_net_pool_freq_ms | default(1000) }}"
       "ILUVATAR_WORKER__networking__hardware_interface" : "{{ __hardware_interface }}"
-      # Energy config
-      "ILUVATAR_WORKER__energy__rapl_freq_ms" : "{{ worker_rapl_log_freq_ms | default(0) }}"
-      "ILUVATAR_WORKER__energy__perf_freq_ms" : "{{ worker_perf_log_freq_ms | default(0) }}"
-      "ILUVATAR_WORKER__energy__tegra_freq_ms" : "{{ worker_tegra_log_freq_ms | default(0) }}"
-      "ILUVATAR_WORKER__energy__process_freq_ms" : "{{ worker_process_log_freq_ms | default(0) }}"
-      "ILUVATAR_WORKER__energy__kernel_cpu_frequencies_freq_ms" : "{{ worker_kernel_cpu_frequencies_log_freq_ms | default(0) }}"
-      "ILUVATAR_WORKER__energy__hardware_cpu_frequencies_freq_ms" : "{{ worker_hardware_cpu_frequencies_log_freq_ms | default(0) }}"
-      "ILUVATAR_WORKER__energy__ipmi_freq_ms" : "{{ worker_ipmi_log_freq_ms | default(0) }}"
-      "ILUVATAR_WORKER__energy__ipmi_pass_file" : "{{ worker_ipmi_pass_file | default('') }}"
-      "ILUVATAR_WORKER__energy__ipmi_ip_addr" : "{{ worker_ipmi_ip_addr | default(servers[ansible_host].ipmi_ip) }}"
-      "ILUVATAR_WORKER__energy__log_folder": "{{ worker_log_dir | default('/tmp/iluvatar/logs') }}"
-      # Energy cap config
-      "ILUVATAR_WORKER__energy_cap__power_cap" : "{{ worker_power_cap | default(0.0) }}"
-      "ILUVATAR_WORKER__energy_cap__power_cap_version" : "{{ worker_power_cap_version | default('V0') }}"
 
-      # Invocation config
-      "ILUVATAR_WORKER__invocation__retries" : "{{ worker_invoke_retries | default(0) }}"
-      "ILUVATAR_WORKER__invocation__queue_sleep_ms" : "{{ worker_queue_sleep_ms | default(100) }}"
-      "ILUVATAR_WORKER__invocation__queue_policies__cpu" : "{{ worker_cpu_queue_policy | default('fcfs') }}"
-      "ILUVATAR_WORKER__invocation__queue_policies__gpu" : "{{ worker_gpu_queue_policy | default('mqfq_select_out_len') }}"
-      "ILUVATAR_WORKER__invocation__queues__gpu" : "{{ worker_gpu_queue | default('mqfq') }}"
-      "ILUVATAR_WORKER__invocation__queues__cpu" : "{{ worker_cpu_queue | default('serial') }}"
-      "ILUVATAR_WORKER__invocation__enqueueing_policy" : "{{ worker_enqueueing | default('All') }}"
-      "ILUVATAR_WORKER__invocation__enqueuing_log_details" : "{{ worker_enqueueing_details | default(false) }}"
-      "ILUVATAR_WORKER__invocation__speedup_ratio" : "{{ worker_speedup_ratio | default(4.0) }}"
-
-      # Status config
-      "ILUVATAR_WORKER__status__report_freq_ms" : "{{ worker_status_ms | default(2000) }}"
-      # MQFQ Config
-      "ILUVATAR_WORKER__invocation__mqfq_config__allowed_overrun" : "{{ mqfq_allowed_overrun | default(0.0) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__in_flight" : "{{ mqfq_in_flight | default(false) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__dynamic_weights" : "{{ mqfq_dynamic_weights | default(false) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__service_average" : "{{ mqfq_service_average | default(10.0) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__ttl_sec" : "{{ mqfq_ttl_sec | default(2.0) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__weight_logging_ms" : "{{ mqfq_weight_logging_ms | default(0) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__flow_select_cnt" : "{{ mqfq_flow_select_cnt | default(0) }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__time_estimation" : "{{ mqfq_time_estimation | default('V3') }}"
-      "ILUVATAR_WORKER__invocation__mqfq_config__add_estimation_error" : "{{ mqfq_add_estimation_error | default(false) }}"
-
-      "ILUVATAR_WORKER__invocation__landlord_config__cache_size" : "{{ lnd_cache_size | default(10) }}"
-      "ILUVATAR_WORKER__invocation__landlord_config__log_cache_info" : "{{ lnd_cache_log | default(false) }}"
-      "ILUVATAR_WORKER__invocation__landlord_config__max_size" : "{{ lnd_max_size | default(10.0) }}"
-      "ILUVATAR_WORKER__invocation__landlord_config__load_thresh" : "{{ lnd_load_thresh | default(2.0) }}"
-      "ILUVATAR_WORKER__invocation__landlord_config__slowdown_thresh" : "{{ lnd_slowdown_thresh | default(4.0) }}"
-      "ILUVATAR_WORKER__invocation__landlord_config__fixed_mode" : "{{ lnd_fixed_mode | default(false) }}"
-
-      "ILUVATAR_WORKER__invocation__greedy_weight_config__allow" : "{{ greedy_policy | default('TopThird') }}"
-      "ILUVATAR_WORKER__invocation__greedy_weight_config__allow_load" : "{{ greedy_load | default(2.0) }}"
-      "ILUVATAR_WORKER__invocation__greedy_weight_config__log" : "{{ greedy_log | default(false) }}"
-      "ILUVATAR_WORKER__invocation__greedy_weight_config__cache_size" : "{{ greedy_cache_size | default(0) }}"
-      "ILUVATAR_WORKER__invocation__greedy_weight_config__fixed_assignment" : "{{ greedy_fixed_assignment | default(false) }}"
-
-
-    proxy_env: "{{ coded_proxy_env | combine(worker.environment, recursive=True) }}"
+    proxy_env: "{{ ansible_proxy_env | combine(worker.environment, recursive=True) }}"
 
   tasks:
-
   - name: Create bin directory
     file:
       path: "{{bin_dir}}"
@@ -247,11 +151,11 @@
         validate_certs: "no"
         # RPC server doesn't accept basic HTTP connections
         # but we can try connecting to it once it's up and know it's alive
-        status_code: [-1, 0.9, 1.1]
+        status_code: [-1]
       register: result
       until: result.msg == expected
-      retries: 3
-      delay: 1
+      retries: 5
+      delay: 2
       when: mode == "deploy" or mode == "perf"
 
     rescue:

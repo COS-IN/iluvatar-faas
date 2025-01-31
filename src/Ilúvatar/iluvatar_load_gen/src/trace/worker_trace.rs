@@ -42,6 +42,7 @@ fn run_invokes(
         &args.input_csv,
         &factory,
         args.max_prewarms,
+        tid,
     )?;
 
     info!(tid=%tid, "Starting invocations");

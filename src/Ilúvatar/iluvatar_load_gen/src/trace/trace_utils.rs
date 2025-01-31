@@ -104,18 +104,19 @@ fn map_from_benchmark(
     default_prewarms: Option<u32>,
     _trace_pth: &str,
     max_prewarms: u32,
+    tid: &TransactionId,
 ) -> Result<()> {
     let mut total_prewarms = 0;
     for (_fname, func) in funcs.iter_mut() {
         if let Some((_last, elements)) = func.func_name.split('-').collect::<Vec<&str>>().split_last() {
             let name = elements.join("-");
             if bench.data.contains_key(&name) && func.image_name.is_some() {
-                info!("{} mapped to self name in benchmark", func.func_name);
+                info!(tid=%tid, function=%func.func_name, chosen_code=%name, "Function mapped to self name in benchmark");
                 func.chosen_name = Some(name);
             }
         }
         if bench.data.contains_key(&func.func_name) && func.image_name.is_some() && func.chosen_name.is_none() {
-            info!("{} mapped to exact name in benchmark", func.func_name);
+            info!(tid=%tid, function=%func.func_name, "Function mapped to exact name in benchmark");
             func.chosen_name = Some(func.func_name.clone());
         }
         if func.chosen_name.is_none() {
@@ -139,7 +140,7 @@ fn map_from_benchmark(
             }
 
             if func.image_name.is_none() {
-                info!("{} mapped to function '{}'", &func.func_name, chosen_name);
+                info!(tid=%tid, function=%&func.func_name, chosen_code=%chosen_name, "Function mapped to benchmark code");
                 func.cold_dur_ms = chosen_cold_time_ms as u64;
                 func.warm_dur_ms = chosen_warm_time_ms as u64;
                 func.chosen_name = Some(chosen_name);
@@ -152,7 +153,7 @@ fn map_from_benchmark(
             total_prewarms += prewarms;
         }
         match &func.chosen_name {
-            None => info!("not filling out sim_invoke_data"),
+            None => info!(tid=%tid, "not filling out sim_invoke_data"),
             Some(name) => {
                 let mut sim_data = HashMap::new();
                 for compute in func.parsed_compute.unwrap().into_iter() {
@@ -188,7 +189,7 @@ fn map_from_benchmark(
             },
         }
     }
-    info!("A total of {} prewarmed containers", total_prewarms);
+    info!(tid=%tid, "A total of {} prewarmed containers", total_prewarms);
     Ok(())
 }
 
@@ -224,6 +225,7 @@ pub fn map_functions_to_prep(
     default_prewarms: Option<u32>,
     trace_pth: &str,
     max_prewarms: u32,
+    tid: &TransactionId,
 ) -> Result<()> {
     for (_, v) in funcs.iter_mut() {
         v.parsed_compute = match v.compute.as_ref() {
@@ -242,7 +244,7 @@ pub fn map_functions_to_prep(
         LoadType::Lookbusy => map_from_lookbusy(funcs, default_prewarms, max_prewarms),
         LoadType::Functions => {
             if let Some(func_json_data) = load_benchmark_data(func_json_data_path)? {
-                map_from_benchmark(funcs, &func_json_data, default_prewarms, trace_pth, max_prewarms)
+                map_from_benchmark(funcs, &func_json_data, default_prewarms, trace_pth, max_prewarms, tid)
             } else {
                 map_from_args(funcs, default_prewarms, max_prewarms)
             }
@@ -332,8 +334,18 @@ pub fn worker_prepare_functions(
     trace_pth: &str,
     factory: &Arc<WorkerAPIFactory>,
     max_prewarms: u32,
+    tid: &TransactionId,
 ) -> Result<()> {
-    map_functions_to_prep(runtype, load_type, &func_data, funcs, prewarms, trace_pth, max_prewarms)?;
+    map_functions_to_prep(
+        runtype,
+        load_type,
+        &func_data,
+        funcs,
+        prewarms,
+        trace_pth,
+        max_prewarms,
+        tid,
+    )?;
     prepare_worker(funcs, host, port, runtype, rt, factory, &func_data)
 }
 
@@ -450,7 +462,7 @@ fn worker_wait_reg(
 pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args: &TraceArgs) -> Result<()> {
     let pth = Path::new(&args.input_csv);
     let p = Path::new(&args.out_folder).join(format!(
-        "output-full{}.json",
+        "output-full-{}.json",
         pth.file_stem().unwrap().to_str().unwrap()
     ));
     save_result_json(p, &results)?;
@@ -463,7 +475,7 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
             anyhow::bail!("Failed to create output file because {}", e);
         },
     };
-    let to_write = "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us\n";
+    let to_write = "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n";
     match f.write_all(to_write.as_bytes()) {
         Ok(_) => (),
         Err(e) => {
@@ -472,13 +484,14 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
     };
     for r in results {
         let to_write = format!(
-            "{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{}\n",
             r.controller_response.success,
             r.function_name,
             r.function_output.body.cold,
             r.controller_response.duration_us,
             r.function_output.body.latency,
-            r.client_latency_us
+            r.client_latency_us,
+            r.tid,
         );
         match f.write_all(to_write.as_bytes()) {
             Ok(_) => (),

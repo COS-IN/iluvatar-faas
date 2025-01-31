@@ -1310,7 +1310,7 @@ impl DeviceQueue for MQFQ {
             };
         }
         let raw_est = self.est_completion_time2(reg, tid) / concur;
-        info!(tid=%tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");
+        debug!(tid=%tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");
         (q_t + exec_time + err_time, load)
     }
 

@@ -14,7 +14,7 @@ use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
-use iluvatar_library::transaction::{TransactionId, SIMULATION_START_TID};
+use iluvatar_library::transaction::{TransactionId, LIVE_WORKER_LOAD_TID};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation};
 use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::utils::is_simulation;
@@ -38,7 +38,7 @@ async fn controller_register_functions(
             .image_name
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Unable to get image name for function '{}'", fid))?;
-        info!("{}, {}", func.func_name, image);
+        info!("Registering {}, {}", func.func_name, image);
         let func_timings = match &func.chosen_name {
             Some(chosen_name) => match benchmark.as_ref() {
                 Some(t) => match t.data.get(chosen_name) {
@@ -81,10 +81,11 @@ async fn controller_prewarm_funcs(
 }
 
 pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
-    let threaded_rt = build_tokio_runtime(&None, &None, &None, &gen_tid())?;
+    let tid = &LIVE_WORKER_LOAD_TID;
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
     let factory = ControllerAPIFactory::boxed();
     let host = args.host.clone();
-    run_invokes(args, factory, threaded_rt, &host, CommunicationMethod::RPC)
+    run_invokes(args, factory, threaded_rt, &host, CommunicationMethod::RPC, tid)
 }
 
 async fn controller_sim_register_workers(
@@ -129,8 +130,8 @@ fn run_invokes(
     threaded_rt: TokioRuntime,
     host: &str,
     comm: CommunicationMethod,
+    tid: &TransactionId,
 ) -> Result<()> {
-    let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
     let clock = get_global_clock(tid)?;
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     map_functions_to_prep(
@@ -141,6 +142,7 @@ fn run_invokes(
         args.prewarms,
         &args.input_csv,
         args.max_prewarms,
+        tid,
     )?;
     let bench_data = load_benchmark_data(&args.function_data)?;
     threaded_rt.block_on(controller_register_functions(
@@ -211,7 +213,6 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         .clone();
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
 
-    let tid: &TransactionId = &SIMULATION_START_TID;
     let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None)?;
     let controller_config =
         iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)?;
@@ -235,5 +236,6 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         threaded_rt,
         &controller_config_pth,
         CommunicationMethod::SIMULATION,
+        tid,
     )
 }

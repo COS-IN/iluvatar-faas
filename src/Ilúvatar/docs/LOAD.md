@@ -1,6 +1,19 @@
-# Load Generation
+# Running Experiments
 
-## Shared Params
+## Python abstraction
+
+A Python 'library' sits alongside the Rust library to abstract away many details and boilerplate we have come across when running large-scale experiments.
+These including running dozens of simulations in parallel, configuring clusters, and hosts for live experimental runs.
+
+The Python module for running these experiments is [here](../../load/run/) and for analyzing results in a [co-located folder](../../load/analysis/).
+These make orchstrating running and post-processing only take a handful of lines of code.
+The code contains some documentation, but comparing against [our working examples](./examples/README.md) is the easiest way to get started.
+
+## Load Generation
+
+The load generation tool can be used directly, and some features aren't used in the abstraction Python scripts described above.
+
+### Shared Params
 
 All commands share some common paramaters.
 These must be passed *before* the command value.
@@ -21,20 +34,7 @@ iluvatar_load_gen --help
 iluvatar_load_gen trace --help
 ```
 
-## Scaling load
-
-This command runs an increasing number of client threads against a worker to test it's ability to scale as the number of requests come in.
-It runs a [this](../../load/functions/python3/functions/hello/main.py) simple Python function that does some simple string formatting.
-This way invocations aren't primarily limited by the CPU usage and delay of invocations running for a significant time, only by contention and time spent in the worker.
-
-1. `--start`, `-s`: The number of threads to start at
-1. `--end`, `-e`: The number of threads to end at
-1. `--duration`, `-d`: How long to run before increasing the number of threads
-
-After the duration is done for each number of threads, the throughput results will be stored in a json folder in the `--out` directory.
-They will be formatted as a list of the `ThreadResult` struct described [here](../iluvatar_load_gen/src/utils.rs).
-
-## Trace load
+### Trace load
 
 This allows a series of predetermined function invocations to be run on either a worker or controller.
 Two csv files control what functions are run at what time, to the millisecond.
@@ -96,7 +96,7 @@ This value is only relevant if running a simulated controller
 1. `--prewarm`, `-p`: The number of containers to pre-warm for each function.
 Defaults to 0.
 
-### Generating Traces
+#### Generating Traces
 
 The two CSV files for metadata and invocations must match the various fields detailed by their Rust struct equivalents, [Function](../iluvatar_load_gen/src/trace/trace.rs) and [CsvInvocation](../iluvatar_load_gen/src/trace/trace.rs) respectively.
 
@@ -106,7 +106,7 @@ This is done as preparing and parsing the Azure workload data is resource intens
 An example of creating a pre-planned invocation shape is in [this script](../../load/generation/four_funcs.py).
 A complex scenario of preparing the Azure data and using it to generate a trace can be found in [the examples](../Ilúvatar/docs/examples/azure-trace/generate-trace.sh).
 
-### Trace examples
+#### Trace examples
 
 An example load call to a live system:
 
@@ -120,7 +120,7 @@ An example load call for a simulation:
 iluvatar_load_gen -p 100 -h localhost trace --target "controller" --setup "simulation" --input "/my/trace/input.csv" --metadata "/my/trace/metadata-input.csv" --worker-config "/my/worker/config.json" --controller-config "/my/controller/config.json" --workers 3
 ```
 
-## Benchmark load
+### Benchmark load
 
 The `benchmark` command repeatedly runs functions on a system to determine the runtime characteristics of each.
 Results of the benchmark will be stored as json, in the format specified by the `BenchmarkStore` struct [here](../iluvatar_load_gen/src/benchmark.rs)
@@ -153,3 +153,17 @@ An example load call for a worker:
 ```bash
 iluvatar_load_gen -p 100 -h localhost benchmark --target "worker" --functions-dir "src/load/functions/python3/functions" --cold-iters 5 --warm-iters 5
 ```
+
+
+### Scaling load
+
+This command runs an increasing number of client threads against a worker to test it's ability to scale as the number of requests come in.
+It runs a [this](../../load/functions/python3/functions/hello/main.py) simple Python function that does some simple string formatting.
+This way invocations aren't primarily limited by the CPU usage and delay of invocations running for a significant time, only by contention and time spent in the worker.
+
+1. `--start`, `-s`: The number of threads to start at
+1. `--end`, `-e`: The number of threads to end at
+1. `--duration`, `-d`: How long to run before increasing the number of threads
+
+After the duration is done for each number of threads, the throughput results will be stored in a json folder in the `--out` directory.
+They will be formatted as a list of the `ThreadResult` struct described [here](../iluvatar_load_gen/src/utils.rs).
