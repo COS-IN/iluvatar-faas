@@ -262,10 +262,10 @@ pub fn benchmark_worker(
             None => "{\"name\":\"TESTING\"}".to_string(),
         };
         for supported_compute in compute {
-            info!("{} {:?}", &function.name, supported_compute);
+            info!("Running {} {}", &function.name, supported_compute);
 
             for iter in 0..cold_repeats {
-                let name = format!("{}.{:?}.{}", &function.name, supported_compute, iter);
+                let name = format!("{}.{}.{}", &function.name, supported_compute, iter);
                 let version = iter.to_string();
                 let (_s, _reg_dur, _tid) = match threaded_rt.block_on(worker_register(
                     name.clone(),
