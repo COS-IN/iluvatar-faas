@@ -822,12 +822,11 @@ impl Invoker for QueueingDispatcher {
                 if result_ptr.compute == Compute::GPU {
                     self.cmap
                         .add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false);
-                    info!(tid=%tid, fqdn=%reg.fqdn, e2etime=%e2etime, device=%"GPU", "Invocation complete");
                 } else {
                     self.cmap
                         .add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false);
-                    info!(tid=%tid, fqdn=%reg.fqdn, e2etime=%e2etime, device=%"CPU", "Invocation complete");
                 }
+                info!(tid=%tid, fqdn=%reg.fqdn, e2etime=%e2etime, copmute=%result_ptr.compute, "Invocation complete");
                 Ok(queued.result_ptr.clone())
             },
             false => {

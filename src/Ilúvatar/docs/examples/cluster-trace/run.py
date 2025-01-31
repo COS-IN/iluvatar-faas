@@ -102,9 +102,7 @@ mpl.rcParams["pdf.fonttype"] = 42
 mpl.rcParams["ps.fonttype"] = 42
 
 
-parser = LogParser(
-    results_dir, input_csv, meta_csv, benchmark, RunType.LIVE, RunTarget.CONTROLLER
-)
+parser = LogParser(results_dir, input_csv, meta_csv, benchmark, RunType.LIVE)
 parser.parse_logs()
 
 fig, ax = plt.subplots()
@@ -112,7 +110,9 @@ plt.tight_layout()
 fig.set_size_inches(5, 3)
 
 labels = []
-for i, (func, df) in enumerate(parser.invokes_df.groupby("function_name")):
+for i, (func, df) in enumerate(
+    parser.worker_parsers[0].invokes_df.groupby("function_name")
+):
     ax.bar(i, height=df["e2e_overhead"].mean(), yerr=df["e2e_overhead"].std())
     labels.append(func)
 

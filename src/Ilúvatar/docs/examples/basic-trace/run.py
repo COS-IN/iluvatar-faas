@@ -43,7 +43,7 @@ run_live(input_csv, meta_csv, results_dir, LOCALHOST_Q, **kwargs)
 
 
 ## plot some results
-from load.analysis import LogParser
+from load.analysis import WorkerLogParser
 from load.run.run_trace import RunTarget, RunType
 import matplotlib as mpl
 
@@ -55,7 +55,7 @@ mpl.rcParams["pdf.fonttype"] = 42
 mpl.rcParams["ps.fonttype"] = 42
 
 
-parser = LogParser(
+parser = WorkerLogParser(
     results_dir, input_csv, meta_csv, benchmark, RunType.LIVE, RunTarget.WORKER
 )
 parser.parse_logs(fail_if_errors=False)

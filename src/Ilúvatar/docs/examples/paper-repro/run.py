@@ -63,7 +63,7 @@ with Pool() as p:
     p.starmap(run_experiment, experiments)
 
 ## plot some results
-from load.analysis import LogParser, parse_data, BaseParser
+from load.analysis import WorkerLogParser, parse_data, BaseParser
 from load.analysis.log_parser import *
 from load.run.run_trace import RunTarget, RunType
 from collections import defaultdict
@@ -75,13 +75,13 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class ReuseDistanceParser(BaseParser):
     """
     An example of injecting a custom parser, computing reuse distances of invocations
     """
 
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
         self.reuse_distances = defaultdict(list)
         self.last_seen = {}

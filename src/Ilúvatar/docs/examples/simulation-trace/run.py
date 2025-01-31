@@ -29,11 +29,10 @@ kwargs = {
     "target": RunTarget.CONTROLLER,
     "controller_thread_sleep_ms": 6000,
     "controller_load_metric": "running",
-    "num_workers": 2,
+    "num_workers": 1,
     "prewarm": 1,
     "benchmark_file": benchmark,
     "force": True,
-    "worker_port": 5000,
 }
 # run entire experiment
 input_csv = "./four-functions.csv"
@@ -48,7 +47,7 @@ run_sim(
 
 
 ## plot some results
-from load.analysis import LogParser
+from load.analysis import WorkerLogParser
 from load.run.run_trace import RunTarget, RunType
 import matplotlib as mpl
 
@@ -60,7 +59,7 @@ mpl.rcParams["pdf.fonttype"] = 42
 mpl.rcParams["ps.fonttype"] = 42
 
 
-parser = LogParser(
+parser = WorkerLogParser(
     results_dir, input_csv, meta_csv, benchmark, RunType.SIM, RunTarget.CONTROLLER
 )
 parser.parse_logs()

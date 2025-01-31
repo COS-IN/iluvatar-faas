@@ -81,7 +81,7 @@ class BaseParser:
 
     def __init__(self, main_parser):
         """
-        `main_parser`: is of type LogParser
+        `main_parser`: is of type WorkerLogParser
         """
         self.main_parser = main_parser
 
@@ -101,14 +101,121 @@ class BaseParser:
 
 class LogParser:
     """
-    Class to help parse logs from the result of a single experiment.
+    Class to help parse logs from the result of a single CLUSTER experiment.
+    If just ran on a worker, use `WorkerLogParser`!!!
     Relies on injected sub-parsers to handle post-processing.
     This class loads the experiment artifacts and then calls these parsers to do analysis on them to add more information.
     Sub-parsers must be all injected before starting to parse data.
 
-    Currently works best with a single worker, and iffy on cluster support.
-    TODO: improve this for multiple workers & controller support
-    TODO: multiple workers inside simulation will need change to logging framework to allow for log distinction
+    TODO: Doesn't work on multiple workers inside simulation. Requires big code update inside worker to support
+    """
+
+    def __init__(
+        self,
+        folder_path: str,
+        input_csv: str,
+        metadata_csv: str,
+        benchmark_file: str = None,
+        run_type: RunType = RunType.LIVE,
+        run_data: Optional[Dict] = None,
+    ):
+        """
+        run_data: metadata about the experimental run
+        """
+        self.source = folder_path
+        self.input_csv = input_csv
+        self.metadata_csv = metadata_csv
+        self.target = RunTarget.CONTROLLER
+        self.run_type = run_type
+        self.run_data = run_data
+
+        if not has_results(folder_path, self.input_csv):
+            raise Exception(f"Missing logs in '{folder_path}'")
+
+        self.results_csv = os.path.join(
+            folder_path, trace_output("csv", self.input_csv)
+        )
+        self.results_json = os.path.join(
+            folder_path, trace_output("json", self.input_csv)
+        )
+        if self.run_type.is_sim():
+            raise Exception(
+                "Clustered log parser currently lot supported as logs for distinct workers cannot currently be separarated"
+            )
+        else:
+            self.controller_parser = ControllerLogParser(
+                folder_path, input_csv, metadata_csv, run_type, run_data
+            )
+            self.worker_parsers = []
+            for file in os.listdir(folder_path):
+                if file.startswith("worker_") and file.endswith(".log"):
+                    worker_log = os.path.join(folder_path, file)
+                    self.worker_parsers.append(
+                        WorkerLogParser(
+                            self.source,
+                            self.input_csv,
+                            self.metadata_csv,
+                            benchmark_file,
+                            self.run_type,
+                            self.target,
+                            self.run_data,
+                            worker_log,
+                        )
+                    )
+
+    def parse_logs(
+        self,
+        include_errors: bool = False,
+        fail_if_errors: bool = False,
+    ):
+        self.controller_parser.parse_logs(include_errors, fail_if_errors)
+        for worker in self.worker_parsers:
+            worker.parse_logs(include_errors, fail_if_errors)
+
+
+class ControllerLogParser:
+    """
+    Class to help parse logs from a controller
+    """
+
+    def __init__(
+        self,
+        folder_path: str,
+        input_csv: str,
+        metadata_csv: str,
+        run_type: RunType = RunType.LIVE,
+        run_data: Optional[Dict] = None,
+    ):
+        self.source = folder_path
+        self.input_csv = input_csv
+        self.metadata_csv = metadata_csv
+        self.run_type = run_type
+        self.run_data = run_data
+
+    def parse_logs(
+        self,
+        include_errors: bool = False,
+        fail_if_errors: bool = False,
+    ):
+        pass
+
+    registered_parser_types = []
+
+    @classmethod
+    def register_parser(cls, parser: BaseParser):
+        """
+        Parsers are registered in the order they are loaded by Python.
+        So some have graph dependencies on one another that must be respected.
+        """
+        cls.registered_parser_types.append(parser)
+
+
+class WorkerLogParser:
+    """
+    Class to help parse logs from the result of a single experiment.
+    Relies on injected sub-parsers to handle post-processing.
+    This class loads the experiment artifacts and then calls these parsers to do analysis on them to add more information.
+    Sub-parsers must be all injected before starting to parse data.
     """
 
     def __init__(
@@ -120,30 +227,40 @@ class LogParser:
         run_type: RunType = RunType.LIVE,
         target: RunTarget = RunTarget.WORKER,
         run_data: Optional[Dict] = None,
+        worker_log: str = None,
     ):
         """
         run_data: metadata about the experimental run
+        worker_log: the specific worker log this parser should work on. Leave as `None` to allow for auto-pickup when just a single worker was run
         """
         self.source = folder_path
         self.input_csv = input_csv
         self.metadata_csv = metadata_csv
-        self.target = target
         self.run_type = run_type
+        self.target = target
         self.run_data = run_data
+        print(self.run_type)
 
-        if not has_results(folder_path, self.input_csv):
-            raise Exception(f"Missing logs in '{folder_path}'")
+        if not has_results(self.source, self.input_csv):
+            raise Exception(f"Missing logs in '{self.source}'")
 
-        self.load_gen = os.path.join(folder_path, "load_gen.log")
+        self.load_gen = os.path.join(self.source, "load_gen.log")
 
         self.results_csv = os.path.join(
-            folder_path, trace_output("csv", self.input_csv)
+            self.source, trace_output("csv", self.input_csv)
         )
-        self.results_log = os.path.join(folder_path, "worker_worker1.log")
-        if self.run_type.is_sim():
-            self.results_log = os.path.join(folder_path, "load_gen.log")
+        self.results_log = worker_log
+        if self.results_log is None:
+            if self.run_type.is_sim():
+                self.results_log = self.load_gen
+            else:
+                for file in os.listdir(self.source):
+                    if file.startswith("worker_") and file.endswith(".log"):
+                        self.results_log = os.path.join(self.source, file)
+                        break
+
         self.results_json = os.path.join(
-            folder_path, trace_output("json", self.input_csv)
+            self.source, trace_output("json", self.input_csv)
         )
         self.benchmark_file = benchmark_file
         self.benchmark_data = None
@@ -152,7 +269,7 @@ class LogParser:
         self.load_parsers()
 
     def load_parsers(self):
-        for parser in LogParser.registered_parser_types:
+        for parser in WorkerLogParser.registered_parser_types:
             parser_instance = parser(self)
             for message, func in parser.parser_map.items():
                 self.parser_map[message].append((parser_instance, func))
@@ -320,13 +437,13 @@ class LogParser:
             instance.log_completed()
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class BenchmarkNameParser(BaseParser):
     """
     Map functions to the code names in the benchmark file, if it exists.
     """
 
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
 
     def get_benchmark_mapped_names(self):
@@ -356,6 +473,8 @@ class BenchmarkNameParser(BaseParser):
                         (log["fields"]["function"], log["fields"]["chosen_code"])
                     )
                     found.add(log["fields"]["function"])
+                if len(found) == len(self.main_parser.metadata_df):
+                    break
         for index, row in self.main_parser.metadata_df.iterrows():
             if index not in found:
                 # If item doesn't have log message in load gen file, it gave a specific image in metadata
@@ -374,13 +493,13 @@ class BenchmarkNameParser(BaseParser):
             self.get_benchmark_mapped_names()
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class MetadataTrafficClassesParser(BaseParser):
     """
     Compute function traffic classes from IATs
     """
 
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
 
     def before_parse(self):
@@ -419,13 +538,13 @@ class MetadataTrafficClassesParser(BaseParser):
         )
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class QueuingParser(BaseParser):
     """
     Compute per-invocation queuing times
     """
 
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
         self.tid_to_queueing = []
 
@@ -454,14 +573,14 @@ class QueuingParser(BaseParser):
     }
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class FullJsonMergeParser(BaseParser):
     """
     Merge data about each invocation (compute, start time, finish time, container state)
     from full invocation json data file and add to invocations.
     """
 
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
 
     def get_start_and_finish(self, invoke):
@@ -518,9 +637,9 @@ class FullJsonMergeParser(BaseParser):
         self.main_parser.invokes_df = self.main_parser.invokes_df.join(full_df)
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class EstTimeParser(BaseParser):
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
         self.est_e2e_time_data = {}
         self.est_invoke_time_data = defaultdict(lambda: np.zeros(4))
@@ -588,9 +707,9 @@ class EstTimeParser(BaseParser):
     }
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class StatusParser(BaseParser):
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
         self.status_data = []
 
@@ -671,9 +790,9 @@ class StatusParser(BaseParser):
     parser_map = {"current load status": parse_status}
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class BatchingParser(BaseParser):
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
         self.batch_data = []
         self.batch_name = None
@@ -735,9 +854,9 @@ class BatchingParser(BaseParser):
     }
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class CacheInsertionsParser(BaseParser):
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
         self.cache_insertions = defaultdict(int)
 
@@ -757,9 +876,9 @@ class CacheInsertionsParser(BaseParser):
     }
 
 
-@LogParser.register_parser
+@WorkerLogParser.register_parser
 class OverheadParser(BaseParser):
-    def __init__(self, main_parser: LogParser):
+    def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
 
     def compute_overheads(self):
@@ -880,8 +999,8 @@ def _load_single_data(
     include_errors: bool = False,
     fail_if_errors: bool = False,
     run_data: Optional[Dict] = None,
-) -> LogParser:
-    parser = LogParser(
+) -> WorkerLogParser:
+    parser = WorkerLogParser(
         folder_path, input_csv, metadata_csv, benchmark_file, run_type, target, run_data
     )
     parser.parse_logs()
@@ -939,7 +1058,7 @@ def parse_data(
     include_errors=False,
     fail_if_errors: bool = False,
     num_procs: Optional[int] = None,
-) -> List[LogParser]:
+) -> List[WorkerLogParser]:
     """
     Bulk load experiment results from a structured folder.
     Uses a Python multiprocessing Pool to load them.
