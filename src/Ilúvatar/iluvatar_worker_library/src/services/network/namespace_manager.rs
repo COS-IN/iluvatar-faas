@@ -132,12 +132,9 @@ impl NamespaceManager {
     fn ensure_net_config_file(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
         let temp_file = utils::file::temp_file_pth("il_worker_br", "conf");
 
-        let mut file = match File::options().read(true).write(true).create_new(true).open(temp_file) {
+        let mut file = match File::create(temp_file){
             Ok(f) => f,
-            Err(e) => match e.kind() {
-                std::io::ErrorKind::AlreadyExists => return Ok(()),
-                _ => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
-            },
+            Err(e) => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e)
         };
         let bridge_json = include_str!("../../resources/cni/il_worker_br.json")
             .to_string()
