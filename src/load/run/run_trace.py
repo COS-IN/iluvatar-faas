@@ -298,6 +298,7 @@ worker_kwargs = {
         2,
         ("container_resources", "gpu_resource", "concurrent_running_funcs"),
     ),
+    ("mig_shares", 0, ("container_resources", "gpu_resource", "mig_shares"),
     # containers
     ("concurrent_creation", 5, ("container_resources", "concurrent_creation")),
     ("snapshotter", "zfs", ("container_resources", "snapshotter")),
