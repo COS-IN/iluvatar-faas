@@ -431,7 +431,7 @@ impl ContainerdIsolation {
                 debug!(tid=%tid, manifest=?manifest_item, "Acquired manifest item");
                 // Step 3. load image manifest from specific platform filter
                 let layer_item: ImageManifest =
-                    match serde_json::from_slice(&self.read_content(namespace, manifest_item).await?) {
+                    match serde_json::from_slice(&self.read_content(namespace, manifest_item.to_string()).await?) {
                         Ok(s) => s,
                         Err(e) => bail_error!(tid=%tid, error=%e, "JSON error getting ImageManifest"),
                     };
@@ -447,7 +447,7 @@ impl ContainerdIsolation {
 
         // Step 5. load image configuration (layer) from image
         let config: ImageConfiguration =
-            match serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_owned()).await?) {
+            match serde_json::from_slice(&self.read_content(namespace, layer_item.digest().to_string()).await?) {
                 Ok(s) => s,
                 Err(e) => bail_error!(tid=%tid, error=%e, "JSON error getting ImageConfiguration"),
             };
