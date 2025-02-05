@@ -13,36 +13,36 @@ categories.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lazy_static = "1.4.0"
-anyhow = "1.0.13"
-guid-create = "0.4"
-serde = { version = "1.0", features = ["derive", "rc"] }
-serde_json = "1.0"
+lazy_static = "1"
+anyhow = "1"
+guid-create = "0.*"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
 clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
-time = { version = "0.3.36", features = [ "formatting" ] }
-tzdb = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+time = { version = "0.3", features = [ "formatting" ] }
+tzdb = "0.6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "tracing-log", "parking_lot", "env-filter"] }
-tracing-appender = "0.2.2"
+tracing-appender = "0.2"
 tracing-flame="0.2"
 pin-project = "1"
-dashmap = "6.0"
-parking_lot = "0.12.1"
-tokio = { version = "1.19", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot", "signal", "fs"] }
-ordered-float = "3.4.0"
-bitflags = {  version = "2.8", features = ["serde"] }
-http = "0.2.1"
+dashmap = "6"
+parking_lot = "0.12"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot", "signal"] }
+ordered-float = "4"
+bitflags = { version="2", features=["serde"] }
+http = "0.2"
 influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 num-traits = "0.2"
 influxdb2-structmap = "0.2"
-async-process = "2.0.0"
+async-process = "2"
 async-trait = "0.1.*"
 num_cpus = "1.16"
 
 [dev-dependencies]
-rstest = "0.13.0"
-float-cmp = "0.9.0"
+rstest = "0.22"
+float-cmp = "0.9"
 nix = "0.26"
 
 [features]

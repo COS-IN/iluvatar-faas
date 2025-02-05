@@ -107,6 +107,21 @@ pub struct GpuParseStatus {
     pub power_limit: f64,
 }
 impl GpuStatus {
+    pub fn new(gpu_uuid: GpuUuid, memory_mb: MemSizeMb, num_running: u32) -> Self {
+        GpuStatus {
+            gpu_uuid,
+            pstate: Pstate::P0,
+            memory_total: memory_mb as u32,
+            memory_used: 0,
+            instant_utilization_gpu: 0.0,
+            utilization_gpu: 0.0,
+            utilization_memory: 0.0,
+            power_draw: 0.0,
+            power_limit: 0.0,
+            num_running: num_running,
+            est_utilization_gpu: 0.0,
+        }
+    }
     pub fn update(&mut self, new_status: GpuParseStatus, num_running: u32) {
         let alpha = 0.6;
         self.pstate = new_status.pstate;
@@ -155,6 +170,26 @@ struct GpuMetadata {
     pub max_running: u32,
     pub sem: Arc<Semaphore>,
 }
+impl GpuMetadata {
+    fn new(
+        gpu_uuid: GpuUuid,
+        hardware_id: PrivateGpuId,
+        memory_mb: MemSizeMb,
+        structs: &[GPU],
+        sem: Arc<Semaphore>,
+    ) -> Self {
+        GpuMetadata {
+            gpu_uuid: gpu_uuid.clone(),
+            hardware_memory_mb: memory_mb,
+            num_structs: structs.len() as u32,
+            max_running: sem.available_permits() as u32,
+            sem,
+            hardware_id,
+            device_allocated_memory: RwLock::new(0),
+            allocation_breakdown: Mutex::new(vec![0; structs.len()]),
+        }
+    }
+}
 type GpuCollection = DashMap<PrivateGpuId, Vec<GPU>>;
 pub type ProtectedGpuRef<'a> = RwLockReadGuard<'a, Option<GPU>>;
 #[derive(Debug)]
@@ -180,8 +215,9 @@ impl GPU {
         tid: &TransactionId,
     ) -> Result<Vec<Self>> {
         let (spots, mem_size) = Self::compute_spots(hardware_memory_mb, gpu_uuid, config, tid)?;
-        let thread_pct = match config.mps_limit_active_threads {
-            Some(true) => (100.0 / missing_or_zero_default(&config.concurrent_running_funcs, spots) as f64) as u32,
+        let thread_pct = match config.concurrent_running_funcs {
+            Some(0) => (100.0 / spots as f64) as u32,
+            Some(pct) => (100.0 / pct as f64) as u32,
             _ => 100,
         };
         let mut ret = vec![];
@@ -263,6 +299,11 @@ impl GpuResourceTracker {
             if config.count == 0 {
                 return Ok(None);
             }
+            match config.mig_enabled() {
+                true => Self::enable_mig(tid),
+                false => Self::disable_mig(tid),
+            }?;
+
             let (gpu_structs, metadata) = Self::prepare_structs(&config, tid)?;
             let mut nvml = None;
             if !iluvatar_library::utils::is_simulation() {
@@ -301,19 +342,7 @@ impl GpuResourceTracker {
                     .value()
                     .first()
                     .ok_or_else(|| anyhow::format_err!("No GPU structs exist to make beginning status vector"))?;
-                stat_vec.push(GpuStatus {
-                    gpu_uuid: first.gpu_uuid.clone(),
-                    pstate: Pstate::P0,
-                    memory_total: first.hardware_memory_mb as u32,
-                    memory_used: 0,
-                    instant_utilization_gpu: 0.0,
-                    utilization_gpu: 0.0,
-                    utilization_memory: 0.0,
-                    power_draw: 0.0,
-                    power_limit: 0.0,
-                    num_running: 0,
-                    est_utilization_gpu: 0.0,
-                });
+                stat_vec.push(GpuStatus::new(first.gpu_uuid.clone(), first.hardware_memory_mb, 0));
             }
 
             let svc = Arc::new(GpuResourceTracker {
@@ -389,42 +418,51 @@ impl GpuResourceTracker {
             .await
     }
 
-    fn set_gpus_shared(tid: &TransactionId) -> Result<()> {
+    fn list_gpus(tid: &TransactionId) -> Result<Vec<String>> {
         let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
         let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
-        let gpu_cnt = cow
+        Ok(cow
             .split('\n')
-            .filter(|str| !str.is_empty())
-            .collect::<Vec<&str>>()
-            .len();
+            .filter(|str| !str.is_empty() && str.starts_with("GPU "))
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>())
+    }
+
+    /// Applies nvidia-smi args across each GPU ID, appending '"-i", "<ID>"' to the list of args
+    fn apply_smi_across_gpus(tid: &TransactionId, args: Vec<&str>) -> Result<()> {
+        let mut args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let gpu_cnt = Self::list_gpus(tid)?.len();
+        args.push("-i".to_string());
+        args.push("0".to_string());
+        let len = args.len();
         for i in 0..gpu_cnt {
-            execute_cmd_checked(
-                "/usr/bin/nvidia-smi",
-                vec!["-i", i.to_string().as_str(), "-c", "DEFAULT"],
-                None,
-                tid,
-            )?;
+            args[len - 1] = i.to_string();
+            execute_cmd_checked("/usr/bin/nvidia-smi", &args, None, tid)?;
         }
         Ok(())
     }
 
+    /// Enable MIG on all GPUs
+    fn enable_mig(tid: &TransactionId) -> Result<()> {
+        info!(tid=%tid, "Enabling MIG");
+        // TODO: a better way to ensure MIG is safely enabled?
+        Self::disable_mig(tid)?;
+        Self::apply_smi_across_gpus(tid, vec!["-mig", "1"])
+    }
+    /// Disable MIG on all GPUs
+    /// This also deletes all created MIG profiles
+    fn disable_mig(tid: &TransactionId) -> Result<()> {
+        info!(tid=%tid, "Disabling MIG");
+        Self::apply_smi_across_gpus(tid, vec!["-mig", "0"])
+    }
+
+    /// Set all GPUs to be shared, useful for MPS
+    fn set_gpus_shared(tid: &TransactionId) -> Result<()> {
+        Self::apply_smi_across_gpus(tid, vec!["-c", "DEFAULT"])
+    }
+    /// Set all GPUs to EXCLUSIVE_PROCESS, useful for MPS
     fn set_gpu_exclusive(tid: &TransactionId) -> Result<()> {
-        let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
-        let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
-        let gpu_cnt = cow
-            .split('\n')
-            .filter(|str| !str.is_empty())
-            .collect::<Vec<&str>>()
-            .len();
-        for i in 0..gpu_cnt {
-            execute_cmd_checked(
-                "/usr/bin/nvidia-smi",
-                vec!["-i", i.to_string().as_str(), "-c", "EXCLUSIVE_PROCESS"],
-                None,
-                tid,
-            )?;
-        }
-        Ok(())
+        Self::apply_smi_across_gpus(tid, vec!["-c", "EXCLUSIVE_PROCESS"])
     }
 
     /// Return the count of 'physical' GPUs, and list of GPU spot structs
@@ -462,6 +500,10 @@ impl GpuResourceTracker {
         gpu_config: &Arc<GPUResourceConfig>,
         tid: &TransactionId,
     ) -> Result<(GpuCollection, MetadataCollection)> {
+        if gpu_config.mig_enabled() {
+            return Self::make_mig_gpus(gpu_config, tid);
+        }
+
         let ret = GpuCollection::new();
         let mut meta = MetadataCollection::new();
         if gpu_config.is_tegra.unwrap_or(false) {
@@ -470,16 +512,7 @@ impl GpuResourceTracker {
             let gpu_hardware_id: PrivateGpuId = 0;
             let gpu_structs = GPU::split_resources(&gpu_uuid, gpu_hardware_id, memory_mb, gpu_config, tid)?;
             let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id, &gpu_structs, tid)?;
-            let metadata = GpuMetadata {
-                gpu_uuid: gpu_uuid.clone(),
-                hardware_id: gpu_hardware_id,
-                hardware_memory_mb: memory_mb,
-                num_structs: gpu_structs.len() as u32,
-                max_running: sem.available_permits() as u32,
-                sem,
-                device_allocated_memory: RwLock::new(0),
-                allocation_breakdown: Mutex::new(vec![0; gpu_structs.len()]),
-            };
+            let metadata = GpuMetadata::new(gpu_uuid.clone(), gpu_hardware_id, memory_mb, &gpu_structs, sem);
             meta.insert(gpu_hardware_id, metadata);
             ret.insert(gpu_hardware_id, gpu_structs);
             return Ok((ret, meta));
@@ -518,21 +551,99 @@ impl GpuResourceTracker {
                         .or_else(|e| anyhow::bail!("Failed to parse GPU memory.total {:?} from '{:?}'", e, r))?;
                     let structs = GPU::split_resources(&gpu_uuid, gpu_hardware_id, memory_mb, gpu_config, tid)?;
                     let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id, &structs, tid)?;
-                    let metadata = GpuMetadata {
-                        gpu_uuid: gpu_uuid.clone(),
-                        hardware_id: gpu_hardware_id,
-                        hardware_memory_mb: memory_mb,
-                        num_structs: structs.len() as u32,
-                        max_running: sem.available_permits() as u32,
-                        sem,
-                        device_allocated_memory: RwLock::new(0),
-                        allocation_breakdown: Mutex::new(vec![0; structs.len()]),
-                    };
+                    let metadata = GpuMetadata::new(gpu_uuid.clone(), gpu_hardware_id, memory_mb, &structs, sem);
                     meta.insert(gpu_hardware_id, metadata);
                     ret.insert(gpu_hardware_id, structs);
                 },
                 Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read record from nvidia-smi"),
             }
+        }
+        Ok((ret, meta))
+    }
+
+    fn mig_line_split(line: &str) -> Vec<String> {
+        line.split(" ")
+            .filter(|str| str != &"MIG" && !str.is_empty())
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+    }
+    fn choose_mig_profile(mig_shares: u32, tid: &TransactionId) -> Result<String> {
+        let output = execute_cmd_checked(
+            "/usr/bin/nvidia-smi",
+            vec!["mig", "--list-gpu-instance-profiles"],
+            None,
+            tid,
+        )?;
+        let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
+        let mut lines = cow
+            .split('\n')
+            .filter(|str| !str.is_empty())
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        let headers = lines.remove(2).replace(['|'], "");
+        let headers = headers
+            .split(" ")
+            .filter(|str| !str.is_empty())
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        let mut chosen_profile = None;
+        for line in lines {
+            let line = line.replace(['|'], "");
+            let mut parts = Self::mig_line_split(&line);
+            if parts.len() == headers.len() {
+                let instances = parts.remove(3);
+                let instances = instances.split('/').next().unwrap();
+                let int = instances.parse::<u32>().unwrap();
+                if int == mig_shares {
+                    let profile_id = parts.remove(2);
+                    chosen_profile = Some(profile_id);
+                    break;
+                }
+            }
+        }
+        match chosen_profile {
+            None => bail_error!("No matching MIG profiles fit the desired number of shares, check the documentation."),
+            Some(p) => Ok(p),
+        }
+    }
+    fn make_mig_gpus(
+        gpu_config: &Arc<GPUResourceConfig>,
+        tid: &TransactionId,
+    ) -> Result<(GpuCollection, MetadataCollection)> {
+        let ret = GpuCollection::new();
+        let mut meta = MetadataCollection::new();
+        let mig_shares = match gpu_config.mig_shares {
+            None => bail_error!("Trying to make MIG shares when value wasn't set"),
+            Some(0) => bail_error!("Trying to make MIG shares when value was 0"),
+            Some(m) => m,
+        };
+        let profile = Self::choose_mig_profile(mig_shares, tid)?;
+        for _ in 0..mig_shares {
+            let _output = execute_cmd_checked(
+                "/usr/bin/nvidia-smi",
+                vec!["mig", "--create-gpu-instance", profile.as_str(), "-C"],
+                None,
+                tid,
+            )?;
+        }
+        let output = execute_cmd_checked("/usr/bin/nvidia-smi", vec!["-L"], None, tid)?;
+        let cow: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
+        let migs = cow
+            .split('\n')
+            .filter(|str| str.starts_with("  MIG "))
+            .collect::<Vec<&str>>();
+        for (gpu_hardware_id, line) in migs.iter().enumerate() {
+            let gpu_hardware_id = gpu_hardware_id as PrivateGpuId;
+            let parts = line.split(' ').filter(|str| !str.is_empty()).collect::<Vec<&str>>();
+            let gb = parts[1].split('.').collect::<Vec<&str>>()[1];
+            let memory_mb = &gb[0..gb.len() - 2].parse::<MemSizeMb>().unwrap() * 1024;
+            let uuid = parts[parts.len() - 1];
+            let uuid = uuid[0..uuid.len() - 1].to_string();
+            let structs = GPU::split_resources(&uuid, gpu_hardware_id as PrivateGpuId, memory_mb, gpu_config, tid)?;
+            let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id as PrivateGpuId, &structs, tid)?;
+            let metadata = GpuMetadata::new(uuid, gpu_hardware_id, memory_mb, &structs, sem);
+            meta.insert(gpu_hardware_id, metadata);
+            ret.insert(gpu_hardware_id, structs);
         }
         Ok((ret, meta))
     }
@@ -551,11 +662,12 @@ impl GpuResourceTracker {
             Self::make_real_gpus(gpu_config, tid)?
         };
         let found_physical = structs.len();
-        if found_physical as u32 != gpu_config.count {
+        let expected = missing_or_zero_default(&gpu_config.mig_shares, 1) * gpu_config.count;
+        if found_physical as u32 != expected {
             anyhow::bail!(
                 "Was able to prepare {} GPUs, but configuration expected {}",
                 found_physical,
-                gpu_config.count
+                expected
             );
         }
         info!(tid=%tid, gpus=?structs, "GPUs prepared");
@@ -779,8 +891,8 @@ impl GpuResourceTracker {
             return;
         }
         let args = vec![
-          "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
-          "--format=csv,noheader,nounits",
+            "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
+            "--format=csv,noheader,nounits",
         ];
         let nvidia = match execute_cmd_checked_async("/usr/bin/nvidia-smi", args, None, &tid).await {
             Ok(r) => r,
@@ -875,20 +987,11 @@ impl GpuResourceTracker {
         let mut status: Vec<GpuStatus> = vec![];
         // TODO: proper GPU utilization
         for (_gpu_id, metadata) in svc.gpu_metadata.iter() {
-            let stat = GpuStatus {
-                gpu_uuid: metadata.gpu_uuid.clone(),
-                memory_total: metadata.hardware_memory_mb as u32,
-                memory_used: 0,
-                power_draw: 0.0,
-                power_limit: 0.0,
-                pstate: Pstate::P0,
-                utilization_gpu: 0.0,
-                utilization_memory: 0.0,
-                instant_utilization_gpu: 0.0,
-                est_utilization_gpu: 0.0,
-                num_running: metadata.max_running - metadata.sem.available_permits() as u32,
-            };
-            status.push(stat);
+            status.push(GpuStatus::new(
+                metadata.gpu_uuid.clone(),
+                metadata.hardware_memory_mb,
+                metadata.max_running - metadata.sem.available_permits() as u32,
+            ));
         }
         *svc.status_info.write() = status;
     }
@@ -955,13 +1058,13 @@ impl GpuResourceTracker {
 }
 impl Drop for GpuResourceTracker {
     fn drop(&mut self) {
+        let tid: TransactionId = GPU_RESC_TID.clone();
         if let Some(d) = &self.docker {
             if self.config.mps_enabled() {
                 if let Some(docker) = d.as_any().downcast_ref::<DockerIsolation>() {
-                    let tid: &TransactionId = &GPU_RESC_TID;
                     let (h, _rt) = match tokio::runtime::Handle::try_current() {
                         Ok(h) => (h, None),
-                        Err(_) => match iluvatar_library::tokio_utils::build_tokio_runtime(&None, &None, &None, tid) {
+                        Err(_) => match iluvatar_library::tokio_utils::build_tokio_runtime(&None, &None, &None, &tid) {
                             Ok(rt) => (rt.handle().clone(), Some(rt)),
                             Err(e) => {
                                 error!(error=%e, tid=%tid, "Failed to create runtime");
@@ -969,13 +1072,15 @@ impl Drop for GpuResourceTracker {
                             },
                         },
                     };
-                    match h.block_on(docker.get_logs(MPS_CONTAINER_NAME, tid)) {
+                    match h.block_on(docker.get_logs(MPS_CONTAINER_NAME, &tid)) {
                         Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
                         Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
                     }
                 }
             }
         }
+        let _ = Self::disable_mig(&tid).map_err(|e| error!(error=%e, tid=%tid, "Failed to disable MIG on GPUs"));
+        let _ = Self::set_gpus_shared(&tid).map_err(|e| error!(error=%e, tid=%tid, "Failed to set shared on GPUs"));
     }
 }
 
