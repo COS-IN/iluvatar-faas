@@ -226,11 +226,13 @@ async fn invoke_on_container_2(
     cmap.add(&reg.fqdn, chars.4, Values::F64(e2etime), true);
     let err = e2etime - est_completion_time;
     cmap.add(&reg.fqdn, chars.5, Values::F64(err), true);
-    if compute == Compute::CPU {
-        cmap.add_cpu_tput(time);
-    } else if compute == Compute::GPU {
-        cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
-        cmap.add_gpu_tput(time);
-    }
+    match compute {
+        Compute::CPU => cmap.add_cpu_tput(time),
+        Compute::GPU => {
+            cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
+            cmap.add_gpu_tput(time);
+        },
+        _ => (),
+    };
     Ok((data, duration, ctr_lock.container.clone()))
 }
