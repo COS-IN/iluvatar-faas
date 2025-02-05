@@ -33,6 +33,8 @@ use std::{
 use tokio::sync::Notify;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
+use crate::services::invocation::queueing::eedf_gpu::EedfGpuQueue;
+use crate::services::invocation::queueing::sjf_gpu::SjfGpuQueue;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
@@ -195,6 +197,8 @@ impl GpuQueueingInvoker {
         if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::GPU).try_into()?) {
             Ok(match pol.as_str() {
                 "fcfs" => FcfsGpuQueue::new(cont_manager.clone(), cmap.clone())?,
+                "sjf" => SjfGpuQueue::new(cont_manager.clone(), cmap.clone())?,
+                "eedf" => EedfGpuQueue::new(cont_manager.clone(), cmap.clone())?,
                 "oldest_batch" => BatchGpuQueue::new(cmap.clone())?,
                 "sized_batch" => SizedBatchGpuQueue::new(cmap.clone())?,
                 "paella" => PaellaGpuQueue::new(cmap.clone())?,

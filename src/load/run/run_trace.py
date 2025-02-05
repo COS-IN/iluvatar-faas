@@ -227,6 +227,11 @@ controller_kwargs = {
 worker_kwargs = {
     ("worker_port", 8070, ("port",)),
     ("load_balancer_url", "", ("load_balancer_url",)),
+    # limits
+    ("mem_min_mb", 5, ("limits", "mem_min_mb")),
+    ("mem_max_mb", 5000, ("limits", "mem_max_mb")),
+    ("cpu_max", 1, ("limits", "cpu_max")),
+    ("timeout_sec", 60 * 60, ("limits", "timeout_sec")),
     # invoke basics
     ("memory", 20 * 1024, ("container_resources", "memory_mb")),
     ("cores", 12, ("container_resources", "cpu_resource", "count")),
@@ -241,6 +246,22 @@ worker_kwargs = {
     ("enqueueing", "All", ("invocation", "enqueueing_policy")),
     ("invoke_queue_sleep_ms", 500, ("invocation", "queue_sleep_ms")),
     ("enqueuing_log_details", False, ("invocation", "enqueuing_log_details")),
+    # docker
+    (
+        "docker_username",
+        "",
+        ("container_resources", "docker_config", "auth", "username"),
+    ),
+    (
+        "docker_password",
+        "",
+        ("container_resources", "docker_config", "auth", "password"),
+    ),
+    (
+        "docker_repository",
+        "",
+        ("container_resources", "docker_config", "auth", "repository"),
+    ),
     # logging
     ("log_level", "info", ("logging", "level")),
     ("worker_spanning", "NONE", ("logging", "spanning")),
