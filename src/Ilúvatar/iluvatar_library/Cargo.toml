@@ -19,7 +19,6 @@ guid-create = "0.*"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 time = { version = "0.3", features = [ "formatting" ] }
 tzdb = "0.6"
 tracing = "0.1"
@@ -35,9 +34,7 @@ bitflags = { version="2", features=["serde"] }
 http = "0.2"
 influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 num-traits = "0.2"
-influxdb2-structmap = "0.2"
 async-process = "2"
-async-trait = "0.1.*"
 num_cpus = "1.16"
 
 [dev-dependencies]

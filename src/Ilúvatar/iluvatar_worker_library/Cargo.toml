@@ -27,15 +27,12 @@ containerd-client = "0.5.0"
 oci-spec = "0.*"
 sha2="0.10.2"
 hex = "0.4.3"
-clap = { version = "4.1", features = ["derive"] }
 reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
 dashmap = "6"
 tracing = "0.1"
-actix-web = "4"
 futures = "0.3"
 time = "0.3.36"
 ordered-float = "4"
-tzdb = "0.*"
 csv = "1.*"
 influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 num-traits = "0.2"
@@ -46,11 +43,9 @@ bollard = "0.16"
 prost-types = "0.12"
 num_cpus = "1.16.0"
 async-trait = "0.1.80"
-bitflags = "2.8"
 
 [dev-dependencies]
 rstest = "0.13.0"
-async-std = { version = "1.5", features = ["attributes"] }
 anyhow = { version = "1", features = ["backtrace"] }
 reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
 more-asserts = "0.3"
