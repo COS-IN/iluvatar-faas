@@ -6,10 +6,10 @@ use crate::services::{
 };
 use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::clock::now;
 use parking_lot::Mutex;
 use std::{collections::BinaryHeap, sync::Arc};
 use tokio::time::Instant;
-use iluvatar_library::clock::now;
 
 /// A queue for GPU invocations
 /// Items are returned in Earliest Expected Deadline First

@@ -6,7 +6,9 @@ use super::{
     },
     QueueLoad,
 };
+use crate::services::invocation::queueing::eedf_gpu::EedfGpuQueue;
 use crate::services::invocation::queueing::paella::PaellaGpuQueue;
+use crate::services::invocation::queueing::sjf_gpu::SjfGpuQueue;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::{
     containers::{
@@ -33,8 +35,6 @@ use std::{
 use tokio::sync::Notify;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
-use crate::services::invocation::queueing::eedf_gpu::EedfGpuQueue;
-use crate::services::invocation::queueing::sjf_gpu::SjfGpuQueue;
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();

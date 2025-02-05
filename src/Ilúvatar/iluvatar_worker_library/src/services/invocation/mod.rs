@@ -231,8 +231,8 @@ async fn invoke_on_container_2(
         Compute::GPU => {
             cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
             cmap.add_gpu_tput(time);
-        }
-        _ => ()
+        },
+        _ => (),
     };
     Ok((data, duration, ctr_lock.container.clone()))
 }
