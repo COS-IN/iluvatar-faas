@@ -1,4 +1,5 @@
-ARG REPO=alfuerst
+ARG ACTION_BASE=alfuerst/iluvatar-action-gpu-base
+FROM ${ACTION_BASE}
 FROM nvidia/cuda:11.8.0-devel-ubuntu20.04 as build_img
 
 RUN apt-get update -qq && apt-get upgrade -y && DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -44,7 +45,7 @@ RUN git clone https://git.ffmpeg.org/ffmpeg.git . && \
 # wget https://ia902303.us.archive.org/14/items/sample-video-file-100-mb/Sample_Video_File_100MB.mp4
 
 
-FROM ${REPO}/iluvatar-action-gpu-base
+FROM ${ACTION_BASE}
 WORKDIR /app
 
 # matches driver version in 11.8 container

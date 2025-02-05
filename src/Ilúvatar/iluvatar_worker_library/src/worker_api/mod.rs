@@ -6,7 +6,7 @@ use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::InvokerFactory;
 use crate::services::registration::RegistrationService;
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
-use crate::services::status::status_service::StatusService;
+use crate::services::status::status_service::{build_load_avg_signal, StatusService};
 use crate::services::worker_health::WorkerHealthService;
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
@@ -29,7 +29,8 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
 
     let factory = IsolationFactory::new(worker_config.clone());
-    let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, tid)
+    let load_avg = build_load_avg_signal();
+    let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, load_avg.clone(), tid)
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make cpu resource tracker"))?;
 
     let isos = factory
@@ -79,6 +80,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         cpu,
         gpu_resource.clone(),
         worker_config.container_resources.gpu_resource.clone(),
+        &reg,
         #[cfg(feature = "power_cap")]
         energy_limit.clone(),
     );
@@ -95,6 +97,8 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         worker_config.status.clone(),
         invoker.clone(),
         gpu_resource.clone(),
+        load_avg,
+        &worker_config.container_resources,
     )
     .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make status service"))?;
 
@@ -111,7 +115,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
                 tid,
             )
             .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make influx updater"))?
-        }
+        },
         None => None,
     };
 
@@ -132,7 +136,9 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
 #[tonic::async_trait]
 pub trait WorkerAPI {
+    /// Ping the worker to check if it is up and accessible.
     async fn ping(&mut self, tid: TransactionId) -> Result<String>;
+    /// Invoke the specified function with json-formatted arguments.
     async fn invoke(
         &mut self,
         function_name: String,
@@ -140,6 +146,8 @@ pub trait WorkerAPI {
         args: String,
         tid: TransactionId,
     ) -> Result<InvokeResponse>;
+    /// Async invoke the specified function with json-formatted arguments.
+    /// Returns a cookie to query results.
     async fn invoke_async(
         &mut self,
         function_name: String,
@@ -147,7 +155,9 @@ pub trait WorkerAPI {
         args: String,
         tid: TransactionId,
     ) -> Result<String>;
+    /// Query the async invocation.
     async fn invoke_async_check(&mut self, cookie: &str, tid: TransactionId) -> Result<InvokeResponse>;
+    /// Prewarm a container for the function, can pass multiple values in `compute` and one container will be made for each.
     async fn prewarm(
         &mut self,
         function_name: String,
@@ -155,6 +165,7 @@ pub trait WorkerAPI {
         tid: TransactionId,
         compute: Compute,
     ) -> Result<String>;
+    /// Register a new function.
     async fn register(
         &mut self,
         function_name: String,
@@ -168,7 +179,10 @@ pub trait WorkerAPI {
         compute: Compute,
         timings: Option<&ResourceTimings>,
     ) -> Result<String>;
+    /// Get worker status.
     async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse>;
+    /// Test worker health.
     async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus>;
+    /// Make worker clean up containers, etc.
     async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse>;
 }

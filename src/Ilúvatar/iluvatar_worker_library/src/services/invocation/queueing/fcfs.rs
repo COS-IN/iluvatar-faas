@@ -28,7 +28,6 @@ impl FCFSQueue {
     }
 }
 
-#[tonic::async_trait]
 impl InvokerCpuQueuePolicy for FCFSQueue {
     fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
         let r = self.invoke_queue.lock();

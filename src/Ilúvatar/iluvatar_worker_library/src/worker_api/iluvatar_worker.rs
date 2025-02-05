@@ -22,7 +22,7 @@ use iluvatar_rpc::rpc::{
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 #[allow(unused)]
 pub struct IluvatarWorkerImpl {
@@ -87,9 +87,9 @@ impl IluvatarWorkerImpl {
 impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
-        println!("Got a request: {:?}", request);
         let reply = PingResponse { message: "Pong".into() };
-        info!("in ping");
+        let request = request.into_inner();
+        info!(message = request.message, tid = request.transaction_id, "in ping");
         Ok(Response::new(reply))
     }
 
@@ -103,6 +103,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             None => return Ok(Response::new(InvokeResponse::error("Function was not registered"))),
         };
         self.cmap.add_iat(&fqdn);
+        debug!(tid=%request.transaction_id, "Sending invocation to invoker");
         let resp = self
             .invoker
             .sync_invocation(reg, request.json_args, request.transaction_id)
@@ -119,11 +120,11 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     container_state: result.container_state.into(),
                 };
                 Ok(Response::new(reply))
-            }
+            },
             Err(e) => {
                 error!("Invoke failed with error: {}", e);
                 Ok(Response::new(InvokeResponse::error(&e.to_string())))
-            }
+            },
         }
     }
 
@@ -142,7 +143,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     lookup_cookie: "".to_string(),
                     success: false,
                 }));
-            }
+            },
         };
         self.cmap.add_iat(&fqdn);
         let resp = self
@@ -156,14 +157,14 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     success: true,
                 };
                 Ok(Response::new(reply))
-            }
+            },
             Err(e) => {
                 error!("Failed to launch an async invocation with error '{}'", e);
                 Ok(Response::new(InvokeAsyncResponse {
                     lookup_cookie: "".to_string(),
                     success: false,
                 }))
-            }
+            },
         }
     }
 
@@ -182,7 +183,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             Err(e) => {
                 error!(tid=%request.transaction_id, error=%e, "Failed to check async invocation status");
                 Ok(Response::new(InvokeResponse::error(&e.to_string())))
-            }
+            },
         }
     }
 
@@ -200,7 +201,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     message: "{ \"Error\": \"Function was not registered\" }".into(),
                 };
                 return Ok(Response::new(resp));
-            }
+            },
         };
         let compute: Compute = request.compute.into();
         if !reg.supported_compute.intersects(compute) {
@@ -222,7 +223,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     message: "".to_string(),
                 };
                 Ok(Response::new(resp))
-            }
+            },
             Err(e) => {
                 error!(tid=%request.transaction_id, error=%e, "Container prewarm failed");
                 let resp = PrewarmResponse {
@@ -230,7 +231,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     message: format!("{{ \"Error\": \"{}\" }}", e),
                 };
                 Ok(Response::new(resp))
-            }
+            },
         }
     }
 
@@ -248,7 +249,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     function_json_result: "{\"Ok\": \"function registered\"}".into(),
                 };
                 Ok(Response::new(reply))
-            }
+            },
             Err(msg) => {
                 error!(tid=%tid, error=%msg, "Registration failed");
                 let reply = RegisterResponse {
@@ -256,14 +257,14 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     function_json_result: format!("{{\"Error\": \"Error during registration: '{:?}\"}}", msg),
                 };
                 Ok(Response::new(reply))
-            }
+            },
         }
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn status(&self, request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, "Handling status request");
+        debug!(tid=%request.transaction_id, "Handling status request");
 
         let stat = self.status.get_status(&request.transaction_id);
 
@@ -286,7 +287,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn health(&self, request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, "Handling health request");
+        debug!(tid=%request.transaction_id, "Handling health request");
         let reply = self.health.check_health(&request.transaction_id).await;
         Ok(Response::new(reply))
     }
@@ -294,7 +295,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn clean(&self, request: Request<CleanRequest>) -> Result<Response<CleanResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, "Handling clean request");
+        debug!(tid=%request.transaction_id, "Handling clean request");
         match self
             .container_manager
             .remove_idle_containers(&request.transaction_id)

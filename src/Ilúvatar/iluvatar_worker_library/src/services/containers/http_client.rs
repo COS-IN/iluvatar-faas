@@ -1,15 +1,13 @@
 use crate::services::containers::structs::ParsedResult;
 use anyhow::Result;
+use iluvatar_library::clock::now;
 use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
     utils::{calculate_base_uri, calculate_invoke_uri, format_uri, port::Port},
 };
 use reqwest::{Client, Response, StatusCode};
-use std::{
-    collections::HashMap,
-    time::{Duration, SystemTime},
-};
+use std::{collections::HashMap, time::Duration};
 use tracing::warn;
 
 #[derive(Debug)]
@@ -41,7 +39,7 @@ impl HttpContainerClient {
             Ok(c) => c,
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, container_id=%container_id, "Unable to build reqwest HTTP client")
-            }
+            },
         };
         Ok(Self {
             port,
@@ -53,7 +51,7 @@ impl HttpContainerClient {
         })
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args, container_id), fields(tid=%tid, fqdn=%self.fqdn)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args, container_id), fields(tid=%tid)))]
     async fn call_container(
         &self,
         json_args: &str,
@@ -65,27 +63,25 @@ impl HttpContainerClient {
             .post(&self.invoke_uri)
             .body(json_args.to_owned())
             .header("Content-Type", "application/json");
-        let start = SystemTime::now();
+        let start = now();
         let response = match builder.send().await {
             Ok(r) => r,
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, container_id=%container_id, "HTTP error when trying to connect to container");
-            }
+                bail_error!(tid=%tid, inner=std::error::Error::source(&e),
+                    status=?e.status(), error=%e, container_id=%container_id,
+                    "HTTP error when trying to connect to container");
+            },
         };
-        let duration = match start.elapsed() {
-            Ok(dur) => dur,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Timer error recording invocation duration"),
-        };
-        Ok((response, duration))
+        Ok((response, start.elapsed()))
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, response, container_id), fields(tid=%tid, fqdn=%self.fqdn)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, response, container_id), fields(tid=%tid)))]
     async fn download_text(&self, response: Response, tid: &TransactionId, container_id: &str) -> Result<String> {
         match response.text().await {
             Ok(r) => Ok(r),
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, container_id=%container_id, "Error reading text data from container")
-            }
+            },
         }
     }
 
@@ -95,13 +91,13 @@ impl HttpContainerClient {
             StatusCode::UNPROCESSABLE_ENTITY => {
                 warn!(tid=%tid, status=StatusCode::UNPROCESSABLE_ENTITY.as_u16(), result=%text, container_id=%container_id, "A user code error occured in the container");
                 Ok(())
-            }
+            },
             StatusCode::INTERNAL_SERVER_ERROR => {
                 bail_error!(tid=%tid, status=StatusCode::INTERNAL_SERVER_ERROR.as_u16(), result=%text, container_id=%container_id, "A platform error occured in the container");
-            }
+            },
             other => {
                 bail_error!(tid=%tid, status=%other, result=%text, container_id=%container_id, "Unknown status code from container call");
-            }
+            },
         }
     }
 
@@ -131,7 +127,7 @@ impl HttpContainerClient {
                         3 => Ok(()),
                         _ => bail_error!(tid=%tid, code=code, "Return had non-zero status code"),
                     }
-                }
+                },
                 None => bail_error!(tid=%tid, result=%text, "Return didn't have driver status result"),
             },
             Err(e) => bail_error!(error=%e, tid=%tid, result=%text, "Failed to parse json from HTTP return"),
@@ -146,8 +142,10 @@ impl HttpContainerClient {
         let response = match builder.send().await {
             Ok(r) => r,
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, container_id=%container_id, "HTTP error when trying to connect to container")
-            }
+                bail_error!(tid=%tid, inner=std::error::Error::source(&e),
+                    status=?e.status(), error=%e, container_id=%container_id,
+                    "HTTP error when trying to connect to container");
+            },
         };
         let status = response.status();
         let text = self.download_text(response, tid, container_id).await?;
@@ -162,8 +160,10 @@ impl HttpContainerClient {
         let response = match builder.send().await {
             Ok(r) => r,
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, container_id=%container_id, "HTTP error when trying to connect to container")
-            }
+                bail_error!(tid=%tid, inner=std::error::Error::source(&e),
+                    status=?e.status(), error=%e, container_id=%container_id,
+                    "HTTP error when trying to connect to container");
+            },
         };
         let status = response.status();
         let text = self.download_text(response, tid, container_id).await?;

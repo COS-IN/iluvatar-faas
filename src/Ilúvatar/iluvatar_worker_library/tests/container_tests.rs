@@ -240,7 +240,7 @@ mod registration {
                 {
                     panic!("unexpected error: {:?}", e);
                 }
-            }
+            },
         };
     }
 
@@ -269,7 +269,7 @@ mod registration {
                 if !e_str.contains("Failed to pull image") {
                     panic!("unexpected error: {:?}", e);
                 }
-            }
+            },
         };
     }
 
@@ -487,10 +487,12 @@ mod get_container {
             .await
             .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
         let _c1 = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
-            EventualItem::Future(f) => f.await,
+            EventualItem::Future(_) => panic!("Should get prewarmed container"),
             EventualItem::Now(n) => n,
         }
         .expect("should have gotten prewarmed container");
+        assert_eq!(_c1.container.fqdn(), &reg.fqdn);
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
         let c2 = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
             EventualItem::Future(f) => f.await,
@@ -498,8 +500,9 @@ mod get_container {
         };
         match c2 {
             Ok(_c2) => panic!("should have gotten an error instead of something"),
-            Err(_c2) => {}
+            Err(_c2) => {},
         }
+        assert_eq!(_c1.container.fqdn(), &reg.fqdn);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -573,7 +576,7 @@ mod remove_container {
                 } else {
                     panic!("Unexpected error connecting to gone container {:?}", e);
                 }
-            }
+            },
         }
     }
 

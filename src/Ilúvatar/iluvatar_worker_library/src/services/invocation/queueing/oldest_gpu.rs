@@ -73,11 +73,11 @@ impl GpuQueuePolicy for BatchGpuQueue {
             dashmap::mapref::entry::Entry::Occupied(mut v) => {
                 est_time = self.cmap.get_gpu_exec_time(&item.registration.fqdn);
                 v.get_mut().add(item.clone(), est_time);
-            }
+            },
             dashmap::mapref::entry::Entry::Vacant(e) => {
                 est_time = self.cmap.get_gpu_cold_time(&item.registration.fqdn);
                 e.insert(GpuBatch::new(item.clone(), est_time));
-            }
+            },
         }
         *self.est_time.lock() += est_time;
         Ok(())
@@ -88,8 +88,9 @@ impl GpuQueuePolicy for BatchGpuQueue {
 mod oldest_batch {
     use super::*;
     use iluvatar_library::characteristics_map::{Characteristics, Values};
+    use iluvatar_library::clock::get_global_clock;
+    use iluvatar_library::transaction::gen_tid;
     use std::collections::HashMap;
-    use time::OffsetDateTime;
 
     fn reg(name: &str) -> Arc<RegisteredFunction> {
         Arc::new(RegisteredFunction {
@@ -117,7 +118,9 @@ mod oldest_batch {
             rf,
             name.to_string(),
             name.to_string(),
-            OffsetDateTime::now_utc(),
+            get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
+            0.0,
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -141,7 +144,9 @@ mod oldest_batch {
             rf,
             name.to_string(),
             name.to_string(),
-            OffsetDateTime::now_utc(),
+            get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
+            0.0,
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -172,7 +177,9 @@ mod oldest_batch {
             rf,
             name.to_string(),
             name.to_string(),
-            OffsetDateTime::now_utc(),
+            get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
+            0.0,
         ));
         m.add(
             &invoke.registration.fqdn,
@@ -193,7 +200,9 @@ mod oldest_batch {
             rf2,
             name.to_string(),
             name.to_string(),
-            OffsetDateTime::now_utc(),
+            get_global_clock(&gen_tid()).unwrap().now(),
+            0.0,
+            0.0,
         ));
         m.add(
             &invoke2.registration.fqdn,

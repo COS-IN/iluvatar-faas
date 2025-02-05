@@ -20,12 +20,12 @@ pub struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    iluvatar_library::utils::file::ensure_temp_dir().unwrap();
+    iluvatar_library::utils::file::ensure_temp_dir()?;
     let tid: &TransactionId = &LOAD_BALANCER_TID;
     let args = Args::parse();
 
-    let config = Configuration::boxed(&args.config).unwrap();
-    let _guard = start_tracing(config.logging.clone(), &config.name, tid).unwrap();
+    let config = Configuration::boxed(&args.config)?;
+    let _guard = start_tracing(config.logging.clone(), &config.name, tid)?;
 
     let controller = Controller::new(config.clone(), tid).await?;
 

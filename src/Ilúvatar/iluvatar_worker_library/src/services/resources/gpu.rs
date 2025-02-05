@@ -14,7 +14,6 @@ use iluvatar_library::{
 use nvml_wrapper::{error::NvmlError, Nvml};
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::{collections::HashMap, sync::Arc};
-use tokio::runtime::Runtime;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, trace, warn};
 
@@ -329,7 +328,7 @@ impl GpuResourceTracker {
                             error!(tid=%tid, error=%e, "Error loading NVML");
                         }
                         None
-                    }
+                    },
                 };
             }
             let (handle, tx) = tokio_thread(
@@ -555,7 +554,7 @@ impl GpuResourceTracker {
                     let metadata = GpuMetadata::new(gpu_uuid.clone(), gpu_hardware_id, memory_mb, &structs, sem);
                     meta.insert(gpu_hardware_id, metadata);
                     ret.insert(gpu_hardware_id, structs);
-                }
+                },
                 Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read record from nvidia-smi"),
             }
         }
@@ -693,13 +692,13 @@ impl GpuResourceTracker {
                             Ok(p) => {
                                 self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
                                 Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
-                            }
+                            },
                             Err(e) => Err(e),
                         },
                         None => {
                             error!(tid=%tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                             Err(tokio::sync::TryAcquireError::NoPermits)
-                        }
+                        },
                     };
                 }
                 let gpu_stat = self.status_info.read();
@@ -718,20 +717,20 @@ impl GpuResourceTracker {
                                     };
                                     stat.num_running += 1;
                                     Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
-                                }
+                                },
                                 Err(e) => Err(e),
                             },
                             None => {
                                 error!(tid=%tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                                 Err(tokio::sync::TryAcquireError::NoPermits)
-                            }
+                            },
                         };
                     }
                 } else {
                     warn!(private_id=gpu_hardware_id, stat=?gpu_stat, "GPU id not found");
                 }
                 Err(tokio::sync::TryAcquireError::NoPermits)
-            }
+            },
             None => self.try_acquire_least_loaded_resource(tid, limit),
         }
     }
@@ -751,16 +750,16 @@ impl GpuResourceTracker {
                     gpu_hardware_id = meta.hardware_id;
                 }
             }
-            return match self.gpu_metadata.get(&gpu_hardware_id) {
+            match self.gpu_metadata.get(&gpu_hardware_id) {
                 Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
                     Ok(p) => {
                         self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
                         Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
-                    }
+                    },
                     Err(e) => Err(e),
                 },
                 None => Err(tokio::sync::TryAcquireError::NoPermits),
-            };
+            }
         } else {
             let limit = limit as f64;
             let gpu_stat = self.status_info.read();
@@ -775,7 +774,7 @@ impl GpuResourceTracker {
             }
             drop(gpu_stat);
             if let Some(gpu_hardware_id) = gpu_hardware_id {
-                return match self.gpu_metadata.get(&(gpu_hardware_id as u32)) {
+                match self.gpu_metadata.get(&(gpu_hardware_id as u32)) {
                     Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
                         Ok(p) => {
                             let mut gpu_stat = self.status_info.write();
@@ -787,14 +786,14 @@ impl GpuResourceTracker {
                             };
                             stat.num_running += 1;
                             Ok(GpuToken::new(p, gpu_hardware_id as u32, tid.clone(), self))
-                        }
+                        },
                         Err(e) => Err(e),
                     },
                     None => {
                         error!(tid=%tid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                         Err(tokio::sync::TryAcquireError::NoPermits)
-                    }
-                };
+                    },
+                }
             } else {
                 Err(tokio::sync::TryAcquireError::NoPermits)
             }
@@ -829,6 +828,9 @@ impl GpuResourceTracker {
 
     pub fn physical_gpus(&self) -> u32 {
         self.gpus.len() as u32
+    }
+    pub fn max_concurrency(&self) -> u32 {
+        self.gpu_metadata.iter().map(|g| g.1.max_running).sum::<u32>()
     }
 
     /// Acquire a GPU so it can be attached to a container.
@@ -868,7 +870,7 @@ impl GpuResourceTracker {
                     }
                 }
                 v.push(gpu)
-            }
+            },
             None => {
                 let keys = self
                     .gpus
@@ -878,7 +880,7 @@ impl GpuResourceTracker {
                     .collect::<Vec<String>>()
                     .join(", ");
                 error!(tid=%tid, keys=keys, gpu_uuid=gpu.gpu_uuid, struct_id=gpu.struct_id, hardware_id=gpu.gpu_hardware_id, "Tried to return illegal GPU")
-            }
+            },
         }
     }
 
@@ -897,7 +899,7 @@ impl GpuResourceTracker {
             Err(e) => {
                 error!(tid=%tid, error=%e, "Failed to call nvidia-smi");
                 return;
-            }
+            },
         };
         let is_empty = (*svc.status_info.read()).is_empty();
         let mut ret: Vec<GpuStatus> = vec![];
@@ -925,11 +927,11 @@ impl GpuResourceTracker {
                             }
                         }
                     }
-                }
+                },
                 Err(e) => {
                     let stdout = String::from_utf8_lossy(&nvidia.stdout);
                     error!(tid=%tid, error=%e, stdout=%stdout, "Failed to deserialized GPU record from nvidia-smi")
-                }
+                },
             }
         }
         if is_empty {
@@ -1022,7 +1024,7 @@ impl GpuResourceTracker {
                 allocations[gpu.struct_id as usize] = gpu.allocated_mb;
                 let change = old - gpu.allocated_mb;
                 *meta.device_allocated_memory.write() += change;
-            }
+            },
         }
     }
 
@@ -1032,7 +1034,7 @@ impl GpuResourceTracker {
             Some(meta) => {
                 let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
                 *meta.device_allocated_memory.write() -= curr;
-            }
+            },
         }
     }
     pub fn add(&self, gpu: &GPU) {
@@ -1041,7 +1043,7 @@ impl GpuResourceTracker {
             Some(meta) => {
                 let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
                 *meta.device_allocated_memory.write() += curr;
-            }
+            },
         }
     }
     pub fn memory_pressure(&self, gpu: &GPU) -> (MemSizeMb, MemSizeMb) {
@@ -1050,22 +1052,29 @@ impl GpuResourceTracker {
             Some(meta) => {
                 let curr = *meta.device_allocated_memory.read();
                 (curr, meta.hardware_memory_mb)
-            }
+            },
         }
     }
 }
 impl Drop for GpuResourceTracker {
     fn drop(&mut self) {
         let tid: TransactionId = GPU_RESC_TID.clone();
-        if self.config.mps_enabled() {
-            if let Some(d) = &self.docker {
+        if let Some(d) = &self.docker {
+            if self.config.mps_enabled() {
                 if let Some(docker) = d.as_any().downcast_ref::<DockerIsolation>() {
-                    match Runtime::new() {
-                        Ok(r) => match r.block_on(docker.get_logs(MPS_CONTAINER_NAME, &tid)) {
-                            Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
-                            Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
+                    let (h, _rt) = match tokio::runtime::Handle::try_current() {
+                        Ok(h) => (h, None),
+                        Err(_) => match iluvatar_library::tokio_utils::build_tokio_runtime(&None, &None, &None, &tid) {
+                            Ok(rt) => (rt.handle().clone(), Some(rt)),
+                            Err(e) => {
+                                error!(error=%e, tid=%tid, "Failed to create runtime");
+                                return;
+                            },
                         },
-                        Err(e) => error!(error=%e, tid=%tid, "Failed to create runtime"),
+                    };
+                    match h.block_on(docker.get_logs(MPS_CONTAINER_NAME, &tid)) {
+                        Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
+                        Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
                     }
                 }
             }

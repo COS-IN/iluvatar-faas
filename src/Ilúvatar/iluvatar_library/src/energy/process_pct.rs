@@ -1,7 +1,7 @@
 use super::EnergyConfig;
+use crate::clock::{get_global_clock, Clock};
 use crate::{
     bail_error,
-    logging::LocalTime,
     threading::os_thread,
     transaction::{TransactionId, ENERGY_LOGGER_PS_TID},
     utils::execute_cmd_checked,
@@ -15,7 +15,7 @@ pub struct ProcessMonitor {
     pid: String,
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
-    timer: LocalTime,
+    timer: Clock,
     log_file: RwLock<File>,
 }
 impl ProcessMonitor {
@@ -33,7 +33,7 @@ impl ProcessMonitor {
             pid: std::process::id().to_string(),
             _worker_thread: handle,
             _config: config.clone(),
-            timer: LocalTime::new(tid)?,
+            timer: get_global_clock(tid)?,
             log_file: ProcessMonitor::open_log_file(&config, tid)?,
         });
         r.write_text("timestamp,cpu_pct,cpu_time\n".to_string(), tid);
@@ -61,15 +61,15 @@ impl ProcessMonitor {
                         Err(e) => {
                             error!(error=%e, tid=%tid, "Failed to parse process cpu percentage");
                             return;
-                        }
+                        },
                     };
                     let cpu_time = items[1];
                     (cpu_pct, cpu_time.to_string())
-                }
+                },
                 Err(e) => {
                     error!(error=%e, tid=%tid, "Failed to call 'ps'");
                     return;
-                }
+                },
             };
 
         let t = match self.timer.now_str() {
@@ -77,7 +77,7 @@ impl ProcessMonitor {
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to get time");
                 return;
-            }
+            },
         };
         let to_write = format!("{},{},{}\n", t, cpu_pct, cpu_time);
         self.write_text(to_write, tid);
@@ -88,7 +88,7 @@ impl ProcessMonitor {
             Ok(f) => Ok(RwLock::new(f)),
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, "Failed to create process monitor output file")
-            }
+            },
         }
     }
 
@@ -98,7 +98,7 @@ impl ProcessMonitor {
             Ok(_) => (),
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to write csv result to process monitor file");
-            }
+            },
         };
     }
 }

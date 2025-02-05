@@ -1,8 +1,9 @@
 use crate::benchmark::BenchmarkStore;
 use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
+use iluvatar_library::clock::{now, Clock};
+use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::{
-    logging::LocalTime,
     transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::{port::Port, timing::TimedExt},
@@ -11,15 +12,10 @@ use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResp
 use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::Write,
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tokio::{runtime::Runtime, task::JoinHandle};
+use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
+use tokio::time::Instant;
+use tracing::error;
 
 lazy_static::lazy_static! {
   pub static ref VERSION: String = "0.0.1".to_string();
@@ -151,7 +147,7 @@ pub struct CompletedControllerInvocation {
     pub function_name: String,
     pub function_version: String,
     pub invoke_start: String,
-    pub transaction_id: TransactionId,
+    pub tid: TransactionId,
 }
 impl CompletedControllerInvocation {
     pub fn error(msg: String, name: &str, version: &str, tid: &TransactionId, invoke_start: String) -> Self {
@@ -175,7 +171,7 @@ impl CompletedControllerInvocation {
             function_name: name.to_owned(),
             function_version: version.to_owned(),
             invoke_start,
-            transaction_id: tid.clone(),
+            tid: tid.clone(),
         }
     }
 }
@@ -207,7 +203,7 @@ pub fn load_benchmark_data(path: &Option<String>) -> Result<Option<BenchmarkStor
                 Ok(d) => Ok(Some(d)),
                 Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
             }
-        }
+        },
         None => Ok(None),
     }
 }
@@ -219,7 +215,7 @@ pub async fn controller_invoke(
     name: &str,
     version: &str,
     json_args: Option<String>,
-    clock: Arc<LocalTime>,
+    clock: Clock,
     api: ControllerAPI,
 ) -> Result<CompletedControllerInvocation> {
     let tid = gen_tid();
@@ -243,7 +239,7 @@ pub async fn controller_invoke(
                 function_name: name.to_owned(),
                 function_version: version.to_owned(),
                 invoke_start,
-                transaction_id: tid,
+                tid: tid,
             },
             Err(e) => CompletedControllerInvocation::error(
                 format!(
@@ -258,7 +254,7 @@ pub async fn controller_invoke(
         },
         Err(e) => {
             CompletedControllerInvocation::error(format!("Invocation error: {}", e), name, version, &tid, invoke_start)
-        }
+        },
     };
     Ok(r)
 }
@@ -271,7 +267,7 @@ pub async fn controller_register(
     timings: Option<&ResourceTimings>,
     api: ControllerAPI,
 ) -> Result<Duration> {
-    let start = Instant::now();
+    let start = now();
     let tid = format!("{}-{}-reg", name, version);
     let req = RegisterRequest::new(
         name,
@@ -297,7 +293,7 @@ pub async fn controller_prewarm(
     api: ControllerAPI,
     tid: &TransactionId,
 ) -> Result<Duration> {
-    let start = Instant::now();
+    let start = now();
     let req = PrewarmRequest {
         function_name: name.to_owned(),
         function_version: version.to_owned(),
@@ -389,28 +385,23 @@ pub async fn worker_invoke(
     port: Port,
     tid: &TransactionId,
     args: Option<String>,
-    clock: Arc<LocalTime>,
+    clock: Clock,
     factory: &Arc<WorkerAPIFactory>,
     comm_method: Option<CommunicationMethod>,
 ) -> Result<CompletedWorkerInvocation> {
-    let args = match args {
-        Some(a) => a,
-        None => "{}".to_string(),
-    };
-    let method = match comm_method {
-        Some(m) => m,
-        None => CommunicationMethod::RPC,
-    };
+    let args = args.unwrap_or_else(|| "{}".to_string());
+    let method = comm_method.unwrap_or(CommunicationMethod::RPC);
     let invoke_start = clock.now_str()?;
     let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
-
+    tracing::debug!(tid=%tid, "Sending invocation to worker");
     let (invok_out, invok_lat) = api
         .invoke(name.to_owned(), version.to_owned(), args, tid.to_owned())
         .timed()
         .await;
+    tracing::debug!(tid=%tid, "Invocation returned from worker");
     let c = match invok_out {
         Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
             Ok(b) => CompletedWorkerInvocation {
@@ -450,15 +441,34 @@ pub async fn worker_clean(
     factory: &Arc<WorkerAPIFactory>,
     comm_method: Option<CommunicationMethod>,
 ) -> Result<CleanResponse> {
-    let method = match comm_method {
-        Some(m) => m,
-        None => CommunicationMethod::RPC,
-    };
+    let method = comm_method.unwrap_or(CommunicationMethod::RPC);
     let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
     api.clean(tid.clone()).await
+}
+
+pub async fn wait_elapsed_live(timer: &Instant, elapsed: u64) {
+    loop {
+        let timer_elapsed_ms = timer.elapsed().as_millis();
+        if elapsed as u128 <= timer_elapsed_ms {
+            break;
+        } else {
+            let diff = (elapsed as u128) - timer_elapsed_ms;
+            tokio::time::sleep(Duration::from_millis(diff as u64 / 2)).await;
+        }
+    }
+}
+
+pub async fn wait_elapsed_sim(timer: &Instant, wait_until: u64, tick_step: u64, sim_gran: SimulationGranularity) {
+    loop {
+        if wait_until as u128 <= timer.elapsed().as_millis() {
+            break;
+        } else {
+            iluvatar_library::tokio_utils::sim_scheduler_tick(tick_step, sim_gran).await;
+        }
+    }
 }
 
 /// How to handle per-thread errors that appear when joining load workers
@@ -468,29 +478,43 @@ pub enum ErrorHandling {
     Ignore,
 }
 
-/// Resolve all the tokio threads and return their results
-/// Optionally handle errors from threads
-pub fn resolve_handles<T>(
-    runtime: &Runtime,
-    run_results: Vec<JoinHandle<Result<T>>>,
-    eh: ErrorHandling,
-) -> Result<Vec<T>>
+/// Resolve all the tokio threads and return their results.
+/// Optionally handle errors from threads.
+pub async fn resolve_handles<T>(run_results: Vec<JoinHandle<Result<T>>>, eh: ErrorHandling) -> Result<Vec<T>>
 where
     T: Ord,
 {
     let mut ret = vec![];
-    for h in run_results {
-        match runtime.block_on(h) {
-            Ok(r) => match r {
+    for mut h in run_results {
+        let result;
+        loop {
+            // This is ugly, but Rust type system is weird.
+            // We need tick sleep in simulation to allow background threads to keep bring executed.
+            match iluvatar_library::utils::is_simulation() {
+                true => tokio::select! {
+                    r = &mut h => {
+                        result = r;
+                        break;
+                    },
+                    _ = iluvatar_library::tokio_utils::sim_scheduler_tick(1, SimulationGranularity::MS) => ()
+                },
+                false => {
+                    result = h.await;
+                    break;
+                },
+            }
+        }
+        match result {
+            Ok(ok) => match ok {
                 Ok(ok) => ret.push(ok),
                 Err(e) => match eh {
                     ErrorHandling::Raise => return Err(e),
-                    ErrorHandling::Print => println!("Error from thread: {:?}", e),
+                    ErrorHandling::Print => error!("Error from thread: {:?}", e),
                     ErrorHandling::Ignore => (),
                 },
             },
-            Err(thread_e) => println!("Joining error: {}", thread_e),
-        };
+            Err(thread_e) => error!("Joining error: {}", thread_e),
+        }
     }
     ret.sort();
     Ok(ret)
@@ -505,7 +529,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to create csv output '{:?}' file because {}", &path, e);
-        }
+        },
     };
     let to_write =
         "success,function_name,was_cold,worker_duration_us,code_duration_sec,e2e_duration_us,tid\n".to_string();
@@ -513,7 +537,7 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
         Ok(_) => (),
         Err(e) => {
             anyhow::bail!("Failed to write json header to '{:?}' of result because {}", &path, e);
-        }
+        },
     };
 
     for worker_invocation in run_results {
@@ -530,9 +554,9 @@ pub fn save_worker_result_csv<P: AsRef<Path> + std::fmt::Debug>(
         match f.write_all(to_write.as_bytes()) {
             Ok(_) => (),
             Err(e) => {
-                println!("Failed to write result to '{:?}' because {}", &path, e);
+                error!("Failed to write result to '{:?}' because {}", &path, e);
                 continue;
-            }
+            },
         };
     }
     Ok(())
@@ -543,14 +567,14 @@ pub fn save_result_json<P: AsRef<Path> + std::fmt::Debug, T: Serialize>(path: P,
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to create json output '{:?}' file because {}", &path, e);
-        }
+        },
     };
 
     let to_write = match serde_json::to_string(&results) {
         Ok(f) => f,
         Err(e) => {
             anyhow::bail!("Failed to convert results to json because {}", e);
-        }
+        },
     };
     f.write_all(to_write.as_bytes())?;
     Ok(())

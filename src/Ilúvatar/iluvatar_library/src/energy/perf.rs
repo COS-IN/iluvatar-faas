@@ -1,9 +1,7 @@
+use crate::clock::now;
 use crate::{bail_error, transaction::TransactionId, utils::execute_cmd_nonblocking};
 use anyhow::Result;
-use std::{
-    process::Child,
-    time::{Duration, SystemTime},
-};
+use std::{process::Child, time::Duration};
 use tracing::{debug, info, warn};
 
 /// Start perf stat tracking of several metrics:
@@ -69,10 +67,10 @@ async fn try_add_arg<'a>(
 
 async fn test_args(tid: &TransactionId, args: &Vec<&str>) -> Result<bool> {
     let mut child = execute_cmd_nonblocking("/usr/bin/perf", args, None, tid)?;
-    let start = SystemTime::now();
+    let start = now();
 
     let timeout = Duration::from_secs(1);
-    while start.elapsed()? < timeout {
+    while start.elapsed() < timeout {
         match child.try_wait() {
             Ok(exit) => match exit {
                 // an exit means the metric doesn't exist
@@ -81,12 +79,12 @@ async fn test_args(tid: &TransactionId, args: &Vec<&str>) -> Result<bool> {
                     // didn't exit yet
                     tokio::time::sleep(Duration::from_millis(5)).await;
                     continue;
-                }
+                },
             },
             Err(e) => {
                 warn!(tid=%tid, error=%e, "Checking if `{:?}` args existed encountered an error", args);
                 return Ok(false);
-            }
+            },
         };
     }
     // probably would have errored out after a second

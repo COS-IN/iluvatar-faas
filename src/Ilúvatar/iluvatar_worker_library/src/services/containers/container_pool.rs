@@ -92,14 +92,14 @@ impl ContainerPool {
     }
 
     /// Add the container to the pool
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, pool, pool_type), fields(tid=%tid)))]
     fn add_container(&self, container: Container, pool: &Pool, tid: &TransactionId, pool_type: PoolType) {
         debug!(tid=%tid, container_id=%container.container_id(), name=%self.pool_name, pool_type=?pool_type, "Inserting container into pool");
         match pool.get_mut(container.fqdn()) {
             Some(mut pool_list) => (*pool_list).push(container),
             None => {
                 pool.insert(container.fqdn().clone(), vec![container]);
-            }
+            },
         }
     }
 
@@ -112,7 +112,7 @@ impl ContainerPool {
                     debug!(tid=%tid, container_id=%c.container_id(), name=%self.pool_name, pool_type=?PoolType::Idle, "Removing random container from pool");
                     self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running);
                     Some(c)
-                }
+                },
                 None => None,
             },
             None => None,
@@ -125,10 +125,10 @@ impl ContainerPool {
             Some(c) => {
                 self.add_container(c, &self.idle_pool, tid, PoolType::Idle);
                 Ok(())
-            }
+            },
             None => {
                 bail_error!(tid=%tid, container_id=%container.container_id(), "Supposedly running container was not found in running pool")
-            }
+            },
         }
     }
 
@@ -144,7 +144,7 @@ impl ContainerPool {
                     }
                 }
                 false
-            }
+            },
             None => false,
         }
     }
@@ -173,7 +173,7 @@ impl ContainerPool {
                     ret = std::cmp::max(ret, cont.state());
                 }
                 ret
-            }
+            },
             None => ret,
         }
     }
@@ -194,24 +194,25 @@ impl ContainerPool {
         self.add_container(container, &self.running_pool, tid, PoolType::Running)
     }
 
-    /// Removes the container if it was found somewhere in the pool
-    /// Returns [None] if it was not found
+    /// Removes the container if it was found in the _idle_ pool.
+    /// Returns [None] if it was not found.
+    /// Removing a running container can cause instability.
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
     pub fn remove_container(&self, container: &Container, tid: &TransactionId) -> Option<Container> {
         if let Some(c) = self.remove_container_pool(container, &self.idle_pool, tid, PoolType::Idle) {
             self.len.fetch_sub(1, LEN_ORDERING);
             return Some(c);
         }
-        if let Some(c) = self.remove_container_pool(container, &self.running_pool, tid, PoolType::Running) {
-            self.len.fetch_sub(1, LEN_ORDERING);
-            return Some(c);
-        }
+        // if let Some(c) = self.remove_container_pool(container, &self.running_pool, tid, PoolType::Running) {
+        //     self.len.fetch_sub(1, LEN_ORDERING);
+        //     return Some(c);
+        // }
         None
     }
 
     /// Removes the container if it was found in the pool
     /// Returns [None] if it was not found
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, pool_type, pool), fields(tid=%tid)))]
     fn remove_container_pool(
         &self,
         container: &Container,
@@ -229,7 +230,7 @@ impl ContainerPool {
                 } else {
                     None
                 }
-            }
+            },
             None => None,
         }
     }
@@ -250,6 +251,7 @@ impl ContainerPool {
 mod tests {
     use super::*;
     use crate::services::{containers::simulator::simstructs::SimulatorContainer, registration::RegisteredFunction};
+    use iluvatar_library::transaction::gen_tid;
     use iluvatar_library::{types::Isolation, utils::calculate_fqdn};
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -271,15 +273,19 @@ mod tests {
             fqdn: "".to_string(),
             historical_runtime_data_sec: HashMap::new(),
         });
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        ));
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Cold,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        );
         cp.add_idle_container(ctr, &"test".to_string());
     }
 
@@ -301,15 +307,19 @@ mod tests {
             fqdn: "".to_string(),
             historical_runtime_data_sec: HashMap::new(),
         });
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        ));
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Cold,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        );
         cp.add_idle_container(ctr.clone(), &tid);
         let ctr2 = cp
             .activate_random_container(&fqdn, &tid)
@@ -335,15 +345,19 @@ mod tests {
             fqdn: "".to_string(),
             historical_runtime_data_sec: HashMap::new(),
         });
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        )) as Container;
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Cold,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        ) as Container;
         cp.add_idle_container(ctr.clone(), &tid);
         let removed = cp.remove_container(&ctr, &tid).expect("should remove a container");
         assert_eq!(ctr.container_id(), removed.container_id(), "Container IDs should match");
@@ -366,15 +380,19 @@ mod tests {
             fqdn: "".to_string(),
             historical_runtime_data_sec: HashMap::new(),
         });
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        )) as Container;
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Cold,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        ) as Container;
         cp.add_idle_container(ctr.clone(), &tid);
         let removed = cp.remove_container(&ctr, &tid).expect("should remove a container");
         assert_eq!(ctr.container_id(), removed.container_id(), "Container IDs should match");
@@ -415,48 +433,64 @@ mod tests {
             fqdn: "".to_string(),
             historical_runtime_data_sec: HashMap::new(),
         });
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid1".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        ));
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid1".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Cold,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        );
         cp.add_idle_container(ctr, &"test".to_string());
         assert_eq!(cp.len(), 1);
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid2".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        ));
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid2".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Cold,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        );
         cp.add_idle_container(ctr, &"test".to_string());
         assert_eq!(cp.len(), 2);
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid3".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        ));
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid3".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Cold,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        );
         cp.add_idle_container(ctr, &"test".to_string());
         assert_eq!(cp.len(), 3);
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid3".to_string(),
-            &fqdn2,
-            &reg2,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        ));
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid3".to_string(),
+                &fqdn2,
+                &reg2,
+                ContainerState::Cold,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        );
         cp.add_idle_container(ctr, &"test".to_string());
         assert_eq!(cp.len(), 4);
 
@@ -464,7 +498,8 @@ mod tests {
             .activate_random_container(&fqdn, &"test".to_string())
             .expect("should remove a container");
         assert_eq!(cp.len(), 4);
-
+        cp.move_to_idle(&c, &"test".to_string()).unwrap();
+        assert_eq!(cp.len(), 4);
         cp.remove_container(&c, &"test".to_string())
             .expect("should remove a container");
         assert_eq!(cp.len(), 3);
@@ -497,15 +532,19 @@ mod tests {
                 });
                 b_c.wait().await;
                 for i in 0..creates {
-                    let ctr = Arc::new(SimulatorContainer::new(
-                        format!("cid{}", i),
-                        &fqdn,
-                        &reg,
-                        ContainerState::Cold,
-                        Isolation::CONTAINERD,
-                        Compute::CPU,
-                        None,
-                    ));
+                    let ctr = Arc::new(
+                        SimulatorContainer::new(
+                            &gen_tid(),
+                            format!("cid{}", i),
+                            &fqdn,
+                            &reg,
+                            ContainerState::Cold,
+                            Isolation::CONTAINERD,
+                            Compute::CPU,
+                            None,
+                        )
+                        .unwrap(),
+                    );
                     cp_c.add_idle_container(ctr, &"test".to_string());
                 }
                 Ok(())
@@ -535,15 +574,19 @@ mod tests {
             fqdn: "".to_string(),
             historical_runtime_data_sec: HashMap::new(),
         });
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Cold,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        )) as Container;
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Cold,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        ) as Container;
         cp.add_running_container(ctr.clone(), &tid);
         assert_eq!(cp.running_pool.get(&fqdn).unwrap().len(), 1);
         cp.move_to_idle(&ctr, &tid).expect("move_to_idle should succeed");
@@ -570,26 +613,34 @@ mod tests {
             historical_runtime_data_sec: HashMap::new(),
         });
         assert_eq!(cp.has_idle_container(&fqdn), ContainerState::Cold);
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Prewarm,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        )) as Container;
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Prewarm,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        ) as Container;
         cp.add_idle_container(ctr, &tid);
         assert_eq!(cp.has_idle_container(&fqdn), ContainerState::Prewarm);
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Warm,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        )) as Container;
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Warm,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        ) as Container;
         cp.add_idle_container(ctr, &tid);
         assert_eq!(cp.has_idle_container(&fqdn), ContainerState::Warm);
     }
@@ -613,26 +664,34 @@ mod tests {
             historical_runtime_data_sec: HashMap::new(),
         });
         assert_eq!(cp.has_container(&fqdn), ContainerState::Cold);
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Prewarm,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        )) as Container;
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Prewarm,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        ) as Container;
         cp.add_running_container(ctr, &tid);
         assert_eq!(cp.has_container(&fqdn), ContainerState::Prewarm);
-        let ctr = Arc::new(SimulatorContainer::new(
-            "cid".to_string(),
-            &fqdn,
-            &reg,
-            ContainerState::Warm,
-            Isolation::CONTAINERD,
-            Compute::CPU,
-            None,
-        )) as Container;
+        let ctr = Arc::new(
+            SimulatorContainer::new(
+                &gen_tid(),
+                "cid".to_string(),
+                &fqdn,
+                &reg,
+                ContainerState::Warm,
+                Isolation::CONTAINERD,
+                Compute::CPU,
+                None,
+            )
+            .unwrap(),
+        ) as Container;
         cp.add_idle_container(ctr, &tid);
         assert_eq!(cp.has_container(&fqdn), ContainerState::Warm);
     }

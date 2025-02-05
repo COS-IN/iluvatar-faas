@@ -1,3 +1,6 @@
+use iluvatar_library::clock::ContainerTimeFormatter;
+#[cfg(feature = "power_cap")]
+use iluvatar_library::energy::energy_logging::EnergyLogger;
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{
     characteristics_map::{AgExponential, CharacteristicsMap},
@@ -6,14 +9,16 @@ use iluvatar_library::{
 };
 use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
-use iluvatar_worker_library::services::{
-    containers::structs::ContainerTimeFormatter,
-    invocation::InvocationResult,
-    resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
-};
+#[cfg(feature = "power_cap")]
+use iluvatar_worker_library::services::invocation::energy_limiter::EnergyLimiter;
+use iluvatar_worker_library::services::status::status_service::build_load_avg_signal;
 use iluvatar_worker_library::services::{
     containers::{containermanager::ContainerManager, IsolationFactory},
     invocation::{Invoker, InvokerFactory},
+};
+use iluvatar_worker_library::services::{
+    invocation::InvocationResult,
+    resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
 };
 use iluvatar_worker_library::{
     services::registration::{RegisteredFunction, RegistrationService},
@@ -31,7 +36,7 @@ macro_rules! assert_error {
             Ok(_) => panic!("{}", $noerr),
             Err(e) => {
                 assert_eq!(e.to_string(), $exp);
-            }
+            },
         };
     };
 }
@@ -54,8 +59,9 @@ pub async fn full_sim_invoker(
     Option<Arc<GpuResourceTracker>>,
     Arc<CpuResourceTracker>,
 ) {
+    let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
-    iluvatar_library::utils::set_simulation();
+    iluvatar_library::utils::set_simulation(tid).unwrap();
     let log = log.unwrap_or(false);
     let worker_name = "TEST".to_string();
     let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
@@ -63,11 +69,8 @@ pub async fn full_sim_invoker(
         .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
     let fake_logging = Arc::new(LoggingConfig {
         level: cfg.logging.level.clone(),
-        directory: None,
-        basename: "".to_string(),
         spanning: cfg.logging.spanning.clone(),
-        flame: None,
-        span_energy_monitoring: false,
+        ..Default::default()
     });
     let _log = match log {
         true => Some(
@@ -76,8 +79,9 @@ pub async fn full_sim_invoker(
         ),
         false => None,
     };
+    let load_avg = build_load_avg_signal();
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg.clone(), &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
     let lifecycles = factory
@@ -109,6 +113,13 @@ pub async fn full_sim_invoker(
         cmap.clone(),
         cfg.container_resources.clone(),
     );
+    #[cfg(feature = "power_cap")]
+    let en_log = EnergyLogger::boxed(None, &TEST_TID)
+        .await
+        .unwrap_or_else(|e| panic!("Failed to create energy logger: {}", e));
+    #[cfg(feature = "power_cap")]
+    let energy =
+        EnergyLimiter::boxed(&None, en_log).unwrap_or_else(|e| panic!("Failed to create energy limiter: {}", e));
     let invoker_fact = InvokerFactory::new(
         cm.clone(),
         cfg.limits.clone(),
@@ -117,6 +128,9 @@ pub async fn full_sim_invoker(
         cpu.clone(),
         gpu_resource.clone(),
         cfg.container_resources.gpu_resource.clone(),
+        &reg,
+        #[cfg(feature = "power_cap")]
+        energy,
     );
     let invoker = invoker_fact
         .get_invoker_service(&TEST_TID)
@@ -140,31 +154,29 @@ pub async fn sim_invoker_svc(
     Arc<RegistrationService>,
     Arc<CharacteristicsMap>,
 ) {
+    let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
-    iluvatar_library::utils::set_simulation();
+    iluvatar_library::utils::set_simulation(tid).unwrap();
     let worker_name = "TEST".to_string();
     let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
     let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides)
         .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
     let _log = match log_level {
         Some(log_level) => {
-            let fake_logging = Arc::new(LoggingConfig {
-                level: log_level.to_string(),
-                directory: None,
-                basename: "".to_string(),
-                spanning: cfg.logging.spanning.clone(),
-                flame: None,
-                span_energy_monitoring: false,
-            });
+            let mut fake_logging = (*cfg.logging).clone();
+            fake_logging.stdout = Some(true);
+            fake_logging.level = log_level.to_string();
+            let fake_logging = Arc::new(fake_logging);
             Some(
                 start_tracing(fake_logging, &worker_name, &TEST_TID)
                     .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
             )
-        }
+        },
         None => None,
     };
+    let load_avg = build_load_avg_signal();
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
     let factory = IsolationFactory::new(cfg.clone());
     let lifecycles = factory
@@ -196,6 +208,13 @@ pub async fn sim_invoker_svc(
         cmap.clone(),
         cfg.container_resources.clone(),
     );
+    #[cfg(feature = "power_cap")]
+    let en_log = EnergyLogger::boxed(None, &TEST_TID)
+        .await
+        .unwrap_or_else(|e| panic!("Failed to create energy logger: {}", e));
+    #[cfg(feature = "power_cap")]
+    let energy =
+        EnergyLimiter::boxed(&None, en_log).unwrap_or_else(|e| panic!("Failed to create energy limiter: {}", e));
     let invoker_fact = InvokerFactory::new(
         cm.clone(),
         cfg.limits.clone(),
@@ -204,6 +223,9 @@ pub async fn sim_invoker_svc(
         cpu,
         gpu_resource,
         cfg.container_resources.gpu_resource.clone(),
+        &reg,
+        #[cfg(feature = "power_cap")]
+        energy,
     );
     let invoker = invoker_fact
         .get_invoker_service(&TEST_TID)
@@ -234,11 +256,10 @@ pub async fn test_invoker_svc(
         .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
     let fake_logging = Arc::new(LoggingConfig {
         level: cfg.logging.level.clone(),
-        directory: None,
-        basename: "".to_string(),
         spanning: cfg.logging.spanning.clone(),
-        flame: None,
-        span_energy_monitoring: false,
+        directory: "/tmp".to_string(),
+        basename: "test".to_string(),
+        ..Default::default()
     });
     let _log = match log {
         true => Some(
@@ -247,8 +268,9 @@ pub async fn test_invoker_svc(
         ),
         false => None,
     };
+    let load_avg = build_load_avg_signal();
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg, &TEST_TID)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
 
     let factory = IsolationFactory::new(cfg.clone());
@@ -281,6 +303,13 @@ pub async fn test_invoker_svc(
         cmap.clone(),
         cfg.container_resources.clone(),
     );
+    #[cfg(feature = "power_cap")]
+    let en_log = EnergyLogger::boxed(None, &TEST_TID)
+        .await
+        .unwrap_or_else(|e| panic!("Failed to create energy logger: {}", e));
+    #[cfg(feature = "power_cap")]
+    let energy =
+        EnergyLimiter::boxed(&None, en_log).unwrap_or_else(|e| panic!("Failed to create energy limiter: {}", e));
     let invoker_fact = InvokerFactory::new(
         cm.clone(),
         cfg.limits.clone(),
@@ -289,6 +318,9 @@ pub async fn test_invoker_svc(
         cpu,
         gpu_resource,
         cfg.container_resources.gpu_resource.clone(),
+        &reg,
+        #[cfg(feature = "power_cap")]
+        energy,
     );
     let invoker = invoker_fact
         .get_invoker_service(&TEST_TID)
@@ -372,7 +404,7 @@ pub fn background_test_invoke(
 pub async fn wait_for_queue_len(invok_svc: &Arc<dyn Invoker>, compute_queue: Compute, len: usize) {
     timeout(Duration::from_secs(20), async move {
         loop {
-            if invok_svc.queue_len().get(&compute_queue).unwrap() >= &len {
+            if invok_svc.queue_len().get(&compute_queue).unwrap().len >= len {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -404,7 +436,7 @@ pub async fn get_start_end_time_from_invoke(
             assert!(result.duration.as_micros() > 0, "Duration should not be <= 0!");
             assert_ne!(result.result_json, "", "result_json should not be empty!");
             (parsed_start, parsed_end)
-        }
+        },
         Err(e) => panic!("Invocation failed: {}", e),
     }
 }

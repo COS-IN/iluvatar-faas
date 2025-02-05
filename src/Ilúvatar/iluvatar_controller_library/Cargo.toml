@@ -22,7 +22,7 @@ serde_json = "1.0.81"
 parking_lot = "0.12.1"
 config = "0.13"
 clap = "4.1"
-reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 dashmap = "6.0"
 tracing = "0.1"
 tonic = "0.11"

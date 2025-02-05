@@ -10,13 +10,14 @@ controller:
   port: "{{ controller_port | default(8089) }}"
   algorithm: "{{ controller_algorithm | default('LeastLoaded') }}"
   load_metric: "{{ controller_load_metric | default('loadavg') }}"
+  # See run_trace.py (src/load/run/run_trace.py) for injecting config via this
   environment: "{{ controller_environment | default({}) }}"
-  # address: "http://{{ host }}:{{ port }}"
 
 worker:
   bin_name: "iluvatar_worker"
   config_name: "worker.json"
   port: "{{ worker_port | default(8070) }}"
+  # See run_trace.py (src/load/run/run_trace.py) for injecting config via this
   environment: "{{ worker_environment | default({}) }}"
 
 __influx_api_port: 8086

@@ -20,24 +20,24 @@ foo@cosin:~$ iluvatar_worker_cli --host localhost --port 8079 register --name my
 Then invoke it, with or without arguments.
 
 ```shell
-foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 invoke --name myfunc --version 1 -a name=Alex
+foo@cosin:~$ iluvatar_worker_cli --host localhost --port 8079 invoke --name myfunc --version 1 -a name=Alex
 {"json_result":"{\"body\": {\"greeting\": \"Hello Alex from python!\", \"cold\": false, \"start\": 1680185561.5550308, \"end\": 1680185561.5550325, \"latency\": 1.6689300537109375e-06}}","success":true,"duration_us":2025,"compute":1,"container_state":3}
 ```
 
 ```shell
-foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 invoke --name myfunc --version 1
+foo@cosin:~$ iluvatar_worker_cli --host localhost --port 8079 invoke --name myfunc --version 1
 {"json_result":"{\"body\": {\"greeting\": \"Hello stranger from python!\", \"cold\": false, \"start\": 1680185580.6946194, \"end\": 1680185580.6946208, \"latency\": 1.430511474609375e-06}}","success":true,"duration_us":1916,"compute":1,"container_state":3}
 ```
 
 Or invoke the function asynchronously.
 
 ```shell
-foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 invoke-async --name myfunc --version 1
+foo@cosin:~$ iluvatar_worker_cli --host localhost --port 8079 invoke-async --name myfunc --version 1
 125F17C0-C10A-7FB8-C12F-10C17450FB68
 ```
 
 ```shell
-foo@cosin:~$ iluvatar_worker_cli --address localhost --port 8079 invoke-async-check --cookie 125F17C0-C10A-7FB8-C12F-10C17450FB68
+foo@cosin:~$ iluvatar_worker_cli --host localhost --port 8079 invoke-async-check --cookie 125F17C0-C10A-7FB8-C12F-10C17450FB68
 {"json_result":"{\"body\": {\"greeting\": \"Hello stranger from python!\", \"cold\": false, \"start\": 1680185826.4311872, \"end\": 1680185826.431189, \"latency\": 1.9073486328125e-06}}","success":true,"duration_us":2138,"compute":1,"container_state":3}
 ```
 
@@ -65,12 +65,12 @@ This file must conform to the expected [pip syntax](https://pip.pypa.io/en/stabl
 
 ### Building Containers
 
-There are build scripts [such as this one](../../load/functions/python3/build.sh) located in the relevant folders for creating Docker images from the various code snippets, plus installing their required dependencies.
+There are build scripts [such as this one](../../load/functions/python3/build-cpu.py) located in the relevant folders for creating Docker images from the various code snippets, plus installing their required dependencies.
 Running these various scripts will compile all the functions into Docker images and push them to Docker Hub.
-You will need to pass a repository name that you have write permission to via arguments to the script, along with an optional version for the image.
+**NOTE**: You will need to pass a Docker repository name (the `--repo` flag) that you have write permission to via arguments to the script, along with an optional version for the image.
 
 ```bash
-foo@cosin:~$ ./build.sh --repo=cosin --version=latest
+foo@cosin:~$ ./build-cpu.py --repo=cosin --version=latest
 ```
 
 Once the script is completed, the images will be ready to use by Ilúvatar.
@@ -78,5 +78,5 @@ Once the script is completed, the images will be ready to use by Ilúvatar.
 ### Custom dependencies
 
 If your code requires custom dependencies that can't be installed with `pip`, it can add a custom `dockerfile` that installs them.
-It should be located in the same directory as the code, be named `Dockerfile`, and start with `FROM ${REPO}/iluvatar-action-base`.
+It should be located in the same directory as the code, be named `Dockerfile`, and start with `FROM ${ACTION_BASE}`.
 See `video_processing` doing this [here](../../load/functions/python3/functions/video_processing/Dockerfile) to install ffmpeg.

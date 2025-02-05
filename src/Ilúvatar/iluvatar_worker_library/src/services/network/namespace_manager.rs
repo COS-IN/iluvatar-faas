@@ -60,7 +60,7 @@ impl NamespaceManager {
                 let ns = Arc::new(Self::new(config.clone(), Some(handle)));
                 tx.send(ns.clone()).unwrap();
                 ns
-            }
+            },
         })
     }
 
@@ -72,10 +72,10 @@ impl NamespaceManager {
                 Err(e) => {
                     error!(tid=%tid, error=%e, "Failed creating namespace in monitor");
                     break;
-                }
+                },
             };
             match self.return_namespace(Arc::new(ns), tid) {
-                Ok(_) => {}
+                Ok(_) => {},
                 Err(e) => error!(tid=%tid, error=%e, "Failed giving namespace to pool"),
             };
         }
@@ -104,7 +104,7 @@ impl NamespaceManager {
                 warn!(tid=%tid, error=%e, "Error on first attempt making bridge, retring");
                 std::thread::sleep(std::time::Duration::from_millis(config.pool_freq_ms));
                 Self::try_ensure_bridge(tid, config)
-            }
+            },
         }?;
         *bridge_check = true;
         Ok(())
@@ -132,12 +132,9 @@ impl NamespaceManager {
     fn ensure_net_config_file(tid: &TransactionId, config: &Arc<NetworkingConfig>) -> Result<()> {
         let temp_file = utils::file::temp_file_pth("il_worker_br", "conf");
 
-        let mut file = match File::options().read(true).write(true).create_new(true).open(temp_file) {
+        let mut file = match File::create(temp_file) {
             Ok(f) => f,
-            Err(e) => match e.kind() {
-                std::io::ErrorKind::AlreadyExists => return Ok(()),
-                _ => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
-            },
+            Err(e) => anyhow::bail!("[{}] error creating 'il_worker_br' temp file: {}", tid, e),
         };
         let bridge_json = include_str!("../../resources/cni/il_worker_br.json")
             .to_string()
@@ -200,10 +197,10 @@ impl NamespaceManager {
                         output
                     );
                 }
-            }
+            },
             Err(e) => {
                 anyhow::bail!("[{}] Failed to create bridge with error '{:?}'", tid, e);
-            }
+            },
         };
 
         // https://unix.stackexchange.com/questions/248504/bridged-interfaces-do-not-have-internet-access
@@ -283,7 +280,7 @@ impl NamespaceManager {
                 } else {
                     bail_error!(tid=%tid, output=?output, "No error code when checking hardware interface status");
                 }
-            }
+            },
             Err(e) => bail_error!(tid=%tid, error=%e, "Error checking hardware interface status"),
         }
     }
@@ -307,7 +304,7 @@ impl NamespaceManager {
                 } else {
                     bail_error!(tid=%tid, output=?output, "Error checking bridge status");
                 }
-            }
+            },
             Err(e) => bail_error!(tid=%tid, error=%e, "Error checking bridge status"),
         }
     }
@@ -378,10 +375,10 @@ impl NamespaceManager {
                     name: name.to_string(),
                     namespace: ns,
                 })
-            }
+            },
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, output=?out, "JSON error in create_namespace")
-            }
+            },
         }
     }
 
@@ -392,10 +389,10 @@ impl NamespaceManager {
                 Some(ns) => {
                     debug!(tid=%tid, namespace=%ns.name, "Assigning namespace");
                     Ok(ns)
-                }
+                },
                 None => {
                     bail_error!(tid=%tid, length=%locked.len(), "Namespace pool should have had a thing in it")
-                }
+                },
             }
         } else {
             drop(locked);
@@ -482,12 +479,12 @@ impl NamespaceManager {
                     Err(e) => {
                         error!(tid=%tid, error=%e, "Encountered an error on network namespace cleanup");
                         failed += 1;
-                    }
+                    },
                 },
                 Err(e) => {
                     error!(tid=%tid, error=%e, "Encountered an error joining thread for network namespace cleanup");
                     failed += 1;
-                }
+                },
             }
         }
         if failed > 0 {

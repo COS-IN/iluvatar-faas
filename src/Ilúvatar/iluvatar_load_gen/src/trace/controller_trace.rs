@@ -1,5 +1,6 @@
 use super::{Function, TraceArgs};
 use crate::trace::{prepare_function_args, CsvInvocation};
+use crate::utils::{wait_elapsed_live, wait_elapsed_sim};
 use crate::{
     benchmark::BenchmarkStore,
     trace::trace_utils::{map_functions_to_prep, save_controller_results},
@@ -11,21 +12,18 @@ use crate::{
 use anyhow::Result;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_controller_library::services::ControllerAPI;
-use iluvatar_library::transaction::{TransactionId, SIMULATION_START_TID};
+use iluvatar_library::clock::{get_global_clock, now};
+use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
+use iluvatar_library::transaction::{TransactionId, LIVE_WORKER_LOAD_TID};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation};
 use iluvatar_library::utils::config::args_to_json;
-use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port::Port};
+use iluvatar_library::utils::is_simulation;
+use iluvatar_library::{transaction::gen_tid, utils::port::Port};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
-use tokio::{
-    runtime::{Builder, Runtime},
-    task::JoinHandle,
-};
+use std::{collections::HashMap, sync::Arc};
+use tokio::task::JoinHandle;
+use tracing::info;
 
 async fn controller_register_functions(
     funcs: &HashMap<String, Function>,
@@ -40,7 +38,7 @@ async fn controller_register_functions(
             .image_name
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Unable to get image name for function '{}'", fid))?;
-        println!("{}, {}", func.func_name, image);
+        info!("Registering {}, {}", func.func_name, image);
         let func_timings = match &func.chosen_name {
             Some(chosen_name) => match benchmark.as_ref() {
                 Some(t) => match t.data.get(chosen_name) {
@@ -83,10 +81,11 @@ async fn controller_prewarm_funcs(
 }
 
 pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
-    let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    let tid = &LIVE_WORKER_LOAD_TID;
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
     let factory = ControllerAPIFactory::boxed();
     let host = args.host.clone();
-    run_invokes(args, factory, threaded_rt, &host, CommunicationMethod::RPC)
+    run_invokes(args, factory, threaded_rt, &host, CommunicationMethod::RPC, tid)
 }
 
 async fn controller_sim_register_workers(
@@ -128,11 +127,12 @@ async fn controller_sim_register_workers(
 fn run_invokes(
     args: TraceArgs,
     api_factory: Arc<ControllerAPIFactory>,
-    threaded_rt: Runtime,
+    threaded_rt: TokioRuntime,
     host: &str,
     comm: CommunicationMethod,
+    tid: &TransactionId,
 ) -> Result<()> {
-    let clock = Arc::new(LocalTime::new(&gen_tid())?);
+    let clock = get_global_clock(tid)?;
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     map_functions_to_prep(
         crate::utils::RunType::Simulation,
@@ -142,6 +142,7 @@ fn run_invokes(
         args.prewarms,
         &args.input_csv,
         args.max_prewarms,
+        tid,
     )?;
     let bench_data = load_benchmark_data(&args.function_data)?;
     threaded_rt.block_on(controller_register_functions(
@@ -160,48 +161,44 @@ fn run_invokes(
         comm,
     ))?;
 
-    let mut trace_rdr = csv::Reader::from_path(&args.input_csv)?;
     let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();
     let api = threaded_rt.block_on(api_factory.get_controller_api(host, args.port, comm, &gen_tid()))?;
+    let trace: Vec<CsvInvocation> = crate::trace::trace_utils::load_trace_csv(&args.input_csv, tid)?;
 
-    let start = SystemTime::now();
-    for result in trace_rdr.deserialize() {
-        let invocation: CsvInvocation = result?;
-        let func = metadata.get(&invocation.func_name).ok_or_else(|| {
-            anyhow::anyhow!(
-                "Invocation had function name '{}' that wasn't in metadata",
-                invocation.func_name
-            )
-        })?;
-        let api_cln = api.clone();
-        let func_args = match comm {
-            CommunicationMethod::RPC => args_to_json(&prepare_function_args(func, args.load_type))?,
-            CommunicationMethod::SIMULATION => serde_json::to_string(func.sim_invoke_data.as_ref().unwrap())?,
-        };
-        let clk = clock.clone();
-        let f_c = func.func_name.clone();
-        loop {
-            match start.elapsed() {
-                Ok(t) => {
-                    let ms = t.as_millis() as u64;
-                    if ms >= invocation.invoke_time_ms {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(ms / 2));
-                }
-                Err(_) => (),
+    let results = threaded_rt.block_on(async {
+        let start = now();
+        for invocation in trace {
+            let func = metadata.get(&invocation.func_name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invocation had function name '{}' that wasn't in metadata",
+                    invocation.func_name
+                )
+            })?;
+            let api_cln = api.clone();
+            let func_args = match comm {
+                CommunicationMethod::RPC => args_to_json(&prepare_function_args(func, args.load_type))?,
+                CommunicationMethod::SIMULATION => serde_json::to_string(func.sim_invoke_data.as_ref().unwrap())?,
+            };
+            let clk = clock.clone();
+            let f_c = func.func_name.clone();
+            match is_simulation() {
+                true => wait_elapsed_sim(&start, invocation.invoke_time_ms, args.tick_step, args.sim_gran).await,
+                false => wait_elapsed_live(&start, invocation.invoke_time_ms).await,
             }
+            handles.push(tokio::task::spawn(async move {
+                controller_invoke(&f_c, &VERSION, Some(func_args), clk, api_cln).await
+            }));
         }
-        handles.push(
-            threaded_rt.spawn(async move { controller_invoke(&f_c, &VERSION, Some(func_args), clk, api_cln).await }),
-        );
-    }
-    let results = resolve_handles(&threaded_rt, handles, crate::utils::ErrorHandling::Print)?;
+        info!(tid=%tid, "Invocations sent, awaiting on thread handles");
+        resolve_handles(handles, crate::utils::ErrorHandling::Print).await
+    })?;
+
     save_controller_results(results, &args)
 }
 
 pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
-    iluvatar_library::utils::set_simulation();
+    let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
+    iluvatar_library::utils::set_simulation(tid)?;
     let api_factory = ControllerAPIFactory::boxed();
 
     let worker_config_pth = args
@@ -214,12 +211,11 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Must have 'controller_config' for sim"))?
         .clone();
-    let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
 
-    let tid: &TransactionId = &SIMULATION_START_TID;
-    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None).unwrap();
+    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None)?;
     let controller_config =
-        iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth).unwrap();
+        iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)?;
     let _guard =
         iluvatar_library::logging::start_tracing(controller_config.logging.clone(), &controller_config.name, tid)?;
     let controller = threaded_rt.block_on(async {
@@ -240,5 +236,6 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         threaded_rt,
         &controller_config_pth,
         CommunicationMethod::SIMULATION,
+        tid,
     )
 }

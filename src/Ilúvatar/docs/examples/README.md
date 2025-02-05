@@ -12,6 +12,18 @@ The first run will be slow as it builds the project in Rust's optimized `release
 6. `simuation-trace/` runs a cluster in simulation mode, using the same code, load, and cluster setup as the `cluster-trace` example above.
 7. `detailed-spans/` shows off the capturable detail from inside the worker using span information generated at runtime.
 
+## Preparation
+
+Run the setup script in the parent folder to install dependencies and prepare the local machine to run any of these examples.
+
+```shell
+./setup.sh --worker --load
+```
+
+```shell
+./experiment_setup.sh --worker --load
+```
+
 ## Note
 
 By default, containerd uses `overlayfs` as a [snapshot and file system manager](https://github.com/containerd/containerd/tree/main/docs/snapshotters) for creating new containers.

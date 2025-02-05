@@ -7,8 +7,10 @@ use crate::services::registration::RegisteredFunction;
 use crate::services::resources::gpu::GPU;
 use anyhow::Result;
 use guid_create::GUID;
+use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::ResultErrorVal;
 use iluvatar_library::{
+    error_value,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
 };
@@ -38,9 +40,6 @@ impl ContainerIsolationService for SimulatorIsolation {
         vec![Isolation::CONTAINERD, Isolation::DOCKER]
     }
 
-    /// creates and starts the entrypoint for a container based on the given image
-    /// Run inside the specified namespace
-    /// returns a new, unique ID representing it
     async fn run_container(
         &self,
         fqdn: &str,
@@ -56,7 +55,8 @@ impl ContainerIsolationService for SimulatorIsolation {
         tid: &TransactionId,
     ) -> ResultErrorVal<Container, Option<GPU>> {
         let cid = format!("{}-{}", fqdn, GUID::rand());
-        Ok(Arc::new(SimulatorContainer::new(
+        match SimulatorContainer::new(
+            &gen_tid(),
             cid,
             fqdn,
             reg,
@@ -64,15 +64,16 @@ impl ContainerIsolationService for SimulatorIsolation {
             iso,
             compute,
             device_resource,
-        )))
+        ) {
+            Ok(c) => Ok(Arc::new(c)),
+            Err((e, d)) => error_value!("{:?}", e, d),
+        }
     }
 
-    /// Removed the specified container in the containerd namespace
     async fn remove_container(&self, container: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
         Ok(())
     }
 
-    /// Read through an image's digest to find it's snapshot base
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,

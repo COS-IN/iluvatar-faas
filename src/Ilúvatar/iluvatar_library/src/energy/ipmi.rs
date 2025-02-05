@@ -1,8 +1,8 @@
 use super::EnergyConfig;
+use crate::clock::{get_global_clock, Clock};
 use crate::threading::os_thread;
 use crate::{
     bail_error,
-    logging::LocalTime,
     transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID},
     utils::execute_cmd_checked,
 };
@@ -65,10 +65,10 @@ impl IPMI {
                 } else {
                     bail!("Instantaneous wattage line was the incorrect size, was: '{:?}'", strs)
                 }
-            }
+            },
             None => {
                 bail!("Stdout was too short, got '{}'", stdout)
-            }
+            },
         }
     }
 }
@@ -78,7 +78,7 @@ pub struct IPMIMonitor {
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
     log_file: RwLock<File>,
-    timer: LocalTime,
+    timer: Clock,
     latest_reading: RwLock<(i128, f64)>,
 }
 impl IPMIMonitor {
@@ -109,7 +109,7 @@ impl IPMIMonitor {
             ipmi: i,
             _worker_thread: handle,
             _config: config.clone(),
-            timer: LocalTime::new(tid)?,
+            timer: get_global_clock(tid)?,
             log_file: IPMIMonitor::open_log_file(&config, tid)?,
             latest_reading: RwLock::new((0, 0.0)),
         });
@@ -132,7 +132,7 @@ impl IPMIMonitor {
             Err(e) => {
                 error!(tid=%tid, error=%e, "Unable to read ipmi value");
                 return;
-            }
+            },
         };
         let now = self.timer.now();
         *self.latest_reading.write() = (now.unix_timestamp_nanos(), ipmi_uj as f64);
@@ -141,7 +141,7 @@ impl IPMIMonitor {
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to format time");
                 return;
-            }
+            },
         };
         let to_write = format!("{},{}\n", t, ipmi_uj);
         self.write_text(to_write, tid);
@@ -160,7 +160,7 @@ impl IPMIMonitor {
             Ok(_) => (),
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to write csv result to IPMI file");
-            }
+            },
         };
     }
 }

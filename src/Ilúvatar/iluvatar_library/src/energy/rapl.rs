@@ -1,8 +1,8 @@
 use super::EnergyConfig;
-use crate::logging::LocalTime;
+use crate::bail_error;
+use crate::clock::{get_global_clock, now, Clock};
 use crate::threading::os_thread;
 use crate::transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID};
-use crate::{bail_error, nproc};
 use anyhow::{anyhow, Result};
 use parking_lot::{Mutex, RwLock};
 use std::fs::{read_to_string, File};
@@ -10,7 +10,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::SystemTime;
+use tokio::time::Instant;
 use tracing::{debug, error, trace, warn};
 
 const RAPL_PTH: &str = "/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj";
@@ -29,23 +29,19 @@ impl RAPL {
 
     pub fn record(&self) -> Result<RAPLQuery> {
         Ok(RAPLQuery {
-            start: SystemTime::now(),
+            start: now(),
             start_uj: RAPL::get_uj()?,
         })
     }
 
     /// Return the elapsed time and used uj between the two queries
-    ///   right must have happened before left or it will error
-    pub fn difference(&self, left: &RAPLQuery, right: &RAPLQuery, tid: &TransactionId) -> Result<(u128, u128)> {
-        let elapsed = match left.start.duration_since(right.start) {
-            Ok(t) => t,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Clock error reading RAPL information"),
-        }
-        .as_micros();
+    ///   right must have happened before left, or it will error.
+    pub fn difference(&self, left: &RAPLQuery, right: &RAPLQuery, _tid: &TransactionId) -> Result<(u128, u128)> {
+        let elapsed = left.start.duration_since(right.start).as_micros();
         let uj: u128;
         if left.start_uj < right.start_uj {
             uj = left.start_uj + (self.max_uj - right.start_uj);
-            println!(
+            debug!(
                 "going around the energy horn {uj} = {} + ({} - {})",
                 left.start_uj, self.max_uj, right.start_uj
             );
@@ -68,7 +64,7 @@ impl RAPL {
 }
 
 pub struct RAPLQuery {
-    pub start: SystemTime,
+    pub start: Instant,
     pub start_uj: u128,
 }
 
@@ -126,7 +122,7 @@ pub struct RaplMsr {
 }
 impl RaplMsr {
     pub fn new(tid: &TransactionId) -> Result<Self> {
-        let procs = nproc(tid, false)?;
+        let procs = num_cpus::get_physical();
 
         let mut open_fds = vec![];
         let mut power_units = vec![];
@@ -140,7 +136,7 @@ impl RaplMsr {
                 // This can happen if the CPU core in question has been disabled
                 Err(e) => bail_error!(tid=%tid, error=%e, cpu=cpu, "Failed to open MSR for cpu"),
             };
-            let (pu, cpu, time) = RaplMsr::read_power_unit(cpu as usize, &mut file, intel, tid)?;
+            let (pu, cpu, time) = RaplMsr::read_power_unit(cpu, &mut file, intel, tid)?;
             power_units.push(pu);
             cpu_energy_units.push(cpu);
             time_units.push(time);
@@ -178,14 +174,14 @@ impl RaplMsr {
             Err(e) => {
                 warn!(error=%e, tid=%tid, cpu=cpu, "Error repositioning MSR file pointer");
                 return 0;
-            }
+            },
         };
         match fd.read_exact(&mut buffer) {
             Ok(_) => (),
             Err(e) => {
                 warn!(error=%e, tid=%tid, cpu=cpu, "Failed to read MSR register");
                 return 0;
-            }
+            },
         };
         let f = u64::from_le_bytes(buffer);
         trace!(tid=%tid, reading=f, offset=offset, "MSR reading");
@@ -197,7 +193,7 @@ impl RaplMsr {
             Ok(f) => f,
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, cpu=0, "Failed to open msr register for CPU 0 to detect if on Intel machine")
-            }
+            },
         };
         // will be 0 if the Intel MSR doesn't work
         // In that case we use AMD ones
@@ -233,7 +229,7 @@ pub struct RaplMonitor {
     _config: Arc<EnergyConfig>,
     _worker_thread: JoinHandle<()>,
     log_file: RwLock<File>,
-    timer: LocalTime,
+    timer: Clock,
     latest_reading: RwLock<(i128, i128, i128)>,
 }
 impl RaplMonitor {
@@ -253,7 +249,7 @@ impl RaplMonitor {
             rapl: Mutex::new(i),
             _worker_thread: handle,
             _config: config.clone(),
-            timer: LocalTime::new(tid)?,
+            timer: get_global_clock(tid)?,
             log_file: RaplMonitor::open_log_file(&config, tid)?,
         });
         r.write_text("timestamp,rapl_uj\n".to_string(), tid);
@@ -285,7 +281,7 @@ impl RaplMonitor {
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to format time");
                 return;
-            }
+            },
         };
 
         let to_write = format!("{},{}\n", t, rapl_uj);
@@ -297,7 +293,7 @@ impl RaplMonitor {
             Ok(f) => Ok(RwLock::new(f)),
             Err(e) => {
                 bail_error!(tid=%tid, error=%e, "Failed to create RAPL output file")
-            }
+            },
         }
     }
 
@@ -307,7 +303,7 @@ impl RaplMonitor {
             Ok(_) => (),
             Err(e) => {
                 error!(error=%e, tid=%tid, "Failed to write csv result to RAPL file");
-            }
+            },
         };
     }
 }

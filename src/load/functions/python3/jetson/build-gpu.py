@@ -7,6 +7,7 @@ import multiprocessing as mp
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--repo", help="Repository the iamge will be in", required=False, default="alfuerst")
+argparser.add_argument("--hub", help="Hub to push docker image too", required=False, default="docker.io")
 argparser.add_argument("--version", help="Version to tag images with.", required=False, default="latest")
 argparser.add_argument("--skip-push", '-s', help="Don't push images to remote.", action="store_true")
 args = argparser.parse_args()
@@ -18,6 +19,9 @@ def image_name(func_name):
 
 def base_image_name(func_name):
   return f"{args.repo}/{func_name}:{args.version}"
+
+def action_base():
+  return f"{args.hub}/{args.repo}/iluvatar-action-gpu-base"
 
 def docker_cmd(args, log_file=None):
   args.insert(0, "docker")
@@ -41,14 +45,14 @@ def build(path, function_name, dockerfile_base, basename):
 
   try:
     if os.path.exists(os.path.join(path, "Dockerfile")):
-      base_args = ["build", "--build-arg", f"REPO={args.repo}", "--file", os.path.join(path, dockerfile_base), "-t", base_image_name(basename), path]
+      base_args = ["build", "--build-arg", f"ACTION_BASE={action_base()}", "--file", os.path.join(path, dockerfile_base), "-t", base_image_name(basename), path]
       docker_cmd(base_args, log_file)
 
-      img_args = ["build", "--build-arg", f"REPO={args.repo}", "--file", os.path.join(path, "Dockerfile"), "-t", image_name(function_name), path]
+      img_args = ["build", "--build-arg", f"ACTION_BASE={action_base()}", "--file", os.path.join(path, "Dockerfile"), "-t", image_name(function_name), path]
       docker_cmd(img_args, log_file)
 
     else:
-      img_args = ["build", "--build-arg", f"REPO={args.repo}", "--file", os.path.join(path, dockerfile_base), "-t", image_name(function_name), path]
+      img_args = ["build", "--build-arg", f"ACTION_BASE={action_base()}", "--file", os.path.join(path, dockerfile_base), "-t", image_name(function_name), path]
       docker_cmd(img_args, log_file)
 
     if not args.skip_push:

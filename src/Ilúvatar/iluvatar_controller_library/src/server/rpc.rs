@@ -35,14 +35,14 @@ impl RpcControllerAPI {
             match Self::try_new_connection(address, port).await {
                 Ok(api) => {
                     return Ok(api);
-                }
+                },
                 Err(e) => {
                     warn!(error=%e, tid=%tid, "Error opening RPC connection to controller API");
                     retries -= 1;
                     if retries == 0 {
                         return Err(e);
                     }
-                }
+                },
             }
         }
     }
@@ -107,7 +107,7 @@ impl ControllerAPITrait for RpcControllerAPI {
                 } else {
                     anyhow::bail!("Async invoke failed")
                 }
-            }
+            },
             Err(e) => bail!(RPCError::new(e, "[RCPcontrollerAPI:invoke_async]".to_string())),
         }
     }

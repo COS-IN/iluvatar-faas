@@ -3,14 +3,15 @@ use crate::utils::*;
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_library::clock::{get_global_clock, now};
+use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
-use iluvatar_library::{logging::LocalTime, transaction::gen_tid, utils::port_utils::Port};
+use iluvatar_library::{transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use std::{collections::HashMap, path::Path};
-use tokio::runtime::{Builder, Runtime};
+use tracing::{error, info};
 
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct ToBenchmarkFunction {
@@ -93,7 +94,10 @@ pub struct BenchmarkArgs {
     host: String,
     #[arg(short, long)]
     /// Folder to output results to
-    out_folder: String,
+    pub out_folder: String,
+    #[arg(long)]
+    /// Output load generator logs to stdout
+    pub log_stdout: bool,
 }
 
 pub fn load_functions(args: &BenchmarkArgs) -> Result<Vec<ToBenchmarkFunction>> {
@@ -116,7 +120,7 @@ pub fn load_functions(args: &BenchmarkArgs) -> Result<Vec<ToBenchmarkFunction>> 
 
 pub fn benchmark_functions(args: BenchmarkArgs) -> Result<()> {
     let functions = load_functions(&args)?;
-    let threaded_rt = Builder::new_multi_thread().enable_all().build().unwrap();
+    let threaded_rt = build_tokio_runtime(&None, &None, &None, &gen_tid())?;
 
     match args.target {
         Target::Worker => benchmark_worker(&threaded_rt, functions, args),
@@ -143,8 +147,8 @@ pub async fn benchmark_controller(
     let mut full_data = BenchmarkStore::new();
     for function in &functions {
         let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
-        println!("{}", function.name);
-        let clock = Arc::new(LocalTime::new(&gen_tid())?);
+        info!("{}", function.name);
+        let clock = get_global_clock(&gen_tid())?;
         let reg_tid = gen_tid();
         let api = factory
             .get_controller_api(&host, port, CommunicationMethod::RPC, &reg_tid)
@@ -158,9 +162,9 @@ pub async fn benchmark_controller(
                 {
                     Ok(d) => d,
                     Err(e) => {
-                        println!("{}", e);
+                        error!("{}", e);
                         continue;
-                    }
+                    },
                 };
 
             'inner: for _ in 0..warm_repeats {
@@ -198,11 +202,11 @@ pub async fn benchmark_controller(
                                     .push(invoke_result.controller_response.duration_us as u128);
                             }
                         }
-                    }
+                    },
                     Err(e) => {
-                        println!("{}", e);
+                        error!("{}", e);
                         break 'inner;
-                    }
+                    },
                 }
             }
         }
@@ -214,7 +218,11 @@ pub async fn benchmark_controller(
     Ok(())
 }
 
-pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunction>, args: BenchmarkArgs) -> Result<()> {
+pub fn benchmark_worker(
+    threaded_rt: &TokioRuntime,
+    functions: Vec<ToBenchmarkFunction>,
+    args: BenchmarkArgs,
+) -> Result<()> {
     let mut full_data = BenchmarkStore::new();
     for f in &functions {
         full_data
@@ -223,7 +231,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
     }
     let mut invokes = vec![];
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
-    let clock = Arc::new(LocalTime::new(&gen_tid())?);
+    let clock = get_global_clock(&gen_tid())?;
     let mut cold_repeats = args.cold_iters;
 
     for function in &functions {
@@ -231,7 +239,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
             0 => (),
             _ => {
                 cold_repeats = 1;
-            }
+            },
         };
         let compute = match function.compute.as_ref() {
             Some(c) => Compute::try_from(c)?,
@@ -250,14 +258,14 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
             Some(arg) => {
                 dummy.args = Some(arg.clone());
                 args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
-            }
+            },
             None => "{\"name\":\"TESTING\"}".to_string(),
         };
         for supported_compute in compute {
-            println!("{} {:?}", &function.name, supported_compute);
+            info!("Running {} {}", &function.name, supported_compute);
 
             for iter in 0..cold_repeats {
-                let name = format!("{}.{:?}.{}", &function.name, supported_compute, iter);
+                let name = format!("{}.{}.{}", &function.name, supported_compute, iter);
                 let version = iter.to_string();
                 let (_s, _reg_dur, _tid) = match threaded_rt.block_on(worker_register(
                     name.clone(),
@@ -274,9 +282,9 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
                 )) {
                     Ok(r) => r,
                     Err(e) => {
-                        println!("{:?}", e);
+                        error!("{:?}", e);
                         continue;
-                    }
+                    },
                 };
 
                 match args.runtime {
@@ -295,16 +303,16 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
                             )) {
                                 Ok(r) => invokes.push(r),
                                 Err(e) => {
-                                    println!("Invocation error: {}", e);
+                                    error!("Invocation error: {}", e);
                                     continue;
-                                }
+                                },
                             };
                         }
-                    }
+                    },
                     duration_sec => {
                         let timeout = Duration::from_secs(duration_sec as u64);
-                        let start = SystemTime::now();
-                        while start.elapsed()? < timeout {
+                        let start = now();
+                        while start.elapsed() < timeout {
                             match threaded_rt.block_on(worker_invoke(
                                 &name,
                                 &version,
@@ -318,17 +326,17 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
                             )) {
                                 Ok(r) => invokes.push(r),
                                 Err(e) => {
-                                    println!("Invocation error: {}", e);
+                                    error!("Invocation error: {}", e);
                                     continue;
-                                }
+                                },
                             };
                         }
-                    }
+                    },
                 };
                 if supported_compute != Compute::CPU {
                     match threaded_rt.block_on(worker_clean(&args.host, args.port, &gen_tid(), &factory, None)) {
                         Ok(_) => (),
-                        Err(e) => println!("{:?}", e),
+                        Err(e) => error!("{:?}", e),
                     }
                 }
             }
@@ -369,7 +377,7 @@ pub fn benchmark_worker(threaded_rt: &Runtime, functions: Vec<ToBenchmarkFunctio
                 resource_entry.warm_invoke_duration_us.push(invoke.client_latency_us);
             }
         } else {
-            println!("invoke failure {:?}", invoke.worker_response.json_result);
+            error!("invoke failure {:?}", invoke.worker_response.json_result);
         }
     }
     let p = Path::new(&args.out_folder).join("worker_function_benchmarks.json");

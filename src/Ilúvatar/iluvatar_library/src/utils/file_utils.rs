@@ -39,12 +39,12 @@ pub fn try_remove_pth(pth: &str, tid: &TransactionId) {
     let path = std::path::Path::new(&pth);
     if path.is_file() {
         match std::fs::remove_file(pth) {
-            Ok(_) => {}
+            Ok(_) => {},
             Err(_) => warn!(tid=%tid, path=%pth, "Unable to remove file"),
         };
     } else if path.is_dir() {
         match std::fs::remove_dir(pth) {
-            Ok(_) => {}
+            Ok(_) => {},
             Err(_) => warn!(tid=%tid, path=%pth, "Unable to remove directory"),
         };
     } else {

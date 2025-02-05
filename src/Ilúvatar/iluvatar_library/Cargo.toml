@@ -37,6 +37,8 @@ influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 num-traits = "0.2"
 influxdb2-structmap = "0.2"
 async-process = "2"
+async-trait = "0.1.*"
+num_cpus = "1.16"
 
 [dev-dependencies]
 rstest = "0.22"

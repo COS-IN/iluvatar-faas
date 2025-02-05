@@ -1,6 +1,4 @@
 # Start Ilúvatar services
-- cluster: true
-
 - import_playbook: influx.yml
 
 - import_playbook: controller.yml

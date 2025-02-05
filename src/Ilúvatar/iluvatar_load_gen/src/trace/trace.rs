@@ -1,7 +1,8 @@
 use crate::utils::{LoadType, RunType, Target};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use controller_trace::{controller_trace_live, controller_trace_sim};
+use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::{types::MemSizeMb, utils::port::Port};
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use std::collections::HashMap;
@@ -56,12 +57,24 @@ pub struct TraceArgs {
     host: String,
     #[arg(short, long)]
     /// Folder to output results to
-    out_folder: String,
+    pub out_folder: String,
+    #[arg(long)]
+    /// Output load generator logs to stdout
+    pub log_stdout: bool,
+    #[arg(long, value_enum, default_value_t=SimulationGranularity::MS)]
+    /// Time granularity of system simulation
+    sim_gran: SimulationGranularity,
+    #[arg(long, default_value_t = 1)]
+    /// Step size to increment simulation clock per tick
+    tick_step: u64,
 }
 
 pub fn run_trace(args: TraceArgs) -> Result<()> {
     match args.target {
-        Target::Worker => worker_trace::trace_worker(args),
+        Target::Worker => match args.setup {
+            RunType::Simulation => worker_trace::simulated_worker(args),
+            RunType::Live => worker_trace::live_worker(args),
+        },
         Target::Controller => match args.setup {
             RunType::Live => controller_trace_live(args),
             RunType::Simulation => controller_trace_sim(args),
@@ -76,7 +89,7 @@ fn load_metadata(path: &str) -> Result<HashMap<String, Function>> {
     };
     let mut ret = HashMap::new();
     for result in rdr.deserialize() {
-        let mut func: Function = result.expect("Error deserializing metadata");
+        let mut func: Function = result.map_err(|e| anyhow!("Error deserializing metadata {}", e))?;
         if func.func_name.starts_with("lookbusy") {
             func.use_lookbusy = Some(true);
         }

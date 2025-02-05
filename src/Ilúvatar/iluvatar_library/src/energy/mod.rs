@@ -1,3 +1,4 @@
+mod cpu_freq;
 pub mod energy_layer;
 pub mod energy_logging;
 pub mod energy_service;

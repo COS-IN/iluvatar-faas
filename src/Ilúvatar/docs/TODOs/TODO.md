@@ -3,30 +3,27 @@
 A list of possible improvements and changes to the base platform.
 In no particular order.
 
+## Improve Ansible interoperability
+
+[This library](https://ansible.readthedocs.io/projects/runner/en/latest/) allows calling `ansible-playbook` via Python code.
+Allow calling Ilúvatar Ansible scripts via this interface.
+Allow this abstraction to be easily called from external Python code.
+Make sure to use `kwargs` to avoid large numbers of function arguments.
+
+## Create Jupyter notebooks for examples
+
+Instead of shell scripts to run examples, do it with Jupyter notebooks.
+Can add in graphing & analysis too.
+
 ## Monitor GPU utilization on Jetson platform
 
 Jetson requires using `tegrastats` to get utilization numbers.
 The [GPU monitor](iluvatar_worker_library/src/services/resources/gpu.rs) needs updated information for ideal usage.
 Can cause dispatches to be blocked or broken on Jetson.
 
-## Time-skipping simulation
-
-Can we enable time-skipping when running in a simulation context?
-All function invocations are just `tokio::time::sleep().await`
-The background threads use either that, or the `std::thread::sleep()` if using an OS thread.
-The simulation can be sped up by "jumping" the current time to the next instance in which an action will be performed.
-
-If we can put a layer between how the Future system polls results, and move the clock ahead to match, this could work.
-But that's either:
-
-1. A lot of work
-1. Maybe not possible
-
-Probably going to need completion of [this (very old) tokio issue](https://github.com/tokio-rs/tokio/issues/1845).
-
 ## Switch/Enable networking via unix sockets
 
-Using HTTP connections to send/receive invocations has some networking overhead and scaling issues at high throughput.
+Using HTTP connections to send/receive invocations to containers has some networking overhead and scaling issues at high throughput.
 This can cause blocks of up to 60 seconds on some calls.
 Both the worker code and the server running inside the container must be updated to this new format.
 
@@ -58,12 +55,6 @@ Which containers, etc., belong to the worker, the bridge and network veths too.
 Currently startup on a remote machine via ansible runs the worker and controller as a background ansible job.
 This is a hack and not the ideal way to deploy this as software.
 Putting this as a linux daemon with the start/stop/restart paradigm would be better.
-
-## Disable-able worker registration
-
-Currently worker registration with the controller always happens, and on failure an error is added to the log.
-This whole process should be skipped based on config.
-If registration is attempted and fails, the worker should exit.
 
 ## Split running and cached memory usage
 
@@ -118,6 +109,8 @@ Can it then generate the ansible vars and put them somewhere?
 Logs for workers in a cluster simulation scenario are put into one file.
 These become impossible to separate without any identifying factor.
 Either split up the logs into separate files on worker name, or include the name in each log message so it can be split in post-processing.
+
+Simple way: inject `basename` of logging config into each log statement and can post-filter on that.
 
 Probably use a filter in `tracing-subscriber`, see [here](https://stackoverflow.com/questions/76939805/tracing-how-to-filter-logs-under-specified-levels-for-layer) and [here](https://docs.rs/tracing-subscriber/0.3.16/tracing_subscriber/layer/index.html#filtering-with-layers).
 

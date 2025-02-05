@@ -40,14 +40,14 @@ impl RPCWorkerAPI {
             match Self::try_new_connection(address, port).await {
                 Ok(api) => {
                     return Ok(api);
-                }
+                },
                 Err(e) => {
                     warn!(error=%e, tid=%tid, "Error opening RPC connection to Worker API");
                     retries -= 1;
                     if retries == 0 {
                         return Err(e);
                     }
-                }
+                },
             }
         }
     }
@@ -65,10 +65,10 @@ impl RPCWorkerAPI {
 }
 
 impl Clone for RPCWorkerAPI {
-    /// A fast method for duplicating the Worker API
-    /// Use this instead of concurently sharing
+    /// A fast method for duplicating the Worker API.
+    /// Use this instead of concurrently sharing.
     fn clone(&self) -> Self {
-        RPCWorkerAPI {
+        Self {
             client: self.client.clone(),
         }
     }
@@ -130,7 +130,7 @@ impl WorkerAPI for RPCWorkerAPI {
                     error!(tid=%tid, "Async invoke failed");
                     anyhow::bail!("Async invoke failed")
                 }
-            }
+            },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:invoke_async]".to_string())),
         }
     }
@@ -167,7 +167,7 @@ impl WorkerAPI for RPCWorkerAPI {
                     true => Ok(response.message),
                     false => bail_error!(tid=%tid, message=%response.message, err),
                 }
-            }
+            },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:prewarm]".to_string())),
         }
     }
@@ -232,7 +232,7 @@ impl WorkerAPI for RPCWorkerAPI {
                         source: "[RCPWorkerAPI:health]".to_string()
                     }),
                 }
-            }
+            },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:health]".to_string())),
         }
     }

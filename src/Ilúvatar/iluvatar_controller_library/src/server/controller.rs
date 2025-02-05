@@ -164,12 +164,12 @@ impl ControllerAPITrait for Controller {
                     }),
                     Err(e) => Err(e),
                 }
-            }
+            },
             None => {
                 let msg = "Function was not registered; could not prewarm";
                 warn!(tid=%prewarm.transaction_id, fqdn=%fqdn, msg);
                 anyhow::bail!(msg)
-            }
+            },
         }
     }
 
@@ -187,12 +187,12 @@ impl ControllerAPITrait for Controller {
                     Ok((result, _dur)) => Ok(result),
                     Err(e) => Err(e),
                 }
-            }
+            },
             None => {
                 let msg = "Function was not registered; could not invoke";
                 warn!(tid=%request.transaction_id, fqdn=%fqdn, msg);
                 anyhow::bail!(msg)
-            }
+            },
         }
     }
 
@@ -211,18 +211,18 @@ impl ControllerAPITrait for Controller {
                         self.async_svc
                             .register_async_invocation(cookie.clone(), worker, &request.transaction_id);
                         Ok(cookie)
-                    }
+                    },
                     Err(e) => {
                         error!(tid=%request.transaction_id, error=%e, "async invocation failed");
                         Err(e)
-                    }
+                    },
                 }
-            }
+            },
             None => {
                 let msg = "Function was not registered; could not invoke async";
                 warn!(tid=%request.transaction_id, fqdn=%fqdn, msg);
                 anyhow::bail!(msg);
-            }
+            },
         }
     }
 

@@ -17,7 +17,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Install non-apt dependencies and build Ilúvatar, assumes python3 exists
 cd src/Ilúvatar/docs/examples
-./sample_setup.sh
+../setup.sh --worker --load
+./experiment_setup.sh
 sudo ../../target/debug/iluvatar_worker -c ../../iluvatar_worker/src/worker.dev.json &
 worker_pid=$(echo $!)
 ```
@@ -25,13 +26,13 @@ worker_pid=$(echo $!)
 Register a function with the worker.
 
 ```sh
-../../target/debug/iluvatar_worker_cli --address "127.0.0.1" --port 8079 register --name "hello" --version 1 --image "docker.io/alfuerst/hello-iluvatar-action:latest" --memory 128 --cpu 1
+../../target/debug/iluvatar_worker_cli --host "127.0.0.1" --port 8079 register --name "hello" --version 1 --image "docker.io/alfuerst/hello-iluvatar-action:latest" --memory 128 --cpu 1
 ```
 
 Invoke the newly registered function, passing custom arguments.
 
 ```sh
-../../target/debug/iluvatar_worker_cli --address "127.0.0.1" --port 8079 invoke --name "hello" --version 1 -a name=`whoami`
+../../target/debug/iluvatar_worker_cli --host "127.0.0.1" --port 8079 invoke --name "hello" --version 1 -a name=`whoami`
 ```
 
 Kill the worker running in the background.
@@ -86,11 +87,9 @@ Thus the inspiration for its name.
 
 If you use, extend, compare against, etc., Ilúvatar, please reference [our HPDC 2023 paper](https://afuerst.github.io/assets/Il%C3%BAvatar.pdf) in your work.
 
-`Alexander Fuerst, Abdul Rehman, and Prateek Sharma. 2023. Ilúvatar: A
-Fast Control Plane for Serverless Computing. In Proceedings of the 32nd
-International Symposium on High-Performance Parallel and Distributed Com-
-puting (HPDC ’23), June 16–23, 2023, Orlando, FL, USA. ACM, New York, NY,
-USA, 14 pages. https://doi.org/10.1145/3588195.3592995`
+`Alexander Fuerst, Abdul Rehman, and Prateek Sharma. 2023. Ilúvatar: A Fast Control Plane for Serverless Computing.
+In Proceedings of the 32nd International Symposium on High-Performance Parallel and Distributed Computing (HPDC ’23), June 16–23, 2023, Orlando, FL, USA.
+ACM, New York, NY, USA, 14 pages. https://doi.org/10.1145/3588195.3592995`
 
 ## Acknowledgements
 

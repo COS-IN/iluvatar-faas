@@ -15,20 +15,15 @@ use crate::utils::port::Port;
 use anyhow::Result;
 use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
-use std::num::ParseIntError;
 use std::process::{Child, Command, Output, Stdio};
 use std::{str, thread, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, info};
 
-pub fn get_child_pid(ppid: u32) -> Result<u32, ParseIntError> {
-    let output = Command::new("pgrep")
-        .arg("-P")
-        .arg(ppid.to_string())
-        .output()
-        .expect("failed to execute process");
-
-    str::from_utf8(&output.stdout).unwrap().trim().parse::<u32>()
+pub fn get_child_pid(ppid: u32) -> Result<u32> {
+    let ppid = ppid.to_string();
+    let output = execute_cmd("/usr/bin/pgrep", vec!["-P", ppid.as_str()], None, &ppid)?;
+    Ok(str::from_utf8(&output.stdout)?.trim().parse::<u32>()?)
 }
 
 pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {
@@ -51,15 +46,16 @@ pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {
 }
 
 lazy_static::lazy_static! {
-  pub static ref SIMULATION_CHECK: parking_lot::Mutex<bool>  = parking_lot::Mutex::new(false);
+  // TODO: This probably shouldn't exist. Process-level global state causes weirdness, is generally bad programming, and prevents in-proc simulation on alternate threads.
+  static ref SIMULATION_CHECK: parking_lot::Mutex<bool>  = parking_lot::Mutex::new(false);
 }
 /// Set globally that the system is being run as a simulation
-pub fn set_simulation() {
+pub fn set_simulation(_tid: &TransactionId) -> Result<()> {
     *SIMULATION_CHECK.lock() = true;
+    Ok(())
 }
 /// A method for anyone to check if the system is being run as a simulation
 pub fn is_simulation() -> bool {
-    // false
     *SIMULATION_CHECK.lock()
 }
 
@@ -141,7 +137,7 @@ where
             true => Ok(out),
             false => {
                 bail_error!(tid=%tid, exe=%cmd_pth, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), code=out.status.code(), "Bad error code executing command")
-            }
+            },
         },
         Err(e) => Err(e),
     }
@@ -184,7 +180,7 @@ where
             true => Ok(out),
             false => {
                 bail_error!(tid=%tid, exe=%cmd_pth, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), code=out.status.code(), "Bad error code executing command")
-            }
+            },
         },
         Err(e) => Err(e),
     }
@@ -212,7 +208,7 @@ where
         Ok(out) => Ok(out),
         Err(e) => {
             bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Spawning non-blocking command failed")
-        }
+        },
     }
 }
 
@@ -242,7 +238,7 @@ fn try_create_signal(tid: &TransactionId, kind: SignalKind) -> Result<Signal> {
         Ok(s) => Ok(s),
         Err(e) => {
             bail_error!(error=%e, tid=%tid, kind=kind.as_raw_value(), "Failed to create signal")
-        }
+        },
     }
 }
 

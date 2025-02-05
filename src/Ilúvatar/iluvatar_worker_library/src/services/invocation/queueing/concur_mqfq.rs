@@ -3,7 +3,7 @@ use super::{DeviceQueue, EnqueuedInvocation};
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::structs::ContainerLock;
 use crate::services::invocation::completion_time_tracker::CompletionTimeTracker;
-use crate::services::invocation::invoke_on_container;
+use crate::services::invocation::{invoke_on_container, QueueLoad};
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::{GpuResourceTracker, GPU};
@@ -11,7 +11,7 @@ use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::logging::LocalTime;
+use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::threading::EventualItem;
 use iluvatar_library::transaction::TransactionId;
@@ -20,7 +20,6 @@ use iluvatar_library::utils::missing_default;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::Instant;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error, info};
@@ -37,7 +36,7 @@ struct Flow {
     queue: SharedQueue,
     cont_manager: Arc<ContainerManager>,
     registration: Arc<RegisteredFunction>,
-    clock: LocalTime,
+    clock: Clock,
     cmap: Arc<CharacteristicsMap>,
     queue_signal: Arc<Notify>,
 }
@@ -62,7 +61,7 @@ impl Flow {
             ctrack: ctrack.clone(),
             cont_manager: cont_manager.clone(),
             registration: registration.clone(),
-            clock: LocalTime::new(tid)?,
+            clock: get_global_clock(tid)?,
             cmap: cmap.clone(),
             queue_signal: signal,
         })
@@ -94,13 +93,13 @@ impl Flow {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         match self.gpu.try_acquire_resource(gpu, tid) {
             Ok(c) => ret.push(c.into()),
@@ -108,13 +107,13 @@ impl Flow {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
                         error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
-                    }
+                    },
                     tokio::sync::TryAcquireError::NoPermits => {
                         // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
-                    }
+                    },
                 };
                 return None;
-            }
+            },
         };
         Some(Box::new(ret))
     }
@@ -139,7 +138,7 @@ impl Flow {
                     error!(tid=%tid, error=%cause, "Error getting new container");
                     None
                 }
-            }
+            },
         }
     }
 
@@ -151,15 +150,17 @@ impl Flow {
         tokens: DroppableToken,
         tid: TransactionId,
     ) {
-        let start = Instant::now();
+        let start = now();
         if item.invoke.lock() {
-            let ct = OffsetDateTime::now_utc();
+            let ct = self.clock.now();
             self.ctrack.add_item(ct);
             match invoke_on_container(
                 &self.registration,
                 &item.invoke.json_args,
                 &item.invoke.tid,
                 item.invoke.queue_insert_time,
+                item.invoke.est_completion_time,
+                item.invoke.insert_time_load,
                 &ctr_lck,
                 self.clock.format_time(remove_time).unwrap_or_else(|_| "".to_string()),
                 start,
@@ -171,7 +172,7 @@ impl Flow {
                 Ok((result, duration, compute, container_state)) => {
                     info!(tid=%tid, "!!invoke done!!");
                     item.invoke.mark_successful(result, duration, compute, container_state);
-                }
+                },
                 Err(cause) => {
                     debug!(tid=%item.invoke.tid, error=%cause, container_id=%ctr_lck.container.container_id(), "Error on container invoke");
                     self.handle_invocation_error(item.invoke.clone(), cause);
@@ -180,7 +181,7 @@ impl Flow {
                         // container will be removed, but holds onto GPU until deleted
                         ctr_lck.container.add_drop_on_remove(tokens, &item.invoke.tid);
                     }
-                }
+                },
             }
             self.ctrack.remove_item(ct);
             self.queue_signal.notify_waiters();
@@ -251,6 +252,7 @@ struct FuncQueue {
     flow_tid: TransactionId,
     pub global_signal: Arc<Notify>,
     pub queue_signal: Arc<Notify>,
+    clock: Clock,
 }
 type SharedQueue = Arc<FuncQueue>;
 impl FuncQueue {
@@ -266,6 +268,7 @@ impl FuncQueue {
         ctrack: &Arc<CompletionTimeTracker>,
         cmap: &Arc<CharacteristicsMap>,
         signal: &Arc<Notify>,
+        clock: &Clock,
     ) -> SharedQueue {
         let start_time_virt = mindicator.min();
         Arc::new(Self {
@@ -275,7 +278,7 @@ impl FuncQueue {
             start_time_virt: RwLock::new(start_time_virt),
             finish_time_virt: RwLock::new(start_time_virt),
             ttl_sec: 20.0,
-            last_serviced: RwLock::new(OffsetDateTime::now_utc()),
+            last_serviced: RwLock::new(clock.now()),
             service_avg: 10.0,
             allowed_overrun: missing_default(&q_config.allowed_overrun, 10.0),
             registration: registration.clone(),
@@ -289,6 +292,7 @@ impl FuncQueue {
             cmap: cmap.clone(),
             global_signal: signal.clone(),
             queue_signal: Arc::new(Notify::new()),
+            clock: clock.clone(),
         })
     }
 
@@ -310,10 +314,10 @@ impl FuncQueue {
                 tokio::spawn(async move {
                     Arc::new(flow).run(&tid).await;
                 });
-            }
+            },
             Err(e) => {
                 error!(tid=%tid, error=%e, fqdn=%self.registration.fqdn, "Failed to make new Flow queue thread");
-            }
+            },
         }
     }
 
@@ -360,7 +364,7 @@ impl FuncQueue {
 
     /// Check if the start time is ahead of global time by allowed overrun
     pub fn update_dispatched(self: &Arc<Self>, tid: &TransactionId, glob_virt_time: f64) {
-        *self.last_serviced.write() = OffsetDateTime::now_utc();
+        *self.last_serviced.write() = self.clock.now();
         let mut new_start_time_virt = *self.start_time_virt.read();
         if let Some(next_item) = self.queue.read().front() {
             new_start_time_virt = next_item.start_time_virt;
@@ -393,7 +397,7 @@ impl FuncQueue {
         }
         // check grace period
         if self.queue.read().is_empty() {
-            let ttl_remaining = (OffsetDateTime::now_utc() - *self.last_serviced.read()).as_seconds_f64();
+            let ttl_remaining = (self.clock.now() - *self.last_serviced.read()).as_seconds_f64();
             if ttl_remaining > self.ttl_sec {
                 // info!("set_idle_throttled ttl overshtot");
                 self.update_state(tid, MQState::Inactive);
@@ -422,6 +426,7 @@ pub struct ConcurMqfq {
     q_config: Arc<MqfqConfig>,
     mindicator: Arc<Mindicator>,
     signal: Arc<Notify>,
+    clock: Clock,
 }
 
 #[allow(dyn_drop)]
@@ -444,7 +449,7 @@ impl ConcurMqfq {
             .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU config"))?;
         let svc = Arc::new(ConcurMqfq {
             queues: DashMap::new(),
-            ctrack: Arc::new(CompletionTimeTracker::new()),
+            ctrack: Arc::new(CompletionTimeTracker::new(tid)?),
             gpu: gpu
                 .as_ref()
                 .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU resources"))?
@@ -455,6 +460,7 @@ impl ConcurMqfq {
             q_config,
             mindicator: Mindicator::boxed(0),
             signal: Arc::new(Notify::new()),
+            clock: get_global_clock(tid)?,
         });
         info!(tid=%tid, "Created ConcurMqfq");
         Ok(svc)
@@ -468,7 +474,7 @@ impl ConcurMqfq {
                 info!("inserting into existing flow");
                 fq.push_flow(item);
                 // fq.global_signal.notify_waiters();
-            }
+            },
             None => {
                 info!("making new flow");
                 let fname = item.registration.fqdn.clone();
@@ -486,13 +492,14 @@ impl ConcurMqfq {
                     &self.ctrack,
                     &self.cmap,
                     &self.signal,
+                    &self.clock,
                 );
                 // let sig = qguard.global_signal.clone();
                 qguard.start_new_flow(&item.tid);
                 qguard.push_flow(item);
                 self.queues.insert(fname, qguard);
                 // sig.notify_waiters();
-            }
+            },
         };
     }
 }
@@ -503,15 +510,20 @@ impl DeviceQueue for ConcurMqfq {
         let per_flow_q_len = self.queues.iter().map(|x| x.value().queue.read().len());
         per_flow_q_len.sum::<usize>()
     }
-
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+    fn queue_load(&self) -> QueueLoad {
+        QueueLoad::default()
+    }
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
         // sum_q (q_F-q_S) / max_in_flight
         let per_flow_wait_times = self.queues.iter().map(|x| x.value().est_flow_wait());
         let total_wait: f64 = per_flow_wait_times.sum();
 
         debug!(tid=%tid, qt=total_wait, runtime=0.0, "GPU estimated completion time of item");
 
-        (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn)
+        (
+            (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn),
+            total_wait,
+        )
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {

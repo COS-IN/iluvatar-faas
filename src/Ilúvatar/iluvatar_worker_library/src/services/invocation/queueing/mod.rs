@@ -1,4 +1,4 @@
-use super::{InvocationResult, InvocationResultPtr};
+use super::{InvocationResult, InvocationResultPtr, QueueLoad};
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::structs::{ContainerState, ParsedResult};
 use crate::services::registration::RegisteredFunction;
@@ -26,41 +26,20 @@ pub mod queueless;
 
 // GPU focused queues
 pub mod dynamic_batching;
+pub mod eedf_gpu;
 pub mod fcfs_gpu;
 pub mod gpu_mqfq;
 pub mod oldest_gpu;
 pub mod paella;
 pub mod sized_batches_gpu;
+pub mod sjf_gpu;
 
-#[derive(Debug, serde::Deserialize)]
-/// The policy by which polymorphic functions will be enqueued in the CPU/GPU/etc. queues
-pub enum EnqueueingPolicy {
-    /// Invocations will be placed in any relevant queue, and the first one to start first wins
-    All,
-    /// Always enqueue on the compute that gives shortest compute time
-    ShortestExecTime,
-    /// Always enqueue on CPU
-    /// Assumes all functions can run on CPU, assumption may break in the future
-    AlwaysCPU,
-    /// Enqueue based on shortest estimated completion time
-    EstCompTime,
-    /// Multi-armed bandit for polymorphic functions.
-    UCB1,
-    MWUA,
-    // /// Locality/E2E time
-    HitTput,
-    // /// Always GPU for polymorphic functions
-    // AlwaysGPU,
-}
-
-#[tonic::async_trait]
-/// A trait representing the functionality a queue policy must implement
+/// A trait representing the functionality a queue policy must implement.
 pub trait InvokerCpuQueuePolicy: Send + Sync {
-    /// The length of a queue, if the implementation has one
+    /// The length of a queue, if the implementation has one.
     fn queue_len(&self) -> usize;
 
-    /// The estimated time of running everything in the queue
-    /// In seconds
+    /// The estimated time of running everything in the queue, in seconds.
     fn est_queue_time(&self) -> f64;
 
     /// A peek at the first item in the queue.
@@ -68,16 +47,16 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
     fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>>;
 
     /// Destructively return the first item in the queue.
-    /// This function will only be called if something is known to be un the queue, so using `unwrap` to remove an [Option] is safe
+    /// This function will only be called if something is known to be un the queue, so using `unwrap` to remove an [Option] is safe.
     fn pop_queue(&self) -> Arc<EnqueuedInvocation>;
 
-    /// Insert an item into the queue, optionally at a specific index
-    /// If not specified, added to the end
-    /// If an error is returned, the item was not put enqueued
+    /// Insert an item into the queue, optionally at a specific index.
+    /// If not specified, added to the end.
+    /// If an error is returned, the item was not put enqueued.
     fn add_item_to_queue(&self, _item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()>;
 
-    /// Get the estimated wall-clock time of the function using the global [CharacteristicsMap]
-    /// Checks container availability toget cold/warm/prewarm time
+    /// Get the estimated wall-clock time of the function using the global [CharacteristicsMap].
+    /// Checks container availability toget cold/warm/prewarm time.
     fn est_wall_time(
         &self,
         item: &Arc<EnqueuedInvocation>,
@@ -94,41 +73,57 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
     }
 }
 
-/// A trait for a device-specific queue
-/// The implementer is responsible for invoking functions it is directed to enqueue
+/// A trait for a device-specific queue.
+/// The implementer is responsible for invoking functions it is directed to enqueue.
 pub trait DeviceQueue: Send + Sync {
-    /// The length of items waiting to be ran on the device
+    /// The length of items waiting to be run on the device.
     fn queue_len(&self) -> usize;
 
-    /// The estimated time from now the item would be completed if run on the device
-    /// In seconds
-    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64;
+    fn queue_load(&self) -> QueueLoad;
 
-    /// Insert an item into the queue
-    /// If an error is returned, the item was not put enqueued
+    /// The estimated time from now the item would be completed if run on the device, in seconds.
+    /// (est_time, est_load)
+    fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64);
+
+    /// Insert an item into the queue.
+    /// If an error is returned, the item was not enqueued.
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()>;
 
-    /// Number of invocations currently running
+    /// Number of invocations currently running.
     fn running(&self) -> u32;
 
-    /// Warm hit probability for the function. Needs most recent IAT
+    /// Warm hit probability for the function. Needs most recent IAT.
     fn warm_hit_probability(&self, reg: &Arc<RegisteredFunction>, iat: f64) -> f64;
+
+    /// Expose [gpu_mqfq::MQFQ] internal state to caller.
+    /// Returns [None] if data is not available, probably not [gpu_mqfq::MQFQ] queue.
+    fn expose_mqfq(&self) -> Option<&dashmap::DashMap<String, gpu_mqfq::FlowQ>> {
+        None
+    }
+
+    fn expose_flow_report(&self) -> Option<gpu_mqfq::MqfqInfo> {
+        None
+    }
 }
 
 #[derive(Debug)]
 /// Function while it is in the invocation queue. Refs to registration, result, arguments, invocation/execution stats.
 pub struct EnqueuedInvocation {
     pub registration: Arc<RegisteredFunction>,
-    /// Pointer where results will be stored on invocation completion
+    /// Pointer where results will be stored on invocation completion.
     pub result_ptr: InvocationResultPtr,
     pub json_args: String,
     pub tid: TransactionId,
     signal: Notify,
-    /// Used to ensure an invocation is started only once
-    /// Items can currently be placed into multiple queues if they can run on multiple resources
+    /// Used to ensure an invocation is started only once.
+    /// Items can currently be placed into multiple queues if they can run on multiple resources.
     pub started: Mutex<bool>,
-    /// The local time at which the item was inserted into the queue
+    /// The local time at which the item was inserted into the queue.
     pub queue_insert_time: OffsetDateTime,
+    /// Estimated time (in seconds) from insertion that the function will have completed executing.
+    pub est_completion_time: f64,
+    /// Estimated device load upon queue insertion.
+    pub insert_time_load: f64,
 }
 
 impl EnqueuedInvocation {
@@ -137,12 +132,16 @@ impl EnqueuedInvocation {
         json_args: String,
         tid: TransactionId,
         queue_insert_time: OffsetDateTime,
+        est_completion_time: f64,
+        insert_time_load: f64,
     ) -> Self {
         EnqueuedInvocation {
             registration,
             json_args,
             tid,
             queue_insert_time,
+            est_completion_time,
+            insert_time_load,
             result_ptr: InvocationResult::boxed(),
             signal: Notify::new(),
             started: Mutex::new(false),
@@ -173,7 +172,7 @@ impl EnqueuedInvocation {
             false => {
                 *started = true;
                 true
-            }
+            },
         }
     }
 
@@ -266,10 +265,10 @@ impl<T: Ord> PartialEq for MinHeapEnqueuedInvocation<T> {
 #[cfg(test)]
 mod heapstructs {
     use super::*;
-    use iluvatar_library::logging::LocalTime;
+    use iluvatar_library::clock::{get_global_clock, Clock};
     use std::collections::{BinaryHeap, HashMap};
 
-    fn min_item(name: &str, priority: f64, clock: &LocalTime) -> MinHeapFloat {
+    fn min_item(name: &str, priority: f64, clock: &Clock) -> MinHeapFloat {
         let rf = Arc::new(RegisteredFunction {
             function_name: name.to_string(),
             function_version: name.to_string(),
@@ -289,6 +288,8 @@ mod heapstructs {
                 name.to_string(),
                 name.to_string(),
                 clock.now(),
+                0.0,
+                0.0,
             )),
             priority,
             0.0,
@@ -297,7 +298,7 @@ mod heapstructs {
 
     #[test]
     fn min_f64() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut heap = BinaryHeap::new();
         let item1 = min_item("1", 1.0, &clock);
         let item2 = min_item("2", 2.0, &clock);
@@ -331,7 +332,7 @@ mod heapstructs {
         );
     }
 
-    fn item_i64(name: &str, priority: i64, clock: &LocalTime) -> MinHeapEnqueuedInvocation<i64> {
+    fn item_i64(name: &str, priority: i64, clock: &Clock) -> MinHeapEnqueuedInvocation<i64> {
         let rf = Arc::new(RegisteredFunction {
             function_name: name.to_string(),
             function_version: name.to_string(),
@@ -351,6 +352,8 @@ mod heapstructs {
                 name.to_string(),
                 name.to_string(),
                 clock.now(),
+                0.0,
+                0.0,
             )),
             priority,
             0.0,
@@ -358,7 +361,7 @@ mod heapstructs {
     }
     #[test]
     fn min_i64() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut heap = BinaryHeap::new();
         let item1 = item_i64("1", 1, &clock);
         let item2 = item_i64("2", 2, &clock);
@@ -391,7 +394,7 @@ mod heapstructs {
             "3"
         );
     }
-    fn item_datetime(name: &str, clock: &LocalTime) -> MinHeapEnqueuedInvocation<OffsetDateTime> {
+    fn item_datetime(name: &str, clock: &Clock) -> MinHeapEnqueuedInvocation<OffsetDateTime> {
         let t = clock.now();
         let rf = Arc::new(RegisteredFunction {
             function_name: name.to_string(),
@@ -407,14 +410,21 @@ mod heapstructs {
             historical_runtime_data_sec: HashMap::new(),
         });
         MinHeapEnqueuedInvocation::new(
-            Arc::new(EnqueuedInvocation::new(rf, name.to_string(), name.to_string(), t)),
+            Arc::new(EnqueuedInvocation::new(
+                rf,
+                name.to_string(),
+                name.to_string(),
+                t,
+                0.0,
+                0.0,
+            )),
             t,
             0.0,
         )
     }
     #[test]
     fn min_datetime() {
-        let clock = LocalTime::new(&"clock".to_string()).unwrap();
+        let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut heap = BinaryHeap::new();
         let item1 = item_datetime("1", &clock);
         let item2 = item_datetime("2", &clock);

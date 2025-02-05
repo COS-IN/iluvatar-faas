@@ -1,7 +1,6 @@
-use crate::services::{
-    containers::docker::DockerConfig,
-    invocation::queueing::{gpu_mqfq::MqfqConfig, EnqueueingPolicy},
-};
+use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
+use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
+use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
 use config::{Config, File};
 use iluvatar_library::{
     energy::EnergyConfig,
@@ -38,7 +37,8 @@ pub struct Configuration {
     /// full URL to access the controller/load balancer, required for worker registration.
     /// If missing or empty, the worker will not try and register with the controller.
     /// If registration fails, the worker will exit.
-    pub load_balancer_url: Option<String>,
+    pub load_balancer_host: Option<String>,
+    pub load_balancer_port: Option<Port>,
     /// Optional because energy monitoring is not required
     pub energy: Option<Arc<EnergyConfig>>,
     pub invocation: Arc<InvocationConfig>,
@@ -72,7 +72,7 @@ pub struct ContainerResourceConfig {
     pub concurrent_creation: u32,
 
     /// Configuration to be passed to Docker
-    /// Currently this is also passed to Containerd for repository autentication
+    /// Currently this is also passed to Containerd for repository authentication
     pub docker_config: Option<DockerConfig>,
     /// Settings for the CPU compute resources the worker can use
     pub cpu_resource: Arc<CPUResourceConfig>,
@@ -80,28 +80,26 @@ pub struct ContainerResourceConfig {
     pub gpu_resource: Option<Arc<GPUResourceConfig>>,
 }
 #[derive(Debug, Deserialize, Default)]
-/// Configuration detailing a single type of compute
+/// Configuration detailing a single type of compute.
 pub struct CPUResourceConfig {
     /// number of cores it can use, i.e. number of concurrent functions allowed at once
-    /// If this is set to 0, then allocations of the resource will not be managed.
-    /// Depending on resource type, will not be allowed (i.e. GPU must have exact number)
+    /// If this is set to 0, then allocations of CPUs will not be limited
     pub count: u32,
-    /// If provided and greated than [Self::count], the resource will be over-subscribed to that limit
-    /// Not all resources support oversubscription
+    /// If provided and greater than [Self::count], the resource will be over-subscribed to that limit
     pub max_oversubscribe: Option<u32>,
     /// Frequency at which to check the system load and optionally increase the allowed invocation concurrency.
     /// Used with [Self::max_oversubscribe], disabled if 0
     pub concurrency_update_check_ms: Option<u64>,
     /// The maximum normalized load average before reducing concurrency.
-    /// Used with [Self::max_oversubscribe] and cannot be 0
+    /// Used with [Self::max_oversubscribe] and cannot be 0.
+    /// Ilúvatar assumes that it will be the only program running on the system with this enabled, and has access to all CPUs.
     pub max_load: Option<f64>,
 }
 #[derive(Debug, Deserialize, Default)]
 /// Configuration detailing a single type of compute
 pub struct GPUResourceConfig {
     /// Number of GPU devices it can use, i.e. number of concurrent functions allowed at once.
-    /// If this is set to 0, then allocations of the resource will not be managed.
-    /// Depending on resource type, will not be allowed (i.e. GPU must have exact number).
+    /// If this is set to 0, then GPUs will not be used by the worker
     pub count: u32,
     /// The amount of physical memory each GPU has.
     /// Used for simulations
@@ -186,10 +184,19 @@ pub struct InvocationConfig {
     /// The policy by which the worker decides how to enqueue polymorphic functions
     /// By default it uses [EnqueueingPolicy::All]
     pub enqueueing_policy: Option<EnqueueingPolicy>,
+    pub enqueuing_log_details: Option<bool>,
+    pub speedup_ratio: Option<f64>,
     /// If present and not zero, invocations with an execution duration less than this
     ///   will bypass concurrency restrictions and be run immediately
     pub bypass_duration_ms: Option<u64>,
     pub mqfq_config: Option<Arc<MqfqConfig>>,
+    pub landlord_config: Option<Arc<LandlordConfig>>,
+    pub greedy_weight_config: Option<Arc<GreedyWeightConfig>>,
+}
+impl InvocationConfig {
+    pub fn log_details(&self) -> bool {
+        self.enqueuing_log_details.unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -205,7 +212,7 @@ pub struct NetworkingConfig {
     pub cni_name: String,
     /// use a pool of network namespaces
     pub use_pool: bool,
-    /// number of free namspaces to keep in the pool
+    /// number of free namespaces to keep in the pool
     pub pool_size: usize,
     /// frequency of namespace pool monitor runs, in milliseconds
     pub pool_freq_ms: u64,
@@ -247,7 +254,7 @@ impl Configuration {
                     Ok(s) => s,
                     Err(e) => {
                         anyhow::bail!("Failed to set override '{}' to '{}' because {}", k, v, e)
-                    }
+                    },
                 };
             }
         }

@@ -49,11 +49,11 @@ impl DynBatchGpuQueue {
             dashmap::mapref::entry::Entry::Occupied(mut v) => {
                 est_time = self.cmap.get_gpu_exec_time(&item.registration.fqdn);
                 v.get_mut().add(item.clone(), est_time);
-            }
+            },
             dashmap::mapref::entry::Entry::Vacant(e) => {
                 est_time = self.cmap.get_gpu_cold_time(&item.registration.fqdn);
                 e.insert(GpuBatch::new(item.clone(), est_time));
-            }
+            },
         }
         *self.est_time.lock() += est_time;
         Ok(())
@@ -83,7 +83,6 @@ impl GpuQueuePolicy for DynBatchGpuQueue {
     /// The GPU may already be running functions and we may want to run a single invocation for more fine-grained scheduling.
     /// Ideally want to schedule individual functions. Batch as unit of execution seems too coarse-grained.
     /// Need approx snapshot of GPU state and capacity. What functions may be resident, memory, etc.
-
     fn pop_queue(&self) -> Option<GpuBatch> {
         let batch_key = self
             .invoke_batches
