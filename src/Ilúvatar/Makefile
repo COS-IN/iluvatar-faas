@@ -47,17 +47,15 @@ flame:
 	@echo "TODO: implement running flame"
 test:
 	@echo "Running unit tests"
-		@# containerd networking nonsense breaks tests
-		@	# can't connect to containers?
-		@	# container startup fails because of PID issue -> https://github.com/moby/moby/issues/44335
-		@	# Network namespaces are broken -> https://github.com/containerd/containerd/issues/3667
-		@	# need to clean them up anyway "somehow"
-		@# Current plan ==> make all live tests use Docker!
-		@# these hacks seem to be working well
-		@#CROSS_CONTAINER_OPTS="--network=host --cap-add CAP_SYS_ADMIN --cap-add NET_ADMIN --security-opt apparmor=unconfined"
-		@RUSTFLAGS=$(RUST_FLAGS) CROSS_CONTAINER_ENGINE="docker" CROSS_CONTAINER_UID=0 \
-			CROSS_CONTAINER_OPTS="--network=host" \
-			CROSS_ROOTLESS_CONTAINER_ENGINE="auto" $(RUST_C) test --jobs $(NPROCS) $(CARGO_ARGS)
+	@# containerd networking nonsense breaks tests
+	@# See TODO.md
+	@# these hacks seem to be working well
+	@RUSTFLAGS=$(RUST_FLAGS) CROSS_CONTAINER_ENGINE="docker" CROSS_CONTAINER_UID=0 \
+		CROSS_CONTAINER_OPTS="--network=host" \
+		CROSS_ROOTLESS_CONTAINER_ENGINE="auto" $(RUST_C) test --jobs $(NPROCS) $(CARGO_ARGS)
+	@# Clean up containers from testing.
+	@docker ps --filter "label=owner=iluvatar_worker" -q | xargs --no-run-if-empty docker kill
+	@docker ps --filter "label=owner=iluvatar_worker" -aq | xargs --no-run-if-empty docker rm
 format:
 	@cargo fmt --all
 format-check:

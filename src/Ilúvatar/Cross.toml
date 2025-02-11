@@ -1,6 +1,5 @@
 [build.env]
-volumes = ["/etc/timezone=/etc/timezone",
-           "/var/run/docker.sock=/var/run/docker.sock"]
+volumes = ["/var/run/docker.sock=/var/run/docker.sock"]
 
 [build]
 pre-build = [
@@ -10,13 +9,3 @@ pre-build = [
     "ln -snf /usr/share/zoneinfo/America/Indiana/Indianapolis /etc/localtime",
     "echo America/Indiana/Indianapolis > /etc/timezone"
 ]
-
-#[build]
-#dockerfile = "./.cargo/Dockerfile.cross"
-#image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:edge"
-
-#[target]
-#runner = "native"
-#image = ":edge"
-#runner = 'sudo -E'
-#runner = "qemu-system"

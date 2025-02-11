@@ -578,50 +578,6 @@ impl ContainerdIsolation {
             Ok(_) => Ok(()),
             Err(e) => bail_error!(tid=%tid, error=%e, image_name=image_name, "Error pulling image"),
         }
-
-        // let mut args = vec!["images", "pull", "--snapshotter", self.config.snapshotter.as_str()];
-        // let auth_str;
-        // if let Some(docker) = &self.docker_config {
-        //     if let Some(auth) = &docker.auth {
-        //         if !auth.repository.is_empty() && image_name.starts_with(auth.repository.as_str()) {
-        //             args.push("--user");
-        //             auth_str = format!("{}:{}", auth.username, auth.password);
-        //             args.push(auth_str.as_str());
-        //         }
-        //     }
-        // }
-        // args.push(image_name);
-        // let output = iluvatar_library::utils::execute_cmd("/usr/bin/ctr", args, None, tid);
-        // match output {
-        //     Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
-        //     Ok(output) => {
-        //         if let Some(status) = output.status.code() {
-        //             if status == 0 {
-        //                 self.downloaded_images.insert(image_name.to_owned(), true);
-        //                 Ok(())
-        //             } else {
-        //                 let stdout = String::from_utf8_lossy(&output.stdout);
-        //                 let stderr = String::from_utf8_lossy(&output.stderr);
-        //                 anyhow::bail!(
-        //                     "Failed to pull the image '{}' with exit code of '{}', stdout '{}', stderr '{}'",
-        //                     image_name,
-        //                     output.status,
-        //                     stdout,
-        //                     stderr
-        //                 )
-        //             }
-        //         } else {
-        //             let stdout = String::from_utf8_lossy(&output.stdout);
-        //             let stderr = String::from_utf8_lossy(&output.stderr);
-        //             anyhow::bail!(
-        //                 "Failed to pull the image '{}' with unkonwn exit code, stdout '{}', stderr '{}'",
-        //                 image_name,
-        //                 stdout,
-        //                 stderr
-        //             )
-        //         }
-        //     },
-        // }
     }
 
     /// Create a container using the given image in the specified namespace
@@ -978,7 +934,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 Ok(_events) => {
                     // stderr was written to, gunicorn server is either up or crashed
                     match inotify.watches().remove(dscriptor) {
-                        Ok(_) => tokio::time::sleep(Duration::from_secs(5)).await,
+                        Ok(_) => (),
                         Err(e) => bail_error!(error=%e, tid=%tid, "Deleting inotify watch failed"),
                     };
                     break;

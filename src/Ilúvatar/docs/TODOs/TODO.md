@@ -114,9 +114,23 @@ Simple way: inject `basename` of logging config into each log statement and can 
 
 Probably use a filter in `tracing-subscriber`, see [here](https://stackoverflow.com/questions/76939805/tracing-how-to-filter-logs-under-specified-levels-for-layer) and [here](https://docs.rs/tracing-subscriber/0.3.16/tracing_subscriber/layer/index.html#filtering-with-layers).
 
-## CI Testing
+## Docker-in-Docker Containerd for tests
 
-Run automated tests in Github actions CI.
+It would be good if we had some tests that tested live containerd usage.
+Currently broken in favor of supporting D-in-D to enable CI tests.
+
+Issues:
+    - Can't connect to containers from worker?
+    - Container startup may fail because of PID issue -> https://github.com/moby/moby/issues/44335
+    - D-in-D Network namespaces are broken with this problem -> https://github.com/containerd/containerd/issues/3667
+    - need to clean them up anyway "somehow"
+
+These allow manipulation of netns, but they are corrupted & hard to clean up
+`CROSS_CONTAINER_OPTS="--network=host --cap-add CAP_SYS_ADMIN --cap-add NET_ADMIN --security-opt apparmor=unconfined"`
+
+Alternate is to run build inside Cross QEMU system.
+But we can't install dependencies inside the VM currently.
+Something like this might make it happen: https://github.com/cross-rs/cross/issues/1621
 
 ## Optional Memory capping
 

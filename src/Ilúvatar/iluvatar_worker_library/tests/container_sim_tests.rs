@@ -163,6 +163,38 @@ mod compute_iso_matching {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn prefer_ctd_container() {
+        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let request = RegisterRequest {
+            function_name: "test".to_string(),
+            function_version: "test".to_string(),
+            cpus: 1,
+            memory: 128,
+            parallel_invokes: 1,
+            image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+            transaction_id: "testTID".to_string(),
+            language: LanguageRuntime::Nolang.into(),
+            compute: Compute::CPU.bits(),
+            isolate: (Isolation::DOCKER | Isolation::CONTAINERD).bits(),
+            resource_timings_json: "".to_string(),
+        };
+        let reg = reg
+            .register(request, &TEST_TID)
+            .await
+            .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
+        cm.prewarm(&reg, &TEST_TID, Compute::CPU)
+            .await
+            .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+        let c = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
+            EventualItem::Future(f) => f.await,
+            EventualItem::Now(n) => n,
+        }
+        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        assert_eq!(c.container.container_type(), Isolation::CONTAINERD);
+        assert_eq!(c.container.compute_type(), Compute::CPU);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cant_request_not_registered_compute_gpu() {
         let env = build_gpu_env();
         let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;

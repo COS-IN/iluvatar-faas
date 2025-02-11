@@ -194,6 +194,8 @@ mod registration {
         );
     }
 
+    #[ignore]
+    // ignored because containerd testing is currently broken
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn image_invalid_registration_fails_ctr() {
         let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
@@ -237,15 +239,11 @@ mod registration {
             resource_timings_json: "".to_string(),
         };
         let err = reg.register(input, &TEST_TID).await;
-        match err {
-            Ok(_) => panic!("registration succeeded when it should have failed!"),
-            Err(e) => {
-                let e_str = e.to_string();
-                if !e_str.contains("Failed to pull image") {
-                    panic!("unexpected error: {:?}", e);
-                }
-            },
-        };
+        assert_error!(
+            err,
+            "Failed to pull image",
+            "registration succeeded when it should have failed!"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -368,45 +366,6 @@ mod prewarm {
         assert_eq!(cast_container.function.function_version, "test");
         assert_eq!(c.container.container_type(), Isolation::DOCKER);
         assert_eq!(c.container.compute_type(), Compute::CPU);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn prefer_ctd_container() {
-        // TODO: this
-        //     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
-        //     let request = RegisterRequest {
-        //         function_name: "test".to_string(),
-        //         function_version: "test".to_string(),
-        //         cpus: 1,
-        //         memory: 128,
-        //         parallel_invokes: 1,
-        //         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-        //         transaction_id: "testTID".to_string(),
-        //         language: LanguageRuntime::Nolang.into(),
-        //         compute: Compute::CPU.bits(),
-        //         isolate: (Isolation::DOCKER | Isolation::CONTAINERD).bits(),
-        //         resource_timings_json: "".to_string(),
-        //     };
-        //     let reg = _reg
-        //         .register(request, &TEST_TID)
-        //         .await
-        //         .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-        //     cm.prewarm(&reg, &TEST_TID, Compute::CPU)
-        //         .await
-        //         .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
-        //     let c = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
-        //         EventualItem::Future(f) => f.await,
-        //         EventualItem::Now(n) => n,
-        //     }
-        //     .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-        //     let cast_container = match cast::<ContainerdContainer>(&c.container) {
-        //         Ok(c) => c,
-        //         Err(e) => panic!("{:?}", e),
-        //     };
-        //     assert_eq!(cast_container.function.function_name, "test");
-        //     assert_eq!(cast_container.function.function_version, "test");
-        //     assert_eq!(c.container.container_type(), Isolation::CONTAINERD);
-        //     assert_eq!(c.container.compute_type(), Compute::CPU);
     }
 }
 

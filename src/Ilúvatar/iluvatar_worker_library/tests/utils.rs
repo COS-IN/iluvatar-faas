@@ -247,7 +247,7 @@ pub async fn sim_invoker_svc(
 pub async fn test_invoker_svc(
     config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
-    log: Option<bool>,
+    log: Option<&str>,
 ) -> (
     Option<impl Drop>,
     WorkerConfig,
@@ -256,7 +256,7 @@ pub async fn test_invoker_svc(
     Arc<RegistrationService>,
 ) {
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
-    let log = log.unwrap_or(false);
+
     let cfg: WorkerConfig = iluvatar_library::load_config_default!(
         "iluvatar_worker_library/tests/resources/worker.json",
         config_pth,
@@ -264,20 +264,23 @@ pub async fn test_invoker_svc(
         WORKER_ENV_PREFIX
     )
     .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
-    let fake_logging = Arc::new(LoggingConfig {
-        level: cfg.logging.level.clone(),
-        spanning: cfg.logging.spanning.clone(),
-        directory: "/tmp".to_string(),
-        basename: "test".to_string(),
-        stdout: Some(log),
-        ..Default::default()
-    });
+
     let _log = match log {
-        true => Some(
-            start_tracing(fake_logging, &cfg.name, &TEST_TID)
-                .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
-        ),
-        false => None,
+        Some(level) => {
+            let fake_logging = Arc::new(LoggingConfig {
+                level: level.to_string(),
+                spanning: cfg.logging.spanning.clone(),
+                directory: "/tmp".to_string(),
+                basename: "test".to_string(),
+                stdout: Some(true),
+                ..Default::default()
+            });
+            Some(
+                start_tracing(fake_logging, &cfg.name, &TEST_TID)
+                    .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
+            )
+        },
+        None => None,
     };
     let load_avg = build_load_avg_signal();
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
@@ -372,7 +375,7 @@ pub async fn cust_register(
         transaction_id: "testTID".to_string(),
         language: LanguageRuntime::Nolang.into(),
         compute: Compute::CPU.bits(),
-        isolate: Isolation::CONTAINERD.bits(),
+        isolate: Isolation::DOCKER.bits(),
         resource_timings_json: "".to_string(),
     };
     register_internal(reg, req, tid).await
