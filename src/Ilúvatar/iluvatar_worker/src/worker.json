@@ -52,6 +52,9 @@
     },
     "gpu_resource": {
         "count": 0 
+    },
+    "docker_config": {
+      "avoid_pull": true
     }
   },
   "networking": {

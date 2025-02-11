@@ -20,7 +20,7 @@
   },
   "invocation": {
     "retries": 0,
-    "queue_sleep_ms": 1,
+    "queue_sleep_ms": 100,
     "queue_policies": {
       "cpu": "fcfs",
       "gpu": "fcfs"
@@ -53,6 +53,9 @@
         "count": 0,
         "memory_mb": 1024,
         "funcs_per_device": 1
+    },
+    "docker_config": {
+      "avoid_pull": true
     }
   },
   "load_balancer_url": "",
