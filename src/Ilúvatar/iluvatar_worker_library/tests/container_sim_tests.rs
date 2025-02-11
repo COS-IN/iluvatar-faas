@@ -211,7 +211,7 @@ mod compute_iso_matching {
         let func = reg.register(req, &TEST_TID).await;
         assert_error!(
             func,
-            "Could not register function for compute GPU because the worker has no devices of that type!",
+            "Could not register function for compute gpu because the worker has no devices of that type!",
             ""
         );
     }
@@ -235,7 +235,7 @@ mod compute_iso_matching {
         let func = reg.register(req, &TEST_TID).await;
         assert_error!(
             func,
-            "Could not register function for compute FPGA because the worker has no devices of that type!",
+            "Could not register function for compute fpga because the worker has no devices of that type!",
             ""
         );
     }

@@ -21,12 +21,16 @@ use client::tonic::Code;
 use client::types::Descriptor;
 use client::with_namespace;
 use containerd_client as client;
+use containerd_client::services::v1::streaming_client::StreamingClient;
+use containerd_client::services::v1::transfer_client::TransferClient;
+use containerd_client::services::v1::TransferRequest;
 use containerd_client::tonic::{transport::Channel, Request};
+use containerd_client::types::transfer::{ImageStore, OciRegistry, RegistryResolver, UnpackConfiguration};
+use containerd_client::types::Platform;
 use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, Compute, Isolation, ResultErrorVal};
-use iluvatar_library::utils::execute_cmd;
 use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
     file::{temp_file_pth, touch, try_remove_pth},
@@ -45,6 +49,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
@@ -470,53 +475,153 @@ impl ContainerdIsolation {
     }
 
     /// Ensures that the specified image is available on the machine
-    async fn ensure_image(&self, image_name: &str, tid: &TransactionId) -> Result<()> {
+    async fn ensure_image(&self, image_name: &str, tid: &TransactionId, namespace: &str) -> Result<()> {
         if self.downloaded_images.contains_key(image_name) {
             return Ok(());
         }
-        let mut args = vec!["images", "pull", "--snapshotter", self.config.snapshotter.as_str()];
-        let auth_str;
+        let mut resolver = None;
+        let mut _stream_client;
+        let mut _stream = None;
+        let trans_options = None;
+        let stream_uuid = Uuid::new_v4().to_string();
         if let Some(docker) = &self.docker_config {
             if let Some(auth) = &docker.auth {
                 if !auth.repository.is_empty() && image_name.starts_with(auth.repository.as_str()) {
-                    args.push("--user");
-                    auth_str = format!("{}:{}", auth.username, auth.password);
-                    args.push(auth_str.as_str());
+                    _stream_client = StreamingClient::new(self.channel().clone());
+                    let req = containerd_client::services::v1::StreamInit {
+                        id: stream_uuid.clone(),
+                    };
+                    let req = containerd_client::to_any(&req);
+                    // let req= with_namespace!(req, namespace);
+                    // let req = containerd_client::to_any(&req);
+                    // tokio_stream::iter(any_init)
+                    info!(tid=%tid, uuid=%stream_uuid, "sending stream request");
+
+                    let mut stream = match _stream_client.stream(tokio_stream::iter([req])).await {
+                        Ok(s) => s.into_inner(),
+                        Err(e) => bail_error!(tid=%tid, error=%e, "stream init failed"),
+                    };
+                    info!(tid=%tid, "checking stream 1!");
+                    match stream.message().await {
+                        Err(e) => bail_error!(tid=%tid, error=%e, "rcv stream init failed"),
+                        Ok(None) => info!(tid=%tid, "init stream closed?"),
+                        Ok(Some(val)) => info!(tid=%tid, value=?val, "init stream value"),
+                    };
+                    _stream = Some(stream);
+                    // trans_options = Some(containerd_client::services::v1::TransferOptions { progress_stream:stream_uuid.clone() });
+                    resolver = Some(RegistryResolver {
+                        auth_stream: stream_uuid.clone(),
+                        ..Default::default()
+                    });
                 }
             }
         }
-        args.push(image_name);
-        let output = execute_cmd("/usr/bin/ctr", args, None, tid);
-        match output {
-            Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
-            Ok(output) => {
-                if let Some(status) = output.status.code() {
-                    if status == 0 {
-                        self.downloaded_images.insert(image_name.to_owned(), true);
-                        Ok(())
-                    } else {
-                        let stdout = String::from_utf8_lossy(&output.stdout);
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        anyhow::bail!(
-                            "Failed to pull the image '{}' with exit code of '{}', stdout '{}', stderr '{}'",
-                            image_name,
-                            output.status,
-                            stdout,
-                            stderr
-                        )
-                    }
-                } else {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    anyhow::bail!(
-                        "Failed to pull the image '{}' with unkonwn exit code, stdout '{}', stderr '{}'",
-                        image_name,
-                        stdout,
-                        stderr
-                    )
-                }
-            },
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        let source = OciRegistry {
+            reference: image_name.to_string(),
+            resolver,
+        };
+        let arch = match std::env::consts::ARCH {
+            "x86_64" => "amd64",
+            "aarch64" => "arm64",
+            _ => std::env::consts::ARCH,
+        };
+        let platform = Platform {
+            os: "linux".to_string(),
+            architecture: arch.to_string(),
+            ..Default::default()
+        };
+
+        let destination = ImageStore {
+            name: image_name.to_string(),
+            platforms: vec![platform.clone()],
+            unpacks: vec![UnpackConfiguration {
+                platform: Some(platform),
+                snapshotter: self.config.snapshotter.to_owned(),
+            }],
+            ..Default::default()
+        };
+
+        let anys = containerd_client::to_any(&source);
+        let anyd = containerd_client::to_any(&destination);
+        let request = TransferRequest {
+            source: Some(anys),
+            destination: Some(anyd),
+            options: trans_options,
+        };
+        // Execute the transfer (pull)
+        info!(tid=%tid, "starting transfer");
+        // if let Some(stream) = _stream.as_mut() {
+        //     info!(tid=%tid, "checking stream 2!");
+        //     match stream.message().await {
+        //         Err(e) => bail_error!(tid=%tid, error=%e, "rcv stream init failed"),
+        //         Ok(None) => info!(tid=%tid, "init stream closed?"),
+        //         Ok(Some(val)) => info!(tid=%tid, value=?val, "init stream value")
+        //     };
+        // }
+        let cnl = self.channel().clone();
+        let nm = namespace.to_string();
+        let j = tokio::spawn(async move {
+            let mut client = TransferClient::new(cnl);
+            client.transfer(with_namespace!(request, nm)).await
+        });
+        // let t = .await;
+        // if let Some(stream) = _stream.as_mut() {
+        //     info!(tid=%tid, "checking stream 3!");
+        //     match stream.message().await {
+        //         Err(e) => bail_error!(tid=%tid, error=%e, "rcv stream init failed"),
+        //         Ok(None) => info!(tid=%tid, "init stream closed?"),
+        //         Ok(Some(val)) => info!(tid=%tid, value=?val, "init stream value")
+        //     };
+        // }
+        match j.await? {
+            Ok(_) => Ok(()),
+            Err(e) => bail_error!(tid=%tid, error=%e, image_name=image_name, "Error pulling image"),
         }
+
+        // let mut args = vec!["images", "pull", "--snapshotter", self.config.snapshotter.as_str()];
+        // let auth_str;
+        // if let Some(docker) = &self.docker_config {
+        //     if let Some(auth) = &docker.auth {
+        //         if !auth.repository.is_empty() && image_name.starts_with(auth.repository.as_str()) {
+        //             args.push("--user");
+        //             auth_str = format!("{}:{}", auth.username, auth.password);
+        //             args.push(auth_str.as_str());
+        //         }
+        //     }
+        // }
+        // args.push(image_name);
+        // let output = iluvatar_library::utils::execute_cmd("/usr/bin/ctr", args, None, tid);
+        // match output {
+        //     Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
+        //     Ok(output) => {
+        //         if let Some(status) = output.status.code() {
+        //             if status == 0 {
+        //                 self.downloaded_images.insert(image_name.to_owned(), true);
+        //                 Ok(())
+        //             } else {
+        //                 let stdout = String::from_utf8_lossy(&output.stdout);
+        //                 let stderr = String::from_utf8_lossy(&output.stderr);
+        //                 anyhow::bail!(
+        //                     "Failed to pull the image '{}' with exit code of '{}', stdout '{}', stderr '{}'",
+        //                     image_name,
+        //                     output.status,
+        //                     stdout,
+        //                     stderr
+        //                 )
+        //             }
+        //         } else {
+        //             let stdout = String::from_utf8_lossy(&output.stdout);
+        //             let stderr = String::from_utf8_lossy(&output.stderr);
+        //             anyhow::bail!(
+        //                 "Failed to pull the image '{}' with unkonwn exit code, stdout '{}', stderr '{}'",
+        //                 image_name,
+        //                 stdout,
+        //                 stderr
+        //             )
+        //         }
+        //     },
+        // }
     }
 
     /// Create a container using the given image in the specified namespace
@@ -768,9 +873,10 @@ impl ContainerIsolationService for ContainerdIsolation {
         &self,
         rf: &mut RegisteredFunction,
         _fqdn: &str,
+        namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
-        self.ensure_image(&rf.image_name, tid).await?;
+        self.ensure_image(&rf.image_name, tid, namespace).await?;
         let snapshot_base = self.search_image_digest(&rf.image_name, "default", tid).await?;
         rf.snapshot_base = snapshot_base;
         Ok(())
@@ -872,7 +978,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 Ok(_events) => {
                     // stderr was written to, gunicorn server is either up or crashed
                     match inotify.watches().remove(dscriptor) {
-                        Ok(e) => e,
+                        Ok(_) => tokio::time::sleep(Duration::from_secs(5)).await,
                         Err(e) => bail_error!(error=%e, tid=%tid, "Deleting inotify watch failed"),
                     };
                     break;

@@ -299,14 +299,14 @@ impl GpuResourceTracker {
             if config.count == 0 {
                 return Ok(None);
             }
-            match config.mig_enabled() {
-                true => Self::enable_mig(tid),
-                false => Self::disable_mig(tid),
-            }?;
-
             let (gpu_structs, metadata) = Self::prepare_structs(&config, tid)?;
             let mut nvml = None;
             if !iluvatar_library::utils::is_simulation() {
+                match config.mig_enabled() {
+                    true => Self::enable_mig(tid),
+                    false => Self::disable_mig(tid),
+                }?;
+
                 if config.mps_enabled() {
                     if docker.is_some() {
                         if let Some(docker) = docker.as_ref().unwrap().as_any().downcast_ref::<DockerIsolation>() {

@@ -78,6 +78,7 @@ impl ContainerIsolationService for SimulatorIsolation {
         &self,
         rf: &mut RegisteredFunction,
         _fqdn: &str,
+        namespace: &str,
         _tid: &TransactionId,
     ) -> Result<()> {
         Ok(())

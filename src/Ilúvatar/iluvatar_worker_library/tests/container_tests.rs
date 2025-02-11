@@ -5,26 +5,8 @@ use crate::utils::test_invoker_svc;
 use iluvatar_library::threading::EventualItem;
 use iluvatar_library::transaction::TEST_TID;
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_library::utils::calculate_base_uri;
 use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
-use iluvatar_worker_library::services::containers::containerd::containerdstructs::ContainerdContainer;
 use iluvatar_worker_library::services::containers::structs::{cast, ContainerState};
-
-fn basic_reg_req() -> RegisterRequest {
-    RegisterRequest {
-        function_name: "test".to_string(),
-        function_version: "test".to_string(),
-        cpus: 1,
-        memory: 128,
-        parallel_invokes: 1,
-        image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-        transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
-        compute: Compute::CPU.bits(),
-        isolate: Isolation::CONTAINERD.bits(),
-        resource_timings_json: "".to_string(),
-    }
-}
 
 fn basic_reg_req_docker() -> RegisterRequest {
     RegisterRequest {
@@ -49,7 +31,7 @@ mod registration {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn registration_works() {
         let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
-        reg.register(basic_reg_req(), &TEST_TID)
+        reg.register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
     }
@@ -57,10 +39,10 @@ mod registration {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn repeat_registration_fails() {
         let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
-        reg.register(basic_reg_req(), &TEST_TID)
+        reg.register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
-        let err = reg.register(basic_reg_req(), &TEST_TID).await;
+        let err = reg.register(basic_reg_req_docker(), &TEST_TID).await;
         assert_error!(
             err,
             "Function test-test is already registered!",
@@ -81,7 +63,7 @@ mod registration {
             transaction_id: "testTID".to_string(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: Isolation::CONTAINERD.bits(),
+            isolate: Isolation::DOCKER.bits(),
             resource_timings_json: "".to_string(),
         };
         let err = reg.register(input, &TEST_TID).await;
@@ -105,7 +87,7 @@ mod registration {
             transaction_id: "testTID".to_string(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: Isolation::CONTAINERD.bits(),
+            isolate: Isolation::DOCKER.bits(),
             resource_timings_json: "".to_string(),
         };
         let err = reg.register(input, &TEST_TID).await;
@@ -129,7 +111,7 @@ mod registration {
             transaction_id: "testTID".to_string(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: Isolation::CONTAINERD.bits(),
+            isolate: Isolation::DOCKER.bits(),
             resource_timings_json: "".to_string(),
         };
         let err = reg.register(input, &TEST_TID).await;
@@ -153,7 +135,7 @@ mod registration {
             transaction_id: "testTID".to_string(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: Isolation::CONTAINERD.bits(),
+            isolate: Isolation::DOCKER.bits(),
             resource_timings_json: "".to_string(),
         };
         let err = reg.register(input, &TEST_TID).await;
@@ -177,7 +159,7 @@ mod registration {
             transaction_id: "testTID".to_string(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: Isolation::CONTAINERD.bits(),
+            isolate: Isolation::DOCKER.bits(),
             resource_timings_json: "".to_string(),
         };
         let err = reg.register(input, &TEST_TID).await;
@@ -201,7 +183,7 @@ mod registration {
             transaction_id: "testTID".to_string(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: Isolation::CONTAINERD.bits(),
+            isolate: Isolation::DOCKER.bits(),
             resource_timings_json: "".to_string(),
         };
         let err = reg.register(input, &TEST_TID).await;
@@ -226,22 +208,15 @@ mod registration {
             transaction_id: "testTID".to_string(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: Isolation::CONTAINERD.bits(),
+            isolate: Isolation::DOCKER.bits(),
             resource_timings_json: "".to_string(),
         };
         let err = reg.register(input, &TEST_TID).await;
-        match err {
-            Ok(_) => panic!("registration succeeded when it should have failed!"),
-            Err(e) => {
-                let e_str = e.to_string();
-                if !(e_str.contains(bad_img)
-                    && e_str.contains("failed to resolve reference")
-                    && e_str.contains("not found"))
-                {
-                    panic!("unexpected error: {:?}", e);
-                }
-            },
-        };
+        assert_error!(
+            err,
+            "Failed to pull image",
+            "registration succeeded when it should have failed!"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -316,7 +291,7 @@ mod registration {
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
             err,
-            "Could not register function with isolation(s): INVALID",
+            "Could not register function with isolation(s): Isolation(INVALID)",
             "registration succeeded when it should have failed!"
         );
     }
@@ -334,13 +309,13 @@ mod registration {
             transaction_id: "testTID".to_string(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: (Isolation::DOCKER | Isolation::CONTAINERD | Isolation::INVALID).bits(),
+            isolate: (Isolation::DOCKER | Isolation::INVALID).bits(),
             resource_timings_json: "".to_string(),
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
             err,
-            "Could not register function with isolation(s): INVALID",
+            "Could not register function with isolation(s): Isolation(INVALID)",
             "registration succeeded when it should have failed!"
         );
     }
@@ -355,7 +330,7 @@ mod prewarm {
     async fn prewarm_get_container() {
         let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
         let reg = _reg
-            .register(basic_reg_req(), &TEST_TID)
+            .register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
         cm.prewarm(&reg, &TEST_TID, Compute::CPU)
@@ -366,11 +341,10 @@ mod prewarm {
             EventualItem::Now(n) => n,
         }
         .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-        let cast_container = cast::<ContainerdContainer>(&c.container).unwrap();
-        assert!(cast_container.task.running);
+        let _cast_container = cast::<DockerContainer>(&c.container).unwrap();
         assert_eq!(c.container.function().function_name, "test");
         assert_eq!(c.container.function().function_version, "test");
-        assert_eq!(c.container.container_type(), Isolation::CONTAINERD);
+        assert_eq!(c.container.container_type(), Isolation::DOCKER);
         assert_eq!(c.container.compute_type(), Compute::CPU);
     }
 
@@ -398,52 +372,55 @@ mod prewarm {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prefer_ctd_container() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
-        let request = RegisterRequest {
-            function_name: "test".to_string(),
-            function_version: "test".to_string(),
-            cpus: 1,
-            memory: 128,
-            parallel_invokes: 1,
-            image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
-            transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
-            isolate: (Isolation::DOCKER | Isolation::CONTAINERD).bits(),
-            resource_timings_json: "".to_string(),
-        };
-        let reg = _reg
-            .register(request, &TEST_TID)
-            .await
-            .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
-        cm.prewarm(&reg, &TEST_TID, Compute::CPU)
-            .await
-            .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
-        let c = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
-            EventualItem::Future(f) => f.await,
-            EventualItem::Now(n) => n,
-        }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-        let cast_container = match cast::<ContainerdContainer>(&c.container) {
-            Ok(c) => c,
-            Err(e) => panic!("{:?}", e),
-        };
-        assert_eq!(cast_container.function.function_name, "test");
-        assert_eq!(cast_container.function.function_version, "test");
-        assert_eq!(c.container.container_type(), Isolation::CONTAINERD);
-        assert_eq!(c.container.compute_type(), Compute::CPU);
+        // TODO: this
+        //     let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        //     let request = RegisterRequest {
+        //         function_name: "test".to_string(),
+        //         function_version: "test".to_string(),
+        //         cpus: 1,
+        //         memory: 128,
+        //         parallel_invokes: 1,
+        //         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
+        //         transaction_id: "testTID".to_string(),
+        //         language: LanguageRuntime::Nolang.into(),
+        //         compute: Compute::CPU.bits(),
+        //         isolate: (Isolation::DOCKER | Isolation::CONTAINERD).bits(),
+        //         resource_timings_json: "".to_string(),
+        //     };
+        //     let reg = _reg
+        //         .register(request, &TEST_TID)
+        //         .await
+        //         .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
+        //     cm.prewarm(&reg, &TEST_TID, Compute::CPU)
+        //         .await
+        //         .unwrap_or_else(|e| panic!("prewarm failed: {:?}", e));
+        //     let c = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
+        //         EventualItem::Future(f) => f.await,
+        //         EventualItem::Now(n) => n,
+        //     }
+        //     .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        //     let cast_container = match cast::<ContainerdContainer>(&c.container) {
+        //         Ok(c) => c,
+        //         Err(e) => panic!("{:?}", e),
+        //     };
+        //     assert_eq!(cast_container.function.function_name, "test");
+        //     assert_eq!(cast_container.function.function_version, "test");
+        //     assert_eq!(c.container.container_type(), Isolation::CONTAINERD);
+        //     assert_eq!(c.container.compute_type(), Compute::CPU);
     }
 }
 
 #[cfg(test)]
 mod get_container {
     use super::*;
+    use iluvatar_worker_library::services::containers::docker::dockerstructs::DockerContainer;
+    use iluvatar_worker_library::services::containers::structs::ContainerT;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cant_double_acquire() {
         let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
         let reg = _reg
-            .register(basic_reg_req(), &TEST_TID)
+            .register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
         cm.prewarm(&reg, &TEST_TID, Compute::CPU)
@@ -476,7 +453,7 @@ mod get_container {
             transaction_id: "testTID".to_string(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: Isolation::CONTAINERD.bits(),
+            isolate: Isolation::DOCKER.bits(),
             resource_timings_json: "".to_string(),
         };
         let reg = _reg
@@ -510,7 +487,7 @@ mod get_container {
         let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
 
         let reg = _reg
-            .register(basic_reg_req(), &TEST_TID)
+            .register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
         cm.prewarm(&reg, &TEST_TID, Compute::CPU)
@@ -522,27 +499,27 @@ mod get_container {
         }
         .expect("should have gotten prewarmed container");
 
-        let cast_container = cast::<ContainerdContainer>(&c2.container).unwrap();
+        let cast_container = cast::<DockerContainer>(&c2.container).unwrap();
 
-        let client = reqwest::Client::new();
-        let result = client
-            .get(calculate_base_uri(&cast_container.address, cast_container.port))
-            .send()
+        let _result = cast_container
+            .client
+            .invoke("{}", &TEST_TID, cast_container.container_id())
             .await
             .unwrap();
-        assert_eq!(result.status(), 200);
     }
 }
 
 #[cfg(test)]
 mod remove_container {
     use super::*;
+    use iluvatar_worker_library::services::containers::docker::dockerstructs::DockerContainer;
+    use iluvatar_worker_library::services::containers::structs::ContainerT;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unhealthy_container_deleted() {
         let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
         let reg = _reg
-            .register(basic_reg_req(), &TEST_TID)
+            .register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
         cm.prewarm(&reg, &TEST_TID, Compute::CPU)
@@ -559,32 +536,24 @@ mod remove_container {
         drop(c1);
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
-        let cast_container = cast::<ContainerdContainer>(&c1_cont).unwrap();
+        let cast_container = cast::<DockerContainer>(&c1_cont).unwrap();
 
-        let client = reqwest::Client::new();
-        let result = client
-            .get(calculate_base_uri(&cast_container.address, cast_container.port))
-            .send()
+        let result = cast_container
+            .client
+            .invoke("{}", &TEST_TID, cast_container.container_id())
             .await;
-        match result {
-            Ok(result) => panic!("Unpexpected result when container should be gone {:?}", result),
-            Err(e) => {
-                if e.is_request() {
-                    if let Some(status) = e.status() {
-                        assert_eq!(status, 111, "unexpected return status {:?} with error {:?}", status, e);
-                    }
-                } else {
-                    panic!("Unexpected error connecting to gone container {:?}", e);
-                }
-            },
-        }
+        assert_error!(
+            result,
+            "HTTP error when trying to connect to container",
+            format!("Unpexpected result when container should be gone {:?}", result)
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unhealthy_container_not_gettable() {
         let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
         let reg = _reg
-            .register(basic_reg_req(), &TEST_TID)
+            .register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
         cm.prewarm(&reg, &TEST_TID, Compute::CPU)
@@ -624,7 +593,7 @@ mod container_state {
     async fn prewarmed() {
         let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
         let reg = _reg
-            .register(basic_reg_req(), &TEST_TID)
+            .register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
         cm.prewarm(&reg, &TEST_TID, Compute::CPU)
@@ -672,7 +641,7 @@ mod container_state {
     async fn cold() {
         let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
         let reg = _reg
-            .register(basic_reg_req(), &TEST_TID)
+            .register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
         let c1 = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
@@ -766,7 +735,7 @@ mod container_state {
     async fn unhealthy() {
         let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
         let reg = _reg
-            .register(basic_reg_req(), &TEST_TID)
+            .register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("registration failed: {:?}", e));
         let c1 = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {

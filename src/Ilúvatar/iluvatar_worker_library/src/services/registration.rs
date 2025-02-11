@@ -72,7 +72,7 @@ impl RegistrationService {
 
     fn compute_resource_fail(specific_compute: Compute) -> Result<()> {
         anyhow::bail!(
-            "Could not register function for compute {:?} because the worker has no devices of that type!",
+            "Could not register function for compute {} because the worker has no devices of that type!",
             specific_compute
         );
     }
@@ -137,7 +137,9 @@ impl RegistrationService {
                 continue;
             }
             isolation.remove(*lifecycle_iso);
-            lifecycle.prepare_function_registration(&mut rf, &fqdn, tid).await?;
+            lifecycle
+                .prepare_function_registration(&mut rf, &fqdn, "default", tid)
+                .await?;
         }
         if !isolation.is_empty() {
             anyhow::bail!("Could not register function with isolation(s): {:?}", isolation);

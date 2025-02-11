@@ -77,7 +77,7 @@ impl WorkerAPIFactory {
                         dashmap::mapref::entry::Entry::Occupied(entry) => entry.get().clone(),
                         dashmap::mapref::entry::Entry::Vacant(vacant) => {
                             let worker_config =
-                                match crate::worker_api::worker_config::Configuration::boxed(&Some(host), None) {
+                                match crate::worker_api::worker_config::Configuration::boxed(Some(host), None) {
                                     Ok(w) => w,
                                     Err(e) => {
                                         anyhow::bail!("Failed to load simulation config because '{:?}'", e)

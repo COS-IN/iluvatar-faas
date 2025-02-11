@@ -20,9 +20,10 @@ use iluvatar_worker_library::services::{
     invocation::InvocationResult,
     resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
 };
+use iluvatar_worker_library::worker_api::worker_config::WORKER_ENV_PREFIX;
 use iluvatar_worker_library::{
     services::registration::{RegisteredFunction, RegistrationService},
-    worker_api::config::{Configuration, WorkerConfig},
+    worker_api::config::WorkerConfig,
 };
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
@@ -41,12 +42,11 @@ macro_rules! assert_error {
     };
 }
 
-/// Creates/sets up the structs needed to test an invoker setup
-/// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
+/// Creates/sets up the structs needed to test an invoker setup.
 /// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
 /// [config_pth] is an optional path to config to load
 pub async fn full_sim_invoker(
-    config_pth: Option<String>,
+    config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
     log: Option<bool>,
 ) -> (
@@ -63,10 +63,14 @@ pub async fn full_sim_invoker(
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
     iluvatar_library::utils::set_simulation(tid).unwrap();
     let log = log.unwrap_or(false);
-    let worker_name = "TEST".to_string();
-    let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
-    let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides)
-        .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
+    let cfg: WorkerConfig = iluvatar_library::load_config_default!(
+        "iluvatar_worker_library/tests/resources/worker.json",
+        config_pth,
+        overrides,
+        WORKER_ENV_PREFIX
+    )
+    .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
+
     let fake_logging = Arc::new(LoggingConfig {
         level: cfg.logging.level.clone(),
         spanning: cfg.logging.spanning.clone(),
@@ -74,7 +78,7 @@ pub async fn full_sim_invoker(
     });
     let _log = match log {
         true => Some(
-            start_tracing(fake_logging, &worker_name, &TEST_TID)
+            start_tracing(fake_logging, &cfg.name, &TEST_TID)
                 .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
         ),
         false => None,
@@ -139,11 +143,11 @@ pub async fn full_sim_invoker(
 }
 
 /// Creates/sets up the structs needed to test an invoker setup
-/// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
-/// Passing `log_level` = Some('info')  will enable logging to stdout at the specified level. Only pass this on one test as it will be set globally and can only be done once
+/// Passing `log_level` = Some('info')  will enable logging to stdout at the specified level.
+///     Only pass this on one test as it will be set globally and can only be done once.
 /// `config_pth` is an optional path to config to load
 pub async fn sim_invoker_svc(
-    config_pth: Option<String>,
+    config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
     log_level: Option<&str>,
 ) -> (
@@ -157,10 +161,13 @@ pub async fn sim_invoker_svc(
     let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
     iluvatar_library::utils::set_simulation(tid).unwrap();
-    let worker_name = "TEST".to_string();
-    let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
-    let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides)
-        .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
+    let cfg: WorkerConfig = iluvatar_library::load_config_default!(
+        "iluvatar_worker_library/tests/resources/worker.json",
+        config_pth,
+        overrides,
+        WORKER_ENV_PREFIX
+    )
+    .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
     let _log = match log_level {
         Some(log_level) => {
             let mut fake_logging = (*cfg.logging).clone();
@@ -168,7 +175,7 @@ pub async fn sim_invoker_svc(
             fake_logging.level = log_level.to_string();
             let fake_logging = Arc::new(fake_logging);
             Some(
-                start_tracing(fake_logging, &worker_name, &TEST_TID)
+                start_tracing(fake_logging, &cfg.name, &TEST_TID)
                     .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
             )
         },
@@ -233,12 +240,12 @@ pub async fn sim_invoker_svc(
     (_log, cfg, cm, invoker, reg, cmap)
 }
 
-/// Creates/sets up the structs needed to test an invoker setup
-/// The [env] will set process-level environment vars to adjust config. Clean these up with [clean_env]
-/// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
+/// Creates/sets up the structs needed to test an invoker setup.
+/// Passing [log] = Some(true)  will enable logging to stdout.
+///     Only pass this on one test as it will be set globally and can only be done once.
 /// [config_pth] is an optional path to config to load
 pub async fn test_invoker_svc(
-    config_pth: Option<String>,
+    config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
     log: Option<bool>,
 ) -> (
@@ -250,20 +257,24 @@ pub async fn test_invoker_svc(
 ) {
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
     let log = log.unwrap_or(false);
-    let worker_name = "TEST".to_string();
-    let test_cfg_pth = config_pth.unwrap_or_else(|| "tests/resources/worker.dev.json".to_string());
-    let cfg = Configuration::boxed(&Some(&test_cfg_pth), overrides)
-        .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
+    let cfg: WorkerConfig = iluvatar_library::load_config_default!(
+        "iluvatar_worker_library/tests/resources/worker.json",
+        config_pth,
+        overrides,
+        WORKER_ENV_PREFIX
+    )
+    .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
     let fake_logging = Arc::new(LoggingConfig {
         level: cfg.logging.level.clone(),
         spanning: cfg.logging.spanning.clone(),
         directory: "/tmp".to_string(),
         basename: "test".to_string(),
+        stdout: Some(log),
         ..Default::default()
     });
     let _log = match log {
         true => Some(
-            start_tracing(fake_logging, &worker_name, &TEST_TID)
+            start_tracing(fake_logging, &cfg.name, &TEST_TID)
                 .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
         ),
         false => None,
@@ -339,7 +350,7 @@ fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
         transaction_id: "testTID".to_string(),
         language: LanguageRuntime::Nolang.into(),
         compute: Compute::CPU.bits(),
-        isolate: Isolation::CONTAINERD.bits(),
+        isolate: Isolation::DOCKER.bits(),
         resource_timings_json: "".to_string(),
     }
 }

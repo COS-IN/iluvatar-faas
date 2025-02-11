@@ -1,7 +1,6 @@
 use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
 use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
-use config::{Config, File};
 use iluvatar_library::{
     energy::EnergyConfig,
     influx::InfluxConfig,
@@ -226,51 +225,12 @@ pub struct StatusConfig {
     pub report_freq_ms: u64,
 }
 
+pub const WORKER_ENV_PREFIX: &str = "ILUVATAR_WORKER";
 /// A wrapper type for the loaded global worker configuration
 pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
-    pub fn new(config_fpath: &Option<&str>, overrides: Option<Vec<(String, String)>>) -> anyhow::Result<Self> {
-        let mut sources = vec!["worker/src/worker.json", "worker/src/worker.dev.json"];
-        if let Some(config_fpath) = config_fpath {
-            sources.push(config_fpath);
-        }
-        let mut s = Config::builder()
-            .add_source(
-                sources
-                    .iter()
-                    .filter(|path| std::path::Path::new(&path).exists())
-                    .map(|path| File::with_name(path))
-                    .collect::<Vec<_>>(),
-            )
-            .add_source(
-                config::Environment::with_prefix("ILUVATAR_WORKER")
-                    .try_parsing(true)
-                    .separator("__"),
-            );
-        if let Some(overrides) = overrides {
-            for (k, v) in overrides {
-                s = match s.set_override(&k, v.clone()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        anyhow::bail!("Failed to set override '{}' to '{}' because {}", k, v, e)
-                    },
-                };
-            }
-        }
-        match s.build() {
-            Ok(s) => match s.try_deserialize() {
-                Ok(cfg) => Ok(cfg),
-                Err(e) => anyhow::bail!("Failed to deserialize configuration because '{}'", e),
-            },
-            Err(e) => anyhow::bail!("Failed to build configuration because '{}'", e),
-        }
-    }
-
-    pub fn boxed(
-        config_fpath: &Option<&str>,
-        overrides: Option<Vec<(String, String)>>,
-    ) -> anyhow::Result<WorkerConfig> {
-        Ok(Arc::new(Configuration::new(config_fpath, overrides)?))
+    pub fn boxed(config_fpath: Option<&str>, overrides: Option<Vec<(String, String)>>) -> anyhow::Result<WorkerConfig> {
+        iluvatar_library::config::load_config::<WorkerConfig>("", config_fpath, overrides, WORKER_ENV_PREFIX)
     }
 }

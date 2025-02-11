@@ -1,5 +1,5 @@
 {
-  "name": "test",
+  "name": "local",
   "address": "127.0.0.1",
   "tokio_event_interval": 20,
   "tokio_queue_interval": 20,
@@ -31,8 +31,8 @@
     }
   },
   "logging": {
-    "level": "info",
-    "directory": "/tmp/iluvatar/logs",
+    "level": "debug",
+    "directory": "/home/alfuerst/repos/iluvatar-faas/src/Ilúvatar",
     "basename": "worker",
     "spanning": "NEW+CLOSE",
     "flame": "",
@@ -44,7 +44,7 @@
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 1024,
     "pool_freq_ms": 500,
-    "snapshotter": "overlayfs",
+    "snapshotter": "zfs",
     "concurrent_creation": 5,
     "cpu_resource": {
       "count": 4
@@ -54,6 +54,16 @@
         "memory_mb": 1024,
         "funcs_per_device": 1
     }
+  },
+  "networking": {
+    "bridge": "IlWorkBr0",
+    "cnitool": "/opt/cni/bin/cnitool",
+    "cni_plugin_bin": "/opt/cni/bin",
+    "cni_name": "il_worker_br",
+    "use_pool": true,
+    "pool_size": 2,
+    "pool_freq_ms": 500,
+    "hardware_interface": "eth0"
   },
   "load_balancer_url": "",
   "energy": {

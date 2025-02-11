@@ -69,10 +69,10 @@ impl DockerIsolation {
                 return false;
             },
         };
-        match docker.version().await {
+        match docker.ping().await {
             Ok(_) => true,
             Err(e) => {
-                warn!(tid=%tid, error=%e, "Failed to query docker version");
+                warn!(tid=%tid, error=?e, "Failed to query docker version");
                 false
             },
         }
@@ -376,6 +376,7 @@ impl ContainerIsolationService for DockerIsolation {
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
+        _namespace: &str,
         _fqdn: &str,
         tid: &TransactionId,
     ) -> Result<()> {

@@ -213,7 +213,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         .clone();
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
 
-    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None)?;
+    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(Some(&worker_config_pth), None)?;
     let controller_config =
         iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)?;
     let _guard =

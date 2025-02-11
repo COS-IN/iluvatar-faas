@@ -90,19 +90,7 @@ impl TryInto<ComputeEnum> for &Compute {
     }
     type Error = anyhow::Error;
 }
-// impl IntoIterator for Compute {
-//     type Item = Compute;
-//     type IntoIter = std::vec::IntoIter<Self::Item>;
-//
-//     /// Get a list of the individual compute components in the [Compute] bitmap
-//     fn into_iter(self) -> Self::IntoIter {
-//         vec![Compute::CPU, Compute::GPU, Compute::FPGA]
-//             .into_iter()
-//             .filter(|x| self.contains(*x))
-//             .collect::<Vec<Compute>>()
-//             .into_iter()
-//     }
-// }
+
 impl From<Vec<ComputeEnum>> for Compute {
     fn from(i: Vec<ComputeEnum>) -> Self {
         let mut r = Compute::empty();

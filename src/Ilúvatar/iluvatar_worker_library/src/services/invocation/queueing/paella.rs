@@ -70,21 +70,7 @@ impl PaellaGpuQueue {
 
 impl GpuQueuePolicy for PaellaGpuQueue {
     fn next_batch(&self) -> Option<Arc<RegisteredFunction>> {
-        let mut min_t = 1000000000.0;
-        let mut min_q = None;
-        for que in self.invoke_batches.iter() {
-            if let Some(item) = que.queue.front() {
-                if que.deficit >= self.fairness_thres {
-                    min_q = Some(que);
-                    break;
-                }
-                if min_t > item.est_wall_time {
-                    min_t = item.est_wall_time;
-                    min_q = Some(que);
-                }
-            }
-        }
-        min_q.map(|q| q.registration.clone())
+        Some(self.next()?.registration.clone())
     }
 
     fn pop_queue(&self) -> Option<GpuBatch> {

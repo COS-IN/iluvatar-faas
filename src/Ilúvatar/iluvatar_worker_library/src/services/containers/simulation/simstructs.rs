@@ -13,7 +13,7 @@ use iluvatar_library::{
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
 use parking_lot::{Mutex, RwLock};
-use rand::{seq::index::sample, rng};
+use rand::{rng, seq::index::sample};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fmt;

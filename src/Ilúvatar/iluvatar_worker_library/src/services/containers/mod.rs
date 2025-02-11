@@ -51,6 +51,7 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
         &self,
         rf: &mut RegisteredFunction,
         fqdn: &str,
+        namespace: &str,
         tid: &TransactionId,
     ) -> Result<()>;
 
@@ -118,7 +119,7 @@ impl IsolationFactory {
                     lifecycle.connect().await?;
                     self.insert_cycle(&mut ret, Arc::new(lifecycle))?;
                 } else {
-                    warn!("Containerd is supported but a networking config is not found");
+                    warn!(tid=%tid, "Containerd not supported because no networking config provided");
                 }
             }
             if DockerIsolation::supported(tid).await {

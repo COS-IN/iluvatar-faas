@@ -47,10 +47,17 @@ flame:
 	@echo "TODO: implement running flame"
 test:
 	@echo "Running unit tests"
-# TODO: this is broken with cross, Docker-in-Docker, containerd, etc.
-# Only use cargo, which sucks as it now needs local setup to have all dependencies
-# https://github.com/cross-rs/cross?tab=readme-ov-file#docker-in-docker
-	@RUSTFLAGS=$(RUST_FLAGS) cargo test $(CARGO_ARGS)
+		@# containerd networking nonsense breaks tests
+		@	# can't connect to containers?
+		@	# container startup fails because of PID issue -> https://github.com/moby/moby/issues/44335
+		@	# Network namespaces are broken -> https://github.com/containerd/containerd/issues/3667
+		@	# need to clean them up anyway "somehow"
+		@# Current plan ==> make all live tests use Docker!
+		@# these hacks seem to be working well
+		@#CROSS_CONTAINER_OPTS="--network=host --cap-add CAP_SYS_ADMIN --cap-add NET_ADMIN --security-opt apparmor=unconfined"
+		@RUSTFLAGS=$(RUST_FLAGS) CROSS_CONTAINER_ENGINE="docker" CROSS_CONTAINER_UID=0 \
+			CROSS_CONTAINER_OPTS="--network=host" \
+			CROSS_ROOTLESS_CONTAINER_ENGINE="auto" $(RUST_C) test --jobs $(NPROCS) $(CARGO_ARGS)
 format:
 	@cargo fmt --all
 format-check:
