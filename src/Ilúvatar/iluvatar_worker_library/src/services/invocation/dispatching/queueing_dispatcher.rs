@@ -391,7 +391,7 @@ fn proportional_selection(wa: f64, wb: f64) -> Ordering {
     let wt = wa + wb;
     let wa = wa / wt;
     // let wb = wb / wt;
-    let r = rand::thread_rng().gen_range(0.0..1.0);
+    let r = rand::rng().random_range(0.0..1.0);
     if r > wa {
         return Ordering::Less;
     }
@@ -492,7 +492,7 @@ impl DispatchPolicy for Mwua {
         let cost = 1.0 - (eta * (t_other - tmin) / f64::min(t_other, 0.1));
         // Shrinking dartboard locality
         // With probability equal to cost, select the previous device, for improving locality
-        let r = rand::thread_rng().gen_range(0.0..1.0);
+        let r = rand::rng().random_range(0.0..1.0);
         let use_prev = r < cost;
 
         // update weight?

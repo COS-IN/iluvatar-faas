@@ -996,7 +996,7 @@ impl MQFQ {
     ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let cnt = self.get_select_num();
         let top = self.select_top_flows(_tid, _token, virtual_time, cnt);
-        top.into_iter().choose(&mut rand::thread_rng())
+        top.into_iter().choose(&mut rand::rng())
     }
 
     fn random_next_flow<'a>(
@@ -1012,7 +1012,7 @@ impl MQFQ {
                 f
             })
             .filter(|f| f.state == MQState::Active)
-            .choose(&mut rand::thread_rng())
+            .choose(&mut rand::rng())
     }
 
     fn sticky_next_flow<'a>(

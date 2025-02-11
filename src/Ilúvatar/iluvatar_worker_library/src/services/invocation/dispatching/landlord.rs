@@ -595,7 +595,7 @@ impl Landlord {
 
         let p_new = 1.0 / (1.0 + n_gpu as f64);
         // Irrespective of the potential credits
-        let r = rand::thread_rng().gen_range(0.0..1.0);
+        let r = rand::rng().random_range(0.0..1.0);
         if r < p_new {
             // won the lottery!
             info!(fqdn=%reg.fqdn, "ADMISSION LOTTERY");
