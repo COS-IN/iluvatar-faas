@@ -40,7 +40,7 @@ Start by installing go if it isn't available.
 ```bash
 ARCH=amd64
 GO_VERSION=$(curl -s https://go.dev/dl/?mode=json | jq -r '.[0].version')
-tar="go${GO_VERSION}.linux-${ARCH}.tar.gz"
+tar="${GO_VERSION}.linux-${ARCH}.tar.gz"
 
 wget https://go.dev/dl/${tar}
 sudo rm -rf /usr/local/go/

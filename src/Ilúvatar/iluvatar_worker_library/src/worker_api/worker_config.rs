@@ -108,13 +108,16 @@ pub struct GPUResourceConfig {
     /// Maybe be delayed if update takes longer than freq
     pub status_update_freq_ms: Option<u64>,
     /// Set up a standalone MPS daemon to control GPU access.
+    /// Portions out GPU memory and compute if supported by hardware
     pub use_standalone_mps: Option<bool>,
+    /// Splits hardware using [MIG](https://docs.nvidia.com/datacenter/tesla/mig-user-guide/index.html) into the specified number of slices.
+    /// Must match an exact number of instances supported by a MIG profile.
+    /// Each will have [Self::funcs_per_device] containers.
+    pub mig_shares: Option<u32>,
     /// How much physical memory each function is 'allocated' on the GPU.
     /// Allows (hardware / this) number of items on GPU to have access to the GPU at once.
     /// If missing, entire GPU is allocated to function.
     pub per_func_memory_mb: Option<MemSizeMb>,
-    /// Use [CUDA_MPS_ACTIVE_THREAD_PERCENTAGE](https://docs.nvidia.com/deploy/mps/index.html#topic_5_2_5) in proportion to GPU memory allocation.
-    pub mps_limit_active_threads: Option<bool>,
     /// Enable driver hook library to force unified memory in function.
     /// Must also pass [Self::funcs_per_device] as greater than 0
     pub use_driver_hook: Option<bool>,
@@ -138,6 +141,10 @@ impl GPUResourceConfig {
     /// Returns true if MPS (of any sort) is enabled
     pub fn mps_enabled(&self) -> bool {
         self.use_standalone_mps.unwrap_or(false)
+    }
+    /// Returns true if sending memory hints is enabled
+    pub fn mig_enabled(&self) -> bool {
+        self.mig_shares.unwrap_or(0) > 0
     }
     /// Returns true if using driver hook is enabled
     pub fn driver_hook_enabled(&self) -> bool {

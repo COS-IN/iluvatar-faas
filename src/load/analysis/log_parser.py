@@ -239,7 +239,6 @@ class WorkerLogParser:
         self.run_type = run_type
         self.target = target
         self.run_data = run_data
-        print(self.run_type)
 
         if not has_results(self.source, self.input_csv):
             raise Exception(f"Missing logs in '{self.source}'")
@@ -632,7 +631,9 @@ class FullJsonMergeParser(BaseParser):
             start, finish = self.get_start_and_finish(invoke)
             data.append((tid, compute, state, start, finish))
         full_df = pd.DataFrame.from_records(
-            data, columns=["tid", "compute", "state", "start", "finish"], index="tid"
+            data,
+            columns=["tid", "compute", "state", "invoke_sent", "invoke_return"],
+            index="tid",
         )
         self.main_parser.invokes_df = self.main_parser.invokes_df.join(full_df)
 
@@ -746,20 +747,20 @@ class StatusParser(BaseParser):
                 status["num_running_funcs"],
                 get_from_dict(
                     status,
-                    ["queue_load", str(2), "len"],
+                    ["queue_load", "GPU", "len"],
                     status["gpu_queue_len"],
                 ),
                 get_from_dict(
                     status,
-                    ["queue_load", str(1), "len"],
+                    ["queue_load", "CPU", "len"],
                     status["cpu_queue_len"],
                 ),
-                get_from_dict(status, ["queue_load", str(2), "load"], 0.0),
-                get_from_dict(status, ["queue_load", str(2), "laod_avg"], 0.0),
-                get_from_dict(status, ["queue_load", str(2), "tput"], 0.0),
-                get_from_dict(status, ["queue_load", str(1), "load"], 0.0),
-                get_from_dict(status, ["queue_load", str(1), "laod_avg"], 0.0),
-                get_from_dict(status, ["queue_load", str(1), "tput"], 0.0),
+                get_from_dict(status, ["queue_load", "GPU", "load"], 0.0),
+                get_from_dict(status, ["queue_load", "GPU", "laod_avg"], 0.0),
+                get_from_dict(status, ["queue_load", "GPU", "tput"], 0.0),
+                get_from_dict(status, ["queue_load", "CPU", "load"], 0.0),
+                get_from_dict(status, ["queue_load", "CPU", "laod_avg"], 0.0),
+                get_from_dict(status, ["queue_load", "CPU", "tput"], 0.0),
             )
         )
 
@@ -788,6 +789,38 @@ class StatusParser(BaseParser):
         self.main_parser.status_df = status_df
 
     parser_map = {"current load status": parse_status}
+
+
+@WorkerLogParser.register_parser
+class StartFinishParser(BaseParser):
+    def __init__(self, main_parser: WorkerLogParser):
+        super().__init__(main_parser)
+        self.invoke_start = {}
+        self.invoke_end = {}
+
+    def invoke_started(self, log):
+        ts = pd.to_datetime(log["timestamp"])
+        tid = log["fields"]["tid"]
+        self.invoke_start[tid] = ts
+
+    def invoke_finished(self, log):
+        ts = pd.to_datetime(log["timestamp"])
+        tid = log["fields"]["tid"]
+        self.invoke_end[tid] = ts
+
+    def log_completed(self):
+        data = []
+        for tid in self.invoke_start.keys():
+            data.append((tid, self.invoke_start[tid], self.invoke_end[tid]))
+        df = pd.DataFrame.from_records(
+            data, columns=["tid", "start", "end"], index="tid"
+        )
+        self.main_parser.invokes_df = self.main_parser.invokes_df.join(df)
+
+    parser_map = {
+        "Item starting to execute": invoke_started,
+        "Invocation complete": invoke_finished,
+    }
 
 
 @WorkerLogParser.register_parser
@@ -1090,7 +1123,7 @@ def parse_data(
     if filter_fn is not None:
         csv_files = filter_fn(csv_files)
     if len(csv_files) == 0:
-        raise Exception(f"Could not get any results in '{start_folder}'")
+        raise NoResultsException(f"Could not get any results in '{start_folder}'", None)
 
     load_data = []
     for pth, run_data in csv_files:
@@ -1111,3 +1144,8 @@ def parse_data(
     with Pool(num_procs) as p:
         parsed_data = p.starmap(_load_single_data, load_data)
     return parsed_data
+
+
+class NoResultsException(Exception):
+    def __init__(self, message, errors):
+        super().__init__(message, errors)

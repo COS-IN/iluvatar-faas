@@ -26,11 +26,13 @@ pub mod queueless;
 
 // GPU focused queues
 pub mod dynamic_batching;
+pub mod eedf_gpu;
 pub mod fcfs_gpu;
 pub mod gpu_mqfq;
 pub mod oldest_gpu;
 pub mod paella;
 pub mod sized_batches_gpu;
+pub mod sjf_gpu;
 
 /// A trait representing the functionality a queue policy must implement.
 pub trait InvokerCpuQueuePolicy: Send + Sync {

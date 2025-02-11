@@ -2,6 +2,8 @@ on:
   pull_request:
 
 name: Check and Lint
+env:
+  CROSS_NO_WARNINGS: 0
 
 defaults:
   run:
