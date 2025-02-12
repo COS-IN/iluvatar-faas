@@ -34,6 +34,6 @@ pub type ControllerConfig = Arc<Configuration>;
 
 impl Configuration {
     pub fn boxed(config_fpath: &str) -> anyhow::Result<ControllerConfig> {
-        iluvatar_library::config::load_config::<ControllerConfig>("", Some(config_fpath), None, CONTROLLER_ENV_PREFIX)
+        iluvatar_library::config::load_config::<ControllerConfig>(None, Some(config_fpath), None, CONTROLLER_ENV_PREFIX)
     }
 }
