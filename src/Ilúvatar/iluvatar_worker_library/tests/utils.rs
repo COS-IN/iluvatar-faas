@@ -42,13 +42,13 @@ macro_rules! assert_error {
     };
 }
 
-/// Creates/sets up the structs needed to test an invoker setup.
-/// Passing [log] = Some(true)  will enable logging to stdout. Only pass this on one test as it will be set globally and can only be done once
-/// [config_pth] is an optional path to config to load
-pub async fn full_sim_invoker(
+/// Creates/sets up the services needed to test a worker setup.
+/// Passing [log] = Some("<level>") will enable logging to stdout, useful for test debugging.
+/// [config_pth] is an optional path to config to load.
+pub async fn sim_test_services(
     config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
-    log: Option<bool>,
+    log: Option<&str>,
 ) -> (
     Option<impl Drop>,
     WorkerConfig,
@@ -60,190 +60,13 @@ pub async fn full_sim_invoker(
     Arc<CpuResourceTracker>,
 ) {
     let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
-    iluvatar_library::utils::file::ensure_temp_dir().unwrap();
     iluvatar_library::utils::set_simulation(tid).unwrap();
-    let log = log.unwrap_or(false);
-    let cfg: WorkerConfig = iluvatar_library::load_config_default!(
-        "iluvatar_worker_library/tests/resources/worker.json",
-        config_pth,
-        overrides,
-        WORKER_ENV_PREFIX
-    )
-    .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
-
-    let fake_logging = Arc::new(LoggingConfig {
-        level: cfg.logging.level.clone(),
-        spanning: cfg.logging.spanning.clone(),
-        ..Default::default()
-    });
-    let _log = match log {
-        true => Some(
-            start_tracing(fake_logging, &cfg.name, &TEST_TID)
-                .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
-        ),
-        false => None,
-    };
-    let load_avg = build_load_avg_signal();
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg.clone(), &TEST_TID)
-        .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
-    let factory = IsolationFactory::new(cfg.clone());
-    let lifecycles = factory
-        .get_isolation_services(&TEST_TID, false)
-        .await
-        .unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
-    let gpu_resource = GpuResourceTracker::boxed(
-        &cfg.container_resources.gpu_resource,
-        &cfg.container_resources,
-        &TEST_TID,
-        &lifecycles.get(&Isolation::DOCKER),
-        &cfg.status,
-    )
-    .await
-    .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
-
-    let cm = ContainerManager::boxed(
-        cfg.container_resources.clone(),
-        lifecycles.clone(),
-        gpu_resource.clone(),
-        &TEST_TID,
-    )
-    .await
-    .unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
-    let reg = RegistrationService::new(
-        cm.clone(),
-        lifecycles.clone(),
-        cfg.limits.clone(),
-        cmap.clone(),
-        cfg.container_resources.clone(),
-    );
-    #[cfg(feature = "power_cap")]
-    let en_log = EnergyLogger::boxed(None, &TEST_TID)
-        .await
-        .unwrap_or_else(|e| panic!("Failed to create energy logger: {}", e));
-    #[cfg(feature = "power_cap")]
-    let energy =
-        EnergyLimiter::boxed(&None, en_log).unwrap_or_else(|e| panic!("Failed to create energy limiter: {}", e));
-    let invoker_fact = InvokerFactory::new(
-        cm.clone(),
-        cfg.limits.clone(),
-        cfg.invocation.clone(),
-        cmap.clone(),
-        cpu.clone(),
-        gpu_resource.clone(),
-        cfg.container_resources.gpu_resource.clone(),
-        &reg,
-        #[cfg(feature = "power_cap")]
-        energy,
-    );
-    let invoker = invoker_fact
-        .get_invoker_service(&TEST_TID)
-        .unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
-    (_log, cfg, cm, invoker, reg, cmap, gpu_resource, cpu)
+    build_test_services(config_pth, overrides, log, tid).await
 }
 
-/// Creates/sets up the structs needed to test an invoker setup
-/// Passing `log_level` = Some('info')  will enable logging to stdout at the specified level.
-///     Only pass this on one test as it will be set globally and can only be done once.
-/// `config_pth` is an optional path to config to load
-pub async fn sim_invoker_svc(
-    config_pth: Option<&str>,
-    overrides: Option<Vec<(String, String)>>,
-    log_level: Option<&str>,
-) -> (
-    Option<impl Drop>,
-    WorkerConfig,
-    Arc<ContainerManager>,
-    Arc<dyn Invoker>,
-    Arc<RegistrationService>,
-    Arc<CharacteristicsMap>,
-) {
-    let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
-    iluvatar_library::utils::file::ensure_temp_dir().unwrap();
-    iluvatar_library::utils::set_simulation(tid).unwrap();
-    let cfg: WorkerConfig = iluvatar_library::load_config_default!(
-        "iluvatar_worker_library/tests/resources/worker.json",
-        config_pth,
-        overrides,
-        WORKER_ENV_PREFIX
-    )
-    .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
-    let _log = match log_level {
-        Some(log_level) => {
-            let mut fake_logging = (*cfg.logging).clone();
-            fake_logging.stdout = Some(true);
-            fake_logging.level = log_level.to_string();
-            let fake_logging = Arc::new(fake_logging);
-            Some(
-                start_tracing(fake_logging, &cfg.name, &TEST_TID)
-                    .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
-            )
-        },
-        None => None,
-    };
-    let load_avg = build_load_avg_signal();
-    let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg, &TEST_TID)
-        .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
-    let factory = IsolationFactory::new(cfg.clone());
-    let lifecycles = factory
-        .get_isolation_services(&TEST_TID, false)
-        .await
-        .unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
-    let gpu_resource = GpuResourceTracker::boxed(
-        &cfg.container_resources.gpu_resource,
-        &cfg.container_resources,
-        &TEST_TID,
-        &lifecycles.get(&Isolation::DOCKER),
-        &cfg.status,
-    )
-    .await
-    .unwrap_or_else(|e| panic!("Failed to create gpu resource man: {}", e));
-
-    let cm = ContainerManager::boxed(
-        cfg.container_resources.clone(),
-        lifecycles.clone(),
-        gpu_resource.clone(),
-        &TEST_TID,
-    )
-    .await
-    .unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
-    let reg = RegistrationService::new(
-        cm.clone(),
-        lifecycles.clone(),
-        cfg.limits.clone(),
-        cmap.clone(),
-        cfg.container_resources.clone(),
-    );
-    #[cfg(feature = "power_cap")]
-    let en_log = EnergyLogger::boxed(None, &TEST_TID)
-        .await
-        .unwrap_or_else(|e| panic!("Failed to create energy logger: {}", e));
-    #[cfg(feature = "power_cap")]
-    let energy =
-        EnergyLimiter::boxed(&None, en_log).unwrap_or_else(|e| panic!("Failed to create energy limiter: {}", e));
-    let invoker_fact = InvokerFactory::new(
-        cm.clone(),
-        cfg.limits.clone(),
-        cfg.invocation.clone(),
-        cmap.clone(),
-        cpu,
-        gpu_resource,
-        cfg.container_resources.gpu_resource.clone(),
-        &reg,
-        #[cfg(feature = "power_cap")]
-        energy,
-    );
-    let invoker = invoker_fact
-        .get_invoker_service(&TEST_TID)
-        .unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
-    (_log, cfg, cm, invoker, reg, cmap)
-}
-
-/// Creates/sets up the structs needed to test an invoker setup.
-/// Passing [log] = Some(true)  will enable logging to stdout.
-///     Only pass this on one test as it will be set globally and can only be done once.
-/// [config_pth] is an optional path to config to load
+/// Creates/sets up the services needed to test a worker setup.
+/// Passing [log] = Some("<level>") will enable logging to stdout, useful for test debugging.
+/// [config_pth] is an optional path to config to load.
 pub async fn test_invoker_svc(
     config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
@@ -254,9 +77,30 @@ pub async fn test_invoker_svc(
     Arc<ContainerManager>,
     Arc<dyn Invoker>,
     Arc<RegistrationService>,
+    Arc<CharacteristicsMap>,
+    Option<Arc<GpuResourceTracker>>,
+    Arc<CpuResourceTracker>,
+) {
+    let tid: &TransactionId = &iluvatar_library::transaction::TEST_TID;
+    build_test_services(config_pth, overrides, log, tid).await
+}
+
+async fn build_test_services(
+    config_pth: Option<&str>,
+    overrides: Option<Vec<(String, String)>>,
+    log: Option<&str>,
+    tid: &TransactionId,
+) -> (
+    Option<impl Drop>,
+    WorkerConfig,
+    Arc<ContainerManager>,
+    Arc<dyn Invoker>,
+    Arc<RegistrationService>,
+    Arc<CharacteristicsMap>,
+    Option<Arc<GpuResourceTracker>>,
+    Arc<CpuResourceTracker>,
 ) {
     iluvatar_library::utils::file::ensure_temp_dir().unwrap();
-
     let cfg: WorkerConfig = iluvatar_library::load_config_default!(
         "iluvatar_worker_library/tests/resources/worker.json",
         config_pth,
@@ -265,7 +109,7 @@ pub async fn test_invoker_svc(
     )
     .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
 
-    let _log = match log {
+    let log = match log {
         Some(level) => {
             let fake_logging = Arc::new(LoggingConfig {
                 level: level.to_string(),
@@ -284,18 +128,17 @@ pub async fn test_invoker_svc(
     };
     let load_avg = build_load_avg_signal();
     let cmap = Arc::new(CharacteristicsMap::new(AgExponential::new(0.6)));
-    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg, &TEST_TID)
+    let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg.clone(), tid)
         .unwrap_or_else(|e| panic!("Failed to create cpu resource man: {}", e));
-
     let factory = IsolationFactory::new(cfg.clone());
     let lifecycles = factory
-        .get_isolation_services(&TEST_TID, true)
+        .get_isolation_services(tid, true)
         .await
         .unwrap_or_else(|e| panic!("Failed to create lifecycle: {}", e));
     let gpu_resource = GpuResourceTracker::boxed(
         &cfg.container_resources.gpu_resource,
         &cfg.container_resources,
-        &TEST_TID,
+        tid,
         &lifecycles.get(&Isolation::DOCKER),
         &cfg.status,
     )
@@ -306,7 +149,7 @@ pub async fn test_invoker_svc(
         cfg.container_resources.clone(),
         lifecycles.clone(),
         gpu_resource.clone(),
-        &TEST_TID,
+        tid,
     )
     .await
     .unwrap_or_else(|e| panic!("Failed to create container manger for test: {}", e));
@@ -318,7 +161,7 @@ pub async fn test_invoker_svc(
         cfg.container_resources.clone(),
     );
     #[cfg(feature = "power_cap")]
-    let en_log = EnergyLogger::boxed(None, &TEST_TID)
+    let en_log = EnergyLogger::boxed(None, tid)
         .await
         .unwrap_or_else(|e| panic!("Failed to create energy logger: {}", e));
     #[cfg(feature = "power_cap")]
@@ -328,18 +171,18 @@ pub async fn test_invoker_svc(
         cm.clone(),
         cfg.limits.clone(),
         cfg.invocation.clone(),
-        cmap,
-        cpu,
-        gpu_resource,
+        cmap.clone(),
+        cpu.clone(),
+        gpu_resource.clone(),
         cfg.container_resources.gpu_resource.clone(),
         &reg,
         #[cfg(feature = "power_cap")]
         energy,
     );
     let invoker = invoker_fact
-        .get_invoker_service(&TEST_TID)
+        .get_invoker_service(tid)
         .unwrap_or_else(|e| panic!("Failed to create invoker service because: {}", e));
-    (_log, cfg, cm, invoker, reg)
+    (log, cfg, cm, invoker, reg, cmap, gpu_resource, cpu)
 }
 
 fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {

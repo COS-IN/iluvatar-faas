@@ -30,7 +30,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn registration_works() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         reg.register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
@@ -38,7 +38,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn repeat_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         reg.register(basic_reg_req_docker(), &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
@@ -52,7 +52,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn invokes_invalid_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let input = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -76,7 +76,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn name_invalid_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let input = RegisterRequest {
             function_name: "".to_string(),
             function_version: "test".to_string(),
@@ -100,7 +100,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn version_invalid_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let input = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "".to_string(),
@@ -124,7 +124,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpus_invalid_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let input = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -148,7 +148,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn memory_small_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let input = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -172,7 +172,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn memory_large_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let input = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -198,7 +198,7 @@ mod registration {
     // ignored because containerd testing is currently broken
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn image_invalid_registration_fails_ctr() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let bad_img = "docker.io/library/alpine:lasdijbgoie";
         let input = RegisterRequest {
             function_name: "test".to_string(),
@@ -223,7 +223,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn image_invalid_registration_fails_docker() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let bad_img = "docker.io/library/alpine:lasdijbgoie";
         let input = RegisterRequest {
             function_name: "test".to_string(),
@@ -248,7 +248,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn no_isolate_invalid_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let input = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -272,7 +272,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn invalid_isolate_invalid_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let input = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -296,7 +296,7 @@ mod registration {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn extra_isolate_invalid_registration_fails() {
-        let (_log, _cfg, _cm, _invoker, reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, _cm, _invoker, reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let input = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -326,7 +326,7 @@ mod prewarm {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prewarm_get_container() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -348,7 +348,7 @@ mod prewarm {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prewarm_get_container_docker() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -377,7 +377,7 @@ mod get_container {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cant_double_acquire() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -401,7 +401,7 @@ mod get_container {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn mem_limit() {
-        let (_log, cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let request = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),
@@ -443,7 +443,7 @@ mod get_container {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn container_alive() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
 
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
@@ -476,7 +476,7 @@ mod remove_container {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unhealthy_container_deleted() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -510,7 +510,7 @@ mod remove_container {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unhealthy_container_not_gettable() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -550,7 +550,7 @@ mod container_state {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prewarmed() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -574,7 +574,7 @@ mod container_state {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn prewarmed_docker() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -598,7 +598,7 @@ mod container_state {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -619,7 +619,7 @@ mod container_state {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_docker() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -642,7 +642,7 @@ mod container_state {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn warm() {
-        let (_log, _cfg, cm, invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = register(
             &_reg,
             "docker.io/alfuerst/hello-iluvatar-action:latest",
@@ -668,7 +668,7 @@ mod container_state {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn warm_docker() {
-        let (_log, _cfg, cm, invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -692,7 +692,7 @@ mod container_state {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unhealthy() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
@@ -714,7 +714,7 @@ mod container_state {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn unhealthy_docker() {
-        let (_log, _cfg, cm, _invoker, _reg) = test_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, _reg, _, _, _) = test_invoker_svc(None, None, None).await;
         let reg = _reg
             .register(basic_reg_req_docker(), &TEST_TID)
             .await
