@@ -698,7 +698,9 @@ impl ContainerManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{services::containers::IsolationFactory, worker_api::worker_config::Configuration};
+    use crate::services::containers::IsolationFactory;
+    use crate::worker_api::config::WorkerConfig;
+    use crate::worker_api::worker_config::WORKER_ENV_PREFIX;
     use iluvatar_library::transaction::TEST_TID;
     use std::collections::HashMap;
     use std::time::Duration;
@@ -722,8 +724,13 @@ mod tests {
     async fn svc(overrides: Option<Vec<(String, String)>>) -> Arc<ContainerManager> {
         let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
         iluvatar_library::utils::set_simulation(tid).unwrap_or_else(|e| panic!("Failed to make system clock: {:?}", e));
-        let cfg = Configuration::boxed(&Some("tests/resources/worker.dev.json"), overrides)
-            .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
+        let cfg: WorkerConfig = iluvatar_library::load_config_default!(
+            "iluvatar_worker_library/tests/resources/worker.json",
+            None,
+            overrides,
+            WORKER_ENV_PREFIX
+        )
+        .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
         let fac = IsolationFactory::new(cfg.clone())
             .get_isolation_services(&TEST_TID, false)
             .await

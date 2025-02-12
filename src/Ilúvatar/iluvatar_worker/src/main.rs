@@ -101,7 +101,7 @@ fn main() -> Result<()> {
         Some(c) => match c {
             utils::Commands::Clean => {
                 let overrides = vec![("networking.use_pool".to_string(), "false".to_string())];
-                let server_config = Configuration::boxed(&cli.config.as_deref(), Some(overrides))?;
+                let server_config = Configuration::boxed(cli.config.as_deref(), Some(overrides))?;
                 let _guard = start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
                 let worker_rt = build_tokio_runtime(
                     &Some(server_config.tokio_event_interval),
@@ -113,7 +113,7 @@ fn main() -> Result<()> {
             },
         },
         None => {
-            let server_config = Configuration::boxed(&cli.config.as_deref(), None)?;
+            let server_config = Configuration::boxed(cli.config.as_deref(), None)?;
             let _guard = start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
             let worker_rt = build_tokio_runtime(
                 &Some(server_config.tokio_event_interval),

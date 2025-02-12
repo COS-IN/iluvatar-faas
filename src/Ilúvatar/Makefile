@@ -47,10 +47,15 @@ flame:
 	@echo "TODO: implement running flame"
 test:
 	@echo "Running unit tests"
-# TODO: this is broken with cross, Docker-in-Docker, containerd, etc.
-# Only use cargo, which sucks as it now needs local setup to have all dependencies
-# https://github.com/cross-rs/cross?tab=readme-ov-file#docker-in-docker
-	@RUSTFLAGS=$(RUST_FLAGS) cargo test $(CARGO_ARGS)
+	@# containerd networking nonsense breaks tests
+	@# See TODO.md
+	@# these hacks seem to be working well
+	@RUSTFLAGS=$(RUST_FLAGS) CROSS_CONTAINER_ENGINE="docker" CROSS_CONTAINER_UID=0 \
+		CROSS_CONTAINER_OPTS="--network=host" \
+		CROSS_ROOTLESS_CONTAINER_ENGINE="auto" $(RUST_C) test --jobs $(NPROCS) $(CARGO_ARGS)
+	@# Clean up containers from testing.
+	@docker ps --filter "label=owner=iluvatar_worker" -q | xargs --no-run-if-empty docker kill
+	@docker ps --filter "label=owner=iluvatar_worker" -aq | xargs --no-run-if-empty docker rm
 format:
 	@cargo fmt --all
 format-check:

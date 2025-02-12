@@ -5,7 +5,7 @@
 Easily set up your machine to run Ilúvatar [here](./SETUP.md), then try out some of our [examples](examples/README.md).
 Or start running [your own experiments](./LOAD.md) and making [your own functions](./FUNCTIONS.md) to run inside Ilúvatar.
 
-## Development
+## Contribute / Development
 
 For starters on how to extend or modify Ilúvatar, see the documentation on [development](./DEV.md).
 

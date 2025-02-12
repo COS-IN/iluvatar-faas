@@ -151,7 +151,7 @@ async fn scaling_thread(
     let mut errors = "Prewarm errors:".to_string();
     let mut it = (1..4).peekable();
     while let Some(i) = it.next() {
-        let wait = rand::thread_rng().gen_range(0..5000);
+        let wait = rand::rng().random_range(0..5000);
         tokio::time::sleep(Duration::from_millis(wait)).await;
         match worker_prewarm(&name, &version, &host, port, &reg_tid, &factory, None, compute).await {
             Ok((_s, _prewarm_dur)) => break,

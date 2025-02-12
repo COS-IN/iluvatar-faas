@@ -89,8 +89,9 @@ impl InfluxClient {
     fn handle_ensure_bucket_error(&self, name: &str, e: RequestError, tid: &TransactionId) -> Result<()> {
         match e {
             RequestError::ReqwestProcessing { source } => anyhow::bail!(source.to_string()),
-            RequestError::Http { status, text } => match status {
-                http::StatusCode::UNPROCESSABLE_ENTITY => {
+            RequestError::Http { status, text } => match status.as_u16() {
+                422 => {
+                    // UNPROCESSABLE_ENTITY
                     match serde_json::from_str::<HashMap<String, String>>(&text) {
                         Ok(m) => {
                             self.has_k_v(&m, "code", "conflict")?;

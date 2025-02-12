@@ -70,13 +70,6 @@ impl RegistrationService {
         })
     }
 
-    fn compute_resource_fail(specific_compute: Compute) -> Result<()> {
-        anyhow::bail!(
-            "Could not register function for compute {:?} because the worker has no devices of that type!",
-            specific_compute
-        );
-    }
-
     pub async fn register(&self, request: RegisterRequest, tid: &TransactionId) -> Result<Arc<RegisteredFunction>> {
         if request.function_name.is_empty() {
             anyhow::bail!("Invalid function name");
@@ -110,7 +103,10 @@ impl RegistrationService {
             if (specific_compute == Compute::GPU && self.resources.gpu_resource.as_ref().map_or(0, |c| c.count) == 0)
                 || (specific_compute != Compute::CPU && specific_compute != Compute::GPU)
             {
-                Self::compute_resource_fail(specific_compute)?;
+                anyhow::bail!(
+                    "Could not register function for compute {} because the worker has no devices of that type!",
+                    specific_compute
+                );
             }
         }
 
@@ -137,7 +133,9 @@ impl RegistrationService {
                 continue;
             }
             isolation.remove(*lifecycle_iso);
-            lifecycle.prepare_function_registration(&mut rf, &fqdn, tid).await?;
+            lifecycle
+                .prepare_function_registration(&mut rf, &fqdn, "default", tid)
+                .await?;
         }
         if !isolation.is_empty() {
             anyhow::bail!("Could not register function with isolation(s): {:?}", isolation);

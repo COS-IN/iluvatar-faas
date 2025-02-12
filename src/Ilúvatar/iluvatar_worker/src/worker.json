@@ -52,6 +52,9 @@
     },
     "gpu_resource": {
         "count": 0 
+    },
+    "docker_config": {
+      "avoid_pull": true
     }
   },
   "networking": {
@@ -62,7 +65,7 @@
     "use_pool": true,
     "pool_size": 20,
     "pool_freq_ms": 500,
-    "hardware_interface": "enp4s0"
+    "hardware_interface": "eth0"
   },
   "load_balancer_url": "http://localhost:8078",
   "energy": {

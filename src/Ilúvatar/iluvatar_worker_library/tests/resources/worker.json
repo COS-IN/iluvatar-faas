@@ -1,5 +1,5 @@
 {
-  "name": "local",
+  "name": "test",
   "address": "127.0.0.1",
   "tokio_event_interval": 20,
   "tokio_queue_interval": 20,
@@ -20,7 +20,7 @@
   },
   "invocation": {
     "retries": 0,
-    "queue_sleep_ms": 1,
+    "queue_sleep_ms": 100,
     "queue_policies": {
       "cpu": "fcfs",
       "gpu": "fcfs"
@@ -31,7 +31,7 @@
     }
   },
   "logging": {
-    "level": "debug",
+    "level": "info",
     "directory": "/tmp/iluvatar/logs",
     "basename": "worker",
     "spanning": "NEW+CLOSE",
@@ -44,7 +44,7 @@
     "startup_timeout_ms": 10000,
     "memory_buffer_mb": 1024,
     "pool_freq_ms": 500,
-    "snapshotter": "zfs",
+    "snapshotter": "overlayfs",
     "concurrent_creation": 5,
     "cpu_resource": {
       "count": 4
@@ -53,19 +53,12 @@
         "count": 0,
         "memory_mb": 1024,
         "funcs_per_device": 1
+    },
+    "docker_config": {
+      "avoid_pull": true
     }
   },
-  "networking": {
-    "bridge": "IlWorkBr0",
-    "cnitool": "/opt/cni/bin/cnitool",
-    "cni_plugin_bin": "/opt/cni/bin",
-    "cni_name": "il_worker_br",
-    "use_pool": true,
-    "pool_size": 1,
-    "pool_freq_ms": 1000,
-    "hardware_interface": "eth0"
-  },
-  "load_balancer_url": "http://localhost:8078",
+  "load_balancer_url": "",
   "energy": {
     "perf_freq_ms": 0,
     "rapl_freq_ms": 0,

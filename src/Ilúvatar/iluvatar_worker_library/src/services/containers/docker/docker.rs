@@ -15,7 +15,7 @@ use bollard::{
     container::{
         Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions, StatsOptions,
     },
-    image::CreateImageOptions,
+    image::{CreateImageOptions, ListImagesOptions},
 };
 use dashmap::DashSet;
 use futures::StreamExt;
@@ -47,6 +47,11 @@ pub struct DockerAuth {
 /// Optional configuration to modify or pass through to Docker
 pub struct DockerConfig {
     pub auth: Option<DockerAuth>,
+    #[serde(default)]
+    /// Avoid pulling images if a matching <image:tag> is found.
+    /// Pulls it if missing.
+    /// Can skip pulling updated version of a tag, but saves time & avoids rate limiting.
+    pub avoid_pull: bool,
 }
 
 #[derive(Debug)]
@@ -69,10 +74,10 @@ impl DockerIsolation {
                 return false;
             },
         };
-        match docker.version().await {
+        match docker.ping().await {
             Ok(_) => true,
             Err(e) => {
-                warn!(tid=%tid, error=%e, "Failed to query docker version");
+                warn!(tid=%tid, error=?e, "Failed to query docker version");
                 false
             },
         }
@@ -376,33 +381,62 @@ impl ContainerIsolationService for DockerIsolation {
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
+        _namespace: &str,
         _fqdn: &str,
         tid: &TransactionId,
     ) -> Result<()> {
+        debug!(tid=%tid, "prepare_function_registration");
         if self.pulled_images.contains(&rf.image_name) {
+            debug!(tid=%tid, "image exists, skipping");
             return Ok(());
         }
+
+        let auth = match &self.docker_config {
+            Some(cfg) => {
+                if cfg.avoid_pull {
+                    let image_name_no_hub = rf.image_name.split('/').skip(1).collect::<Vec<&str>>().join("/");
+                    let list = Some(ListImagesOptions {
+                        all: false,
+                        filters: HashMap::from_iter([("reference", vec![image_name_no_hub.as_ref()])]),
+                        digests: false,
+                    });
+
+                    debug!(tid=%tid, query=image_name_no_hub, "querying images");
+                    match self.docker_api.list_images(list).await {
+                        Ok(ls) => {
+                            for image in ls {
+                                for tag in &image.repo_tags {
+                                    if tag == &image_name_no_hub {
+                                        info!(tid=%tid, image=?image, "image found, skipping pull");
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        },
+                        Err(e) => warn!(tid=%tid, error=%e, "Failed to list docker images"),
+                    };
+                }
+                match &cfg.auth {
+                    Some(a) if rf.image_name.starts_with(a.repository.as_str()) => Some(DockerCredentials {
+                        username: Some(a.username.clone()),
+                        password: Some(a.password.clone()),
+                        ..Default::default()
+                    }),
+                    _ => None,
+                }
+            },
+            None => None,
+        };
 
         let options = Some(CreateImageOptions {
             from_image: rf.image_name.as_str(),
             ..Default::default()
         });
-        let auth = match &self.docker_config {
-            Some(cfg) => match &cfg.auth {
-                Some(a) if rf.image_name.starts_with(a.repository.as_str()) => Some(DockerCredentials {
-                    username: Some(a.username.clone()),
-                    password: Some(a.password.clone()),
-                    ..Default::default()
-                }),
-                _ => None,
-            },
-            None => None,
-        };
 
         let mut stream = self.docker_api.create_image(options, None, auth);
         while let Some(res) = stream.next().await {
             match res {
-                Ok(_) => (),
+                Ok(inf) => debug!(tid=%tid, info=?inf, "pull info update"),
                 Err(e) => bail_error!(tid=%tid, error=%e, "Failed to pull image"),
             }
         }

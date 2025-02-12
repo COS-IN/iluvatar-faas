@@ -25,17 +25,18 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
 
 #[allow(unused)]
+/// Public members are _only_ for use in testing
 pub struct IluvatarWorkerImpl {
-    container_manager: Arc<ContainerManager>,
+    pub container_manager: Arc<ContainerManager>,
     config: WorkerConfig,
-    invoker: Arc<dyn Invoker>,
-    status: Arc<StatusService>,
+    pub invoker: Arc<dyn Invoker>,
+    pub status: Arc<StatusService>,
     health: Arc<WorkerHealthService>,
     energy: Arc<EnergyLogger>,
-    cmap: Arc<CharacteristicsMap>,
-    reg: Arc<RegistrationService>,
+    pub cmap: Arc<CharacteristicsMap>,
+    pub reg: Arc<RegistrationService>,
     updater: Option<Arc<InfluxUpdater>>,
-    gpu: Option<Arc<GpuResourceTracker>>,
+    pub gpu: Option<Arc<GpuResourceTracker>>,
     isolations: ContainerIsolationCollection,
 }
 

@@ -113,7 +113,7 @@ pub fn simulated_worker(args: TraceArgs) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Must have 'worker_config' for sim"))?
         .clone();
-    let server_config = Configuration::boxed(&Some(&worker_config_pth), None)?;
+    let server_config = Configuration::boxed(Some(&worker_config_pth), None)?;
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
     let _rt_guard = threaded_rt.enter();
     let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
