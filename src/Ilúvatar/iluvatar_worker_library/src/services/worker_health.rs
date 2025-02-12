@@ -2,6 +2,7 @@ use super::{
     invocation::Invoker,
     registration::{RegisteredFunction, RegistrationService},
 };
+use crate::services::containers::ContainerIsolationCollection;
 use crate::worker_api::worker_config::WorkerConfig;
 use anyhow::Result;
 use iluvatar_library::{
@@ -11,7 +12,6 @@ use iluvatar_library::{
 use iluvatar_rpc::rpc::{HealthResponse, LanguageRuntime, RegisterRequest};
 use std::sync::Arc;
 use tracing::warn;
-use crate::services::containers::ContainerIsolationCollection;
 
 const TEST_FUNC_NAME: &str = "worker-health-test";
 const TEST_FUNC_VERSION: &str = "1.0.0";
