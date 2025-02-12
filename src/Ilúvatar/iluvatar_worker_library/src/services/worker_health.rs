@@ -11,6 +11,7 @@ use iluvatar_library::{
 use iluvatar_rpc::rpc::{HealthResponse, LanguageRuntime, RegisterRequest};
 use std::sync::Arc;
 use tracing::warn;
+use crate::services::containers::ContainerIsolationCollection;
 
 const TEST_FUNC_NAME: &str = "worker-health-test";
 const TEST_FUNC_VERSION: &str = "1.0.0";
@@ -42,6 +43,7 @@ impl WorkerHealthService {
         worker_config: WorkerConfig,
         invoker_svc: Arc<dyn Invoker>,
         reg: Arc<RegistrationService>,
+        isos: ContainerIsolationCollection,
         tid: &TransactionId,
     ) -> Result<Arc<Self>> {
         let img_name = if worker_config
@@ -67,7 +69,9 @@ impl WorkerHealthService {
             transaction_id: tid.clone(),
             language: LanguageRuntime::Nolang.into(),
             compute: Compute::CPU.bits(),
-            isolate: (Isolation::CONTAINERD | Isolation::DOCKER).bits(),
+            // support all available isolations
+            // TODO: health service should probably test each independently
+            isolate: isos.keys().fold(Isolation::empty(), |acc, i| acc | *i).bits(),
             resource_timings_json: "{}".to_string(),
         };
         let reg = reg

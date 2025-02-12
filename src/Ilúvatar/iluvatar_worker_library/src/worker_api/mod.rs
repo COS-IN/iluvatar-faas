@@ -87,7 +87,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let invoker = invoker_fact
         .get_invoker_service(tid)
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to get invoker service"))?;
-    let health = WorkerHealthService::boxed(worker_config.clone(), invoker.clone(), reg.clone(), tid)
+    let health = WorkerHealthService::boxed(worker_config.clone(), invoker.clone(), reg.clone(), isos.clone(), tid)
         .await
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker health service"))?;
     let status = StatusService::boxed(
@@ -120,7 +120,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     };
 
     Ok(IluvatarWorkerImpl::new(
-        worker_config.clone(),
+        worker_config,
         container_man,
         invoker,
         status,

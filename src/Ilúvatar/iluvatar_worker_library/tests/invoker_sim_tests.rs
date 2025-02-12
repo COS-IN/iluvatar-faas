@@ -35,7 +35,7 @@ mod fcfs_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn no_reordering() {
         let env = build_serial_overrides("fcfs");
-        let (_log, _cfg, _cm, invok_svc, reg, _cmap, _gpu, _cpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invok_svc, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let json_args = sim_args().unwrap();
         let transaction_id = "testTID".to_string();
         let function_name = "test".to_string();
@@ -80,7 +80,7 @@ mod minheap_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn fast_put_first() {
         let env = build_serial_overrides("minheap");
-        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu, _cpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let json_args = sim_args().unwrap();
         let short_args = short_sim_args().unwrap();
         let transaction_id = "testTID".to_string();
@@ -125,7 +125,7 @@ mod minheap_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn fast_not_moved() {
         let env = build_serial_overrides("minheap");
-        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu, _cpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let json_args = sim_args().unwrap();
         let short_args = short_sim_args().unwrap();
         let transaction_id = "testTID".to_string();
@@ -203,7 +203,7 @@ mod bypass_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn fast_bypass_limits(#[case] invoker_q: &str) {
         let env = build_bypass_overrides(invoker_q);
-        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu, _cpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let json_args = sim_args().unwrap();
         let short_args = short_sim_args().unwrap();
         let transaction_id = "testTID".to_string();

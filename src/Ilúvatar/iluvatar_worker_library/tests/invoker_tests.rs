@@ -56,7 +56,7 @@ mod invoke {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn invocation_works(#[case] invoker_q: &str) {
         let env = build_serial_overrides(invoker_q);
-        let (_log, _cfg, cm, invok_svc, _reg, _, _, _) = test_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
                 basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"),
@@ -110,7 +110,7 @@ mod invoke {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_start_works(#[case] invoker_q: &str) {
         let env = build_serial_overrides(invoker_q);
-        let (_log, _cfg, _cm, invok_svc, _reg, _, _, _) = test_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
                 basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"),
@@ -166,7 +166,7 @@ mod invoke_async {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn invocation_works(#[case] invoker_q: &str) {
         let env = build_serial_overrides(invoker_q);
-        let (_log, _cfg, cm, invok_svc, _reg, _, _, _) = test_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
                 basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"),
@@ -233,7 +233,7 @@ mod invoke_async {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_start_works(#[case] invoker_q: &str) {
         let env = build_serial_overrides(invoker_q);
-        let (_log, _cfg, _cm, invok_svc, _reg, _, _, _) = test_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
                 basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"),
