@@ -24,12 +24,12 @@
 macro_rules! load_config_default {
     ($defaults_json_file:literal, $overrides_config_fpath:ident, $overrides:ident, $env_prefix:expr) => {{
         let defaults = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../", $defaults_json_file));
-        $crate::config::load_config(defaults, $overrides_config_fpath, $overrides, $env_prefix)
+        $crate::config::load_config(Some(defaults), $overrides_config_fpath, $overrides, $env_prefix)
     }};
 }
 
 pub fn load_config<T>(
-    default_json: &str,
+    default_json: Option<&str>,
     overrides_config_fpath: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
     env_prefix: &str,
@@ -38,7 +38,9 @@ where
     T: for<'a> serde::Deserialize<'a>,
 {
     let mut builder = config::Config::builder();
-    builder = builder.add_source(config::File::from_str(default_json, config::FileFormat::Json));
+    if let Some(default_json) = default_json {
+        builder = builder.add_source(config::File::from_str(default_json, config::FileFormat::Json));
+    }
     if let Some(config_fpath) = overrides_config_fpath {
         if std::path::Path::new(&config_fpath).exists() {
             builder = builder.add_source(config::File::with_name(config_fpath));

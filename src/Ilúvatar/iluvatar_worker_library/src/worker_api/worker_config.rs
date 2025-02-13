@@ -231,6 +231,6 @@ pub type WorkerConfig = Arc<Configuration>;
 
 impl Configuration {
     pub fn boxed(config_fpath: Option<&str>, overrides: Option<Vec<(String, String)>>) -> anyhow::Result<WorkerConfig> {
-        iluvatar_library::config::load_config::<WorkerConfig>("", config_fpath, overrides, WORKER_ENV_PREFIX)
+        iluvatar_library::config::load_config::<WorkerConfig>(None, config_fpath, overrides, WORKER_ENV_PREFIX)
     }
 }
