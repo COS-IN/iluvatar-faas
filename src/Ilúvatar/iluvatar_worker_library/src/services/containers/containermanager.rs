@@ -702,7 +702,6 @@ mod tests {
     use crate::worker_api::config::WorkerConfig;
     use crate::worker_api::worker_config::WORKER_ENV_PREFIX;
     use iluvatar_library::transaction::TEST_TID;
-    use std::collections::HashMap;
     use std::time::Duration;
 
     fn cpu_reg() -> Arc<RegisteredFunction> {
@@ -716,8 +715,7 @@ mod tests {
             fqdn: "test-test".into(),
             snapshot_base: "test-test".into(),
             isolation_type: Isolation::DOCKER,
-            supported_compute: Compute::CPU,
-            historical_runtime_data_sec: HashMap::new(),
+            ..Default::default()
         })
     }
 

@@ -13,13 +13,13 @@ use std::{collections::HashMap, sync::Arc};
 use tonic::async_trait;
 use tracing::{info, warn};
 
+mod clients;
 mod container_pool;
 #[path = "./containerd/containerd.rs"]
 pub mod containerd;
 pub mod containermanager;
 #[path = "./docker/docker.rs"]
 pub mod docker;
-mod http_client;
 #[path = "./simulation/simulator.rs"]
 pub mod simulator;
 pub mod structs;

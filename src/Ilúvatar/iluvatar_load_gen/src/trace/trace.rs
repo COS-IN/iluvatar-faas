@@ -3,6 +3,7 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 use controller_trace::{controller_trace_live, controller_trace_sim};
 use iluvatar_library::tokio_utils::SimulationGranularity;
+use iluvatar_library::types::{Compute, ContainerServer, Isolation};
 use iluvatar_library::{types::MemSizeMb, utils::port::Port};
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use std::collections::HashMap;
@@ -119,14 +120,14 @@ pub struct Function {
     /// The compute(s) to test the function with, in the form CPU|GPU|etc.
     /// If empty, will default to CPU
     /// Functions that want GPU compute will be mapped to code that can use it from the benchmark, if found
-    pub compute: Option<String>,
-    /// Used internally, the parsed value from [Function::compute]
-    pub parsed_compute: Option<iluvatar_library::types::Compute>,
+    #[serde(default = "Compute::default")]
+    pub compute: Compute,
     /// The isolations(s) to test the function with, in the form CONTAINERD|DOCKER|etc.
     /// If empty, will default to CONTAINERD
-    pub isolation: Option<String>,
-    /// Used internally, the parsed value from [Function::isolation]
-    pub parsed_isolation: Option<iluvatar_library::types::Isolation>,
+    #[serde(default = "Isolation::default")]
+    pub isolation: Isolation,
+    #[serde(default = "ContainerServer::default")]
+    pub server: ContainerServer,
     /// Used internally, The code name the function was mapped to
     pub chosen_name: Option<String>,
     pub sim_invoke_data: Option<SimulationInvocation>,

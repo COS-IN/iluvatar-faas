@@ -34,7 +34,7 @@ strip=false
 
 [profile.release]
 opt-level=3
-codegen-units=1
+codegen-units=4
 lto=true
 debug=0
 debug-assertions=false
@@ -47,6 +47,7 @@ panic="abort"
 inherits="release"
 opt-level='z'
 lto=true
+codegen-units=1
 debug=0
 debug-assertions=false
 overflow-checks=false

@@ -6,7 +6,7 @@ use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
-use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::RegisterRequest;
 use iluvatar_worker_library::services::containers::structs::ContainerState;
 use rstest::rstest;
 
@@ -19,10 +19,7 @@ fn cpu_reg() -> RegisterRequest {
         parallel_invokes: 1,
         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
-        compute: Compute::CPU.bits(),
-        isolate: Isolation::CONTAINERD.bits(),
-        resource_timings_json: "".to_string(),
+        ..Default::default()
     }
 }
 
@@ -35,10 +32,9 @@ fn gpu_reg() -> RegisterRequest {
         parallel_invokes: 1,
         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
         compute: Compute::GPU.bits(),
         isolate: Isolation::DOCKER.bits(),
-        resource_timings_json: "".to_string(),
+        ..Default::default()
     }
 }
 
@@ -83,10 +79,8 @@ mod compute_iso_matching {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -135,10 +129,9 @@ mod compute_iso_matching {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -171,10 +164,8 @@ mod compute_iso_matching {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: (Isolation::DOCKER | Isolation::CONTAINERD).bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let reg = reg
             .register(request, &TEST_TID)
@@ -233,10 +224,8 @@ mod compute_iso_matching {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::GPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg.register(req, &TEST_TID).await;
         assert_error!(
@@ -257,10 +246,9 @@ mod compute_iso_matching {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: Compute::FPGA.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg.register(req, &TEST_TID).await;
         assert_error!(
@@ -288,10 +276,8 @@ mod gpu {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: Compute::GPU.bits(),
-            isolate: Isolation::CONTAINERD.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(request, &TEST_TID)
@@ -317,10 +303,9 @@ mod gpu {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: (Isolation::DOCKER | Isolation::CONTAINERD).bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -354,10 +339,9 @@ mod gpu {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -496,10 +480,9 @@ mod gpu {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: Compute::GPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func2 = reg
             .register(reg2, &TEST_TID)
@@ -647,10 +630,9 @@ mod gpu {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: Compute::GPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func2 = reg
             .register(r2, &TEST_TID)
@@ -817,10 +799,9 @@ mod gpu_queueuing {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: Compute::GPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func2 = reg
             .register(reg2, &TEST_TID)
@@ -929,10 +910,9 @@ mod gpu_queueuing {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: Compute::GPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func2 = reg
             .register(reg2, &TEST_TID)
@@ -1039,10 +1019,8 @@ mod clean_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1078,10 +1056,9 @@ mod clean_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: Compute::GPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1116,10 +1093,9 @@ mod clean_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1155,10 +1131,9 @@ mod clean_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1201,10 +1176,9 @@ mod enqueueing_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1236,10 +1210,9 @@ mod enqueueing_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1268,10 +1241,9 @@ mod enqueueing_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1298,10 +1270,9 @@ mod enqueueing_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1345,10 +1316,9 @@ mod enqueueing_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1377,10 +1347,9 @@ mod enqueueing_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)
@@ -1431,10 +1400,9 @@ mod enqueueing_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: (Compute::CPU | Compute::GPU).bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let func = reg
             .register(req, &TEST_TID)

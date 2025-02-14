@@ -5,7 +5,7 @@ use crate::utils::test_invoker_svc;
 use iluvatar_library::threading::EventualItem;
 use iluvatar_library::transaction::TEST_TID;
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::RegisterRequest;
 use iluvatar_worker_library::services::containers::structs::{cast, ContainerState};
 
 fn basic_reg_req_docker() -> RegisterRequest {
@@ -17,10 +17,8 @@ fn basic_reg_req_docker() -> RegisterRequest {
         parallel_invokes: 1,
         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
-        compute: Compute::CPU.bits(),
         isolate: Isolation::DOCKER.bits(),
-        resource_timings_json: "".to_string(),
+        ..Default::default()
     }
 }
 
@@ -61,10 +59,8 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 0,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -85,10 +81,8 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -109,10 +103,8 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -133,10 +125,8 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -157,10 +147,8 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -181,10 +169,8 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -208,10 +194,8 @@ mod registration {
             image_name: bad_img.to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -233,10 +217,8 @@ mod registration {
             image_name: bad_img.to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -257,10 +239,8 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::empty().bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -281,10 +261,8 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::INVALID.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -305,10 +283,8 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: (Isolation::DOCKER | Isolation::INVALID).bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let err = reg.register(input, &TEST_TID).await;
         assert_error!(
@@ -410,10 +386,8 @@ mod get_container {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
-            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         };
         let reg = _reg
             .register(request, &TEST_TID)

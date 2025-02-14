@@ -179,7 +179,7 @@ impl CpuHardwareMonitor {
         }))
     }
 }
-#[async_trait::async_trait]
+#[tonic::async_trait]
 impl CpuMonitorTrait for CpuHardwareMonitor {
     fn cpu_util(&self, tid: &TransactionId) -> Result<(CPUUtilPcts, f64)> {
         debug!(tid=%tid, "Computing system utilization");

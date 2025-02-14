@@ -3,7 +3,7 @@ use super::WorkerAPI;
 use anyhow::{bail, Result};
 use iluvatar_library::bail_error;
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::{Compute, HealthStatus, Isolation, MemSizeMb, ResourceTimings};
+use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::port::Port;
 use iluvatar_rpc::rpc::iluvatar_worker_client::IluvatarWorkerClient;
 use iluvatar_rpc::rpc::{
@@ -183,6 +183,7 @@ impl WorkerAPI for RPCWorkerAPI {
         tid: TransactionId,
         isolate: Isolation,
         compute: Compute,
+        server: ContainerServer,
         timings: Option<&ResourceTimings>,
     ) -> Result<String> {
         let request = Request::new(RegisterRequest {
@@ -199,6 +200,7 @@ impl WorkerAPI for RPCWorkerAPI {
             language: LanguageRuntime::Nolang.into(),
             compute: compute.bits(),
             isolate: isolate.bits(),
+            container_server: server as u32,
             resource_timings_json: match timings {
                 Some(r) => serde_json::to_string(r)?,
                 None => "{}".to_string(),

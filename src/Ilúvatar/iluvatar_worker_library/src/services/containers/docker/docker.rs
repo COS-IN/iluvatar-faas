@@ -22,6 +22,7 @@ use futures::StreamExt;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, ResultErrorVal};
+use iluvatar_library::utils::file::temp_file_pth;
 use iluvatar_library::{
     bail_error, bail_error_value, error_value,
     transaction::TransactionId,
@@ -307,6 +308,8 @@ impl ContainerIsolationService for DockerIsolation {
         );
         let il_port = format!("__IL_PORT={}", port);
         env.push(il_port.as_str());
+        let il_sock = format!("__IL_SOCKET={}", temp_file_pth("socket", cid.as_str()));
+        env.push(il_sock.as_str());
 
         let permit = match &self.creation_sem {
             Some(sem) => match sem.acquire().await {
@@ -353,7 +356,9 @@ impl ContainerIsolationService for DockerIsolation {
                 compute,
                 device_resource,
                 tid,
-            ) {
+            )
+            .await
+            {
                 Ok(c) => c,
                 Err((e, d)) => return err_val(e, d),
             };

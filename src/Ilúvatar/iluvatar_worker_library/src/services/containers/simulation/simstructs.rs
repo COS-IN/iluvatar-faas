@@ -284,11 +284,9 @@ mod sim_struct_tests {
             image_name: "none".to_string(),
             memory: 1024,
             cpus: 1,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
-            isolation_type: Isolation::CONTAINERD,
-            supported_compute: Compute::CPU,
             historical_runtime_data_sec: map,
+            ..Default::default()
         })
     }
 

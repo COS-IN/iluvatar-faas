@@ -1,3 +1,4 @@
+use crate::services::containers::clients::ContainerClient;
 use crate::services::containers::structs::ParsedResult;
 use anyhow::Result;
 use iluvatar_library::clock::now;
@@ -11,11 +12,10 @@ use std::{collections::HashMap, time::Duration};
 use tracing::warn;
 
 #[derive(Debug)]
-#[allow(unused)]
 pub struct HttpContainerClient {
-    port: Port,
+    _port: Port,
     invoke_uri: String,
-    base_uri: String,
+    _base_uri: String,
     move_to_dev: String,
     move_to_host: String,
     client: Client,
@@ -42,10 +42,10 @@ impl HttpContainerClient {
             },
         };
         Ok(Self {
-            port,
+            _port: port,
             client,
             invoke_uri: calculate_invoke_uri(address, port),
-            base_uri: calculate_base_uri(address, port),
+            _base_uri: calculate_base_uri(address, port),
             move_to_dev: format_uri(address, port, "prefetch_stream_dev"),
             move_to_host: format_uri(address, port, "prefetch_stream_host"),
         })
@@ -101,21 +101,6 @@ impl HttpContainerClient {
         }
     }
 
-    #[tracing::instrument(skip(self, json_args), fields(tid=%tid), name="HttpContainerClient::invoke")]
-    pub async fn invoke(
-        &self,
-        json_args: &str,
-        tid: &TransactionId,
-        container_id: &str,
-    ) -> Result<(ParsedResult, Duration)> {
-        let (response, duration) = self.call_container(json_args, tid, container_id).await?;
-        let status = response.status();
-        let text = self.download_text(response, tid, container_id).await?;
-        let result = ParsedResult::parse(&text, tid)?;
-        self.check_http_status(tid, status, &text, container_id)?;
-        Ok((result, duration))
-    }
-
     fn check_driver_status(&self, tid: &TransactionId, text: &str) -> Result<()> {
         match serde_json::from_str::<HashMap<String, i32>>(text) {
             Ok(p) => match p.get("Status") {
@@ -133,8 +118,26 @@ impl HttpContainerClient {
             Err(e) => bail_error!(error=%e, tid=%tid, result=%text, "Failed to parse json from HTTP return"),
         }
     }
+}
 
-    pub async fn move_to_device(&self, tid: &TransactionId, container_id: &str) -> Result<()> {
+#[tonic::async_trait]
+impl ContainerClient for HttpContainerClient {
+    #[tracing::instrument(skip(self, json_args, container_id), fields(tid=%tid), name="HttpContainerClient::invoke")]
+    async fn invoke(
+        &self,
+        json_args: &str,
+        tid: &TransactionId,
+        container_id: &str,
+    ) -> Result<(ParsedResult, Duration)> {
+        let (response, duration) = self.call_container(json_args, tid, container_id).await?;
+        let status = response.status();
+        let text = self.download_text(response, tid, container_id).await?;
+        let result = ParsedResult::parse(&text, tid)?;
+        self.check_http_status(tid, status, &text, container_id)?;
+        Ok((result, duration))
+    }
+
+    async fn move_to_device(&self, tid: &TransactionId, container_id: &str) -> Result<()> {
         let builder = self
             .client
             .put(&self.move_to_dev)
@@ -152,7 +155,8 @@ impl HttpContainerClient {
         self.check_http_status(tid, status, &text, container_id)?;
         self.check_driver_status(tid, &text)
     }
-    pub async fn move_from_device(&self, tid: &TransactionId, container_id: &str) -> Result<()> {
+
+    async fn move_from_device(&self, tid: &TransactionId, container_id: &str) -> Result<()> {
         let builder = self
             .client
             .put(&self.move_to_host)

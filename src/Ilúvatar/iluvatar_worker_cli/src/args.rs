@@ -1,9 +1,7 @@
 // extern crate clap;
 use clap::{command, Parser, Subcommand};
-use iluvatar_library::{
-    types::{ComputeEnum, IsolationEnum, MemSizeMb},
-    utils::port_utils::Port,
-};
+use iluvatar_library::types::{Compute, ContainerServer, Isolation};
+use iluvatar_library::{types::MemSizeMb, utils::port_utils::Port};
 
 #[derive(Parser, Debug)]
 pub struct InvokeArgs {
@@ -42,7 +40,7 @@ pub struct PrewarmArgs {
     pub image: Option<String>,
     #[arg(long)]
     /// Supported compute by the function
-    pub compute: Option<ComputeEnum>,
+    pub compute: Compute,
 }
 #[derive(Parser, Debug)]
 pub struct RegisterArgs {
@@ -61,12 +59,14 @@ pub struct RegisterArgs {
     #[arg(short, long)]
     /// Number of CPUs to allocate
     pub cpu: u32,
-    #[arg(long, value_enum, num_args = 1.., required=false, default_values_t = [IsolationEnum::CONTAINERD])]
+    #[arg(long, value_enum, num_args = 1.., required=false, default_values_t = [Isolation::CONTAINERD])]
     /// Isolation mechanisms supported by the function
-    pub isolation: Vec<IsolationEnum>,
-    #[arg(long, value_enum, num_args = 1.., required=false, default_values_t = [ComputeEnum::cpu])]
+    pub isolation: Vec<Isolation>,
+    #[arg(long, value_enum, num_args = 1.., required=false, default_values_t = [Compute::CPU])]
     /// Supported compute by the function
-    pub compute: Vec<ComputeEnum>,
+    pub compute: Vec<Compute>,
+    #[arg(long, required=false, default_value_t = ContainerServer::HTTP)]
+    pub server: ContainerServer,
 }
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

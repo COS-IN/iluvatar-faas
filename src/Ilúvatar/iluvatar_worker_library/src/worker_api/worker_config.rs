@@ -1,12 +1,9 @@
 use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
 use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
+use iluvatar_library::types::Compute;
 use iluvatar_library::{
-    energy::EnergyConfig,
-    influx::InfluxConfig,
-    logging::LoggingConfig,
-    types::{ComputeEnum, MemSizeMb},
-    utils::port_utils::Port,
+    energy::EnergyConfig, influx::InfluxConfig, logging::LoggingConfig, types::MemSizeMb, utils::port_utils::Port,
 };
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -177,9 +174,9 @@ pub struct InvocationConfig {
     /// Duration in milliseconds the worker queue will sleep between checking for new invocations
     pub queue_sleep_ms: u64,
     /// Queue to use for different compute resources
-    pub queues: HashMap<ComputeEnum, String>,
+    pub queues: HashMap<Compute, String>,
     /// Queueing policy to use for different compute resources
-    pub queue_policies: HashMap<ComputeEnum, String>,
+    pub queue_policies: HashMap<Compute, String>,
     /// The policy by which the worker decides how to enqueue polymorphic functions
     /// By default it uses [EnqueueingPolicy::All]
     pub enqueueing_policy: Option<EnqueueingPolicy>,

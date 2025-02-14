@@ -4,7 +4,7 @@ pub mod utils;
 use iluvatar_library::clock::{now, ContainerTimeFormatter};
 use iluvatar_library::transaction::TEST_TID;
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_rpc::rpc::{ContainerState, InvokeAsyncRequest, InvokeRequest, LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::{ContainerState, InvokeAsyncRequest, InvokeRequest, RegisterRequest};
 use rstest::rstest;
 use std::time::Duration;
 use utils::test_invoker_svc;
@@ -34,10 +34,8 @@ fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
         parallel_invokes: 1,
         image_name: image.to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
-        compute: Compute::CPU.bits(),
         isolate: Isolation::DOCKER.bits(),
-        resource_timings_json: "".to_string(),
+        ..Default::default()
     }
 }
 

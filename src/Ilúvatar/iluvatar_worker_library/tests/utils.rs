@@ -5,7 +5,7 @@ use iluvatar_library::{
     transaction::{TransactionId, SIMULATION_START_TID, TEST_TID},
     types::{Compute, Isolation, MemSizeMb},
 };
-use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::RegisterRequest;
 use iluvatar_worker_library::services::{
     containers::{containermanager::ContainerManager, simulator::simstructs::SimulationInvocation},
     invocation::{InvocationResult, Invoker},
@@ -98,7 +98,7 @@ async fn build_test_services(
                 directory: "/tmp".to_string(),
                 basename: "test".to_string(),
                 stdout: Some(true),
-                ..Default::default()
+                ..std::default::Default::default()
             });
             Some(
                 start_tracing(fake_logging, &cfg.name, &TEST_TID)
@@ -131,10 +131,8 @@ fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
         parallel_invokes: 1,
         image_name: image.to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
-        compute: Compute::CPU.bits(),
         isolate: Isolation::DOCKER.bits(),
-        resource_timings_json: "".to_string(),
+        ..std::default::Default::default()
     }
 }
 
@@ -153,10 +151,8 @@ pub async fn cust_register(
         parallel_invokes: 1,
         image_name: image.to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
-        compute: Compute::CPU.bits(),
         isolate: Isolation::DOCKER.bits(),
-        resource_timings_json: "".to_string(),
+        ..std::default::Default::default()
     };
     register_internal(reg, req, tid).await
 }

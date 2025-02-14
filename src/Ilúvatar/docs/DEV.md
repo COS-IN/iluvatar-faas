@@ -50,7 +50,7 @@ The `tracing` crate enables JSON and structured logging, all log messages **must
 This looks like:
 
 ```rust
-debug!(tid=%tid, query=%url, "querying influx");
+debug!(tid=tid, query=%url, "querying influx");
 ```
 
 ### Automated Testing

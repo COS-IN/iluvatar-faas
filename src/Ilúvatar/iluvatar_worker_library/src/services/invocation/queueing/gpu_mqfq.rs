@@ -462,10 +462,7 @@ impl MQFQ {
             None => (None, None),
         };
 
-        let policy: MqfqPolicy = invocation_config
-            .queue_policies
-            .get(&(&Compute::GPU).try_into()?)
-            .try_into()?;
+        let policy: MqfqPolicy = invocation_config.queue_policies.get(&Compute::GPU).try_into()?;
 
         let svc = Arc::new(MQFQ {
             mqfq_set: DashMap::new(),

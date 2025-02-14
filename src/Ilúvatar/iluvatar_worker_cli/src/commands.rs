@@ -52,11 +52,7 @@ pub async fn invoke_async_check(host: String, port: Port, args: AsyncCheck) -> R
 pub async fn prewarm(host: String, port: Port, args: PrewarmArgs) -> Result<()> {
     let tid = gen_tid();
     let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
-    let c = match &args.compute {
-        Some(c) => c.into(),
-        None => iluvatar_library::types::Compute::CPU,
-    };
-    let result = api.prewarm(args.name, args.version, tid, c).await;
+    let result = api.prewarm(args.name, args.version, tid, args.compute).await;
     match result {
         Ok(string) => info!("{}", string),
         Err(err) => error!("{}", err),
@@ -67,8 +63,6 @@ pub async fn prewarm(host: String, port: Port, args: PrewarmArgs) -> Result<()> 
 pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()> {
     let tid = gen_tid();
     let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
-    let iso = args.isolation.into();
-    let compute = args.compute.into();
     let ret = api
         .register(
             args.name,
@@ -78,8 +72,9 @@ pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()
             args.cpu,
             1,
             tid,
-            iso,
-            compute,
+            args.isolation.into(),
+            args.compute.into(),
+            args.server,
             None,
         )
         .await?;

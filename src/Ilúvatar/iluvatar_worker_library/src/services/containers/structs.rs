@@ -104,6 +104,15 @@ pub struct ParsedResult {
     pub gpu_allocation_mb: MemSizeMb,
 }
 impl ParsedResult {
+    pub fn parse_slice(from: &[u8], tid: &TransactionId) -> Result<Self> {
+        match serde_json::from_slice(from) {
+            Ok(p) => Ok(p),
+            Err(e) => {
+                bail_error!(error=%e, tid=%tid, "Failed to parse u8 from invocation return")
+            },
+        }
+    }
+
     pub fn parse(from: &str, tid: &TransactionId) -> Result<Self> {
         match serde_json::from_str(from) {
             Ok(p) => Ok(p),

@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::clock::{now, Clock};
 use iluvatar_library::tokio_utils::SimulationGranularity;
+use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
     transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
@@ -264,6 +265,9 @@ pub async fn controller_register(
     version: &str,
     image: &str,
     memory: MemSizeMb,
+    isolation: Isolation,
+    compute: Compute,
+    server: ContainerServer,
     timings: Option<&ResourceTimings>,
     api: ControllerAPI,
 ) -> Result<Duration> {
@@ -277,8 +281,9 @@ pub async fn controller_register(
         memory,
         timings,
         LanguageRuntime::Python3,
-        Compute::CPU,
-        Isolation::CONTAINERD,
+        compute,
+        isolation,
+        server,
         &tid,
     )?;
     match api.register(req).await {
@@ -317,6 +322,7 @@ pub async fn worker_register(
     comm_method: Option<CommunicationMethod>,
     isolation: Isolation,
     compute: Compute,
+    server: ContainerServer,
     timings: Option<&ResourceTimings>,
 ) -> Result<(String, Duration, TransactionId)> {
     let tid: TransactionId = format!("{}-reg-tid", name);
@@ -336,6 +342,7 @@ pub async fn worker_register(
             tid.clone(),
             isolation,
             compute,
+            server,
             timings,
         )
         .timed()

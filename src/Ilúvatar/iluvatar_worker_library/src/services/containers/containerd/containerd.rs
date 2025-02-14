@@ -190,6 +190,7 @@ impl ContainerdIsolation {
             .replace("$OUTPUT", "")
             .replace("$HOST_ADDR", host_addr)
             .replace("$PORT", &port.to_string())
+            .replace("$SOCK", &temp_file_pth("socket", container_id))
             .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
             .replace("\"$MEMLIMIT\"", &(mem_limit_mb * 1024 * 1024).to_string())
             //        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
@@ -762,7 +763,8 @@ impl ContainerdIsolation {
                         compute,
                         device_resource,
                         tid,
-                    )?)
+                    )
+                    .await?)
                 }
             },
             Err(e) => {
