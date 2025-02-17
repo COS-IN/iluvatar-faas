@@ -22,7 +22,6 @@ use futures::StreamExt;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, ResultErrorVal};
-use iluvatar_library::utils::file::temp_file_pth;
 use iluvatar_library::{
     bail_error, bail_error_value, error_value,
     transaction::TransactionId,
@@ -32,6 +31,7 @@ use iluvatar_library::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
+use iluvatar_library::utils::file::{container_path, make_paths};
 
 pub mod dockerstructs;
 
@@ -116,7 +116,7 @@ impl DockerIsolation {
         mut env: Vec<&str>,
         mem_limit_mb: MemSizeMb,
         cpus: u32,
-        device_resource: &Option<crate::services::resources::gpu::GPU>,
+        device_resource: &Option<GPU>,
         ports: BollardPortBindings,
         host_config: Option<HostConfig>,
         entrypoint: Option<Vec<String>>,
@@ -134,7 +134,9 @@ impl DockerIsolation {
             },
             None => None,
         };
-        let mut volumes = vec![];
+        let ctr_dir = container_path(container_id);
+        make_paths(&ctr_dir, tid)?;
+        let mut volumes = vec![format!("{}:/iluvatar/sockets", ctr_dir.to_string_lossy())];
         let mut device_requests = vec![];
 
         let mps_thread;
@@ -308,7 +310,7 @@ impl ContainerIsolationService for DockerIsolation {
         );
         let il_port = format!("__IL_PORT={}", port);
         env.push(il_port.as_str());
-        let il_sock = format!("__IL_SOCKET={}", temp_file_pth("socket", cid.as_str()));
+        let il_sock = format!("__IL_SOCKET={}", "/iluvatar/sockets/sock");
         env.push(il_sock.as_str());
 
         let permit = match &self.creation_sem {
@@ -324,6 +326,7 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
+        info!(tid=tid, cid=cid, "launching container");
         if let Err(e) = self
             .docker_run(
                 tid,

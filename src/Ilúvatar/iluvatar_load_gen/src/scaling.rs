@@ -72,7 +72,7 @@ pub fn scaling(args: ScalingArgs) -> Result<()> {
 
     for threads in args.start..(args.end + 1) {
         let runtime = build_tokio_runtime(&None, &None, &Some(threads as usize), &"SCALING_TID".to_string())?;
-        info!("\n Running with {} threads", threads);
+        info!("Running with {} threads", threads);
         let result = runtime.block_on(run_one_scaling_test(threads as usize, &args))?;
         let p = Path::new(&args.out_folder).join(format!("{}.json", threads));
         save_result_json(p, &result)?;

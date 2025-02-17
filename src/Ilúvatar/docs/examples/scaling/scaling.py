@@ -1,6 +1,6 @@
 import sys, os, shutil
 
-ILU_HOME = "/data/alfuerst/repos/iluvatar-faas/src/Ilúvatar"
+ILU_HOME = "../../.."
 
 sys.path.append(os.path.join(ILU_HOME, ".."))
 from copy import deepcopy
@@ -41,7 +41,7 @@ kwargs = {
 }
 
 
-def run_scaling(log_file):
+def run_scaling(log_file, threads, server):
     bindir = os.path.join(
         ILU_HOME, "target", "x86_64-unknown-linux-gnu", str(build_level)
     )
@@ -49,6 +49,9 @@ def run_scaling(log_file):
         bindir,
         "iluvatar_load_gen",
     )
+    img = "docker.io/alfuerst/json_dumps_loads-iluvatar-action-http"
+    if server == "unix":
+        img = "docker.io/alfuerst/json_dumps_loads-iluvatar-action-unix"
     args = [
         load_pth,
         "scaling",
@@ -59,18 +62,22 @@ def run_scaling(log_file):
         "--host",
         kwargs["host"],
         "--start",
-        "1",
+        str(threads),
         "--end",
-        "4",
+        str(threads),
         "--image",
-        "docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest",
+        img,
         "--memory-mb",
         "1024",
         "--compute",
         "cpu",
         "--isolation",
+        "--out-folder",
+        server,
+        "--server",
+        server,
         "containerd",
-        "--duration=60",
+        "--duration=120",
     ]
     env = deepcopy(os.environ)
     env["RUST_BACTRACE"] = "1"
@@ -83,11 +90,18 @@ def run_scaling(log_file):
     )
     completed.check_returncode()
 
+threads = list(range(1, 50, 5))
+print(threads)
+exit()
 
 pre_run_cleanup(log_file, results_dir, **kwargs)
 try:
     run_ansible(log_file, **kwargs)
     with open(log_file, "a") as f:
-        run_scaling(f)
+        threads = list(range(1, 50, 5))
+        threads[0] = 1
+        for server in ["http", "unix"]:
+            for tds in threads:
+                run_scaling(f, tds, server)
 finally:
     remote_cleanup(log_file, results_dir, **kwargs)

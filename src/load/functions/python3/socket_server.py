@@ -1,8 +1,7 @@
 import os, sys, traceback, json
 from datetime import datetime
 from math import ceil
-from socket import socket, AF_UNIX, SOCK_STREAM
-from socketserver import UnixStreamServer, StreamRequestHandler, ThreadingMixIn, ThreadingUnixStreamServer
+from socketserver import UnixStreamServer, StreamRequestHandler, ThreadingMixIn
 
 DRIVER="libgpushare.so"
 def driver_enabled() -> bool:

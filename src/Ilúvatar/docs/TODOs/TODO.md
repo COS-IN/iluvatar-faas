@@ -23,17 +23,13 @@ Can cause dispatches to be blocked or broken on Jetson.
 
 ## Switch/Enable networking via unix sockets
 
-Using HTTP connections to send/receive invocations to containers has some networking overhead and scaling issues at high throughput.
-This can cause blocks of up to 60 seconds on some calls.
-Both the worker code and the server running inside the container must be updated to this new format.
 
-Moving to a lower-latency solution would fix both of these problems.
-A few solutions exist, with the first probably being the best one.
 
-1. Unix Sockets
-2. Posix message queues
-3. Linux pipes
-4. Dbus messages
+TODO:
+1) add tests for type formatters
+2) Add e2e test for HTTP and Socket variants
+2) Add example that runs both (use scaling?) and compares the platform overhead. Hopefully faster!
+3) Merge shared code of server.py and socket_server.py to reduce dupe
 
 ## Limit frequency of container checking
 

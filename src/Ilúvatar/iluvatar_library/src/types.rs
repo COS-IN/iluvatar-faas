@@ -1,8 +1,8 @@
 use anyhow::Error;
 use bitflags::bitflags;
 use clap::builder::PossibleValue;
-use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 /// Type to allow returning an owned object along with an error from a function
@@ -23,7 +23,7 @@ pub enum CommunicationMethod {
     SIMULATION = 1,
 }
 impl TryInto<CommunicationMethod> for u32 {
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn try_into(self) -> Result<CommunicationMethod, Self::Error> {
         match self {
@@ -76,18 +76,18 @@ impl TryFrom<u32> for ContainerServer {
 }
 
 bitflags! {
-  #[derive(serde::Deserialize, serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
-  #[serde(transparent)]
   /// The compute methods that a function supports. XXX Rename this ComputeDevice
   /// Having each one of these means it can run on each compute independently.
   /// e.g. having `CPU|GPU` will run fine in a CPU-only container, or one with an attached GPU
-  pub struct Compute: u32 {
+  #[derive(serde::Serialize, Debug,PartialEq,Copy,Clone,Eq,Hash)]
+  #[serde(transparent)]
+    pub struct Compute: u32 {
     const CPU = 0b00000001;
     const GPU = 0b00000010;
     const FPGA = 0b00000100;
   }
 
-  #[derive(serde::Deserialize, serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
+  #[derive(serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
   #[serde(transparent)]
   /// The isolation mechanism the function supports.
   /// e.g. our Docker images are OCI-compliant and can be run by Docker or Containerd, so could specify `CONTAINERD|DOCKER` or `CONTAINERD`
@@ -97,6 +97,22 @@ bitflags! {
     /// to only be used in testing
     const INVALID = 0b10000000000000000000000000000000;
   }
+}
+
+struct StrVisitor;
+impl<'de> serde::de::Visitor<'de> for StrVisitor {
+    type Value = String;
+
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        write!(formatter, "expected a string")
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(value)
+    }
 }
 
 impl Default for Compute {
@@ -129,6 +145,7 @@ impl From<u32> for Compute {
     }
 }
 impl TryFrom<&String> for Compute {
+    type Error = Error;
     fn try_from(value: &String) -> Result<Compute, Self::Error> {
         let mut r = Compute::empty();
         for slice in value.split('|') {
@@ -141,9 +158,8 @@ impl TryFrom<&String> for Compute {
         }
         Ok(r)
     }
-    type Error = anyhow::Error;
 }
-impl std::fmt::Display for Compute {
+impl Display for Compute {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut iter = self.into_iter().peekable();
         while let Some(i) = iter.next() {
@@ -161,6 +177,19 @@ impl std::fmt::Display for Compute {
         Ok(())
     }
 }
+impl<'de> serde::Deserialize<'de> for Compute {
+    fn deserialize<D>(deserializer: D) -> Result<Compute, D::Error>
+    where
+        D: Deserializer<'de>
+    {
+        let v = StrVisitor{};
+        let s = deserializer.deserialize_str(v)?;
+        match (&s).try_into() {
+            Ok(c) => Ok(c),
+            Err(e) => Err(serde::de::Error::custom(e))
+        }
+    }
+}
 
 impl From<u32> for Isolation {
     fn from(i: u32) -> Self {
@@ -168,6 +197,7 @@ impl From<u32> for Isolation {
     }
 }
 impl TryFrom<&String> for Isolation {
+    type Error = Error;
     fn try_from(value: &String) -> Result<Isolation, Self::Error> {
         let mut r = Isolation::empty();
         for slice in value.split('|') {
@@ -180,7 +210,6 @@ impl TryFrom<&String> for Isolation {
         }
         Ok(r)
     }
-    type Error = anyhow::Error;
 }
 impl Default for Isolation {
     fn default() -> Self {
@@ -205,13 +234,13 @@ impl From<Vec<Isolation>> for Isolation {
         vec.iter().fold(Isolation::empty(), |acc, x| acc | *x)
     }
 }
-impl std::fmt::Display for Isolation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for Isolation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut iter = self.into_iter().peekable();
         while let Some(i) = iter.next() {
             match i {
-                Isolation::CONTAINERD => f.write_fmt(format_args!("CONTAINERD"))?,
-                Isolation::DOCKER => f.write_fmt(format_args!("DOCKER"))?,
+                Isolation::CONTAINERD => f.write_fmt(format_args!("containerd"))?,
+                Isolation::DOCKER => f.write_fmt(format_args!("docker"))?,
                 // won't reach as we're iterating over each flag
                 _ => return Err(std::fmt::Error {}),
             };
@@ -220,6 +249,19 @@ impl std::fmt::Display for Isolation {
             }
         }
         Ok(())
+    }
+}
+impl<'de> serde::Deserialize<'de> for Isolation {
+    fn deserialize<D>(deserializer: D) -> Result<Isolation, D::Error>
+    where
+        D: Deserializer<'de>
+    {
+        let v = StrVisitor{};
+        let s = deserializer.deserialize_str(v)?;
+        match (&s).try_into() {
+            Ok(c) => Ok(c),
+            Err(e) => Err(serde::de::Error::custom(e))
+        }
     }
 }
 
@@ -275,7 +317,6 @@ impl FunctionInvocationTimings {
 #[allow(drop_bounds)]
 pub trait DroppableMovableTrait: Drop + Send {}
 impl DroppableMovableTrait for tokio::sync::OwnedSemaphorePermit {}
-// impl DroppableMovableTrait for Option<tokio::sync::OwnedSemaphorePermit> {}
 #[allow(drop_bounds, dyn_drop)]
 pub type DroppableToken = Box<dyn DroppableMovableTrait>;
 impl DroppableMovableTrait for Vec<DroppableToken> {}
