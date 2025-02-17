@@ -21,16 +21,6 @@ Jetson requires using `tegrastats` to get utilization numbers.
 The [GPU monitor](iluvatar_worker_library/src/services/resources/gpu.rs) needs updated information for ideal usage.
 Can cause dispatches to be blocked or broken on Jetson.
 
-## Switch/Enable networking via unix sockets
-
-
-
-TODO:
-1) add tests for type formatters
-2) Add e2e test for HTTP and Socket variants
-2) Add example that runs both (use scaling?) and compares the platform overhead. Hopefully faster!
-3) Merge shared code of server.py and socket_server.py to reduce dupe
-
 ## Limit frequency of container checking
 
 Container memory usage _should_ only change during/immediately after it runs an invocation.

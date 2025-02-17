@@ -15,9 +15,9 @@ pub fn container_path(container_id: &str) -> PathBuf {
     PathBuf::from(TEMP_DIR).join(container_id)
 }
 pub fn make_paths(pth: &Path, tid: &TransactionId) -> Result<()> {
-    match std::fs::create_dir_all(&pth) {
+    match std::fs::create_dir_all(pth) {
         Ok(_) => Ok(()),
-        Err(e) => crate::bail_error!(tid=tid, error=%e, "Failed to make paths")
+        Err(e) => crate::bail_error!(tid=tid, error=%e, "Failed to make paths"),
     }
 }
 

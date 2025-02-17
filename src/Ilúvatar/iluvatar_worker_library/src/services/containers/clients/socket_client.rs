@@ -2,13 +2,13 @@ use crate::services::containers::clients::ContainerClient;
 use crate::services::containers::structs::ParsedResult;
 use anyhow::Result;
 use iluvatar_library::clock::now;
+use iluvatar_library::utils::file::container_path;
 use iluvatar_library::{bail_error, transaction::TransactionId};
-use std::{collections::HashMap, time::Duration};
 use std::path::PathBuf;
+use std::{collections::HashMap, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 use tokio::sync::{Mutex, MutexGuard};
-use iluvatar_library::utils::file::container_path;
 
 #[repr(u64)]
 #[allow(unused)]
@@ -50,7 +50,7 @@ impl SocketContainerClient {
         let mut lck = self.socket.lock().await;
         if lck.is_none() {
             let start = now();
-           tracing::info!(tid=tid, socket=?self.sock_pth, "waiting on socket");
+            tracing::info!(tid=tid, socket=?self.sock_pth, "waiting to open socket");
             while start.elapsed() < Duration::from_secs(self.invoke_timeout) {
                 if std::path::Path::new(&self.sock_pth).exists() {
                     break;
@@ -87,12 +87,7 @@ impl SocketContainerClient {
         Ok(())
     }
 
-    async fn recv_result(
-        &self,
-        sock: &mut UnixStream,
-        tid: &TransactionId,
-        container_id: &str,
-    ) -> Result<Box<[u8]>> {
+    async fn recv_result(&self, sock: &mut UnixStream, tid: &TransactionId, container_id: &str) -> Result<Box<[u8]>> {
         #[cfg(target_endian = "big")]
         let size = match sock.read_u64().await {
             Ok(size) => size as usize,

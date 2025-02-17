@@ -109,7 +109,7 @@ def invoke(args_bytes):
         end = datetime.now()
         return append_metadata(e, start, end, was_cold, success=False)
 
-socket_pth = os.environ.get("__IL_SOCKET", "/tmp/iluvatar/sockets/test_ctr")
+socket_pth = os.environ.get("__IL_SOCKET", "/iluvatar/sockets/sock")
 print("SOCKET:", socket_pth)
 
 class Handler(StreamRequestHandler):

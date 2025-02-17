@@ -31,6 +31,7 @@ use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, Compute, Isolation, ResultErrorVal};
+use iluvatar_library::utils::file::{container_path, make_paths};
 use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
     file::{touch, try_remove_pth},
@@ -49,7 +50,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
-use iluvatar_library::utils::file::{container_path, make_paths};
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
@@ -366,7 +366,7 @@ impl ContainerdIsolation {
     }
 
     fn delete_container_resources(&self, container_id: &str, tid: &TransactionId) {
-        try_remove_pth(container_path(&container_id), tid)
+        try_remove_pth(container_path(container_id), tid)
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
@@ -735,8 +735,8 @@ impl ContainerdIsolation {
             checkpoint: None,
             options: None,
             stdin: stdin.to_string_lossy().to_string(),
-            stdout:stdout.to_string_lossy().to_string(),
-            stderr:stderr.to_string_lossy().to_string(),
+            stdout: stdout.to_string_lossy().to_string(),
+            stderr: stderr.to_string_lossy().to_string(),
             terminal: false,
             runtime_path: "".to_owned(),
         };

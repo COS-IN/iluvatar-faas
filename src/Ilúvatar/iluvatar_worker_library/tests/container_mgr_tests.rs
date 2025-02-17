@@ -17,6 +17,8 @@ fn cpu_reg() -> RegisterRequest {
         parallel_invokes: 1,
         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
         transaction_id: "testTID".to_string(),
+        compute: Compute::CPU.bits(),
+        isolate: Isolation::DOCKER.bits(),
         ..Default::default()
     }
 }

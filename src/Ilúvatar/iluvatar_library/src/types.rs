@@ -100,11 +100,11 @@ bitflags! {
 }
 
 struct StrVisitor;
-impl<'de> serde::de::Visitor<'de> for StrVisitor {
+impl serde::de::Visitor<'_> for StrVisitor {
     type Value = String;
 
     fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
-        write!(formatter, "expected a string")
+        write!(formatter, "a string or str")
     }
 
     fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
@@ -112,6 +112,13 @@ impl<'de> serde::de::Visitor<'de> for StrVisitor {
         E: serde::de::Error,
     {
         Ok(value)
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(value.to_owned())
     }
 }
 
@@ -180,13 +187,13 @@ impl Display for Compute {
 impl<'de> serde::Deserialize<'de> for Compute {
     fn deserialize<D>(deserializer: D) -> Result<Compute, D::Error>
     where
-        D: Deserializer<'de>
+        D: Deserializer<'de>,
     {
-        let v = StrVisitor{};
+        let v = StrVisitor {};
         let s = deserializer.deserialize_str(v)?;
         match (&s).try_into() {
             Ok(c) => Ok(c),
-            Err(e) => Err(serde::de::Error::custom(e))
+            Err(e) => Err(serde::de::Error::custom(e)),
         }
     }
 }
@@ -239,8 +246,8 @@ impl Display for Isolation {
         let mut iter = self.into_iter().peekable();
         while let Some(i) = iter.next() {
             match i {
-                Isolation::CONTAINERD => f.write_fmt(format_args!("containerd"))?,
-                Isolation::DOCKER => f.write_fmt(format_args!("docker"))?,
+                Isolation::CONTAINERD => f.write_fmt(format_args!("CONTAINERD"))?,
+                Isolation::DOCKER => f.write_fmt(format_args!("DOCKER"))?,
                 // won't reach as we're iterating over each flag
                 _ => return Err(std::fmt::Error {}),
             };
@@ -254,13 +261,13 @@ impl Display for Isolation {
 impl<'de> serde::Deserialize<'de> for Isolation {
     fn deserialize<D>(deserializer: D) -> Result<Isolation, D::Error>
     where
-        D: Deserializer<'de>
+        D: Deserializer<'de>,
     {
-        let v = StrVisitor{};
+        let v = StrVisitor {};
         let s = deserializer.deserialize_str(v)?;
         match (&s).try_into() {
             Ok(c) => Ok(c),
-            Err(e) => Err(serde::de::Error::custom(e))
+            Err(e) => Err(serde::de::Error::custom(e)),
         }
     }
 }
@@ -334,8 +341,17 @@ mod types_tests {
 
     #[test]
     fn compute_format() {
-        assert_eq!("cpu|gpu", format!("{}", Compute::CPU | Compute::GPU));
-        assert_eq!("cpu", format!("{}", Compute::CPU));
+        assert_eq!("CPU|GPU", format!("{}", Compute::CPU | Compute::GPU));
+        assert_eq!("CPU", format!("{}", Compute::CPU));
+    }
+
+    #[test]
+    fn isolation_format() {
+        assert_eq!(
+            "CONTAINERD|DOCKER",
+            format!("{}", Isolation::CONTAINERD | Isolation::DOCKER)
+        );
+        assert_eq!("DOCKER", format!("{}", Isolation::DOCKER));
     }
 
     #[test]
