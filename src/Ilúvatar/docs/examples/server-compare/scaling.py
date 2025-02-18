@@ -7,6 +7,7 @@ from copy import deepcopy
 import subprocess
 import multiprocessing
 import argparse
+import psutil
 from load.run.run_trace import (
     rust_build,
     BuildTarget,
@@ -44,10 +45,11 @@ def run_scaling(threads, server):
         "host": "127.0.0.1",
         "ansible_dir": ansible_dir,
         "build_level": build_level,
-        "cores": 4,
-        "memory": 1024 * 5,
+        "cores": threads,
+        "memory": psutil.virtual_memory().total / (1024*1024),
         "worker_status_ms": 500,
         "worker_log_dir": worker_log_dir,
+        "log_level": "warn"
     }
     print(kwargs["worker_log_dir"])
     with open(log_file, "w") as log:
@@ -81,9 +83,9 @@ def run_scaling(threads, server):
                 "--memory-mb",
                 "1024",
                 "--compute",
-                "cpu",
+                "CPU",
                 "--isolation",
-                "containerd",
+                "CONTAINERD",
                 "--server",
                 server,
                 "--duration",
@@ -108,6 +110,7 @@ mx = multiprocessing.cpu_count()
 points = 5
 threads = list(range(1, multiprocessing.cpu_count(), mx // points))
 threads[-1] = mx
+threads = [39]
 for server in ["http", "unix"]:
     for tds in threads:
         run_scaling(tds, server)

@@ -3,8 +3,9 @@
 echo "Running server scaling comparison"
 source ../examples-venv/bin/activate
 
-python3 scaling.py --duration 120
+dur=30
+python3 scaling.py --duration $dur
 echo "Experiment done, plotting."
-python3 plot_scaling.py --duration 120
+#python3 plot_scaling.py --duration $dur
 
 deactivate

@@ -52,7 +52,10 @@ impl SocketContainerClient {
             let start = now();
             tracing::info!(tid=tid, socket=?self.sock_pth, "waiting to open socket");
             while start.elapsed() < Duration::from_secs(self.invoke_timeout) {
-                if std::path::Path::new(&self.sock_pth).exists() {
+                if let Ok(c) = tokio::fs::try_exists(&self.sock_pth).await {
+                    if !c {
+                        bail_error!(tid=tid, "Bad socket file found")
+                    }
                     break;
                 }
             }
