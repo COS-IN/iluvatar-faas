@@ -13,11 +13,15 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-d', "--duration", default=120, type=int, help="Per-scaling, in seconds")
+parser.add_argument(
+    "-d", "--duration", default=120, type=int, help="Per-scaling, in seconds"
+)
 args = parser.parse_args()
+
 
 def load_path(server, procs, path):
     invoke_cnt = 0
+    errors = 0
     overheads = []
     with open(path) as f:
         print(path)
@@ -31,16 +35,29 @@ def load_path(server, procs, path):
                 #  "latency":1.1920928955078125e-6}},"client_latency_us":143160,"function_name":"scaling-1","function_version":"0",
                 #  "tid":"0-76b12f3a2d0d14fa68e9c9b7a6be72ee","invoke_start":"2025-02-17 08:34:32.926188699"},
                 try:
-                    exec_time_sec = float(json.loads(response["worker_response"]["json_result"])["body"]["latency"])
+                    exec_time_sec = float(
+                        json.loads(response["worker_response"]["json_result"])["body"][
+                            "latency"
+                        ]
+                    )
                     invoke_cnt += 1
+                    e2e_sec = float(response["client_latency_us"]) / 1_000.0
+                    overheads.append(e2e_sec - exec_time_sec)
                 except Exception as e:
                     # print(file, response["tid"], response["worker_response"])
                     # raise  e
-                    pass
-                e2e_sec = float(response["client_latency_us"]) / 1_000.0
-                overheads.append(e2e_sec-exec_time_sec)
+                    errors += 1
                 # invoke_cnt += len(thread["data"])
-    return (server, int(procs), invoke_cnt / args.duration, np.mean(overheads), np.std(overheads))
+    total = invoke_cnt + errors
+    err_pct = errors / total
+    print(f"{path} had {errors} failures, or {err_pct:.5f}%")
+    return (
+        server,
+        int(procs),
+        invoke_cnt / args.duration,
+        np.mean(overheads),
+        np.std(overheads),
+    )
 
 
 base = "results"
@@ -58,9 +75,9 @@ for server in os.listdir(base):
 plot_data = defaultdict(list)
 with mp.Pool() as mp:
     res = mp.starmap(load_path, star_args)
-    print(res)
     for server, *pt_data in res:
         plot_data[server].append(pt_data)
+
 
 def server_to_leg(server):
     if server == "http":
@@ -69,6 +86,7 @@ def server_to_leg(server):
         return "UNIX Socket"
     else:
         raise Exception(f"Unknown server {server}")
+
 
 fig, ax = plt.subplots()
 plt.tight_layout()
@@ -102,8 +120,8 @@ for server in plot_data.keys():
 ax.legend()
 ax.set_xticks(xs)
 ax.set_xticklabels(list(map(str, xs)))
-ax.set_yscale('log')
-plt.tick_params(axis='y', which='minor')
+ax.set_yscale("log")
+plt.tick_params(axis="y", which="minor")
 ax.yaxis.set_minor_formatter(FormatStrFormatter("%.1f"))
 ax.set_ylabel("Avg. Overhead (ms.)")
 ax.set_xlabel("Num Procs")

@@ -89,11 +89,11 @@ impl HttpContainerClient {
         match status {
             StatusCode::OK => Ok(()),
             StatusCode::UNPROCESSABLE_ENTITY => {
-                warn!(tid=%tid, status=StatusCode::UNPROCESSABLE_ENTITY.as_u16(), result=%text, container_id=%container_id, "A user code error occured in the container");
+                warn!(tid=%tid, status=StatusCode::UNPROCESSABLE_ENTITY.as_u16(), result=%text, container_id=%container_id, "A user code error occurred in the container");
                 Ok(())
             },
             StatusCode::INTERNAL_SERVER_ERROR => {
-                bail_error!(tid=%tid, status=StatusCode::INTERNAL_SERVER_ERROR.as_u16(), result=%text, container_id=%container_id, "A platform error occured in the container");
+                bail_error!(tid=%tid, status=StatusCode::INTERNAL_SERVER_ERROR.as_u16(), result=%text, container_id=%container_id, "A platform error occurred in the container");
             },
             other => {
                 bail_error!(tid=%tid, status=%other, result=%text, container_id=%container_id, "Unknown status code from container call");

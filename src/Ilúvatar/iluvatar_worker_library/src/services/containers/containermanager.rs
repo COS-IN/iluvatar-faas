@@ -619,8 +619,11 @@ impl ContainerManager {
                 return list;
             },
         };
+        // NOTE: Rust will panic if the comparator doesn't implement total ordering.
+        // As the values used to sort containers _may_ change during sorting here, they must be pre-captured.
+        // Failure to do so will result in a panic and brick the system.
         let mut insts: Vec<(tokio::time::Instant, Container)> = list.into_iter().map(|c| (c.last_used(), c)).collect();
-        insts.sort_by(comparator);
+        insts.sort_unstable_by(comparator);
         insts.into_iter().map(|c| c.1).collect()
     }
 

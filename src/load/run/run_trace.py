@@ -181,6 +181,7 @@ def pre_run_cleanup(log_file, results_dir, **kwargs):
     else:
         _pre_run_cleanup(log_file, results_dir, kwargs)
 
+
 def remote_cleanup(log_file, results_dir, **kwargs):
     kwargs = default_kwargs.overwrite(**kwargs)
     if type(log_file) == str:
@@ -197,6 +198,7 @@ def run_ansible(log_file, **kwargs):
             _run_ansible(f, kwargs)
     else:
         _run_ansible(log_file, kwargs)
+
 
 runner_config_kwargs = [
     ("ilu_home", "NOT_SET"),
@@ -254,6 +256,11 @@ worker_kwargs = {
     ("invoke_queue_sleep_ms", 500, ("invocation", "queue_sleep_ms")),
     ("enqueuing_log_details", False, ("invocation", "enqueuing_log_details")),
     # docker
+    (
+        "docker_avoid_pull",
+        "true",
+        ("container_resources", "docker_config", "avoid_pull"),
+    ),
     (
         "docker_username",
         "",
