@@ -3,6 +3,16 @@
 A list of possible improvements and changes to the base platform.
 In no particular order.
 
+## Scaling problem at extreme loads
+
+When forcing the worker to hadle lots of tiny invocations, it hits a scaling problem.
+This can be seen by the [server-compare example](../examples/server-compare/README.md).
+Figure out what is causing the problem and resolve/mitigate it.
+
+<center>
+<img src="../examples/server-compare/invoke_scaling.png" alt="Ilúvatar logo" width="300"/>
+</center>
+
 ## Improve Ansible interoperability
 
 [This library](https://ansible.readthedocs.io/projects/runner/en/latest/) allows calling `ansible-playbook` via Python code.
