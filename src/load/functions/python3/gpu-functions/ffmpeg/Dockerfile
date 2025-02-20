@@ -28,7 +28,8 @@ RUN apt-get update -qq && apt-get upgrade -y && DEBIAN_FRONTEND=noninteractive a
   libnuma1 \
   libnuma-dev \
   libunistring-dev \
-  libaom-dev && \
+  libaom-dev \
+  nasm && \
   git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && \
   cd nv-codec-headers && \
   git checkout n11.1.5.3 && \

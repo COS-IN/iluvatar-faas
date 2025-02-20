@@ -28,7 +28,7 @@ def _run_ansible_clean(log_file, kwargs):
         kwargs["ansible_host_file"],
         os.path.join(kwargs["ilu_home"], "ansible", kwargs["target"].yml()),
     ]
-    env_args = [kwargs["ansible_hosts_addrs"], "mode=clean"]
+    env_args = [kwargs["ansible_hosts_addrs"], "mode=clean", f"target={kwargs['build_level'].path_name()}"]
 
     worker_env = kwargs.to_env_var_dict("worker")
     worker_env = json.dumps({"worker_environment": worker_env})
@@ -49,11 +49,12 @@ def _run_ansible_clean(log_file, kwargs):
 
 def _copy_logs(log_file, results_dir, kwargs):
     if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
-        for subdir in os.listdir(kwargs["worker_log_dir"]):
-            src = os.path.join(kwargs["worker_log_dir"], subdir)
-            dest = os.path.join(results_dir, subdir)
-            if src != dest:
-                shutil.move(src, dest)
+        if os.path.exists(kwargs["worker_log_dir"]):
+            for subdir in os.listdir(kwargs["worker_log_dir"]):
+                src = os.path.join(kwargs["worker_log_dir"], subdir)
+                dest = os.path.join(results_dir, subdir)
+                if src != dest:
+                    shutil.move(src, dest)
     else:
         from paramiko import SSHClient
         import paramiko

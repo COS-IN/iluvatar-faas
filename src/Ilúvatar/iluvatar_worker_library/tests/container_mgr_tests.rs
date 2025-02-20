@@ -1,10 +1,10 @@
 #[macro_use]
 pub mod utils;
 
-use crate::utils::{short_sim_args, sim_args, sim_invoker_svc, test_invoke};
+use crate::utils::{short_sim_args, sim_args, sim_test_services, test_invoke};
 use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::RegisterRequest;
 use iluvatar_worker_library::services::containers::structs::ContainerState;
 use std::time::Duration;
 
@@ -17,10 +17,9 @@ fn cpu_reg() -> RegisterRequest {
         parallel_invokes: 1,
         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
         compute: Compute::CPU.bits(),
-        isolate: Isolation::CONTAINERD.bits(),
-        resource_timings_json: "".to_string(),
+        isolate: Isolation::DOCKER.bits(),
+        ..Default::default()
     }
 }
 
@@ -33,10 +32,9 @@ fn gpu_reg() -> RegisterRequest {
         parallel_invokes: 1,
         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
         compute: Compute::GPU.bits(),
         isolate: Isolation::DOCKER.bits(),
-        resource_timings_json: "".to_string(),
+        ..Default::default()
     }
 }
 
@@ -56,7 +54,7 @@ mod container_available {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_prewarm_available_after_prewarm() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let func = reg
             .register(cpu_reg(), &TEST_TID)
             .await
@@ -74,7 +72,7 @@ mod container_available {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_prewarm_available_after_prewarm() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -91,7 +89,7 @@ mod container_available {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_warm_available_after_invoke() {
-        let (_log, _cfg, cm, invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let func = reg
             .register(cpu_reg(), &TEST_TID)
             .await
@@ -104,7 +102,7 @@ mod container_available {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_warm_available_after_invoke() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -115,7 +113,7 @@ mod container_available {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_nothing_cold() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let func = reg
             .register(cpu_reg(), &TEST_TID)
             .await
@@ -127,7 +125,7 @@ mod container_available {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_nothing_cold() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -143,7 +141,7 @@ mod container_exists {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_prewarm_available_after_prewarm() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let func = reg
             .register(cpu_reg(), &TEST_TID)
             .await
@@ -159,7 +157,7 @@ mod container_exists {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_prewarm_available_after_prewarm() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -173,7 +171,7 @@ mod container_exists {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_warm_available_after_invoke() {
-        let (_log, _cfg, cm, invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let func = reg
             .register(cpu_reg(), &TEST_TID)
             .await
@@ -186,7 +184,7 @@ mod container_exists {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_warm_available_after_invoke() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -198,7 +196,7 @@ mod container_exists {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_nothing_cold() {
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, None, None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, None, None).await;
         let func = reg
             .register(cpu_reg(), &TEST_TID)
             .await
@@ -210,7 +208,7 @@ mod container_exists {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn gpu_nothing_cold() {
         let env = build_gpu_env();
-        let (_log, _cfg, cm, _invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, cm, _invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -227,7 +225,7 @@ mod container_ordering {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cpu_lru_two_containers_ordered() {
         let env = vec![("container_resources.pool_freq_ms".to_string(), "500".to_string())];
-        let (_log, cfg, cm, invoker, reg_svc, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, cfg, cm, invoker, reg_svc, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let reg1 = cpu_reg();
         let reg2 = cpu_reg();
         let func1 = reg_svc
@@ -259,7 +257,7 @@ mod container_ordering {
     async fn cpu_lru_many_containers_ordered() {
         let mut env = vec![("container_resources.pool_freq_ms".to_string(), "500".to_string())];
         env.push(("container_resources.memory_mb".to_string(), "100000".to_string()));
-        let (_log, cfg, cm, invoker, reg_svc, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, cfg, cm, invoker, reg_svc, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         for _ in 0..10 {
             let reg = cpu_reg();
             let func = reg_svc
@@ -297,7 +295,7 @@ mod container_ordering {
             "container_resources.gpu_resource.use_driver_hook".to_string(),
             "true".to_string(),
         ));
-        let (_log, cfg, cm, invoker, reg_svc, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, cfg, cm, invoker, reg_svc, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let reg1 = gpu_reg();
         let reg2 = gpu_reg();
         let func1 = reg_svc
@@ -338,7 +336,7 @@ mod container_ordering {
             "true".to_string(),
         ));
         env.push(("container_resources.memory_mb".to_string(), "100000".to_string()));
-        let (_log, cfg, cm, invoker, reg_svc, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, cfg, cm, invoker, reg_svc, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         for _ in 0..10 {
             let reg = gpu_reg();
             let func = reg_svc

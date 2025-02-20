@@ -13,7 +13,7 @@ use iluvatar_library::{
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
 };
 use parking_lot::{Mutex, RwLock};
-use rand::{seq::index::sample, thread_rng};
+use rand::{rng, seq::index::sample};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -148,7 +148,7 @@ impl ContainerT for SimulatorContainer {
                 true => data.cold_dur_ms as f64 / 1000.0 * 1.2,
                 _ => match &self.history_data {
                     Some(history_data) => {
-                        let idx = sample(&mut thread_rng(), history_data.len(), 1);
+                        let idx = sample(&mut rng(), history_data.len(), 1);
                         history_data[idx.index(0)]
                     },
                     None => data.warm_dur_ms as f64 / 1000.0 * 1.2,
@@ -284,11 +284,9 @@ mod sim_struct_tests {
             image_name: "none".to_string(),
             memory: 1024,
             cpus: 1,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
-            isolation_type: Isolation::CONTAINERD,
-            supported_compute: Compute::CPU,
             historical_runtime_data_sec: map,
+            ..Default::default()
         })
     }
 

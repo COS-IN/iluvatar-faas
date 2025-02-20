@@ -53,7 +53,18 @@ async fn controller_register_functions(
             None => None,
         };
         let api = factory.get_controller_api(host, port, comm, &gen_tid()).await?;
-        let _reg_dur = controller_register(&func.func_name, &VERSION, image, func.mem_mb, func_timings, api).await?;
+        let _reg_dur = controller_register(
+            &func.func_name,
+            &VERSION,
+            image,
+            func.mem_mb,
+            func.isolation,
+            func.compute,
+            func.server,
+            func_timings,
+            api,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -213,7 +224,7 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         .clone();
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
 
-    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(&Some(&worker_config_pth), None)?;
+    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(Some(&worker_config_pth), None)?;
     let controller_config =
         iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)?;
     let _guard =

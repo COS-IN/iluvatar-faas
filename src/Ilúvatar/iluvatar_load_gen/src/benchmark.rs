@@ -5,7 +5,7 @@ use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
-use iluvatar_library::types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings};
+use iluvatar_library::types::{CommunicationMethod, Compute, ContainerServer, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
@@ -18,14 +18,17 @@ pub struct ToBenchmarkFunction {
     pub name: String,
     pub image_name: String,
     /// The compute(s) to test the function with, in the form CPU|GPU|etc.
-    /// If empty, will default to CPU
-    pub compute: Option<String>,
+    #[serde(default = "Compute::default")]
+    pub compute: Compute,
     /// The isolations(s) to test the function with, in the form CONTAINERD|DOCKER|etc.
-    /// If empty, will default to CONTAINERD
-    pub isolation: Option<String>,
+    #[serde(default = "Isolation::default")]
+    pub isolation: Isolation,
     /// The memory to give the func
     /// If empty, will default to 512
     pub memory: Option<MemSizeMb>,
+    /// The type of server in the image
+    #[serde(default = "ContainerServer::default")]
+    pub server: ContainerServer,
     /// Arguments to pass to each invocation of the function
     pub args: Option<String>,
 }
@@ -156,27 +159,36 @@ pub async fn benchmark_controller(
         for iter in 0..cold_repeats {
             let name = format!("{}-bench-{}", function.name, iter);
             let version = format!("0.0.{}", iter);
-            let _reg_dur =
-                match crate::utils::controller_register(&name, &version, &function.image_name, 512, None, api.clone())
-                    .await
-                {
-                    Ok(d) => d,
-                    Err(e) => {
-                        error!("{}", e);
-                        continue;
-                    },
-                };
+            let _reg_dur = match controller_register(
+                &name,
+                &version,
+                &function.image_name,
+                512,
+                function.isolation,
+                function.compute,
+                function.server,
+                None,
+                api.clone(),
+            )
+            .await
+            {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("{}", e);
+                    continue;
+                },
+            };
 
             'inner: for _ in 0..warm_repeats {
-                match crate::utils::controller_invoke(&name, &version, None, clock.clone(), api.clone()).await {
+                match controller_invoke(&name, &version, None, clock.clone(), api.clone()).await {
                     Ok(invoke_result) => {
                         if invoke_result.controller_response.success {
                             let func_exec_us = invoke_result.function_output.body.latency * 1000000.0;
                             let invoke_lat = invoke_result.client_latency_us as f64;
                             let compute = Compute::from_bits_truncate(invoke_result.controller_response.compute);
-                            let resource_entry = match func_data.resource_data.get_mut(&compute.try_into()?) {
+                            let resource_entry = match func_data.resource_data.get_mut(&compute) {
                                 Some(r) => r,
-                                None => func_data.resource_data.entry(compute.try_into()?).or_default(),
+                                None => func_data.resource_data.entry(compute).or_default(),
                             };
                             if invoke_result.function_output.body.cold {
                                 resource_entry
@@ -241,14 +253,6 @@ pub fn benchmark_worker(
                 cold_repeats = 1;
             },
         };
-        let compute = match function.compute.as_ref() {
-            Some(c) => Compute::try_from(c)?,
-            None => Compute::CPU,
-        };
-        let isolation = match function.isolation.as_ref() {
-            Some(c) => Isolation::try_from(c)?,
-            None => Isolation::CONTAINERD,
-        };
         let memory = match function.memory.as_ref() {
             Some(c) => *c,
             None => 512,
@@ -257,11 +261,11 @@ pub fn benchmark_worker(
         let func_args = match &function.args {
             Some(arg) => {
                 dummy.args = Some(arg.clone());
-                args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
+                args_to_json(&prepare_function_args(&dummy, LoadType::Functions))?
             },
             None => "{\"name\":\"TESTING\"}".to_string(),
         };
-        for supported_compute in compute {
+        for supported_compute in function.compute {
             info!("Running {} {}", &function.name, supported_compute);
 
             for iter in 0..cold_repeats {
@@ -276,8 +280,9 @@ pub fn benchmark_worker(
                     args.port,
                     &factory,
                     None,
-                    isolation,
+                    function.isolation,
                     supported_compute,
+                    function.server,
                     None,
                 )) {
                     Ok(r) => r,
@@ -353,9 +358,9 @@ pub fn benchmark_worker(
         let func_exec_us = invoke.function_output.body.latency * 1000000.0;
         let compute = Compute::from_bits_truncate(invoke.worker_response.compute);
         if invoke.worker_response.success {
-            let resource_entry = match d.resource_data.get_mut(&compute.try_into()?) {
+            let resource_entry = match d.resource_data.get_mut(&compute) {
                 Some(r) => r,
-                None => d.resource_data.entry(compute.try_into()?).or_default(),
+                None => d.resource_data.entry(compute).or_default(),
             };
             if invoke.function_output.body.cold {
                 resource_entry

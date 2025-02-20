@@ -610,34 +610,37 @@ impl ContainerManager {
         Ok(())
     }
 
-    fn order_pool_eviction(&self, tid: &TransactionId, list: &mut Subpool) {
+    fn order_pool_eviction(&self, tid: &TransactionId, list: Subpool) -> Subpool {
         debug!(tid=%tid, "Computing eviction priorities");
         let comparator = match self.resources.eviction.as_str() {
             "LRU" => ContainerManager::lru_eviction,
             _ => {
-                error!(tid=%tid, algorithm=%self.resources.eviction, "Unkonwn eviction algorithm");
-                return;
+                error!(tid=%tid, algorithm=%self.resources.eviction, "Unknown eviction algorithm");
+                return list;
             },
         };
-        list.sort_by(comparator);
+        // NOTE: Rust will panic if the comparator doesn't implement total ordering.
+        // As the values used to sort containers _may_ change during sorting here, they must be pre-captured.
+        // Failure to do so will result in a panic and brick the system.
+        let mut insts: Vec<(tokio::time::Instant, Container)> = list.into_iter().map(|c| (c.last_used(), c)).collect();
+        insts.sort_unstable_by(comparator);
+        insts.into_iter().map(|c| c.1).collect()
     }
 
     fn compute_eviction_priorities(&self, tid: &TransactionId) {
-        let mut ordered = self.cpu_containers.iter();
+        let ordered = self.cpu_containers.iter();
         debug!(tid=%tid, num_containers=%ordered.len(), "Computing CPU eviction priorities");
-        self.order_pool_eviction(tid, &mut ordered);
-        *self.prioritized_list.write() = ordered;
+        *self.prioritized_list.write() = self.order_pool_eviction(tid, ordered);
     }
 
     fn compute_gpu_eviction_priorities(&self, tid: &TransactionId) {
-        let mut ordered = self.gpu_containers.iter();
+        let ordered = self.gpu_containers.iter();
         debug!(tid=%tid, num_containers=%ordered.len(), "Computing GPU eviction priorities");
-        self.order_pool_eviction(tid, &mut ordered);
-        *self.prioritized_gpu_list.write() = ordered;
+        *self.prioritized_gpu_list.write() = self.order_pool_eviction(tid, ordered);
     }
 
-    fn lru_eviction(c1: &Container, c2: &Container) -> Ordering {
-        c1.last_used().cmp(&c2.last_used())
+    fn lru_eviction(c1: &(tokio::time::Instant, Container), c2: &(tokio::time::Instant, Container)) -> Ordering {
+        c1.0.cmp(&c2.0)
     }
 
     pub async fn remove_idle_containers(&self, tid: &TransactionId) -> Result<std::collections::HashMap<Compute, i32>> {
@@ -698,9 +701,10 @@ impl ContainerManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{services::containers::IsolationFactory, worker_api::worker_config::Configuration};
+    use crate::services::containers::IsolationFactory;
+    use crate::worker_api::config::WorkerConfig;
+    use crate::worker_api::worker_config::WORKER_ENV_PREFIX;
     use iluvatar_library::transaction::TEST_TID;
-    use std::collections::HashMap;
     use std::time::Duration;
 
     fn cpu_reg() -> Arc<RegisteredFunction> {
@@ -714,16 +718,20 @@ mod tests {
             fqdn: "test-test".into(),
             snapshot_base: "test-test".into(),
             isolation_type: Isolation::DOCKER,
-            supported_compute: Compute::CPU,
-            historical_runtime_data_sec: HashMap::new(),
+            ..Default::default()
         })
     }
 
     async fn svc(overrides: Option<Vec<(String, String)>>) -> Arc<ContainerManager> {
         let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
         iluvatar_library::utils::set_simulation(tid).unwrap_or_else(|e| panic!("Failed to make system clock: {:?}", e));
-        let cfg = Configuration::boxed(&Some("tests/resources/worker.dev.json"), overrides)
-            .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
+        let cfg: WorkerConfig = iluvatar_library::load_config_default!(
+            "iluvatar_worker_library/tests/resources/worker.json",
+            None,
+            overrides,
+            WORKER_ENV_PREFIX
+        )
+        .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
         let fac = IsolationFactory::new(cfg.clone())
             .get_isolation_services(&TEST_TID, false)
             .await

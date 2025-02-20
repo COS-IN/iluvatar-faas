@@ -7,7 +7,7 @@ use iluvatar_library::transaction::TransactionId;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 lazy_static::lazy_static! {
   pub static ref CPU_CONCUR_WORKER_TID: TransactionId = "CPUConcurrencyMonitor".to_string();
@@ -143,6 +143,6 @@ impl CpuResourceTracker {
                 *svc.current_concur.lock() += 1;
             }
         }
-        info!(tid=%tid, concurrency=*svc.current_concur.lock(), load=norm_load, "Current concurrency");
+        debug!(tid=%tid, concurrency=*svc.current_concur.lock(), load=norm_load, "Current concurrency");
     }
 }

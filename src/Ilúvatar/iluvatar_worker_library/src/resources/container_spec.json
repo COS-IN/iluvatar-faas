@@ -20,6 +20,7 @@
             "TERM=xterm",
             "__IL_PORT=$PORT",
             "__IL_HOST=$HOST_ADDR",
+            "__IL_SOCKET=$SOCK/sock",
             "FLASK_APP=server",
             "FLASK_RUN_PORT=$PORT",
             "FLASK_RUN_HOST=$HOST_ADDR",
@@ -44,9 +45,15 @@
             "source": "proc"
         },
         {
-          "destination": "/tmp",
-          "type": "tmpfs",
-          "source": "tmpfs"
+            "destination": "/tmp",
+            "type": "tmpfs",
+            "source": "tmpfs"
+        },
+        {
+            "source": "/tmp/iluvatar/$CTR_ID/",
+            "destination": "$SOCK",
+            "options": [ "rw", "bind" ],
+            "type": "none"
         },
         {
             "destination": "/dev",

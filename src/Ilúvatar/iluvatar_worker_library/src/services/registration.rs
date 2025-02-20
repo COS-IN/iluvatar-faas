@@ -1,6 +1,7 @@
 use super::containers::{containermanager::ContainerManager, ContainerIsolationCollection};
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
+use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
     characteristics_map::{CharacteristicsMap, Values},
     transaction::TransactionId,
@@ -13,7 +14,7 @@ use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info};
 
 /// A registered function is ready to be run if invoked later. Resource configuration is set here (CPU, mem, isolation, compute-device.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RegisteredFunction {
     pub function_name: String,
     pub function_version: String,
@@ -25,6 +26,7 @@ pub struct RegisteredFunction {
     pub parallel_invokes: u32,
     pub isolation_type: Isolation,
     pub supported_compute: Compute, // TODO: Rename Compute to ComputeDevice
+    pub container_server: ContainerServer,
     pub historical_runtime_data_sec: HashMap<Compute, Vec<f64>>,
 }
 
@@ -70,13 +72,6 @@ impl RegistrationService {
         })
     }
 
-    fn compute_resource_fail(specific_compute: Compute) -> Result<()> {
-        anyhow::bail!(
-            "Could not register function for compute {:?} because the worker has no devices of that type!",
-            specific_compute
-        );
-    }
-
     pub async fn register(&self, request: RegisterRequest, tid: &TransactionId) -> Result<Arc<RegisteredFunction>> {
         if request.function_name.is_empty() {
             anyhow::bail!("Invalid function name");
@@ -110,7 +105,10 @@ impl RegistrationService {
             if (specific_compute == Compute::GPU && self.resources.gpu_resource.as_ref().map_or(0, |c| c.count) == 0)
                 || (specific_compute != Compute::CPU && specific_compute != Compute::GPU)
             {
-                Self::compute_resource_fail(specific_compute)?;
+                anyhow::bail!(
+                    "Could not register function for compute {} because the worker has no devices of that type!",
+                    specific_compute
+                );
             }
         }
 
@@ -131,13 +129,16 @@ impl RegistrationService {
             isolation_type: isolation,
             supported_compute: compute,
             historical_runtime_data_sec: HashMap::new(),
+            container_server: request.container_server.try_into()?,
         };
         for (lifecycle_iso, lifecycle) in self.lifecycles.iter() {
             if !isolation.contains(*lifecycle_iso) {
                 continue;
             }
             isolation.remove(*lifecycle_iso);
-            lifecycle.prepare_function_registration(&mut rf, &fqdn, tid).await?;
+            lifecycle
+                .prepare_function_registration(&mut rf, &fqdn, "default", tid)
+                .await?;
         }
         if !isolation.is_empty() {
             anyhow::bail!("Could not register function with isolation(s): {:?}", isolation);
@@ -147,7 +148,7 @@ impl RegistrationService {
             match serde_json::from_str::<ResourceTimings>(&request.resource_timings_json) {
                 Ok(r) => {
                     for dev_compute in compute.into_iter() {
-                        if let Some(timings) = r.get(&dev_compute.try_into()?) {
+                        if let Some(timings) = r.get(&dev_compute) {
                             debug!(tid=%tid, compute=%dev_compute, from_compute=%compute, fqdn=%fqdn, timings=?r, "Registering timings for function");
                             let (cold, warm, prewarm, exec, e2e, _) =
                                 self.characteristics_map.get_characteristics(&dev_compute)?;

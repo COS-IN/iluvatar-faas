@@ -122,7 +122,7 @@ mod tracker_tests {
         let time = OffsetDateTime::UNIX_EPOCH;
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
         for _ in 0..100 {
-            let num = rand::thread_rng().gen_range(0..100);
+            let num = rand::rng().random_range(0..100);
             tracker.add_item(time + Duration::seconds(num));
         }
         let items = tracker.items.read();

@@ -175,20 +175,29 @@ def copy_logs(log_file, results_dir, **kwargs):
 
 def pre_run_cleanup(log_file, results_dir, **kwargs):
     kwargs = default_kwargs.overwrite(**kwargs)
-    with open(log_file, "a") as f:
-        _pre_run_cleanup(f, results_dir, kwargs)
+    if type(log_file) == str:
+        with open(log_file, "a") as f:
+            _pre_run_cleanup(f, results_dir, kwargs)
+    else:
+        _pre_run_cleanup(log_file, results_dir, kwargs)
 
 
 def remote_cleanup(log_file, results_dir, **kwargs):
     kwargs = default_kwargs.overwrite(**kwargs)
-    with open(log_file, "a") as f:
-        _remote_cleanup(f, results_dir, kwargs)
+    if type(log_file) == str:
+        with open(log_file, "a") as f:
+            _remote_cleanup(f, results_dir, kwargs)
+    else:
+        _remote_cleanup(log_file, results_dir, kwargs)
 
 
 def run_ansible(log_file, **kwargs):
     kwargs = default_kwargs.overwrite(**kwargs)
-    with open(log_file, "a") as f:
-        _run_ansible(f, kwargs)
+    if type(log_file) == str:
+        with open(log_file, "a") as f:
+            _run_ansible(f, kwargs)
+    else:
+        _run_ansible(log_file, kwargs)
 
 
 runner_config_kwargs = [
@@ -247,6 +256,11 @@ worker_kwargs = {
     ("invoke_queue_sleep_ms", 500, ("invocation", "queue_sleep_ms")),
     ("enqueuing_log_details", False, ("invocation", "enqueuing_log_details")),
     # docker
+    (
+        "docker_avoid_pull",
+        "true",
+        ("container_resources", "docker_config", "avoid_pull"),
+    ),
     (
         "docker_username",
         "",

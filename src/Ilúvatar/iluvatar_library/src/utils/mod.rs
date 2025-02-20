@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::process::{Child, Command, Output, Stdio};
 use std::{str, thread, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 pub fn get_child_pid(ppid: u32) -> Result<u32> {
     let ppid = ppid.to_string();
@@ -222,14 +222,21 @@ pub async fn wait_for_exit_signal(tid: &TransactionId) -> Result<()> {
     let mut sig_usr2 = try_create_signal(tid, SignalKind::user_defined2())?;
     let mut sig_quit = try_create_signal(tid, SignalKind::quit())?;
 
-    info!(tid=%tid, "Waiting on exit signal");
-    tokio::select! {
+    info!(tid = tid, "Waiting on exit signal");
+    if tokio::select! {
       res = sig_int.recv() => res,
       res = sig_term.recv() => res,
       res = sig_usr1.recv() => res,
       res = sig_usr2.recv() => res,
       res = sig_quit.recv() => res,
-    };
+    }
+    .is_none()
+    {
+        error!(
+            tid = tid,
+            "Unknown failure waiting on exit signal. Stream broken. Exiting."
+        );
+    }
     crate::continuation::GLOB_CONT_CHECK.signal_application_exit(tid);
     Ok(())
 }

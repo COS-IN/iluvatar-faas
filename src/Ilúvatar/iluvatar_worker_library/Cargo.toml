@@ -13,7 +13,7 @@ categories.workspace = true
 [dependencies]
 iluvatar_library = { path = "../iluvatar_library" }
 iluvatar_rpc = { path = "../iluvatar_rpc" }
-tonic = "0.11"
+tonic = "0.12"
 tokio = { version = "1.*", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot"] }
 lazy_static = "1.*"
 anyhow = "1.*"
@@ -21,40 +21,35 @@ guid-create = "0.*"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0.81"
 parking_lot = "0.12.1"
-config = "0.13"
-inotify = "0.10.2"
-containerd-client = "0.5.0"
+inotify = "0.11"
+containerd-client = "0.6.0"
 oci-spec = "0.*"
 sha2="0.10.2"
 hex = "0.4.3"
-clap = { version = "4.1", features = ["derive"] }
 reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
 dashmap = "6"
 tracing = "0.1"
-actix-web = "4"
 futures = "0.3"
-time = "0.3.36"
+time = "0.3"
 ordered-float = "4"
-tzdb = "0.*"
 csv = "1.*"
 influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 num-traits = "0.2"
 influxdb2-structmap = "0.2"
-rand = "0.8"
-nvml-wrapper = "0.9"
-bollard = "0.16"
-prost-types = "0.12"
-num_cpus = "1.16.0"
-async-trait = "0.1.80"
-bitflags = "2.8"
+rand = "0.9"
+nvml-wrapper = "0.10"
+bollard = "0.18"
+prost-types = "0.13"
+num_cpus = "1.16"
+async-trait = "0.1"
+tokio-stream = "0.1.17"
 
 [dev-dependencies]
-rstest = "0.13.0"
-async-std = { version = "1.5", features = ["attributes"] }
+rstest = "0.24"
 anyhow = { version = "1", features = ["backtrace"] }
-reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 more-asserts = "0.3"
-rand = "0.8"
+rand = "0.9"
 
 [features]
 full_spans = []

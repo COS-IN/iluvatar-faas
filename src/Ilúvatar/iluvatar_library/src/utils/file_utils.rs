@@ -1,9 +1,7 @@
-use std::path::PathBuf;
-
-use anyhow::Result;
-use tracing::{error, warn};
-
 use crate::transaction::TransactionId;
+use anyhow::Result;
+use std::path::{Path, PathBuf};
+use tracing::{error, warn};
 
 pub const TEMP_DIR: &str = "/tmp/iluvatar";
 
@@ -11,6 +9,16 @@ pub const TEMP_DIR: &str = "/tmp/iluvatar";
 /// Takes a tail file name an extension
 pub fn temp_file_pth(with_tail: &str, with_extension: &str) -> String {
     format!("{}/{}.{}", TEMP_DIR, with_tail, with_extension)
+}
+
+pub fn container_path(container_id: &str) -> PathBuf {
+    PathBuf::from(TEMP_DIR).join(container_id)
+}
+pub fn make_paths(pth: &Path, tid: &TransactionId) -> Result<()> {
+    match std::fs::create_dir_all(pth) {
+        Ok(_) => Ok(()),
+        Err(e) => crate::bail_error!(tid=tid, error=%e, "Failed to make paths"),
+    }
 }
 
 /// Create a temp file and return the path to it
@@ -21,7 +29,7 @@ pub fn temp_file(with_tail: &str, with_extension: &str) -> std::io::Result<Strin
 }
 
 /// A simple implementation of `% touch path` (ignores existing files)
-pub fn touch(path: &str) -> std::io::Result<()> {
+pub fn touch<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     match std::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -35,20 +43,20 @@ pub fn touch(path: &str) -> std::io::Result<()> {
 
 /// Tries to remove the specified directory
 /// Swallows any failure
-pub fn try_remove_pth(pth: &str, tid: &TransactionId) {
-    let path = std::path::Path::new(&pth);
-    if path.is_file() {
+pub fn try_remove_pth<P: AsRef<Path>>(path: P, tid: &TransactionId) {
+    let pth: &Path = path.as_ref();
+    if pth.is_file() {
         match std::fs::remove_file(pth) {
             Ok(_) => {},
-            Err(_) => warn!(tid=%tid, path=%pth, "Unable to remove file"),
+            Err(_) => warn!(tid=%tid, path=%pth.display(), "Unable to remove file"),
         };
-    } else if path.is_dir() {
+    } else if pth.is_dir() {
         match std::fs::remove_dir(pth) {
             Ok(_) => {},
-            Err(_) => warn!(tid=%tid, path=%pth, "Unable to remove directory"),
+            Err(_) => warn!(tid=%tid, path=%pth.display(), "Unable to remove directory"),
         };
     } else {
-        error!(tid=%tid, path=%pth, "Unknown path type to delete")
+        error!(tid=%tid, path=%pth.display(), "Unknown path type to delete")
     }
 }
 

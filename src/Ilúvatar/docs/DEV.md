@@ -4,9 +4,69 @@
 
 Following the commands in [setup](./SETUP.md#build-setup) to prepare the required build dependencies.
 
-## Code Standards
+## Code Standards and CI
 
-Code standards are mostly enforced through the CI/CD pipeline
+Code standards are mostly enforced through the CI/CD pipeline during code PR.
+Code must pass formatting lint checks, compile, pass [clippy linting](https://doc.rust-lang.org/stable/clippy/usage.html), and pass all tests.
+Each of these can be checked on your local machine by running one of several `make` targets:
+- `make check`: confirms code compiles with all features.
+- `make format-check`: validates formatting rules are followed, these rules can be automatically applied to your code with `make format`.
+- `make clippy`: runs clippy linting.
+- `make test`: runs all unit tests and cleans up after them.
+
+If CI gives an error that doesn't appear on your local machine, update cargo to the latest version.
+**DO NOT** edit the Makefile to make your code pass in CI!
+
+New configuration that is expected to be frequently changed by users should be added to the [relevant Ansible file](../ansible/).
+More details on how Ansible works can be found in its [specific documentation](./ANSIBLE.md).
+
+### Documentation
+
+New code should be documented via [Rust documentation](https://doc.rust-lang.org/rust-by-example/meta/doc.html).
+
+### Warnings
+
+Code **must** compile without warnings.
+This is enforced by passing flags to the build command.
+
+### Error Handling
+
+`Result` objects from _external_ libraries or RPC/HTTP **must** be extracted and converted to the success object or an Ilúvatar specific error or message.
+Any error `Result` objects from _internal_ function calls can be propagated up without handling via `?`.
+
+Combining an error log while returning `Err` can be done with the custom macro `bail_error!`, [found in here](../iluvatar_library/src/macros.rs).
+
+`panic!` must be avoided at all costs.
+Errors at startup should be logged and propagated up, this will cause the app to exit.
+Errors at runtime should be logged and return the error to the caller.
+Background tasks should log and give up on what they were trying to do, but not exit.
+
+### Logging
+
+ALL functions that log something **must** take a `iluvatar_library::transaction::TransactionId` parameter, typically named `tid`.
+Maintaining this `TransactionId` across the execution path of a request will enable efficient correlation of events in the system.
+This `TransactionId` **must** be placed in log messages.
+The `tracing` crate enables JSON and structured logging, all log messages **must** pass the `TransactionId` via a `tid` argument.
+This looks like:
+
+```rust
+debug!(tid=tid, query=%url, "querying influx");
+```
+
+### Automated Testing
+
+New code and features should add tests to ensure correctness and identify future errors.
+
+All worker library tests use the configuration values in [this config file](../iluvatar_worker_library/tests/resources/worker.json).
+This config is loaded at compile time in the `build_test_services` function from [this file](../iluvatar_worker_library/tests/utils.rs).
+It can be overloaded on a per-test level with arbitrary values via `overrides`.
+Some tests apply to a simulated worker (`sim_test_services`) for simplicity, tests that check interaction with isolation systems (e.g. Docker/containerd) use a live variant (`test_invoker_svc`).
+
+Adding tests should be done in the closest part of the code possible.
+Rust encourages putting unit tests [alongside source code](https://doc.rust-lang.org/book/ch11-01-writing-tests.html).
+One example is for the [`CompletionTimeTracker`](../iluvatar_worker_library/src/services/invocation/completion_time_tracker.rs)
+More complicated integration tests can go in a dedicated `tests` folder, which has been done for the [worker here](../iluvatar_worker_library/tests/).
+
 
 ## Code Overview
 
@@ -48,66 +108,3 @@ This abstracts the creation, deletion, and interaction with the specific isolati
 It will then have to implement [ContainerT](../iluvatar_worker_library/src/services/containers/structs.rs) on a struct to handle the details of running an invocation.
 You may have to edit the [container manager](../iluvatar_worker_library/src/services/containers/containermanager.rs) to handle the new isolation or compute.
 Compute exclusivity is currently being manager for CPU and GPU using custom structs found [here](../iluvatar_worker_library/src/services/resources/mod.rs).
-
-## Code Standards
-
-Some standards to follow to keep the codebase fairly consistent.
-Coding style should follow Rust standards.
-Things like improper casing will result in warnings from the compiler should be fixed unless there is a reason to override the warning.
-There are CI merge checks on the code to enforce various code standards: no warnings, formatting, and [clippy](https://github.com/rust-lang/rust-clippy) standards.
-All of these can be checked locally with the same `make` commands CI uses.
-Run `make check`, `make format-check`, and `make clippy` to reproduce the code analysis.
-If CI gives an error that doesn't appear on your local machine, update cargo to the latest version.
-
-
-New configuration that is expected to be frequently changed by users should be added to the [relevant Ansible file](../ansible/).
-More details on how Ansible works can be found in its [specific documentation](./ANSIBLE.md).
-
-### Documentation
-
-New code should be documented via [Rust documentation](https://doc.rust-lang.org/rust-by-example/meta/doc.html).
-
-### Warnings
-
-Code **must** compile without warnings.
-
-### Error Handling
-
-`Result` objects from _external_ libraries or RPC/HTTP **must** be extracted and converted to the success object or an Ilúvatar specific error or message.
-Any error `Result` objects from _internal_ function calls can be propagated up without handling via `?`.
-
-Combining an error log while returning `Err` can be done with the custom macro `bail_error!`, [found in here](../iluvatar_library/src/macros.rs).
-
-`panic!` must be avoided at all costs.
-Errors at startup should be logged and propagated up, this will cause the app to exit.
-Errors at runtime should be logged and return the error to the caller.
-Background tasks should log and give up on what they were trying to do, but not exit.
-
-### Logging
-
-ALL functions that log something **must** take a `&iluvatar_library::transaction::TransactionId` parameter, typically named `tid`.
-Maintaining this `TransactionId` across the execution path of a request will enable efficient correlation of events in the system.
-This `TransactionId` **must** be placed in log messages.
-The `tracing` crate enables JSON and structured logging, all log messages **must** pass the `TransactionId` via a `tid` argument.
-This looks like:
-
-```rust
-debug!(tid=%tid, query=%url, "querying influx");
-```
-
-### Automated Testing
-
-New code and features should add tests to ensure correctness and identify future errors.
-Most tests are in [this folder](../iluvatar_worker_library/tests/).
-
-If you wish to run the automated tests, you need to make a custom `worker.dev.json` [here](../iluvatar_worker_library/tests/resources/)
-This file must be copied from the [master here](../iluvatar_worker_library/tests/resources/worker.json) and only adjust the settings for the networking setup that enables it to connect with the host bridge.
-Tests rely on the configuration values in the main file.
-Once that is created, all tests can be run with `make test` in the `src/Ilúvatar` directory.
-
-Tests that want different configuration from this baseline should run as a _simulation_.
-For example the `sim_invoker_svc` function in the [testing utils file](../iluvatar_worker_library/tests/utils.rs) creates the main worker services as a simulation, and can take arbitrary configuration overrides enabling this behavior.
-
-Adding tests should be done in the closest part of the code possible.
-Rust encourages putting unit tests [alongside source code](https://doc.rust-lang.org/book/ch11-01-writing-tests.html).
-More complicated integration tests can go in a dedicated `tests` folder, which has been done for the [worker here](../iluvatar_worker_library/tests/).

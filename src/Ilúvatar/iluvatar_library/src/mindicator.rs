@@ -157,11 +157,15 @@ mod mindicator_tests {
     async fn parallel_inserts_safe() {
         let size = 50;
         let m = Mindicator::boxed(size);
+        let mut ts = vec![];
         for i in 0..size {
             let m_c = m.clone();
-            tokio::spawn(async move {
+            ts.push(tokio::spawn(async move {
                 m_c.insert(i, i as f64).unwrap();
-            });
+            }));
+        }
+        for t in ts {
+            t.await.unwrap();
         }
         assert_eq!(m.min(), 0.0);
     }

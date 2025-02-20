@@ -1,9 +1,7 @@
+use crate::services::containers::clients::{create_container_client, ContainerClient};
 use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{
-    containers::{
-        http_client::HttpContainerClient,
-        structs::{ContainerState, ContainerT, ParsedResult},
-    },
+    containers::structs::{ContainerState, ContainerT, ParsedResult},
     network::network_structs::Namespace,
     registration::RegisteredFunction,
     resources::gpu::GPU,
@@ -45,14 +43,14 @@ pub struct ContainerdContainer {
     /// Most recently clocked memory usage
     mem_usage: RwLock<MemSizeMb>,
     state: Mutex<ContainerState>,
-    client: HttpContainerClient,
+    client: Box<dyn ContainerClient>,
     compute: Compute,
     device: RwLock<Option<GPU>>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
 }
 
 impl ContainerdContainer {
-    pub fn new(
+    pub async fn new(
         container_id: String,
         task: Task,
         port: Port,
@@ -67,7 +65,7 @@ impl ContainerdContainer {
         device: Option<GPU>,
         tid: &TransactionId,
     ) -> ResultErrorVal<Self, Option<GPU>> {
-        let client = match HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid) {
+        let client = match create_container_client(function, &container_id, port, &address, invoke_timeout, tid).await {
             Ok(c) => c,
             Err(e) => return err_val(e, device),
         };

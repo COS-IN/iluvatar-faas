@@ -1,4 +1,3 @@
-use config::{Config, File};
 use iluvatar_library::{influx::InfluxConfig, logging::LoggingConfig, utils::port_utils::Port};
 use serde::Deserialize;
 use std::sync::Arc;
@@ -30,38 +29,11 @@ pub struct LoadBalancingConfig {
     pub thread_sleep_ms: u64,
 }
 
+pub const CONTROLLER_ENV_PREFIX: &str = "ILUVATAR_CONTROLLER";
 pub type ControllerConfig = Arc<Configuration>;
 
 impl Configuration {
-    pub fn new(config_fpath: &str) -> anyhow::Result<Self> {
-        let sources = [
-            "iluvatar_controller/src/controller.json",
-            config_fpath,
-            "iluvatar_controller/src/controller.dev.json",
-        ];
-        let s = Config::builder()
-            .add_source(
-                sources
-                    .iter()
-                    .filter(|path| std::path::Path::new(&path).exists())
-                    .map(|path| File::with_name(path))
-                    .collect::<Vec<_>>(),
-            )
-            .add_source(
-                config::Environment::with_prefix("ILUVATAR_CONTROLLER")
-                    .try_parsing(true)
-                    .separator("__"),
-            );
-        match s.build() {
-            Ok(s) => match s.try_deserialize() {
-                Ok(cfg) => Ok(cfg),
-                Err(e) => anyhow::bail!("Failed to deserialize controller configuration because '{}'", e),
-            },
-            Err(e) => anyhow::bail!("Failed to build controller configuration because '{}'", e),
-        }
-    }
-
     pub fn boxed(config_fpath: &str) -> anyhow::Result<ControllerConfig> {
-        Ok(Arc::new(Configuration::new(config_fpath)?))
+        iluvatar_library::config::load_config::<ControllerConfig>(None, Some(config_fpath), None, CONTROLLER_ENV_PREFIX)
     }
 }

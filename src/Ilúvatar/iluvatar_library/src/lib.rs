@@ -8,6 +8,7 @@ pub mod utils;
 pub mod macros;
 pub mod characteristics_map;
 pub mod clock;
+pub mod config;
 pub mod continuation;
 pub mod energy;
 pub mod influx;

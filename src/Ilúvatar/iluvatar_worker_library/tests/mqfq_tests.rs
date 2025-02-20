@@ -1,12 +1,12 @@
 #[macro_use]
 pub mod utils;
 
-use crate::utils::{short_sim_args, sim_args, sim_invoker_svc};
+use crate::utils::{short_sim_args, sim_args, sim_test_services};
 use iluvatar_library::clock::get_global_clock;
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::RegisterRequest;
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
 use iluvatar_worker_library::services::invocation::queueing::DeviceQueue;
 use iluvatar_worker_library::services::status::status_service::build_load_avg_signal;
@@ -19,7 +19,6 @@ use iluvatar_worker_library::services::{
     resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
 };
 use rstest::rstest;
-use std::collections::HashMap;
 use std::sync::Arc;
 use time::Duration;
 
@@ -41,7 +40,7 @@ fn build_gpu_env(overrun: f64, timeout_sec: f64, mqfq_policy: &str) -> Vec<(Stri
 
 async fn build_flowq(overrun: f64) -> (Option<impl Drop>, Arc<ContainerManager>, FlowQ, Arc<Mindicator>) {
     let env = build_gpu_env(overrun, TIMEOUT_SEC, "mqfq");
-    let (log, cfg, cm, _invoker, _reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let (log, cfg, cm, _invoker, _reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
     let min = Mindicator::boxed(1);
     let q = FlowQ::new(
         "test".to_string(),
@@ -67,7 +66,7 @@ async fn build_mqfq(
     mqfq_policy: &str,
 ) -> (Option<impl Drop>, Arc<ContainerManager>, Arc<MQFQ>) {
     let env = build_gpu_env(overrun, timeout_sec, mqfq_policy);
-    let (log, cfg, cm, _invoker, _reg, cmap) = sim_invoker_svc(None, Some(env), None).await;
+    let (log, cfg, cm, _invoker, _reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
     let load_avg = build_load_avg_signal();
     let cpu = CpuResourceTracker::new(&cfg.container_resources.cpu_resource, load_avg, &TEST_TID).unwrap();
     let gpu = GpuResourceTracker::boxed(
@@ -102,11 +101,10 @@ fn item() -> Arc<EnqueuedInvocation> {
         image_name: name.to_string(),
         memory: 1,
         cpus: 1,
-        snapshot_base: "".to_string(),
         parallel_invokes: 1,
         isolation_type: iluvatar_library::types::Isolation::DOCKER,
         supported_compute: iluvatar_library::types::Compute::GPU,
-        historical_runtime_data_sec: HashMap::new(),
+        ..Default::default()
     });
     Arc::new(EnqueuedInvocation::new(
         rf,
@@ -234,10 +232,9 @@ mod mqfq_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: Compute::GPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         }
     }
 
@@ -249,7 +246,7 @@ mod mqfq_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn mqfq_works(#[case] mqfq_pol: &str) {
         let env = build_gpu_env(20.0, TIMEOUT_SEC, mqfq_pol);
-        let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await

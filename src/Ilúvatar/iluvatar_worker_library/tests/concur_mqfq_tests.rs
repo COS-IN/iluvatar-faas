@@ -1,11 +1,11 @@
 #[macro_use]
 pub mod utils;
 
-use crate::utils::{sim_args, sim_invoker_svc};
+use crate::utils::{sim_args, sim_test_services};
 use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::Compute;
 use iluvatar_library::types::Isolation;
-use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::RegisterRequest;
 
 fn gpu_reg() -> RegisterRequest {
     RegisterRequest {
@@ -16,10 +16,9 @@ fn gpu_reg() -> RegisterRequest {
         parallel_invokes: 1,
         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
         compute: Compute::GPU.bits(),
         isolate: Isolation::DOCKER.bits(),
-        resource_timings_json: "".to_string(),
+        ..Default::default()
     }
 }
 
@@ -54,7 +53,7 @@ mod flowq_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn insert_set_active() {
         let env = build_gpu_env(20.0, 1);
-        let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -72,7 +71,7 @@ mod flowq_tests {
     async fn two_funcs_invokes_split() {
         let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap();
         let env = build_gpu_env(20.0, 2);
-        let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func1 = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -118,7 +117,7 @@ mod flowq_tests {
     async fn two_funcs_invokes_split_2() {
         let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap();
         let env = build_gpu_env(20.0, 2);
-        let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func1 = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -164,7 +163,7 @@ mod flowq_tests {
     async fn concurrent_invokes_split() {
         let formatter = ContainerTimeFormatter::new(&TEST_TID).unwrap();
         let env = build_gpu_env(20.0, 2);
-        let (_log, _cfg, _cm, invoker, reg, _cmap) = sim_invoker_svc(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await

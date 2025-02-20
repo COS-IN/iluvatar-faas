@@ -3,6 +3,16 @@
 A list of possible improvements and changes to the base platform.
 In no particular order.
 
+## Scaling problem at extreme loads
+
+When forcing the worker to hadle lots of tiny invocations, it hits a scaling problem.
+This can be seen by the [server-compare example](../examples/server-compare/README.md).
+Figure out what is causing the problem and resolve/mitigate it.
+
+<center>
+<img src="../examples/server-compare/invoke_scaling.png" alt="Ilúvatar logo" width="300"/>
+</center>
+
 ## Improve Ansible interoperability
 
 [This library](https://ansible.readthedocs.io/projects/runner/en/latest/) allows calling `ansible-playbook` via Python code.
@@ -20,20 +30,6 @@ Can add in graphing & analysis too.
 Jetson requires using `tegrastats` to get utilization numbers.
 The [GPU monitor](iluvatar_worker_library/src/services/resources/gpu.rs) needs updated information for ideal usage.
 Can cause dispatches to be blocked or broken on Jetson.
-
-## Switch/Enable networking via unix sockets
-
-Using HTTP connections to send/receive invocations to containers has some networking overhead and scaling issues at high throughput.
-This can cause blocks of up to 60 seconds on some calls.
-Both the worker code and the server running inside the container must be updated to this new format.
-
-Moving to a lower-latency solution would fix both of these problems.
-A few solutions exist, with the first probably being the best one.
-
-1. Unix Sockets
-2. Posix message queues
-3. Linux pipes
-4. Dbus messages
 
 ## Limit frequency of container checking
 
@@ -114,9 +110,23 @@ Simple way: inject `basename` of logging config into each log statement and can 
 
 Probably use a filter in `tracing-subscriber`, see [here](https://stackoverflow.com/questions/76939805/tracing-how-to-filter-logs-under-specified-levels-for-layer) and [here](https://docs.rs/tracing-subscriber/0.3.16/tracing_subscriber/layer/index.html#filtering-with-layers).
 
-## CI Testing
+## Docker-in-Docker Containerd for tests
 
-Run automated tests in Github actions CI.
+It would be good if we had some tests that tested live containerd usage.
+Currently broken in favor of supporting D-in-D to enable CI tests.
+
+Issues:
+    - Can't connect to containers from worker?
+    - Container startup may fail because of PID issue -> https://github.com/moby/moby/issues/44335
+    - D-in-D Network namespaces are broken with this problem -> https://github.com/containerd/containerd/issues/3667
+    - need to clean them up anyway "somehow"
+
+These allow manipulation of netns, but they are corrupted & hard to clean up
+`CROSS_CONTAINER_OPTS="--network=host --cap-add CAP_SYS_ADMIN --cap-add NET_ADMIN --security-opt apparmor=unconfined"`
+
+Alternate is to run build inside Cross QEMU system.
+But we can't install dependencies inside the VM currently.
+Something like this might make it happen: https://github.com/cross-rs/cross/issues/1621
 
 ## Optional Memory capping
 

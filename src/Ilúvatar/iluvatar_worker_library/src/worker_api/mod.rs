@@ -11,7 +11,7 @@ use crate::services::worker_health::WorkerHealthService;
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
 use iluvatar_library::influx::InfluxClient;
-use iluvatar_library::types::{Compute, HealthStatus, Isolation, ResourceTimings};
+use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation, ResourceTimings};
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{characteristics_map::AgExponential, energy::energy_logging::EnergyLogger};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
@@ -87,7 +87,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let invoker = invoker_fact
         .get_invoker_service(tid)
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to get invoker service"))?;
-    let health = WorkerHealthService::boxed(worker_config.clone(), invoker.clone(), reg.clone(), tid)
+    let health = WorkerHealthService::boxed(worker_config.clone(), invoker.clone(), reg.clone(), isos.clone(), tid)
         .await
         .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker health service"))?;
     let status = StatusService::boxed(
@@ -120,7 +120,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     };
 
     Ok(IluvatarWorkerImpl::new(
-        worker_config.clone(),
+        worker_config,
         container_man,
         invoker,
         status,
@@ -177,6 +177,7 @@ pub trait WorkerAPI {
         tid: TransactionId,
         isolate: Isolation,
         compute: Compute,
+        server: ContainerServer,
         timings: Option<&ResourceTimings>,
     ) -> Result<String>;
     /// Get worker status.

@@ -253,7 +253,6 @@ mod tests {
     use crate::services::{containers::simulator::simstructs::SimulatorContainer, registration::RegisteredFunction};
     use iluvatar_library::transaction::gen_tid;
     use iluvatar_library::{types::Isolation, utils::calculate_fqdn};
-    use std::collections::HashMap;
     use std::sync::Arc;
 
     #[test]
@@ -264,14 +263,9 @@ mod tests {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
             isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-            historical_runtime_data_sec: HashMap::new(),
+            ..std::default::Default::default()
         });
         let ctr = Arc::new(
             SimulatorContainer::new(
@@ -298,14 +292,9 @@ mod tests {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
             isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-            historical_runtime_data_sec: HashMap::new(),
+            ..std::default::Default::default()
         });
         let ctr = Arc::new(
             SimulatorContainer::new(
@@ -336,14 +325,9 @@ mod tests {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
             isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-            historical_runtime_data_sec: HashMap::new(),
+            ..std::default::Default::default()
         });
         let ctr = Arc::new(
             SimulatorContainer::new(
@@ -371,14 +355,9 @@ mod tests {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
             isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-            historical_runtime_data_sec: HashMap::new(),
+            ..std::default::Default::default()
         });
         let ctr = Arc::new(
             SimulatorContainer::new(
@@ -410,28 +389,18 @@ mod tests {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
             isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-            historical_runtime_data_sec: HashMap::new(),
+            ..std::default::Default::default()
         });
         let fqdn2 = calculate_fqdn("name2", "vesr");
         let reg2 = Arc::new(RegisteredFunction {
             function_name: "name2".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
             isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-            historical_runtime_data_sec: HashMap::new(),
+            ..std::default::Default::default()
         });
         let ctr = Arc::new(
             SimulatorContainer::new(
@@ -521,14 +490,9 @@ mod tests {
                     function_name: fqdn.clone(),
                     function_version: "vesr".to_string(),
                     image_name: "img".to_string(),
-                    memory: 0,
-                    cpus: 0,
-                    snapshot_base: "".to_string(),
                     parallel_invokes: 1,
                     isolation_type: Isolation::all(),
-                    supported_compute: iluvatar_library::types::Compute::CPU,
-                    fqdn: "".to_string(),
-                    historical_runtime_data_sec: HashMap::new(),
+                    ..std::default::Default::default()
                 });
                 b_c.wait().await;
                 for i in 0..creates {
@@ -565,14 +529,9 @@ mod tests {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
             isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-            historical_runtime_data_sec: HashMap::new(),
+            ..std::default::Default::default()
         });
         let ctr = Arc::new(
             SimulatorContainer::new(
@@ -603,14 +562,9 @@ mod tests {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
             isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-            historical_runtime_data_sec: HashMap::new(),
+            ..std::default::Default::default()
         });
         assert_eq!(cp.has_idle_container(&fqdn), ContainerState::Cold);
         let ctr = Arc::new(
@@ -654,14 +608,9 @@ mod tests {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
-            memory: 0,
-            cpus: 0,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
             isolation_type: Isolation::all(),
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            fqdn: "".to_string(),
-            historical_runtime_data_sec: HashMap::new(),
+            ..std::default::Default::default()
         });
         assert_eq!(cp.has_container(&fqdn), ContainerState::Cold);
         let ctr = Arc::new(

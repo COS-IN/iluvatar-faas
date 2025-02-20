@@ -1,7 +1,9 @@
 use anyhow::Error;
 use bitflags::bitflags;
-use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
+use clap::builder::PossibleValue;
+use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 
 /// Type to allow returning an owned object along with an error from a function
 pub type ResultErrorVal<T, D, E = Error> = Result<T, (E, D)>;
@@ -21,7 +23,7 @@ pub enum CommunicationMethod {
     SIMULATION = 1,
 }
 impl TryInto<CommunicationMethod> for u32 {
-    type Error = anyhow::Error;
+    type Error = Error;
 
     fn try_into(self) -> Result<CommunicationMethod, Self::Error> {
         match self {
@@ -32,18 +34,60 @@ impl TryInto<CommunicationMethod> for u32 {
     }
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Copy, Clone)]
+/// The server type running inside the container
+pub enum ContainerServer {
+    #[default]
+    HTTP = 0,
+    UnixSocket = 1,
+}
+impl FromStr for ContainerServer {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "http" => Ok(ContainerServer::HTTP),
+            "unix-socket" => Ok(ContainerServer::UnixSocket),
+            "socket" => Ok(ContainerServer::UnixSocket),
+            "unix" => Ok(ContainerServer::UnixSocket),
+            _ => anyhow::bail!("Cannot parse {:?} for ContainerServer", s),
+        }
+    }
+}
+impl Display for ContainerServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ContainerServer::HTTP => f.write_fmt(format_args!("HTTP"))?,
+            ContainerServer::UnixSocket => f.write_fmt(format_args!("UnixSocket"))?,
+        }
+        Ok(())
+    }
+}
+impl TryFrom<u32> for ContainerServer {
+    type Error = Error;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(ContainerServer::HTTP),
+            1 => Ok(ContainerServer::UnixSocket),
+            _ => anyhow::bail!("Cannot parse {} for ContainerServer", value),
+        }
+    }
+}
+
 bitflags! {
-  #[derive(serde::Deserialize, serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
-  #[serde(transparent)]
   /// The compute methods that a function supports. XXX Rename this ComputeDevice
   /// Having each one of these means it can run on each compute independently.
   /// e.g. having `CPU|GPU` will run fine in a CPU-only container, or one with an attached GPU
-  pub struct Compute: u32 {
+  #[derive(serde::Serialize, Debug,PartialEq,Copy,Clone,Eq,Hash)]
+  #[serde(transparent)]
+    pub struct Compute: u32 {
     const CPU = 0b00000001;
     const GPU = 0b00000010;
     const FPGA = 0b00000100;
   }
-  #[derive(serde::Deserialize, serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
+
+  #[derive(serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
   #[serde(transparent)]
   /// The isolation mechanism the function supports.
   /// e.g. our Docker images are OCI-compliant and can be run by Docker or Containerd, so could specify `CONTAINERD|DOCKER` or `CONTAINERD`
@@ -55,70 +99,51 @@ bitflags! {
   }
 }
 
-#[derive(
-    clap::ValueEnum, std::fmt::Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash,
-)]
-/// To be used with CLI args and other places where it needs to be converted into a string
-/// The compute methods that a function supports
-/// Having each one of these means it can run on each compute independently.
-/// I.E. having [ComputeEnum::cpu]|[ComputeEnum::gpu] will run fine in a CPU-only container, or one with an attached GPU
-#[allow(non_camel_case_types)]
-pub enum ComputeEnum {
-    cpu,
-    gpu,
-    fpga,
-}
-/// To turn Compute back into a string-serializable format for hashmaps
-impl TryInto<ComputeEnum> for Compute {
-    fn try_into(self) -> Result<ComputeEnum, Self::Error> {
-        (&self).try_into()
+struct StrVisitor;
+impl serde::de::Visitor<'_> for StrVisitor {
+    type Value = String;
+
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        write!(formatter, "a string or str")
     }
-    type Error = anyhow::Error;
-}
-/// To turn Compute back into a string-serializable format for hashmaps
-impl TryInto<ComputeEnum> for &Compute {
-    fn try_into(self) -> Result<ComputeEnum, Self::Error> {
-        if self.contains(Compute::CPU) {
-            Ok(ComputeEnum::cpu)
-        } else if self.contains(Compute::GPU) {
-            Ok(ComputeEnum::gpu)
-        } else if self.contains(Compute::FPGA) {
-            Ok(ComputeEnum::fpga)
-        } else {
-            anyhow::bail!("Cannot convert Compute '{:?}' to enum", self)
-        }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(value)
     }
-    type Error = anyhow::Error;
-}
-// impl IntoIterator for Compute {
-//     type Item = Compute;
-//     type IntoIter = std::vec::IntoIter<Self::Item>;
-//
-//     /// Get a list of the individual compute components in the [Compute] bitmap
-//     fn into_iter(self) -> Self::IntoIter {
-//         vec![Compute::CPU, Compute::GPU, Compute::FPGA]
-//             .into_iter()
-//             .filter(|x| self.contains(*x))
-//             .collect::<Vec<Compute>>()
-//             .into_iter()
-//     }
-// }
-impl From<Vec<ComputeEnum>> for Compute {
-    fn from(i: Vec<ComputeEnum>) -> Self {
-        let mut r = Compute::empty();
-        for x in i.iter() {
-            r |= x.into()
-        }
-        r
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(value.to_owned())
     }
 }
-impl From<&ComputeEnum> for Compute {
-    fn from(i: &ComputeEnum) -> Self {
-        match i {
-            ComputeEnum::cpu => Compute::CPU,
-            ComputeEnum::gpu => Compute::GPU,
-            ComputeEnum::fpga => Compute::FPGA,
-        }
+
+impl Default for Compute {
+    fn default() -> Self {
+        Self::CPU
+    }
+}
+impl clap::ValueEnum for Compute {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::CPU, Self::GPU, Self::FPGA]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(match *self {
+            Self::CPU => PossibleValue::new("CPU"),
+            Self::GPU => PossibleValue::new("GPU"),
+            Self::FPGA => PossibleValue::new("FPGA"),
+            _ => return None,
+        })
+    }
+}
+impl From<Vec<Compute>> for Compute {
+    fn from(vec: Vec<Compute>) -> Self {
+        vec.iter().fold(Compute::empty(), |acc, x| acc | *x)
     }
 }
 impl From<u32> for Compute {
@@ -127,28 +152,30 @@ impl From<u32> for Compute {
     }
 }
 impl TryFrom<&String> for Compute {
+    type Error = Error;
     fn try_from(value: &String) -> Result<Compute, Self::Error> {
-        let mut vec = vec![];
+        let mut r = Compute::empty();
         for slice in value.split('|') {
-            vec.push(match ComputeEnum::from_str(slice, true) {
-                Ok(c) => c,
-                Err(e) => anyhow::bail!(e),
-            });
+            r |= match slice.to_lowercase().as_str() {
+                "cpu" => Compute::CPU,
+                "gpu" => Compute::GPU,
+                "fpga" => Compute::FPGA,
+                _ => anyhow::bail!("Cannot parse {:?} for Compute", slice),
+            };
         }
-        Ok(vec.into())
+        Ok(r)
     }
-    type Error = anyhow::Error;
 }
-impl std::fmt::Display for Compute {
+impl Display for Compute {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut iter = self.into_iter().peekable();
         while let Some(i) = iter.next() {
-            match TryInto::<ComputeEnum>::try_into(i) {
-                Ok(c) => f.write_fmt(format_args!("{:?}", c))?,
-                Err(e) => {
-                    tracing::error!(error=%e, "Failed to format Compute");
-                    return Err(std::fmt::Error);
-                },
+            match i {
+                Compute::CPU => f.write_fmt(format_args!("CPU"))?,
+                Compute::GPU => f.write_fmt(format_args!("GPU"))?,
+                Compute::FPGA => f.write_fmt(format_args!("FPGA"))?,
+                // won't reach as we're iterating over each flag
+                _ => return Err(std::fmt::Error {}),
             };
             if iter.peek().is_some() {
                 f.write_str("|")?;
@@ -157,52 +184,96 @@ impl std::fmt::Display for Compute {
         Ok(())
     }
 }
+impl<'de> serde::Deserialize<'de> for Compute {
+    fn deserialize<D>(deserializer: D) -> Result<Compute, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = StrVisitor {};
+        let s = deserializer.deserialize_str(v)?;
+        match (&s).try_into() {
+            Ok(c) => Ok(c),
+            Err(e) => Err(serde::de::Error::custom(e)),
+        }
+    }
+}
 
-#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
-/// To be used with CLI args and other places it needs to be converted into a string
-pub enum IsolationEnum {
-    CONTAINERD,
-    DOCKER,
-    // INVALID deliberately not included
-}
-impl From<Vec<IsolationEnum>> for Isolation {
-    fn from(i: Vec<IsolationEnum>) -> Self {
-        let mut r = Isolation::empty();
-        for x in i.iter() {
-            r |= x.into();
-        }
-        r
-    }
-}
-impl From<&IsolationEnum> for Isolation {
-    fn from(i: &IsolationEnum) -> Self {
-        match i {
-            IsolationEnum::CONTAINERD => Isolation::CONTAINERD,
-            IsolationEnum::DOCKER => Isolation::DOCKER,
-        }
-    }
-}
 impl From<u32> for Isolation {
     fn from(i: u32) -> Self {
         Isolation::from_bits_truncate(i)
     }
 }
 impl TryFrom<&String> for Isolation {
+    type Error = Error;
     fn try_from(value: &String) -> Result<Isolation, Self::Error> {
-        let mut vec = vec![];
+        let mut r = Isolation::empty();
         for slice in value.split('|') {
-            vec.push(match IsolationEnum::from_str(slice, true) {
-                Ok(i) => i,
-                Err(e) => anyhow::bail!(e),
-            });
+            r |= match slice.to_lowercase().as_str() {
+                "containerd" => Isolation::CONTAINERD,
+                "docker" => Isolation::DOCKER,
+                "invalid" => Isolation::INVALID,
+                _ => anyhow::bail!("Cannot parse {:?} for Isolation", slice),
+            };
         }
-        Ok(vec.into())
+        Ok(r)
     }
-    type Error = anyhow::Error;
+}
+impl Default for Isolation {
+    fn default() -> Self {
+        Self::CONTAINERD
+    }
+}
+impl clap::ValueEnum for Isolation {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Isolation::CONTAINERD, Isolation::DOCKER]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(match *self {
+            Self::CONTAINERD => PossibleValue::new("CONTAINERD"),
+            Self::DOCKER => PossibleValue::new("DOCKER"),
+            _ => return None,
+        })
+    }
+}
+impl From<Vec<Isolation>> for Isolation {
+    fn from(vec: Vec<Isolation>) -> Self {
+        vec.iter().fold(Isolation::empty(), |acc, x| acc | *x)
+    }
+}
+impl Display for Isolation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut iter = self.into_iter().peekable();
+        while let Some(i) = iter.next() {
+            match i {
+                Isolation::CONTAINERD => f.write_fmt(format_args!("CONTAINERD"))?,
+                Isolation::DOCKER => f.write_fmt(format_args!("DOCKER"))?,
+                // won't reach as we're iterating over each flag
+                _ => return Err(std::fmt::Error {}),
+            };
+            if iter.peek().is_some() {
+                f.write_str("|")?;
+            }
+        }
+        Ok(())
+    }
+}
+impl<'de> serde::Deserialize<'de> for Isolation {
+    fn deserialize<D>(deserializer: D) -> Result<Isolation, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = StrVisitor {};
+        let s = deserializer.deserialize_str(v)?;
+        match (&s).try_into() {
+            Ok(c) => Ok(c),
+            Err(e) => Err(serde::de::Error::custom(e)),
+        }
+    }
 }
 
 /// A collection of function timing data, allowing for polymorphic functions that run on several computes
-pub type ResourceTimings = std::collections::HashMap<ComputeEnum, FunctionInvocationTimings>;
+pub type ResourceTimings = std::collections::HashMap<Compute, FunctionInvocationTimings>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// A struct holding the invocation timings of a single function.
@@ -253,7 +324,6 @@ impl FunctionInvocationTimings {
 #[allow(drop_bounds)]
 pub trait DroppableMovableTrait: Drop + Send {}
 impl DroppableMovableTrait for tokio::sync::OwnedSemaphorePermit {}
-// impl DroppableMovableTrait for Option<tokio::sync::OwnedSemaphorePermit> {}
 #[allow(drop_bounds, dyn_drop)]
 pub type DroppableToken = Box<dyn DroppableMovableTrait>;
 impl DroppableMovableTrait for Vec<DroppableToken> {}
@@ -271,8 +341,17 @@ mod types_tests {
 
     #[test]
     fn compute_format() {
-        assert_eq!("cpu|gpu", format!("{}", Compute::CPU | Compute::GPU));
-        assert_eq!("cpu", format!("{}", Compute::CPU));
+        assert_eq!("CPU|GPU", format!("{}", Compute::CPU | Compute::GPU));
+        assert_eq!("CPU", format!("{}", Compute::CPU));
+    }
+
+    #[test]
+    fn isolation_format() {
+        assert_eq!(
+            "CONTAINERD|DOCKER",
+            format!("{}", Isolation::CONTAINERD | Isolation::DOCKER)
+        );
+        assert_eq!("DOCKER", format!("{}", Isolation::DOCKER));
     }
 
     #[test]
