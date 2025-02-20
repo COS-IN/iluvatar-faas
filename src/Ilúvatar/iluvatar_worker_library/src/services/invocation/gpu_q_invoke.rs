@@ -194,7 +194,7 @@ impl GpuQueueingInvoker {
         cont_manager: &Arc<ContainerManager>,
         _tid: &TransactionId,
     ) -> Result<Arc<dyn GpuQueuePolicy>> {
-        if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::GPU).try_into()?) {
+        if let Some(pol) = invocation_config.queue_policies.get(&Compute::GPU) {
             Ok(match pol.as_str() {
                 "fcfs" => FcfsGpuQueue::new(cont_manager.clone(), cmap.clone())?,
                 "sjf" => SjfGpuQueue::new(cont_manager.clone(), cmap.clone())?,
@@ -494,7 +494,6 @@ impl DeviceQueue for GpuQueueingInvoker {
 #[cfg(test)]
 mod gpu_batch_tests {
     use super::*;
-    use std::collections::HashMap;
 
     fn item(clock: &Clock) -> Arc<EnqueuedInvocation> {
         let name = "test";
@@ -505,11 +504,8 @@ mod gpu_batch_tests {
             image_name: name.to_string(),
             memory: 1,
             cpus: 1,
-            snapshot_base: "".to_string(),
             parallel_invokes: 1,
-            isolation_type: iluvatar_library::types::Isolation::CONTAINERD,
-            supported_compute: iluvatar_library::types::Compute::CPU,
-            historical_runtime_data_sec: HashMap::new(),
+            ..Default::default()
         });
         Arc::new(EnqueuedInvocation::new(
             rf,

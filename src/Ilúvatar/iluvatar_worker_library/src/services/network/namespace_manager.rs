@@ -354,7 +354,7 @@ impl NamespaceManager {
     }
 
     fn create_namespace(&self, name: &str, tid: &TransactionId) -> Result<Namespace> {
-        info!(tid=%tid, namespace=%name, "Creating new namespace");
+        debug!(tid=tid, namespace=%name, "Creating new namespace");
         let env = Self::cmd_environment(&self.config);
         let nspth = Self::net_namespace(name);
         Self::create_namespace_internal(name, tid)?;

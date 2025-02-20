@@ -2,7 +2,7 @@ use super::iluvatar_worker::IluvatarWorkerImpl;
 use super::WorkerAPI;
 use anyhow::{bail, Result};
 use iluvatar_library::bail_error;
-use iluvatar_library::types::{Compute, HealthStatus, Isolation};
+use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
@@ -134,6 +134,7 @@ impl WorkerAPI for SimWorkerAPI {
         tid: TransactionId,
         isolate: Isolation,
         compute: Compute,
+        server: ContainerServer,
         timings: Option<&iluvatar_library::types::ResourceTimings>,
     ) -> Result<String> {
         let request = tonic::Request::new(RegisterRequest {
@@ -150,6 +151,7 @@ impl WorkerAPI for SimWorkerAPI {
             language: LanguageRuntime::Nolang.into(),
             compute: compute.bits(),
             isolate: isolate.bits(),
+            container_server: server as u32,
             resource_timings_json: match timings {
                 Some(r) => serde_json::to_string(r)?,
                 None => "{}".to_string(),

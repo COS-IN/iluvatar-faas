@@ -5,6 +5,7 @@ use super::{
 use crate::services::containers::ContainerIsolationCollection;
 use crate::worker_api::worker_config::WorkerConfig;
 use anyhow::Result;
+use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation},
@@ -73,7 +74,9 @@ impl WorkerHealthService {
             // TODO: health service should probably test each independently
             isolate: isos.keys().fold(Isolation::empty(), |acc, i| acc | *i).bits(),
             resource_timings_json: "{}".to_string(),
+            container_server: ContainerServer::HTTP as u32,
         };
+
         let reg = reg
             .register(health_func, &iluvatar_library::transaction::HEALTH_TID)
             .await?;

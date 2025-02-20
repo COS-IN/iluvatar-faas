@@ -3,6 +3,16 @@
 A list of possible improvements and changes to the base platform.
 In no particular order.
 
+## Scaling problem at extreme loads
+
+When forcing the worker to hadle lots of tiny invocations, it hits a scaling problem.
+This can be seen by the [server-compare example](../examples/server-compare/README.md).
+Figure out what is causing the problem and resolve/mitigate it.
+
+<center>
+<img src="../examples/server-compare/invoke_scaling.png" alt="Ilúvatar logo" width="300"/>
+</center>
+
 ## Improve Ansible interoperability
 
 [This library](https://ansible.readthedocs.io/projects/runner/en/latest/) allows calling `ansible-playbook` via Python code.
@@ -20,20 +30,6 @@ Can add in graphing & analysis too.
 Jetson requires using `tegrastats` to get utilization numbers.
 The [GPU monitor](iluvatar_worker_library/src/services/resources/gpu.rs) needs updated information for ideal usage.
 Can cause dispatches to be blocked or broken on Jetson.
-
-## Switch/Enable networking via unix sockets
-
-Using HTTP connections to send/receive invocations to containers has some networking overhead and scaling issues at high throughput.
-This can cause blocks of up to 60 seconds on some calls.
-Both the worker code and the server running inside the container must be updated to this new format.
-
-Moving to a lower-latency solution would fix both of these problems.
-A few solutions exist, with the first probably being the best one.
-
-1. Unix Sockets
-2. Posix message queues
-3. Linux pipes
-4. Dbus messages
 
 ## Limit frequency of container checking
 

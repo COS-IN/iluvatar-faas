@@ -12,7 +12,7 @@ use iluvatar_library::tokio_utils::TokioRuntime;
 use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
-    types::{CommunicationMethod, Compute, Isolation},
+    types::{CommunicationMethod, Compute},
     utils::port::Port,
 };
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData;
@@ -69,8 +69,8 @@ fn choose_bench_data_for_func<'a>(func: &'a Function, bench_data: &'a BenchmarkS
     for (k, v) in bench_data.data.iter() {
         // does benchmark match all compute options for function?
         let mut prefered_compute = Compute::CPU;
-        for func_compute in func.parsed_compute.into_iter() {
-            if !v.resource_data.contains_key(&func_compute.try_into()?) {
+        for func_compute in func.compute.into_iter() {
+            if !v.resource_data.contains_key(&func_compute) {
                 continue;
             }
             if func_compute == Compute::GPU {
@@ -81,7 +81,7 @@ fn choose_bench_data_for_func<'a>(func: &'a Function, bench_data: &'a BenchmarkS
             }
         }
 
-        if let Some(timings) = v.resource_data.get(&prefered_compute.try_into()?) {
+        if let Some(timings) = v.resource_data.get(&prefered_compute) {
             let tot: u128 = timings.warm_invoke_duration_us.iter().sum();
             let avg_cold_us = timings.cold_invoke_duration_us.iter().sum::<u128>() as f64
                 / timings.cold_invoke_duration_us.len() as f64;
@@ -156,7 +156,7 @@ fn map_from_benchmark(
             None => info!(tid=%tid, "not filling out sim_invoke_data"),
             Some(name) => {
                 let mut sim_data = HashMap::new();
-                for compute in func.parsed_compute.unwrap().into_iter() {
+                for compute in func.compute.into_iter() {
                     let bench_data = bench.data.get(name).ok_or_else(|| {
                         anyhow::format_err!(
                             "Failed to get benchmark data for function '{}' with chosen_name '{}'",
@@ -166,7 +166,7 @@ fn map_from_benchmark(
                     })?;
                     let compute_data: &iluvatar_library::types::FunctionInvocationTimings = bench_data
                         .resource_data
-                        .get(&compute.try_into()?)
+                        .get(&compute)
                         .ok_or_else(|| {
                             anyhow::format_err!(
                             "failed to find data in bench_data.resource_data for function '{}' with chosen_name '{}' using compute '{}'",
@@ -227,19 +227,6 @@ pub fn map_functions_to_prep(
     max_prewarms: u32,
     tid: &TransactionId,
 ) -> Result<()> {
-    for (_, v) in funcs.iter_mut() {
-        v.parsed_compute = match v.compute.as_ref() {
-            Some(c) => Some(Compute::try_from(c)?),
-            None => Some(Compute::CPU),
-        };
-        v.parsed_isolation = match v.isolation.as_ref() {
-            Some(c) => Some(Isolation::try_from(c)?),
-            None => Some(Isolation::CONTAINERD),
-        };
-        // if runtype == RunType::Simulation && v.image_name.is_none() {
-        //     v.image_name = Some("SimImage".to_owned());
-        // }
-    }
     match load_type {
         LoadType::Lookbusy => map_from_lookbusy(funcs, default_prewarms, max_prewarms),
         LoadType::Functions => {
@@ -273,9 +260,7 @@ fn worker_prewarm_functions(
             let h_c = host.to_owned();
             let f_c = func_name.clone();
             let fct_cln = factory.clone();
-            let compute = func
-                .parsed_compute
-                .ok_or_else(|| anyhow::anyhow!("Function {} did not have a `parsed_compute` in prewarm", func_name))?;
+            let compute = func.compute;
             prewarm_calls.push(async move {
                 let mut errors = "Prewarm errors:".to_string();
                 let mut it = (1..4).peekable();
@@ -407,18 +392,9 @@ fn worker_wait_reg(
                 Some(i) => i.clone(),
                 None => anyhow::bail!("Unable to get prepared `image_name` for function '{}'", id),
             };
-            let comp = func.parsed_compute.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Function {} did not have a `parsed_compute` when going to register",
-                    f_c
-                )
-            })?;
-            let isol = func.parsed_isolation.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Function {} did not have a `parsed_isolation` when going to register",
-                    f_c
-                )
-            })?;
+            let comp = func.compute;
+            let isol = func.isolation;
+            let server = func.server;
             let mem = func.mem_mb;
             let func_timings = match &func.chosen_name {
                 Some(chosen_name) => match bench_data.as_ref() {
@@ -445,6 +421,7 @@ fn worker_wait_reg(
                     Some(method),
                     isol,
                     comp,
+                    server,
                     func_timings.as_ref(),
                 )
                 .await

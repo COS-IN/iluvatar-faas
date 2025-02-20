@@ -1,5 +1,6 @@
 #![allow(clippy::derive_partial_eq_without_eq)]
 tonic::include_proto!("iluvatar_rpc");
+use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb, ResourceTimings},
@@ -28,6 +29,7 @@ impl RegisterRequest {
         language: LanguageRuntime,
         compute: Compute,
         isolation: Isolation,
+        server: ContainerServer,
         tid: &TransactionId,
     ) -> anyhow::Result<Self> {
         Ok(Self {
@@ -41,6 +43,7 @@ impl RegisterRequest {
             language: language.into(),
             compute: compute.bits(),
             isolate: isolation.bits(),
+            container_server: server as u32,
             resource_timings_json: match timings {
                 Some(r) => serde_json::to_string(r)?,
                 None => "{}".to_string(),

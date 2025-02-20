@@ -1,4 +1,4 @@
-use crate::services::containers::http_client::HttpContainerClient;
+use crate::services::containers::clients::{create_container_client, ContainerClient};
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{
@@ -29,7 +29,7 @@ pub struct DockerContainer {
     invocations: Mutex<u32>,
     port: Port,
     state: Mutex<ContainerState>,
-    pub client: HttpContainerClient,
+    pub client: Box<dyn ContainerClient>,
     compute: Compute,
     device: RwLock<Option<GPU>>,
     mem_usage: RwLock<MemSizeMb>,
@@ -37,7 +37,7 @@ pub struct DockerContainer {
 }
 
 impl DockerContainer {
-    pub fn new(
+    pub async fn new(
         container_id: String,
         port: Port,
         address: String,
@@ -50,7 +50,7 @@ impl DockerContainer {
         device: Option<GPU>,
         tid: &TransactionId,
     ) -> ResultErrorVal<Self, Option<GPU>> {
-        let client = match HttpContainerClient::new(&container_id, port, &address, invoke_timeout, tid) {
+        let client = match create_container_client(function, &container_id, port, &address, invoke_timeout, tid).await {
             Ok(c) => c,
             Err(e) => return err_val(e, device),
         };

@@ -13,6 +13,7 @@ python3 -m venv --clear $venv_name
 source ./$venv_name/bin/activate
 python3 -m pip install --upgrade pip --no-warn-script-location
 python3 -m pip install -r ../../../load/reqs.txt --no-warn-script-location
+python3 -m pip install jupyterlab psutil
 deactivate
 
 name=$(ip route get 8.8.8.8 | awk '{ print $5; exit }')

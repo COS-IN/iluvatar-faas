@@ -31,9 +31,10 @@ use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, Compute, Isolation, ResultErrorVal};
+use iluvatar_library::utils::file::{container_path, make_paths};
 use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
-    file::{temp_file_pth, touch, try_remove_pth},
+    file::{touch, try_remove_pth},
     port::Port,
     try_get_child_pid,
 };
@@ -43,8 +44,8 @@ use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::mpsc;
-use std::sync::mpsc::sync_channel;
+use std::path::PathBuf;
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -71,7 +72,7 @@ pub struct ContainerdIsolation {
     docker_config: Option<DockerConfig>,
     downloaded_images: Arc<DashMap<String, bool>>,
     creation_sem: Option<tokio::sync::Semaphore>,
-    tx: Arc<mpsc::SyncSender<BGPacket>>,
+    tx: Arc<SyncSender<BGPacket>>,
     bg_workqueue: thread::JoinHandle<Result<()>>,
 }
 
@@ -190,6 +191,8 @@ impl ContainerdIsolation {
             .replace("$OUTPUT", "")
             .replace("$HOST_ADDR", host_addr)
             .replace("$PORT", &port.to_string())
+            .replace("$SOCK", "/iluvatar/sockets")
+            .replace("$CTR_ID", container_id)
             .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
             .replace("\"$MEMLIMIT\"", &(mem_limit_mb * 1024 * 1024).to_string())
             //        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
@@ -363,9 +366,7 @@ impl ContainerdIsolation {
     }
 
     fn delete_container_resources(&self, container_id: &str, tid: &TransactionId) {
-        try_remove_pth(&self.stdin_pth(container_id), tid);
-        try_remove_pth(&self.stdout_pth(container_id), tid);
-        try_remove_pth(&self.stderr_pth(container_id), tid);
+        try_remove_pth(container_path(container_id), tid)
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
@@ -709,6 +710,10 @@ impl ContainerdIsolation {
             },
         };
         debug!(tid=%tid, "Mounts loaded");
+        let resources_dir = container_path(&cid);
+        if let Err(e) = make_paths(&resources_dir, tid) {
+            bail_error_value!(tid=%tid, error=%e, "make_paths failed", device_resource);
+        };
 
         let stdin = self.stdin_pth(&cid);
         if let Err(e) = touch(&stdin) {
@@ -729,12 +734,16 @@ impl ContainerdIsolation {
             rootfs: mounts,
             checkpoint: None,
             options: None,
-            stdin,
-            stdout,
-            stderr,
+            stdin: stdin.to_string_lossy().to_string(),
+            stdout: stdout.to_string_lossy().to_string(),
+            stderr: stderr.to_string_lossy().to_string(),
             terminal: false,
             runtime_path: "".to_owned(),
         };
+        // match std::os::unix::net::UnixListener::bind("/tmp/iluvatar/socks/ctr") {
+        //     Ok(_) => info!(tid=tid, "socket created OK"),
+        //     Err(e) => error!(tid=tid, error=%e, "socket creation error"),
+        // };
         let req = with_namespace!(req, namespace);
         match client.create(req).await {
             Ok(t) => {
@@ -762,7 +771,8 @@ impl ContainerdIsolation {
                         compute,
                         device_resource,
                         tid,
-                    )?)
+                    )
+                    .await?)
                 }
             },
             Err(e) => {
@@ -779,14 +789,14 @@ impl ContainerdIsolation {
         }
     }
 
-    fn stdout_pth(&self, container_id: &str) -> String {
-        temp_file_pth(container_id, "stdout")
+    fn stdout_pth(&self, container_id: &str) -> PathBuf {
+        container_path(container_id).join("stdout")
     }
-    fn stderr_pth(&self, container_id: &str) -> String {
-        temp_file_pth(container_id, "stderr")
+    fn stderr_pth(&self, container_id: &str) -> PathBuf {
+        container_path(container_id).join("stderr")
     }
-    fn stdin_pth(&self, container_id: &str) -> String {
-        temp_file_pth(container_id, "stdin")
+    fn stdin_pth(&self, container_id: &str) -> PathBuf {
+        container_path(container_id).join("stdin")
     }
 }
 

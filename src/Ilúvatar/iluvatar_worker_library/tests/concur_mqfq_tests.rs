@@ -5,7 +5,7 @@ use crate::utils::{sim_args, sim_test_services};
 use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::Compute;
 use iluvatar_library::types::Isolation;
-use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::RegisterRequest;
 
 fn gpu_reg() -> RegisterRequest {
     RegisterRequest {
@@ -16,10 +16,9 @@ fn gpu_reg() -> RegisterRequest {
         parallel_invokes: 1,
         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
         transaction_id: "testTID".to_string(),
-        language: LanguageRuntime::Nolang.into(),
         compute: Compute::GPU.bits(),
         isolate: Isolation::DOCKER.bits(),
-        resource_timings_json: "".to_string(),
+        ..Default::default()
     }
 }
 

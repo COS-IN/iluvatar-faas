@@ -11,7 +11,7 @@ use crate::services::worker_health::WorkerHealthService;
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
 use iluvatar_library::influx::InfluxClient;
-use iluvatar_library::types::{Compute, HealthStatus, Isolation, ResourceTimings};
+use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation, ResourceTimings};
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{characteristics_map::AgExponential, energy::energy_logging::EnergyLogger};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
@@ -177,6 +177,7 @@ pub trait WorkerAPI {
         tid: TransactionId,
         isolate: Isolation,
         compute: Compute,
+        server: ContainerServer,
         timings: Option<&ResourceTimings>,
     ) -> Result<String>;
     /// Get worker status.

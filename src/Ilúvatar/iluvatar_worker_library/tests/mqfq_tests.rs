@@ -6,7 +6,7 @@ use iluvatar_library::clock::get_global_clock;
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_rpc::rpc::{LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::RegisterRequest;
 use iluvatar_worker_library::services::containers::containermanager::ContainerManager;
 use iluvatar_worker_library::services::invocation::queueing::DeviceQueue;
 use iluvatar_worker_library::services::status::status_service::build_load_avg_signal;
@@ -19,7 +19,6 @@ use iluvatar_worker_library::services::{
     resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker},
 };
 use rstest::rstest;
-use std::collections::HashMap;
 use std::sync::Arc;
 use time::Duration;
 
@@ -102,11 +101,10 @@ fn item() -> Arc<EnqueuedInvocation> {
         image_name: name.to_string(),
         memory: 1,
         cpus: 1,
-        snapshot_base: "".to_string(),
         parallel_invokes: 1,
         isolation_type: iluvatar_library::types::Isolation::DOCKER,
         supported_compute: iluvatar_library::types::Compute::GPU,
-        historical_runtime_data_sec: HashMap::new(),
+        ..Default::default()
     });
     Arc::new(EnqueuedInvocation::new(
         rf,
@@ -234,10 +232,9 @@ mod mqfq_tests {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
-            language: LanguageRuntime::Nolang.into(),
             compute: Compute::GPU.bits(),
             isolate: Isolation::DOCKER.bits(),
-            resource_timings_json: "".to_string(),
+            ..Default::default()
         }
     }
 

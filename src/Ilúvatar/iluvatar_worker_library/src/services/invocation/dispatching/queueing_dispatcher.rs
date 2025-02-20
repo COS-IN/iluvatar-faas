@@ -18,7 +18,6 @@ use anyhow::Result;
 use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::clock::{get_global_clock, Clock};
-use iluvatar_library::types::ComputeEnum;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
 use ordered_float::OrderedFloat;
 use parking_lot::{Mutex, RwLock};
@@ -193,7 +192,7 @@ impl QueueingDispatcher {
             info!(tid=%tid, "GPU resource tracker or GPU config is missing, not creating gpu queue");
             return Ok(None);
         }
-        match invocation_config.queues.get(&ComputeEnum::gpu) {
+        match invocation_config.queues.get(&Compute::GPU) {
             Some(q) => {
                 if q == "serial" {
                     Ok(Some(GpuQueueingInvoker::new(

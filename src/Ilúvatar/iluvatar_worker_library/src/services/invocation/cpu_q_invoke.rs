@@ -96,7 +96,7 @@ impl CpuQueueingInvoker {
         cont_manager: &Arc<ContainerManager>,
         tid: &TransactionId,
     ) -> Result<Arc<dyn InvokerCpuQueuePolicy>> {
-        if let Some(pol) = invocation_config.queue_policies.get(&(&Compute::CPU).try_into()?) {
+        if let Some(pol) = invocation_config.queue_policies.get(&Compute::CPU) {
             Ok(match pol.as_str() {
                 "none" => Queueless::new()?,
                 "fcfs" => FCFSQueue::new(cont_manager.clone(), cmap.clone())?,

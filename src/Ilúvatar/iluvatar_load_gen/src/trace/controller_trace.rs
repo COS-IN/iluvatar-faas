@@ -53,7 +53,18 @@ async fn controller_register_functions(
             None => None,
         };
         let api = factory.get_controller_api(host, port, comm, &gen_tid()).await?;
-        let _reg_dur = controller_register(&func.func_name, &VERSION, image, func.mem_mb, func_timings, api).await?;
+        let _reg_dur = controller_register(
+            &func.func_name,
+            &VERSION,
+            image,
+            func.mem_mb,
+            func.isolation,
+            func.compute,
+            func.server,
+            func_timings,
+            api,
+        )
+        .await?;
     }
     Ok(())
 }
