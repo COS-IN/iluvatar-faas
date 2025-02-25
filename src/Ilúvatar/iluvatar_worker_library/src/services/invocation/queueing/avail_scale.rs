@@ -28,7 +28,7 @@ impl AvailableScalingQueue {
             cmap,
             est_time: Mutex::new(0.0),
         });
-        debug!(tid=%tid, "Created AvailableScalingInvoker");
+        debug!(tid = tid, "Created AvailableScalingInvoker");
         Ok(svc)
     }
 }
@@ -54,7 +54,7 @@ impl InvokerCpuQueuePolicy for AvailableScalingQueue {
         v.item
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=%item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
         let mut priority = 0.0;
         if self.cont_manager.outstanding(&item.registration.fqdn) == 0 {

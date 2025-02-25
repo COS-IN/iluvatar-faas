@@ -27,7 +27,7 @@ impl MinHeapIATQueue {
             cmap,
             cont_manager,
         });
-        debug!(tid=%tid, "Created MinHeapIATInvoker");
+        debug!(tid = tid, "Created MinHeapIATInvoker");
         Ok(svc)
     }
 }
@@ -63,7 +63,7 @@ impl InvokerCpuQueuePolicy for MinHeapIATQueue {
         *self.est_time.lock()
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=%item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
         let est_wall_time = self.est_wall_time(item, &self.cont_manager, &self.cmap)?;
         *self.est_time.lock() += est_wall_time;

@@ -7,7 +7,7 @@ from load.run.run_trace import rust_build, run_sim, RunTarget, BuildTarget
 
 CORES = 4
 MEMORY = 20480
-build_level = BuildTarget.RELEASE
+build_level = BuildTarget.DEBUG_SPANS
 worker_log_dir = os.path.join(os.getcwd(), "temp_results")
 results_dir = os.path.join(os.getcwd(), "results")
 environment = "local"
@@ -23,16 +23,19 @@ kwargs = {
     "build_level": build_level,
     "cores": CORES,
     "memory": MEMORY,
-    "worker_status_ms": 500,
+    "worker_status_ms": 1000,
     "worker_log_dir": worker_log_dir,
     "cpu_queue_policy": "fcfs",
     "target": RunTarget.CONTROLLER,
     "controller_thread_sleep_ms": 6000,
     "controller_load_metric": "running",
-    "num_workers": 1,
+    "num_workers": 2,
     "prewarm": 1,
     "benchmark_file": benchmark,
     "force": True,
+    "load_log_stdout": False,
+    # we need information in spans to distinguish between log events on different workers
+    "load_spans_json": True,
 }
 # run entire experiment
 input_csv = "./four-functions.csv"

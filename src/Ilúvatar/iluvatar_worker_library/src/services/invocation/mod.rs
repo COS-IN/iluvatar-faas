@@ -160,7 +160,7 @@ pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
 /// [Duration]: The E2E latency between the worker and the container
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
-#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=%tid)))]
+#[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=tid)))]
 async fn invoke_on_container(
     reg: &Arc<RegisteredFunction>,
     json_args: &str,
@@ -196,7 +196,7 @@ async fn invoke_on_container(
 /// [Duration]: The E2E latency between the worker and the container
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
-#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=%tid)))]
+#[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=tid)))]
 async fn invoke_on_container_2(
     reg: &Arc<RegisteredFunction>,
     json_args: &str,
@@ -210,7 +210,7 @@ async fn invoke_on_container_2(
     cmap: &Arc<CharacteristicsMap>,
     clock: &Clock,
 ) -> Result<(ParsedResult, Duration, Container)> {
-    info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
+    info!(tid=tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     let compute = ctr_lock.container.compute_type();
     let chars = cmap.get_characteristics(&compute)?;

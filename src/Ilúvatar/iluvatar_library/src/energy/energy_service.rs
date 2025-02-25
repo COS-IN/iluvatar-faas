@@ -57,22 +57,25 @@ impl EnergyMonitorService {
             let svc = match rx.recv() {
                 Ok(svc) => svc,
                 Err(_) => {
-                    error!(tid=%tid, "energy monitor thread failed to receive service from channel!");
+                    error!(
+                        tid = tid,
+                        "energy monitor thread failed to receive service from channel!"
+                    );
                     return;
                 },
             };
-            debug!(tid=%tid, "energy monitor worker started");
+            debug!(tid = tid, "energy monitor worker started");
             let rapl = match RAPL::new() {
                 Ok(r) => r,
                 Err(e) => {
-                    error!(error=%e, tid=%tid, "Creating RAPL interface failed");
+                    error!(error=%e, tid=tid, "Creating RAPL interface failed");
                     return;
                 },
             };
             let mut curr_rapl = match rapl.record() {
                 Ok(r) => r,
                 Err(e) => {
-                    error!(error=%e, tid=%tid, "Recording RAPL information failed");
+                    error!(error=%e, tid=tid, "Recording RAPL information failed");
                     return;
                 },
             };
@@ -81,14 +84,14 @@ impl EnergyMonitorService {
                 let new_rapl = match rapl.record() {
                     Ok(r) => r,
                     Err(e) => {
-                        error!(error=%e, tid=%tid, "Recording RAPL information failed");
+                        error!(error=%e, tid=tid, "Recording RAPL information failed");
                         continue;
                     },
                 };
                 let (time, uj) = match rapl.difference(&new_rapl, &curr_rapl, tid) {
                     Ok(r) => r,
                     Err(e) => {
-                        error!(error=%e, tid=%tid, "Computing RAPL change failed");
+                        error!(error=%e, tid=tid, "Computing RAPL change failed");
                         continue;
                     },
                 };
@@ -100,7 +103,7 @@ impl EnergyMonitorService {
         })
     }
 
-    #[tracing::instrument(skip(self), fields(tid=%tid))]
+    #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
     fn monitor_energy(&self, tid: &TransactionId, _time: u128, uj: u128) -> bool {
         let (invocation_durations, overhead) = self.get_data();
         if invocation_durations.is_empty() {

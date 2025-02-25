@@ -46,7 +46,7 @@ impl ControllerAPIFactory {
                     let api = match RpcControllerAPI::new(host, port, tid).await {
                         Ok(api) => api,
                         Err(e) => {
-                            bail_error!(tid=%tid, host=%host, host=%e, "Unable to create API for controller")
+                            bail_error!(tid=tid, host=%host, host=%e, "Unable to create API for controller")
                         },
                     };
                     self.rpc_apis.insert(host.to_owned(), api.clone());

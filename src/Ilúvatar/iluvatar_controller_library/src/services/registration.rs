@@ -40,7 +40,7 @@ impl RegistrationService {
         tid: &TransactionId,
     ) -> Result<Arc<RegisteredWorker>> {
         if self.worker_registered(&worker.name) {
-            bail_error!(tid=%tid, worker=%worker.name, "Worker was already registered");
+            bail_error!(tid=tid, worker=%worker.name, "Worker was already registered");
         }
 
         let reg_worker = Arc::new(RegisteredWorker::from(worker)?);
@@ -75,13 +75,13 @@ impl RegistrationService {
             {
                 Ok(_) => (),
                 Err(e) => {
-                    error!(tid=%tid, worker=%reg_worker.name, error=%e, "New worker failed to register function")
+                    error!(tid=tid, worker=%reg_worker.name, error=%e, "New worker failed to register function")
                 },
             };
         }
         self.lb.add_worker(reg_worker.clone(), tid);
         self.workers.insert(reg_worker.name.clone(), reg_worker.clone());
-        info!(tid=%tid, worker=%reg_worker.name, "worker successfully registered");
+        info!(tid=tid, worker=%reg_worker.name, "worker successfully registered");
         Ok(reg_worker)
     }
 
@@ -99,7 +99,7 @@ impl RegistrationService {
     pub async fn register_function(&self, req: RegisterRequest, tid: &TransactionId) -> Result<()> {
         let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
         if self.function_registered(&fqdn) {
-            bail_error!(tid=%tid, fqdn=%fqdn, "Function was already registered");
+            bail_error!(tid=tid, fqdn=%fqdn, "Function was already registered");
         } else {
             let function = Arc::new(RegisteredFunction::from(req));
             for item in self.workers.iter() {
@@ -132,7 +132,7 @@ impl RegistrationService {
                 {
                     Ok(_) => (),
                     Err(e) => {
-                        error!(tid=%tid, worker=%worker.name, error=%e, "Worker failed to register new function")
+                        error!(tid=tid, worker=%worker.name, error=%e, "Worker failed to register new function")
                     },
                 };
             }
@@ -140,7 +140,7 @@ impl RegistrationService {
             self.functions.insert(fqdn.clone(), function);
         }
 
-        info!(tid=%tid, fqdn=%fqdn, "Function was registered");
+        info!(tid=tid, fqdn=%fqdn, "Function was registered");
         Ok(())
     }
 

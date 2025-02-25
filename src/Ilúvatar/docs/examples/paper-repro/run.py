@@ -34,6 +34,7 @@ def run_experiment(cpu_queue, cores):
         "target": RunTarget.WORKER,
         "prewarm": 1,
         "benchmark_file": benchmark,
+        "load_log_stdout": False,
     }
     # run entire experiment
     run_sim(input_csv, meta_csv, exp_results_dir, **kwargs)

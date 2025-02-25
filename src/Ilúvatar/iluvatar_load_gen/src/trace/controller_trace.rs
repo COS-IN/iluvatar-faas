@@ -22,6 +22,8 @@ use iluvatar_library::{transaction::gen_tid, utils::port::Port};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 use std::{collections::HashMap, sync::Arc};
+use std::fs::File;
+use std::path::Path;
 use tokio::task::JoinHandle;
 use tracing::info;
 
@@ -103,9 +105,20 @@ async fn controller_sim_register_workers(
     num_workers: usize,
     server: &ControllerAPI,
     worker_config_pth: &str,
-    worker_config: &Arc<WorkerConfig>,
 ) -> Result<()> {
+    let dummy_worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(Some(worker_config_pth), None)?;
     for i in 0..num_workers {
+        let worker_name = format!("{}_{}", dummy_worker_config.name, i);
+        let overrides = vec![("name".to_owned(), worker_name.clone())];
+        let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(Some(worker_config_pth), Some(overrides))?;
+        let p = Path::new(worker_config_pth).parent().unwrap().join(format!("{}.json", worker_name));
+        match File::create(&p) {
+            Ok(f) => match serde_json::to_writer_pretty(f, &worker_config) {
+                Ok(_) => (),
+                Err(e) =>  anyhow::bail!("Failed to serialize worker-specific config because '{:?}'", e)
+            },
+            Err(e) => anyhow::bail!("Failed to create worker-specific config file because '{:?}'", e),
+        };
         let gpus = worker_config
             .container_resources
             .gpu_resource
@@ -116,9 +129,9 @@ async fn controller_sim_register_workers(
             _ => (Compute::CPU | Compute::GPU).bits(),
         };
         let r = RegisterWorkerRequest {
-            name: format!("worker_{}", i),
+            name: worker_config.name.clone(),
             communication_method: CommunicationMethod::SIMULATION as u32,
-            host: worker_config_pth.to_owned(),
+            host: p.to_string_lossy().to_string(),
             port: 0,
             memory: worker_config.container_resources.memory_mb,
             cpus: worker_config.container_resources.cpu_resource.count,
@@ -200,7 +213,7 @@ fn run_invokes(
                 controller_invoke(&f_c, &VERSION, Some(func_args), clk, api_cln).await
             }));
         }
-        info!(tid=%tid, "Invocations sent, awaiting on thread handles");
+        info!(tid = tid, "Invocations sent, awaiting on thread handles");
         resolve_handles(handles, crate::utils::ErrorHandling::Print).await
     })?;
 
@@ -224,7 +237,6 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         .clone();
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
 
-    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(Some(&worker_config_pth), None)?;
     let controller_config =
         iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)?;
     let _guard =
@@ -239,7 +251,6 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize,
         &controller,
         &worker_config_pth,
-        &worker_config,
     ))?;
     run_invokes(
         args,

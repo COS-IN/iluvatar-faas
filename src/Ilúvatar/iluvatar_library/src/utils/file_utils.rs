@@ -38,15 +38,15 @@ pub fn try_remove_pth(pth: &str, tid: &TransactionId) {
     if path.is_file() {
         match std::fs::remove_file(pth) {
             Ok(_) => {},
-            Err(_) => warn!(tid=%tid, path=%pth, "Unable to remove file"),
+            Err(_) => warn!(tid=tid, path=%pth, "Unable to remove file"),
         };
     } else if path.is_dir() {
         match std::fs::remove_dir(pth) {
             Ok(_) => {},
-            Err(_) => warn!(tid=%tid, path=%pth, "Unable to remove directory"),
+            Err(_) => warn!(tid=tid, path=%pth, "Unable to remove directory"),
         };
     } else {
-        error!(tid=%tid, path=%pth, "Unknown path type to delete")
+        error!(tid=tid, path=%pth, "Unknown path type to delete")
     }
 }
 

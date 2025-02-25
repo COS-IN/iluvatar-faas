@@ -5,7 +5,7 @@ import traceback
 from copy import deepcopy
 import shutil
 from enum import Enum
-
+from typing import Dict
 
 class RunTarget(Enum):
     WORKER = "worker"
@@ -104,7 +104,7 @@ def _remote_cleanup(
             ssh.exec_command(f"sudo rm -rf {kwargs['worker_log_dir']}")
 
 
-def _run_cmd(cmd_args, log_file, shell: bool = False):
+def _run_cmd(cmd_args, log_file, shell: bool = False, env: Dict = None):
     opened_log = False
     if type(log_file) is str:
         log_file = open(log_file, "a")
@@ -117,15 +117,17 @@ def _run_cmd(cmd_args, log_file, shell: bool = False):
                 raise Exception(f"Bad ansible argument: {string}")
 
             formatted_args.append(string)
-        env = deepcopy(os.environ)
-        env["RUST_BACTRACE"] = "1"
+        sys_env = deepcopy(os.environ)
+        sys_env["RUST_BACTRACE"] = "1"
+        if env is not None:
+            sys_env = {**sys_env, **env}
         completed = subprocess.run(
             args=formatted_args,
             stdout=log_file,
             stderr=log_file,
             text=True,
             shell=shell,
-            env=env,
+            env=sys_env,
         )
         completed.check_returncode()
         return completed.stdout
@@ -139,6 +141,10 @@ def _run_cmd(cmd_args, log_file, shell: bool = False):
             for arg in cmd_args:
                 log_file.write(f"{arg} ")
                 log_file.write("\n")
+            if env is not None:
+                log_file.write(json.dumps(env))
+                log_file.write("\n")
+
         raise e
     finally:
         if opened_log:

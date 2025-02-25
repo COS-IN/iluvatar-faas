@@ -65,7 +65,7 @@ impl LeastLoadedBalancer {
         i
     }
 
-    #[tracing::instrument(skip(service), fields(tid=%tid))]
+    #[tracing::instrument(level="debug", skip(service), fields(tid=tid))]
     async fn find_least_loaded(service: Arc<Self>, tid: TransactionId) {
         let mut least_ld = f64::MAX;
         let mut worker = &"".to_string();
@@ -81,10 +81,10 @@ impl LeastLoadedBalancer {
         match service.workers.read().get(worker) {
             Some(w) => {
                 *service.assigned_worker.write() = Some(w.clone());
-                info!(tid=%tid, worker=%worker, "new least loaded worker");
+                info!(tid=tid, worker=%worker, "new least loaded worker");
             },
             None => {
-                warn!(tid=%tid, worker=%worker, "Cannot update least loaded worker because it was not registered, or no worker has been registered")
+                warn!(tid=tid, worker=%worker, "Cannot update least loaded worker because it was not registered, or no worker has been registered")
             },
         };
     }
@@ -94,7 +94,7 @@ impl LeastLoadedBalancer {
         match &*lck {
             Some(w) => Ok(w.clone()),
             None => {
-                bail_error!(tid=%tid, "No worker has been assigned to least loaded variable yet")
+                bail_error!(tid = tid, "No worker has been assigned to least loaded variable yet")
             },
         }
     }
@@ -103,15 +103,15 @@ impl LeastLoadedBalancer {
 #[tonic::async_trait]
 impl LoadBalancerTrait for LeastLoadedBalancer {
     fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
-        info!(tid=%tid, worker=%worker.name, "Registering new worker in LeastLoaded load balancer");
+        info!(tid=tid, worker=%worker.name, "Registering new worker in LeastLoaded load balancer");
         if self.assigned_worker.read().is_none() {
-            info!(tid=%tid, worker=%worker.name, "Assigning new worker in LeastLoaded load balancer");
+            info!(tid=tid, worker=%worker.name, "Assigning new worker in LeastLoaded load balancer");
             *self.assigned_worker.write() = Some(worker.clone());
         }
         self.workers.write().insert(worker.name.clone(), worker);
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=tid)))]
     async fn send_invocation(
         &self,
         func: Arc<RegisteredFunction>,

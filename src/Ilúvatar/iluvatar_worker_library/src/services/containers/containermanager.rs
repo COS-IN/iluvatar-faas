@@ -95,50 +95,50 @@ impl ContainerManager {
         Ok(cm)
     }
 
-    #[tracing::instrument(skip(self), fields(tid=%tid))]
+    #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
     fn recompute_eviction_priorities(&self, tid: &TransactionId) {
         self.compute_eviction_priorities(tid);
         self.compute_gpu_eviction_priorities(tid);
     }
 
-    #[tracing::instrument(skip(service), fields(tid=%tid))]
+    #[tracing::instrument(level="debug", skip(service), fields(tid=tid))]
     async fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) {
         service.update_memory_usages(&tid).await;
         service.prioritiy_notify.notify_waiters();
         if service.resources.memory_buffer_mb > 0 {
             let reclaim = service.resources.memory_buffer_mb - service.free_memory();
             if reclaim > 0 {
-                info!(tid=%tid, amount=reclaim, "Trying to reclaim memory for monitor pool");
+                info!(tid = tid, amount = reclaim, "Trying to reclaim memory for monitor pool");
                 match service.reclaim_memory(reclaim, &tid).await {
                     Ok(_) => {},
-                    Err(e) => error!(tid=%tid, error=%e, "Error while trying to remove containers"),
+                    Err(e) => error!(tid=tid, error=%e, "Error while trying to remove containers"),
                 };
             }
         }
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, to_remove), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, to_remove), fields(tid=tid)))]
     async fn cull_unhealthy(self: Arc<Self>, tid: TransactionId, to_remove: Container) {
         if let Ok(pool) = self.get_resource_pool(to_remove.compute_type()) {
             if pool.remove_container(&to_remove, &tid).is_none() {
-                warn!(tid=%tid, container_id=%to_remove.container_id(), compute=%to_remove.compute_type(),
+                warn!(tid=tid, container_id=%to_remove.container_id(), compute=%to_remove.compute_type(),
                       "Failed to remove container from container pool before cull");
             }
         }
         let cont_lifecycle = match self.cont_isolations.get(&to_remove.container_type()) {
             Some(c) => c,
             None => {
-                error!(tid=%tid, iso=?to_remove.container_type(), "Lifecycle for container not supported");
+                error!(tid=tid, iso=?to_remove.container_type(), "Lifecycle for container not supported");
                 return;
             },
         };
         let stdout = cont_lifecycle.read_stdout(&to_remove, &tid).await;
         let stderr = cont_lifecycle.read_stderr(&to_remove, &tid).await;
-        warn!(tid=%tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
+        warn!(tid=tid, container_id=%to_remove.container_id(), stdout=%stdout, stderr=%stderr, "Removing an unhealthy container");
         match self.purge_container(to_remove, &tid).await {
             Ok(_) => (),
             Err(cause) => {
-                error!(tid=%tid, error=%cause, "Got an unknown error trying to remove an unhealthy container")
+                error!(tid=tid, error=%cause, "Got an unknown error trying to remove an unhealthy container")
             },
         };
     }
@@ -199,34 +199,46 @@ impl ContainerManager {
         }
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     async fn update_memory_usages(&self, tid: &TransactionId) {
         let old_total_mem = *self.used_mem_mb.read();
         let cpu_mem = self.calc_container_pool_memory_usages(&self.cpu_containers, tid).await;
         let gpu_mem = self.calc_container_pool_memory_usages(&self.gpu_containers, tid).await;
         let new_total_mem = cpu_mem + gpu_mem;
         *self.used_mem_mb.write() = new_total_mem;
-        debug!(tid=%tid, old_total=old_total_mem, total=new_total_mem, cpu_pool=cpu_mem, gpu_pool=gpu_mem, "Total container memory usage");
+        debug!(
+            tid = tid,
+            old_total = old_total_mem,
+            total = new_total_mem,
+            cpu_pool = cpu_mem,
+            gpu_pool = gpu_mem,
+            "Total container memory usage"
+        );
         if new_total_mem < 0 {
-            error!(tid=%tid, old_total=old_total_mem, total=new_total_mem, "Container memory usage has gone negative");
+            error!(
+                tid = tid,
+                old_total = old_total_mem,
+                total = new_total_mem,
+                "Container memory usage has gone negative"
+            );
         }
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, pool), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, pool), fields(tid=tid)))]
     async fn calc_container_pool_memory_usages(&self, pool: &ContainerPool, tid: &TransactionId) -> MemSizeMb {
-        debug!(tid=%tid, pool=%pool.pool_name(), "updating container memory usages");
+        debug!(tid=tid, pool=%pool.pool_name(), "updating container memory usages");
         let mut new_total_mem = 0;
         for container in pool.iter().iter().filter(|c| c.is_healthy()) {
             let old_usage = container.get_curr_mem_usage();
             let new_usage = match self.cont_isolations.get(&container.container_type()) {
                 Some(c) => c.update_memory_usage_mb(container, tid).await,
                 None => {
-                    error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported");
+                    error!(tid=tid, iso=?container.container_type(), "Lifecycle for container not supported");
                     continue;
                 },
             };
             new_total_mem += new_usage;
-            debug!(tid=%tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, "updated container memory usage");
+            debug!(tid=tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, "updated container memory usage");
         }
         new_total_mem
     }
@@ -237,7 +249,7 @@ impl ContainerManager {
     /// A return type [EventualItem::Future] means a container will have to be started to run the invocation.
     ///    The process to start the container has not begun, and will not until the future is awaited on. A product of Rust's implementation of async/futures.
     /// A return type [EventualItem::Now] means an existing container has been acquired
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, compute), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, compute), fields(tid=tid)))]
     pub fn acquire_container<'a>(
         self: &'a Arc<Self>,
         reg: &'a Arc<RegisteredFunction>,
@@ -256,8 +268,8 @@ impl ContainerManager {
         cont
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, fqdn), fields(tid=%tid)))]
-    /// Returns an warmed container if one is available
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, fqdn), fields(tid=tid)))]
+    /// Returns a warmed container if one is available
     fn try_acquire_container(
         self: &Arc<Self>,
         fqdn: &str,
@@ -282,7 +294,7 @@ impl ContainerManager {
                     if c.is_healthy() {
                         return self.try_lock_container(c, tid);
                     } else if let Err(e) = self.unhealthy_removal_rx.send(c) {
-                        error!(tid=%tid, error=%e, "Failed to send unhealthy container for removal");
+                        error!(tid=tid, error=%e, "Failed to send unhealthy container for removal");
                     }
                 },
                 None => return None,
@@ -290,7 +302,7 @@ impl ContainerManager {
         }
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, reg), fields(tid=tid)))]
     /// Starts a new container and returns a [ContainerLock] for it to be used
     async fn cold_start(
         self: &Arc<Self>,
@@ -298,23 +310,23 @@ impl ContainerManager {
         tid: &TransactionId,
         compute: Compute,
     ) -> Result<ContainerLock> {
-        debug!(tid=%tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
+        debug!(tid=tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
         let container = self.launch_container_internal(&reg, tid, compute).await?;
         let rpool = self.get_resource_pool(compute)?;
         rpool.add_running_container(container.clone(), tid);
         self.prioritiy_notify.notify_waiters();
-        info!(tid=%tid, container_id=%container.container_id(), "Container cold start completed");
+        info!(tid=tid, container_id=%container.container_id(), "Container cold start completed");
         container.set_state(ContainerState::Cold);
         self.try_lock_container(container, tid)
             .ok_or_else(|| anyhow::anyhow!("Encountered an error making conatiner lock"))
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     /// Returns a [ContainerLock] for the given container
     /// Returns [None] if the container is unhealthy or an error occurs
     fn try_lock_container(self: &Arc<Self>, container: Container, tid: &TransactionId) -> Option<ContainerLock> {
         if container.is_healthy() {
-            debug!(tid=%tid, container_id=%container.container_id(), "Container acquired");
+            debug!(tid=tid, container_id=%container.container_id(), "Container acquired");
             container.touch();
             if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
                 (*cnt).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -325,22 +337,22 @@ impl ContainerManager {
         }
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     pub fn return_container(&self, container: &Container, tid: &TransactionId) {
         if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
             (*cnt).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         }
         if !container.is_healthy() {
-            warn!(tid=%tid, container_id=%container.container_id(), "Returned container is unhealthy, sending for removal");
+            warn!(tid=tid, container_id=%container.container_id(), "Returned container is unhealthy, sending for removal");
             if let Err(e) = self.unhealthy_removal_rx.send(container.clone()) {
-                error!(tid=%tid, error=%e, "Failed to send container for removal on return");
+                error!(tid=tid, error=%e, "Failed to send container for removal on return");
             }
             return;
         }
         let resource_pool = match self.get_resource_pool(container.compute_type()) {
             Ok(r) => r,
             Err(_) => {
-                error!(tid=%tid, container_id=%container.container_id(), compute=?container.compute_type(), "Unknonwn compute for container");
+                error!(tid=tid, container_id=%container.container_id(), compute=?container.compute_type(), "Unknonwn compute for container");
                 return;
             },
         };
@@ -349,11 +361,11 @@ impl ContainerManager {
         match resource_pool.move_to_idle(container, tid) {
             Ok(_) => (),
             Err(e) => {
-                error!(tid=%tid, error=%e, "Error moving container back to idle pool");
+                error!(tid=tid, error=%e, "Error moving container back to idle pool");
                 container.mark_unhealthy();
-                warn!(tid=%tid, container_id=%container.container_id(), "Marking unhealthy container for removal");
+                warn!(tid=tid, container_id=%container.container_id(), "Marking unhealthy container for removal");
                 if let Err(e) = self.unhealthy_removal_rx.send(container.clone()) {
-                    error!(tid=%tid, error=%e, "Failed to send container for removal on return");
+                    error!(tid=tid, error=%e, "Failed to send container for removal on return");
                 }
             },
         };
@@ -368,7 +380,7 @@ impl ContainerManager {
                 .acquire_gpu(tid)
             {
                 Some(g) => {
-                    info!(tid=%tid, uuid=%g.gpu_uuid, "Assigning GPU to container");
+                    info!(tid=tid, uuid=%g.gpu_uuid, "Assigning GPU to container");
                     Ok(Some(g))
                 },
                 None => anyhow::bail!(InsufficientGPUError {}),
@@ -385,7 +397,7 @@ impl ContainerManager {
         }
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, reg, compute), fields(tid=tid)))]
     async fn try_launch_container(
         &self,
         reg: &Arc<RegisteredFunction>,
@@ -396,7 +408,7 @@ impl ContainerManager {
         let cont_lifecycle = match self.cont_isolations.get(&chosen_iso) {
             Some(c) => c,
             None => {
-                bail_error!(tid=%tid, iso=?chosen_iso, "Lifecycle(s) for container not supported")
+                bail_error!(tid=tid, iso=?chosen_iso, "Lifecycle(s) for container not supported")
             },
         };
 
@@ -404,7 +416,13 @@ impl ContainerManager {
         let curr_mem = *self.used_mem_mb.read();
         if curr_mem + reg.memory > self.resources.memory_mb {
             let avail = self.resources.memory_mb - curr_mem;
-            debug!(tid=%tid, needed=reg.memory-avail, used=curr_mem, available=avail, "Can't launch container due to insufficient memory");
+            debug!(
+                tid = tid,
+                needed = reg.memory - avail,
+                used = curr_mem,
+                available = avail,
+                "Can't launch container due to insufficient memory"
+            );
             anyhow::bail!(InsufficientMemoryError {
                 needed: reg.memory - avail,
                 used: curr_mem,
@@ -458,7 +476,7 @@ impl ContainerManager {
                 };
             },
         };
-        info!(tid=%tid, image=%reg.image_name, container_id=%cont.container_id(), "Container was launched");
+        info!(tid=tid, image=%reg.image_name, container_id=%cont.container_id(), "Container was launched");
         Ok(cont)
     }
 
@@ -471,13 +489,13 @@ impl ContainerManager {
         compute: Compute,
     ) -> Result<Isolation> {
         if !reg.supported_compute.contains(compute) {
-            bail_error!(tid=%tid, iso=?reg.supported_compute, compute=?compute, "Registration did not contain requested compute")
+            bail_error!(tid=tid, iso=?reg.supported_compute, compute=?compute, "Registration did not contain requested compute")
         }
         if compute.contains(Compute::GPU) {
             if reg.isolation_type.contains(Isolation::DOCKER) {
                 return Ok(Isolation::DOCKER);
             } else {
-                bail_error!(tid=%tid, iso=?reg.isolation_type, compute=?compute, "GPU only supported with Docker isolation")
+                bail_error!(tid=tid, iso=?reg.isolation_type, compute=?compute, "GPU only supported with Docker isolation")
             }
         }
         if reg.isolation_type.contains(Isolation::CONTAINERD) {
@@ -491,7 +509,7 @@ impl ContainerManager {
 
     /// Does a best effort to ensure a container is launched
     /// If various known errors happen, it will re-try to start it
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, reg), fields(tid=tid)))]
     async fn launch_container_internal(
         &self,
         reg: &Arc<RegisteredFunction>,
@@ -502,7 +520,11 @@ impl ContainerManager {
             Ok(c) => Ok(c),
             Err(cause) => {
                 if let Some(mem) = cause.downcast_ref::<InsufficientMemoryError>() {
-                    debug!(tid=%tid, amount=mem.needed, "Trying to reclaim memory to cold-start a container");
+                    debug!(
+                        tid = tid,
+                        amount = mem.needed,
+                        "Trying to reclaim memory to cold-start a container"
+                    );
                     self.reclaim_memory(mem.needed, tid).await?;
                     self.try_launch_container(reg, tid, compute).await
                 } else if cause.downcast_ref::<InsufficientGPUError>().is_some() {
@@ -521,7 +543,7 @@ impl ContainerManager {
     /// # Errors
     /// Can error if not already registered and full info isn't provided.
     /// Other errors caused by starting/registered the function apply.
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg), fields(tid=tid)))]
     pub async fn prewarm(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<()> {
         for spec_comp in compute.into_iter() {
             let container = self.launch_container_internal(reg, tid, spec_comp).await?;
@@ -529,26 +551,26 @@ impl ContainerManager {
             let pool = self.get_resource_pool(spec_comp)?;
             pool.add_idle_container(container, tid);
             self.prioritiy_notify.notify_waiters();
-            info!(tid=%tid, fqdn=%reg.fqdn, compute=%spec_comp, "function was successfully prewarmed");
+            info!(tid=tid, fqdn=%reg.fqdn, compute=%spec_comp, "function was successfully prewarmed");
         }
         Ok(())
     }
 
     /// Registers a function using the given request
     pub fn register(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
-        debug!(tid=%tid, function_name=%reg.function_name, function_version=%reg.function_version, fqdn=%reg.fqdn, "Adding new registration to active_containers map");
+        debug!(tid=tid, function_name=%reg.function_name, function_version=%reg.function_version, fqdn=%reg.fqdn, "Adding new registration to active_containers map");
         self.outstanding_containers.insert(reg.fqdn.clone(), AtomicU32::new(0));
         Ok(())
     }
 
     /// Delete a container and releases tracked resources for it
     /// Container **must** have already been removed from the container pool
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     async fn purge_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
-        info!(tid=%tid, container_id=%container.container_id(), "Removing container");
+        info!(tid=tid, container_id=%container.container_id(), "Removing container");
         let r = match self.cont_isolations.get(&container.container_type()) {
             Some(c) => c.remove_container(container.clone(), "default", tid).await,
-            None => bail_error!(tid=%tid, iso=?container.container_type(), "Lifecycle for container not supported"),
+            None => bail_error!(tid=tid, iso=?container.container_type(), "Lifecycle for container not supported"),
         };
         *self.used_mem_mb.write() -= container.get_curr_mem_usage();
         self.return_gpu(container.revoke_device(), tid);
@@ -567,7 +589,7 @@ impl ContainerManager {
         anyhow::bail!("No pool for compute: {:?}", compute)
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     /// Reclaim a single GPU from a container via eviction
     /// If any are free to be removed
     async fn reclaim_gpu(&self, tid: &TransactionId) -> Result<()> {
@@ -580,12 +602,12 @@ impl ContainerManager {
         }
         match chosen {
             Some(c) => self.purge_container(c, tid).await?,
-            None => warn!(tid=%tid, "tried to evict a container for a GPU, but was unable"),
+            None => warn!(tid = tid, "tried to evict a container for a GPU, but was unable"),
         };
         Ok(())
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, amount_mb), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, amount_mb), fields(tid=tid)))]
     /// Reclaim at least the specified amount of memory by evicting containers
     /// Not guaranteed to do so, as all containers could be busy
     async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
@@ -603,7 +625,7 @@ impl ContainerManager {
                 }
             }
         }
-        debug!(tid=%tid, memory=reclaimed, "Memory to be reclaimed");
+        debug!(tid = tid, memory = reclaimed, "Memory to be reclaimed");
         for container in to_remove {
             self.purge_container(container, tid).await?;
         }
@@ -611,11 +633,11 @@ impl ContainerManager {
     }
 
     fn order_pool_eviction(&self, tid: &TransactionId, list: &mut Subpool) {
-        debug!(tid=%tid, "Computing eviction priorities");
+        debug!(tid = tid, "Computing eviction priorities");
         let comparator = match self.resources.eviction.as_str() {
             "LRU" => ContainerManager::lru_eviction,
             _ => {
-                error!(tid=%tid, algorithm=%self.resources.eviction, "Unkonwn eviction algorithm");
+                error!(tid=tid, algorithm=%self.resources.eviction, "Unkonwn eviction algorithm");
                 return;
             },
         };
@@ -624,14 +646,14 @@ impl ContainerManager {
 
     fn compute_eviction_priorities(&self, tid: &TransactionId) {
         let mut ordered = self.cpu_containers.iter();
-        debug!(tid=%tid, num_containers=%ordered.len(), "Computing CPU eviction priorities");
+        debug!(tid=tid, num_containers=%ordered.len(), "Computing CPU eviction priorities");
         self.order_pool_eviction(tid, &mut ordered);
         *self.prioritized_list.write() = ordered;
     }
 
     fn compute_gpu_eviction_priorities(&self, tid: &TransactionId) {
         let mut ordered = self.gpu_containers.iter();
-        debug!(tid=%tid, num_containers=%ordered.len(), "Computing GPU eviction priorities");
+        debug!(tid=tid, num_containers=%ordered.len(), "Computing GPU eviction priorities");
         self.order_pool_eviction(tid, &mut ordered);
         *self.prioritized_gpu_list.write() = ordered;
     }
@@ -640,6 +662,7 @@ impl ContainerManager {
         c1.last_used().cmp(&c2.last_used())
     }
 
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     pub async fn remove_idle_containers(&self, tid: &TransactionId) -> Result<std::collections::HashMap<Compute, i32>> {
         let mut ret = std::collections::HashMap::new();
         let mut conts = self.gpu_containers.iter_idle();
@@ -664,14 +687,14 @@ impl ContainerManager {
         match crate::services::containers::structs::cast::<DockerContainer>(&cont) {
             Ok(c) => match c.client.move_to_device(&tid, &c.container_id).await {
                 Ok(()) => c.set_state(ContainerState::Warm),
-                Err(e) => error!(tid=%tid, error=%e, "Error moving data to device"),
+                Err(e) => error!(tid=tid, error=%e, "Error moving data to device"),
             },
-            Err(e) => error!(tid=%tid, error=%e, "move_to_device Error casting container to DockerContainer"),
+            Err(e) => error!(tid=tid, error=%e, "move_to_device Error casting container to DockerContainer"),
         };
     }
     /// Tell all GPU containers of the given function to move memory onto the device
     pub async fn madvise_to_device(&self, fqdn: String, tid: TransactionId) {
-        debug!(tid=%tid, fqdn=%fqdn, "moving to device");
+        debug!(tid=tid, fqdn=%fqdn, "moving to device");
         let f = Self::move_to_device;
         self.gpu_containers.iter_fqdn(tid, &fqdn, f).await;
     }
@@ -681,15 +704,15 @@ impl ContainerManager {
                 match c.client.move_from_device(&tid, &c.container_id).await {
                     // container is "prewarmed" because we need to do work to fully start
                     Ok(()) => c.set_state(ContainerState::Prewarm),
-                    Err(e) => error!(tid=%tid, error=%e, "Error moving data from device"),
+                    Err(e) => error!(tid=tid, error=%e, "Error moving data from device"),
                 }
             },
-            Err(e) => error!(tid=%tid, error=%e, "move_off_device Error casting container to DockerContainer"),
+            Err(e) => error!(tid=tid, error=%e, "move_off_device Error casting container to DockerContainer"),
         };
     }
     /// Tell all GPU containers of the given function to move memory off of the device
     pub async fn madvise_off_device(&self, fqdn: String, tid: TransactionId) {
-        debug!(tid=%tid, fqdn=%fqdn, "moving off device");
+        debug!(tid=tid, fqdn=%fqdn, "moving off device");
         let f = Self::move_off_device;
         self.gpu_containers.iter_fqdn(tid, &fqdn, f).await;
     }

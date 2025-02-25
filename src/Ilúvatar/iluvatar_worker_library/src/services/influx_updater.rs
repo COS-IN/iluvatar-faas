@@ -5,7 +5,7 @@ use iluvatar_library::{threading::tokio_thread, transaction::TransactionId};
 use influxdb2::FromDataPoint;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 #[derive(Debug, FromDataPoint, Default)]
 pub struct InfluxLoadData {
@@ -35,7 +35,7 @@ impl InfluxUpdater {
         tid: &TransactionId,
     ) -> Result<Option<Arc<Self>>> {
         if let Some(influx) = influx {
-            info!(tid=%tid, "Building InfluxUpdater");
+            info!(tid = tid, "Building InfluxUpdater");
             let (stat, stat_tx) = tokio_thread(config.update_freq_ms, INFLUX_STATUS_TID.clone(), Self::send_status);
 
             let r = Arc::new(Self {
@@ -48,11 +48,12 @@ impl InfluxUpdater {
             stat_tx.send(r.clone())?;
             return Ok(Some(r));
         }
-        info!(tid=%tid, "Building InfluxUpdater");
+        info!(tid = tid, "Building InfluxUpdater");
 
         Ok(None)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn send_status(svc: Arc<Self>, tid: TransactionId) {
         let status = svc.status_svc.get_status(&tid);
         let mut builder = String::new();
@@ -72,10 +73,10 @@ impl InfluxUpdater {
             builder.push_str(&svc.tags);
             builder.push_str(&format!(" value={}\n", val));
         }
-        info!(tid=%tid, data=builder, "writing to influx");
+        debug!(tid = tid, data = builder, "writing to influx");
         match svc.influx.write_data(WORKERS_BUCKET, builder).await {
             Ok(_) => (),
-            Err(e) => error!(tid=%tid, error=%e, "Failed to write worker status to InfluxDB"),
+            Err(e) => error!(tid=tid, error=%e, "Failed to write worker status to InfluxDB"),
         };
     }
 }

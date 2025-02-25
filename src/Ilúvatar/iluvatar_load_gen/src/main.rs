@@ -7,10 +7,12 @@ pub mod utils;
 use benchmark::BenchmarkArgs;
 use clap::{command, Parser, Subcommand};
 use iluvatar_library::bail_error;
-use std::sync::Arc;
-// use iluvatar_library::transaction::TransactionId;
+use iluvatar_library::logging::LoggingConfig;
 use scaling::ScalingArgs;
+use std::sync::Arc;
 use trace::TraceArgs;
+
+const LOAD_GEN_PREFIX: &str = "LOAD_GEN";
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -26,20 +28,13 @@ enum Commands {
     Benchmark(BenchmarkArgs),
 }
 
-fn start_logging(path: &str, stdout: bool) -> anyhow::Result<impl Drop> {
-    iluvatar_library::logging::start_tracing(
-        // TODO: use proper logging config
-        Arc::new(iluvatar_library::logging::LoggingConfig {
-            level: "info".to_string(),
-            stdout: Some(stdout),
-            spanning: "NONE".to_string(),
-            directory: path.to_owned(),
-            basename: "load_gen".to_string(),
-            ..Default::default()
-        }),
-        "",
-        &"LOAD_GEN_MAIN".to_string(),
-    )
+fn start_logging(path: &str, _stdout: bool) -> anyhow::Result<impl Drop> {
+    let overrides = vec![
+        ("directory".to_string(), path.to_string()),
+        ("basename".to_string(), "load_gen".to_string()),
+    ];
+    let log_cfg = iluvatar_library::config::load_config::<LoggingConfig>(None, None, Some(overrides), LOAD_GEN_PREFIX)?;
+    iluvatar_library::logging::start_tracing(Arc::new(log_cfg), "load_gen", &"LOAD_GEN_MAIN".to_string())
 }
 
 fn wrap_logging<T>(path: String, stdout: bool, args: T, run: fn(args: T) -> anyhow::Result<()>) -> anyhow::Result<()> {

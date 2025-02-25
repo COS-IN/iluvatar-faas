@@ -35,7 +35,7 @@ impl IPMI {
 
     /// Get the instantaneous wattage usage of the system from ipmi
     pub fn read(&self, tid: &TransactionId) -> anyhow::Result<u128> {
-        trace!(tid=%tid, "Reading from ipmi");
+        trace!(tid = tid, "Reading from ipmi");
         let output = execute_cmd_checked(
             "/usr/bin/ipmitool",
             vec![
@@ -125,12 +125,12 @@ impl IPMIMonitor {
     }
 
     /// Reads the different energy sources and writes the current statistics out to the csv file
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     fn monitor_energy(&self, tid: &TransactionId) {
         let ipmi_uj = match self.ipmi.read(tid) {
             Ok(uj) => uj,
             Err(e) => {
-                error!(tid=%tid, error=%e, "Unable to read ipmi value");
+                error!(tid=tid, error=%e, "Unable to read ipmi value");
                 return;
             },
         };
@@ -139,7 +139,7 @@ impl IPMIMonitor {
         let t = match self.timer.format_time(now) {
             Ok(t) => t,
             Err(e) => {
-                error!(error=%e, tid=%tid, "Failed to format time");
+                error!(error=%e, tid=tid, "Failed to format time");
                 return;
             },
         };
@@ -150,7 +150,7 @@ impl IPMIMonitor {
     fn open_log_file(config: &Arc<EnergyConfig>, tid: &TransactionId) -> Result<RwLock<File>> {
         match File::create(Path::new(&config.log_folder).join("energy-ipmi.log")) {
             Ok(f) => Ok(RwLock::new(f)),
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to create IPMI output file"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to create IPMI output file"),
         }
     }
 
@@ -159,7 +159,7 @@ impl IPMIMonitor {
         match file.write_all(text.as_bytes()) {
             Ok(_) => (),
             Err(e) => {
-                error!(error=%e, tid=%tid, "Failed to write csv result to IPMI file");
+                error!(error=%e, tid=tid, "Failed to write csv result to IPMI file");
             },
         };
     }

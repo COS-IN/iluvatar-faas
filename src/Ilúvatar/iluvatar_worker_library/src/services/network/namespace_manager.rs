@@ -43,7 +43,7 @@ impl NamespaceManager {
     }
 
     pub fn boxed(config: Arc<NetworkingConfig>, tid: &TransactionId, ensure_bridge: bool) -> Result<Arc<Self>> {
-        debug!(tid=%tid, "creating namespace manager");
+        debug!(tid = tid, "creating namespace manager");
         Self::ensure_net_config_file(tid, &config)?;
         if ensure_bridge {
             Self::ensure_bridge(tid, &config)?;
@@ -51,7 +51,7 @@ impl NamespaceManager {
         Ok(match config.use_pool {
             false => Arc::new(Self::new(config.clone(), None)),
             true => {
-                info!(tid=%tid, "Launching namespace pool monitor thread");
+                info!(tid = tid, "Launching namespace pool monitor thread");
                 let (handle, tx) = os_thread(
                     config.pool_freq_ms,
                     NAMESPACE_POOL_WORKER_TID.clone(),
@@ -64,19 +64,19 @@ impl NamespaceManager {
         })
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     fn monitor_pool(&self, tid: &TransactionId) {
         while self.pool_size() < self.config.pool_size {
             let ns = match self.create_namespace(&self.generate_net_namespace_name(), tid) {
                 Ok(ns) => ns,
                 Err(e) => {
-                    error!(tid=%tid, error=%e, "Failed creating namespace in monitor");
+                    error!(tid=tid, error=%e, "Failed creating namespace in monitor");
                     break;
                 },
             };
             match self.return_namespace(Arc::new(ns), tid) {
                 Ok(_) => {},
-                Err(e) => error!(tid=%tid, error=%e, "Failed giving namespace to pool"),
+                Err(e) => error!(tid=tid, error=%e, "Failed giving namespace to pool"),
             };
         }
     }
@@ -95,13 +95,13 @@ impl NamespaceManager {
         if *bridge_check {
             return Ok(());
         }
-        info!(tid=%tid, "Ensuring network bridge");
+        info!(tid = tid, "Ensuring network bridge");
         // multiple workers on one machine can compete over this
         // catch an error if we aren't the race winner and try again, will do nothing if bridge exists
         match Self::try_ensure_bridge(tid, config) {
             Ok(_) => Ok(()),
             Err(e) => {
-                warn!(tid=%tid, error=%e, "Error on first attempt making bridge, retring");
+                warn!(tid=tid, error=%e, "Error on first attempt making bridge, retring");
                 std::thread::sleep(std::time::Duration::from_millis(config.pool_freq_ms));
                 Self::try_ensure_bridge(tid, config)
             },
@@ -125,7 +125,7 @@ impl NamespaceManager {
         };
         match writeln!(&mut file, "{}", resolv_conf) {
             Ok(_) => Ok(()),
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to write 'resolv' conf file"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to write 'resolv' conf file"),
         }
     }
 
@@ -142,7 +142,7 @@ impl NamespaceManager {
 
         match writeln!(&mut file, "{}", bridge_json) {
             Ok(_) => Ok(()),
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to write 'il_worker_br' conf file"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to write 'il_worker_br' conf file"),
         }
     }
 
@@ -159,16 +159,16 @@ impl NamespaceManager {
         let name = BRIDGE_NET_ID.to_string();
 
         if !Self::namespace_exists(&name) {
-            debug!(tid=%tid, namespace=%name, "Namespace does not exists, making");
+            debug!(tid=tid, namespace=%name, "Namespace does not exists, making");
             Self::create_namespace_internal(&name, tid)?;
         } else {
-            debug!(tid=%tid, namespace=%name, "Namespace already exists, skipping");
+            debug!(tid=tid, namespace=%name, "Namespace already exists, skipping");
         }
 
         let nspth = Self::net_namespace(&name);
 
         if Self::bridge_exists(&nspth, tid, config)? {
-            debug!(tid=%tid, "Bridge already exists, skipping");
+            debug!(tid = tid, "Bridge already exists, skipping");
             return Ok(());
         }
 
@@ -178,7 +178,7 @@ impl NamespaceManager {
             Some(&env),
             tid,
         );
-        debug!(tid=%tid, output=?output, "Output from creating network bridge");
+        debug!(tid=tid, output=?output, "Output from creating network bridge");
         match output {
             Ok(output) => {
                 if let Some(status) = output.status.code() {
@@ -219,8 +219,8 @@ impl NamespaceManager {
             None,
             tid,
         ) {
-            Ok(_) => debug!(tid=%tid, "Setting nat on hardware interface succeded"),
-            Err(e) => bail_error!(tid=%tid, error=%e, "Setting nat on hardware interface failed"),
+            Ok(_) => debug!(tid = tid, "Setting nat on hardware interface succeded"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Setting nat on hardware interface failed"),
         };
         match execute_cmd_checked(
             "/usr/sbin/iptables",
@@ -237,8 +237,8 @@ impl NamespaceManager {
             None,
             tid,
         ) {
-            Ok(_) => debug!(tid=%tid, "Setting conntrack succeded"),
-            Err(e) => bail_error!(tid=%tid, error=%e, "Setting conntrack failed"),
+            Ok(_) => debug!(tid = tid, "Setting conntrack succeded"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Setting conntrack failed"),
         };
         match execute_cmd_checked(
             "/usr/sbin/iptables",
@@ -255,12 +255,12 @@ impl NamespaceManager {
             None,
             tid,
         ) {
-            Ok(_) => debug!(tid=%tid, "Forwarding bridge to interface succeded"),
-            Err(e) => bail_error!(tid=%tid, error=%e, "Forwarding bridge to interface failed"),
+            Ok(_) => debug!(tid = tid, "Forwarding bridge to interface succeded"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Forwarding bridge to interface failed"),
         };
         match execute_cmd_checked("/sbin/sysctl", vec!["-w", "net.ipv4.conf.all.forwarding=1"], None, tid) {
-            Ok(_) => debug!(tid=%tid, "Setting upv4 forwarding succeeded"),
-            Err(e) => bail_error!(tid=%tid, error=%e, "Setting upv4 forwarding failed"),
+            Ok(_) => debug!(tid = tid, "Setting upv4 forwarding succeeded"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Setting upv4 forwarding failed"),
         };
         Ok(())
     }
@@ -278,10 +278,10 @@ impl NamespaceManager {
                         Ok(false)
                     }
                 } else {
-                    bail_error!(tid=%tid, output=?output, "No error code when checking hardware interface status");
+                    bail_error!(tid=tid, output=?output, "No error code when checking hardware interface status");
                 }
             },
-            Err(e) => bail_error!(tid=%tid, error=%e, "Error checking hardware interface status"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Error checking hardware interface status"),
         }
     }
 
@@ -302,10 +302,10 @@ impl NamespaceManager {
                         Ok(false)
                     }
                 } else {
-                    bail_error!(tid=%tid, output=?output, "Error checking bridge status");
+                    bail_error!(tid=tid, output=?output, "Error checking bridge status");
                 }
             },
-            Err(e) => bail_error!(tid=%tid, error=%e, "Error checking bridge status"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Error checking bridge status"),
         }
     }
 
@@ -322,18 +322,18 @@ impl NamespaceManager {
     fn create_namespace_internal(name: &str, tid: &TransactionId) -> Result<()> {
         let out = match execute_cmd_checked("/bin/ip", vec!["netns", "add", name], None, tid) {
             Ok(out) => out,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to launch 'ip netns add' command"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to launch 'ip netns add' command"),
         };
 
-        debug!(tid=%tid, namespace=%name, output=?out, "internal create namespace via ip");
+        debug!(tid=tid, namespace=%name, output=?out, "internal create namespace via ip");
         if let Some(status) = out.status.code() {
             if status == 0 {
                 Ok(())
             } else {
-                bail_error!(tid=%tid, status=?status, stdout=?out, "Failed to create internal namespace")
+                bail_error!(tid=tid, status=?status, stdout=?out, "Failed to create internal namespace")
             }
         } else {
-            bail_error!(tid=%tid, stdout=?out, "Failed to create internal namespace with no exit code")
+            bail_error!(tid=tid, stdout=?out, "Failed to create internal namespace with no exit code")
         }
     }
 
@@ -370,14 +370,14 @@ impl NamespaceManager {
         match serde_json::from_str(&stdout) {
             Ok(mut ns) => {
                 self.cleanup_addresses(&mut ns);
-                debug!(tid=%tid, namespace=%name, containerd_namespace=?ns, "Namespace created");
+                debug!(tid=tid, namespace=%name, containerd_namespace=?ns, "Namespace created");
                 Ok(Namespace {
                     name: name.to_string(),
                     namespace: ns,
                 })
             },
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, output=?out, "JSON error in create_namespace")
+                bail_error!(tid=tid, error=%e, output=?out, "JSON error in create_namespace")
             },
         }
     }
@@ -387,16 +387,16 @@ impl NamespaceManager {
         if self.config.use_pool && !locked.is_empty() {
             match locked.pop() {
                 Some(ns) => {
-                    debug!(tid=%tid, namespace=%ns.name, "Assigning namespace");
+                    debug!(tid=tid, namespace=%ns.name, "Assigning namespace");
                     Ok(ns)
                 },
                 None => {
-                    bail_error!(tid=%tid, length=%locked.len(), "Namespace pool should have had a thing in it")
+                    bail_error!(tid=tid, length=%locked.len(), "Namespace pool should have had a thing in it")
                 },
             }
         } else {
             drop(locked);
-            debug!(tid=%tid, "Creating new namespace, pool is empty");
+            debug!(tid = tid, "Creating new namespace, pool is empty");
             let ns = Arc::new(self.create_namespace(&self.generate_net_namespace_name(), tid)?);
             Ok(ns)
         }
@@ -411,7 +411,7 @@ impl NamespaceManager {
     }
 
     pub fn return_namespace(&self, ns: Arc<Namespace>, tid: &TransactionId) -> Result<()> {
-        debug!(tid=%tid, namespace=%ns.name, "Namespace being returned");
+        debug!(tid=tid, namespace=%ns.name, "Namespace being returned");
         if self.config.use_pool {
             let mut locked = self.pool.lock();
             locked.push(ns);
@@ -431,29 +431,29 @@ impl NamespaceManager {
             tid,
         )?;
 
-        debug!(tid=%tid, namespace=%name, output=?out, "internal del namespace via cnitool");
+        debug!(tid=tid, namespace=%name, output=?out, "internal del namespace via cnitool");
         if let Some(status) = out.status.code() {
             if status != 0 {
-                bail_error!(tid=%tid, stdout=?out, status=?status, "cnitool failed to del namespace")
+                bail_error!(tid=tid, stdout=?out, status=?status, "cnitool failed to del namespace")
             }
         } else {
-            bail_error!(tid=%tid, stdout=?out, "cnitool failed to del with no exit code")
+            bail_error!(tid=tid, stdout=?out, "cnitool failed to del with no exit code")
         }
 
         let out = execute_cmd("/bin/ip", vec!["netns", "delete", name], None, tid)?;
-        debug!(tid=%tid, namespace=%name, output=?out, "internal delete namespace via ip");
+        debug!(tid=tid, namespace=%name, output=?out, "internal delete namespace via ip");
         if let Some(status) = out.status.code() {
             if status != 0 {
-                bail_error!(tid=%tid, stdout=?out, status=?status, "Failed to delete namespace")
+                bail_error!(tid=tid, stdout=?out, status=?status, "Failed to delete namespace")
             }
         } else {
-            bail_error!(tid=%tid, stdout=?out, "Failed to delete with no exit code")
+            bail_error!(tid=tid, stdout=?out, "Failed to delete with no exit code")
         }
         Ok(())
     }
 
     pub async fn clean(&self, svc: Arc<Self>, tid: &TransactionId) -> Result<()> {
-        info!(tid=%tid, "Deleting all owned namespaces");
+        info!(tid = tid, "Deleting all owned namespaces");
         let out = execute_cmd("/bin/ip", vec!["netns"], None, tid)?;
         let stdout = String::from_utf8_lossy(&out.stdout);
         let lines = stdout.split('\n');

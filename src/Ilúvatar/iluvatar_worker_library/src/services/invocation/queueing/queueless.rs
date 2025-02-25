@@ -38,7 +38,7 @@ impl InvokerCpuQueuePolicy for Queueless {
         self.async_queue.write().pop_front().unwrap()
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, _index), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=%item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
         let mut queue = self.async_queue.write();
         queue.push_back(item.clone());

@@ -27,7 +27,7 @@ where
     let st = stat_duration_ms.to_string();
     let args = vec!["--interval", &st.as_str(), "--logfile", outfile.as_ref()];
     test_args(tid, &args).await?;
-    info!(tid=%tid, tegrastats=?args, "tegrastat arguments");
+    info!(tid=tid, tegrastats=?args, "tegrastat arguments");
     execute_cmd_nonblocking("/usr/bin/tegrastats", &args, None, tid)
 }
 
@@ -48,7 +48,7 @@ async fn test_args(tid: &TransactionId, args: &Vec<&str>) -> Result<bool> {
                 },
             },
             Err(e) => {
-                warn!(tid=%tid, error=%e, "Checking if `{:?}` args existed encountered an error", args);
+                warn!(tid=tid, error=%e, "Checking if `{:?}` args existed encountered an error", args);
                 return Ok(false);
             },
         };
@@ -57,7 +57,7 @@ async fn test_args(tid: &TransactionId, args: &Vec<&str>) -> Result<bool> {
     // safe to assume metric exists
     match child.kill() {
         Ok(_) => (),
-        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to kill perf child when testing args"),
+        Err(e) => bail_error!(tid=tid, error=%e, "Failed to kill perf child when testing args"),
     };
     Ok(true)
 }

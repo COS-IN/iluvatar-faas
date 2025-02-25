@@ -922,7 +922,7 @@ class OverheadParser(BaseParser):
             ]
             min_exec = sub_df["code_duration_sec"].min()
             cold_exec_time = warm_exec_time = warm_e2e_time = 1000
-            supported_computes = "cpu"
+            supported_computes = "CPU"
             if "compute" in row.index:
                 supported_computes = row.compute
             for compute in supported_computes.split("|"):
@@ -930,7 +930,7 @@ class OverheadParser(BaseParser):
                 cold_comp_exec_time = np.mean(
                     get_bench_data(
                         row.benchmark_name,
-                        compute.lower(),
+                        compute,
                         "cold_results_sec",
                         self.main_parser.benchmark_data,
                     )
@@ -939,7 +939,7 @@ class OverheadParser(BaseParser):
                 warm_gpu_exec_time = np.mean(
                     get_bench_data(
                         row.benchmark_name,
-                        compute.lower(),
+                        compute,
                         "warm_results_sec",
                         self.main_parser.benchmark_data,
                     )
@@ -949,7 +949,7 @@ class OverheadParser(BaseParser):
                     np.mean(
                         get_bench_data(
                             row.benchmark_name,
-                            compute.lower(),
+                            compute,
                             "warm_worker_duration_us",
                             self.main_parser.benchmark_data,
                         )

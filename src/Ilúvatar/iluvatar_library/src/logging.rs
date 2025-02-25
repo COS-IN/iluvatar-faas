@@ -12,7 +12,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::Registry;
 
-#[derive(Debug, serde::Deserialize, Default, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Default, Clone)]
 /// Details about how/where to log to
 pub struct LoggingConfig {
     /// the min log level
@@ -28,7 +28,8 @@ pub struct LoggingConfig {
     /// How to log spans, in all caps
     /// look at for details [mod@tracing_subscriber::fmt::format]
     /// Multiple options can be passed by listing them as a list using '+' between values.
-    /// The recommended value is `NEW+CLOSE`, which creates logs on span (function) execution and completion, allowing tracking of when a function call starts and stops.
+    /// The recommended value is `NONE`, to reduce overwhelming log size.
+    /// Another option is `NEW+CLOSE`, which creates logs on span (function) execution and completion, allowing tracking of when a function call starts and stops.
     /// More expressive span capturing naturally means larger log files.
     pub spanning: String,
     /// A file name to put flame trace data in, file will be placed in [Self::directory] if present, or local directory.
@@ -40,7 +41,7 @@ pub struct LoggingConfig {
     /// These will then be reported to influx.
     #[serde(default)]
     pub span_energy_monitoring: bool,
-    /// Include currently entered spans when logging JSON messages.
+    /// Include currently entered spans when logging JSON messages to file.
     /// See (here for more details)<https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/struct.Json.html#method.with_span_list>
     #[serde(default)]
     pub include_spans_json: bool,
@@ -143,7 +144,8 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
                     .with_timer(ClockWrapper(get_global_clock(tid)?))
                     .with_writer(file_writer)
                     .compact()
-                    .json(),
+                    .json()
+                    .with_span_list(config.include_spans_json),
             )
         },
     };
@@ -172,7 +174,7 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
             let flame_path = PathBuf::from(&config.directory).join(flame);
             let (mut flame_layer, _flame_guard) = match FlameLayer::with_file(flame_path) {
                 Ok(l) => l,
-                Err(e) => bail_error!(tid=%tid, error=%e, "Failed to make FlameLayer"),
+                Err(e) => bail_error!(tid=tid, error=%e, "Failed to make FlameLayer"),
             };
             flame_layer = flame_layer.with_threads_collapsed(true).with_file_and_line(true);
             drops.push(Box::new(_flame_guard));
@@ -189,11 +191,11 @@ pub fn start_tracing(config: Arc<LoggingConfig>, worker_name: &str, tid: &Transa
     match tracing::subscriber::set_global_default(subscriber) {
         Ok(_) => {
             panic_hook();
-            info!(tid=%tid, "Logger initialized");
+            info!(tid = tid, "Logger initialized");
             Ok(drops)
         },
         Err(e) => {
-            warn!(tid=%tid, error=%e, "Global tracing subscriber was already set");
+            warn!(tid=tid, error=%e, "Global tracing subscriber was already set");
             Ok(vec![])
         },
     }

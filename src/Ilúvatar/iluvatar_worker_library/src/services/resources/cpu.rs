@@ -117,7 +117,7 @@ impl CpuResourceTracker {
         self.cores as usize
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(svc), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(svc), fields(tid=%tid)))]
     async fn monitor_load(svc: Arc<CpuResourceTracker>, tid: TransactionId) {
         let norm_load = *svc.load_avg.read() / svc.cores;
         let current = *svc.current_concur.lock();

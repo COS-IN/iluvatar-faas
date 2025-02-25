@@ -87,9 +87,9 @@ where
     S2: AsRef<std::ffi::OsStr> + std::fmt::Debug + std::fmt::Display,
     S: AsRef<std::ffi::OsStr> + std::fmt::Display + ?Sized,
 {
-    debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
+    debug!(tid=tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
     if !std::path::Path::new(&cmd_pth).exists() {
-        bail_error!(tid=%tid, command=%cmd_pth, "Command does not exists");
+        bail_error!(tid=tid, command=%cmd_pth, "Command does not exists");
     }
     let mut cmd = Command::new(cmd_pth);
     cmd.args(args);
@@ -115,7 +115,7 @@ where
     let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
     match cmd.output() {
         Ok(out) => Ok(out),
-        Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Running command failed"),
+        Err(e) => bail_error!(tid=tid, command=%cmd_pth, error=%e, "Running command failed"),
     }
 }
 
@@ -136,7 +136,7 @@ where
         Ok(out) => match out.status.success() {
             true => Ok(out),
             false => {
-                bail_error!(tid=%tid, exe=%cmd_pth, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), code=out.status.code(), "Bad error code executing command")
+                bail_error!(tid=tid, exe=%cmd_pth, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), code=out.status.code(), "Bad error code executing command")
             },
         },
         Err(e) => Err(e),
@@ -159,7 +159,7 @@ where
     let mut cmd: AsyncCommand = prepare_cmd(cmd_pth, args, env, tid)?.into();
     match cmd.output().await {
         Ok(out) => Ok(out),
-        Err(e) => bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Running command failed"),
+        Err(e) => bail_error!(tid=tid, command=%cmd_pth, error=%e, "Running command failed"),
     }
 }
 /// Executes the specified executable with args and environment
@@ -179,7 +179,7 @@ where
         Ok(out) => match out.status.success() {
             true => Ok(out),
             false => {
-                bail_error!(tid=%tid, exe=%cmd_pth, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), code=out.status.code(), "Bad error code executing command")
+                bail_error!(tid=tid, exe=%cmd_pth, stdout=%String::from_utf8_lossy(&out.stdout), stderr=%String::from_utf8_lossy(&out.stderr), code=out.status.code(), "Bad error code executing command")
             },
         },
         Err(e) => Err(e),
@@ -200,14 +200,14 @@ where
     S2: AsRef<std::ffi::OsStr> + std::fmt::Debug + std::fmt::Display,
     S: AsRef<std::ffi::OsStr> + std::fmt::Display + ?Sized,
 {
-    debug!(tid=%tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
+    debug!(tid=tid, command=%cmd_pth, args=?args, environment=?env, "executing host command");
     let mut cmd = prepare_cmd(cmd_pth, args, env, tid)?;
     cmd.stdout(Stdio::null()).stdin(Stdio::null()).stderr(Stdio::null());
 
     match cmd.spawn() {
         Ok(out) => Ok(out),
         Err(e) => {
-            bail_error!(tid=%tid, command=%cmd_pth, error=%e, "Spawning non-blocking command failed")
+            bail_error!(tid=tid, command=%cmd_pth, error=%e, "Spawning non-blocking command failed")
         },
     }
 }
@@ -244,7 +244,7 @@ fn try_create_signal(tid: &TransactionId, kind: SignalKind) -> Result<Signal> {
     match signal(kind) {
         Ok(s) => Ok(s),
         Err(e) => {
-            bail_error!(error=%e, tid=%tid, kind=kind.as_raw_value(), "Failed to create signal")
+            bail_error!(error=%e, tid=tid, kind=kind.as_raw_value(), "Failed to create signal")
         },
     }
 }

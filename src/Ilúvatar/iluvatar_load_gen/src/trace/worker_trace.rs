@@ -45,7 +45,7 @@ fn run_invokes(
         tid,
     )?;
 
-    info!(tid=%tid, "Starting invocations");
+    info!(tid = tid, "Starting invocations");
     let results = runtime.block_on(async {
         let mut handles = Vec::new();
         let start = now();
@@ -69,7 +69,7 @@ fn run_invokes(
                 true => wait_elapsed_sim(&start, invoke.invoke_time_ms, args.tick_step, args.sim_gran).await,
                 false => wait_elapsed_live(&start, invoke.invoke_time_ms).await,
             }
-            debug!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Launching invocation");
+            debug!(tid=tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Launching invocation");
             handles.push(tokio::task::spawn(async move {
                 worker_invoke(
                     &f_c,
@@ -84,13 +84,13 @@ fn run_invokes(
                 )
                 .await
             }));
-            debug!(tid=%tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Invocation sent");
+            debug!(tid=tid, elapsed=?start.elapsed(), waiting=invoke.invoke_time_ms, "Invocation sent");
         }
-        info!(tid=%tid, "Invocations sent, awaiting on thread handles");
+        info!(tid = tid, "Invocations sent, awaiting on thread handles");
         resolve_handles(handles, crate::utils::ErrorHandling::Print).await
     })?;
 
-    info!(tid=%tid, "Threads closed, writing results to file");
+    info!(tid = tid, "Threads closed, writing results to file");
     let pth = Path::new(&args.input_csv);
     let p = Path::new(&args.out_folder).join(format!(
         "output-{}",
@@ -118,7 +118,7 @@ pub fn simulated_worker(args: TraceArgs) -> Result<()> {
     let _rt_guard = threaded_rt.enter();
     let _guard = iluvatar_library::logging::start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
     let factory = WorkerAPIFactory::boxed();
-    info!(tid=%tid, "starting simulation run");
+    info!(tid = tid, "starting simulation run");
 
     run_invokes(
         tid,
@@ -135,7 +135,7 @@ pub fn live_worker(args: TraceArgs) -> Result<()> {
     let factory = WorkerAPIFactory::boxed();
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
     let host = args.host.clone();
-    info!(tid=%tid, "starting live run");
+    info!(tid = tid, "starting live run");
 
     run_invokes(tid, args, factory, threaded_rt, host, CommunicationMethod::RPC)
 }

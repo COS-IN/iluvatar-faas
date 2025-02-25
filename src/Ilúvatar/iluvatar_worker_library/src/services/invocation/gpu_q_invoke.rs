@@ -34,7 +34,7 @@ use std::{
 };
 use tokio::sync::Notify;
 use tokio::time::Instant;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, warn, Instrument};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
@@ -183,7 +183,7 @@ impl GpuQueueingInvoker {
                 .clone(),
         });
         gpu_tx.send(svc.clone())?;
-        info!(tid=%tid, "Created GpuQueueingInvoker");
+        info!(tid = tid, "Created GpuQueueingInvoker");
         Ok(svc)
     }
 
@@ -211,10 +211,10 @@ impl GpuQueueingInvoker {
 
     async fn gpu_wait_on_queue(invoker_svc: Arc<GpuQueueingInvoker>, tid: TransactionId) {
         invoker_svc.signal.notified().await;
-        debug!(tid=%tid, "Invoker waken up by signal");
+        debug!(tid = tid, "Invoker waken up by signal");
     }
     /// Check the invocation queue, running things when there are sufficient resources
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some(peek_reg) = self.queue.next_batch() {
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
@@ -225,7 +225,7 @@ impl GpuQueueingInvoker {
                     Some(batch) => self.spawn_tokio_worker(self.clone(), batch, permit, &tid),
                 }
             } else {
-                debug!(tid=%tid, fqdn=%peek_reg.fqdn, "Insufficient resources to run item");
+                debug!(tid=tid, fqdn=%peek_reg.fqdn, "Insufficient resources to run item");
                 break;
             }
         }
@@ -241,10 +241,13 @@ impl GpuQueueingInvoker {
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                        error!(
+                            tid = tid,
+                            "CPU Resource Monitor `try_acquire_cores` returned a closed error!"
+                        )
                     },
                     tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
+                        debug!(tid=tid, fqdn=%reg.fqdn, "Not enough CPU permits")
                     },
                 };
                 return None;
@@ -255,10 +258,13 @@ impl GpuQueueingInvoker {
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                        error!(
+                            tid = tid,
+                            "GPU Resource Monitor `try_acquire_cores` returned a closed error!"
+                        )
                     },
                     tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
+                        debug!(tid=tid, fqdn=%reg.fqdn, "Not enough GPU permits")
                     },
                 };
                 return None;
@@ -268,9 +274,9 @@ impl GpuQueueingInvoker {
     }
 
     /// Runs the specific invocation inside a new tokio worker thread
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, batch, permit), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, invoker_svc, batch, permit), fields(tid=tid)))]
     fn spawn_tokio_worker(&self, invoker_svc: Arc<Self>, batch: GpuBatch, permit: DroppableToken, tid: &TransactionId) {
-        debug!(tid=%tid, "Launching invocation thread for queued item");
+        debug!(tid = tid, "Launching invocation thread for queued item");
         tokio::spawn(async move {
             invoker_svc.invocation_worker_thread(batch, permit).await;
         });
@@ -281,7 +287,12 @@ impl GpuQueueingInvoker {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, batch, permit), fields(fqdn=batch.peek().registration.fqdn)))]
     async fn invocation_worker_thread(&self, batch: GpuBatch, permit: DroppableToken) {
         let tid: &TransactionId = &INVOKER_GPU_QUEUE_WORKER_TID;
-        info!(tid=%tid, fqdn=batch.item_registration().fqdn, batch_len=batch.len(), "Executing batch");
+        info!(
+            tid = tid,
+            fqdn = batch.item_registration().fqdn,
+            batch_len = batch.len(),
+            "Executing batch"
+        );
         let curr_time = self.clock.now();
         let est_finish_time = curr_time + time::Duration::seconds_f64(batch.est_queue_time());
         self.completion_tracker.add_item(est_finish_time);
@@ -316,15 +327,14 @@ impl GpuQueueingInvoker {
                     tokio::spawn(ContainerManager::move_to_device(ctr, t));
                 }
             }
-            match self
-                .invoke(
-                    // unwrap is safe, we either have a container or will go to the top of the loop
-                    ctr_lock.as_ref().unwrap(),
-                    &item,
-                    start,
-                )
-                .await
-            {
+            // unwrap is safe, we either have a container or will go to the top of the loop
+            #[cfg(feature = "full_spans")]
+            let fut = self
+                .invoke(ctr_lock.as_ref().unwrap(), &item, start)
+                .instrument(item.span.clone());
+            #[cfg(not(feature = "full_spans"))]
+            let fut = self.invoke(ctr_lock.as_ref().unwrap(), &item, start);
+            match fut.await {
                 Ok((result, duration, compute, container_state)) => {
                     item.mark_successful(result, duration, compute, container_state)
                 },
@@ -365,7 +375,7 @@ impl GpuQueueingInvoker {
     /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
     ///   Calls [Self::add_item_to_queue] to do this
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=%item.tid)))]
     fn handle_invocation_error(&self, item: &Arc<EnqueuedInvocation>, cause: &anyhow::Error) {
         if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
             let mut warn_time = self.last_memory_warning.lock();
@@ -471,7 +481,7 @@ impl DeviceQueue for GpuQueueingInvoker {
         let est_qt = self.queue.est_queue_time();
         let qt = est_qt / self.gpu.max_concurrency() as f64;
         let (runtime, state) = self.get_est_completion_time_from_containers_gpu(reg);
-        debug!(tid=%tid, qt=qt, state=?state, runtime=runtime, "GPU estimated completion time of item");
+        debug!(tid=tid, qt=qt, state=?state, runtime=runtime, "GPU estimated completion time of item");
         (qt + runtime, est_qt)
     }
 

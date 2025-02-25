@@ -59,7 +59,7 @@ impl ProcessMonitor {
                     let cpu_pct = match items[0].parse::<f64>() {
                         Ok(f) => f,
                         Err(e) => {
-                            error!(error=%e, tid=%tid, "Failed to parse process cpu percentage");
+                            error!(error=%e, tid=tid, "Failed to parse process cpu percentage");
                             return;
                         },
                     };
@@ -67,7 +67,7 @@ impl ProcessMonitor {
                     (cpu_pct, cpu_time.to_string())
                 },
                 Err(e) => {
-                    error!(error=%e, tid=%tid, "Failed to call 'ps'");
+                    error!(error=%e, tid=tid, "Failed to call 'ps'");
                     return;
                 },
             };
@@ -75,7 +75,7 @@ impl ProcessMonitor {
         let t = match self.timer.now_str() {
             Ok(t) => t,
             Err(e) => {
-                error!(error=%e, tid=%tid, "Failed to get time");
+                error!(error=%e, tid=tid, "Failed to get time");
                 return;
             },
         };
@@ -87,7 +87,7 @@ impl ProcessMonitor {
         match File::create(Path::new(&config.log_folder).join("process.log")) {
             Ok(f) => Ok(RwLock::new(f)),
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, "Failed to create process monitor output file")
+                bail_error!(tid=tid, error=%e, "Failed to create process monitor output file")
             },
         }
     }
@@ -97,7 +97,7 @@ impl ProcessMonitor {
         match file.write_all(text.as_bytes()) {
             Ok(_) => (),
             Err(e) => {
-                error!(error=%e, tid=%tid, "Failed to write csv result to process monitor file");
+                error!(error=%e, tid=tid, "Failed to write csv result to process monitor file");
             },
         };
     }

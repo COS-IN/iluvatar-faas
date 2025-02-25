@@ -28,7 +28,7 @@ use tracing::{debug, error, info};
 /// Public members are _only_ for use in testing
 pub struct IluvatarWorkerImpl {
     pub container_manager: Arc<ContainerManager>,
-    config: WorkerConfig,
+    pub config: WorkerConfig,
     pub invoker: Arc<dyn Invoker>,
     pub status: Arc<StatusService>,
     health: Arc<WorkerHealthService>,
@@ -94,10 +94,10 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok(Response::new(reply))
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id, function_name=%request.get_ref().function_name, function_version=%request.get_ref().function_version))]
+    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn invoke(&self, request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling invocation request");
+        info!(tid=%request.transaction_id, "Handling invocation request");
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         let reg = match self.reg.get_registration(&fqdn) {
             Some(r) => r,

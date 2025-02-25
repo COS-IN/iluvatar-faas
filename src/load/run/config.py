@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict
 
 
 class ConfigItem:
@@ -23,8 +23,8 @@ class ConfigItem:
             c = c[p]
         c[self.tree[-1]] = self.default
 
-    def to_env_var(self) -> str:
-        ret = "ILUVATAR_WORKER"
+    def to_env_var(self, prepend: str) -> str:
+        ret = prepend
         for t in self.tree:
             ret += "__" + t
         return ret
@@ -33,6 +33,7 @@ class ConfigItem:
 class LoadConfig:
     def __init__(self):
         self.storage = {}
+        self.env_vars = {}
 
     def __getitem__(self, key):
         return self.storage[key].default
@@ -49,7 +50,9 @@ class LoadConfig:
     def insert(self, item: ConfigItem):
         self.storage[item.name] = item
 
-    def bulk_add(self, category, items):
+    def bulk_add(self, category, items, env_var = None):
+        if env_var is not None:
+            self.env_vars[category] = env_var
         for item in items:
             if len(item) == 2:
                 name, default = item
@@ -70,11 +73,12 @@ class LoadConfig:
         for item in configs:
             item.update_json(json_data)
 
-    def to_env_var_dict(self, category):
+    def to_env_var_dict(self, category) -> Dict[str, str]:
         ret = {}
         configs = filter(lambda x: x.category == category, self.storage.values())
-        configs = filter(lambda x: x.default != None, configs)
+        configs = filter(lambda x: x.default is not None, configs)
+        configs = filter(lambda x: x.tree is not None, configs)
         for item in configs:
-            varname = item.to_env_var()
-            ret[varname] = item.default
+            varname = item.to_env_var(self.env_vars[category])
+            ret[varname] = str(item.default)
         return ret

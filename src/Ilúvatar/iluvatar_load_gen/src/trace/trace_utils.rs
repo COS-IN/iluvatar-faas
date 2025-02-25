@@ -35,13 +35,13 @@ pub fn load_trace_csv<T: serde::de::DeserializeOwned, P: AsRef<Path> + tracing::
 ) -> Result<Vec<T>> {
     let mut trace_rdr = match csv::Reader::from_path(&csv) {
         Ok(csv) => csv,
-        Err(e) => bail_error!(error=%e, tid=%tid, path=csv, "Failed to open CSV file"),
+        Err(e) => bail_error!(error=%e, tid=tid, path=csv, "Failed to open CSV file"),
     };
     let mut ret = vec![];
     for (i, result) in trace_rdr.deserialize().enumerate() {
         match result {
             Ok(item) => ret.push(item),
-            Err(e) => bail_error!(error=%e, tid=%tid, line_num=i, path=csv, "Failed to deserialize item"),
+            Err(e) => bail_error!(error=%e, tid=tid, line_num=i, path=csv, "Failed to deserialize item"),
         }
     }
     Ok(ret)
@@ -111,12 +111,12 @@ fn map_from_benchmark(
         if let Some((_last, elements)) = func.func_name.split('-').collect::<Vec<&str>>().split_last() {
             let name = elements.join("-");
             if bench.data.contains_key(&name) && func.image_name.is_some() {
-                info!(tid=%tid, function=%func.func_name, chosen_code=%name, "Function mapped to self name in benchmark");
+                info!(tid=tid, function=%func.func_name, chosen_code=%name, "Function mapped to self name in benchmark");
                 func.chosen_name = Some(name);
             }
         }
         if bench.data.contains_key(&func.func_name) && func.image_name.is_some() && func.chosen_name.is_none() {
-            info!(tid=%tid, function=%func.func_name, "Function mapped to exact name in benchmark");
+            info!(tid=tid, function=%func.func_name, "Function mapped to exact name in benchmark");
             func.chosen_name = Some(func.func_name.clone());
         }
         if func.chosen_name.is_none() {
@@ -140,7 +140,7 @@ fn map_from_benchmark(
             }
 
             if func.image_name.is_none() {
-                info!(tid=%tid, function=%&func.func_name, chosen_code=%chosen_name, "Function mapped to benchmark code");
+                info!(tid=tid, function=%&func.func_name, chosen_code=%chosen_name, "Function mapped to benchmark code");
                 func.cold_dur_ms = chosen_cold_time_ms as u64;
                 func.warm_dur_ms = chosen_warm_time_ms as u64;
                 func.chosen_name = Some(chosen_name);
@@ -153,7 +153,7 @@ fn map_from_benchmark(
             total_prewarms += prewarms;
         }
         match &func.chosen_name {
-            None => info!(tid=%tid, "not filling out sim_invoke_data"),
+            None => info!(tid = tid, "not filling out sim_invoke_data"),
             Some(name) => {
                 let mut sim_data = HashMap::new();
                 for compute in func.compute.into_iter() {
@@ -189,7 +189,7 @@ fn map_from_benchmark(
             },
         }
     }
-    info!(tid=%tid, "A total of {} prewarmed containers", total_prewarms);
+    info!(tid = tid, "A total of {} prewarmed containers", total_prewarms);
     Ok(())
 }
 

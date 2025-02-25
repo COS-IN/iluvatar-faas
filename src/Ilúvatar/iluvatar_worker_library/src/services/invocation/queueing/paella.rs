@@ -96,7 +96,7 @@ impl GpuQueuePolicy for PaellaGpuQueue {
         *self.est_time.lock()
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=%item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         self.num_queued.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let est_time = self.cmap.get_gpu_exec_time(&item.registration.fqdn);

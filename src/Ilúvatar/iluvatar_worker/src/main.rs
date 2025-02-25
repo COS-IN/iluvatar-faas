@@ -22,13 +22,13 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
 
     let worker = match create_worker(server_config.clone(), tid).await {
         Ok(w) => w,
-        Err(e) => bail_error!(tid=%tid, error=%e, "Error creating worker on startup"),
+        Err(e) => bail_error!(tid=tid, error=%e, "Error creating worker on startup"),
     };
     let compute = worker.supported_compute().bits();
     let isolation = worker.supported_isolation().bits();
 
     let addr = format!("{}:{}", server_config.address, server_config.port);
-    info!(tid=%tid, address=%addr, "Starting RPC server");
+    info!(tid=tid, address=%addr, "Starting RPC server");
     debug!(config=?server_config, "Worker configuration");
     let _j = tokio::spawn(
         Server::builder()
@@ -69,11 +69,11 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                     .await?
                 },
                 Err(e) => {
-                    bail_error!(tid=%tid, error=%e, controller_host=host, port=server_config.load_balancer_port, "Failed to connect to load balancer")
+                    bail_error!(tid=tid, error=%e, controller_host=host, port=server_config.load_balancer_port, "Failed to connect to load balancer")
                 },
             }
         },
-        _ => info!(tid=%tid, "Skipping controller registration"),
+        _ => info!(tid = tid, "Skipping controller registration"),
     };
 
     wait_for_exit_signal(tid).await?;

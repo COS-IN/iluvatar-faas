@@ -158,7 +158,9 @@ def _run_load(log_file, results_dir, input_csv, metadata, kwargs):
         load_args.append(kwargs["sim_gran"])
         load_args.append("--tick-step")
         load_args.append(kwargs["tick_step"])
-    _run_cmd(load_args, log_file)
+
+    load_env = kwargs.to_env_var_dict("load")
+    _run_cmd(load_args, log_file, env=load_env)
 
 
 def ansible_clean(log_file: str, **kwargs):
@@ -214,6 +216,10 @@ load_gen_kwargs = {
     ("sim_gran", "us"),
     ("num_workers", 1),
     ("target", RunTarget.WORKER),
+    ("load_log_level", "info", ("level",)),
+    ("load_log_stdout", True, ("stdout",)),
+    ("load_log_spanning", "NONE", ("spanning",)),
+    ("load_spans_json", "false", ("include_spans_json",)),
 }
 
 controller_kwargs = {
@@ -235,13 +241,13 @@ worker_kwargs = {
     # invoke basics
     ("memory", 20 * 1024, ("container_resources", "memory_mb")),
     ("cores", 12, ("container_resources", "cpu_resource", "count")),
-    ("cpu_queue", "serial", ("invocation", "queues", "cpu")),
-    ("cpu_queue_policy", "minheap_ed", ("invocation", "queue_policies", "cpu")),
-    ("gpu_queue", "mqfq", ("invocation", "queues", "gpu")),
+    ("cpu_queue", "serial", ("invocation", "queues", "CPU")),
+    ("cpu_queue_policy", "minheap_ed", ("invocation", "queue_policies", "CPU")),
+    ("gpu_queue", "mqfq", ("invocation", "queues", "GPU")),
     (
         "gpu_queue_policy",
         "mqfq_select_out_len",
-        ("invocation", "queue_policies", "gpu"),
+        ("invocation", "queue_policies", "GPU"),
     ),
     ("enqueueing", "All", ("invocation", "enqueueing_policy")),
     ("invoke_queue_sleep_ms", 500, ("invocation", "queue_sleep_ms")),
@@ -266,6 +272,7 @@ worker_kwargs = {
     ("log_level", "info", ("logging", "level")),
     ("worker_spanning", "NONE", ("logging", "spanning")),
     ("worker_log_dir", "/tmp/iluvatar/logs/ansible", ("logging", "directory")),
+    ("worker_include_spans_json", False, ("logging", "include_spans_json")),
     ("worker_status_ms", 500, ("status", "report_freq_ms")),
     # energy
     ("ipmi_freq_ms", 0, ("energy", "ipmi_freq_ms")),
@@ -347,9 +354,9 @@ worker_kwargs = {
 
 default_kwargs = LoadConfig()
 default_kwargs.bulk_add("runner", runner_config_kwargs)
-default_kwargs.bulk_add("load", load_gen_kwargs)
-default_kwargs.bulk_add("controller", controller_kwargs)
-default_kwargs.bulk_add("worker", worker_kwargs)
+default_kwargs.bulk_add("load", load_gen_kwargs, env_var="LOAD_GEN")
+default_kwargs.bulk_add("controller", controller_kwargs, env_var="ILUVATAR_CONTROLLER")
+default_kwargs.bulk_add("worker", worker_kwargs, env_var="ILUVATAR_WORKER")
 
 
 def run_live(
@@ -445,6 +452,7 @@ def run_sim(
         return
 
     if kwargs["target"] == RunTarget.CONTROLLER:
+        kwargs["worker_include_spans_json"] = True
         controller_config_file = os.path.join(results_dir, "controller.json")
         src = os.path.join(
             kwargs["ilu_home"], "iluvatar_controller/src/controller.dev.json"
@@ -469,10 +477,11 @@ def run_sim(
         json.dump(json_data, f, indent=4)
 
     print(f"Running {results_dir}")
-    _run_load(
-        log_file,
-        results_dir,
-        trace_in,
-        trace_meta,
-        kwargs,
-    )
+    with open(log_file, 'w') as log_file_ptr:
+        _run_load(
+            log_file_ptr,
+            results_dir,
+            trace_in,
+            trace_meta,
+            kwargs,
+        )

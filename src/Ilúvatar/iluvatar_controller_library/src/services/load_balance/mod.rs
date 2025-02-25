@@ -50,13 +50,13 @@ pub fn get_balancer(
     worker_fact: Arc<WorkerAPIFactory>,
 ) -> Result<LoadBalancer> {
     if config.load_balancer.algorithm == "RoundRobin" {
-        debug!(tid=%tid, "starting round robin balancer");
+        debug!(tid = tid, "starting round robin balancer");
         Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(
             health_svc,
             worker_fact,
         )))
     } else if config.load_balancer.algorithm == "LeastLoaded" {
-        debug!(tid=%tid, "starting least loaded balancer");
+        debug!(tid = tid, "starting least loaded balancer");
         Ok(balancers::least_loaded::LeastLoadedBalancer::boxed(
             health_svc,
             load,

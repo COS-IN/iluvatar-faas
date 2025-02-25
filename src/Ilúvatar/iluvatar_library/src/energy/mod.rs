@@ -8,7 +8,7 @@ pub mod process_pct;
 pub mod rapl;
 pub mod tegrastats;
 
-#[derive(Debug, serde::Deserialize, clap::Parser)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, clap::Parser)]
 #[clap(author, version, about)]
 /// Energy monitoring configuring
 pub struct EnergyConfig {

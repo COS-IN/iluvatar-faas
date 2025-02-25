@@ -21,20 +21,6 @@ Jetson requires using `tegrastats` to get utilization numbers.
 The [GPU monitor](iluvatar_worker_library/src/services/resources/gpu.rs) needs updated information for ideal usage.
 Can cause dispatches to be blocked or broken on Jetson.
 
-## Switch/Enable networking via unix sockets
-
-Using HTTP connections to send/receive invocations to containers has some networking overhead and scaling issues at high throughput.
-This can cause blocks of up to 60 seconds on some calls.
-Both the worker code and the server running inside the container must be updated to this new format.
-
-Moving to a lower-latency solution would fix both of these problems.
-A few solutions exist, with the first probably being the best one.
-
-1. Unix Sockets
-2. Posix message queues
-3. Linux pipes
-4. Dbus messages
-
 ## Limit frequency of container checking
 
 Container memory usage _should_ only change during/immediately after it runs an invocation.

@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
 
     let controller = Controller::new(config.clone(), tid).await?;
 
-    info!(tid=%tid, "Controller started!");
+    info!(tid = tid, "Controller started!");
     debug!(config=?config, "Controller configuration");
     let addr = std::net::SocketAddr::new(config.address.clone().parse()?, config.port);
     let _j = tokio::spawn(

@@ -134,7 +134,7 @@ impl RaplMsr {
             let mut file = match File::open(format!("/dev/cpu/{}/msr", cpu)) {
                 Ok(f) => f,
                 // This can happen if the CPU core in question has been disabled
-                Err(e) => bail_error!(tid=%tid, error=%e, cpu=cpu, "Failed to open MSR for cpu"),
+                Err(e) => bail_error!(tid=tid, error=%e, cpu=cpu, "Failed to open MSR for cpu"),
             };
             let (pu, cpu, time) = RaplMsr::read_power_unit(cpu, &mut file, intel, tid)?;
             power_units.push(pu);
@@ -172,19 +172,19 @@ impl RaplMsr {
         match fd.seek(SeekFrom::Start(offset)) {
             Ok(_) => (),
             Err(e) => {
-                warn!(error=%e, tid=%tid, cpu=cpu, "Error repositioning MSR file pointer");
+                warn!(error=%e, tid=tid, cpu=cpu, "Error repositioning MSR file pointer");
                 return 0;
             },
         };
         match fd.read_exact(&mut buffer) {
             Ok(_) => (),
             Err(e) => {
-                warn!(error=%e, tid=%tid, cpu=cpu, "Failed to read MSR register");
+                warn!(error=%e, tid=tid, cpu=cpu, "Failed to read MSR register");
                 return 0;
             },
         };
         let f = u64::from_le_bytes(buffer);
-        trace!(tid=%tid, reading=f, offset=offset, "MSR reading");
+        trace!(tid = tid, reading = f, offset = offset, "MSR reading");
         f
     }
 
@@ -192,7 +192,7 @@ impl RaplMsr {
         let mut file = match File::open(format!("/dev/cpu/{}/msr", 0)) {
             Ok(f) => f,
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, cpu=0, "Failed to open msr register for CPU 0 to detect if on Intel machine")
+                bail_error!(tid=tid, error=%e, cpu=0, "Failed to open msr register for CPU 0 to detect if on Intel machine")
             },
         };
         // will be 0 if the Intel MSR doesn't work
@@ -264,7 +264,7 @@ impl RaplMonitor {
     }
 
     /// Reads the different energy sources and writes the current staistics out to the csv file
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     fn monitor_energy(&self, tid: &TransactionId) {
         let now = self.timer.now();
         let rapl_uj = self.rapl.lock().total_uj(tid) as i128;
@@ -279,7 +279,7 @@ impl RaplMonitor {
         let t = match self.timer.format_time(now) {
             Ok(t) => t,
             Err(e) => {
-                error!(error=%e, tid=%tid, "Failed to format time");
+                error!(error=%e, tid=tid, "Failed to format time");
                 return;
             },
         };
@@ -292,7 +292,7 @@ impl RaplMonitor {
         match File::create(Path::new(&config.log_folder).join("energy-rapl.log")) {
             Ok(f) => Ok(RwLock::new(f)),
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, "Failed to create RAPL output file")
+                bail_error!(tid=tid, error=%e, "Failed to create RAPL output file")
             },
         }
     }
@@ -302,7 +302,7 @@ impl RaplMonitor {
         match file.write_all(text.as_bytes()) {
             Ok(_) => (),
             Err(e) => {
-                error!(error=%e, tid=%tid, "Failed to write csv result to RAPL file");
+                error!(error=%e, tid=tid, "Failed to write csv result to RAPL file");
             },
         };
     }
