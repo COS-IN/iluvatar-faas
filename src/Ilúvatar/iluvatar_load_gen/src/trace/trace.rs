@@ -77,8 +77,8 @@ pub fn run_trace(args: TraceArgs) -> Result<()> {
             RunType::Live => worker_trace::live_worker(args),
         },
         Target::Controller => match args.setup {
-            RunType::Live => controller_trace_live(args),
             RunType::Simulation => controller_trace_sim(args),
+            RunType::Live => controller_trace_live(args),
         },
     }
 }

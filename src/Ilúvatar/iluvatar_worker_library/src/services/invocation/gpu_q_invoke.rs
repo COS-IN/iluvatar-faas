@@ -34,7 +34,9 @@ use std::{
 };
 use tokio::sync::Notify;
 use tokio::time::Instant;
-use tracing::{debug, error, info, warn, Instrument};
+#[cfg(feature = "full_spans")]
+use tracing::Instrument;
+use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
