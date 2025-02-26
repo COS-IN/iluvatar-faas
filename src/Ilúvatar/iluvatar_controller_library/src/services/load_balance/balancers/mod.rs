@@ -1,6 +1,7 @@
 pub mod least_loaded;
 pub mod round_robin;
 pub mod rrG;
+pub mod rrCH;
     
 #[macro_export]
 macro_rules! send_invocation {
