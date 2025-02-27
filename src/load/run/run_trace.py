@@ -1,11 +1,9 @@
 #!/usr/bin/python3
 import os
 from time import sleep
-import subprocess
 import json
 import traceback
 from enum import Enum
-from copy import deepcopy
 import shutil
 from .config import LoadConfig
 
@@ -73,16 +71,10 @@ def trace_output(type, trace_in):
 def has_results(results_dir, function_trace_name):
     output_json = os.path.join(results_dir, trace_output("json", function_trace_name))
     output_csv = os.path.join(results_dir, trace_output("csv", function_trace_name))
-    worker_log = os.path.join(results_dir, f"worker_worker1.log")
     if not os.path.exists(output_json):
         return False
     if not os.path.exists(output_csv):
         return False
-    if not os.path.exists(worker_log):
-        # simulation log
-        worker_log = os.path.join(results_dir, f"load_gen.log")
-        if not os.path.exists(worker_log):
-            return False
     with open(output_json) as f:
         if len(f.readlines()) == 0:
             return False
@@ -93,9 +85,6 @@ def has_results(results_dir, function_trace_name):
         return False
     with open(output_csv) as f:
         if len(f.readlines()) == 0:
-            return False
-    with open(worker_log) as f:
-        if len(f.readlines()) < 100:
             return False
     return True
 
@@ -208,7 +197,7 @@ runner_config_kwargs = [
     ("ansible_args", []),
 ]
 
-load_gen_kwargs = {
+load_gen_kwargs = [
     ("load_type", "functions"),
     ("prewarm", 1),
     ("simulation", None),
@@ -219,18 +208,20 @@ load_gen_kwargs = {
     ("load_log_level", "info", ("level",)),
     ("load_log_stdout", True, ("stdout",)),
     ("load_log_spanning", "NONE", ("spanning",)),
-    ("load_spans_json", "false", ("include_spans_json",)),
-}
+    ("load_spans_json", False, ("include_spans_json",)),
+]
 
-controller_kwargs = {
+controller_kwargs = [
     ("controller_log_dir", "/tmp/iluvatar/logs/ansible", ("logging", "directory")),
+    ("controller_spanning", "NONE", ("logging", "spanning")),
+    ("controller_include_spans_json", False, ("logging", "include_spans_json")),
     ("controller_log_level", "info", ("logging", "level")),
     ("controller_port", 8089, ("port",)),
     ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm")),
     ("controller_thread_sleep_ms", 5000, ("load_balancer", "thread_sleep_ms")),
     ("controller_load_metric", "loadavg", ("load_balancer", "load_metric")),
-}
-worker_kwargs = {
+]
+worker_kwargs = [
     ("worker_port", 8070, ("port",)),
     ("load_balancer_url", "", ("load_balancer_url",)),
     # limits
@@ -350,7 +341,7 @@ worker_kwargs = {
         False,
         ("invocation", "greedy_weight_config", "fixed_assignment"),
     ),
-}
+]
 
 default_kwargs = LoadConfig()
 default_kwargs.bulk_add("runner", runner_config_kwargs)

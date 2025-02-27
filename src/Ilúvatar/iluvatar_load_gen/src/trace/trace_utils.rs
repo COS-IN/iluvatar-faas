@@ -16,6 +16,7 @@ use iluvatar_library::{
     utils::port::Port,
 };
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData;
+use iluvatar_worker_library::worker_api::config::{Configuration, WorkerConfig};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::{
     cmp::{max, min},
@@ -479,4 +480,30 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
         };
     }
     Ok(())
+}
+
+/// Copies the worker config to a new file uniquely named file, and changes the "name" field to match.
+pub fn make_simulation_worker_config(id: usize, orig_config_path: &str) -> Result<(WorkerConfig, String)> {
+    let dummy_worker_config = match Configuration::boxed(Some(orig_config_path), None) {
+        Ok(c) => c,
+        Err(e) => bail_error!(error=%e, "Failed to load base configuration for worker"),
+    };
+    let worker_name = format!("{}_{}", dummy_worker_config.name, id);
+    let overrides = vec![("name".to_owned(), worker_name.clone())];
+    let worker_config = match Configuration::boxed(Some(orig_config_path), Some(overrides)) {
+        Ok(c) => c,
+        Err(e) => bail_error!(error=%e, worker=worker_name, "Failed to load configuration for worker"),
+    };
+    let p = Path::new(orig_config_path)
+        .parent()
+        .unwrap()
+        .join(format!("{}.json", worker_name));
+    match File::create(&p) {
+        Ok(f) => match serde_json::to_writer_pretty(f, &worker_config) {
+            Ok(_) => (),
+            Err(e) => anyhow::bail!("Failed to serialize worker-specific config because '{:?}'", e),
+        },
+        Err(e) => anyhow::bail!("Failed to create worker-specific config file because '{:?}'", e),
+    };
+    Ok((worker_config, p.to_string_lossy().to_string()))
 }

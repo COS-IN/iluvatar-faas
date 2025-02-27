@@ -1,6 +1,6 @@
 use crate::transaction::TransactionId;
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{error, warn};
 
 pub const TEMP_DIR: &str = "/tmp/iluvatar";
@@ -51,10 +51,10 @@ pub fn try_remove_pth(pth: &str, tid: &TransactionId) {
 }
 
 /// Make sure the temp dir to use exists
-pub fn ensure_dir(dir: &PathBuf) -> Result<()> {
-    match std::fs::create_dir_all(dir) {
+pub fn ensure_dir<P: AsRef<Path>>(dir: P) -> Result<()> {
+    match std::fs::create_dir_all(&dir) {
         Ok(_) => Ok(()),
-        Err(e) => anyhow::bail!("Failed to create dir '{:?}' because '{}'", dir, e),
+        Err(e) => anyhow::bail!("Failed to create dir '{:?}' because '{}'", dir.as_ref().to_str(), e),
     }
 }
 

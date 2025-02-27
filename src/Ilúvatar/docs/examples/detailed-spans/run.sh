@@ -5,7 +5,7 @@ source ../examples-venv/bin/activate
 
 python3 run.py
 
-python3 stacked_timelime.py --log results/worker_worker1.log --csv results/output-in.csv --output results/
+python3 stacked_timelime.py --log results/worker1.log --csv results/output-in.csv --output results/
 deactivate
 
 cp ./results/*.png .

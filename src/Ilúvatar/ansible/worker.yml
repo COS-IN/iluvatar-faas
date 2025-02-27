@@ -23,7 +23,7 @@
       "ILUVATAR_WORKER__name": "{{ inventory_hostname }}"
       "ILUVATAR_WORKER__port": "{{ assigned_port }}"
       "ILUVATAR_WORKER__address" : "{{ __worker_address }}"
-      "ILUVATAR_WORKER__logging__basename": "worker_{{ inventory_hostname }}"
+      "ILUVATAR_WORKER__logging__basename": "{{ inventory_hostname }}"
       "ILUVATAR_WORKER__load_balancer_host" : "{{ controller.host if cluster else '' }}"
       "ILUVATAR_WORKER__load_balancer_port" : "{{ controller.port }}"
       "ILUVATAR_WORKER__influx__host" : "{{ influx.address }}"

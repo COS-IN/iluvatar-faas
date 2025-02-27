@@ -2,7 +2,7 @@
 
 source ../examples-venv/bin/activate
 
-./generate-trace.sh
+python3 ./four_funcs.py --out-folder .
 python3 run.py
 
 deactivate

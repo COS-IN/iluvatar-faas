@@ -29,7 +29,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
 
     let addr = format!("{}:{}", server_config.address, server_config.port);
     info!(tid=tid, address=%addr, "Starting RPC server");
-    debug!(config=?server_config, "Worker configuration");
+    debug!(tid=tid, config=?server_config, "Worker configuration");
     let _j = tokio::spawn(
         Server::builder()
             .timeout(Duration::from_secs(server_config.timeout_sec))
@@ -102,7 +102,7 @@ fn main() -> Result<()> {
             utils::Commands::Clean => {
                 let overrides = vec![("networking.use_pool".to_string(), "false".to_string())];
                 let server_config = Configuration::boxed(cli.config.as_deref(), Some(overrides))?;
-                let _guard = start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
+                let _guard = start_tracing(&server_config.logging, tid)?;
                 let worker_rt = build_tokio_runtime(
                     &Some(server_config.tokio_event_interval),
                     &Some(server_config.tokio_queue_interval),
@@ -114,7 +114,7 @@ fn main() -> Result<()> {
         },
         None => {
             let server_config = Configuration::boxed(cli.config.as_deref(), None)?;
-            let _guard = start_tracing(server_config.logging.clone(), &server_config.name, tid)?;
+            let _guard = start_tracing(&server_config.logging, tid)?;
             let worker_rt = build_tokio_runtime(
                 &Some(server_config.tokio_event_interval),
                 &Some(server_config.tokio_queue_interval),

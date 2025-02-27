@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
         basename: "energy_monitor".to_string(),
         ..Default::default()
     });
-    let _guard = start_tracing(log_config, "energy_monitor", tid)?;
+    let _guard = start_tracing(&log_config, tid)?;
 
     let _mon = EnergyLogger::boxed(Some(&config), tid).await?;
     wait_for_exit_signal(tid).await?;

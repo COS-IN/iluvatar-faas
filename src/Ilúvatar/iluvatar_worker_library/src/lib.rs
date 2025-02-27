@@ -3,11 +3,11 @@
 ///
 /// # Example
 /// ```
-///    let inv = worker.invoke(request).instrument(tracing::error_span!("enter_worker", worker=self.worker.config.name));
+///    let inv = worker.invoke(request).instrument(name_span!(self.worker.config.name));
 /// ```
 macro_rules! name_span {
     ($name:expr) => {
-        tracing::error_span!("enter_worker", worker = $name)
+        tracing::info_span!("enter_worker", worker = $name)
     };
 }
 

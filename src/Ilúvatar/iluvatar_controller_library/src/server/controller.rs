@@ -156,7 +156,7 @@ impl ControllerAPITrait for Controller {
         let fqdn = calculate_fqdn(&prewarm.function_name, &prewarm.function_version);
         match self.registration_svc.get_function(&fqdn) {
             Some(func) => {
-                info!(tid=%prewarm.transaction_id, fqdn=%fqdn, "Sending function to load balancer for invocation");
+                info!(tid=%prewarm.transaction_id, fqdn=%fqdn, "Sending function to load balancer for prewarm");
                 match self.lb.prewarm(func, &prewarm.transaction_id).await {
                     Ok(_dur) => Ok(PrewarmResponse {
                         success: true,

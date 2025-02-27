@@ -24,7 +24,7 @@
             "FLASK_APP=server",
             "FLASK_RUN_PORT=$PORT",
             "FLASK_RUN_HOST=$HOST_ADDR",
-            "GUNICORN_CMD_ARGS=--workers=1 --timeout=$INVOKE_TIMEOUT --bind=$HOST_ADDR:$PORT",
+            "GUNICORN_CMD_ARGS=--workers=1 --timeout=$INVOKE_TIMEOUT --bind=$HOST_ADDR:$PORT"
         ],
         "cwd": "/app",
         "rlimits": [{

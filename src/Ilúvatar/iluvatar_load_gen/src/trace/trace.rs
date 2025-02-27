@@ -1,4 +1,4 @@
-use crate::utils::{LoadType, RunType, Target};
+use crate::utils::{wrap_logging, LoadType, RunType, Target};
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use controller_trace::{controller_trace_live, controller_trace_sim};
@@ -74,11 +74,16 @@ pub fn run_trace(args: TraceArgs) -> Result<()> {
     match args.target {
         Target::Worker => match args.setup {
             RunType::Simulation => worker_trace::simulated_worker(args),
-            RunType::Live => worker_trace::live_worker(args),
+            RunType::Live => wrap_logging(
+                args.out_folder.clone(),
+                args.log_stdout,
+                args,
+                worker_trace::live_worker,
+            ),
         },
         Target::Controller => match args.setup {
             RunType::Simulation => controller_trace_sim(args),
-            RunType::Live => controller_trace_live(args),
+            RunType::Live => wrap_logging(args.out_folder.clone(), args.log_stdout, args, controller_trace_live),
         },
     }
 }

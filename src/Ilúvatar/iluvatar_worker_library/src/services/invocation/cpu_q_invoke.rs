@@ -166,7 +166,9 @@ impl CpuQueueingInvoker {
             };
             while let Some(item) = del_rx.recv().await {
                 let s_c = service.clone();
-                tokio::task::spawn(async move {
+                #[cfg(feature = "full_spans")]
+                let span = item.span.clone();
+                let td = async move {
                     match s_c.bypassing_invoke(&item).await {
                         Ok(true) => (), // bypass happened successfully
                         Ok(false) => {
@@ -176,7 +178,10 @@ impl CpuQueueingInvoker {
                         },
                         Err(cause) => s_c.handle_invocation_error(item, cause),
                     };
-                });
+                };
+                #[cfg(feature = "full_spans")]
+                let td = td.instrument(span);
+                tokio::task::spawn(td);
             }
         });
 

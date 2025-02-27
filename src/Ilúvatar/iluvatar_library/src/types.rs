@@ -1,7 +1,6 @@
 use anyhow::Error;
 use bitflags::bitflags;
 use clap::builder::PossibleValue;
-use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::str::FromStr;
 
@@ -15,7 +14,7 @@ pub fn err_val<T, D>(error: Error, value: D) -> ResultErrorVal<T, D> {
 
 pub type MemSizeMb = i64;
 
-#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 /// How to communicate with a worker.
 /// Generally not needed to know, but live = RPC, otherwise simulation
 pub enum CommunicationMethod {
@@ -76,7 +75,7 @@ impl TryFrom<u32> for ContainerServer {
 }
 
 bitflags! {
-  #[derive(serde::Deserialize, serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
+  #[derive(serde::Serialize,Debug,PartialEq,Copy,Clone,Eq,Hash)]
   #[serde(transparent)]
   /// The compute methods that a function supports. XXX Rename this ComputeDevice
   /// Having each one of these means it can run on each compute independently.
@@ -99,6 +98,35 @@ bitflags! {
   }
 }
 
+impl serde::de::Visitor<'_> for Compute {
+    type Value = Compute;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a formatted Compute string")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        (&v.to_string()).try_into().map_err(serde::de::Error::custom)
+    }
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        (&v).try_into().map_err(serde::de::Error::custom)
+    }
+}
+impl<'de> serde::Deserialize<'de> for Compute {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(Compute::empty())
+    }
+}
 impl Default for Compute {
     fn default() -> Self {
         Self::CPU
@@ -226,7 +254,7 @@ impl std::fmt::Display for Isolation {
 /// A collection of function timing data, allowing for polymorphic functions that run on several computes
 pub type ResourceTimings = std::collections::HashMap<Compute, FunctionInvocationTimings>;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 /// A struct holding the invocation timings of a single function.
 /// Broken down into several categories along warm and cold invocations.
 pub struct FunctionInvocationTimings {

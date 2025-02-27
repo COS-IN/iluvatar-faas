@@ -1,12 +1,12 @@
 {
-  "name": "local",
+  "name": "controller",
   "address": "127.0.0.1",
   "port": 8078,
   "timeout_sec": 6000,
   "logging": {
     "level": "info",
     "directory": "/tmp/iluvatar/logs",
-    "basename": "load_balancer",
+    "basename": "controller",
     "spanning": "NEW+CLOSE",
     "flame": "",
     "span_energy_monitoring": false

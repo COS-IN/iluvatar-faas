@@ -101,7 +101,7 @@ async fn build_test_services(
                 ..std::default::Default::default()
             });
             Some(
-                start_tracing(fake_logging, &cfg.name, &TEST_TID)
+                start_tracing(&fake_logging, &TEST_TID)
                     .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
             )
         },
