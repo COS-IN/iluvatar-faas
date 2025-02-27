@@ -18,7 +18,7 @@ use iluvatar_rpc::rpc::{
 };
 use iluvatar_rpc::rpc::{
     CleanResponse, HealthResponse, InvokeAsyncResponse, InvokeResponse, PingResponse, PrewarmResponse,
-    RegisterResponse, StatusResponse,
+    RegisterResponse, StatusResponse, ListFunctionRequest, ListFunctionResponse,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -305,5 +305,21 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             Ok(_) => Ok(Response::new(CleanResponse {})),
             Err(e) => Err(Status::internal(format!("{:?}", e))),
         }
+    }
+    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    async fn list_registered_funcs(&self, request: Request<ListFunctionRequest>) -> Result<Response<ListFunctionResponse>, Status> {
+        let request = request.into_inner();
+        info!(tid=%request.transaction_id, "Handling list registered functions request");
+        let funcs: Vec<Arc<crate::services::registration::RegisteredFunction>> = self.reg.get_all_registered_functions();
+        let formatted_json = funcs.iter().map(|func| {
+            serde_json::json!({
+                "function_name": func.function_name,
+                "function_version": func.function_version,
+                "image_name": func.image_name,
+            })
+        }).collect::<Vec<_>>();
+        let resp = serde_json::to_string_pretty(&formatted_json).unwrap();
+        let reply = ListFunctionResponse { function_list: resp };
+        Ok(Response::new(reply))
     }
 }

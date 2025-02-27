@@ -33,6 +33,7 @@ async fn main() -> Result<()> {
         args::Commands::Status => commands::health(cli.host, cli.port).await,
         args::Commands::Health => commands::status(cli.host, cli.port).await,
         args::Commands::Ping => commands::ping(cli.host, cli.port).await,
+        args::Commands::List => commands::list_registered_funcs(cli.host, cli.port).await,
     } {
         bail_error!("Command failed because of error {}", e);
     };

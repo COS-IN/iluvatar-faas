@@ -18,6 +18,14 @@ message InvokeRequest {
   string transaction_id = 4;
 }
 
+message ListFunctionRequest {
+  string transaction_id = 1;
+}
+
+message ListFunctionResponse {
+  string function_list = 1;
+}
+
 message InvokeResponse {
   string json_result = 1;
   bool success = 2;
@@ -147,6 +155,7 @@ service IluvatarWorker {
   rpc status(StatusRequest) returns (StatusResponse) {}
   // Instruct the worker to remove all containers it has created
   rpc clean(CleanRequest) returns (CleanResponse) {}
+  rpc list_registered_funcs(ListFunctionRequest) returns (ListFunctionResponse) {}
 }
 
 message RegisterWorkerRequest {
