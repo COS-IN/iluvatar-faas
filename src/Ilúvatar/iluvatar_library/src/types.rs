@@ -1,9 +1,9 @@
 use anyhow::Error;
 use bitflags::bitflags;
 use clap::builder::PossibleValue;
+use serde::Deserializer;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use serde::Deserializer;
 
 /// Type to allow returning an owned object along with an error from a function
 pub type ResultErrorVal<T, D, E = Error> = Result<T, (E, D)>;

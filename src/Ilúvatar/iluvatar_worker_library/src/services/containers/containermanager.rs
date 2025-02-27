@@ -633,7 +633,7 @@ impl ContainerManager {
     }
 
     fn order_pool_eviction(&self, tid: &TransactionId, list: Subpool) -> Subpool {
-        debug!(tid=tid, "Computing eviction priorities");
+        debug!(tid = tid, "Computing eviction priorities");
         let comparator = match self.resources.eviction.as_str() {
             "LRU" => ContainerManager::lru_eviction,
             _ => {

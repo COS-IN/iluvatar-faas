@@ -297,7 +297,10 @@ pub fn start_simulation_tracing(
             #[cfg(not(feature = "full_spans"))]
             {
                 println!("WARN: 'full_spans' feature is not enabled, worker logs may be lost or unreliable");
-                warn!(tid=tid, "'full_spans' feature is not enabled, worker logs may be lost or unreliable");
+                warn!(
+                    tid = tid,
+                    "'full_spans' feature is not enabled, worker logs may be lost or unreliable"
+                );
             }
             Ok(drops)
         },
@@ -305,7 +308,10 @@ pub fn start_simulation_tracing(
             #[cfg(not(feature = "full_spans"))]
             {
                 println!("WARN: 'full_spans' feature is not enabled, worker logs may be lost or unreliable");
-                warn!(tid=tid, "'full_spans' feature is not enabled, worker logs may be lost or unreliable");
+                warn!(
+                    tid = tid,
+                    "'full_spans' feature is not enabled, worker logs may be lost or unreliable"
+                );
             }
             warn!(tid=tid, error=%e, "Global tracing subscriber was already set");
             Ok(vec![])
