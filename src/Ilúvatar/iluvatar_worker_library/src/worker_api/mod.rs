@@ -15,7 +15,7 @@ use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation,
 use iluvatar_library::{bail_error, characteristics_map::CharacteristicsMap};
 use iluvatar_library::{characteristics_map::AgExponential, energy::energy_logging::EnergyLogger};
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
-use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, StatusResponse, ListFunctionResponse};
+use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, ListFunctionResponse, StatusResponse};
 use std::sync::Arc;
 
 pub mod worker_config;

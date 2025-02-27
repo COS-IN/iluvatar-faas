@@ -7,10 +7,10 @@ use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation,
 use iluvatar_library::utils::port::Port;
 use iluvatar_rpc::rpc::iluvatar_worker_client::IluvatarWorkerClient;
 use iluvatar_rpc::rpc::{
-    CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest,
-    PrewarmRequest, RegisterRequest, StatusRequest, ListFunctionRequest
+    CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, ListFunctionRequest,
+    PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
 };
-use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, LanguageRuntime, StatusResponse, ListFunctionResponse};
+use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, LanguageRuntime, ListFunctionResponse, StatusResponse};
 use iluvatar_rpc::RPCError;
 use tonic::transport::Channel;
 use tonic::{Code, Request, Status};
@@ -244,8 +244,8 @@ impl WorkerAPI for RPCWorkerAPI {
         match self.client.list_registered_funcs(request).await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:list_registered_funcs]".to_string())),
+        }
     }
-}
 
     async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse> {
         let request = Request::new(CleanRequest { transaction_id: tid });

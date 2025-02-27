@@ -7,9 +7,9 @@ use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
     CleanRequest, CleanResponse, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest,
-    LanguageRuntime, PingRequest, PrewarmRequest, RegisterRequest, StatusRequest, ListFunctionRequest
+    LanguageRuntime, ListFunctionRequest, PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
 };
-use iluvatar_rpc::rpc::{InvokeResponse, StatusResponse, ListFunctionResponse};
+use iluvatar_rpc::rpc::{InvokeResponse, ListFunctionResponse, StatusResponse};
 use iluvatar_rpc::RPCError;
 use std::sync::Arc;
 use tracing::{debug, error};
@@ -202,6 +202,6 @@ impl WorkerAPI for SimWorkerAPI {
         match self.worker.list_registered_funcs(request).await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:list_registered_funcs]".to_string())),
+        }
     }
-}
 }
