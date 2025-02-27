@@ -1,6 +1,6 @@
 import sys, os, shutil
 
-ILU_HOME = "/data/alfuerst/repos/iluvatar-faas/src/Ilúvatar"
+ILU_HOME = "../../.."
 
 sys.path.append(os.path.join(ILU_HOME, ".."))
 from copy import deepcopy
@@ -16,15 +16,17 @@ from load.run.run_trace import (
     run_ansible,
 )
 
-build_level = BuildTarget.RELEASE
+build_level = BuildTarget.DEBUG
 results_dir = os.path.join(os.getcwd(), "results")
 os.makedirs(results_dir, exist_ok=True)
+worker_log_dir = os.path.join(os.getcwd(), "results", "tmp")
+os.makedirs(worker_log_dir, exist_ok=True)
 log_file = os.path.join(results_dir, "orchestration.log")
 
 # build the solution
 rust_build(ILU_HOME, None, build_level)
 
-ansible_dir = os.path.join("..", "ansible")
+ansible_dir = os.path.join(ILU_HOME, "ansible")
 kwargs = {
     "ilu_home": ILU_HOME,
     "ansible_hosts_addrs": "@"
@@ -36,8 +38,9 @@ kwargs = {
     "ansible_dir": ansible_dir,
     "build_level": build_level,
     "cores": 3,
-    "memory": 1024 * 5,
-    "worker_status_ms": 500,
+    "memory": 1024 * 10,
+    "worker_status_ms": 1000,
+    "worker_log_dir": worker_log_dir,
 }
 
 
@@ -66,7 +69,7 @@ def run_benchmark(log_file):
         "--cold-iters",
         "1",
         "--warm-iters",
-        "2",
+        "1",
         "--target",
         str(RunTarget.WORKER),
         "--function-file",
@@ -84,10 +87,10 @@ def run_benchmark(log_file):
     completed.check_returncode()
 
 
-pre_run_cleanup(log_file, results_dir, **kwargs)
-try:
-    run_ansible(log_file, **kwargs)
-    with open(log_file, "a") as f:
-        run_benchmark(f)
-finally:
-    remote_cleanup(log_file, results_dir, **kwargs)
+with open(log_file, "w") as log_file:
+    pre_run_cleanup(log_file, results_dir, **kwargs)
+    try:
+        run_ansible(log_file, **kwargs)
+        run_benchmark(log_file)
+    finally:
+        remote_cleanup(log_file, results_dir, **kwargs)

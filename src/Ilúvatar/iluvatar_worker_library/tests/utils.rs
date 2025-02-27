@@ -131,6 +131,7 @@ fn basic_reg_req(image: &str, name: &str) -> RegisterRequest {
         parallel_invokes: 1,
         image_name: image.to_string(),
         transaction_id: "testTID".to_string(),
+        compute: Compute::CPU.bits(),
         isolate: Isolation::DOCKER.bits(),
         ..std::default::Default::default()
     }
@@ -151,6 +152,7 @@ pub async fn cust_register(
         parallel_invokes: 1,
         image_name: image.to_string(),
         transaction_id: "testTID".to_string(),
+        compute: Compute::CPU.bits(),
         isolate: Isolation::DOCKER.bits(),
         ..std::default::Default::default()
     };

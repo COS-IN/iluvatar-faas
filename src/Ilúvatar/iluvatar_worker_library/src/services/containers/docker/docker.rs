@@ -22,7 +22,7 @@ use futures::StreamExt;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, ResultErrorVal};
-use iluvatar_library::utils::file::temp_file_pth;
+use iluvatar_library::utils::file::{container_path, make_paths};
 use iluvatar_library::{
     bail_error, bail_error_value, error_value,
     transaction::TransactionId,
@@ -113,10 +113,10 @@ impl DockerIsolation {
         tid: &TransactionId,
         image_name: &str,
         container_id: &str,
-        mut env: Vec<&str>,
+        mut env: Vec<String>,
         mem_limit_mb: MemSizeMb,
         cpus: u32,
-        device_resource: &Option<crate::services::resources::gpu::GPU>,
+        device_resource: &Option<GPU>,
         ports: BollardPortBindings,
         host_config: Option<HostConfig>,
         entrypoint: Option<Vec<String>>,
@@ -134,11 +134,11 @@ impl DockerIsolation {
             },
             None => None,
         };
-        let mut volumes = vec![];
+        let ctr_dir = container_path(container_id);
+        make_paths(&ctr_dir, tid)?;
+        let mut volumes = vec![format!("{}:/iluvatar/sockets", ctr_dir.to_string_lossy())];
         let mut device_requests = vec![];
 
-        let mps_thread;
-        let mps_mem;
         if let Some(device) = device_resource.as_ref() {
             info!(tid=tid, container_id=%container_id, "Container will get a GPU");
             device_requests.push(DeviceRequest {
@@ -158,10 +158,10 @@ impl DockerIsolation {
             if self.config.gpu_resource.as_ref().is_some_and(|c| c.mps_enabled()) {
                 info!(tid=tid, container_id=%container_id, threads=device.thread_pct, memory=device.allotted_mb, "Container running inside MPS context");
                 host_config.ipc_mode = Some("host".to_owned());
-                mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
-                mps_mem = format!("CUDA_MPS_PINNED_DEVICE_MEM_LIMIT={}MB", device.allotted_mb);
-                env.push(mps_thread.as_str());
-                env.push(mps_mem.as_str());
+                let mps_thread = format!("CUDA_MPS_ACTIVE_THREAD_PERCENTAGE={}", device.thread_pct);
+                let mps_mem = format!("CUDA_MPS_PINNED_DEVICE_MEM_LIMIT={}MB", device.allotted_mb);
+                env.push(mps_thread);
+                env.push(mps_mem);
                 volumes.push("/tmp/nvidia-mps:/tmp/nvidia-mps".to_owned());
             }
             if self
@@ -170,7 +170,7 @@ impl DockerIsolation {
                 .as_ref()
                 .is_some_and(|c| c.driver_hook_enabled())
             {
-                env.push("LD_PRELOAD=/app/libgpushare.so");
+                env.push("LD_PRELOAD=/app/libgpushare.so".to_owned());
             }
         }
         match host_config.binds.as_mut() {
@@ -193,16 +193,12 @@ impl DockerIsolation {
             name: container_id,
             platform: None,
         };
-        let mut owned_env = vec![];
-        for e in env {
-            owned_env.push(e.to_owned());
-        }
 
         let config: Config<String> = Config {
             labels: Some(HashMap::from([("owner".to_owned(), "iluvatar_worker".to_owned())])),
             image: Some(image_name.to_owned()),
             host_config: Some(host_config),
-            env: Some(owned_env),
+            env: Some(env),
             exposed_ports: exposed_ports,
             entrypoint: entrypoint,
             ..Default::default()
@@ -297,7 +293,7 @@ impl ContainerIsolationService for DockerIsolation {
             "GUNICORN_CMD_ARGS=--workers=1 --timeout={} --bind=0.0.0.0:{}",
             &self.limits_config.timeout_sec, port
         );
-        env.push(gunicorn_args.as_str());
+        env.push(gunicorn_args);
         let mut ports = HashMap::new();
         ports.insert(
             format!("{}/tcp", port),
@@ -306,10 +302,8 @@ impl ContainerIsolationService for DockerIsolation {
                 host_port: Some(port.to_string()),
             }]),
         );
-        let il_port = format!("__IL_PORT={}", port);
-        env.push(il_port.as_str());
-        let il_sock = format!("__IL_SOCKET={}", temp_file_pth("socket", cid.as_str()));
-        env.push(il_sock.as_str());
+        env.push(format!("__IL_PORT={}", port));
+        env.push(format!("__IL_SOCKET={}", "/iluvatar/sockets/sock"));
 
         let permit = match &self.creation_sem {
             Some(sem) => match sem.acquire().await {
@@ -324,6 +318,7 @@ impl ContainerIsolationService for DockerIsolation {
             None => None,
         };
 
+        info!(tid = tid, cid = cid, "launching container");
         if let Err(e) = self
             .docker_run(
                 tid,

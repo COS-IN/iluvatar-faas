@@ -1,11 +1,11 @@
-FROM nvidia/cuda:11.8.0-base-ubuntu20.04 AS build
+FROM nvidia/cuda:11.8.0-base-ubuntu22.04 AS build
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y make gcc
 COPY . .
 RUN make -C driver-hooks
 
 FROM nvcr.io/nvidia/tensorrt:22.12-py3 AS base
-FROM nvidia/cuda:11.8.0-base-ubuntu20.04
+FROM nvidia/cuda:11.8.0-base-ubuntu22.04
 
 COPY --from=base /usr/lib/x86_64-linux-gnu/libcu*.so* /usr/lib/x86_64-linux-gnu/
 COPY --from=base /usr/local/cuda-11.8/targets/x86_64-linux/lib/ /usr/local/cuda-11.8/targets/x86_64-linux/lib/

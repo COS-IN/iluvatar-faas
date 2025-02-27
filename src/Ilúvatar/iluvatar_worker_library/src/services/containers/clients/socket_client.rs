@@ -2,8 +2,9 @@ use crate::services::containers::clients::ContainerClient;
 use crate::services::containers::structs::ParsedResult;
 use anyhow::Result;
 use iluvatar_library::clock::now;
-use iluvatar_library::utils::file::temp_file_pth;
+use iluvatar_library::utils::file::container_path;
 use iluvatar_library::{bail_error, transaction::TransactionId};
+use std::path::PathBuf;
 use std::{collections::HashMap, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
@@ -26,29 +27,56 @@ unsafe fn any_as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     core::slice::from_raw_parts((p as *const T) as *const u8, size_of::<T>())
 }
 
-type HeldSockLock<'a> = MutexGuard<'a, UnixStream>;
+type HeldSockLock<'a> = MutexGuard<'a, Option<UnixStream>>;
 #[derive(Debug)]
 pub struct SocketContainerClient {
     /// Behind a mutex to prevent concurrent messages/commands being sent, which the server cannot handle.
-    socket: Mutex<UnixStream>,
+    socket: Mutex<Option<UnixStream>>,
+    sock_pth: PathBuf,
     invoke_timeout: u64,
 }
 impl SocketContainerClient {
-    pub async fn new(container_id: &str, invoke_timeout: u64, tid: &TransactionId) -> Result<Self> {
-        let sock_path = temp_file_pth("sockets", container_id);
-        let stream = match UnixStream::connect(sock_path).await {
-            Ok(s) => s,
-            Err(e) => bail_error!(tid=tid, error=%e, "failed to open Unix socket"),
-        };
+    pub async fn new(container_id: &str, invoke_timeout: u64, _tid: &TransactionId) -> Result<Self> {
         Ok(Self {
-            socket: Mutex::new(stream),
+            socket: Mutex::new(None),
+            sock_pth: container_path(container_id).join("sock"),
             invoke_timeout,
         })
     }
 
+    /// Returns connected and held sock, or an error.
+    /// Safe to unwrap option
+    async fn get_socket(&self, tid: &TransactionId) -> Result<HeldSockLock<'_>> {
+        let mut lck = self.socket.lock().await;
+        if lck.is_none() {
+            let start = now();
+            let mut allowed_errs = 50;
+            tracing::info!(tid=tid, socket=?self.sock_pth, "waiting to open socket");
+            while start.elapsed() < Duration::from_secs(self.invoke_timeout) {
+                if let Ok(c) = tokio::fs::try_exists(&self.sock_pth).await {
+                    if !c {
+                        if allowed_errs <= 0 {
+                            bail_error!(tid = tid, "Bad socket file found");
+                        }
+                        tokio::time::sleep(Duration::from_micros(1)).await;
+                        allowed_errs -= 1;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            let stream = match UnixStream::connect(&self.sock_pth).await {
+                Ok(s) => s,
+                Err(e) => bail_error!(tid=tid, error=%e, "failed to open Unix socket"),
+            };
+            *lck = Some(stream);
+        }
+        Ok(lck)
+    }
+
     async fn send_command(
         &self,
-        sock: &mut HeldSockLock<'_>,
+        sock: &mut UnixStream,
         cmd: SendMessage,
         tid: &TransactionId,
         container_id: &str,
@@ -68,12 +96,7 @@ impl SocketContainerClient {
         Ok(())
     }
 
-    async fn recv_result(
-        &self,
-        sock: &mut HeldSockLock<'_>,
-        tid: &TransactionId,
-        container_id: &str,
-    ) -> Result<Box<[u8]>> {
+    async fn recv_result(&self, sock: &mut UnixStream, tid: &TransactionId, container_id: &str) -> Result<Box<[u8]>> {
         #[cfg(target_endian = "big")]
         let size = match sock.read_u64().await {
             Ok(size) => size as usize,
@@ -101,15 +124,15 @@ impl SocketContainerClient {
         let start = now();
 
         let bytes = json_args.as_bytes();
-        let mut sock: HeldSockLock = self.socket.lock().await;
+        let mut sock = self.get_socket(tid).await?;
         let invoke_cmd = SendMessage {
             command: Command::Invoke,
             args_len_bytes: bytes.len() as u64,
         };
-        self.send_command(&mut sock, invoke_cmd, tid, container_id, Some(bytes))
+        self.send_command(sock.as_mut().unwrap(), invoke_cmd, tid, container_id, Some(bytes))
             .await?;
 
-        let buff = self.recv_result(&mut sock, tid, container_id).await?;
+        let buff = self.recv_result(sock.as_mut().unwrap(), tid, container_id).await?;
         drop(sock);
         let result = ParsedResult::parse_slice(&buff, tid)?;
 
@@ -164,26 +187,26 @@ impl ContainerClient for SocketContainerClient {
     }
 
     async fn move_to_device(&self, tid: &TransactionId, container_id: &str) -> Result<()> {
-        let mut sock: HeldSockLock = self.socket.lock().await;
+        let mut sock = self.get_socket(tid).await?;
         let invoke_cmd = SendMessage {
             command: Command::ToDevice,
             args_len_bytes: 0,
         };
-        self.send_command(&mut sock, invoke_cmd, tid, container_id, None)
+        self.send_command(sock.as_mut().unwrap(), invoke_cmd, tid, container_id, None)
             .await?;
-        let buff = self.recv_result(&mut sock, tid, container_id).await?;
+        let buff = self.recv_result(sock.as_mut().unwrap(), tid, container_id).await?;
         drop(sock);
         self.check_driver_status(tid, &buff)
     }
     async fn move_from_device(&self, tid: &TransactionId, container_id: &str) -> Result<()> {
-        let mut sock: HeldSockLock = self.socket.lock().await;
+        let mut sock = self.get_socket(tid).await?;
         let invoke_cmd = SendMessage {
             command: Command::FromDevice,
             args_len_bytes: 0,
         };
-        self.send_command(&mut sock, invoke_cmd, tid, container_id, None)
+        self.send_command(sock.as_mut().unwrap(), invoke_cmd, tid, container_id, None)
             .await?;
-        let buff = self.recv_result(&mut sock, tid, container_id).await?;
+        let buff = self.recv_result(sock.as_mut().unwrap(), tid, container_id).await?;
         drop(sock);
         self.check_driver_status(tid, &buff)
     }

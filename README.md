@@ -57,7 +57,8 @@ Details about the implementation can be found in the paper below.
 How to use the various features and jump-starting your research can be found [in the Ilúvatar documentation](./src/Ilúvatar/README.md).
 
 A popular open-source platform used in research is OpenWhisk, but we have found it has high overheads under notable load, caused by a variety of factors.
-The scalability of OpenWhisk vs our Ilúvatar can be seen here.
+The [latest performance improvements](./src/Ilúvatar/docs/examples/server-compare/README.md) can reduce latency to as little as 0.5 ms!
+The scalability of OpenWhisk vs our Ilúvatar can be seen here:
 
 ![Ilúvatar performance orchestrating functions](./imgs/overhead-scaling.jpeg)
 

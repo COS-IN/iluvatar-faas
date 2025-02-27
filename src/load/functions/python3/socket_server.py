@@ -1,8 +1,7 @@
 import os, sys, traceback, json
 from datetime import datetime
 from math import ceil
-from socket import socket, AF_UNIX, SOCK_STREAM
-from socketserver import UnixStreamServer, StreamRequestHandler, ThreadingMixIn, ThreadingUnixStreamServer
+from socketserver import UnixStreamServer, StreamRequestHandler, ThreadingMixIn
 
 DRIVER="libgpushare.so"
 def driver_enabled() -> bool:
@@ -110,7 +109,7 @@ def invoke(args_bytes):
         end = datetime.now()
         return append_metadata(e, start, end, was_cold, success=False)
 
-socket_pth = os.environ.get("__IL_SOCKET", "/tmp/iluvatar/sockets/test_ctr")
+socket_pth = os.environ.get("__IL_SOCKET", "/iluvatar/sockets/sock")
 print("SOCKET:", socket_pth)
 
 class Handler(StreamRequestHandler):

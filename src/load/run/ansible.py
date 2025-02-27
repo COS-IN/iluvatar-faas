@@ -28,7 +28,7 @@ def _run_ansible_clean(log_file, kwargs):
         kwargs["ansible_host_file"],
         os.path.join(kwargs["ilu_home"], "ansible", kwargs["target"].yml()),
     ]
-    env_args = [kwargs["ansible_hosts_addrs"], "mode=clean", f"target={kwargs['build_level'].path_name()}",]
+    env_args = [kwargs["ansible_hosts_addrs"], "mode=clean", f"target={kwargs['build_level'].path_name()}"]
 
     worker_env = kwargs.to_env_var_dict("worker")
     worker_env = json.dumps({"worker_environment": worker_env})

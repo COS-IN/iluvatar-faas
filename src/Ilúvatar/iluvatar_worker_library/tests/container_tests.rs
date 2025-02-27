@@ -17,6 +17,7 @@ fn basic_reg_req_docker() -> RegisterRequest {
         parallel_invokes: 1,
         image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
         transaction_id: "testTID".to_string(),
+        compute: Compute::CPU.bits(),
         isolate: Isolation::DOCKER.bits(),
         ..Default::default()
     }
@@ -59,6 +60,7 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 0,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
             ..Default::default()
         };
@@ -81,6 +83,7 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
             ..Default::default()
         };
@@ -103,6 +106,7 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
             ..Default::default()
         };
@@ -125,6 +129,7 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
             ..Default::default()
         };
@@ -147,6 +152,7 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
             ..Default::default()
         };
@@ -169,6 +175,7 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
             ..Default::default()
         };
@@ -194,6 +201,7 @@ mod registration {
             image_name: bad_img.to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
             ..Default::default()
         };
@@ -217,6 +225,7 @@ mod registration {
             image_name: bad_img.to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
             ..Default::default()
         };
@@ -239,6 +248,7 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::empty().bits(),
             ..Default::default()
         };
@@ -261,6 +271,7 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::INVALID.bits(),
             ..Default::default()
         };
@@ -283,6 +294,7 @@ mod registration {
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             parallel_invokes: 1,
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: (Isolation::DOCKER | Isolation::INVALID).bits(),
             ..Default::default()
         };
@@ -386,6 +398,7 @@ mod get_container {
             parallel_invokes: 1,
             image_name: "docker.io/alfuerst/hello-iluvatar-action:latest".to_string(),
             transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
             isolate: Isolation::DOCKER.bits(),
             ..Default::default()
         };
@@ -706,5 +719,93 @@ mod container_state {
             "Container's state should have been Unhealthy"
         );
         assert!(!c1.container.is_healthy(), "Container should be unhealthy");
+    }
+}
+
+#[cfg(test)]
+mod server_invokable {
+    use super::*;
+    use crate::utils::test_invoke;
+    use iluvatar_library::types::ContainerServer;
+    use rstest::rstest;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    #[rstest]
+    #[case("http")]
+    #[case("unix")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn docker_severs_work(#[case] server: &str) {
+        let image = format!("docker.io/alfuerst/hello-iluvatar-action-{}:latest", server);
+        let (_log, _cfg, cm, invoker, reg, _, _) = test_invoker_svc(None, None, None).await;
+        let req = RegisterRequest {
+            function_name: "test".to_string(),
+            function_version: "test".to_string(),
+            cpus: 1,
+            memory: 128,
+            parallel_invokes: 1,
+            image_name: image,
+            transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
+            isolate: Isolation::DOCKER.bits(),
+            container_server: server.parse::<ContainerServer>().unwrap() as u32,
+            ..Default::default()
+        };
+        let reg = reg.register(req, &TEST_TID).await.expect("register failed");
+        let _result = test_invoke(&invoker, &reg, "{}", &TEST_TID).await;
+
+        let c1 = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
+            EventualItem::Future(f) => timeout(Duration::from_secs(20), f).await.expect("Timeout error"),
+            EventualItem::Now(n) => n,
+        }
+        .expect("should have gotten container");
+
+        assert_eq!(
+            c1.container.state(),
+            ContainerState::Warm,
+            "Container's state should have been warm"
+        );
+        assert!(c1.container.is_healthy(), "Container should be healthy");
+    }
+
+    #[rstest]
+    // ignored because containerd testing is currently broken
+    #[ignore]
+    #[case("http")]
+    #[ignore]
+    #[case("unix")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn containerd_severs_work(#[case] server: &str) {
+        let image = format!("docker.io/alfuerst/hello-iluvatar-action-{}:latest", server);
+        let (_log, _cfg, cm, invoker, reg, _, _) = test_invoker_svc(None, None, None).await;
+        let req = RegisterRequest {
+            function_name: "test".to_string(),
+            function_version: "test".to_string(),
+            cpus: 1,
+            memory: 128,
+            parallel_invokes: 1,
+            image_name: image,
+            transaction_id: "testTID".to_string(),
+            compute: Compute::CPU.bits(),
+            isolate: Isolation::CONTAINERD.bits(),
+            container_server: server.parse::<ContainerServer>().unwrap() as u32,
+            ..Default::default()
+        };
+        let reg = reg.register(req, &TEST_TID).await.expect("register failed");
+        let _result = test_invoke(&invoker, &reg, "{}", &TEST_TID).await;
+        let _result = test_invoke(&invoker, &reg, "{}", &TEST_TID).await;
+
+        let c1 = match cm.acquire_container(&reg, &TEST_TID, Compute::CPU) {
+            EventualItem::Future(f) => timeout(Duration::from_secs(20), f).await.expect("Timeout error"),
+            EventualItem::Now(n) => n,
+        }
+        .expect("should have gotten container");
+
+        assert_eq!(
+            c1.container.state(),
+            ContainerState::Warm,
+            "Container's state should have been warm"
+        );
+        assert!(c1.container.is_healthy(), "Container should be healthy");
     }
 }
