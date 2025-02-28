@@ -49,16 +49,44 @@ pub enum Chars {
     QueueErrCpu,
 }
 
+pub enum Value {
+    Min = 0,
+    Max,
+    Avg,
+    Latest
+}
+
 /// A better characteristics map
 ///
-/// We need to support MIN, MAX, AVG, LATEST
-///
+/// What we 'want' it to do:
+///     Store these per-fqdn
+///     Store only f64 values
+///     Have a unique entry for all values in <T>
+///     Support a unique entry for MIN, MAX, AVG, LATEST of each <T>
+///         Do we want to require external separate enum values for each compute, CpuExecTime, GpuExecTime, etc.?
+///         Or have the cmap internally track CPU, GPU, etc. distinction?
+///     Minimal locking on add / update and retrieval
+///     An optional read-only wrapper to forward cmap to a simulation
+///     Easy cloning of all of an FQDN's values
+///     easy cloning / serializing to send to controller for LB purposes
+///     Allow updating multiple enum entries in one call
+///     Allow retrieving multiple enum entries in one call
 pub struct CharMap<T> {
     data: Vec<T>
 }
 impl<T> CharMap<T> {
     pub fn new() -> Self {
         Self { data: vec![] }
+    }
+
+    // Possible interface where internally we track per-compute
+    pub fn get_value(fqdn: &str, key: T, entry: Value) -> f64 {
+        0.0
+    }
+
+    // Other interface where caller has enum entry per-compute
+    pub fn get(fqdn: &str, key: T) -> f64 {
+        0.0
     }
 }
 
