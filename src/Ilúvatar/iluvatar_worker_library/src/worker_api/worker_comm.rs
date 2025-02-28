@@ -4,6 +4,8 @@ use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::CommunicationMethod, utils::port::Port};
 use std::sync::Arc;
+#[cfg(feature = "full_spans")]
+use tracing::Instrument;
 
 pub struct WorkerAPIFactory {
     /// cache of RPC connections to workers
@@ -83,6 +85,11 @@ impl WorkerAPIFactory {
                                         anyhow::bail!("Failed to load simulation config because '{:?}'", e)
                                     },
                                 };
+                            #[cfg(feature = "full_spans")]
+                            let api = create_worker(worker_config.clone(), tid)
+                                .instrument(name_span!(worker_config.name))
+                                .await?;
+                            #[cfg(not(feature = "full_spans"))]
                             let api = create_worker(worker_config, tid).await?;
                             let api = Arc::new(api);
                             vacant.insert(api.clone());

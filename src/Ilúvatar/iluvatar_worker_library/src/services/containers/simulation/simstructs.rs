@@ -128,13 +128,13 @@ pub struct Body {
 
 #[tonic::async_trait]
 impl ContainerT for SimulatorContainer {
-    #[tracing::instrument(skip(self, json_args), fields(tid=%tid, fqdn=%self.fqdn), name="SimulatorContainer::invoke")]
+    #[tracing::instrument(skip(self, json_args), fields(tid=tid, fqdn=%self.fqdn), name="SimulatorContainer::invoke")]
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
         // just sleep for a while based on data from json args
         let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
             Ok(d) => d,
             Err(e) => {
-                bail_error!(tid=%tid, error=%e, args=%json_args, "Unable to deserialize run time information")
+                bail_error!(tid=tid, error=%e, args=%json_args, "Unable to deserialize run time information")
             },
         };
 
@@ -247,13 +247,13 @@ impl ContainerT for SimulatorContainer {
         self.device.write().take()
     }
     fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
-        debug!(tid=%tid, container_id=%self.container_id(), "Adding token to drop on remove");
+        debug!(tid=tid, container_id=%self.container_id(), "Adding token to drop on remove");
         self.drop_on_remove.lock().push(item);
     }
     fn remove_drop(&self, tid: &TransactionId) {
         let mut lck = self.drop_on_remove.lock();
         let to_drop = std::mem::take(&mut *lck);
-        debug!(tid=%tid, container_id=%self.container_id(), num_tokens=to_drop.len(), "Dropping tokens");
+        debug!(tid=tid, container_id=%self.container_id(), num_tokens=to_drop.len(), "Dropping tokens");
         for i in to_drop.into_iter() {
             drop(i);
         }

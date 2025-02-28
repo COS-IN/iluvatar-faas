@@ -11,6 +11,8 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle as TokioHandle;
 use tokio::time::Instant;
 use tracing::{debug, error};
+#[cfg(feature = "full_spans")]
+use tracing::{Instrument, Span};
 
 pub enum EventualItem<Left: Future> {
     Future(Left),
@@ -36,18 +38,18 @@ pub fn os_thread<T: Send + Sync + 'static>(
         let recv_svc = match rx.recv() {
             Ok(svc) => svc,
             Err(e) => {
-                error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "OS worker thread failed to receive service from channel!");
+                error!(tid=tid, error=%e, typename=%std::any::type_name::<T>(), "OS worker thread failed to receive service from channel!");
                 return;
             }
         };
-        debug!(tid=%tid, typename=%std::any::type_name::<T>(), "OS worker thread started");
+        debug!(tid=tid, typename=%std::any::type_name::<T>(), "OS worker thread started");
         crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
         while crate::continuation::GLOB_CONT_CHECK.check_continue() {
-            tracing::trace!(tid=%tid, "Executing");
+            tracing::trace!(tid=tid, "Executing");
             let start = now();
             function(&recv_svc, &tid);
             let sleep_t = sleep_time(call_ms, start, &tid);
-            tracing::trace!(tid=%tid, "Completed");
+            tracing::trace!(tid=tid, "Completed");
             std::thread::sleep(Duration::from_millis(sleep_t));
         }
         crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
@@ -90,21 +92,22 @@ where
     T2: Future<Output = ()> + Send + 'static,
     S: Send + Sync + 'static,
 {
-    tokio::spawn(async move {
+    let td = async move {
         let service: Arc<S> = match receiver.recv() {
             Ok(service) => service,
             Err(e) => {
-                error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Tokio runtime service thread failed to receive service from channel!");
+                error!(tid=tid, error=%e, typename=%std::any::type_name::<T>(), "Tokio runtime service thread failed to receive service from channel!");
                 return;
             },
         };
         crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
+
         while crate::continuation::GLOB_CONT_CHECK.check_continue() {
-            tracing::trace!(tid=%tid, "Executing");
+            tracing::trace!(tid = tid, "Executing");
             let start = now();
             function(service.clone(), tid.clone()).await;
             let sleep_t = sleep_time(call_ms, start, &tid);
-            tracing::trace!(tid=%tid, "Completed");
+            tracing::trace!(tid = tid, "Completed");
             match waiter_function {
                 Some(wf) => {
                     let fut = wf(service.clone(), tid.clone());
@@ -112,7 +115,10 @@ where
                         Ok(_) => (), // woken up by future activation
                         Err(_elapsed) => {
                             // check after timeout
-                            debug!(tid=%tid, "Waking up worker thread after timeout; waiter did not activate");
+                            debug!(
+                                tid = tid,
+                                "Waking up worker thread after timeout; waiter did not activate"
+                            );
                         },
                     }
                 },
@@ -120,7 +126,10 @@ where
             };
         }
         crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
-    })
+    };
+    #[cfg(feature = "full_spans")]
+    let td = td.instrument(Span::current());
+    tokio::spawn(td)
 }
 
 /// Start an async function inside a Tokio worker thread.
@@ -134,11 +143,11 @@ where
     S: Send + Sync + 'static,
 {
     let (tx, rx) = channel();
-    let handle = tokio::spawn(async move {
+    let td = async move {
         let service: Arc<S> = match rx.recv() {
             Ok(cm) => cm,
             Err(_) => {
-                error!(tid=%tid, typename=%std::any::type_name::<S>(), "Tokio service thread failed to receive service from channel!");
+                error!(tid=tid, typename=%std::any::type_name::<S>(), "Tokio service thread failed to receive service from channel!");
                 return;
             },
         };
@@ -150,8 +159,10 @@ where
             }
         }
         crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
-    });
-
+    };
+    #[cfg(feature = "full_spans")]
+    let td = td.instrument(Span::current());
+    let handle = tokio::spawn(td);
     (handle, tx)
 }
 
@@ -169,12 +180,12 @@ where
 {
     let (service_tx, service_rx) = channel();
     let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel::<T>();
-    let handle = tokio::spawn(async move {
+    let td = async move {
         let tid = tid;
         let service: Arc<S> = match service_rx.recv() {
             Ok(cm) => cm,
             Err(_) => {
-                error!(tid=%tid, typename=%std::any::type_name::<S>(), "Tokio service thread failed to receive service from channel!");
+                error!(tid=tid, typename=%std::any::type_name::<S>(), "Tokio service thread failed to receive service from channel!");
                 return;
             },
         };
@@ -184,16 +195,19 @@ where
               _ = crate::continuation::GLOB_NOTIFIER.notified() => break,
               item = item_rx.recv() => match item {
                   Some(item) => {
-                        tracing::trace!(tid=%tid, "Executing");
+                        tracing::trace!(tid=tid, "Executing");
                         function(service.clone(), tid.clone(), item).await;
-                        tracing::trace!(tid=%tid, "Completed");
+                        tracing::trace!(tid=tid, "Completed");
                     },
                   None => break,
               },
             }
         }
         crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
-    });
+    };
+    #[cfg(feature = "full_spans")]
+    let td = td.instrument(Span::current());
+    let handle = tokio::spawn(td);
 
     (handle, service_tx, item_tx)
 }
@@ -218,7 +232,7 @@ where
         true => {
             // Don't put this on an OS thread, causes weird clock skew inside Tokio when the CurrentThread runtime is shared across threads
             let _handle = tokio_waiter_thread(call_ms, tid, function, waiter_function, rx);
-            // Dummy to match return type
+            // Dummy "thread" to match return type
             let handle = std::thread::Builder::new().spawn(|| ())?;
             Ok((handle, tx))
         },
@@ -227,15 +241,19 @@ where
                 let worker_rt = match build_tokio_runtime(&None, &None, &num_worker_threads, &tid) {
                     Ok(rt) => rt,
                     Err(e) => {
-                        error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Failed to get tokio runtime!");
+                        error!(tid=tid, error=%e, typename=%std::any::type_name::<T>(), "Failed to get tokio runtime!");
                         return;
-                    }
+                    },
                 };
-                debug!(tid=%tid, typename=%std::any::type_name::<T>(), "tokio runtime worker thread started");
+                debug!(tid=tid, typename=%std::any::type_name::<T>(), "tokio runtime worker thread started");
                 let tid_cln = tid.clone();
-                match worker_rt.block_on(async { tokio_waiter_thread(call_ms, tid_cln, function, waiter_function, rx).await }) {
+                match worker_rt
+                    .block_on(async { tokio_waiter_thread(call_ms, tid_cln, function, waiter_function, rx).await })
+                {
                     Ok(_) => (),
-                    Err(e) => error!(tid=%tid, error=%e, typename=%std::any::type_name::<T>(), "Joining thread ended in error"),
+                    Err(e) => {
+                        error!(tid=tid, error=%e, typename=%std::any::type_name::<T>(), "Joining thread ended in error")
+                    },
                 };
             })?;
             Ok((handle, tx))

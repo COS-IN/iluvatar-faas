@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub enum AllowPolicy {
     /// Top 25% of funcs are allowed on GPU.
     TopQuarter,
@@ -34,7 +34,7 @@ impl Default for AllowPolicy {
         Self::TopQuarter
     }
 }
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct GreedyWeightConfig {
     #[serde(default)]
     allow: AllowPolicy,
@@ -201,7 +201,8 @@ impl GreedyWeights {
         self.allow_size(fun_data, new_cache_size)
     }
 
-    async fn update_set(self: Arc<Self>, _tid: String) {
+    #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
+    async fn update_set(self: Arc<Self>, tid: String) {
         let mut data = vec![];
         for fqdn in self.reg.registered_funcs() {
             let gpu = self.cmap.avg_gpu_exec_t(&fqdn);
@@ -237,7 +238,7 @@ impl GreedyWeights {
             AllowPolicy::Incremental => self.incremental(&data),
         };
         if self.config.log {
-            tracing::info!(tid=%_tid, allowed_load=allowed_load, allow_set=?allow_set, data=?data, "Sorted function allowed GPU");
+            tracing::info!(tid=tid, allowed_load=allowed_load, allow_set=?allow_set, data=?data, "Sorted function allowed GPU");
         }
         *self.allow_set.write() = allow_set;
     }

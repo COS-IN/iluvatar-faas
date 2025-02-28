@@ -40,16 +40,17 @@ def span_time_ms(log, both: bool = False):
 
 def get_tid(log):
   try:
-    if "span" in log:
-      return log["span"]["tid"]
-    elif "fields" in log:
+    if "fields" in log and "tid" in log["fields"]:
       return log["fields"]["tid"]
+    elif "span" in log:
+      return log["span"]["tid"]
     else:
       raise Exception("unknown format")
   except Exception as e:
     print("get_tid ERROR:", e)
     print(log)
-    exit(1)
+    # exit(1)
+    return None
 
 def parse_date(string):
   # 2022-10-28 09:20:07.68160776

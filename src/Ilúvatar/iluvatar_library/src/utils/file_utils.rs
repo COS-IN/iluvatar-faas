@@ -61,10 +61,10 @@ pub fn try_remove_pth<P: AsRef<Path>>(path: P, tid: &TransactionId) {
 }
 
 /// Make sure the temp dir to use exists
-pub fn ensure_dir(dir: &PathBuf) -> Result<()> {
-    match std::fs::create_dir_all(dir) {
+pub fn ensure_dir<P: AsRef<Path>>(dir: P) -> Result<()> {
+    match std::fs::create_dir_all(&dir) {
         Ok(_) => Ok(()),
-        Err(e) => anyhow::bail!("Failed to create dir '{:?}' because '{}'", dir, e),
+        Err(e) => anyhow::bail!("Failed to create dir '{:?}' because '{}'", dir.as_ref().to_str(), e),
     }
 }
 

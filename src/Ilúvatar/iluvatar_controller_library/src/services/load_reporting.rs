@@ -45,23 +45,24 @@ impl LoadService {
         Ok(ret)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn monitor_worker_status(service: Arc<Self>, tid: TransactionId) {
         if iluvatar_library::utils::is_simulation() {
-            service.mointor_simulation(&tid).await;
+            service.monitor_simulation(&tid).await;
         } else {
             service.monitor_live(&tid).await;
         }
     }
 
-    #[tracing::instrument(skip(self), fields(tid=%tid))]
-    async fn mointor_simulation(&self, tid: &TransactionId) {
+    #[tracing::instrument(skip(self), fields(tid=tid))]
+    async fn monitor_simulation(&self, tid: &TransactionId) {
         let mut update = HashMap::new();
         let workers = self.fact.get_cached_workers();
         for (name, mut worker) in workers {
             let status = match worker.status(tid.to_string()).await {
                 Ok(s) => s,
                 Err(e) => {
-                    warn!(error=%e, tid=%tid, "Unable to get status of simulation worker");
+                    warn!(error=%e, tid=tid, "Unable to get status of simulation worker");
                     continue;
                 },
             };
@@ -75,17 +76,17 @@ impl LoadService {
                 "mem_pct" => update.insert(name, status.used_mem as f64 / status.total_mem as f64),
                 "queue" => update.insert(name, status.queue_len as f64),
                 _ => {
-                    error!(tid=%tid, metric=%self.config.load_metric, "Unknown load metric");
+                    error!(tid=tid, metric=%self.config.load_metric, "Unknown load metric");
                     return;
                 },
             };
         }
 
-        info!(tid=%tid, update=?update, "latest simulated worker update");
+        info!(tid=tid, update=?update, "latest simulated worker update");
         *self.workers.write() = update;
     }
 
-    #[tracing::instrument(skip(self), fields(tid=%tid))]
+    #[tracing::instrument(skip(self), fields(tid=tid))]
     async fn monitor_live(&self, tid: &TransactionId) {
         let update = self.get_live_update(tid).await;
         let mut data = self.workers.read().clone();
@@ -94,7 +95,7 @@ impl LoadService {
         }
         *self.workers.write() = data;
 
-        info!(tid=%tid, update=?update, "latest worker update");
+        info!(tid=tid, update=?update, "latest worker update");
     }
 
     async fn get_live_update(&self, tid: &TransactionId) -> HashMap<String, f64> {
@@ -115,12 +116,16 @@ impl LoadService {
                         ret.insert(item.name, item.value);
                     }
                     if ret.is_empty() {
-                        warn!(tid=%tid, "Did not get any data in the last 5 minutes using the load metric '{}'", self.config.load_metric.as_str());
+                        warn!(
+                            tid = tid,
+                            "Did not get any data in the last 5 minutes using the load metric '{}'",
+                            self.config.load_metric.as_str()
+                        );
                     }
                 },
-                Err(e) => error!(tid=%tid, error=%e, "Failed to query worker status to InfluxDB"),
+                Err(e) => error!(tid=tid, error=%e, "Failed to query worker status to InfluxDB"),
             },
-            None => error!(tid=%tid, "Influx client was not created during live run"),
+            None => error!(tid = tid, "Influx client was not created during live run"),
         }
         ret
     }

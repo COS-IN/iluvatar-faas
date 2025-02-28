@@ -11,13 +11,13 @@ use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
 use parking_lot::Mutex;
 use rand::Rng;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::info;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LandlordConfig {
     #[serde(default)]
     /// Max number of functions we are admitting, regardless of size
@@ -320,7 +320,7 @@ impl Landlord {
         let gpu_est_total = gpu_est * (1.0 + epsilon * n_active);
         let cpu_est_total = f64::max(cpu_est, self.cmap.get_exec_time(&reg.fqdn));
 
-        info!(tid=%tid, fqdn=%reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, cpu_exec=%self.cmap.get_exec_time(&reg.fqdn), gpu_est_total=%gpu_est_total, cpu_est_total=%cpu_est_total,  "Landlord Credit");
+        info!(tid=tid, fqdn=%reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, cpu_exec=%self.cmap.get_exec_time(&reg.fqdn), gpu_est_total=%gpu_est_total, cpu_est_total=%cpu_est_total,  "Landlord Credit");
 
         match self.cachepol.as_str() {
             "LFU" => 1.0,
@@ -668,14 +668,14 @@ impl Landlord {
                 self.misses += 1;
                 self.negcredits += 1;
                 self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
-                info!(tid=%tid, fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), "MISS_INSUFFICIENT_CREDITS");
+                info!(tid=tid, fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), "MISS_INSUFFICIENT_CREDITS");
                 self.update_nonres(&reg.fqdn);
                 return (Compute::CPU, cpu_load, cpu_est);
             }
             self.hits += 1;
             self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);
             // We've seen this function before so its size is more likely to be accurate
-            info!(tid=%tid, fqdn=%&reg.fqdn, opp_cost=%new_credit, "Cache Hit");
+            info!(tid=tid, fqdn=%&reg.fqdn, opp_cost=%new_credit, "Cache Hit");
             self.landlog("HIT_PRESENT");
             self.update_res(&reg.fqdn);
             return (Compute::GPU, gpu_load, gpu_est);
@@ -696,7 +696,7 @@ impl Landlord {
             self.misses += 1;
             self.capacitymiss += 1;
             self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
-            info!(tid=%tid, fqdn=%reg.fqdn, "Cache Miss Admission");
+            info!(tid=tid, fqdn=%reg.fqdn, "Cache Miss Admission");
             self.update_nonres(&reg.fqdn.clone());
             (Compute::CPU, cpu_load, cpu_est)
         }

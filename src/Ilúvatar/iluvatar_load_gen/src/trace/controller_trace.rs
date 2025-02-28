@@ -1,4 +1,5 @@
 use super::{Function, TraceArgs};
+use crate::trace::trace_utils::make_simulation_worker_config;
 use crate::trace::{prepare_function_args, CsvInvocation};
 use crate::utils::{wait_elapsed_live, wait_elapsed_sim};
 use crate::{
@@ -13,14 +14,12 @@ use anyhow::Result;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::clock::{get_global_clock, now};
+use iluvatar_library::logging::start_simulation_tracing;
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
-use iluvatar_library::transaction::{TransactionId, LIVE_WORKER_LOAD_TID};
+use iluvatar_library::transaction::{gen_tid, TransactionId, LIVE_WORKER_LOAD_TID, SIMULATION_START_TID};
 use iluvatar_library::types::{CommunicationMethod, Compute, Isolation};
-use iluvatar_library::utils::config::args_to_json;
-use iluvatar_library::utils::is_simulation;
-use iluvatar_library::{transaction::gen_tid, utils::port::Port};
+use iluvatar_library::utils::{config::args_to_json, is_simulation, port::Port};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
-use iluvatar_worker_library::worker_api::worker_config::Configuration as WorkerConfig;
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tracing::info;
@@ -92,10 +91,11 @@ async fn controller_prewarm_funcs(
 }
 
 pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
-    let tid = &LIVE_WORKER_LOAD_TID;
+    let tid: &TransactionId = &LIVE_WORKER_LOAD_TID;
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
     let factory = ControllerAPIFactory::boxed();
     let host = args.host.clone();
+    info!(tid = tid, "starting simulated run");
     run_invokes(args, factory, threaded_rt, &host, CommunicationMethod::RPC, tid)
 }
 
@@ -103,9 +103,9 @@ async fn controller_sim_register_workers(
     num_workers: usize,
     server: &ControllerAPI,
     worker_config_pth: &str,
-    worker_config: &Arc<WorkerConfig>,
 ) -> Result<()> {
     for i in 0..num_workers {
+        let (worker_config, spec_config) = make_simulation_worker_config(i, worker_config_pth)?;
         let gpus = worker_config
             .container_resources
             .gpu_resource
@@ -116,9 +116,9 @@ async fn controller_sim_register_workers(
             _ => (Compute::CPU | Compute::GPU).bits(),
         };
         let r = RegisterWorkerRequest {
-            name: format!("worker_{}", i),
+            name: worker_config.name.clone(),
             communication_method: CommunicationMethod::SIMULATION as u32,
-            host: worker_config_pth.to_owned(),
+            host: spec_config,
             port: 0,
             memory: worker_config.container_resources.memory_mb,
             cpus: worker_config.container_resources.cpu_resource.count,
@@ -143,6 +143,7 @@ fn run_invokes(
     comm: CommunicationMethod,
     tid: &TransactionId,
 ) -> Result<()> {
+    info!(tid = tid, "Starting invocations");
     let clock = get_global_clock(tid)?;
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     map_functions_to_prep(
@@ -200,7 +201,7 @@ fn run_invokes(
                 controller_invoke(&f_c, &VERSION, Some(func_args), clk, api_cln).await
             }));
         }
-        info!(tid=%tid, "Invocations sent, awaiting on thread handles");
+        info!(tid = tid, "Invocations sent, awaiting on thread handles");
         resolve_handles(handles, crate::utils::ErrorHandling::Print).await
     })?;
 
@@ -208,7 +209,7 @@ fn run_invokes(
 }
 
 pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
-    let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
+    let tid: &TransactionId = &SIMULATION_START_TID;
     iluvatar_library::utils::set_simulation(tid)?;
     let api_factory = ControllerAPIFactory::boxed();
 
@@ -224,22 +225,22 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         .clone();
     let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
 
-    let worker_config: Arc<WorkerConfig> = WorkerConfig::boxed(Some(&worker_config_pth), None)?;
     let controller_config =
         iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)?;
-    let _guard =
-        iluvatar_library::logging::start_tracing(controller_config.logging.clone(), &controller_config.name, tid)?;
+    let num_workers = args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize;
+
+    let _guard = start_simulation_tracing(&controller_config.logging, true, num_workers, "worker", tid)?;
     let controller = threaded_rt.block_on(async {
         api_factory
             .get_controller_api(&controller_config_pth, 0, CommunicationMethod::SIMULATION, tid)
             .await
     })?;
 
+    info!(tid = tid, "starting live run");
     threaded_rt.block_on(controller_sim_register_workers(
-        args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize,
+        num_workers,
         &controller,
         &worker_config_pth,
-        &worker_config,
     ))?;
     run_invokes(
         args,

@@ -124,6 +124,8 @@ pub struct EnqueuedInvocation {
     pub est_completion_time: f64,
     /// Estimated device load upon queue insertion.
     pub insert_time_load: f64,
+    #[cfg(feature = "full_spans")]
+    pub span: tracing::Span,
 }
 
 impl EnqueuedInvocation {
@@ -145,6 +147,8 @@ impl EnqueuedInvocation {
             result_ptr: InvocationResult::boxed(),
             signal: Notify::new(),
             started: Mutex::new(false),
+            #[cfg(feature = "full_spans")]
+            span: tracing::Span::current(),
         }
     }
 

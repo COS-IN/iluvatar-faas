@@ -16,7 +16,7 @@ use iluvatar_library::{
     utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port},
 };
 use rand::prelude::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Barrier;
 use tracing::{error, info};
@@ -68,7 +68,7 @@ pub struct ScalingArgs {
 }
 
 pub fn scaling(args: ScalingArgs) -> Result<()> {
-    ensure_dir(&std::path::PathBuf::new().join(&args.out_folder))?;
+    ensure_dir(PathBuf::new().join(&args.out_folder))?;
 
     for threads in args.start..(args.end + 1) {
         let runtime = build_tokio_runtime(&None, &None, &Some(threads as usize), &"SCALING_TID".to_string())?;

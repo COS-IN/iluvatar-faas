@@ -28,7 +28,7 @@ rust_build(ILU_HOME, None, build_level)
 
 ansible_dir = os.path.join(ILU_HOME, "ansible")
 kwargs = {
-    "controller_log_level": "debug",
+    "controller_log_level": "info",
     "ilu_home": ILU_HOME,
     "ansible_hosts_addrs": "@"
     + os.path.join(ansible_dir, "group_vars/local_addresses.yml"),
@@ -39,12 +39,14 @@ kwargs = {
     "snapshotter": "overlayfs",
     "worker_status_ms": 500,
     "worker_log_dir": worker_log_dir,
-    "controller_log_dir": worker_log_dir,
     "cpu_queue_policy": "fcfs",
-    "target": RunTarget.CONTROLLER,
     "prewarm": 1,
     "benchmark_file": benchmark,
+    # we need cluster-specific stuff now
+    "target": RunTarget.CONTROLLER,
     "influx_enabled": True,
+    "controller_log_dir": worker_log_dir,
+    "force": False
 }
 
 SSH_Q = make_host_queue([("sshd", "127.0.0.1")])
@@ -119,7 +121,7 @@ for i, (func, df) in enumerate(
 
 ax.set_xticks(list(range(len(labels))))
 ax.set_xticklabels(labels)
-ax.set_ylabel("Platform Overhead (sec.)")
+ax.set_ylabel("Avg. Platform Overhead (sec.)")
 ax.set_xlabel("Function Name")
 plt.savefig(os.path.join(results_dir, "overhead.png"), bbox_inches="tight")
 plt.close(fig)

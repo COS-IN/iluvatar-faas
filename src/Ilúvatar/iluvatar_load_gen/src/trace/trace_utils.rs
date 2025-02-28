@@ -16,6 +16,7 @@ use iluvatar_library::{
     utils::port::Port,
 };
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData;
+use iluvatar_worker_library::worker_api::config::{Configuration, WorkerConfig};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::{
     cmp::{max, min},
@@ -35,13 +36,13 @@ pub fn load_trace_csv<T: serde::de::DeserializeOwned, P: AsRef<Path> + tracing::
 ) -> Result<Vec<T>> {
     let mut trace_rdr = match csv::Reader::from_path(&csv) {
         Ok(csv) => csv,
-        Err(e) => bail_error!(error=%e, tid=%tid, path=csv, "Failed to open CSV file"),
+        Err(e) => bail_error!(error=%e, tid=tid, path=csv, "Failed to open CSV file"),
     };
     let mut ret = vec![];
     for (i, result) in trace_rdr.deserialize().enumerate() {
         match result {
             Ok(item) => ret.push(item),
-            Err(e) => bail_error!(error=%e, tid=%tid, line_num=i, path=csv, "Failed to deserialize item"),
+            Err(e) => bail_error!(error=%e, tid=tid, line_num=i, path=csv, "Failed to deserialize item"),
         }
     }
     Ok(ret)
@@ -111,12 +112,12 @@ fn map_from_benchmark(
         if let Some((_last, elements)) = func.func_name.split('-').collect::<Vec<&str>>().split_last() {
             let name = elements.join("-");
             if bench.data.contains_key(&name) && func.image_name.is_some() {
-                info!(tid=%tid, function=%func.func_name, chosen_code=%name, "Function mapped to self name in benchmark");
+                info!(tid=tid, function=%func.func_name, chosen_code=%name, "Function mapped to self name in benchmark");
                 func.chosen_name = Some(name);
             }
         }
         if bench.data.contains_key(&func.func_name) && func.image_name.is_some() && func.chosen_name.is_none() {
-            info!(tid=%tid, function=%func.func_name, "Function mapped to exact name in benchmark");
+            info!(tid=tid, function=%func.func_name, "Function mapped to exact name in benchmark");
             func.chosen_name = Some(func.func_name.clone());
         }
         if func.chosen_name.is_none() {
@@ -140,7 +141,7 @@ fn map_from_benchmark(
             }
 
             if func.image_name.is_none() {
-                info!(tid=%tid, function=%&func.func_name, chosen_code=%chosen_name, "Function mapped to benchmark code");
+                info!(tid=tid, function=%&func.func_name, chosen_code=%chosen_name, "Function mapped to benchmark code");
                 func.cold_dur_ms = chosen_cold_time_ms as u64;
                 func.warm_dur_ms = chosen_warm_time_ms as u64;
                 func.chosen_name = Some(chosen_name);
@@ -153,7 +154,7 @@ fn map_from_benchmark(
             total_prewarms += prewarms;
         }
         match &func.chosen_name {
-            None => info!(tid=%tid, "not filling out sim_invoke_data"),
+            None => info!(tid = tid, "not filling out sim_invoke_data"),
             Some(name) => {
                 let mut sim_data = HashMap::new();
                 for compute in func.compute.into_iter() {
@@ -189,7 +190,7 @@ fn map_from_benchmark(
             },
         }
     }
-    info!(tid=%tid, "A total of {} prewarmed containers", total_prewarms);
+    info!(tid = tid, "A total of {} prewarmed containers", total_prewarms);
     Ok(())
 }
 
@@ -479,4 +480,30 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
         };
     }
     Ok(())
+}
+
+/// Copies the worker config to a new file uniquely named file, and changes the "name" field to match.
+pub fn make_simulation_worker_config(id: usize, orig_config_path: &str) -> Result<(WorkerConfig, String)> {
+    let dummy_worker_config = match Configuration::boxed(Some(orig_config_path), None) {
+        Ok(c) => c,
+        Err(e) => bail_error!(error=%e, "Failed to load base configuration for worker"),
+    };
+    let worker_name = format!("{}_{}", dummy_worker_config.name, id);
+    let overrides = vec![("name".to_owned(), worker_name.clone())];
+    let worker_config = match Configuration::boxed(Some(orig_config_path), Some(overrides)) {
+        Ok(c) => c,
+        Err(e) => bail_error!(error=%e, worker=worker_name, "Failed to load configuration for worker"),
+    };
+    let p = Path::new(orig_config_path)
+        .parent()
+        .unwrap()
+        .join(format!("{}.json", worker_name));
+    match File::create(&p) {
+        Ok(f) => match serde_json::to_writer_pretty(f, &worker_config) {
+            Ok(_) => (),
+            Err(e) => anyhow::bail!("Failed to serialize worker-specific config because '{:?}'", e),
+        },
+        Err(e) => anyhow::bail!("Failed to create worker-specific config file because '{:?}'", e),
+    };
+    Ok((worker_config, p.to_string_lossy().to_string()))
 }

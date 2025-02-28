@@ -22,12 +22,14 @@ use iluvatar_library::{
 use ordered_float::OrderedFloat;
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
+#[cfg(feature = "full_spans")]
+use tracing::Instrument;
 use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
@@ -35,7 +37,7 @@ lazy_static::lazy_static! {
   pub static ref MQFQ_GPU_QUEUE_BKG_TID: TransactionId = "MQFQ_GPU_Bkg".to_string();
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[allow(unused)]
 pub struct MqfqConfig {
     /// maximum allowed flow overrun, in seconds, default 10 sec if missing
@@ -63,7 +65,7 @@ pub struct MqfqConfig {
     add_estimation_error: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 enum MqfqTimeEst {
     V1,
     V2,
@@ -492,17 +494,18 @@ impl MQFQ {
         if let Some(mon_tx) = mon_tx {
             mon_tx.send(svc.clone())?;
         }
-        info!(tid=%tid, "Created MQFQ");
+        info!(tid = tid, "Created MQFQ");
         Ok(svc)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn report_queue(self: Arc<Self>, tid: TransactionId) {
         let log = self.get_flow_report();
         match serde_json::to_string(&log) {
             Ok(to_write) => {
-                info!(tid=%tid, global_vitual_time=self.mindicator.min(), queue_info=%to_write, "FlowQ details")
+                info!(tid=tid, global_vitual_time=self.mindicator.min(), queue_info=%to_write, "FlowQ details")
             },
-            Err(e) => error!(tid=%tid, "Failed to convert flowq report to json because {}", e),
+            Err(e) => error!(tid = tid, "Failed to convert flowq report to json because {}", e),
         };
         *self.active_flows.write() = log.active_flows;
     }
@@ -543,10 +546,10 @@ impl MQFQ {
 
     async fn gpu_wait_on_queue(invoker_svc: Arc<Self>, tid: TransactionId) {
         invoker_svc.signal.notified().await;
-        debug!(tid=%tid, "Invoker waken up by signal");
+        debug!(tid = tid, "Invoker waken up by signal");
     }
     /// Check the invocation queue, running things when there are sufficient resources
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some((next_item, gpu_token)) = self.dispatch(&tid) {
             debug!(tid=%next_item.invoke.tid, "Sending item for dispatch");
@@ -578,7 +581,7 @@ impl MQFQ {
     /// Handle executing an invocation, plus account for its success or failure
     /// On success, the results are moved to the pointer and it is signaled
     /// On failure, [Invoker::handle_invocation_error] is called
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cpu_token, gpu_token), fields(fqdn=item.invoke.registration.fqdn)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cpu_token, gpu_token), fields(fqdn=item.invoke.registration.fqdn)))]
     async fn invocation_worker_thread(
         &self,
         item: Arc<MQRequest>,
@@ -588,7 +591,13 @@ impl MQFQ {
         let ct = self.clock.now();
         self.ctrack.add_item(ct);
         if item.invoke.lock() {
-            let container = match self.invoke(&item.invoke, cpu_token, gpu_token).await {
+            #[cfg(feature = "full_spans")]
+            let fut = self
+                .invoke(&item.invoke, cpu_token, gpu_token)
+                .instrument(item.invoke.span.clone());
+            #[cfg(not(feature = "full_spans"))]
+            let fut = self.invoke(&item.invoke, cpu_token, gpu_token);
+            let container = match fut.await {
                 Ok((result, duration, container)) => {
                     item.invoke
                         .mark_successful(result, duration, container.compute_type(), container.state());
@@ -616,11 +625,11 @@ impl MQFQ {
         self.ctrack.remove_item(ct);
     }
 
-    /// Handle an error with the given enqueued invocation
+    /// Handle an error with the given enqueued invocation.
     /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
     ///   Calls [Self::add_item_to_queue] to do this
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=%item.tid)))]
     fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
         debug!(tid=%item.tid, error=%cause, "Marking invocation as error");
         item.mark_error(&cause);
@@ -704,7 +713,10 @@ impl MQFQ {
             Ok(Some(c)) => ret.push(Box::new(c)),
             Ok(_) => (),
             Err(_) => {
-                error!(tid=%tid, "CPU Resource Monitor `acquire_cores` returned a closed error!");
+                error!(
+                    tid = tid,
+                    "CPU Resource Monitor `acquire_cores` returned a closed error!"
+                );
                 return None;
             },
         };
@@ -770,25 +782,25 @@ impl MQFQ {
             if val.state == MQState::Active {
                 // Active, not throttled, and lowest start_time_virt
                 if val.queue.is_empty() {
-                    debug!(tid=%tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
+                    debug!(tid=tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
                     continue;
                 }
                 if self.cont_manager.warm_container(&val.fqdn, token) {
                     if min_q_with_cont.is_none() {
-                        debug!(tid=%tid, qid=%val.fqdn, "first active Q, matched to GPU");
+                        debug!(tid=tid, qid=%val.fqdn, "first active Q, matched to GPU");
                         min_time_with_cont = q.start_time_virt;
                         min_q_with_cont = Some(q);
                     } else if q.start_time_virt <= min_time_with_cont {
-                        debug!(tid=%tid, qid=%q.fqdn, old_t=min_time_with_cont, new_t=q.start_time_virt, "new min Q, matched to GPU");
+                        debug!(tid=tid, qid=%q.fqdn, old_t=min_time_with_cont, new_t=q.start_time_virt, "new min Q, matched to GPU");
                         min_time_with_cont = q.start_time_virt;
                         min_q_with_cont = Some(q);
                     }
                 } else if min_q.is_none() {
-                    debug!(tid=%tid, qid=%val.fqdn, "first active Q");
+                    debug!(tid=tid, qid=%val.fqdn, "first active Q");
                     min_time = q.start_time_virt;
                     min_q = Some(q);
                 } else if q.start_time_virt <= min_time {
-                    debug!(tid=%tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
+                    debug!(tid=tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
                     min_time = q.start_time_virt;
                     min_q = Some(q);
                 }
@@ -816,16 +828,16 @@ impl MQFQ {
             if val.state == MQState::Active {
                 // Active, not throttled, and lowest start_time_virt
                 if val.queue.is_empty() {
-                    debug!(tid=%tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
+                    debug!(tid=tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
                     continue;
                 }
                 let queue_len = val.queue.len();
                 if chosen_q.is_none() {
-                    debug!(tid=%tid, qid=%val.fqdn, new_t=val.start_time_virt, new_len=queue_len, "first active Q");
+                    debug!(tid=tid, qid=%val.fqdn, new_t=val.start_time_virt, new_len=queue_len, "first active Q");
                     longest_q = queue_len;
                     chosen_q = Some(q);
                 } else if queue_len >= longest_q {
-                    debug!(tid=%tid, qid=%val.fqdn, old_len=longest_q, new_t=val.start_time_virt, new_len=queue_len, "new min Q");
+                    debug!(tid=tid, qid=%val.fqdn, old_len=longest_q, new_t=val.start_time_virt, new_len=queue_len, "new min Q");
                     longest_q = queue_len;
                     chosen_q = Some(q);
                 }
@@ -850,16 +862,16 @@ impl MQFQ {
             if val.state == MQState::Active {
                 // Active, not throttled, and lowest start_time_virt
                 if val.queue.is_empty() {
-                    debug!(tid=%tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
+                    debug!(tid=tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
                     continue;
                 }
                 let est_wait = val.est_flow_wait();
                 if chosen_q.is_none() {
-                    debug!(tid=%tid, qid=%val.fqdn, new_t=val.start_time_virt, new_wait=est_wait, "first active Q");
+                    debug!(tid=tid, qid=%val.fqdn, new_t=val.start_time_virt, new_wait=est_wait, "first active Q");
                     longest_wait_q = est_wait;
                     chosen_q = Some(q);
                 } else if est_wait >= longest_wait_q {
-                    debug!(tid=%tid, qid=%val.fqdn, old_len=longest_wait_q, new_t=val.start_time_virt, new_wait=est_wait, "new min Q");
+                    debug!(tid=tid, qid=%val.fqdn, old_len=longest_wait_q, new_t=val.start_time_virt, new_wait=est_wait, "new min Q");
                     longest_wait_q = est_wait;
                     chosen_q = Some(q);
                 }
@@ -882,15 +894,15 @@ impl MQFQ {
             if val.state == MQState::Active {
                 // Active, not throttled, and lowest start_time_virt
                 if val.queue.is_empty() {
-                    debug!(tid=%tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
+                    debug!(tid=tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
                     continue;
                 }
                 if chosen_q.is_none() {
-                    debug!(tid=%tid, qid=%val.fqdn, new_t=val.finish_time_virt, "first active Q");
+                    debug!(tid=tid, qid=%val.fqdn, new_t=val.finish_time_virt, "first active Q");
                     finish_vt = val.finish_time_virt;
                     chosen_q = Some(q);
                 } else if val.finish_time_virt >= finish_vt {
-                    debug!(tid=%tid, qid=%val.fqdn, old_finish_vt=finish_vt, new_t=val.finish_time_virt, "new min Q");
+                    debug!(tid=tid, qid=%val.fqdn, old_finish_vt=finish_vt, new_t=val.finish_time_virt, "new min Q");
                     finish_vt = val.finish_time_virt;
                     chosen_q = Some(q);
                 }
@@ -1031,15 +1043,15 @@ impl MQFQ {
                 }
                 // Active, not throttled, and lowest start_time_virt
                 if val.queue.is_empty() {
-                    debug!(tid=%tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
+                    debug!(tid=tid, qid=%val.fqdn, val.start_time_virt, "flow is empty");
                     continue;
                 }
                 if min_q.is_none() {
-                    debug!(tid=%tid, qid=%val.fqdn, "first active Q");
+                    debug!(tid=tid, qid=%val.fqdn, "first active Q");
                     min_time = q.start_time_virt;
                     min_q = Some(q);
                 } else if q.start_time_virt <= min_time {
-                    debug!(tid=%tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
+                    debug!(tid=tid, qid=%q.fqdn, old_t=min_time, new_t=q.start_time_virt, "new min Q");
                     min_time = q.start_time_virt;
                     min_q = Some(q);
                 }
@@ -1083,7 +1095,7 @@ impl MQFQ {
         // Filter by active queues, and select with lowest start time.
         let qlen = self.queue_len();
         if qlen == 0 {
-            debug!(tid=%tid, qlen=qlen, "Empty queue");
+            debug!(tid = tid, qlen = qlen, "Empty queue");
             return None;
         }
         let mut cnt = 0;
@@ -1100,21 +1112,24 @@ impl MQFQ {
                             // chosen_q.update_dispatched(updated_vitual_time);
                             return Some((i, token.into()));
                         } else {
-                            debug!(tid=%tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "Empty flow chosen");
+                            debug!(tid=tid, chosen_q=%chosen_q.fqdn, qlen=qlen, "Empty flow chosen");
                             cnt += 1;
                         }
                     } else {
-                        debug!(tid=%tid, qlen=qlen, "No chosen flow");
+                        debug!(tid = tid, qlen = qlen, "No chosen flow");
                         cnt += 1;
                     }
                     if cnt > 100 {
-                        error!(tid=%tid, "Failed to get flow after many iterations, despite non-empty queue.");
+                        error!(
+                            tid = tid,
+                            "Failed to get flow after many iterations, despite non-empty queue."
+                        );
                         return None;
                     }
                 }
             },
             None => {
-                debug!(tid=%tid, qlen=qlen, "No token");
+                debug!(tid = tid, qlen = qlen, "No token");
                 None
             },
         }
@@ -1197,7 +1212,7 @@ impl MQFQ {
                     min_flow.queue_len -= 1;
                 },
                 None => {
-                    warn!(tid=%tid, "keep_flows was somehow empty!");
+                    warn!(tid = tid, "keep_flows was somehow empty!");
                     break;
                 },
             };
@@ -1209,7 +1224,7 @@ impl MQFQ {
                 .min()
             {
                 None => {
-                    info!(tid=%tid, "No valid flow_deets to find new min_vt");
+                    info!(tid = tid, "No valid flow_deets to find new min_vt");
                     break;
                 },
                 Some(vt) => vt.0,
@@ -1307,7 +1322,7 @@ impl DeviceQueue for MQFQ {
             };
         }
         let raw_est = self.est_completion_time2(reg, tid) / concur;
-        debug!(tid=%tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");
+        debug!(tid=tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");
         (q_t + exec_time + err_time, load)
     }
 

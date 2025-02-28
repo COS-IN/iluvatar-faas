@@ -40,7 +40,7 @@ impl HealthService {
     fn status_changed(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &HealthStatus) -> bool {
         match self.worker_statuses.get(&worker.name) {
             Some(stat) => {
-                info!(tid=%tid, worker=%worker.name, status=?status, "worker changed status to");
+                info!(tid=tid, worker=%worker.name, status=?status, "worker changed status to");
                 stat.value() == status
             },
             None => true,
@@ -49,7 +49,7 @@ impl HealthService {
 
     /// updates the stored status of the worker
     fn update_status(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId, status: &HealthStatus) {
-        debug!(tid=%tid, name=%worker.name, status=?status, "updating worker status");
+        debug!(tid=tid, name=%worker.name, status=?status, "updating worker status");
         self.worker_statuses.insert(worker.name.clone(), *status);
     }
 
@@ -69,14 +69,14 @@ impl HealthService {
         {
             Ok(api) => api,
             Err(e) => {
-                warn!(tid=%tid, worker=%worker.name, error=%e, "Couldn't connect to worker for health check");
+                warn!(tid=tid, worker=%worker.name, error=%e, "Couldn't connect to worker for health check");
                 return HealthStatus::OFFLINE;
             },
         };
         match api.health(tid.clone()).await {
             Ok(h) => h,
             Err(e) => {
-                warn!(tid=%tid, worker=%worker.name, error=%e, "Error when checking worker health");
+                warn!(tid=tid, worker=%worker.name, error=%e, "Error when checking worker health");
                 HealthStatus::UNHEALTHY
             },
         }
@@ -107,7 +107,7 @@ impl ControllerHealthService for HealthService {
         tid: &TransactionId,
         in_secs: Option<Duration>,
     ) {
-        debug!(tid=%tid, name=%worker.name, "scheduling future health check for worker");
+        debug!(tid=tid, name=%worker.name, "scheduling future health check for worker");
         tokio::spawn(async move {
             let tid: &TransactionId = &iluvatar_library::transaction::HEALTH_TID;
             let dur = match in_secs {

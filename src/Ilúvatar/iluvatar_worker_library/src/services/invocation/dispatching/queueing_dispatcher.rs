@@ -153,7 +153,7 @@ impl QueueingDispatcher {
             cmap,
             gpu_config: gpu_config.clone(),
         });
-        debug!(tid=%tid, "Created QueueingInvoker");
+        debug!(tid = tid, "Created QueueingInvoker");
         Ok(svc)
     }
 
@@ -189,7 +189,10 @@ impl QueueingDispatcher {
         gpu_config: &Option<Arc<GPUResourceConfig>>,
     ) -> Result<Option<Arc<dyn DeviceQueue>>> {
         if gpu.is_none() || gpu_config.is_none() {
-            info!(tid=%tid, "GPU resource tracker or GPU config is missing, not creating gpu queue");
+            info!(
+                tid = tid,
+                "GPU resource tracker or GPU config is missing, not creating gpu queue"
+            );
             return Ok(None);
         }
         match invocation_config.queues.get(&Compute::GPU) {
@@ -266,7 +269,7 @@ impl QueueingDispatcher {
         let mut enq = None;
         for c in compute.into_iter() {
             match self.que_map.get(&c) {
-                None => warn!(tid=%tid, compute=%c, "Tried to run invoke on compute with no queue"),
+                None => warn!(tid=tid, compute=%c, "Tried to run invoke on compute with no queue"),
                 Some(q) => {
                     let mut comp_time = est_comp_time;
                     let mut load = insert_time_load;
@@ -292,7 +295,7 @@ impl QueueingDispatcher {
             }
         }
         if enqueues == 0 {
-            bail_error!(tid=%tid, "Unable to enqueue function invocation, not matching compute");
+            bail_error!(tid = tid, "Unable to enqueue function invocation, not matching compute");
         }
         enq.ok_or_else(|| anyhow::anyhow!("Enqueued item was never created"))
     }
@@ -345,27 +348,35 @@ impl QueueingDispatcher {
 
     /// Forms invocation data into a [EnqueuedInvocation] that is returned.
     /// The default implementation also calls [Invoker::add_item_to_queue] to optionally insert that item into the implementation's queue.
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=tid)))]
     fn enqueue_new_invocation(
         &self,
         reg: &Arc<RegisteredFunction>,
         json_args: String,
         tid: TransactionId,
     ) -> Result<Arc<EnqueuedInvocation>> {
-        debug!(tid=%tid, "Enqueueing invocation");
+        debug!(tid = tid, "Enqueueing invocation");
         let insert_t = self.clock.now();
         if self.invocation_config.log_details() {
-            debug!(tid=%tid, "calc CPU est time");
+            debug!(tid = tid, "calc CPU est time");
             let (cpu_est, cpu_load) = match self.que_map.get(&Compute::CPU) {
                 None => (NO_ESTIMATE, NO_ESTIMATE),
                 Some(q) => q.est_completion_time(reg, &tid),
             };
-            debug!(tid=%tid, "calc GPU est time");
+            debug!(tid = tid, "calc GPU est time");
             let (gpu_est, gpu_load) = match self.que_map.get(&Compute::GPU) {
                 None => (NO_ESTIMATE, NO_ESTIMATE),
                 Some(q) => q.est_completion_time(reg, &tid),
             };
-            info!(tid=%tid, cpu_est=cpu_est, cpu_load=cpu_load, gpu_est=gpu_est, gpu_load=gpu_load, gpu_tput=self.cmap.get_gpu_tput(),"Est e2e time");
+            info!(
+                tid = tid,
+                cpu_est = cpu_est,
+                cpu_load = cpu_load,
+                gpu_est = gpu_est,
+                gpu_load = gpu_load,
+                gpu_tput = self.cmap.get_gpu_tput(),
+                "Est e2e time"
+            );
         }
 
         match reg.supported_compute {
@@ -375,8 +386,8 @@ impl QueueingDispatcher {
                 let (chosen_compute, load, est_time) = self.policy.choose(reg, &tid);
                 if self.invocation_config.log_details() {
                     match chosen_compute {
-                        Compute::GPU => info!(tid=%tid, fqdn=%reg.fqdn, "Cache Hit"),
-                        _ => info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss"),
+                        Compute::GPU => info!(tid=tid, fqdn=%reg.fqdn, "Cache Hit"),
+                        _ => info!(tid=tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss"),
                     }
                 }
                 self.enqueue_compute(reg, json_args, tid, chosen_compute, insert_t, est_time, load)
@@ -728,7 +739,7 @@ impl DispatchPolicy for RunningAvgEstSpeedup {
         let new_avg = *avg * 0.9 + ratio * 0.1;
         *avg = new_avg;
         drop(avg);
-        info!(tid=%tid, new_avg=new_avg, "running avg");
+        info!(tid = tid, new_avg = new_avg, "running avg");
         // let avg_scale = self.gpu_config.as_ref().map_or(1, |c| c.count) as f64;
         // if ratio > (new_avg / avg_scale) {
         if ratio > new_avg {
@@ -790,7 +801,7 @@ impl DispatchPolicy for QueueAdjustAvgEstSpeedup {
                             } else {
                                 // *avg = *avg * 0.975;
                             }
-                            debug!(tid=%tid, new_avg=*avg, "running avg");
+                            debug!(tid = tid, new_avg = *avg, "running avg");
                         }
                     }
                     (*c, *load, *est)
@@ -805,7 +816,7 @@ impl DispatchPolicy for QueueAdjustAvgEstSpeedup {
 
 #[tonic::async_trait]
 impl Invoker for QueueingDispatcher {
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, reg, json_args), fields(tid=tid)))]
     async fn sync_invocation(
         &self,
         reg: Arc<RegisteredFunction>,
@@ -825,11 +836,14 @@ impl Invoker for QueueingDispatcher {
                     self.cmap
                         .add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false);
                 }
-                info!(tid=%tid, fqdn=%reg.fqdn, e2etime=%e2etime, copmute=%result_ptr.compute, "Invocation complete");
+                info!(tid=tid, fqdn=%reg.fqdn, e2etime=%e2etime, compute=%result_ptr.compute, "Invocation complete");
                 Ok(queued.result_ptr.clone())
             },
             false => {
-                bail_error!(tid=%tid, "Invocation was signaled completion but completion value was not set")
+                bail_error!(
+                    tid = tid,
+                    "Invocation was signaled completion but completion value was not set"
+                )
             },
         }
     }

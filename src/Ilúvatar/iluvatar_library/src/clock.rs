@@ -39,7 +39,7 @@ pub fn timezone(tid: &TransactionId) -> Result<String> {
     let mut tz_str = match std::fs::read_to_string("/etc/timezone") {
         Ok(t) => t,
         Err(e) => {
-            warn!(tid=%tid, error=%e, "/etc/timezone is missing, using default");
+            warn!(tid=tid, error=%e, "/etc/timezone is missing, using default");
             "America/Indiana/Indianapolis".to_owned()
         },
     };
@@ -246,7 +246,7 @@ fn load_local_offset(from_time: OffsetDateTime, tid: &TransactionId) -> Result<U
     };
     let tm = match time_zone.find_local_time_type(from_time.unix_timestamp()) {
         Ok(t) => t,
-        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to find time zone type"),
+        Err(e) => bail_error!(tid=tid, error=%e, "Failed to find time zone type"),
     };
     Ok(UtcOffset::from_whole_seconds(tm.ut_offset())?)
 }

@@ -40,7 +40,7 @@ impl DynBatchGpuQueue {
         Ok(svc)
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=%item.tid)))]
     /// Will need to convert from registered function in the incoming queue to an enqueued invocation after compression.
     fn add_item_to_batches(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         self.num_queued.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -61,7 +61,7 @@ impl DynBatchGpuQueue {
 }
 
 impl GpuQueuePolicy for DynBatchGpuQueue {
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=%item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         let mut queue = self.incoming_queue.lock();
         queue.push_back(item.clone()); //cloning an Arc, hmm

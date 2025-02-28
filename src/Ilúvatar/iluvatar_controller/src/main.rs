@@ -25,11 +25,11 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let config = Configuration::boxed(&args.config)?;
-    let _guard = start_tracing(config.logging.clone(), &config.name, tid)?;
+    let _guard = start_tracing(&config.logging, tid)?;
 
     let controller = Controller::new(config.clone(), tid).await?;
 
-    info!(tid=%tid, "Controller started!");
+    info!(tid = tid, "Controller started!");
     debug!(config=?config, "Controller configuration");
     let addr = std::net::SocketAddr::new(config.address.clone().parse()?, config.port);
     let _j = tokio::spawn(

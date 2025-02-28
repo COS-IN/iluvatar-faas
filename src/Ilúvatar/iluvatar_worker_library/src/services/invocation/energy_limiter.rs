@@ -3,7 +3,7 @@ use iluvatar_library::characteristics_map::CharacteristicsMap;
 use iluvatar_library::energy::energy_logging::EnergyLogger;
 use std::sync::Arc;
 
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub enum PowerCapVersion {
     /// Check if power usage is under limit to allow invocation
     V0,
@@ -11,7 +11,7 @@ pub enum PowerCapVersion {
     V1,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 /// Internal knobs for how the [crate::services::invocation::EnergyLimiter] works
 pub struct EnergyCapConfig {
     /// Maximum power usage before pausing invocations to wait for power drop

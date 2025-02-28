@@ -61,20 +61,20 @@ impl CpuFreqMonitor {
         let mut opened = match std::fs::File::open(&pth) {
             Ok(b) => b,
             Err(e) => {
-                bail_error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to open cpu freq file")
+                bail_error!(error=%e, tid=tid, file=%pth.to_string_lossy(), "Unable to open cpu freq file")
             },
         };
         let mut buff = String::new();
         match opened.read_to_string(&mut buff) {
             Ok(_) => (),
             Err(e) => {
-                bail_error!(error=%e, tid=%tid, file=%pth.to_string_lossy(), "Unable to read cpu freq file into buffer")
+                bail_error!(error=%e, tid=tid, file=%pth.to_string_lossy(), "Unable to read cpu freq file into buffer")
             },
         };
         match buff[0..buff.len() - 1].parse::<u64>() {
             Ok(u) => Ok(u),
             Err(e) => {
-                bail_error!(error=%e, tid=%tid, data=%buff, "Unable to parse cpu freq buffer")
+                bail_error!(error=%e, tid=tid, data=%buff, "Unable to parse cpu freq buffer")
             },
         }
     }
@@ -90,13 +90,13 @@ impl CpuFreqMonitor {
             let parsed = match self.read_freq(kernel_path, tid) {
                 Ok(p) => p,
                 Err(e) => {
-                    error!(tid=%tid, error=%e, "Failed to read kernel CPU frequencies");
+                    error!(tid=tid, error=%e, "Failed to read kernel CPU frequencies");
                     return;
                 },
             };
             frequencies.push(parsed);
         }
-        info!(tid=%tid, frequencies=?frequencies, "Kernel CPU Frequencies");
+        info!(tid=tid, frequencies=?frequencies, "Kernel CPU Frequencies");
     }
 
     /// Log the hardware CPU frequencies, CPU ID is the entry in the vec
@@ -110,12 +110,12 @@ impl CpuFreqMonitor {
             let parsed = match self.read_freq(hw_path, tid) {
                 Ok(p) => p,
                 Err(e) => {
-                    error!(tid=%tid, error=%e, "Failed to read hardware CPU frequencies");
+                    error!(tid=tid, error=%e, "Failed to read hardware CPU frequencies");
                     return;
                 },
             };
             frequencies.push(parsed);
         }
-        info!(tid=%tid, frequencies=?frequencies, "Hardware CPU Frequencies");
+        info!(tid=tid, frequencies=?frequencies, "Hardware CPU Frequencies");
     }
 }

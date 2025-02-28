@@ -5,7 +5,7 @@ import traceback
 from copy import deepcopy
 import shutil
 from enum import Enum
-
+from typing import Dict
 
 class RunTarget(Enum):
     WORKER = "worker"
@@ -49,9 +49,15 @@ def _run_ansible_clean(log_file, kwargs):
 
 def _copy_logs(log_file, results_dir, kwargs):
     if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
-        if os.path.exists(kwargs["worker_log_dir"]):
+        if os.path.isdir(kwargs["worker_log_dir"]):
             for subdir in os.listdir(kwargs["worker_log_dir"]):
                 src = os.path.join(kwargs["worker_log_dir"], subdir)
+                dest = os.path.join(results_dir, subdir)
+                if src != dest:
+                    shutil.move(src, dest)
+        if os.path.isdir(kwargs["controller_log_dir"]):
+            for subdir in os.listdir(kwargs["controller_log_dir"]):
+                src = os.path.join(kwargs["controller_log_dir"], subdir)
                 dest = os.path.join(results_dir, subdir)
                 if src != dest:
                     shutil.move(src, dest)
@@ -105,7 +111,7 @@ def _remote_cleanup(
             ssh.exec_command(f"sudo rm -rf {kwargs['worker_log_dir']}")
 
 
-def _run_cmd(cmd_args, log_file, shell: bool = False):
+def _run_cmd(cmd_args, log_file, shell: bool = False, env: Dict = None):
     opened_log = False
     if type(log_file) is str:
         log_file = open(log_file, "a")
@@ -118,15 +124,17 @@ def _run_cmd(cmd_args, log_file, shell: bool = False):
                 raise Exception(f"Bad ansible argument: {string}")
 
             formatted_args.append(string)
-        env = deepcopy(os.environ)
-        env["RUST_BACTRACE"] = "1"
+        sys_env = deepcopy(os.environ)
+        sys_env["RUST_BACTRACE"] = "1"
+        if env is not None:
+            sys_env = {**sys_env, **env}
         completed = subprocess.run(
             args=formatted_args,
             stdout=log_file,
             stderr=log_file,
             text=True,
             shell=shell,
-            env=env,
+            env=sys_env,
         )
         completed.check_returncode()
         return completed.stdout
@@ -140,6 +148,10 @@ def _run_cmd(cmd_args, log_file, shell: bool = False):
             for arg in cmd_args:
                 log_file.write(f"{arg} ")
                 log_file.write("\n")
+            if env is not None:
+                log_file.write(json.dumps(env))
+                log_file.write("\n")
+
         raise e
     finally:
         if opened_log:

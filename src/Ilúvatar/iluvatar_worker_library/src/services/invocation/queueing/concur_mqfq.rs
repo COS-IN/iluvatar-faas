@@ -71,7 +71,7 @@ impl Flow {
     /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
     ///   Calls [Self::add_item_to_queue] to do this
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=%item.tid)))]
     fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
         debug!(tid=%item.tid, error=%cause, "Marking invocation as error");
         item.mark_error(&cause);
@@ -92,10 +92,13 @@ impl Flow {
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                        error!(
+                            tid = tid,
+                            "CPU Resource Monitor `try_acquire_cores` returned a closed error!"
+                        )
                     },
                     tokio::sync::TryAcquireError::NoPermits => {
-                        // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
+                        // debug!(tid=tid, fqdn=%reg.fqdn, "Not enough CPU permits")
                     },
                 };
                 return None;
@@ -106,10 +109,13 @@ impl Flow {
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                        error!(
+                            tid = tid,
+                            "GPU Resource Monitor `try_acquire_cores` returned a closed error!"
+                        )
                     },
                     tokio::sync::TryAcquireError::NoPermits => {
-                        // debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
+                        // debug!(tid=tid, fqdn=%reg.fqdn, "Not enough GPU permits")
                     },
                 };
                 return None;
@@ -135,7 +141,7 @@ impl Flow {
                 {
                     None
                 } else {
-                    error!(tid=%tid, error=%cause, "Error getting new container");
+                    error!(tid=tid, error=%cause, "Error getting new container");
                     None
                 }
             },
@@ -170,7 +176,7 @@ impl Flow {
             .await
             {
                 Ok((result, duration, compute, container_state)) => {
-                    info!(tid=%tid, "!!invoke done!!");
+                    info!(tid = tid, "!!invoke done!!");
                     item.invoke.mark_successful(result, duration, compute, container_state);
                 },
                 Err(cause) => {
@@ -316,7 +322,7 @@ impl FuncQueue {
                 });
             },
             Err(e) => {
-                error!(tid=%tid, error=%e, fqdn=%self.registration.fqdn, "Failed to make new Flow queue thread");
+                error!(tid=tid, error=%e, fqdn=%self.registration.fqdn, "Failed to make new Flow queue thread");
             },
         }
     }
@@ -324,7 +330,7 @@ impl FuncQueue {
     fn update_state(self: &Arc<Self>, tid: &TransactionId, new_state: MQState) {
         if new_state != *self.state.read() {
             let mut state = self.state.write();
-            info!(tid=%tid, queue=%self.registration.fqdn, old_state=?*state, new_state=?new_state, "Switching state");
+            info!(tid=tid, queue=%self.registration.fqdn, old_state=?*state, new_state=?new_state, "Switching state");
             *state = new_state;
             self.global_signal.notify_waiters();
         }
@@ -462,7 +468,7 @@ impl ConcurMqfq {
             signal: Arc::new(Notify::new()),
             clock: get_global_clock(tid)?,
         });
-        info!(tid=%tid, "Created ConcurMqfq");
+        info!(tid = tid, "Created ConcurMqfq");
         Ok(svc)
     }
 
@@ -518,7 +524,12 @@ impl DeviceQueue for ConcurMqfq {
         let per_flow_wait_times = self.queues.iter().map(|x| x.value().est_flow_wait());
         let total_wait: f64 = per_flow_wait_times.sum();
 
-        debug!(tid=%tid, qt=total_wait, runtime=0.0, "GPU estimated completion time of item");
+        debug!(
+            tid = tid,
+            qt = total_wait,
+            runtime = 0.0,
+            "GPU estimated completion time of item"
+        );
 
         (
             (total_wait / self.gpu.total_gpus() as f64) + self.cmap.get_gpu_exec_time(&reg.fqdn),

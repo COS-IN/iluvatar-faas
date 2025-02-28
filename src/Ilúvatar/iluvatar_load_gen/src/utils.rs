@@ -1,10 +1,13 @@
 use crate::benchmark::BenchmarkStore;
+use crate::LOAD_GEN_PREFIX;
 use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::clock::{now, Clock};
+use iluvatar_library::logging::LoggingConfig;
 use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
+    bail_error,
     transaction::{gen_tid, TransactionId},
     types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::{port::Port, timing::TimedExt},
@@ -403,12 +406,12 @@ pub async fn worker_invoke(
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
-    tracing::debug!(tid=%tid, "Sending invocation to worker");
+    tracing::debug!(tid = tid, "Sending invocation to worker");
     let (invok_out, invok_lat) = api
         .invoke(name.to_owned(), version.to_owned(), args, tid.to_owned())
         .timed()
         .await;
-    tracing::debug!(tid=%tid, "Invocation returned from worker");
+    tracing::debug!(tid = tid, "Invocation returned from worker");
     let c = match invok_out {
         Ok(r) => match serde_json::from_str::<FunctionExecOutput>(&r.json_result) {
             Ok(b) => CompletedWorkerInvocation {
@@ -585,4 +588,27 @@ pub fn save_result_json<P: AsRef<Path> + std::fmt::Debug, T: Serialize>(path: P,
     };
     f.write_all(to_write.as_bytes())?;
     Ok(())
+}
+
+pub fn start_logging(path: &str, stdout: bool) -> anyhow::Result<impl Drop> {
+    let overrides = vec![
+        ("directory".to_string(), path.to_string()),
+        ("basename".to_string(), "load_gen".to_string()),
+        ("stdout".to_string(), stdout.to_string()),
+    ];
+    let log_cfg = iluvatar_library::config::load_config::<LoggingConfig>(None, None, Some(overrides), LOAD_GEN_PREFIX)?;
+    iluvatar_library::logging::start_tracing(&Arc::new(log_cfg), &"LOAD_GEN_MAIN".to_string())
+}
+
+pub fn wrap_logging<T>(
+    path: String,
+    stdout: bool,
+    args: T,
+    run: fn(args: T) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let _drop = start_logging(&path, stdout)?;
+    match run(args) {
+        Err(e) => bail_error!(error=%e, "Load failed, check error log"),
+        _ => Ok(()),
+    }
 }
