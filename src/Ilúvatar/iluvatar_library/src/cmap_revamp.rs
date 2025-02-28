@@ -1,3 +1,5 @@
+use dashmap::DashMap;
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 #[repr(u32)]
 pub enum Chars {
@@ -48,12 +50,36 @@ pub enum Chars {
     QueueErrGpu,
     QueueErrCpu,
 }
+impl Max for Chars {
+    const MAX: usize = Self::QueueErrCpu as usize;
+}
+impl num_traits::AsPrimitive<usize> for Chars {
+    fn as_(self) -> usize {
+        self as usize
+    }
+}
+
+/// Trait ensuring that there is a maximal value that is also constant
+pub trait Max {
+    const MAX: usize;
+}
 
 pub enum Value {
     Min = 0,
     Max,
     Avg,
     Latest
+}
+
+pub trait CharMap<T: num_traits::AsPrimitive<usize>> {
+    fn update(&self, _fqdn: &str, _key: T, _value: f64) { }
+
+    // Other interface where caller has enum entry per-compute
+    fn get(&self, _fqdn: &str, _key: T) -> f64 {
+        0.0
+    }
+
+    fn register(&self, fqdn: String);
 }
 
 /// A better characteristics map
@@ -71,23 +97,20 @@ pub enum Value {
 ///     easy cloning / serializing to send to controller for LB purposes
 ///     Allow updating multiple enum entries in one call
 ///     Allow retrieving multiple enum entries in one call
-pub struct CharMap<T> {
-    data: Vec<T>
+pub struct CharMapRW<const T: usize> {
+    data: DashMap<String, [f64; T]>,
 }
-impl<T> CharMap<T> {
+impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for CharMapRW<{ S }> {
+    fn register(&self, fqdn: String) {
+        self.data.insert(fqdn, [0.0; S]);
+    }
+}
+
+impl<const T: usize> CharMapRW<T> {
     pub fn new() -> Self {
-        Self { data: vec![] }
+        Self { data: DashMap::new() }
     }
 
-    // Possible interface where internally we track per-compute
-    pub fn get_value(fqdn: &str, key: T, entry: Value) -> f64 {
-        0.0
-    }
-
-    // Other interface where caller has enum entry per-compute
-    pub fn get(fqdn: &str, key: T) -> f64 {
-        0.0
-    }
 }
 
 
@@ -97,6 +120,21 @@ mod char_tests {
 
     #[test]
     fn compile_test() {
-        let _cmap = CharMap::<Chars>::new();
+        let _cmap = CharMapRW::<{ Chars::MAX }>::new();
+    }
+
+    #[test]
+    fn register() {
+        let cmap: Box<dyn CharMap<Chars>> = Box::new(CharMapRW::<{ Chars::MAX }>::new());
+        cmap.register("f1".to_owned());
+        cmap.register("f2".to_owned());
+        cmap.register("f3".to_owned());
+    }
+
+    #[test]
+    fn get() {
+        let cmap: Box<dyn CharMap<Chars>> = Box::new(CharMapRW::<{ Chars::MAX }>::new());
+        cmap.register("f1".to_owned());
+        cmap.get("f1", Chars::CpuExecTime);
     }
 }
