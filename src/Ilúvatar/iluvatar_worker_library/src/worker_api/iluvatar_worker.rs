@@ -14,11 +14,11 @@ use iluvatar_library::{
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
     CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest,
-    PrewarmRequest, RegisterRequest, StatusRequest,
+    PrewarmRequest, RegisterRequest, RegisteredFunction, StatusRequest,
 };
 use iluvatar_rpc::rpc::{
-    CleanResponse, HealthResponse, InvokeAsyncResponse, InvokeResponse, PingResponse, PrewarmResponse,
-    RegisterResponse, StatusResponse,
+    CleanResponse, HealthResponse, InvokeAsyncResponse, InvokeResponse, ListFunctionRequest, ListFunctionResponse,
+    PingResponse, PrewarmResponse, RegisterResponse, StatusResponse,
 };
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -305,5 +305,27 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             Ok(_) => Ok(Response::new(CleanResponse {})),
             Err(e) => Err(Status::internal(format!("{:?}", e))),
         }
+    }
+    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    async fn list_registered_funcs(
+        &self,
+        request: Request<ListFunctionRequest>,
+    ) -> Result<Response<ListFunctionResponse>, Status> {
+        let request = request.into_inner();
+        info!(tid=%request.transaction_id, "Handling list registered functions request");
+        let funcs: Vec<Arc<crate::services::registration::RegisteredFunction>> =
+            self.reg.get_all_registered_functions();
+        let rpc_funcs = funcs
+            .iter()
+            .map(|func| RegisteredFunction {
+                function_name: func.function_name.clone(),
+                function_version: func.function_version.clone(),
+                image_name: func.image_name.clone(),
+            })
+            .collect();
+
+        let reply = ListFunctionResponse { functions: rpc_funcs };
+
+        Ok(Response::new(reply))
     }
 }

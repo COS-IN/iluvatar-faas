@@ -97,4 +97,6 @@ pub enum Commands {
     Health,
     /// Play table tennis
     Ping,
+    /// List all registered functions
+    List,
 }
