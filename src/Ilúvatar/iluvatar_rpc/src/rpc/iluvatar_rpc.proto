@@ -18,12 +18,19 @@ message InvokeRequest {
   string transaction_id = 4;
 }
 
+message RegisteredFunction {
+  string function_name = 1;
+  string function_version = 2;
+  string image_name = 3;
+}
+
+
 message ListFunctionRequest {
   string transaction_id = 1;
 }
 
 message ListFunctionResponse {
-  string function_list = 1;
+  repeated RegisteredFunction functions = 1;
 }
 
 message InvokeResponse {

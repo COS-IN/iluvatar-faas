@@ -14,7 +14,7 @@ use iluvatar_library::{
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
     CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest,
-    PrewarmRequest, RegisterRequest, StatusRequest,
+    PrewarmRequest, RegisterRequest, RegisteredFunction, StatusRequest,
 };
 use iluvatar_rpc::rpc::{
     CleanResponse, HealthResponse, InvokeAsyncResponse, InvokeResponse, ListFunctionRequest, ListFunctionResponse,
@@ -315,18 +315,17 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         info!(tid=%request.transaction_id, "Handling list registered functions request");
         let funcs: Vec<Arc<crate::services::registration::RegisteredFunction>> =
             self.reg.get_all_registered_functions();
-        let formatted_json = funcs
+        let rpc_funcs = funcs
             .iter()
-            .map(|func| {
-                serde_json::json!({
-                    "function_name": func.function_name,
-                    "function_version": func.function_version,
-                    "image_name": func.image_name,
-                })
+            .map(|func| RegisteredFunction {
+                function_name: func.function_name.clone(),
+                function_version: func.function_version.clone(),
+                image_name: func.image_name.clone(),
             })
-            .collect::<Vec<_>>();
-        let resp = serde_json::to_string_pretty(&formatted_json).unwrap();
-        let reply = ListFunctionResponse { function_list: resp };
+            .collect();
+
+        let reply = ListFunctionResponse { functions: rpc_funcs };
+
         Ok(Response::new(reply))
     }
 }

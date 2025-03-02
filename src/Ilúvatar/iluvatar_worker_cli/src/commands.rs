@@ -4,6 +4,7 @@ use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::HealthStatus;
 use iluvatar_library::utils::{config::args_to_json, port::Port};
 use iluvatar_worker_library::worker_api::{rpc::RPCWorkerAPI, WorkerAPI};
+use serde_json::json;
 use tracing::{error, info};
 
 pub async fn ping(host: String, port: Port) -> Result<()> {
@@ -85,11 +86,19 @@ pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()
 pub async fn list_registered_funcs(host: String, port: Port) -> Result<()> {
     let mut api = RPCWorkerAPI::new(&host, port, &gen_tid()).await?;
     let ret = api.list_registered_funcs(gen_tid()).await?;
-    if let Ok(pretty_json) = serde_json::from_str::<serde_json::Value>(&ret.function_list) {
-        info!("{}", serde_json::to_string_pretty(&pretty_json).unwrap());
-    } else {
-        info!("Failed to parse function_list JSON");
-    }
+    let functions = ret
+        .functions
+        .into_iter()
+        .map(|func| {
+            json!({
+                "function_name": func.function_name,
+                "function_version": func.function_version,
+                "image_name": func.image_name,
+            })
+        })
+        .collect::<Vec<_>>();
+    let output = json!({ "functions": functions });
+    info!("{}", serde_json::to_string_pretty(&output).unwrap());
     Ok(())
 }
 
