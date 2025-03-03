@@ -6,9 +6,8 @@ pub mod transaction;
 pub mod utils;
 #[macro_use]
 pub mod macros;
-pub mod characteristics_map;
+pub mod char_map;
 pub mod clock;
-pub mod cmap_revamp;
 pub mod config;
 pub mod continuation;
 pub mod energy;
@@ -18,5 +17,5 @@ pub mod logging;
 pub mod mindicator;
 pub mod threading;
 pub mod tokio_utils;
-mod tput_calc;
+pub mod tput_calc;
 pub mod types;

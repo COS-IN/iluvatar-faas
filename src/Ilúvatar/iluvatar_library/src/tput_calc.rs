@@ -1,13 +1,31 @@
+use crate::clock::now;
+use parking_lot::RwLock;
 use std::collections::VecDeque;
 use tokio::time::Instant;
 
-#[derive(Debug)]
 pub struct DeviceTput {
-    tput_record: VecDeque<(Instant, f64)>,
+    tput_calc: RwLock<DeviceTputCalc>,
 }
 impl DeviceTput {
+    pub fn boxed() -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            tput_calc: RwLock::new(DeviceTputCalc::new()),
+        })
+    }
+    pub fn add_tput(&self, time: f64) {
+        self.tput_calc.write().insert(now(), time);
+    }
+    pub fn get_tput(&self) -> f64 {
+        self.tput_calc.read().get_tput()
+    }
+}
+#[derive(Debug)]
+pub struct DeviceTputCalc {
+    tput_record: VecDeque<(Instant, f64)>,
+}
+impl DeviceTputCalc {
     pub fn new() -> Self {
-        DeviceTput {
+        DeviceTputCalc {
             tput_record: VecDeque::new(),
         }
     }
@@ -42,7 +60,7 @@ mod device_tput {
     #[test]
     fn items_added() {
         let c = now();
-        let mut tracker = DeviceTput::new();
+        let mut tracker = DeviceTputCalc::new();
         tracker.insert(c, 0.1);
         tracker.insert(c, 0.1);
         tracker.insert(c, 0.1);
@@ -52,7 +70,7 @@ mod device_tput {
     #[test]
     fn max_buff_size() {
         let c = now();
-        let mut tracker = DeviceTput::new();
+        let mut tracker = DeviceTputCalc::new();
         for _ in 0..40 {
             tracker.insert(c, 0.1);
         }
@@ -62,7 +80,7 @@ mod device_tput {
     #[test]
     fn tput() {
         let c = now();
-        let mut tracker = DeviceTput::new();
+        let mut tracker = DeviceTputCalc::new();
         for _ in 0..5 {
             tracker.insert(c, 1.0);
         }

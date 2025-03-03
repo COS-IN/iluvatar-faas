@@ -3,7 +3,7 @@ use crate::services::invocation::dispatching::{
 };
 use crate::services::registration::RegisteredFunction;
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
@@ -11,11 +11,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub fn get_popular(
-    pol: EnqueueingPolicy,
-    cmap: &Arc<CharacteristicsMap>,
-    que_map: QueueMap,
-) -> Result<Arc<dyn DispatchPolicy>> {
+pub fn get_popular(pol: EnqueueingPolicy, cmap: &WorkerCharMap, que_map: QueueMap) -> Result<Arc<dyn DispatchPolicy>> {
     match pol {
         EnqueueingPolicy::TopAvg => TopAvgDispatch::boxed(cmap),
         EnqueueingPolicy::LeastPopular => LeastPopularDispatch::boxed(),
@@ -58,10 +54,10 @@ impl PopularityTracker {
 pub struct TopAvgDispatch {
     /// Map of FQDN -> IAT
     iats: RwLock<HashMap<String, f64>>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
 }
 impl TopAvgDispatch {
-    pub fn boxed(cmap: &Arc<CharacteristicsMap>) -> Result<Arc<dyn DispatchPolicy>> {
+    pub fn boxed(cmap: &WorkerCharMap) -> Result<Arc<dyn DispatchPolicy>> {
         Ok(Arc::new(Self {
             iats: RwLock::new(HashMap::new()),
             cmap: cmap.clone(),
@@ -70,7 +66,7 @@ impl TopAvgDispatch {
 }
 impl DispatchPolicy for TopAvgDispatch {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
-        let iat = self.cmap.get_iat(&reg.fqdn);
+        let iat = self.cmap.get_avg(&reg.fqdn, Chars::IAT);
         self.iats.write().insert(reg.fqdn.clone(), iat);
         let iats = self.iats.read().values().copied().collect::<Vec<f64>>();
         let avg = iats.iter().sum::<f64>() / iats.len() as f64;

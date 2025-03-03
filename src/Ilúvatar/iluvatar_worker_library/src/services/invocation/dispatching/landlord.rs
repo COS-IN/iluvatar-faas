@@ -4,7 +4,7 @@ use crate::services::invocation::queueing::DeviceQueue;
 use crate::services::registration::RegisteredFunction;
 use crate::worker_api::config::InvocationConfig;
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
@@ -41,7 +41,7 @@ pub struct LandlordConfig {
 
 pub fn get_landlord(
     pol: EnqueueingPolicy,
-    cmap: &Arc<CharacteristicsMap>,
+    cmap: &WorkerCharMap,
     invocation_config: &Arc<InvocationConfig>,
     que_map: QueueMap,
 ) -> Result<Arc<dyn DispatchPolicy>> {
@@ -59,7 +59,7 @@ pub fn get_landlord(
 pub struct Landlord {
     /// Map of FQDN -> credit
     credits: HashMap<String, f64>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     cfg: Arc<LandlordConfig>,
     gpu_queue: Arc<dyn DeviceQueue>,
     cpu_queue: Arc<dyn DeviceQueue>,
@@ -83,7 +83,7 @@ pub struct Landlord {
 
 impl Landlord {
     pub fn boxed(
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
         cfg: &Option<Arc<LandlordConfig>>,
         que_map: QueueMap,
         cachepol: &str,
@@ -136,7 +136,10 @@ impl Landlord {
 
     /// Sum of the gpu exec times of resident functions
     fn current_sz_occup(&self) -> f64 {
-        self.credits.keys().map(|fqdn| self.cmap.get_gpu_exec_time(fqdn)).sum()
+        self.credits
+            .keys()
+            .map(|fqdn| self.cmap.get_avg(fqdn, Chars::GpuExecTime))
+            .sum()
     }
 
     fn update_nonres(&mut self, fqdn: &str) {
@@ -194,11 +197,11 @@ impl Landlord {
             },
             Some(c) => {
                 // This should not be happening?
-                *c += self.cmap.get_gpu_exec_time(&reg.fqdn);
+                *c += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
             },
         }
         self.insertions += 1;
-        self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);
+        self.szhits += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
         info!(fqdn=%reg.fqdn, "Cache Insertion");
         self.update_res(&reg.fqdn);
         self.lostcredits.remove(&reg.fqdn);
@@ -270,7 +273,7 @@ impl Landlord {
                     (
                         fqdn.clone(),
                         mqfq.get(fqdn).map_or(0.0, |q| q.queue.len() as f64),
-                        self.cmap.get_gpu_exec_time(fqdn),
+                        self.cmap.get_avg(fqdn, Chars::GpuExecTime),
                     )
                 })
                 .collect::<Vec<(String, f64, f64)>>();
@@ -318,9 +321,9 @@ impl Landlord {
         let epsilon = 0.05;
         // with 4 active functions, this is a 20% buffer
         let gpu_est_total = gpu_est * (1.0 + epsilon * n_active);
-        let cpu_est_total = f64::max(cpu_est, self.cmap.get_exec_time(&reg.fqdn));
+        let cpu_est_total = f64::max(cpu_est, self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime));
 
-        info!(tid=tid, fqdn=%reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, cpu_exec=%self.cmap.get_exec_time(&reg.fqdn), gpu_est_total=%gpu_est_total, cpu_est_total=%cpu_est_total,  "Landlord Credit");
+        info!(tid=tid, fqdn=%reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, cpu_exec=%self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime), gpu_est_total=%gpu_est_total, cpu_est_total=%cpu_est_total,  "Landlord Credit");
 
         match self.cachepol.as_str() {
             "LFU" => 1.0,
@@ -374,7 +377,7 @@ impl Landlord {
                             false
                         } else {
                             // Function has positive credit, but should be penalized somehow for having empty queue
-                            let penalty = self.cmap.get_gpu_exec_time(fqdn);
+                            let penalty = self.cmap.get_avg(fqdn, Chars::GpuExecTime);
                             info!(fqdn=%fqdn, penalty=%penalty, orig_cred=%cr, "Penalizing function");
                             *cr -= penalty;
                             *cr > 0.0
@@ -610,7 +613,7 @@ impl Landlord {
             return potential_credits > 0.0;
         }
 
-        let l_gpu = self.cmap.get_gpu_exec_time(&reg.fqdn);
+        let l_gpu = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
         let fn_slowdown = gpu_est / l_gpu;
 
         if fn_slowdown > self.cfg.slowdown_thresh {
@@ -623,7 +626,7 @@ impl Landlord {
                 _eviction_success = self.try_evict_pol(100000000000.0);
             }
             return false;
-            // let l_cpu = self.cmap.get_exec_time(&reg.fqdn) + 0.001; // in case zero?
+            // let l_cpu = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime) + 0.001; // in case zero?
             // let p_cpu = l_gpu/l_cpu; //for some functions this can be really small,
             // let r = rand::thread_rng().gen_range(0.0..1.0);
             // if r < p_cpu {
@@ -648,10 +651,36 @@ impl Landlord {
         true
     }
 
+    pub fn get_gpu_est(&self, fqdn: &str, mqfq_est: f64) -> (f64, f64) {
+        // we have a new estimate. Before that, let's compute the error with the previous estimate and e2e time
+        let prev_est = match self.cmap.get_avg(fqdn, Chars::EstGpu) {
+            0.0 => mqfq_est, //get full marks initially
+            c => c,
+        };
+        let prev_e2e = match self.cmap.get_avg(fqdn, Chars::E2EGpu) {
+            0.0 => mqfq_est, //get full marks initially
+            c => c,
+        };
+        // Kalman Filter notation , see faasmeter paper
+        let z = prev_e2e - prev_est; //residual error
+
+        let alpha = 0.1;
+        let beta = 0.7;
+        // kalman gain is proportional to process noise, in our case is total gpu load difference
+        let k = 1.0 - (beta + alpha);
+        let xhat = (alpha * prev_est) + (beta * mqfq_est) + k * z;
+
+        self.cmap.update(fqdn, Chars::EstGpu, xhat);
+
+        info!(fqdn=%fqdn, raw_est=%mqfq_est, error=%z , kf_est=%xhat,  "GPU Estimate");
+        // For now we can simply return this
+        (xhat, z)
+    }
+
     /// Main entry point and landlord caching logic
     fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
         let (mqfq_est, gpu_load) = self.gpu_queue.est_completion_time(reg, tid);
-        let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
+        let (gpu_est, est_err) = self.get_gpu_est(&reg.fqdn, mqfq_est);
         let (cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, tid);
         let szaware = !matches!(self.cachepol.as_str(), "LFU" | "LRU");
 
@@ -667,13 +696,13 @@ impl Landlord {
                 // we really want to minimize this case, function is on gpu already. estimate can be wrong?
                 self.misses += 1;
                 self.negcredits += 1;
-                self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
+                self.szmisses += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
                 info!(tid=tid, fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), "MISS_INSUFFICIENT_CREDITS");
                 self.update_nonres(&reg.fqdn);
                 return (Compute::CPU, cpu_load, cpu_est);
             }
             self.hits += 1;
-            self.szhits += self.cmap.get_gpu_exec_time(&reg.fqdn);
+            self.szhits += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
             // We've seen this function before so its size is more likely to be accurate
             info!(tid=tid, fqdn=%&reg.fqdn, opp_cost=%new_credit, "Cache Hit");
             self.landlog("HIT_PRESENT");
@@ -695,7 +724,7 @@ impl Landlord {
             // If we are here, either we are full, or have space but function doesnt have enough credits, so that is a miss.
             self.misses += 1;
             self.capacitymiss += 1;
-            self.szmisses += self.cmap.get_gpu_exec_time(&reg.fqdn);
+            self.szmisses += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
             info!(tid=tid, fqdn=%reg.fqdn, "Cache Miss Admission");
             self.update_nonres(&reg.fqdn.clone());
             (Compute::CPU, cpu_load, cpu_est)
@@ -710,7 +739,7 @@ struct LLWrap {
 }
 impl LLWrap {
     pub fn boxed(
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
         cfg: &Option<Arc<LandlordConfig>>,
         que_map: QueueMap,
         cachepol: &str,
