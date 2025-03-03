@@ -3,7 +3,7 @@ use crate::services::invocation::QueueLoad;
 use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::gpu::GpuResourceTracker;
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::threading;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
@@ -70,7 +70,7 @@ struct CacheData {
 type AllowSet = HashMap<String, usize>;
 #[allow(unused)]
 pub struct GreedyWeights {
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     config: Arc<GreedyWeightConfig>,
     reg: Arc<RegistrationService>,
     allow_set: RwLock<AllowSet>,
@@ -81,7 +81,7 @@ pub struct GreedyWeights {
 }
 impl GreedyWeights {
     pub fn boxed(
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
         que_map: QueueMap,
         config: &Option<Arc<GreedyWeightConfig>>,
         reg: &Arc<RegistrationService>,
@@ -147,14 +147,16 @@ impl GreedyWeights {
         let mut allowed_load = 0.0;
         let mut allowed_tput = 0.0;
         let mut allow_set = AllowSet::new();
-        let gpu_tput = self.cmap.get_gpu_tput();
-        if self.que_map.get(&Compute::GPU).map_or(0, |q| q.queue_len()) > 10 {
-            for info in fun_data.iter() {
-                allowed_load += info.load;
-                allowed_tput += info.tput;
-                allow_set.insert(info.fqdn.clone(), allow_set.len());
-                if allowed_tput >= gpu_tput || allow_set.len() >= self.max_size(fun_data.len()) {
-                    break;
+        if let Some(queue) = self.que_map.get(&Compute::GPU) {
+            if queue.queue_len() > 10 {
+                let gpu_tput = queue.queue_tput();
+                for info in fun_data.iter() {
+                    allowed_load += info.load;
+                    allowed_tput += info.tput;
+                    allow_set.insert(info.fqdn.clone(), allow_set.len());
+                    if allowed_tput >= gpu_tput || allow_set.len() >= self.max_size(fun_data.len()) {
+                        break;
+                    }
                 }
             }
         } else {
@@ -205,12 +207,12 @@ impl GreedyWeights {
     async fn update_set(self: Arc<Self>, tid: String) {
         let mut data = vec![];
         for fqdn in self.reg.registered_funcs() {
-            let gpu = self.cmap.avg_gpu_exec_t(&fqdn);
+            let gpu = self.cmap.get_avg(&fqdn, Chars::GpuExecTime);
             if gpu == 0.0 {
                 continue;
             }
-            let cpu = self.cmap.avg_cpu_exec_t(&fqdn);
-            let mut iat = self.cmap.get_iat(&fqdn);
+            let cpu = self.cmap.get_avg(&fqdn, Chars::CpuExecTime);
+            let mut iat = self.cmap.get_avg(&fqdn, Chars::IAT);
             let real_iat = iat;
             if iat == 0.0 {
                 iat = 100.0; // unknown IAT, make large

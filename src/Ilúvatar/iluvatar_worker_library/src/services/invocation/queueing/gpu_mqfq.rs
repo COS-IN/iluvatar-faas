@@ -10,11 +10,12 @@ use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
-use iluvatar_library::characteristics_map::Characteristics;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
+use iluvatar_library::tput_calc::DeviceTput;
+use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::utils::missing_default;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId};
 use iluvatar_library::{
     mindicator::Mindicator,
     threading::{tokio_runtime, tokio_thread, EventualItem},
@@ -147,7 +148,7 @@ pub struct FlowQ {
 
     cont_manager: Arc<ContainerManager>,
     gpu_config: Arc<GPUResourceConfig>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     mindicator: Arc<Mindicator>,
     clock: Clock,
 }
@@ -161,7 +162,7 @@ impl FlowQ {
         cont_manager: &Arc<ContainerManager>,
         gpu_config: &Arc<GPUResourceConfig>,
         q_config: &Arc<MqfqConfig>,
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
         mindicator: &Arc<Mindicator>,
         clock: &Clock,
     ) -> Self {
@@ -206,7 +207,7 @@ impl FlowQ {
     fn service_avg(&self, item: &Arc<EnqueuedInvocation>) -> f64 {
         let avg = match self.service_avg {
             Some(avg) if avg != 0.0 => avg,
-            _ => self.cmap.avg_gpu_exec_t(&item.registration.fqdn),
+            _ => self.cmap.get_avg(&item.registration.fqdn, Chars::GpuExecTime),
         };
         if avg <= 0.0 {
             // no record in cmap yet, use 10% of overrun
@@ -294,7 +295,7 @@ impl FlowQ {
         if self.state == MQState::Active {
             let ttl_remaining = (self.clock.now() - self.last_serviced).as_seconds_f64();
             let ttl = if self.ttl_sec < 0.0 {
-                self.cmap.get_iat(&self.fqdn) * f64::abs(self.ttl_sec)
+                self.cmap.get_avg(&self.fqdn, Chars::GpuExecTime) * f64::abs(self.ttl_sec)
             } else {
                 self.ttl_sec
             };
@@ -343,7 +344,7 @@ pub struct MQFQ {
 
     /// Remaining passed by gpu_q_invoke
     cont_manager: Arc<ContainerManager>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     /// Use this as a token bucket
     ctrack: Arc<CompletionTimeTracker>,
 
@@ -360,6 +361,7 @@ pub struct MQFQ {
     /// System-wide logical clock for resources consumed
     mindicator: Arc<Mindicator>,
     active_flows: RwLock<u32>,
+    device_tput: Arc<DeviceTput>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -432,7 +434,7 @@ impl TryFrom<Option<&String>> for MqfqPolicy {
 impl MQFQ {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
-        cmap: Arc<CharacteristicsMap>,
+        cmap: WorkerCharMap,
         invocation_config: Arc<InvocationConfig>,
         cpu: Arc<CpuResourceTracker>,
         gpu: &Option<Arc<GpuResourceTracker>>,
@@ -489,6 +491,7 @@ impl MQFQ {
             sticky_queue: RwLock::new("".to_string()),
             mindicator: Mindicator::boxed(0),
             active_flows: RwLock::new(0),
+            device_tput: DeviceTput::boxed(),
         });
         gpu_tx.send(svc.clone())?;
         if let Some(mon_tx) = mon_tx {
@@ -527,7 +530,7 @@ impl MQFQ {
                 finish_time_virt: q.finish_time_virt,
                 in_flight: q.in_flight,
                 pending_load: q.est_flow_wait(),
-                active_load: q.in_flight as f64 * self.cmap.get_gpu_exec_time(&q.fqdn),
+                active_load: q.in_flight as f64 * self.cmap.get_avg(&q.fqdn, Chars::GpuExecTime),
                 queue_len: q.queue.len(),
                 avg_active_t: q.avg_active_t,
                 num_active_periods: q.num_active_periods,
@@ -682,6 +685,7 @@ impl MQFQ {
             start,
             &self.cmap,
             &self.clock,
+            &self.device_tput,
         )
         .await
         {
@@ -1179,7 +1183,7 @@ impl MQFQ {
                         f.state = MQState::Throttled;
                         f.start_time_virt = f.finish_time_virt;
                     }
-                    f.finish_time_virt += self.cmap.get_gpu_exec_time(&reg.fqdn);
+                    f.finish_time_virt += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
                 }
                 f
             })
@@ -1297,7 +1301,7 @@ impl DeviceQueue for MQFQ {
             len: rpt.flows.iter().fold(0, |acc, f| acc + f.queue_len),
             load: load,
             load_avg: load / self.gpu.max_concurrency() as f64,
-            tput: self.cmap.get_gpu_tput(),
+            tput: self.device_tput.get_tput(),
         }
     }
 
@@ -1312,14 +1316,11 @@ impl DeviceQueue for MQFQ {
             MqfqTimeEst::FallbackLinReg => self.fallback_est_time_linreg(reg, tid),
             MqfqTimeEst::GlobalLinReg => self.global_est_time(reg, tid),
         };
-        let exec_time = self.cmap.get_gpu_exec_time(&reg.fqdn);
+        let exec_time = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
         let mut err_time = 0.0;
         if self.q_config.add_estimation_error && self.queue_len() > 0 {
             // ALERT: We dont currently store this, so always zero, REMOVE
-            err_time = match self.cmap.lookup_agg(&reg.fqdn, &Characteristics::QueueErrGpu) {
-                None => 0.0,
-                Some(x) => iluvatar_library::characteristics_map::unwrap_val_f64(&x) / concur,
-            };
+            err_time = self.cmap.get_avg(&reg.fqdn, Chars::QueueErrGpu);
         }
         let raw_est = self.est_completion_time2(reg, tid) / concur;
         debug!(tid=tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");
@@ -1359,5 +1360,9 @@ impl DeviceQueue for MQFQ {
 
     fn expose_flow_report(&self) -> Option<MqfqInfo> {
         Some(self.get_flow_report())
+    }
+
+    fn queue_tput(&self) -> f64 {
+        self.device_tput.get_tput()
     }
 }

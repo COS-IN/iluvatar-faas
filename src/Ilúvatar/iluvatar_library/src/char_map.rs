@@ -1,7 +1,10 @@
+use crate::linear_reg::LinearReg;
+use crate::types::Compute;
 use dashmap::DashMap;
+use parking_lot::RwLock;
 use std::sync::Arc;
 
-// A better characteristics map system
+// A better Chars map system
 //
 // What we 'want' it to do:
 //     Store these per-fqdn
@@ -22,8 +25,45 @@ use std::sync::Arc;
 //     exporting data
 //     multiple retrieval
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-#[cfg_attr(test, derive(enum_iterator::Sequence))]
+/// Trait ensuring that there is a maximal value that is also constant.
+/// Used to index into the char map fqdn array.
+pub trait Max {
+    const MAX: usize;
+    /// The number of enums
+    const SIZE: usize = Self::MAX + 1;
+}
+
+pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
+    fn update(&self, fqdn: &str, key: T, value: f64);
+
+    fn get(&self, fqdn: &str, key: T, value: Value) -> f64;
+    fn get_min(&self, fqdn: &str, key: T) -> f64 {
+        self.get(fqdn, key, Value::Min)
+    }
+    fn get_max(&self, fqdn: &str, key: T) -> f64 {
+        self.get(fqdn, key, Value::Max)
+    }
+    fn get_avg(&self, fqdn: &str, key: T) -> f64 {
+        self.get(fqdn, key, Value::Avg)
+    }
+    fn get_latest(&self, fqdn: &str, key: T) -> f64 {
+        self.get(fqdn, key, Value::Latest)
+    }
+
+    /// A read-only pointer to this char map.
+    /// Others can still write to it.
+    fn read_only(&self, slf: Arc<dyn CharMap<T>>) -> Arc<dyn CharMap<T>> {
+        Arc::new(CharMapRO { inner: slf })
+    }
+
+    fn insert_gpu_load_est(&self, _fqdn: &str, _x: f64, _y: f64);
+    fn predict_gpu_load_est(&self, _x: f64) -> f64;
+    /// Returns [-1.0] if insufficient data exists for interpolation.
+    fn func_predict_gpu_load_est(&self, _fqdn: &str, _x: f64) -> f64;
+}
+
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(PartialEq, enum_iterator::Sequence))]
 #[repr(usize)]
 pub enum Chars {
     /// Running avg of _all_ times on CPU for invocations.
@@ -52,9 +92,6 @@ pub enum Chars {
     /// E2E time for a GPU cold start.
     /// Recorded by invoke_on_container_2
     GpuColdTime,
-    /// The last time an invocation happened.
-    /// Recorded internally by the [CharacteristicsMap::add_iat] function
-    LastInvTime,
     /// The running avg IAT.
     /// Recorded by iluvatar_worker_library::worker_api::iluvatar_worker::IluvatarWorkerImpl::invoke and iluvatar_worker_library::worker_api::iluvatar_worker::IluvatarWorkerImpl::invoke_async
     IAT,
@@ -73,6 +110,33 @@ pub enum Chars {
     QueueErrGpu,
     QueueErrCpu,
 }
+impl Chars {
+    /// Get the Cold, Warm, and Execution time [Chars] specific to the given compute device.
+    /// (Cold, Warm, PreWarm, Exec, E2E, QueueEstErr)
+    pub fn get_chars(compute: &Compute) -> anyhow::Result<(Chars, Chars, Chars, Chars, Chars, Chars)> {
+        if compute == &Compute::CPU {
+            Ok((
+                Chars::CpuColdTime,
+                Chars::CpuWarmTime,
+                Chars::CpuPreWarmTime,
+                Chars::CpuExecTime,
+                Chars::E2ECpu,
+                Chars::QueueErrCpu,
+            ))
+        } else if compute == &Compute::GPU {
+            Ok((
+                Chars::GpuColdTime,
+                Chars::GpuWarmTime,
+                Chars::GpuPreWarmTime,
+                Chars::GpuExecTime,
+                Chars::E2EGpu,
+                Chars::QueueErrGpu,
+            ))
+        } else {
+            anyhow::bail!("Unknown compute to get Chars for registration: {:?}", compute)
+        }
+    }
+}
 impl Max for Chars {
     const MAX: usize = Self::QueueErrCpu as usize;
 }
@@ -83,15 +147,7 @@ impl num_traits::AsPrimitive<usize> for Chars {
     }
 }
 
-/// Trait ensuring that there is a maximal value that is also constant.
-/// Used to index into the char map fqdn array.
-pub trait Max {
-    const MAX: usize;
-    /// The number of enums
-    const SIZE: usize = Self::MAX + 1;
-}
-
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Clone, Copy)]
 #[repr(usize)]
 pub enum Value {
     Min = 0,
@@ -101,30 +157,6 @@ pub enum Value {
 }
 impl Max for Value {
     const MAX: usize = Self::Latest as usize;
-}
-
-pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
-    fn update(&self, fqdn: &str, key: T, value: f64);
-
-    fn get(&self, fqdn: &str, key: T, value: Value) -> f64;
-    fn get_min(&self, fqdn: &str, key: T) -> f64 {
-        self.get(fqdn, key, Value::Min)
-    }
-    fn get_max(&self, fqdn: &str, key: T) -> f64 {
-        self.get(fqdn, key, Value::Max)
-    }
-    fn get_avg(&self, fqdn: &str, key: T) -> f64 {
-        self.get(fqdn, key, Value::Avg)
-    }
-    fn get_latest(&self, fqdn: &str, key: T) -> f64 {
-        self.get(fqdn, key, Value::Latest)
-    }
-
-    /// A read-only pointer to this char map.
-    /// Others can still write to it.
-    fn read_only(&self, slf: Arc<dyn CharMap<T>>) -> Arc<dyn CharMap<T>> {
-        Arc::new(CharMapRO { inner: slf })
-    }
 }
 
 struct CharMapRO<T: num_traits::AsPrimitive<usize>> {
@@ -138,10 +170,24 @@ impl<T: Max + num_traits::AsPrimitive<usize>> CharMap<T> for CharMapRO<T> {
     fn get(&self, fqdn: &str, key: T, value: Value) -> f64 {
         self.inner.get(fqdn, key, value)
     }
+
+    fn insert_gpu_load_est(&self, _fqdn: &str, _x: f64, _y: f64) {
+        // do nothing
+    }
+
+    fn predict_gpu_load_est(&self, x: f64) -> f64 {
+        self.inner.predict_gpu_load_est(x)
+    }
+
+    fn func_predict_gpu_load_est(&self, fqdn: &str, x: f64) -> f64 {
+        self.inner.func_predict_gpu_load_est(fqdn, x)
+    }
 }
 
 pub struct CharMapRW<const T: usize> {
     data: DashMap<String, Box<[f64]>>,
+    gpu_load_lin_reg: RwLock<LinearReg>,
+    func_gpu_load_lin_reg: DashMap<String, LinearReg>,
 }
 impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for CharMapRW<{ S }> {
     fn update(&self, fqdn: &str, key: T, value: f64) {
@@ -178,18 +224,51 @@ impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for Cha
     fn get(&self, fqdn: &str, key: T, value: Value) -> f64 {
         match self.data.get(fqdn) {
             None => 0.0,
-            Some(d) => d.value()[(key.as_() * Value::SIZE) + value as usize],
+            Some(d) => {
+                let r = d.value()[(key.as_() * Value::SIZE) + value as usize];
+                if r.is_nan() {
+                    return 0.0;
+                }
+                r
+            },
+        }
+    }
+
+    fn insert_gpu_load_est(&self, fqdn: &str, x: f64, y: f64) {
+        self.gpu_load_lin_reg.write().insert(x, y);
+        match self.func_gpu_load_lin_reg.get_mut(fqdn) {
+            None => {
+                let mut lr = LinearReg::new();
+                lr.insert(x, y);
+                self.func_gpu_load_lin_reg.insert(fqdn.to_string(), lr);
+            },
+            Some(mut lr) => lr.value_mut().insert(x, y),
+        };
+    }
+
+    fn predict_gpu_load_est(&self, x: f64) -> f64 {
+        self.gpu_load_lin_reg.read().predict(x)
+    }
+    /// Returns [-1.0] if insufficient data exists for interpolation.
+    fn func_predict_gpu_load_est(&self, fqdn: &str, x: f64) -> f64 {
+        match self.func_gpu_load_lin_reg.get(fqdn) {
+            None => -1.0,
+            Some(lr) => lr.value().predict(x),
         }
     }
 }
 
 impl<const S: usize> CharMapRW<S> {
-    pub fn boxed<T: Max + num_traits::AsPrimitive<usize>>() -> Arc<dyn CharMap<T>> {
-        Arc::new(Self { data: DashMap::new() })
+    pub fn boxed<T: Max + num_traits::AsPrimitive<usize>>() -> Arc<dyn CharMap<T> + Send + Sync + 'static> {
+        Arc::new(Self {
+            data: DashMap::new(),
+            gpu_load_lin_reg: RwLock::new(LinearReg::new()),
+            func_gpu_load_lin_reg: DashMap::new(),
+        })
     }
 }
 
-pub type WorkerCharMap = Arc<dyn CharMap<Chars>>;
+pub type WorkerCharMap = Arc<dyn CharMap<Chars> + Send + Sync + 'static>;
 pub fn worker_char_map() -> WorkerCharMap {
     CharMapRW::<{ Chars::SIZE }>::boxed()
 }
@@ -201,7 +280,7 @@ mod char_map_tests {
 
     #[test]
     fn compile_test() {
-        let _cmap: Arc<dyn CharMap<Chars>> = CharMapRW::<{ Chars::SIZE }>::boxed();
+        let _cmap: WorkerCharMap = CharMapRW::<{ Chars::SIZE }>::boxed();
     }
 
     #[test]
@@ -308,5 +387,10 @@ mod char_map_tests {
     #[test]
     fn max_char_correct() {
         assert_eq!(last::<Chars>().unwrap() as usize, Chars::MAX);
+    }
+
+    #[test]
+    fn size_char_correct() {
+        assert_eq!(cardinality::<Chars>(), Chars::SIZE);
     }
 }

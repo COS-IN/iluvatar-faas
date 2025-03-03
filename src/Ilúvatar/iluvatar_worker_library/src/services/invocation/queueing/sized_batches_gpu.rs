@@ -5,7 +5,7 @@ use crate::services::{
 };
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use parking_lot::Mutex;
 use std::{
     collections::VecDeque,
@@ -17,12 +17,12 @@ pub struct SizedBatchGpuQueue {
     invoke_batches: DashMap<String, VecDeque<GpuBatch>>,
     est_time: Mutex<f64>,
     num_queued: AtomicUsize,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     max_batch_size: usize,
 }
 
 impl SizedBatchGpuQueue {
-    pub fn new(cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
+    pub fn new(cmap: WorkerCharMap) -> Result<Arc<Self>> {
         let svc = Arc::new(Self {
             invoke_batches: DashMap::new(),
             est_time: Mutex::new(0.0),
@@ -85,7 +85,7 @@ impl GpuQueuePolicy for SizedBatchGpuQueue {
         let est_time;
         match self.invoke_batches.entry(item.registration.fqdn.clone()) {
             dashmap::mapref::entry::Entry::Occupied(mut v) => {
-                est_time = self.cmap.get_gpu_exec_time(&item.registration.fqdn);
+                est_time = self.cmap.get_avg(&item.registration.fqdn, Chars::GpuExecTime);
                 let q = v.get_mut();
                 if let Some(b) = q.back_mut() {
                     if b.len() >= self.max_batch_size {
@@ -98,7 +98,7 @@ impl GpuQueuePolicy for SizedBatchGpuQueue {
                 }
             },
             dashmap::mapref::entry::Entry::Vacant(e) => {
-                est_time = self.cmap.get_gpu_cold_time(&item.registration.fqdn);
+                est_time = self.cmap.get_avg(&item.registration.fqdn, Chars::GpuColdTime);
                 let mut q = VecDeque::new();
                 q.push_back(GpuBatch::new(item.clone(), est_time));
                 e.insert(q);
@@ -112,7 +112,7 @@ impl GpuQueuePolicy for SizedBatchGpuQueue {
 #[cfg(test)]
 mod oldest_batch {
     use super::*;
-    use iluvatar_library::characteristics_map::{Characteristics, Values};
+    use iluvatar_library::char_map::{worker_char_map, Chars};
     use iluvatar_library::clock::get_global_clock;
     use iluvatar_library::transaction::gen_tid;
 
@@ -131,7 +131,7 @@ mod oldest_batch {
 
     #[test]
     fn single_item_cold() {
-        let m = CharacteristicsMap::new(iluvatar_library::characteristics_map::AgExponential::new(0.6));
+        let m = worker_char_map();
         let name = "t1";
         let rf = reg(name);
 
@@ -143,14 +143,9 @@ mod oldest_batch {
             0.0,
             0.0,
         ));
-        m.add(
-            &invoke.registration.fqdn,
-            Characteristics::GpuColdTime,
-            Values::F64(1.5),
-            true,
-        );
+        m.update(&invoke.registration.fqdn, Chars::GpuColdTime, 1.5);
 
-        let b = SizedBatchGpuQueue::new(Arc::new(m)).unwrap();
+        let b = SizedBatchGpuQueue::new(m).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
 
         assert_eq!(b.est_queue_time(), 1.5);
@@ -158,7 +153,7 @@ mod oldest_batch {
 
     #[test]
     fn two_item_mix() {
-        let m = CharacteristicsMap::new(iluvatar_library::characteristics_map::AgExponential::new(0.6));
+        let m = worker_char_map();
         let name = "t1";
         let rf = reg(name);
         let invoke = Arc::new(EnqueuedInvocation::new(
@@ -169,20 +164,10 @@ mod oldest_batch {
             0.0,
             0.0,
         ));
-        m.add(
-            &invoke.registration.fqdn,
-            Characteristics::GpuColdTime,
-            Values::F64(1.5),
-            true,
-        );
-        m.add(
-            &invoke.registration.fqdn,
-            Characteristics::GpuExecTime,
-            Values::F64(1.0),
-            true,
-        );
+        m.update(&invoke.registration.fqdn, Chars::GpuColdTime, 1.5);
+        m.update(&invoke.registration.fqdn, Chars::GpuExecTime, 1.0);
 
-        let b = SizedBatchGpuQueue::new(Arc::new(m)).unwrap();
+        let b = SizedBatchGpuQueue::new(m).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
 
@@ -191,7 +176,7 @@ mod oldest_batch {
 
     #[test]
     fn two_func_mix() {
-        let m = CharacteristicsMap::new(iluvatar_library::characteristics_map::AgExponential::new(0.6));
+        let m = worker_char_map();
         let name = "t1";
         let rf = reg(name);
         let invoke = Arc::new(EnqueuedInvocation::new(
@@ -202,18 +187,8 @@ mod oldest_batch {
             0.0,
             0.0,
         ));
-        m.add(
-            &invoke.registration.fqdn,
-            Characteristics::GpuColdTime,
-            Values::F64(1.5),
-            true,
-        );
-        m.add(
-            &invoke.registration.fqdn,
-            Characteristics::GpuExecTime,
-            Values::F64(1.0),
-            true,
-        );
+        m.update(&invoke.registration.fqdn, Chars::GpuColdTime, 1.5);
+        m.update(&invoke.registration.fqdn, Chars::GpuExecTime, 1.0);
 
         let name = "t2";
         let rf2 = reg(name);
@@ -225,20 +200,10 @@ mod oldest_batch {
             0.0,
             0.0,
         ));
-        m.add(
-            &invoke2.registration.fqdn,
-            Characteristics::GpuColdTime,
-            Values::F64(0.9),
-            true,
-        );
-        m.add(
-            &invoke2.registration.fqdn,
-            Characteristics::GpuExecTime,
-            Values::F64(0.3),
-            true,
-        );
+        m.update(&invoke2.registration.fqdn, Chars::GpuColdTime, 0.9);
+        m.update(&invoke2.registration.fqdn, Chars::GpuExecTime, 0.3);
 
-        let b = SizedBatchGpuQueue::new(Arc::new(m)).unwrap();
+        let b = SizedBatchGpuQueue::new(m).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
         b.add_item_to_queue(&invoke).unwrap();
 

@@ -23,9 +23,11 @@ use crate::{
     worker_api::worker_config::GPUResourceConfig,
 };
 use anyhow::Result;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
-use iluvatar_library::{characteristics_map::CharacteristicsMap, types::DroppableToken};
-use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute};
+use iluvatar_library::tput_calc::DeviceTput;
+use iluvatar_library::types::{Compute, DroppableToken};
+use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::{
@@ -126,7 +128,7 @@ pub trait GpuQueuePolicy: Send + Sync {
 pub struct GpuQueueingInvoker {
     cont_manager: Arc<ContainerManager>,
     invocation_config: Arc<InvocationConfig>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     clock: Clock,
     running: AtomicU32,
     last_memory_warning: Mutex<Instant>,
@@ -140,6 +142,7 @@ pub struct GpuQueueingInvoker {
     /// means we need to know roughly when one will become available to better predict completion time for incoming invocations
     completion_tracker: Arc<CompletionTimeTracker>,
     gpu_config: Arc<GPUResourceConfig>,
+    device_tput: Arc<DeviceTput>,
 }
 
 #[allow(dyn_drop)]
@@ -151,7 +154,7 @@ impl GpuQueueingInvoker {
         function_config: Arc<FunctionLimits>,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
-        cmap: Arc<CharacteristicsMap>,
+        cmap: WorkerCharMap,
         cpu: Arc<CpuResourceTracker>,
         gpu: Option<Arc<GpuResourceTracker>>,
         gpu_config: &Option<Arc<GPUResourceConfig>>,
@@ -183,6 +186,7 @@ impl GpuQueueingInvoker {
                 .as_ref()
                 .ok_or_else(|| anyhow::format_err!("Creating GPU queue with no GPU config"))?
                 .clone(),
+            device_tput: DeviceTput::boxed(),
         });
         gpu_tx.send(svc.clone())?;
         info!(tid = tid, "Created GpuQueueingInvoker");
@@ -192,7 +196,7 @@ impl GpuQueueingInvoker {
     /// Create the GPU queue to use
     fn get_invoker_gpu_queue(
         invocation_config: &Arc<InvocationConfig>,
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
         cont_manager: &Arc<ContainerManager>,
         _tid: &TransactionId,
     ) -> Result<Arc<dyn GpuQueuePolicy>> {
@@ -444,6 +448,7 @@ impl GpuQueueingInvoker {
             cold_time_start,
             &self.cmap,
             &self.clock,
+            &self.device_tput,
         )
         .await?;
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
@@ -452,13 +457,11 @@ impl GpuQueueingInvoker {
     }
 
     fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {
-        let exists = self
-            .cont_manager
-            .container_exists(&item.fqdn, iluvatar_library::types::Compute::GPU);
+        let exists = self.cont_manager.container_exists(&item.fqdn, Compute::GPU);
         let t = match exists {
-            ContainerState::Warm => self.cmap.get_gpu_warm_time(&item.fqdn),
-            ContainerState::Prewarm => self.cmap.get_gpu_prewarm_time(&item.fqdn),
-            _ => self.cmap.get_gpu_cold_time(&item.fqdn),
+            ContainerState::Warm => self.cmap.get_avg(&item.fqdn, Chars::GpuWarmTime),
+            ContainerState::Prewarm => self.cmap.get_avg(&item.fqdn, Chars::GpuPreWarmTime),
+            _ => self.cmap.get_avg(&item.fqdn, Chars::GpuColdTime),
         };
         (t, exists)
     }
@@ -475,7 +478,7 @@ impl DeviceQueue for GpuQueueingInvoker {
             len: self.queue.queue_len(),
             load: load,
             load_avg: load / self.gpu.max_concurrency() as f64,
-            tput: self.cmap.get_gpu_tput(),
+            tput: self.device_tput.get_tput(),
         }
     }
 
@@ -500,6 +503,10 @@ impl DeviceQueue for GpuQueueingInvoker {
 
     fn warm_hit_probability(&self, _reg: &Arc<RegisteredFunction>, _iat: f64) -> f64 {
         0.5 //TODO!
+    }
+
+    fn queue_tput(&self) -> f64 {
+        self.device_tput.get_tput()
     }
 }
 

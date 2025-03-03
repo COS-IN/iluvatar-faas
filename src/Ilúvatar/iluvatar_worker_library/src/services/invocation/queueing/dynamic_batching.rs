@@ -5,7 +5,7 @@ use crate::services::{
 };
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::{atomic::AtomicUsize, Arc};
@@ -17,7 +17,7 @@ pub struct DynBatchGpuQueue {
     invoke_batches: DashMap<String, GpuBatch>,
     est_time: Mutex<f64>,
     num_queued: AtomicUsize,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     /// For preventing starvation: dont want super large batches which dominate execution.
     max_batch_size: i32,
     /// Number of invocations we want to batch together at the head of the dispatch queue. The tail is uncompressed and regular FCFS queue.
@@ -27,7 +27,7 @@ pub struct DynBatchGpuQueue {
 }
 #[allow(unused)]
 impl DynBatchGpuQueue {
-    pub fn new(cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
+    pub fn new(cmap: WorkerCharMap) -> Result<Arc<Self>> {
         let svc = Arc::new(DynBatchGpuQueue {
             invoke_batches: DashMap::new(),
             est_time: Mutex::new(0.0),
@@ -47,11 +47,11 @@ impl DynBatchGpuQueue {
         let est_time;
         match self.invoke_batches.entry(item.registration.fqdn.clone()) {
             dashmap::mapref::entry::Entry::Occupied(mut v) => {
-                est_time = self.cmap.get_gpu_exec_time(&item.registration.fqdn);
+                est_time = self.cmap.get_avg(&item.registration.fqdn, Chars::GpuExecTime);
                 v.get_mut().add(item.clone(), est_time);
             },
             dashmap::mapref::entry::Entry::Vacant(e) => {
-                est_time = self.cmap.get_gpu_cold_time(&item.registration.fqdn);
+                est_time = self.cmap.get_avg(&item.registration.fqdn, Chars::GpuColdTime);
                 e.insert(GpuBatch::new(item.clone(), est_time));
             },
         }
