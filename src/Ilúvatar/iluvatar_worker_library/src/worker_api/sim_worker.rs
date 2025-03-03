@@ -7,9 +7,9 @@ use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
     CleanRequest, CleanResponse, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest,
-    LanguageRuntime, PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
+    LanguageRuntime, ListFunctionRequest, PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
 };
-use iluvatar_rpc::rpc::{InvokeResponse, StatusResponse};
+use iluvatar_rpc::rpc::{InvokeResponse, ListFunctionResponse, StatusResponse};
 use iluvatar_rpc::RPCError;
 use std::sync::Arc;
 #[cfg(feature = "full_spans")]
@@ -224,6 +224,13 @@ impl WorkerAPI for SimWorkerAPI {
         match inv.await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:clean]".to_string())),
+        }
+    }
+    async fn list_registered_funcs(&mut self, tid: TransactionId) -> Result<ListFunctionResponse> {
+        let request = tonic::Request::new(ListFunctionRequest { transaction_id: tid });
+        match self.worker.list_registered_funcs(request).await {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:list_registered_funcs]".to_string())),
         }
     }
 }
