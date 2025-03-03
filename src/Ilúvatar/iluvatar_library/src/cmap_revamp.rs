@@ -23,6 +23,7 @@ use std::sync::Arc;
 //     multiple retrieval
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[cfg_attr(test, derive(enum_iterator::Sequence))]
 #[repr(usize)]
 pub enum Chars {
     /// Running avg of _all_ times on CPU for invocations.
@@ -86,14 +87,20 @@ impl num_traits::AsPrimitive<usize> for Chars {
 /// Used to index into the char map fqdn array.
 pub trait Max {
     const MAX: usize;
+    /// The number of enums
+    const SIZE: usize = Self::MAX + 1;
 }
 
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 #[repr(usize)]
 pub enum Value {
     Min = 0,
     Max,
     Avg,
     Latest,
+}
+impl Max for Value {
+    const MAX: usize = Self::Latest as usize;
 }
 
 pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
@@ -134,23 +141,36 @@ impl<T: Max + num_traits::AsPrimitive<usize>> CharMap<T> for CharMapRO<T> {
 }
 
 pub struct CharMapRW<const T: usize> {
-    data: DashMap<String, [f64; T]>,
+    data: DashMap<String, Box<[f64]>>,
 }
 impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for CharMapRW<{ S }> {
     fn update(&self, fqdn: &str, key: T, value: f64) {
+        let first_pos = key.as_() * (Value::SIZE);
         match self.data.get_mut(fqdn) {
             None => {
-                self.data.insert(fqdn.to_string(), [value; S]);
+                let mut data = vec![f64::NAN; S * (Value::SIZE)].into_boxed_slice();
+                data[first_pos + Value::Min as usize] = value;
+                data[first_pos + Value::Max as usize] = value;
+                data[first_pos + Value::Avg as usize] = value;
+                data[first_pos + Value::Latest as usize] = value;
+                self.data.insert(fqdn.to_string(), data);
             },
             Some(mut d) => {
                 let arr = d.value_mut();
-                let min_pos = key.as_() + Value::Min as usize;
+                if arr[first_pos].is_nan() {
+                    arr[first_pos + Value::Min as usize] = value;
+                    arr[first_pos + Value::Max as usize] = value;
+                    arr[first_pos + Value::Avg as usize] = value;
+                    arr[first_pos + Value::Latest as usize] = value;
+                    return;
+                }
+                let min_pos = first_pos + Value::Min as usize;
                 arr[min_pos] = f64::min(arr[min_pos], value);
-                let max_pos = key.as_() + Value::Max as usize;
+                let max_pos = first_pos + Value::Max as usize;
                 arr[max_pos] = f64::max(arr[max_pos], value);
-                let avg_pos = key.as_() + Value::Avg as usize;
+                let avg_pos = first_pos + Value::Avg as usize;
                 arr[avg_pos] = arr[avg_pos] * 0.9 + value * 0.1;
-                arr[key.as_() + Value::Latest as usize] = value;
+                arr[first_pos + Value::Latest as usize] = value;
             },
         };
     }
@@ -158,7 +178,7 @@ impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for Cha
     fn get(&self, fqdn: &str, key: T, value: Value) -> f64 {
         match self.data.get(fqdn) {
             None => 0.0,
-            Some(d) => d.value()[key.as_() + value as usize],
+            Some(d) => d.value()[(key.as_() * Value::SIZE) + value as usize],
         }
     }
 }
@@ -169,18 +189,24 @@ impl<const S: usize> CharMapRW<S> {
     }
 }
 
+pub type WorkerCharMap = Arc<dyn CharMap<Chars>>;
+pub fn worker_char_map() -> WorkerCharMap {
+    CharMapRW::<{ Chars::SIZE }>::boxed()
+}
+
 #[cfg(test)]
 mod char_map_tests {
     use super::*;
+    use enum_iterator::*;
 
     #[test]
     fn compile_test() {
-        let _cmap: Arc<dyn CharMap<Chars>> = CharMapRW::<{ Chars::MAX }>::boxed();
+        let _cmap: Arc<dyn CharMap<Chars>> = CharMapRW::<{ Chars::SIZE }>::boxed();
     }
 
     #[test]
     fn missing_get_returns_zero() {
-        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        let cmap = worker_char_map();
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 0.0);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 0.0);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Avg), 0.0);
@@ -189,7 +215,7 @@ mod char_map_tests {
 
     #[test]
     fn first_sets_all() {
-        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        let cmap = worker_char_map();
         cmap.update("f1", Chars::CpuExecTime, 1.0);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 1.0);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 1.0);
@@ -199,7 +225,7 @@ mod char_map_tests {
 
     #[test]
     fn get_helpers_work() {
-        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        let cmap = worker_char_map();
         cmap.update("f1", Chars::CpuExecTime, 1.0);
         cmap.update("f1", Chars::CpuExecTime, 2.0);
         cmap.update("f1", Chars::CpuExecTime, 5.0);
@@ -224,7 +250,7 @@ mod char_map_tests {
 
     #[test]
     fn second_updates() {
-        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        let cmap = worker_char_map();
         cmap.update("f1", Chars::CpuExecTime, 1.0);
         cmap.update("f1", Chars::CpuExecTime, 2.0);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 1.0);
@@ -235,7 +261,7 @@ mod char_map_tests {
 
     #[test]
     fn read_only_cannot_update() {
-        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        let cmap = worker_char_map();
         cmap.update("f1", Chars::CpuExecTime, 1.0);
         cmap.update("f1", Chars::CpuExecTime, 2.0);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 1.0);
@@ -255,5 +281,32 @@ mod char_map_tests {
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 3.0);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Avg), 1.29);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 3.0);
+    }
+
+    #[test]
+    fn write_to_all_chars() {
+        let cmap = worker_char_map();
+        for (i, char) in all::<Chars>().enumerate() {
+            let val = 1.0 * (1 + i) as f64;
+            cmap.update("f1", char, val);
+            assert_eq!(cmap.get("f1", char, Value::Min), val);
+            assert_eq!(cmap.get("f1", char, Value::Max), val);
+            assert_eq!(cmap.get("f1", char, Value::Avg), val);
+            assert_eq!(cmap.get("f1", char, Value::Latest), val);
+        }
+
+        for (i, char) in all::<Chars>().enumerate() {
+            let val = 2.0 * (1 + i) as f64;
+            cmap.update("f1", char, val);
+            assert_eq!(cmap.get("f1", char, Value::Min), (1 + i) as f64);
+            assert_eq!(cmap.get("f1", char, Value::Max), val);
+            assert_eq!(cmap.get("f1", char, Value::Avg), val * 0.1 + (0.9 * (1 + i) as f64));
+            assert_eq!(cmap.get("f1", char, Value::Latest), val);
+        }
+    }
+
+    #[test]
+    fn max_char_correct() {
+        assert_eq!(last::<Chars>().unwrap() as usize, Chars::MAX);
     }
 }
