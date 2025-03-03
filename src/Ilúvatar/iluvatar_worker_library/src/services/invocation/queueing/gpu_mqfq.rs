@@ -10,7 +10,7 @@ use crate::services::resources::gpu::{GpuResourceTracker, GpuToken};
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dashmap::{mapref::multiple::RefMutMulti, DashMap};
-use iluvatar_library::char_map::{Chars, WorkerCharMap};
+use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::tput_calc::DeviceTput;
 use iluvatar_library::transaction::TransactionId;
@@ -1316,11 +1316,18 @@ impl DeviceQueue for MQFQ {
             MqfqTimeEst::FallbackLinReg => self.fallback_est_time_linreg(reg, tid),
             MqfqTimeEst::GlobalLinReg => self.global_est_time(reg, tid),
         };
-        let exec_time = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+        let (exec_time, poss_err_time) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::GpuExecTime,
+            Value::Avg,
+            Chars::QueueErrGpu,
+            Value::Avg,
+        );
+        // let exec_time = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
         let mut err_time = 0.0;
         if self.q_config.add_estimation_error && self.queue_len() > 0 {
             // ALERT: We dont currently store this, so always zero, REMOVE
-            err_time = self.cmap.get_avg(&reg.fqdn, Chars::QueueErrGpu);
+            err_time = poss_err_time;
         }
         let raw_est = self.est_completion_time2(reg, tid) / concur;
         debug!(tid=tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");

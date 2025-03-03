@@ -15,7 +15,7 @@ use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::char_map::{Chars, WorkerCharMap};
+use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
 use ordered_float::OrderedFloat;
@@ -552,9 +552,9 @@ impl DispatchPolicy for Ucb1 {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         // device_wt = exec_time + sqrt(log steps/n), where n is number of times device has been selected for the function
         // Pick device with lowest weight and dispatch
-
-        let cpu_t = self.cmap.get_avg(&reg.fqdn, Chars::E2ECpu); // supposed to running average?
-        let gpu_t = self.cmap.get_avg(&reg.fqdn, Chars::E2EGpu);
+        let (cpu_t, gpu_t) = self
+            .cmap
+            .get_2(&reg.fqdn, Chars::E2ECpu, Value::Avg, Chars::E2EGpu, Value::Avg);
 
         let lck = self.dispatch_state.read();
         let total_dispatch = lck.total_dispatch as f64;
@@ -635,11 +635,18 @@ impl ShortestExecTime {
 impl DispatchPolicy for ShortestExecTime {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         let mut opts = vec![];
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         if reg.supported_compute.contains(Compute::CPU) {
-            opts.push((self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime), Compute::CPU));
+            opts.push((cpu, Compute::CPU));
         }
         if reg.supported_compute.contains(Compute::GPU) {
-            opts.push((self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime), Compute::GPU));
+            opts.push((gpu, Compute::GPU));
         }
         if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
             return (*c, NO_ESTIMATE, *est);
@@ -662,8 +669,13 @@ impl Speedup {
 }
 impl DispatchPolicy for Speedup {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
-        let cpu = self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime);
-        let gpu = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         let ratio = cpu / gpu;
         if ratio > self.invocation_config.speedup_ratio.unwrap_or(4.0) {
             (Compute::GPU, NO_ESTIMATE, NO_ESTIMATE)
@@ -689,8 +701,13 @@ impl EstSpeedup {
 }
 impl DispatchPolicy for EstSpeedup {
     fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
-        let cpu = self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime);
-        let gpu = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         let ratio = cpu / gpu;
         if ratio > self.invocation_config.speedup_ratio.unwrap_or(4.0) {
             let mut opts = vec![];
@@ -725,8 +742,13 @@ impl RunningAvgEstSpeedup {
 }
 impl DispatchPolicy for RunningAvgEstSpeedup {
     fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
-        let cpu = self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime);
-        let gpu = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         let ratio = cpu / gpu;
         let mut avg = self.running_avg_speedup.lock();
         let new_avg = *avg * 0.9 + ratio * 0.1;
@@ -770,8 +792,13 @@ impl QueueAdjustAvgEstSpeedup {
 }
 impl DispatchPolicy for QueueAdjustAvgEstSpeedup {
     fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
-        let cpu = self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime);
-        let gpu = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         let ratio = cpu / gpu;
         if ratio > *self.running_avg_speedup.lock() {
             let mut opts = vec![];
