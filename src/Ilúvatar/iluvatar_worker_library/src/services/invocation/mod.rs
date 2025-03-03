@@ -223,24 +223,23 @@ async fn invoke_on_container_2(
         ContainerState::Prewarm => (chars.2, data.duration_sec),
         _ => (chars.0, cold_time_start.elapsed().as_secs_f64()),
     };
-    cmap.update(&reg.fqdn, char, time);
-    cmap.update(&reg.fqdn, chars.3, data.duration_sec);
     let now = clock.now();
     let e2etime = (now - queue_insert_time).as_seconds_f64();
-    cmap.update(&reg.fqdn, chars.4, e2etime);
     let err = e2etime - est_completion_time;
-    cmap.update(&reg.fqdn, chars.5, err);
+    cmap.update_4(
+        &reg.fqdn,
+        char,
+        time,
+        chars.3,
+        data.duration_sec,
+        chars.4,
+        e2etime,
+        chars.5,
+        err,
+    );
     device_tput.add_tput(time);
     if compute == Compute::GPU {
         cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
     }
-    // match compute {
-    //     Compute::CPU => cmap.add_cpu_tput(time),
-    //     Compute::GPU => {
-    //         cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
-    //         cmap.add_gpu_tput(time);
-    //     },
-    //     _ => (),
-    // };
     Ok((data, duration, ctr_lock.container.clone()))
 }

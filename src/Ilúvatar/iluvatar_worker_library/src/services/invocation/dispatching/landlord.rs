@@ -4,7 +4,7 @@ use crate::services::invocation::queueing::DeviceQueue;
 use crate::services::registration::RegisteredFunction;
 use crate::worker_api::config::InvocationConfig;
 use anyhow::Result;
-use iluvatar_library::char_map::{Chars, WorkerCharMap};
+use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
@@ -187,6 +187,7 @@ impl Landlord {
         est_err: f64,
         tid: &TransactionId,
     ) {
+        let exec_time = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
         match self.credits.get_mut(&reg.fqdn) {
             None => {
                 // Most likely this is a new function, so avg e2e times will have low confidence?
@@ -197,11 +198,11 @@ impl Landlord {
             },
             Some(c) => {
                 // This should not be happening?
-                *c += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+                *c += exec_time;
             },
         }
         self.insertions += 1;
-        self.szhits += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+        self.szhits += exec_time;
         info!(fqdn=%reg.fqdn, "Cache Insertion");
         self.update_res(&reg.fqdn);
         self.lostcredits.remove(&reg.fqdn);
@@ -313,17 +314,27 @@ impl Landlord {
         est_err: f64,
         tid: &TransactionId,
     ) -> f64 {
-        // let mqfq_est = self.gpu_queue.est_completion_time(reg, tid);
-        // let (gpu_est, est_err) = self.cmap.get_gpu_est(&reg.fqdn, mqfq_est);
         let _cpu_q = self.cpu_queue.est_completion_time(reg, tid);
 
         let n_active = self.gpu_active_flows() as f64;
         let epsilon = 0.05;
         // with 4 active functions, this is a 20% buffer
         let gpu_est_total = gpu_est * (1.0 + epsilon * n_active);
-        let cpu_est_total = f64::max(cpu_est, self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime));
+        let cpu_exec = self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime);
+        let cpu_est_total = f64::max(cpu_est, cpu_exec);
 
-        info!(tid=tid, fqdn=%reg.fqdn, mqfq_est=%mqfq_est, gpu_est=%gpu_est, gpu_est_err=%est_err, cpu_est=%cpu_est, cpu_exec=%self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime), gpu_est_total=%gpu_est_total, cpu_est_total=%cpu_est_total,  "Landlord Credit");
+        info!(
+            tid = tid,
+            fqdn = reg.fqdn,
+            mqfq_est = mqfq_est,
+            gpu_est = gpu_est,
+            gpu_est_err = est_err,
+            cpu_est = cpu_est,
+            cpu_exec = cpu_exec,
+            gpu_est_total = gpu_est_total,
+            cpu_est_total = cpu_est_total,
+            "Landlord Credit"
+        );
 
         match self.cachepol.as_str() {
             "LFU" => 1.0,
@@ -653,11 +664,14 @@ impl Landlord {
 
     pub fn get_gpu_est(&self, fqdn: &str, mqfq_est: f64) -> (f64, f64) {
         // we have a new estimate. Before that, let's compute the error with the previous estimate and e2e time
-        let prev_est = match self.cmap.get_avg(fqdn, Chars::EstGpu) {
+        let (est, e2e) = self
+            .cmap
+            .get_2(fqdn, Chars::EstGpu, Value::Avg, Chars::E2EGpu, Value::Avg);
+        let prev_est = match est {
             0.0 => mqfq_est, //get full marks initially
             c => c,
         };
-        let prev_e2e = match self.cmap.get_avg(fqdn, Chars::E2EGpu) {
+        let prev_e2e = match e2e {
             0.0 => mqfq_est, //get full marks initially
             c => c,
         };
@@ -685,6 +699,7 @@ impl Landlord {
         let szaware = !matches!(self.cachepol.as_str(), "LFU" | "LRU");
 
         if self.present(&reg.fqdn) {
+            let exec_time = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
             // This doesnt decrease credit
             let new_credit = self.calc_add_credit(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
             let pos_credit = match self.credits.get(&reg.fqdn) {
@@ -696,13 +711,13 @@ impl Landlord {
                 // we really want to minimize this case, function is on gpu already. estimate can be wrong?
                 self.misses += 1;
                 self.negcredits += 1;
-                self.szmisses += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+                self.szmisses += exec_time;
                 info!(tid=tid, fqdn=%reg.fqdn, gpu_load=%self.gpu_load(), "MISS_INSUFFICIENT_CREDITS");
                 self.update_nonres(&reg.fqdn);
                 return (Compute::CPU, cpu_load, cpu_est);
             }
             self.hits += 1;
-            self.szhits += self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+            self.szhits += exec_time;
             // We've seen this function before so its size is more likely to be accurate
             info!(tid=tid, fqdn=%&reg.fqdn, opp_cost=%new_credit, "Cache Hit");
             self.landlog("HIT_PRESENT");

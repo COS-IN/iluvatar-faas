@@ -34,9 +34,15 @@ pub trait Max {
 }
 
 pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
-    fn update(&self, fqdn: &str, key: T, value: f64);
+    // default implementations simplify RO version
+    fn update(&self, _fqdn: &str, _key: T, _value: f64) {}
+    fn update_2(&self, _fqdn: &str, _k1: T, _v1: f64, _k2: T, _v2: f64) {}
+    fn update_3(&self, _fqdn: &str, _k1: T, _v1: f64, _k2: T, _v2: f64, _k3: T, _v3: f64) {}
+    fn update_4(&self, _fqdn: &str, _k1: T, _v1: f64, _k2: T, _v2: f64, _k3: T, _v3: f64, _k4: T, _v4: f64) {}
 
     fn get(&self, fqdn: &str, key: T, value: Value) -> f64;
+    fn get_2(&self, fqdn: &str, k1: T, v1: Value, k2: T, v2: Value) -> (f64, f64);
+    fn get_3(&self, fqdn: &str, k1: T, v1: Value, k2: T, v2: Value, k3: T, v3: Value) -> (f64, f64, f64);
     fn get_min(&self, fqdn: &str, key: T) -> f64 {
         self.get(fqdn, key, Value::Min)
     }
@@ -163,14 +169,15 @@ struct CharMapRO<T: num_traits::AsPrimitive<usize>> {
     inner: Arc<dyn CharMap<T>>,
 }
 impl<T: Max + num_traits::AsPrimitive<usize>> CharMap<T> for CharMapRO<T> {
-    fn update(&self, _fqdn: &str, _key: T, _value: f64) {
-        // do nothing
-    }
-
     fn get(&self, fqdn: &str, key: T, value: Value) -> f64 {
         self.inner.get(fqdn, key, value)
     }
-
+    fn get_2(&self, fqdn: &str, k1: T, v1: Value, k2: T, v2: Value) -> (f64, f64) {
+        self.inner.get_2(fqdn, k1, v1, k2, v2)
+    }
+    fn get_3(&self, fqdn: &str, k1: T, v1: Value, k2: T, v2: Value, k3: T, v3: Value) -> (f64, f64, f64) {
+        self.inner.get_3(fqdn, k1, v1, k2, v2, k3, v3)
+    }
     fn insert_gpu_load_est(&self, _fqdn: &str, _x: f64, _y: f64) {
         // do nothing
     }
@@ -184,6 +191,29 @@ impl<T: Max + num_traits::AsPrimitive<usize>> CharMap<T> for CharMapRO<T> {
     }
 }
 
+#[inline(always)]
+fn set_data(data: &mut Box<[f64]>, first_pos: usize, value: f64) {
+    data[first_pos + Value::Min as usize] = value;
+    data[first_pos + Value::Max as usize] = value;
+    data[first_pos + Value::Avg as usize] = value;
+    data[first_pos + Value::Latest as usize] = value;
+}
+
+#[inline(always)]
+fn update_data(data: &mut Box<[f64]>, first_pos: usize, value: f64) {
+    if data[first_pos].is_nan() {
+        set_data(data, first_pos, value);
+        return;
+    }
+    let min_pos = first_pos + Value::Min as usize;
+    data[min_pos] = f64::min(data[min_pos], value);
+    let max_pos = first_pos + Value::Max as usize;
+    data[max_pos] = f64::max(data[max_pos], value);
+    let avg_pos = first_pos + Value::Avg as usize;
+    data[avg_pos] = data[avg_pos] * 0.9 + value * 0.1;
+    data[first_pos + Value::Latest as usize] = value;
+}
+
 pub struct CharMapRW<const T: usize> {
     data: DashMap<String, Box<[f64]>>,
     gpu_load_lin_reg: RwLock<LinearReg>,
@@ -195,28 +225,63 @@ impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for Cha
         match self.data.get_mut(fqdn) {
             None => {
                 let mut data = vec![f64::NAN; S * (Value::SIZE)].into_boxed_slice();
-                data[first_pos + Value::Min as usize] = value;
-                data[first_pos + Value::Max as usize] = value;
-                data[first_pos + Value::Avg as usize] = value;
-                data[first_pos + Value::Latest as usize] = value;
+                set_data(&mut data, first_pos, value);
                 self.data.insert(fqdn.to_string(), data);
             },
             Some(mut d) => {
                 let arr = d.value_mut();
-                if arr[first_pos].is_nan() {
-                    arr[first_pos + Value::Min as usize] = value;
-                    arr[first_pos + Value::Max as usize] = value;
-                    arr[first_pos + Value::Avg as usize] = value;
-                    arr[first_pos + Value::Latest as usize] = value;
-                    return;
-                }
-                let min_pos = first_pos + Value::Min as usize;
-                arr[min_pos] = f64::min(arr[min_pos], value);
-                let max_pos = first_pos + Value::Max as usize;
-                arr[max_pos] = f64::max(arr[max_pos], value);
-                let avg_pos = first_pos + Value::Avg as usize;
-                arr[avg_pos] = arr[avg_pos] * 0.9 + value * 0.1;
-                arr[first_pos + Value::Latest as usize] = value;
+                update_data(arr, first_pos, value);
+            },
+        };
+    }
+    fn update_2(&self, fqdn: &str, k1: T, v1: f64, k2: T, v2: f64) {
+        match self.data.get_mut(fqdn) {
+            None => {
+                let mut data = vec![f64::NAN; S * (Value::SIZE)].into_boxed_slice();
+                set_data(&mut data, k1.as_() * (Value::SIZE), v1);
+                set_data(&mut data, k2.as_() * (Value::SIZE), v2);
+                self.data.insert(fqdn.to_string(), data);
+            },
+            Some(mut d) => {
+                let data = d.value_mut();
+                update_data(data, k1.as_() * (Value::SIZE), v1);
+                update_data(data, k2.as_() * (Value::SIZE), v2);
+            },
+        };
+    }
+    fn update_3(&self, fqdn: &str, k1: T, v1: f64, k2: T, v2: f64, k3: T, v3: f64) {
+        match self.data.get_mut(fqdn) {
+            None => {
+                let mut data = vec![f64::NAN; S * (Value::SIZE)].into_boxed_slice();
+                set_data(&mut data, k1.as_() * (Value::SIZE), v1);
+                set_data(&mut data, k2.as_() * (Value::SIZE), v2);
+                set_data(&mut data, k3.as_() * (Value::SIZE), v3);
+                self.data.insert(fqdn.to_string(), data);
+            },
+            Some(mut d) => {
+                let data = d.value_mut();
+                update_data(data, k1.as_() * (Value::SIZE), v1);
+                update_data(data, k2.as_() * (Value::SIZE), v2);
+                update_data(data, k3.as_() * (Value::SIZE), v3);
+            },
+        };
+    }
+    fn update_4(&self, fqdn: &str, k1: T, v1: f64, k2: T, v2: f64, k3: T, v3: f64, k4: T, v4: f64) {
+        match self.data.get_mut(fqdn) {
+            None => {
+                let mut data = vec![f64::NAN; S * (Value::SIZE)].into_boxed_slice();
+                set_data(&mut data, k1.as_() * (Value::SIZE), v1);
+                set_data(&mut data, k2.as_() * (Value::SIZE), v2);
+                set_data(&mut data, k3.as_() * (Value::SIZE), v3);
+                set_data(&mut data, k4.as_() * (Value::SIZE), v4);
+                self.data.insert(fqdn.to_string(), data);
+            },
+            Some(mut d) => {
+                let data = d.value_mut();
+                update_data(data, k1.as_() * (Value::SIZE), v1);
+                update_data(data, k2.as_() * (Value::SIZE), v2);
+                update_data(data, k3.as_() * (Value::SIZE), v3);
+                update_data(data, k4.as_() * (Value::SIZE), v4);
             },
         };
     }
@@ -234,6 +299,33 @@ impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for Cha
         }
     }
 
+    fn get_2(&self, fqdn: &str, k1: T, v1: Value, k2: T, v2: Value) -> (f64, f64) {
+        match self.data.get(fqdn) {
+            None => (0.0, 0.0),
+            Some(d) => {
+                let r1 = d.value()[(k1.as_() * Value::SIZE) + v1 as usize];
+                let r2 = d.value()[(k2.as_() * Value::SIZE) + v2 as usize];
+                if r1.is_nan() {
+                    return (0.0, 0.0);
+                }
+                (r1, r2)
+            },
+        }
+    }
+    fn get_3(&self, fqdn: &str, k1: T, v1: Value, k2: T, v2: Value, k3: T, v3: Value) -> (f64, f64, f64) {
+        match self.data.get(fqdn) {
+            None => (0.0, 0.0, 0.0),
+            Some(d) => {
+                let r1 = d.value()[(k1.as_() * Value::SIZE) + v1 as usize];
+                if r1.is_nan() {
+                    return (0.0, 0.0, 0.0);
+                }
+                let r2 = d.value()[(k2.as_() * Value::SIZE) + v2 as usize];
+                let r3 = d.value()[(k3.as_() * Value::SIZE) + v3 as usize];
+                (r1, r2, r3)
+            },
+        }
+    }
     fn insert_gpu_load_est(&self, fqdn: &str, x: f64, y: f64) {
         self.gpu_load_lin_reg.write().insert(x, y);
         match self.func_gpu_load_lin_reg.get_mut(fqdn) {

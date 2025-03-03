@@ -158,13 +158,24 @@ impl RegistrationService {
                                 self.characteristics_map.update(&fqdn, exec, *v);
                             }
                             for v in timings.cold_worker_duration_us.iter() {
-                                self.characteristics_map.update(&fqdn, cold, *v as f64 / 1_000_000.0);
-                                self.characteristics_map.update(&fqdn, e2e, *v as f64 / 1_000_000.0);
+                                self.characteristics_map.update_2(
+                                    &fqdn,
+                                    cold,
+                                    *v as f64 / 1_000_000.0,
+                                    e2e,
+                                    *v as f64 / 1_000_000.0,
+                                );
                             }
                             for v in timings.warm_worker_duration_us.iter() {
-                                self.characteristics_map.update(&fqdn, warm, *v as f64 / 1_000_000.0);
-                                self.characteristics_map.update(&fqdn, prewarm, *v as f64 / 1_000_000.0);
-                                self.characteristics_map.update(&fqdn, e2e, *v as f64 / 1_000_000.0);
+                                self.characteristics_map.update_3(
+                                    &fqdn,
+                                    warm,
+                                    *v as f64 / 1_000_000.0,
+                                    prewarm,
+                                    *v as f64 / 1_000_000.0,
+                                    e2e,
+                                    *v as f64 / 1_000_000.0,
+                                );
                             }
                             rf.historical_runtime_data_sec
                                 .insert(dev_compute, timings.warm_results_sec.clone());

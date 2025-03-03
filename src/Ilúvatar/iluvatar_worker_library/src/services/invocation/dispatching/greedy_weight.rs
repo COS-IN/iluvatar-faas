@@ -3,7 +3,7 @@ use crate::services::invocation::QueueLoad;
 use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::gpu::GpuResourceTracker;
 use anyhow::Result;
-use iluvatar_library::char_map::{Chars, WorkerCharMap};
+use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
 use iluvatar_library::threading;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
@@ -207,12 +207,18 @@ impl GreedyWeights {
     async fn update_set(self: Arc<Self>, tid: String) {
         let mut data = vec![];
         for fqdn in self.reg.registered_funcs() {
-            let gpu = self.cmap.get_avg(&fqdn, Chars::GpuExecTime);
+            let (gpu, cpu, mut iat) = self.cmap.get_3(
+                &fqdn,
+                Chars::GpuExecTime,
+                Value::Avg,
+                Chars::CpuExecTime,
+                Value::Avg,
+                Chars::IAT,
+                Value::Avg,
+            );
             if gpu == 0.0 {
                 continue;
             }
-            let cpu = self.cmap.get_avg(&fqdn, Chars::CpuExecTime);
-            let mut iat = self.cmap.get_avg(&fqdn, Chars::IAT);
             let real_iat = iat;
             if iat == 0.0 {
                 iat = 100.0; // unknown IAT, make large
