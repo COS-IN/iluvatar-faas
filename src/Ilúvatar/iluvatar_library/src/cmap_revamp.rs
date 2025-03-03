@@ -1,7 +1,29 @@
 use dashmap::DashMap;
+use std::sync::Arc;
+
+// A better characteristics map system
+//
+// What we 'want' it to do:
+//     Store these per-fqdn
+//     Store only f64 values
+//     Have a unique entry for all values in <T>, where T is some enum
+//     Support a unique entry for MIN, MAX, AVG, LATEST of each <T>
+//         Do we want to require external separate enum values for each compute, CpuExecTime, GpuExecTime, etc.?
+//         Or have the cmap internally track CPU, GPU, etc. distinction?
+//     Minimal locking on add / update and retrieval
+//     An optional read-only wrapper to forward cmap to a simulation
+//     Easy cloning of all of an FQDN's values
+//     easy cloning / serializing to send to controller for LB purposes
+//     Allow updating multiple enum entries in one call
+//     Allow retrieving multiple enum entries in one call
+//
+// Not implemented yet:
+//     cloning
+//     exporting data
+//     multiple retrieval
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-#[repr(u32)]
+#[repr(usize)]
 pub enum Chars {
     /// Running avg of _all_ times on CPU for invocations.
     /// Recorded by invoke_on_container_2
@@ -54,87 +76,184 @@ impl Max for Chars {
     const MAX: usize = Self::QueueErrCpu as usize;
 }
 impl num_traits::AsPrimitive<usize> for Chars {
+    #[inline(always)]
     fn as_(self) -> usize {
         self as usize
     }
 }
 
-/// Trait ensuring that there is a maximal value that is also constant
+/// Trait ensuring that there is a maximal value that is also constant.
+/// Used to index into the char map fqdn array.
 pub trait Max {
     const MAX: usize;
 }
 
+#[repr(usize)]
 pub enum Value {
     Min = 0,
     Max,
     Avg,
-    Latest
+    Latest,
 }
 
-pub trait CharMap<T: num_traits::AsPrimitive<usize>> {
-    fn update(&self, _fqdn: &str, _key: T, _value: f64) { }
+pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
+    fn update(&self, fqdn: &str, key: T, value: f64);
 
-    // Other interface where caller has enum entry per-compute
-    fn get(&self, _fqdn: &str, _key: T) -> f64 {
-        0.0
+    fn get(&self, fqdn: &str, key: T, value: Value) -> f64;
+    fn get_min(&self, fqdn: &str, key: T) -> f64 {
+        self.get(fqdn, key, Value::Min)
+    }
+    fn get_max(&self, fqdn: &str, key: T) -> f64 {
+        self.get(fqdn, key, Value::Max)
+    }
+    fn get_avg(&self, fqdn: &str, key: T) -> f64 {
+        self.get(fqdn, key, Value::Avg)
+    }
+    fn get_latest(&self, fqdn: &str, key: T) -> f64 {
+        self.get(fqdn, key, Value::Latest)
     }
 
-    fn register(&self, fqdn: String);
+    /// A read-only pointer to this char map.
+    /// Others can still write to it.
+    fn read_only(&self, slf: Arc<dyn CharMap<T>>) -> Arc<dyn CharMap<T>> {
+        Arc::new(CharMapRO { inner: slf })
+    }
 }
 
-/// A better characteristics map
-///
-/// What we 'want' it to do:
-///     Store these per-fqdn
-///     Store only f64 values
-///     Have a unique entry for all values in <T>
-///     Support a unique entry for MIN, MAX, AVG, LATEST of each <T>
-///         Do we want to require external separate enum values for each compute, CpuExecTime, GpuExecTime, etc.?
-///         Or have the cmap internally track CPU, GPU, etc. distinction?
-///     Minimal locking on add / update and retrieval
-///     An optional read-only wrapper to forward cmap to a simulation
-///     Easy cloning of all of an FQDN's values
-///     easy cloning / serializing to send to controller for LB purposes
-///     Allow updating multiple enum entries in one call
-///     Allow retrieving multiple enum entries in one call
+struct CharMapRO<T: num_traits::AsPrimitive<usize>> {
+    inner: Arc<dyn CharMap<T>>,
+}
+impl<T: Max + num_traits::AsPrimitive<usize>> CharMap<T> for CharMapRO<T> {
+    fn update(&self, _fqdn: &str, _key: T, _value: f64) {
+        // do nothing
+    }
+
+    fn get(&self, fqdn: &str, key: T, value: Value) -> f64 {
+        self.inner.get(fqdn, key, value)
+    }
+}
+
 pub struct CharMapRW<const T: usize> {
     data: DashMap<String, [f64; T]>,
 }
 impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for CharMapRW<{ S }> {
-    fn register(&self, fqdn: String) {
-        self.data.insert(fqdn, [0.0; S]);
+    fn update(&self, fqdn: &str, key: T, value: f64) {
+        match self.data.get_mut(fqdn) {
+            None => {
+                self.data.insert(fqdn.to_string(), [value; S]);
+            },
+            Some(mut d) => {
+                let arr = d.value_mut();
+                let min_pos = key.as_() + Value::Min as usize;
+                arr[min_pos] = f64::min(arr[min_pos], value);
+                let max_pos = key.as_() + Value::Max as usize;
+                arr[max_pos] = f64::max(arr[max_pos], value);
+                let avg_pos = key.as_() + Value::Avg as usize;
+                arr[avg_pos] = arr[avg_pos] * 0.9 + value * 0.1;
+                arr[key.as_() + Value::Latest as usize] = value;
+            },
+        };
+    }
+
+    fn get(&self, fqdn: &str, key: T, value: Value) -> f64 {
+        match self.data.get(fqdn) {
+            None => 0.0,
+            Some(d) => d.value()[key.as_() + value as usize],
+        }
     }
 }
 
-impl<const T: usize> CharMapRW<T> {
-    pub fn new() -> Self {
-        Self { data: DashMap::new() }
+impl<const S: usize> CharMapRW<S> {
+    pub fn boxed<T: Max + num_traits::AsPrimitive<usize>>() -> Arc<dyn CharMap<T>> {
+        Arc::new(Self { data: DashMap::new() })
     }
-
 }
-
 
 #[cfg(test)]
-mod char_tests {
+mod char_map_tests {
     use super::*;
 
     #[test]
     fn compile_test() {
-        let _cmap = CharMapRW::<{ Chars::MAX }>::new();
+        let _cmap: Arc<dyn CharMap<Chars>> = CharMapRW::<{ Chars::MAX }>::boxed();
     }
 
     #[test]
-    fn register() {
-        let cmap: Box<dyn CharMap<Chars>> = Box::new(CharMapRW::<{ Chars::MAX }>::new());
-        cmap.register("f1".to_owned());
-        cmap.register("f2".to_owned());
-        cmap.register("f3".to_owned());
+    fn missing_get_returns_zero() {
+        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 0.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 0.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Avg), 0.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 0.0);
     }
 
     #[test]
-    fn get() {
-        let cmap: Box<dyn CharMap<Chars>> = Box::new(CharMapRW::<{ Chars::MAX }>::new());
-        cmap.register("f1".to_owned());
-        cmap.get("f1", Chars::CpuExecTime);
+    fn first_sets_all() {
+        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        cmap.update("f1", Chars::CpuExecTime, 1.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 1.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 1.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Avg), 1.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 1.0);
+    }
+
+    #[test]
+    fn get_helpers_work() {
+        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        cmap.update("f1", Chars::CpuExecTime, 1.0);
+        cmap.update("f1", Chars::CpuExecTime, 2.0);
+        cmap.update("f1", Chars::CpuExecTime, 5.0);
+        cmap.update("f1", Chars::CpuExecTime, 4.0);
+        assert_eq!(
+            cmap.get("f1", Chars::CpuExecTime, Value::Min),
+            cmap.get_min("f1", Chars::CpuExecTime)
+        );
+        assert_eq!(
+            cmap.get("f1", Chars::CpuExecTime, Value::Max),
+            cmap.get_max("f1", Chars::CpuExecTime)
+        );
+        assert_eq!(
+            cmap.get("f1", Chars::CpuExecTime, Value::Avg),
+            cmap.get_avg("f1", Chars::CpuExecTime)
+        );
+        assert_eq!(
+            cmap.get("f1", Chars::CpuExecTime, Value::Latest),
+            cmap.get_latest("f1", Chars::CpuExecTime)
+        );
+    }
+
+    #[test]
+    fn second_updates() {
+        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        cmap.update("f1", Chars::CpuExecTime, 1.0);
+        cmap.update("f1", Chars::CpuExecTime, 2.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 1.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 2.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Avg), 1.0 * 0.9 + 2.0 * 0.1);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 2.0);
+    }
+
+    #[test]
+    fn read_only_cannot_update() {
+        let cmap = CharMapRW::<{ Chars::MAX }>::boxed();
+        cmap.update("f1", Chars::CpuExecTime, 1.0);
+        cmap.update("f1", Chars::CpuExecTime, 2.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 1.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 2.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Avg), 1.0 * 0.9 + 2.0 * 0.1);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 2.0);
+
+        let ro_cmap = cmap.read_only(cmap.clone());
+        ro_cmap.update("f1", Chars::CpuExecTime, 3.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 1.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 2.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Avg), 1.0 * 0.9 + 2.0 * 0.1);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 2.0);
+
+        cmap.update("f1", Chars::CpuExecTime, 3.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 1.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 3.0);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Avg), 1.29);
+        assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 3.0);
     }
 }
