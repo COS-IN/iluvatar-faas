@@ -42,6 +42,7 @@ config = "0.15"
 rstest = "0.24"
 float-cmp = "0.10"
 nix = { version = "0.29", features = ["process", "signal"] }
+enum-iterator = "2.1"
 
 [features]
 full_spans = []
