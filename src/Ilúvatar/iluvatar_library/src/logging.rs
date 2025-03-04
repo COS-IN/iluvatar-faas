@@ -204,7 +204,16 @@ fn file_logger<S: Subscriber + for<'span> LookupSpan<'span>, P: AsRef<Path>>(
     if full_path.exists() {
         match std::fs::remove_file(full_path) {
             Ok(_) => (),
-            Err(e) => anyhow::bail!("Failed to remove old log file because '{}'", e),
+            Err(e) => {
+                if let Some(ow_e) = e.raw_os_error() {
+                    // error 2 means file was gone, deleted from under us. Ignore
+                    if ow_e != 2 {
+                        anyhow::bail!("Failed to remove old log file because '{}'", e);
+                    } else {
+                        warn!(tid=tid, error=%e, "Log file was deleted from under while this was trying to delete");
+                    }
+                }
+            },
         };
     }
 
