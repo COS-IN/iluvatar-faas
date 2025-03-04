@@ -85,10 +85,10 @@ impl WorkerAPI for SimWorkerAPI {
             Ok(response) => {
                 let response = response.into_inner();
                 if response.success {
-                    debug!(tid=%tid, "Async invoke succeeded");
+                    debug!(tid = tid, "Async invoke succeeded");
                     Ok(response.lookup_cookie)
                 } else {
-                    error!(tid=%tid, "Async invoke failed");
+                    error!(tid = tid, "Async invoke failed");
                     bail!("Async invoke failed")
                 }
             },
@@ -132,7 +132,7 @@ impl WorkerAPI for SimWorkerAPI {
                 match response.success {
                     true => Ok("".to_string()),
                     false => {
-                        bail_error!(tid=%tid, message=%response.message, "Prewarm request failed")
+                        bail_error!(tid=tid, message=%response.message, "Prewarm request failed")
                     },
                 }
             },

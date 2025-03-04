@@ -284,7 +284,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                 Ok(Response::new(reply))
             },
             Err(msg) => {
-                error!(tid=%tid, error=%msg, "Registration failed");
+                error!(tid=tid, error=%msg, "Registration failed");
                 let reply = RegisterResponse {
                     success: false,
                     function_json_result: format!("{{\"Error\": \"Error during registration: '{:?}\"}}", msg),

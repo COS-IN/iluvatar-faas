@@ -67,4 +67,4 @@ clippy:
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) clippy --workspace --examples --benches --no-deps -- \
 			-Dclippy::suspicious -Dclippy::correctness -Dclippy::perf -Aclippy::single_match \
 			-Aclippy::new_without_default -Aclippy::too_many_arguments -Aclippy::type-complexity \
-			-Dclippy::from_over_into -Aclippy::redundant-field-names -Dwarnings
+			-Dclippy::from_over_into -Aclippy::redundant-field-names -Aclippy::upper_case_acronyms -Dwarnings

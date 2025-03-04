@@ -1,4 +1,4 @@
-use crate::server::structs::RegisteredWorker;
+use crate::services::registration::RegisteredWorker;
 use dashmap::DashMap;
 use iluvatar_library::{transaction::TransactionId, types::HealthStatus};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;

@@ -712,10 +712,10 @@ impl ContainerdIsolation {
                 return Err((e, device_resource));
             },
         };
-        debug!(tid=%tid, "Mounts loaded");
+        debug!(tid = tid, "Mounts loaded");
         let resources_dir = container_path(&cid);
         if let Err(e) = make_paths(&resources_dir, tid) {
-            bail_error_value!(tid=%tid, error=%e, "make_paths failed", device_resource);
+            bail_error_value!(tid=tid, error=%e, "make_paths failed", device_resource);
         };
 
         let stdin = self.stdin_pth(&cid);

@@ -1,5 +1,5 @@
-use crate::server::structs::{RegisteredFunction, RegisteredWorker};
 use crate::services::load_balance::LoadBalancerTrait;
+use crate::services::registration::RegisteredWorker;
 use crate::{
     prewarm, send_async_invocation, send_invocation,
     server::controller_config::LoadBalancingConfig,
@@ -11,6 +11,7 @@ use iluvatar_library::{
     bail_error, threading::tokio_thread, transaction::TransactionId, transaction::LEAST_LOADED_TID,
 };
 use iluvatar_rpc::rpc::InvokeResponse;
+use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc, time::Duration};

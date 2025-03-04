@@ -65,7 +65,7 @@ impl WorkerAPIFactory {
                     let api = match RPCWorkerAPI::new(host, port, tid).await {
                         Ok(api) => api,
                         Err(e) => {
-                            bail_error!(tid=%tid, worker=%worker, error=%e, "Unable to create API for worker")
+                            bail_error!(tid=tid, worker=%worker, error=%e, "Unable to create API for worker")
                         },
                     };
                     self.rpc_apis.insert(worker.to_owned(), api.clone());

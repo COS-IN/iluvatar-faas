@@ -477,12 +477,12 @@ impl NamespaceManager {
                 Ok(r) => match r {
                     Ok(_r) => (),
                     Err(e) => {
-                        error!(tid=%tid, error=%e, "Encountered an error on network namespace cleanup");
+                        error!(tid=tid, error=%e, "Encountered an error on network namespace cleanup");
                         failed += 1;
                     },
                 },
                 Err(e) => {
-                    error!(tid=%tid, error=%e, "Encountered an error joining thread for network namespace cleanup");
+                    error!(tid=tid, error=%e, "Encountered an error joining thread for network namespace cleanup");
                     failed += 1;
                 },
             }

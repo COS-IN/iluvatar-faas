@@ -42,7 +42,7 @@ impl RPCWorkerAPI {
                     return Ok(api);
                 },
                 Err(e) => {
-                    warn!(error=%e, tid=%tid, "Error opening RPC connection to Worker API");
+                    warn!(error=%e, tid=tid, "Error opening RPC connection to Worker API");
                     retries -= 1;
                     if retries == 0 {
                         return Err(e);
@@ -124,10 +124,10 @@ impl WorkerAPI for RPCWorkerAPI {
             Ok(response) => {
                 let response = response.into_inner();
                 if response.success {
-                    debug!(tid=%tid, "Async invoke succeeded");
+                    debug!(tid = tid, "Async invoke succeeded");
                     Ok(response.lookup_cookie)
                 } else {
-                    error!(tid=%tid, "Async invoke failed");
+                    error!(tid = tid, "Async invoke failed");
                     anyhow::bail!("Async invoke failed")
                 }
             },
@@ -165,7 +165,7 @@ impl WorkerAPI for RPCWorkerAPI {
                 let err = format!("Prewarm request failed: {:?}", response.message);
                 match response.success {
                     true => Ok(response.message),
-                    false => bail_error!(tid=%tid, message=%response.message, err),
+                    false => bail_error!(tid=tid, message=%response.message, err),
                 }
             },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:prewarm]".to_string())),

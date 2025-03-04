@@ -1,16 +1,26 @@
-use crate::server::controller_config::ControllerConfig;
-use crate::server::structs::{RegisteredFunction, RegisteredWorker};
-use anyhow::Result;
-use iluvatar_library::transaction::TransactionId;
-use iluvatar_rpc::rpc::InvokeResponse;
-use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
-use std::sync::Arc;
-use std::time::Duration;
-use tracing::debug;
-
 use super::controller_health::ControllerHealthService;
 use super::load_reporting::LoadService;
+use crate::server::controller_config::ControllerConfig;
+use crate::services::load_balance::balancers::rrCH::CHGLoadBalancer;
+use crate::services::registration::RegisteredWorker;
+use anyhow::Result;
+use iluvatar_library::char_map::WorkerCharMap;
+use iluvatar_library::transaction::TransactionId;
+use iluvatar_rpc::rpc::InvokeResponse;
+use iluvatar_worker_library::services::registration::RegisteredFunction;
+use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
+use serde::Deserialize;
+use std::sync::Arc;
+use std::time::Duration;
+
 mod balancers;
+
+#[derive(Debug, Deserialize)]
+pub enum LoadBalancerAlgo {
+    RoundRobin,
+    LeastLoaded,
+    CHGLoadBalancer,
+}
 
 #[tonic::async_trait]
 pub trait LoadBalancerTrait {
@@ -48,26 +58,20 @@ pub fn get_balancer(
     tid: &TransactionId,
     load: Arc<LoadService>,
     worker_fact: Arc<WorkerAPIFactory>,
+    worker_cmap: &WorkerCharMap,
 ) -> Result<LoadBalancer> {
-    if config.load_balancer.algorithm == "RoundRobin" {
-        debug!(tid = tid, "starting round robin balancer");
-        Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(
+    match config.load_balancer.algorithm {
+        LoadBalancerAlgo::RoundRobin => Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(
             health_svc,
             worker_fact,
-        )))
-    } else if config.load_balancer.algorithm == "LeastLoaded" {
-        debug!(tid = tid, "starting least loaded balancer");
-        Ok(balancers::least_loaded::LeastLoadedBalancer::boxed(
+        ))),
+        LoadBalancerAlgo::LeastLoaded => Ok(balancers::least_loaded::LeastLoadedBalancer::boxed(
             health_svc,
             load,
             worker_fact,
             tid,
             config.load_balancer.clone(),
-        ))
-    } else {
-        anyhow::bail!(
-            "Unimplemented load balancing algorithm {}",
-            config.load_balancer.algorithm
-        )
+        )),
+        LoadBalancerAlgo::CHGLoadBalancer => Ok(Arc::new(CHGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
     }
 }

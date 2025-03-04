@@ -132,14 +132,14 @@ impl StatusService {
             num_system_cores: self.cpu_count,
             num_running_funcs: running,
         });
-        info!(tid=%tid, status=%new_status, "current load status");
+        info!(tid=tid, status=%new_status, "current load status");
 
         *self.current_status.lock() = new_status;
     }
 
     /// Returns the status and load of the worker
     pub fn get_status(&self, tid: &TransactionId) -> Arc<WorkerStatus> {
-        debug!(tid=%tid, "getting current worker status");
+        debug!(tid = tid, "getting current worker status");
         self.current_status.lock().clone()
     }
 }
@@ -183,7 +183,7 @@ impl CpuHardwareMonitor {
 #[tonic::async_trait]
 impl CpuMonitorTrait for CpuHardwareMonitor {
     fn cpu_util(&self, tid: &TransactionId) -> Result<(CPUUtilPcts, f64)> {
-        debug!(tid=%tid, "Computing system utilization");
+        debug!(tid = tid, "Computing system utilization");
         let now = CPUUtilInstant::get(tid)?;
         let mut last = self.last_instant_usage.lock();
         let diff = &now - &*last;
@@ -191,14 +191,14 @@ impl CpuMonitorTrait for CpuHardwareMonitor {
 
         let buff = match read_to_string("/proc/loadavg") {
             Ok(f) => f,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read /proc/loadavg"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to read /proc/loadavg"),
         };
         let lines: Vec<&str> = buff.split(' ').filter(|str| !str.is_empty()).collect();
         let min = lines[0];
         let load_avg = match min.parse::<f64>() {
             Ok(r) => r,
             Err(e) => {
-                bail_error!(tid=%tid, "error parsing float from uptime {}: {}", min, e);
+                bail_error!(tid = tid, "error parsing float from uptime {}: {}", min, e);
             },
         };
         *self.signal.write() = load_avg;
@@ -223,7 +223,7 @@ impl CpuSimMonitor {
 }
 impl CpuMonitorTrait for CpuSimMonitor {
     fn cpu_util(&self, tid: &TransactionId) -> Result<(CPUUtilPcts, f64)> {
-        debug!(tid=%tid, "Computing system utilization");
+        debug!(tid = tid, "Computing system utilization");
         // additional 0.5 to account for system work
         let running = self.invoker.running_funcs() as f64 + 0.5;
         let mut lck = self.signal.write();
@@ -327,11 +327,16 @@ impl CPUUtilInstant {
             match split_line[pos].parse::<f64>() {
                 Ok(v) => Ok(v),
                 Err(e) => {
-                    bail_error!(error=%e, tid=%tid, line=%split_line[pos], "Unable to parse string from /proc/stat")
+                    bail_error!(error=%e, tid=tid, line=%split_line[pos], "Unable to parse string from /proc/stat")
                 },
             }
         } else {
-            bail_error!(expected=pos, actual=split_line.len(), tid=%tid, "/proc/stat line was unexpectedly short!")
+            bail_error!(
+                expected = pos,
+                actual = split_line.len(),
+                tid = tid,
+                "/proc/stat line was unexpectedly short!"
+            )
         }
     }
 }

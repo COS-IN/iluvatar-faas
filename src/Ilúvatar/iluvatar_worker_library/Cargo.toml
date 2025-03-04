@@ -27,7 +27,7 @@ oci-spec = "0.*"
 sha2="0.10.2"
 hex = "0.4.3"
 reqwest = { version = "0.12.4", default-features = false, features = ["json", "rustls-tls"] }
-dashmap = "6"
+dashmap = { version = "6", features = ["inline"] }
 tracing = "0.1"
 futures = "0.3"
 time = "0.3"

@@ -30,12 +30,12 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let factory = IsolationFactory::new(worker_config.clone());
     let load_avg = build_load_avg_signal();
     let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, load_avg.clone(), tid)
-        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make cpu resource tracker"))?;
+        .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make cpu resource tracker"))?;
 
     let isos = factory
         .get_isolation_services(tid, true)
         .await
-        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make lifecycle(s)"))?;
+        .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make lifecycle(s)"))?;
     let gpu_resource = GpuResourceTracker::boxed(
         &worker_config.container_resources.gpu_resource,
         &worker_config.container_resources,
@@ -44,7 +44,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         &worker_config.status,
     )
     .await
-    .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make GPU resource tracker"))?;
+    .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make GPU resource tracker"))?;
 
     let container_man = ContainerManager::boxed(
         worker_config.container_resources.clone(),
@@ -53,7 +53,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         tid,
     )
     .await
-    .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make container manger"))?;
+    .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make container manger"))?;
 
     let reg = RegistrationService::new(
         container_man.clone(),
@@ -65,11 +65,11 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
     let energy = EnergyLogger::boxed(worker_config.energy.as_ref(), tid)
         .await
-        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make energy logger"))?;
+        .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make energy logger"))?;
 
     #[cfg(feature = "power_cap")]
     let energy_limit = EnergyLimiter::boxed(&worker_config.energy_cap, energy.clone())
-        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker energy limiter"))?;
+        .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make worker energy limiter"))?;
 
     let invoker_fact = InvokerFactory::new(
         container_man.clone(),
@@ -85,10 +85,10 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     );
     let invoker = invoker_fact
         .get_invoker_service(tid)
-        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to get invoker service"))?;
+        .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to get invoker service"))?;
     let health = WorkerHealthService::boxed(worker_config.clone(), invoker.clone(), reg.clone(), isos.clone(), tid)
         .await
-        .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make worker health service"))?;
+        .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make worker health service"))?;
     let status = StatusService::boxed(
         container_man.clone(),
         worker_config.name.clone(),
@@ -99,13 +99,13 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         load_avg,
         &worker_config.container_resources,
     )
-    .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make status service"))?;
+    .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make status service"))?;
 
     let influx_updater = match &worker_config.influx {
         Some(i_config) => {
             let client = InfluxClient::new(i_config.clone(), tid)
                 .await
-                .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make influx client"))?;
+                .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make influx client"))?;
             InfluxUpdater::boxed(
                 client,
                 i_config.clone(),
@@ -113,7 +113,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
                 worker_config.name.clone(),
                 tid,
             )
-            .or_else(|e| bail_error!(tid=%tid, error=%e, "Failed to make influx updater"))?
+            .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make influx updater"))?
         },
         None => None,
     };

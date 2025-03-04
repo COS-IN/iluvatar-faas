@@ -332,6 +332,12 @@ impl QueueingDispatcher {
             EnqueueingPolicy::GreedyWeights => {
                 GreedyWeights::boxed(&cmap, que_map, &invocation_config.greedy_weight_config, reg, gpu)
             },
+            EnqueueingPolicy::MICE => Ok(Arc::new(MICE::new(
+                invocation_config.clone(),
+                cmap.clone(),
+                que_map,
+                tid,
+            )?)),
         }
     }
 
@@ -726,89 +732,101 @@ impl DispatchPolicy for EstSpeedup {
     }
 }
 
+#[allow(unused)]
 struct MICEState {
-    cpu_thresh: f64, // run on cpu if size below this 
-    gpu_thresh: f64,  // run on gpu if size below this 
-    control_interval: u32, // M, number of invocations before we readjust thresholds. Countdown. Defaults 10 
-    cpu_dispatched: f64, // Total service dispatched on CPU in this interval, so far 
-    gpu_dispatched: f64, // Total service on GPU in this interval 
-    time_marker: OffsetDateTime,  //When the current epoch started
-    rho_cap_cpu: f64
+    cpu_thresh: f64,             // run on cpu if size below this
+    gpu_thresh: f64,             // run on gpu if size below this
+    control_interval: u32,       // M, number of invocations before we readjust thresholds. Countdown. Defaults 10
+    cpu_dispatched: f64,         // Total service dispatched on CPU in this interval, so far
+    gpu_dispatched: f64,         // Total service on GPU in this interval
+    time_marker: OffsetDateTime, //When the current epoch started
+    rho_cap_cpu: f64,
 }
 
 /// This is the machine-learned "ICE" policy from the paper:
 /// On Sequential Dispatching Policies.  Esa Hyytiä et.al.
-/// This paper has some more fundamental details: Minimizing Slowdown in Heterogeneous Size-Aware Dispatching Systems. 
+/// This paper has some more fundamental details: Minimizing Slowdown in Heterogeneous Size-Aware Dispatching Systems.
 /// The basic idea is to have the lower backlogged server (in this case usually the CPU) to get first-pick.
 /// Each server has thresholds for the job size. Thus if the CPU is less backlogged, then it gets to pick the invocation if it is less than tau_cpu in size. Else the GPU gets it.
-/// The backlog is the estimated e2e latency. 
+/// The backlog is the estimated e2e latency.
 /// Every M invocations, there will be some control loop to increment/decrement the (CPU) threshold based on the dispatched load in this M window, based on the observed/average service time of the invocation.
-/// The other input needed is some load threshold for the devices (again mainly the CPU) 
+/// The other input needed is some load threshold for the devices (again mainly the CPU)
+#[allow(unused)]
+#[allow(non_camel_case_types)]
 struct MICE {
     que_map: QueueMap,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     invocation_config: Arc<InvocationConfig>,
-    clock: Clock, 
+    clock: Clock,
     //hmm, move this all part of mice-state under a single mutex?
     mstate: Mutex<MICEState>,
 }
 impl MICE {
-    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, que_map: QueueMap, tid: &TransactionId, clock:Clock) -> Result<Self> {
+    pub fn new(
+        invocation_config: Arc<InvocationConfig>,
+        cmap: WorkerCharMap,
+        que_map: QueueMap,
+        tid: &TransactionId,
+    ) -> Result<Self> {
+        let clock = get_global_clock(tid)?;
         Ok(Self {
-            que_map: que_map,
-            cmap: cmap,
-            invocation_config: invocation_config,
-	    clock: clock.clone(), 
-	    mstate: Mutex::new(MICEState {
-		cpu_thresh: 10.0, // Should pass all these arguments 
-		gpu_thresh: 9999.0,
-		control_interval: 10,
-		cpu_dispatched: 0.0,
-		gpu_dispatched: 0.0,
-		time_marker: clock.now(),
-		rho_cap_cpu: 100.0, 
-	    })
+            que_map,
+            cmap,
+            invocation_config,
+            mstate: Mutex::new(MICEState {
+                cpu_thresh: 10.0, // Should pass all these arguments
+                gpu_thresh: 9999.0,
+                control_interval: 10,
+                cpu_dispatched: 0.0,
+                gpu_dispatched: 0.0,
+                time_marker: clock.now(),
+                rho_cap_cpu: 100.0,
+            }),
+            clock,
         })
     }
 }
 impl DispatchPolicy for MICE {
-    fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
-        let x_cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
-        let x_gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
-	
-	//let delta_t = self.clock.now().as_seconds_f64() - self.time_marker ;
-	//let rho_cpu = *self.cpu_dispatched.lock()/delta_t;
-	//let rho_gpu = *self.gpu_dispatched.lock()/delta_t;
+    fn choose(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
+        // let (x_cpu, x_gpu) = self.cmap.get_2(
+        //     &reg.fqdn,
+        //     Chars::CpuExecTime,
+        //     Value::Avg,
+        //     Chars::GpuExecTime,
+        //     Value::Avg,
+        // );
 
-	let epsilon = 0.01 ; // This should be smaller than the function service times. 10 milliseconds seems ok. 
-	let mut ms = self.mstate.lock();
-	let mut cl = ms.control_interval; 
-	cl -= 1 ;
-	let delta_t = (self.clock.now() - ms.time_marker).as_seconds_f64();
-	
-	match cl {
-	    0 => {
-		// Compute the new thresholds
-		let rho_cpu = ms.cpu_dispatched/delta_t ;
-		if rho_cpu < ms.rho_cap_cpu {
-		    ms.cpu_thresh += epsilon ;
-		}
-		else {
-		    ms.cpu_thresh -= epsilon ;
-		}
-		// This is asymmetric and assumes GPU will need infinite threshold, so no update needed for it 
-		
-		// reset the counters and the time?
-		cl = 10 ;
-		ms.cpu_dispatched = 0.0 ;
-		ms.gpu_dispatched = 0.0 ;		
-	    },
-	    _ => {}
-	};
-	    
-	return (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE);
-	
-	// let mut opts = vec![];
+        //let delta_t = self.clock.now().as_seconds_f64() - self.time_marker ;
+        //let rho_cpu = *self.cpu_dispatched.lock()/delta_t;
+        //let rho_gpu = *self.gpu_dispatched.lock()/delta_t;
+
+        let epsilon = 0.01; // This should be smaller than the function service times. 10 milliseconds seems ok.
+        let mut ms = self.mstate.lock();
+        ms.control_interval -= 1;
+        let delta_t = (self.clock.now() - ms.time_marker).as_seconds_f64();
+
+        match ms.control_interval {
+            0 => {
+                // Compute the new thresholds
+                let rho_cpu = ms.cpu_dispatched / delta_t;
+                if rho_cpu < ms.rho_cap_cpu {
+                    ms.cpu_thresh += epsilon;
+                } else {
+                    ms.cpu_thresh -= epsilon;
+                }
+                // This is asymmetric and assumes GPU will need infinite threshold, so no update needed for it
+
+                // reset the counters and the time?
+                ms.control_interval = 10;
+                ms.cpu_dispatched = 0.0;
+                ms.gpu_dispatched = 0.0;
+            },
+            _ => {},
+        };
+
+        (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE)
+
+        // let mut opts = vec![];
         // for c in reg.supported_compute.into_iter() {
         //     if let Some(q) = self.que_map.get(&c) {
         //         opts.push((q.est_completion_time(reg, tid), c));
@@ -816,27 +834,25 @@ impl DispatchPolicy for MICE {
         // }
         // match opts.iter().min_by_key(|i| OrderedFloat(i.0 .0)) {
         //     Some(((est, load), c)) => {
-	// 	match c {
-	// 	    &Compute::CPU => {
-	// 		// CPU has lower backlog. Check if size of invok is under the threshold
-	// 		if x_cpu < self.cpu_thresh {
-	// 		let mut cd = self.cpu_dispatched.lock();
-	// 		*cd += x_cpu ;
-	// 		return (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE);
-	// 	    }
-	// 		else { // function is bigger than the current CPU threshold! GPU!
-			
-	// 	    }
-			
-	// 	    }
-	// 	}
-	//     }
-	    
-	// }
-    }
-    
-}
+        // 	match c {
+        // 	    &Compute::CPU => {
+        // 		// CPU has lower backlog. Check if size of invok is under the threshold
+        // 		if x_cpu < self.cpu_thresh {
+        // 		let mut cd = self.cpu_dispatched.lock();
+        // 		*cd += x_cpu ;
+        // 		return (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE);
+        // 	    }
+        // 		else { // function is bigger than the current CPU threshold! GPU!
 
+        // 	    }
+
+        // 	    }
+        // 	}
+        //     }
+
+        // }
+    }
+}
 
 struct RunningAvgEstSpeedup {
     que_map: QueueMap,

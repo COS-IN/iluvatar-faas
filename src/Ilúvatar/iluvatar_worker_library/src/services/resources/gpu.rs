@@ -264,7 +264,7 @@ impl GPU {
             );
         }
         let spots = hardware_memory_mb / per_func_memory_mb;
-        info!(tid=%tid, gpu_uuid=%gpu_uuid, spots=spots, hardware_memory_mb=hardware_memory_mb, per_func_memory_mb=per_func_memory_mb, "GPU available spots");
+        info!(tid=tid, gpu_uuid=%gpu_uuid, spots=spots, hardware_memory_mb=hardware_memory_mb, per_func_memory_mb=per_func_memory_mb, "GPU available spots");
         Ok((spots as u32, per_func_memory_mb))
     }
 }
@@ -325,7 +325,7 @@ impl GpuResourceTracker {
                     Ok(n) => Some(n),
                     Err(e) => {
                         if !config.is_tegra.unwrap_or(false) {
-                            error!(tid=%tid, error=%e, "Error loading NVML");
+                            error!(tid=tid, error=%e, "Error loading NVML");
                         }
                         None
                     },
@@ -381,11 +381,11 @@ impl GpuResourceTracker {
         docker: &DockerIsolation,
         tid: &TransactionId,
     ) -> Result<()> {
-        debug!(tid=%tid, "Setting MPS exclusive");
+        debug!(tid = tid, "Setting MPS exclusive");
         if !gpu_config.is_tegra.unwrap_or(false) {
             Self::set_gpu_exclusive(tid)?;
         }
-        debug!(tid=%tid, "Launching MPS container");
+        debug!(tid = tid, "Launching MPS container");
         let devices = vec![bollard::models::DeviceRequest {
             driver: Some("".into()),
             count: Some(-1),
@@ -444,7 +444,7 @@ impl GpuResourceTracker {
 
     /// Enable MIG on all GPUs
     fn enable_mig(tid: &TransactionId) -> Result<()> {
-        info!(tid=%tid, "Enabling MIG");
+        info!(tid = tid, "Enabling MIG");
         // TODO: a better way to ensure MIG is safely enabled?
         Self::disable_mig(tid)?;
         Self::apply_smi_across_gpus(tid, vec!["-mig", "1"])
@@ -452,7 +452,7 @@ impl GpuResourceTracker {
     /// Disable MIG on all GPUs
     /// This also deletes all created MIG profiles
     fn disable_mig(tid: &TransactionId) -> Result<()> {
-        info!(tid=%tid, "Disabling MIG");
+        info!(tid = tid, "Disabling MIG");
         Self::apply_smi_across_gpus(tid, vec!["-mig", "0"])
     }
 
@@ -555,7 +555,7 @@ impl GpuResourceTracker {
                     meta.insert(gpu_hardware_id, metadata);
                     ret.insert(gpu_hardware_id, structs);
                 },
-                Err(e) => bail_error!(tid=%tid, error=%e, "Failed to read record from nvidia-smi"),
+                Err(e) => bail_error!(tid=tid, error=%e, "Failed to read record from nvidia-smi"),
             }
         }
         Ok((ret, meta))
@@ -653,7 +653,7 @@ impl GpuResourceTracker {
         tid: &TransactionId,
     ) -> Result<(GpuCollection, MetadataCollection)> {
         if gpu_config.count == 0 {
-            info!(tid=%tid, "GPU config had 0 GPUs, skipping GPU resource setup");
+            info!(tid = tid, "GPU config had 0 GPUs, skipping GPU resource setup");
             return Ok((GpuCollection::new(), MetadataCollection::new()));
         }
         let (structs, metadata) = if iluvatar_library::utils::is_simulation() {
@@ -670,7 +670,7 @@ impl GpuResourceTracker {
                 expected
             );
         }
-        info!(tid=%tid, gpus=?structs, "GPUs prepared");
+        info!(tid=tid, gpus=?structs, "GPUs prepared");
         Ok((structs, metadata))
     }
 
@@ -696,7 +696,7 @@ impl GpuResourceTracker {
                             Err(e) => Err(e),
                         },
                         None => {
-                            error!(tid=%tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
+                            error!(tid=tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                             Err(tokio::sync::TryAcquireError::NoPermits)
                         },
                     };
@@ -721,7 +721,7 @@ impl GpuResourceTracker {
                                 Err(e) => Err(e),
                             },
                             None => {
-                                error!(tid=%tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
+                                error!(tid=tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
                                 Err(tokio::sync::TryAcquireError::NoPermits)
                             },
                         };
@@ -790,7 +790,11 @@ impl GpuResourceTracker {
                         Err(e) => Err(e),
                     },
                     None => {
-                        error!(tid=%tid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
+                        error!(
+                            tid = tid,
+                            private_id = gpu_hardware_id,
+                            "Tried to acquire permit for unknown GPU"
+                        );
                         Err(tokio::sync::TryAcquireError::NoPermits)
                     },
                 }
@@ -849,14 +853,25 @@ impl GpuResourceTracker {
 
         let gpu = self.gpus.get_mut(&best_idx)?.pop();
         if let Some(g) = &gpu {
-            debug!(tid=%tid, gpu_uuid=g.gpu_uuid, struct_id=g.struct_id, "GPU allocating");
+            debug!(
+                tid = tid,
+                gpu_uuid = g.gpu_uuid,
+                struct_id = g.struct_id,
+                "GPU allocating"
+            );
         }
         gpu
     }
 
     /// Return a GPU that has been removed from a container
     pub fn return_gpu(&self, gpu: GPU, tid: &TransactionId) {
-        debug!(tid=%tid, gpu_uuid=gpu.gpu_uuid, struct_id=gpu.struct_id, hardware_id=gpu.gpu_hardware_id, "GPU returned");
+        debug!(
+            tid = tid,
+            gpu_uuid = gpu.gpu_uuid,
+            struct_id = gpu.struct_id,
+            hardware_id = gpu.gpu_hardware_id,
+            "GPU returned"
+        );
         match self.gpus.get_mut(&gpu.gpu_hardware_id) {
             Some(mut v) => {
                 #[cfg(debug_assertions)]
@@ -865,7 +880,13 @@ impl GpuResourceTracker {
                         && cont.struct_id == gpu.struct_id
                         && cont.gpu_hardware_id == gpu.gpu_hardware_id
                     {
-                        error!(tid=%tid, gpu_uuid=gpu.gpu_uuid, struct_id=gpu.struct_id, hardware_id=gpu.gpu_hardware_id, "Tried to return GPU twice");
+                        error!(
+                            tid = tid,
+                            gpu_uuid = gpu.gpu_uuid,
+                            struct_id = gpu.struct_id,
+                            hardware_id = gpu.gpu_hardware_id,
+                            "Tried to return GPU twice"
+                        );
                         break;
                     }
                 }
@@ -879,7 +900,14 @@ impl GpuResourceTracker {
                     .map(|i| i.to_string())
                     .collect::<Vec<String>>()
                     .join(", ");
-                error!(tid=%tid, keys=keys, gpu_uuid=gpu.gpu_uuid, struct_id=gpu.struct_id, hardware_id=gpu.gpu_hardware_id, "Tried to return illegal GPU")
+                error!(
+                    tid = tid,
+                    keys = keys,
+                    gpu_uuid = gpu.gpu_uuid,
+                    struct_id = gpu.struct_id,
+                    hardware_id = gpu.gpu_hardware_id,
+                    "Tried to return illegal GPU"
+                )
             },
         }
     }
@@ -888,7 +916,7 @@ impl GpuResourceTracker {
     #[tracing::instrument(level = "debug", skip_all)]
     async fn smi_gpu_utilization(svc: Arc<Self>, tid: TransactionId) {
         if !std::path::Path::new("/usr/bin/nvidia-smi").exists() {
-            trace!(tid=%tid, "nvidia-smi not found, not checking GPU utilization");
+            trace!(tid = tid, "nvidia-smi not found, not checking GPU utilization");
             return;
         }
         let args = vec![
@@ -898,7 +926,7 @@ impl GpuResourceTracker {
         let nvidia = match execute_cmd_checked_async("/usr/bin/nvidia-smi", args, None, &tid).await {
             Ok(r) => r,
             Err(e) => {
-                error!(tid=%tid, error=%e, "Failed to call nvidia-smi");
+                error!(tid=tid, error=%e, "Failed to call nvidia-smi");
                 return;
             },
         };
@@ -931,12 +959,12 @@ impl GpuResourceTracker {
                 },
                 Err(e) => {
                     let stdout = String::from_utf8_lossy(&nvidia.stdout);
-                    error!(tid=%tid, error=%e, stdout=%stdout, "Failed to deserialized GPU record from nvidia-smi")
+                    error!(tid=tid, error=%e, stdout=%stdout, "Failed to deserialized GPU record from nvidia-smi")
                 },
             }
         }
         if is_empty {
-            debug!(tid=%tid, "Setting GPU status info for first time");
+            debug!(tid = tid, "Setting GPU status info for first time");
             *svc.status_info.write() = ret;
         }
     }
@@ -979,7 +1007,7 @@ impl GpuResourceTracker {
             }
         }
         if is_empty {
-            debug!(tid=%tid, "Setting GPU status info for first time");
+            debug!(tid = tid, "Setting GPU status info for first time");
             *svc.status_info.write() = ret;
         }
         Ok(())
@@ -1006,7 +1034,7 @@ impl GpuResourceTracker {
             Self::simulation_gpu_util(&svc, &tid).await
         } else if let Some(nvml) = &svc.nvml {
             if let Err(e) = Self::nvml_gpu_utilization(nvml, &svc, &tid).await {
-                error!(tid=%tid, error=%e, "Error using NVML to query device utilization");
+                error!(tid=tid, error=%e, "Error using NVML to query device utilization");
                 Self::smi_gpu_utilization(svc, tid).await
             }
         } else {
@@ -1071,20 +1099,20 @@ impl Drop for GpuResourceTracker {
                         Err(_) => match iluvatar_library::tokio_utils::build_tokio_runtime(&None, &None, &None, &tid) {
                             Ok(rt) => (rt.handle().clone(), Some(rt)),
                             Err(e) => {
-                                error!(error=%e, tid=%tid, "Failed to create runtime");
+                                error!(error=%e, tid=tid, "Failed to create runtime");
                                 return;
                             },
                         },
                     };
                     match h.block_on(docker.get_logs(MPS_CONTAINER_NAME, &tid)) {
-                        Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=%tid, "MPS daemon exit logs"),
-                        Err(e) => error!(error=%e, tid=%tid, "Failed to get MPS daemon logs"),
+                        Ok((stdout, stderr)) => info!(stdout=%stdout, stderr=%stderr, tid=tid, "MPS daemon exit logs"),
+                        Err(e) => error!(error=%e, tid=tid, "Failed to get MPS daemon logs"),
                     }
                 }
             }
         }
-        let _ = Self::disable_mig(&tid).map_err(|e| error!(error=%e, tid=%tid, "Failed to disable MIG on GPUs"));
-        let _ = Self::set_gpus_shared(&tid).map_err(|e| error!(error=%e, tid=%tid, "Failed to set shared on GPUs"));
+        let _ = Self::disable_mig(&tid).map_err(|e| error!(error=%e, tid=tid, "Failed to disable MIG on GPUs"));
+        let _ = Self::set_gpus_shared(&tid).map_err(|e| error!(error=%e, tid=tid, "Failed to set shared on GPUs"));
     }
 }
 

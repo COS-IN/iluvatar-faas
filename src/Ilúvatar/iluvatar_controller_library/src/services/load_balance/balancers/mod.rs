@@ -1,8 +1,8 @@
 pub mod least_loaded;
 pub mod round_robin;
-pub mod rrG;
 pub mod rrCH;
-    
+pub mod rrG;
+
 #[macro_export]
 macro_rules! send_invocation {
   ($func:expr, $json_args:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr) => {

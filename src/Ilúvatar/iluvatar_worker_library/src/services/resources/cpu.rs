@@ -74,7 +74,7 @@ impl CpuResourceTracker {
         if let Some(load_tx) = load_tx {
             load_tx.send(svc.clone())?;
         }
-        debug!(tid=%tid, "Created CPUResourceMananger");
+        debug!(tid = tid, "Created CPUResourceMananger");
         Ok(svc)
     }
 
@@ -117,7 +117,7 @@ impl CpuResourceTracker {
         self.cores as usize
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(svc), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(svc), fields(tid=tid)))]
     async fn monitor_load(svc: Arc<CpuResourceTracker>, tid: TransactionId) {
         let norm_load = *svc.load_avg.read() / svc.cores;
         let current = *svc.current_concur.lock();
@@ -132,7 +132,7 @@ impl CpuResourceTracker {
                             *svc.current_concur.lock() = u32::max(svc.min_concur, current - change);
                         },
                         Err(e) => {
-                            error!(tid=%tid, error=%e, "Failed to acquire concurrency semaphore")
+                            error!(tid=tid, error=%e, "Failed to acquire concurrency semaphore")
                         },
                     };
                 }
@@ -143,6 +143,11 @@ impl CpuResourceTracker {
                 *svc.current_concur.lock() += 1;
             }
         }
-        debug!(tid=%tid, concurrency=*svc.current_concur.lock(), load=norm_load, "Current concurrency");
+        debug!(
+            tid = tid,
+            concurrency = *svc.current_concur.lock(),
+            load = norm_load,
+            "Current concurrency"
+        );
     }
 }

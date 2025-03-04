@@ -1,9 +1,10 @@
 use crate::linear_reg::LinearReg;
-use crate::types::Compute;
+use crate::transaction::TransactionId;
+use crate::types::{Compute, ResourceTimings};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::sync::Arc;
-
+use tracing::debug;
 // A better Chars map system
 //
 // What we 'want' it to do:
@@ -363,6 +364,44 @@ impl<const S: usize> CharMapRW<S> {
 pub type WorkerCharMap = Arc<dyn CharMap<Chars> + Send + Sync + 'static>;
 pub fn worker_char_map() -> WorkerCharMap {
     CharMapRW::<{ Chars::SIZE }>::boxed()
+}
+
+pub fn add_registration_timings(
+    cmap: &WorkerCharMap,
+    compute: Compute,
+    resource_timings_json: &Option<ResourceTimings>,
+    fqdn: &str,
+    tid: &TransactionId,
+) -> anyhow::Result<()> {
+    if let Some(r) = resource_timings_json {
+        for dev_compute in compute.into_iter() {
+            if let Some(timings) = r.get(&dev_compute) {
+                debug!(tid=tid, compute=%dev_compute, from_compute=%compute, fqdn=fqdn, timings=?r, "Registering timings for function");
+                let (cold, warm, prewarm, exec, e2e, _) = Chars::get_chars(&dev_compute)?;
+                for v in timings.cold_results_sec.iter() {
+                    cmap.update(fqdn, exec, *v);
+                }
+                for v in timings.warm_results_sec.iter() {
+                    cmap.update(fqdn, exec, *v);
+                }
+                for v in timings.cold_worker_duration_us.iter() {
+                    cmap.update_2(fqdn, cold, *v as f64 / 1_000_000.0, e2e, *v as f64 / 1_000_000.0);
+                }
+                for v in timings.warm_worker_duration_us.iter() {
+                    cmap.update_3(
+                        fqdn,
+                        warm,
+                        *v as f64 / 1_000_000.0,
+                        prewarm,
+                        *v as f64 / 1_000_000.0,
+                        e2e,
+                        *v as f64 / 1_000_000.0,
+                    );
+                }
+            }
+        }
+    };
+    Ok(())
 }
 
 #[cfg(test)]

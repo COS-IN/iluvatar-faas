@@ -6,6 +6,7 @@ use crate::services::load_reporting::LoadService;
 use crate::services::registration::RegistrationService;
 use crate::services::ControllerAPITrait;
 use anyhow::Result;
+use iluvatar_library::char_map::worker_char_map;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::utils::calculate_fqdn;
@@ -35,6 +36,7 @@ unsafe impl Send for Controller {}
 impl Controller {
     pub async fn new(config: ControllerConfig, tid: &TransactionId) -> Result<Self> {
         let worker_fact = WorkerAPIFactory::boxed();
+        let worker_cmap = worker_char_map();
         let health_svc: Arc<dyn ControllerHealthService> = match iluvatar_library::utils::is_simulation() {
             true => SimHealthService::boxed(),
             false => HealthService::boxed(worker_fact.clone()),
@@ -48,12 +50,18 @@ impl Controller {
             Ok(l) => l,
             Err(e) => bail_error!(tid=tid, error=%e, "Failed to create LoadService"),
         };
-        let lb: LoadBalancer =
-            match get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()) {
-                Ok(lb) => lb,
-                Err(e) => bail_error!(tid=tid, error=%e, "Failed to create load balancer"),
-            };
-        let reg_svc = RegistrationService::boxed(lb.clone(), worker_fact.clone());
+        let lb: LoadBalancer = match get_balancer(
+            &config,
+            health_svc.clone(),
+            tid,
+            load_svc.clone(),
+            worker_fact.clone(),
+            &worker_cmap,
+        ) {
+            Ok(lb) => lb,
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to create load balancer"),
+        };
+        let reg_svc = RegistrationService::boxed(lb.clone(), worker_fact.clone(), &worker_cmap);
         let async_svc = AsyncService::boxed(worker_fact.clone());
         Ok(Controller {
             config,
