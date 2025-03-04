@@ -13,8 +13,9 @@ use crate::services::invocation::{invoke_on_container, QueueLoad};
 use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
+use iluvatar_library::tput_calc::DeviceTput;
 use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::{
@@ -34,7 +35,7 @@ lazy_static::lazy_static! {
 pub struct CpuQueueingInvoker {
     cont_manager: Arc<ContainerManager>,
     invocation_config: Arc<InvocationConfig>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     clock: Clock,
     running: AtomicU32,
     last_memory_warning: Mutex<Instant>,
@@ -46,6 +47,7 @@ pub struct CpuQueueingInvoker {
     bypass_rx: UnboundedSender<Arc<EnqueuedInvocation>>,
     #[cfg(feature = "power_cap")]
     energy: Arc<EnergyLimiter>,
+    device_tput: Arc<DeviceTput>,
 }
 
 #[allow(dyn_drop)]
@@ -57,7 +59,7 @@ impl CpuQueueingInvoker {
         function_config: Arc<FunctionLimits>,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
-        cmap: Arc<CharacteristicsMap>,
+        cmap: WorkerCharMap,
         cpu: Arc<CpuResourceTracker>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
@@ -85,6 +87,7 @@ impl CpuQueueingInvoker {
             clock: get_global_clock(tid)?,
             running: AtomicU32::new(0),
             last_memory_warning: Mutex::new(now()),
+            device_tput: DeviceTput::boxed(),
         });
         cpu_tx.send(svc.clone())?;
         bypass_tx.send(svc.clone())?;
@@ -94,7 +97,7 @@ impl CpuQueueingInvoker {
 
     fn get_invoker_queue(
         invocation_config: &Arc<InvocationConfig>,
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
         cont_manager: &Arc<ContainerManager>,
         tid: &TransactionId,
     ) -> Result<Arc<dyn InvokerCpuQueuePolicy>> {
@@ -141,7 +144,7 @@ impl CpuQueueingInvoker {
     fn should_bypass(&self, reg: &Arc<RegisteredFunction>) -> bool {
         match self.invocation_config.bypass_duration_ms {
             Some(bypass_duration_ms) => {
-                let exec_time = self.cmap.get_exec_time(&reg.fqdn);
+                let exec_time = self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime);
                 exec_time != 0.0 && exec_time < Duration::from_millis(bypass_duration_ms).as_secs_f64()
             },
             None => false,
@@ -311,6 +314,7 @@ impl CpuQueueingInvoker {
             now(),
             &self.cmap,
             &self.clock,
+            &self.device_tput,
         )
         .await
         {
@@ -359,6 +363,7 @@ impl CpuQueueingInvoker {
             start,
             &self.cmap,
             &self.clock,
+            &self.device_tput,
         )
         .await?;
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
@@ -368,13 +373,11 @@ impl CpuQueueingInvoker {
     }
 
     fn get_est_completion_time_from_containers(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {
-        let avail = self
-            .cont_manager
-            .container_available(&item.fqdn, iluvatar_library::types::Compute::CPU);
+        let avail = self.cont_manager.container_available(&item.fqdn, Compute::CPU);
         let t = match avail {
-            ContainerState::Warm => self.cmap.get_warm_time(&item.fqdn),
-            ContainerState::Prewarm => self.cmap.get_prewarm_time(&item.fqdn),
-            _ => self.cmap.get_cold_time(&item.fqdn),
+            ContainerState::Warm => self.cmap.get_avg(&item.fqdn, Chars::CpuWarmTime),
+            ContainerState::Prewarm => self.cmap.get_avg(&item.fqdn, Chars::CpuPreWarmTime),
+            _ => self.cmap.get_avg(&item.fqdn, Chars::CpuColdTime),
         };
         (t, avail)
     }
@@ -390,7 +393,7 @@ impl DeviceQueue for CpuQueueingInvoker {
             len: self.queue.queue_len(),
             load: load,
             load_avg: load / self.cpu.cores,
-            tput: self.cmap.get_cpu_tput(),
+            tput: self.device_tput.get_tput(),
         }
     }
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
@@ -430,5 +433,9 @@ impl DeviceQueue for CpuQueueingInvoker {
             ContainerState::Cold => 0.01,
             _ => 1.0 - 0.01,
         }
+    }
+
+    fn queue_tput(&self) -> f64 {
+        self.device_tput.get_tput()
     }
 }

@@ -47,12 +47,12 @@ pub struct WFQueue {
     
     est_time: Mutex<f64>,
     cont_manager: Arc<ContainerManager>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
 }
 
 impl WFQueue {
     pub fn new(cont_manager: Arc<ContainerManager>,
-	       cmap: Arc<CharacteristicsMap>,
+	       cmap: WorkerCharMap,
 	       num_classes:i32,
 	       qlb_fn:wfq_type) -> Result<Arc<Self>> {
         let svc = Arc::new(WFQueue {

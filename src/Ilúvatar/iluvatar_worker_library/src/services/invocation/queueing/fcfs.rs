@@ -1,23 +1,22 @@
+use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation};
 use crate::services::containers::containermanager::ContainerManager;
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::WorkerCharMap;
 use parking_lot::Mutex;
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 use time::OffsetDateTime;
 use tracing::debug;
 
-use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation};
-
 pub struct FCFSQueue {
     invoke_queue: Arc<Mutex<BinaryHeap<MinHeapEnqueuedInvocation<OffsetDateTime>>>>,
     est_time: Mutex<f64>,
     cont_manager: Arc<ContainerManager>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
 }
 
 impl FCFSQueue {
-    pub fn new(cont_manager: Arc<ContainerManager>, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
+    pub fn new(cont_manager: Arc<ContainerManager>, cmap: WorkerCharMap) -> Result<Arc<Self>> {
         let svc = Arc::new(FCFSQueue {
             invoke_queue: Arc::new(Mutex::new(BinaryHeap::new())),
             est_time: Mutex::new(0.0),

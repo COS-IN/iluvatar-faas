@@ -1,9 +1,9 @@
 use super::containers::{containermanager::ContainerManager, ContainerIsolationCollection};
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
-    characteristics_map::{CharacteristicsMap, Values},
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::calculate_fqdn,
@@ -50,7 +50,7 @@ pub struct RegistrationService {
     cm: Arc<ContainerManager>,
     lifecycles: ContainerIsolationCollection,
     limits_config: Arc<FunctionLimits>,
-    characteristics_map: Arc<CharacteristicsMap>,
+    characteristics_map: WorkerCharMap,
     resources: Arc<ContainerResourceConfig>,
 }
 
@@ -59,7 +59,7 @@ impl RegistrationService {
         cm: Arc<ContainerManager>,
         lifecycles: ContainerIsolationCollection,
         limits_config: Arc<FunctionLimits>,
-        characteristics_map: Arc<CharacteristicsMap>,
+        characteristics_map: WorkerCharMap,
         resources: Arc<ContainerResourceConfig>,
     ) -> Arc<Self> {
         Arc::new(RegistrationService {
@@ -150,31 +150,32 @@ impl RegistrationService {
                     for dev_compute in compute.into_iter() {
                         if let Some(timings) = r.get(&dev_compute) {
                             debug!(tid=%tid, compute=%dev_compute, from_compute=%compute, fqdn=%fqdn, timings=?r, "Registering timings for function");
-                            let (cold, warm, prewarm, exec, e2e, _) =
-                                self.characteristics_map.get_characteristics(&dev_compute)?;
+                            let (cold, warm, prewarm, exec, e2e, _) = Chars::get_chars(&dev_compute)?;
                             for v in timings.cold_results_sec.iter() {
-                                self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
+                                self.characteristics_map.update(&fqdn, exec, *v);
                             }
                             for v in timings.warm_results_sec.iter() {
-                                self.characteristics_map.add(&fqdn, exec, Values::F64(*v), true);
+                                self.characteristics_map.update(&fqdn, exec, *v);
                             }
                             for v in timings.cold_worker_duration_us.iter() {
-                                self.characteristics_map
-                                    .add(&fqdn, cold, Values::F64(*v as f64 / 1_000_000.0), true);
-                                self.characteristics_map
-                                    .add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
+                                self.characteristics_map.update_2(
+                                    &fqdn,
+                                    cold,
+                                    *v as f64 / 1_000_000.0,
+                                    e2e,
+                                    *v as f64 / 1_000_000.0,
+                                );
                             }
                             for v in timings.warm_worker_duration_us.iter() {
-                                self.characteristics_map
-                                    .add(&fqdn, warm, Values::F64(*v as f64 / 1_000_000.0), true);
-                                self.characteristics_map.add(
+                                self.characteristics_map.update_3(
                                     &fqdn,
+                                    warm,
+                                    *v as f64 / 1_000_000.0,
                                     prewarm,
-                                    Values::F64(*v as f64 / 1_000_000.0),
-                                    true,
+                                    *v as f64 / 1_000_000.0,
+                                    e2e,
+                                    *v as f64 / 1_000_000.0,
                                 );
-                                self.characteristics_map
-                                    .add(&fqdn, e2e, Values::F64(*v as f64 / 1_000_000.0), true);
                             }
                             rf.historical_runtime_data_sec
                                 .insert(dev_compute, timings.warm_results_sec.clone());

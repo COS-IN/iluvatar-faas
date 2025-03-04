@@ -5,7 +5,7 @@ use crate::services::{
     registration::RegisteredFunction,
 };
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use parking_lot::Mutex;
 use std::{collections::BinaryHeap, sync::Arc};
 
@@ -14,12 +14,12 @@ use std::{collections::BinaryHeap, sync::Arc};
 pub struct SjfGpuQueue {
     invoke_queue: Mutex<BinaryHeap<MinHeapFloat>>,
     est_time: Mutex<f64>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     cont_manager: Arc<ContainerManager>,
 }
 
 impl SjfGpuQueue {
-    pub fn new(cont_manager: Arc<ContainerManager>, cmap: Arc<CharacteristicsMap>) -> Result<Arc<Self>> {
+    pub fn new(cont_manager: Arc<ContainerManager>, cmap: WorkerCharMap) -> Result<Arc<Self>> {
         let svc = Arc::new(Self {
             invoke_queue: Mutex::new(BinaryHeap::new()),
             est_time: Mutex::new(0.0),
@@ -57,9 +57,9 @@ impl GpuQueuePolicy for SjfGpuQueue {
             .cont_manager
             .container_available(&item.registration.fqdn, iluvatar_library::types::Compute::GPU)
         {
-            ContainerState::Warm => self.cmap.get_gpu_warm_time(&item.registration.fqdn),
-            ContainerState::Prewarm => self.cmap.get_gpu_warm_time(&item.registration.fqdn),
-            _ => self.cmap.get_gpu_cold_time(&item.registration.fqdn),
+            ContainerState::Warm => self.cmap.get_avg(&item.registration.fqdn, Chars::GpuWarmTime),
+            ContainerState::Prewarm => self.cmap.get_avg(&item.registration.fqdn, Chars::GpuPreWarmTime),
+            _ => self.cmap.get_avg(&item.registration.fqdn, Chars::GpuColdTime),
         };
 
         let mut queue = self.invoke_queue.lock();
