@@ -152,8 +152,8 @@ mod invoke {
 
 #[cfg(test)]
 mod invoke_async {
-    use iluvatar_library::transaction::gen_tid;
     use super::*;
+    use iluvatar_library::transaction::gen_tid;
 
     #[rstest]
     #[case("fcfs")]
