@@ -1,12 +1,15 @@
 import json
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Set
 from collections import defaultdict
 import os, pickle
 import numpy as np
+import pandas
 import pandas as pd
+from datetime import datetime
 from copy import deepcopy
 from multiprocessing import Pool
 from functools import reduce
+import tz
 from ..run.run_trace import (
     RunType,
     RunTarget,
@@ -107,7 +110,10 @@ class LogParser:
     This class loads the experiment artifacts and then calls these parsers to do analysis on them to add more information.
     Sub-parsers must be all injected before starting to parse data.
 
-    TODO: Doesn't work on multiple workers inside simulation. Requires big code update inside worker to support
+    NOTE: If logs are missing for any reason in the simulation, or being mis-attributed to wrong workers, it is likely from 'Span' filtering.
+    `start_simulation_tracing` in `logging.rs` makes layers for each component to write to unique files tracking information in an event's Spans.
+    This filtering WILL break when crossing async functions if they are not tagged with
+    See here for more information: https://docs.rs/tracing/latest/tracing/span/struct.Span.html#in-asynchronous-code
     """
 
     def __init__(
@@ -138,30 +144,25 @@ class LogParser:
         self.results_json = os.path.join(
             folder_path, trace_output("json", self.input_csv)
         )
-        if self.run_type.is_sim():
-            raise Exception(
-                "Clustered log parser currently lot supported as logs for distinct workers cannot currently be separarated"
-            )
-        else:
-            self.controller_parser = ControllerLogParser(
-                folder_path, input_csv, metadata_csv, run_type, run_data
-            )
-            self.worker_parsers = []
-            for file in os.listdir(folder_path):
-                if file.startswith("worker_") and file.endswith(".log"):
-                    worker_log = os.path.join(folder_path, file)
-                    self.worker_parsers.append(
-                        WorkerLogParser(
-                            self.source,
-                            self.input_csv,
-                            self.metadata_csv,
-                            benchmark_file,
-                            self.run_type,
-                            self.target,
-                            self.run_data,
-                            worker_log,
-                        )
+        self.controller_parser = ControllerLogParser(
+            folder_path, input_csv, metadata_csv, run_type, run_data
+        )
+        self.worker_parsers = []
+        for file in os.listdir(folder_path):
+            if file.startswith("worker") and file.endswith(".log"):
+                worker_log = os.path.join(folder_path, file)
+                self.worker_parsers.append(
+                    WorkerLogParser(
+                        self.source,
+                        self.input_csv,
+                        self.metadata_csv,
+                        benchmark_file,
+                        self.run_type,
+                        self.target,
+                        self.run_data,
+                        worker_log,
                     )
+                )
 
     def parse_logs(
         self,
@@ -170,12 +171,15 @@ class LogParser:
     ):
         self.controller_parser.parse_logs(include_errors, fail_if_errors)
         for worker in self.worker_parsers:
-            worker.parse_logs(include_errors, fail_if_errors)
-
+            invokes_set = self.controller_parser.get_tid_set(worker)
+            worker.parse_logs(include_errors, fail_if_errors, invokes_set)
+        self.controller_parser.worker_logs_completed(self)
 
 class ControllerLogParser:
     """
-    Class to help parse logs from a controller
+    Class to help parse logs from a controller.
+
+    TODO: implement global IAT / traffic class tracking at controller level. Currently each worker is calculating the global.
     """
 
     def __init__(
@@ -188,16 +192,90 @@ class ControllerLogParser:
     ):
         self.source = folder_path
         self.input_csv = input_csv
+        self.results_csv = os.path.join(
+            self.source, trace_output("csv", self.input_csv)
+        )
+        self.results_log = os.path.join(self.source, "controller.log")
         self.metadata_csv = metadata_csv
         self.run_type = run_type
         self.run_data = run_data
+        self.worker_names = set()
+        self.parser_map = defaultdict(list)
+        self.parsers = []
+        self.load_parsers()
+
+    def get_tid_set(self, worker) -> Optional[Set[str]]:
+        """
+        :param worker: a WorkerLogParser object
+        """
+        if "worker" in self.invokes_df.columns:
+            worker_name = os.path.basename(worker.results_log).split('.')[0]
+            if worker_name not in self.worker_names:
+                # worker_name = worker_name[len("worker"):]
+                if worker_name not in self.worker_names:
+                    raise Exception(f"Unable to figure out what the worker's name was from log '{worker.results_log}' and dispatched names '{self.worker_names}")
+            subset = self.invokes_df[self.invokes_df["worker"] == worker_name]
+            return set(subset.index)
+        return None
+
+    def _parse_controller_log(self):
+        with open(self.results_log) as f:
+            for log in f.readlines():
+                try:
+                    log = json.loads(log)
+                except Exception as e:
+                    print(self.results_log)
+                    print(log)
+                    raise e
+                if "message" not in log["fields"]:
+                    continue
+
+                log_msg = log["fields"]["message"]
+                if log_msg in self.parser_map:
+                    for instance, func in self.parser_map[log_msg]:
+                        func(instance, log)
 
     def parse_logs(
-        self,
-        include_errors: bool = False,
-        fail_if_errors: bool = False,
+            self,
+            include_errors: bool = False,
+            fail_if_errors: bool = False,
     ):
-        pass
+        self.metadata_df = pd.read_csv(self.metadata_csv, index_col="func_name")
+        self.invokes_df = pd.read_csv(self.results_csv, index_col="tid")
+        if fail_if_errors:
+            if not self.invokes_df["success"].all():
+                raise Exception(
+                    f"Experiment had invocation failures '{self.results_log}'"
+                )
+        if not include_errors:
+            self.invokes_df = self.invokes_df[self.invokes_df["success"]]
+
+        for instance in self.parsers:
+            instance.before_parse()
+
+        self._parse_controller_log()
+
+        for instance in self.parsers:
+            instance.log_completed()
+
+    def worker_logs_completed(self, parent: LogParser):
+        """
+        Called after all worker logs have been parsed to concatenate their `invokes_df` frames.
+        Make it easy to get a global frame of them
+        """
+        invoke_dfs = []
+        for worker in parent.worker_parsers:
+            invoke_dfs.append(worker.invokes_df)
+        invoke_dfs = pd.concat(invoke_dfs)
+        invoke_dfs["worker"] = self.invokes_df["worker"]
+        self.invokes_df = invoke_dfs
+
+    def load_parsers(self):
+        for parser in ControllerLogParser.registered_parser_types:
+            parser_instance = parser(self)
+            for message, func in parser.parser_map.items():
+                self.parser_map[message].append((parser_instance, func))
+            self.parsers.append(parser_instance)
 
     registered_parser_types = []
 
@@ -209,6 +287,33 @@ class ControllerLogParser:
         """
         cls.registered_parser_types.append(parser)
 
+
+@ControllerLogParser.register_parser
+class LoadBalanceParser(BaseParser):
+    """
+    Map invocations to the worker they ran on
+    """
+
+    def __init__(self, main_parser: ControllerLogParser):
+        super().__init__(main_parser)
+        self.dispatches = []
+
+    def track_load_balancing(self, log):
+        tid = log["fields"]["tid"]
+        worker = log["fields"]["worker"]
+        self.dispatches.append( (tid, worker) )
+
+    def new_worker(self, log):
+        self.main_parser.worker_names.add(log["fields"]["worker"])
+
+    def log_completed(self):
+        df = pandas.DataFrame.from_records(self.dispatches, columns=["tid", "worker"], index="tid")
+        self.main_parser.invokes_df = self.main_parser.invokes_df.join(df)
+
+    parser_map = {
+        "invoking function on worker": track_load_balancing,
+        "worker successfully registered": new_worker
+    }
 
 class WorkerLogParser:
     """
@@ -232,6 +337,9 @@ class WorkerLogParser:
         """
         run_data: metadata about the experimental run
         worker_log: the specific worker log this parser should work on. Leave as `None` to allow for auto-pickup when just a single worker was run
+        folder_path: Where results are stored
+        input_csv: the _name_ of the trace input file, must be located in `folder_path`
+        metadata_csv: the _name_ of the trace metadata file, must be located in `folder_path`
         """
         self.source = folder_path
         self.input_csv = input_csv
@@ -250,13 +358,10 @@ class WorkerLogParser:
         )
         self.results_log = worker_log
         if self.results_log is None:
-            if self.run_type.is_sim():
-                self.results_log = self.load_gen
-            else:
-                for file in os.listdir(self.source):
-                    if file.startswith("worker_") and file.endswith(".log"):
-                        self.results_log = os.path.join(self.source, file)
-                        break
+            for file in os.listdir(self.source):
+                if file.startswith("worker") and file.endswith(".log"):
+                    self.results_log = os.path.join(self.source, file)
+                    break
 
         self.results_json = os.path.join(
             self.source, trace_output("json", self.input_csv)
@@ -287,7 +392,7 @@ class WorkerLogParser:
     def has_benchmark_data(self):
         return self.benchmark_file is not None
 
-    def load_rapl(self):
+    def _load_rapl(self):
         path = os.path.join(self.source, "energy-rapl.log")
         try:
             rapl_df = pd.read_csv(path)
@@ -317,7 +422,7 @@ class WorkerLogParser:
 
         self.rapl_df = rapl_df
 
-    def load_perf(self):
+    def _load_perf(self):
         """
         Load a perf log into a dataframe
         The multiple reported metrics are each put into their own column
@@ -376,7 +481,7 @@ class WorkerLogParser:
         df = df.join(df_instructions["retired_instructions"])
         self.perf_df = df
 
-    def load_ipmi(self):
+    def _load_ipmi(self):
         try:
             cols = ["timestamp", "ipmi"]
             ipmi_log = os.path.join(self.source, "energy-ipmi.log")
@@ -392,7 +497,7 @@ class WorkerLogParser:
                 try:
                     log = json.loads(log)
                 except Exception as e:
-                    print(log_file)
+                    print(self.results_log)
                     print(log)
                     raise e
                 if "message" not in log["fields"]:
@@ -407,7 +512,13 @@ class WorkerLogParser:
         self,
         include_errors: bool = False,
         fail_if_errors: bool = False,
+        invoke_tid_subset: Optional[Set[str]] = None,
     ):
+        """
+        :param include_errors: Include errors in completed parsing
+        :param fail_if_errors: Raise an error if any invocation failed
+        :param invoke_tid_subset: a set of TIDs to restrict this worker to parsing, because they were sent here by the controller
+        """
         self.metadata_df = pd.read_csv(self.metadata_csv, index_col="func_name")
         self.invokes_df = pd.read_csv(self.results_csv, index_col="tid")
         if fail_if_errors:
@@ -417,9 +528,11 @@ class WorkerLogParser:
                 )
         if not include_errors:
             self.invokes_df = self.invokes_df[self.invokes_df["success"]]
-        self.load_rapl()
-        self.load_ipmi()
-        self.load_perf()
+        if invoke_tid_subset is not None:
+            self.invokes_df = self.invokes_df[self.invokes_df.index.isin(invoke_tid_subset)]
+        self._load_rapl()
+        self._load_ipmi()
+        self._load_perf()
 
         with open(self.results_json) as f:
             self.json_data = json.load(f)
@@ -495,19 +608,17 @@ class BenchmarkNameParser(BaseParser):
 @WorkerLogParser.register_parser
 class MetadataTrafficClassesParser(BaseParser):
     """
-    Compute function traffic classes from IATs
+    Compute function traffic classes from IATs.
+
+    TODO: when in cluster, compute only IAT & traffic class of invocations that hit this worker. Currently loads global
     """
 
     def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
 
     def before_parse(self):
-        data = defaultdict(dict)
         last = {}
         iats = defaultdict(list)
-        rares = []
-        func_iats = []
-        max_iat = 0
         classes = np.arange(0.0, 1.1, 0.1)
         with open(self.main_parser.input_csv) as f:
             f.readline()  # dump headers
@@ -922,7 +1033,7 @@ class OverheadParser(BaseParser):
             ]
             min_exec = sub_df["code_duration_sec"].min()
             cold_exec_time = warm_exec_time = warm_e2e_time = 1000
-            supported_computes = "cpu"
+            supported_computes = "CPU"
             if "compute" in row.index:
                 supported_computes = row.compute
             for compute in supported_computes.split("|"):
@@ -930,7 +1041,7 @@ class OverheadParser(BaseParser):
                 cold_comp_exec_time = np.mean(
                     get_bench_data(
                         row.benchmark_name,
-                        compute.lower(),
+                        compute,
                         "cold_results_sec",
                         self.main_parser.benchmark_data,
                     )
@@ -939,7 +1050,7 @@ class OverheadParser(BaseParser):
                 warm_gpu_exec_time = np.mean(
                     get_bench_data(
                         row.benchmark_name,
-                        compute.lower(),
+                        compute,
                         "warm_results_sec",
                         self.main_parser.benchmark_data,
                     )
@@ -949,7 +1060,7 @@ class OverheadParser(BaseParser):
                     np.mean(
                         get_bench_data(
                             row.benchmark_name,
-                            compute.lower(),
+                            compute,
                             "warm_worker_duration_us",
                             self.main_parser.benchmark_data,
                         )
@@ -1118,6 +1229,10 @@ def parse_data(
         filter_fn=filter_fn,
     )
     ```
+    NOTE: this assumes that all experiments to be loaded use the same `input_csv` and `metadata_csv` file names
+    TODO: check up on thus ^^
+
+    TODO: allow loading bulk cluster data
     """
     csv_files = _recurse(start_folder, folder_structure, input_csv)
     if filter_fn is not None:

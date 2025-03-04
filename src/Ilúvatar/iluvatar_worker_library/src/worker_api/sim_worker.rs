@@ -7,14 +7,16 @@ use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
     CleanRequest, CleanResponse, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest,
-    LanguageRuntime, PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
+    LanguageRuntime, ListFunctionRequest, PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
 };
-use iluvatar_rpc::rpc::{InvokeResponse, StatusResponse};
+use iluvatar_rpc::rpc::{InvokeResponse, ListFunctionResponse, StatusResponse};
 use iluvatar_rpc::RPCError;
 use std::sync::Arc;
+#[cfg(feature = "full_spans")]
+use tracing::Instrument;
 use tracing::{debug, error};
 
-/// A simulation version of the WOrkerAPI
+/// A simulation version of the WorkerAPI
 ///   must match [crate::rpc::RPCWorkerAPI] in handling, etc.
 pub struct SimWorkerAPI {
     worker: Arc<IluvatarWorkerImpl>,
@@ -32,7 +34,10 @@ impl WorkerAPI for SimWorkerAPI {
             message: "Ping".to_string(),
             transaction_id: tid,
         });
-        match self.worker.ping(request).await {
+        let inv = self.worker.ping(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
             Ok(response) => Ok(response.into_inner().message),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:ping]".to_string())),
         }
@@ -51,7 +56,10 @@ impl WorkerAPI for SimWorkerAPI {
             json_args: args,
             transaction_id: tid,
         });
-        match self.worker.invoke(request).await {
+        let inv = self.worker.invoke(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:invoke]".to_string())),
         }
@@ -70,7 +78,10 @@ impl WorkerAPI for SimWorkerAPI {
             json_args: args,
             transaction_id: tid.clone(),
         });
-        match self.worker.invoke_async(request).await {
+        let inv = self.worker.invoke_async(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
             Ok(response) => {
                 let response = response.into_inner();
                 if response.success {
@@ -78,7 +89,7 @@ impl WorkerAPI for SimWorkerAPI {
                     Ok(response.lookup_cookie)
                 } else {
                     error!(tid=%tid, "Async invoke failed");
-                    anyhow::bail!("Async invoke failed")
+                    bail!("Async invoke failed")
                 }
             },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:invoke_async]".to_string())),
@@ -90,7 +101,10 @@ impl WorkerAPI for SimWorkerAPI {
             lookup_cookie: cookie.to_owned(),
             transaction_id: tid,
         });
-        match self.worker.invoke_async_check(request).await {
+        let inv = self.worker.invoke_async_check(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:invoke_async_check]".to_string())),
         }
@@ -109,7 +123,10 @@ impl WorkerAPI for SimWorkerAPI {
             transaction_id: tid.clone(),
             compute: compute.bits(),
         });
-        match self.worker.prewarm(request).await {
+        let inv = self.worker.prewarm(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
             Ok(response) => {
                 let response = response.into_inner();
                 match response.success {
@@ -157,7 +174,10 @@ impl WorkerAPI for SimWorkerAPI {
                 None => "{}".to_string(),
             },
         });
-        match self.worker.register(request).await {
+        let inv = self.worker.register(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
             Ok(response) => Ok(response.into_inner().function_json_result),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:register]".to_string())),
         }
@@ -165,7 +185,10 @@ impl WorkerAPI for SimWorkerAPI {
 
     async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse> {
         let request = tonic::Request::new(StatusRequest { transaction_id: tid });
-        match self.worker.status(request).await {
+        let inv = self.worker.status(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:status]".to_string())),
         }
@@ -173,7 +196,10 @@ impl WorkerAPI for SimWorkerAPI {
 
     async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus> {
         let request = tonic::Request::new(HealthRequest { transaction_id: tid });
-        match self.worker.health(request).await {
+        let inv = self.worker.health(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
             Ok(response) => {
                 match response.into_inner().status {
                     // HealthStatus::Healthy
@@ -192,9 +218,19 @@ impl WorkerAPI for SimWorkerAPI {
 
     async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse> {
         let request = tonic::Request::new(CleanRequest { transaction_id: tid });
-        match self.worker.clean(request).await {
+        let inv = self.worker.clean(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:clean]".to_string())),
+        }
+    }
+    async fn list_registered_funcs(&mut self, tid: TransactionId) -> Result<ListFunctionResponse> {
+        let request = tonic::Request::new(ListFunctionRequest { transaction_id: tid });
+        match self.worker.list_registered_funcs(request).await {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:list_registered_funcs]".to_string())),
         }
     }
 }

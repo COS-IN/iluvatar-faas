@@ -58,7 +58,7 @@ mod invoke {
         let (_log, _cfg, cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
-                basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"),
+                basic_reg_req("docker.io/alfuerst/hello-iluvatar-action:latest", "test"),
                 &TEST_TID,
             )
             .await
@@ -112,7 +112,7 @@ mod invoke {
         let (_log, _cfg, _cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
-                basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"),
+                basic_reg_req("docker.io/alfuerst/hello-iluvatar-action:latest", "test"),
                 &TEST_TID,
             )
             .await
@@ -153,6 +153,7 @@ mod invoke {
 #[cfg(test)]
 mod invoke_async {
     use super::*;
+    use iluvatar_library::transaction::gen_tid;
 
     #[rstest]
     #[case("fcfs")]
@@ -168,7 +169,7 @@ mod invoke_async {
         let (_log, _cfg, cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
-                basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"),
+                basic_reg_req("docker.io/alfuerst/hello-iluvatar-action:latest", "test"),
                 &TEST_TID,
             )
             .await
@@ -232,11 +233,12 @@ mod invoke_async {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cold_start_works(#[case] invoker_q: &str) {
         let env = build_serial_overrides(invoker_q);
+        let tid = gen_tid();
         let (_log, _cfg, _cm, invok_svc, _reg, _, _) = test_invoker_svc(None, Some(env), None).await;
         let reg = _reg
             .register(
-                basic_reg_req("docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest", "test"),
-                &TEST_TID,
+                basic_reg_req("docker.io/alfuerst/hello-iluvatar-action:latest", "test"),
+                &tid,
             )
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
@@ -244,7 +246,7 @@ mod invoke_async {
             function_name: "test".to_string(),
             function_version: "0.1.1".to_string(),
             json_args: "{\"name\":\"TESTING\"}".to_string(),
-            transaction_id: "testTID".to_string(),
+            transaction_id: tid,
         };
         let result = invok_svc.async_invocation(reg, req.json_args, req.transaction_id);
         let mut count = 0;

@@ -11,13 +11,12 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<()> {
     let _drops = start_tracing(
-        Arc::new(LoggingConfig {
+        &Arc::new(LoggingConfig {
             level: "INFO".to_string(),
             stdout: Some(true),
             spanning: "NONE".to_string(),
             ..Default::default()
         }),
-        "",
         &"LOAD_GEN_MAIN".to_string(),
     )?;
     let cli = match Args::try_parse() {
@@ -33,6 +32,7 @@ async fn main() -> Result<()> {
         args::Commands::Status => commands::health(cli.host, cli.port).await,
         args::Commands::Health => commands::status(cli.host, cli.port).await,
         args::Commands::Ping => commands::ping(cli.host, cli.port).await,
+        args::Commands::List => commands::list_registered_funcs(cli.host, cli.port).await,
     } {
         bail_error!("Command failed because of error {}", e);
     };

@@ -37,7 +37,7 @@ impl RpcControllerAPI {
                     return Ok(api);
                 },
                 Err(e) => {
-                    warn!(error=%e, tid=%tid, "Error opening RPC connection to controller API");
+                    warn!(error=%e, tid=tid, "Error opening RPC connection to controller API");
                     retries -= 1;
                     if retries == 0 {
                         return Err(e);

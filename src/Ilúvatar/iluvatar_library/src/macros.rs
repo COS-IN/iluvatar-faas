@@ -18,7 +18,7 @@ macro_rules! last {
 ///
 /// fn fails() -> anyhow::Result<()> {
 ///   let tid = "test".to_string();
-///   bail_error!(tid=%tid, "An unfixable error occured");
+///   bail_error!(tid=tid, "An unfixable error occured");
 /// }
 /// assert_eq!(fails().err().unwrap().to_string(), "An unfixable error occured");
 /// ```
@@ -94,7 +94,7 @@ macro_rules! bail_error_value_recurr {
 ///
 /// fn fails(owned_input: i32) -> ResultErrorVal<(),i32> {
 ///   let tid = "test".to_string();
-///   bail_error_value!(tid=%tid, "An unfixable error occurred", owned_input);
+///   bail_error_value!(tid=tid, "An unfixable error occurred", owned_input);
 /// }
 /// let input = 60;
 /// match fails(60) {

@@ -1,7 +1,7 @@
 use anyhow::Error;
 use bitflags::bitflags;
 use clap::builder::PossibleValue;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::Deserializer;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
@@ -15,7 +15,7 @@ pub fn err_val<T, D>(error: Error, value: D) -> ResultErrorVal<T, D> {
 
 pub type MemSizeMb = i64;
 
-#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 /// How to communicate with a worker.
 /// Generally not needed to know, but live = RPC, otherwise simulation
 pub enum CommunicationMethod {
@@ -99,29 +99,35 @@ bitflags! {
   }
 }
 
-struct StrVisitor;
-impl serde::de::Visitor<'_> for StrVisitor {
-    type Value = String;
+impl serde::de::Visitor<'_> for Compute {
+    type Value = Compute;
 
-    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
-        write!(formatter, "a string or str")
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a formatted Compute string")
     }
 
-    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(value)
+        (&v.to_string()).try_into().map_err(serde::de::Error::custom)
     }
 
-    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(value.to_owned())
+        (&v).try_into().map_err(serde::de::Error::custom)
     }
 }
-
+impl<'de> serde::Deserialize<'de> for Compute {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_str(Compute::empty())
+    }
+}
 impl Default for Compute {
     fn default() -> Self {
         Self::CPU
@@ -182,19 +188,6 @@ impl Display for Compute {
             }
         }
         Ok(())
-    }
-}
-impl<'de> serde::Deserialize<'de> for Compute {
-    fn deserialize<D>(deserializer: D) -> Result<Compute, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let v = StrVisitor {};
-        let s = deserializer.deserialize_str(v)?;
-        match (&s).try_into() {
-            Ok(c) => Ok(c),
-            Err(e) => Err(serde::de::Error::custom(e)),
-        }
     }
 }
 
@@ -258,24 +251,40 @@ impl Display for Isolation {
         Ok(())
     }
 }
+impl serde::de::Visitor<'_> for Isolation {
+    type Value = Isolation;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a formatted Isolation string")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        (&v.to_string()).try_into().map_err(serde::de::Error::custom)
+    }
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        (&v).try_into().map_err(serde::de::Error::custom)
+    }
+}
 impl<'de> serde::Deserialize<'de> for Isolation {
     fn deserialize<D>(deserializer: D) -> Result<Isolation, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let v = StrVisitor {};
-        let s = deserializer.deserialize_str(v)?;
-        match (&s).try_into() {
-            Ok(c) => Ok(c),
-            Err(e) => Err(serde::de::Error::custom(e)),
-        }
+        deserializer.deserialize_str(Isolation::empty())
     }
 }
 
 /// A collection of function timing data, allowing for polymorphic functions that run on several computes
 pub type ResourceTimings = std::collections::HashMap<Compute, FunctionInvocationTimings>;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 /// A struct holding the invocation timings of a single function.
 /// Broken down into several categories along warm and cold invocations.
 pub struct FunctionInvocationTimings {

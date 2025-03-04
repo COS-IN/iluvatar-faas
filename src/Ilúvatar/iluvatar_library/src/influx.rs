@@ -9,7 +9,7 @@ use influxdb2::{Client, FromMap, RequestError};
 use std::{collections::HashMap, sync::Arc};
 use tracing::info;
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct InfluxConfig {
     pub host: String,
     pub org: String,
@@ -33,7 +33,7 @@ const THREE_HOURS_IN_SEC: i32 = 60 * 60 * 3;
 impl InfluxClient {
     pub async fn new(config: Arc<InfluxConfig>, tid: &TransactionId) -> Result<Option<Arc<Self>>> {
         if !config.enabled {
-            info!(tid=%tid, "Influx disabled, skipping client creation");
+            info!(tid = tid, "Influx disabled, skipping client creation");
             return Ok(None);
         }
         if config.host.is_empty() || config.org.is_empty() || config.token.is_empty() {
@@ -63,7 +63,10 @@ impl InfluxClient {
                 match org.id {
                     Some(org_id) => return Ok(org_id),
                     None => {
-                        bail_error!(tid=%tid, "Found an organization with a matching name, but it had no ID!")
+                        bail_error!(
+                            tid = tid,
+                            "Found an organization with a matching name, but it had no ID!"
+                        )
                     },
                 }
             }
@@ -100,7 +103,7 @@ impl InfluxClient {
                                 "message",
                                 format!("bucket with name {} already exists", name).as_str(),
                             )?;
-                            info!(tid=%tid, "Bucket {} already exists", name);
+                            info!(tid = tid, "Bucket {} already exists", name);
                             Ok(())
                         },
                         Err(_) => anyhow::bail!(format!("Unknown error format: '{}'", text)),
@@ -125,7 +128,7 @@ impl InfluxClient {
             }))
             .await
         {
-            Ok(_) => info!(tid=%tid, "Functions bucket created"),
+            Ok(_) => info!(tid = tid, "Functions bucket created"),
             Err(e) => self.handle_ensure_bucket_error(FUNCTIONS_BUCKET, e, tid)?,
         };
 
@@ -140,7 +143,7 @@ impl InfluxClient {
             }))
             .await
         {
-            Ok(_) => info!(tid=%tid, "Workers bucket created"),
+            Ok(_) => info!(tid = tid, "Workers bucket created"),
             Err(e) => self.handle_ensure_bucket_error(WORKERS_BUCKET, e, tid)?,
         };
         Ok(self)

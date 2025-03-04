@@ -6,38 +6,65 @@ use crate::services::resources::gpu::GpuResourceTracker;
 use crate::services::status::status_service::StatusService;
 use crate::services::{registration::RegistrationService, worker_health::WorkerHealthService};
 use crate::worker_api::config::WorkerConfig;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
+use iluvatar_library::clock::now;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_library::{
-    characteristics_map::CharacteristicsMap, energy::energy_logging::EnergyLogger, utils::calculate_fqdn,
-};
+use iluvatar_library::{energy::energy_logging::EnergyLogger, utils::calculate_fqdn};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
     CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest,
-    PrewarmRequest, RegisterRequest, StatusRequest,
+    PrewarmRequest, RegisterRequest, RegisteredFunction, StatusRequest,
 };
 use iluvatar_rpc::rpc::{
-    CleanResponse, HealthResponse, InvokeAsyncResponse, InvokeResponse, PingResponse, PrewarmResponse,
-    RegisterResponse, StatusResponse,
+    CleanResponse, HealthResponse, InvokeAsyncResponse, InvokeResponse, ListFunctionRequest, ListFunctionResponse,
+    PingResponse, PrewarmResponse, RegisterResponse, StatusResponse,
 };
 use std::sync::Arc;
+use tokio::time::Instant;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
+
+struct IatTracker {
+    last_invoked: dashmap::DashMap<String, Instant>,
+}
+impl IatTracker {
+    fn new() -> Self {
+        Self {
+            last_invoked: dashmap::DashMap::new(),
+        }
+    }
+
+    fn track(&self, fqdn: &str) -> Option<f64> {
+        match self.last_invoked.get_mut(fqdn) {
+            None => {
+                self.last_invoked.insert(fqdn.to_owned(), now());
+                None
+            },
+            Some(mut l) => {
+                let r = l.value().elapsed().as_secs_f64();
+                *l.value_mut() = now();
+                Some(r)
+            },
+        }
+    }
+}
 
 #[allow(unused)]
 /// Public members are _only_ for use in testing
 pub struct IluvatarWorkerImpl {
     pub container_manager: Arc<ContainerManager>,
-    config: WorkerConfig,
+    pub config: WorkerConfig,
     pub invoker: Arc<dyn Invoker>,
     pub status: Arc<StatusService>,
     health: Arc<WorkerHealthService>,
     energy: Arc<EnergyLogger>,
-    pub cmap: Arc<CharacteristicsMap>,
+    pub cmap: WorkerCharMap,
     pub reg: Arc<RegistrationService>,
     updater: Option<Arc<InfluxUpdater>>,
     pub gpu: Option<Arc<GpuResourceTracker>>,
     isolations: ContainerIsolationCollection,
+    iats: IatTracker,
 }
 
 impl IluvatarWorkerImpl {
@@ -48,7 +75,7 @@ impl IluvatarWorkerImpl {
         status: Arc<StatusService>,
         health: Arc<WorkerHealthService>,
         energy: Arc<EnergyLogger>,
-        cmap: Arc<CharacteristicsMap>,
+        cmap: WorkerCharMap,
         reg: Arc<RegistrationService>,
         updater: Option<Arc<InfluxUpdater>>,
         gpu: Option<Arc<GpuResourceTracker>>,
@@ -66,6 +93,7 @@ impl IluvatarWorkerImpl {
             updater,
             gpu,
             isolations,
+            iats: IatTracker::new(),
         }
     }
 
@@ -94,16 +122,18 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok(Response::new(reply))
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id, function_name=%request.get_ref().function_name, function_version=%request.get_ref().function_version))]
+    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn invoke(&self, request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling invocation request");
+        info!(tid=%request.transaction_id, "Handling invocation request");
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         let reg = match self.reg.get_registration(&fqdn) {
             Some(r) => r,
             None => return Ok(Response::new(InvokeResponse::error("Function was not registered"))),
         };
-        self.cmap.add_iat(&fqdn);
+        if let Some(iat) = self.iats.track(&fqdn) {
+            self.cmap.update(&fqdn, Chars::IAT, iat);
+        }
         debug!(tid=%request.transaction_id, "Sending invocation to invoker");
         let resp = self
             .invoker
@@ -146,7 +176,9 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                 }));
             },
         };
-        self.cmap.add_iat(&fqdn);
+        if let Some(iat) = self.iats.track(&fqdn) {
+            self.cmap.update(&fqdn, Chars::IAT, iat);
+        }
         let resp = self
             .invoker
             .async_invocation(reg, request.json_args, request.transaction_id);
@@ -305,5 +337,27 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             Ok(_) => Ok(Response::new(CleanResponse {})),
             Err(e) => Err(Status::internal(format!("{:?}", e))),
         }
+    }
+    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    async fn list_registered_funcs(
+        &self,
+        request: Request<ListFunctionRequest>,
+    ) -> Result<Response<ListFunctionResponse>, Status> {
+        let request = request.into_inner();
+        info!(tid=%request.transaction_id, "Handling list registered functions request");
+        let funcs: Vec<Arc<crate::services::registration::RegisteredFunction>> =
+            self.reg.get_all_registered_functions();
+        let rpc_funcs = funcs
+            .iter()
+            .map(|func| RegisteredFunction {
+                function_name: func.function_name.clone(),
+                function_version: func.function_version.clone(),
+                image_name: func.image_name.clone(),
+            })
+            .collect();
+
+        let reply = ListFunctionResponse { functions: rpc_funcs };
+
+        Ok(Response::new(reply))
     }
 }

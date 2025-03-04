@@ -11,9 +11,10 @@ use crate::services::{
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dispatching::queueing_dispatcher::QueueingDispatcher;
-use iluvatar_library::characteristics_map::Values;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::Clock;
-use iluvatar_library::{characteristics_map::CharacteristicsMap, transaction::TransactionId, types::Compute};
+use iluvatar_library::tput_calc::DeviceTput;
+use iluvatar_library::{transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
@@ -67,7 +68,7 @@ pub struct InvokerFactory {
     cont_manager: Arc<ContainerManager>,
     function_config: Arc<FunctionLimits>,
     invocation_config: Arc<InvocationConfig>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     cpu: Arc<CpuResourceTracker>,
     gpu_resources: Option<Arc<GpuResourceTracker>>,
     gpu_config: Option<Arc<GPUResourceConfig>>,
@@ -81,7 +82,7 @@ impl InvokerFactory {
         cont_manager: Arc<ContainerManager>,
         function_config: Arc<FunctionLimits>,
         invocation_config: Arc<InvocationConfig>,
-        cmap: Arc<CharacteristicsMap>,
+        cmap: WorkerCharMap,
         cpu: Arc<CpuResourceTracker>,
         gpu_resources: Option<Arc<GpuResourceTracker>>,
         gpu_config: Option<Arc<GPUResourceConfig>>,
@@ -160,7 +161,7 @@ pub type InvocationResultPtr = Arc<Mutex<InvocationResult>>;
 /// [Duration]: The E2E latency between the worker and the container
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
-#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=%tid)))]
+#[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load, device_tput) fields(tid=tid)))]
 async fn invoke_on_container(
     reg: &Arc<RegisteredFunction>,
     json_args: &str,
@@ -171,8 +172,9 @@ async fn invoke_on_container(
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
-    cmap: &Arc<CharacteristicsMap>,
+    cmap: &WorkerCharMap,
     clock: &Clock,
+    device_tput: &Arc<DeviceTput>,
 ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
     let (data, dur, ctr) = invoke_on_container_2(
         reg,
@@ -186,6 +188,7 @@ async fn invoke_on_container(
         cold_time_start,
         cmap,
         clock,
+        device_tput,
     )
     .await?;
     Ok((data, dur, ctr.compute_type(), ctr.state()))
@@ -196,7 +199,7 @@ async fn invoke_on_container(
 /// [Duration]: The E2E latency between the worker and the container
 /// [Compute]: Compute the invocation was run on
 /// [ContainerState]: State the container was in for the invocation
-#[cfg_attr(feature = "full_spans", tracing::instrument(skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load) fields(tid=%tid)))]
+#[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(reg, json_args, queue_insert_time, ctr_lock, remove_time, cold_time_start, clock, cmap, est_completion_time, insert_time_load, device_tput) fields(tid=tid)))]
 async fn invoke_on_container_2(
     reg: &Arc<RegisteredFunction>,
     json_args: &str,
@@ -207,32 +210,36 @@ async fn invoke_on_container_2(
     ctr_lock: &ContainerLock,
     remove_time: String,
     cold_time_start: Instant,
-    cmap: &Arc<CharacteristicsMap>,
+    cmap: &WorkerCharMap,
     clock: &Clock,
+    device_tput: &Arc<DeviceTput>,
 ) -> Result<(ParsedResult, Duration, Container)> {
-    info!(tid=%tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
+    info!(tid=tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     let compute = ctr_lock.container.compute_type();
-    let chars = cmap.get_characteristics(&compute)?;
+    let chars = Chars::get_chars(&compute)?;
     let (char, time) = match ctr_lock.container.state() {
         ContainerState::Warm => (chars.1, data.duration_sec),
         ContainerState::Prewarm => (chars.2, data.duration_sec),
         _ => (chars.0, cold_time_start.elapsed().as_secs_f64()),
     };
-    cmap.add(&reg.fqdn, char, Values::F64(time), true);
-    cmap.add(&reg.fqdn, chars.3, Values::F64(data.duration_sec), true);
     let now = clock.now();
     let e2etime = (now - queue_insert_time).as_seconds_f64();
-    cmap.add(&reg.fqdn, chars.4, Values::F64(e2etime), true);
     let err = e2etime - est_completion_time;
-    cmap.add(&reg.fqdn, chars.5, Values::F64(err), true);
-    match compute {
-        Compute::CPU => cmap.add_cpu_tput(time),
-        Compute::GPU => {
-            cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
-            cmap.add_gpu_tput(time);
-        },
-        _ => (),
-    };
+    cmap.update_4(
+        &reg.fqdn,
+        char,
+        time,
+        chars.3,
+        data.duration_sec,
+        chars.4,
+        e2etime,
+        chars.5,
+        err,
+    );
+    device_tput.add_tput(time);
+    if compute == Compute::GPU {
+        cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
+    }
     Ok((data, duration, ctr_lock.container.clone()))
 }

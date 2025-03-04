@@ -97,13 +97,13 @@ impl ContainerdContainer {
 
 #[tonic::async_trait]
 impl ContainerT for ContainerdContainer {
-    #[tracing::instrument(skip(self, json_args), fields(tid=%tid, fqdn=%self.fqdn), name="ContainerdContainer::invoke")]
+    #[tracing::instrument(skip(self, json_args), fields(tid=tid, fqdn=%self.fqdn), name="ContainerdContainer::invoke")]
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
         self.update_metadata_on_invoke(tid);
         match self.client.invoke(json_args, tid, &self.container_id).await {
             Ok(r) => Ok(r),
             Err(e) => {
-                warn!(tid=%tid, container_id=%self.container_id(), "Marking container unhealthy");
+                warn!(tid=tid, container_id=%self.container_id(), "Marking container unhealthy");
                 self.mark_unhealthy();
                 Err(e)
             },
@@ -168,13 +168,13 @@ impl ContainerT for ContainerdContainer {
         self.device.write().take()
     }
     fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
-        debug!(tid=%tid, container_id=%self.container_id(), "Adding token to drop on remove");
+        debug!(tid=tid, container_id=%self.container_id(), "Adding token to drop on remove");
         self.drop_on_remove.lock().push(item);
     }
     fn remove_drop(&self, tid: &TransactionId) {
         let mut lck = self.drop_on_remove.lock();
         let to_drop = std::mem::take(&mut *lck);
-        debug!(tid=%tid, container_id=%self.container_id(), num_tokens=to_drop.len(), "Dropping tokens");
+        debug!(tid=tid, container_id=%self.container_id(), num_tokens=to_drop.len(), "Dropping tokens");
         for i in to_drop.into_iter() {
             drop(i);
         }

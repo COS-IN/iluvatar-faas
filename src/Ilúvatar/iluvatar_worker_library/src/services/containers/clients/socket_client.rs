@@ -50,7 +50,7 @@ impl SocketContainerClient {
         let mut lck = self.socket.lock().await;
         if lck.is_none() {
             let start = now();
-            let mut allowed_errs = 5;
+            let mut allowed_errs = 50;
             tracing::info!(tid=tid, socket=?self.sock_pth, "waiting to open socket");
             while start.elapsed() < Duration::from_secs(self.invoke_timeout) {
                 if let Ok(c) = tokio::fs::try_exists(&self.sock_pth).await {
@@ -148,15 +148,15 @@ impl SocketContainerClient {
                         // these error codes are converted CUresult codes
                         // 3 == CUDA_ERROR_NOT_INITIALIZED, so container is probably just created and hasn't used driver yet
                         3 => Ok(()),
-                        _ => bail_error!(tid=%tid, code=code, "Return had non-zero status code"),
+                        _ => bail_error!(tid = tid, code = code, "Return had non-zero status code"),
                     }
                 },
                 None => {
-                    bail_error!(tid=%tid, result=?std::str::from_utf8(slice), "Return didn't have driver status result")
+                    bail_error!(tid=tid, result=?std::str::from_utf8(slice), "Return didn't have driver status result")
                 },
             },
             Err(e) => {
-                bail_error!(error=%e, tid=%tid, result=?std::str::from_utf8(slice), "Failed to parse json from HTTP return")
+                bail_error!(error=%e, tid=tid, result=?std::str::from_utf8(slice), "Failed to parse json from HTTP return")
             },
         }
     }
@@ -164,7 +164,7 @@ impl SocketContainerClient {
 
 #[tonic::async_trait]
 impl ContainerClient for SocketContainerClient {
-    #[tracing::instrument(skip(self, json_args), fields(tid=%tid), name="SocketContainerClient::invoke")]
+    #[tracing::instrument(skip(self, json_args), fields(tid=tid), name="SocketContainerClient::invoke")]
     async fn invoke(
         &self,
         json_args: &str,

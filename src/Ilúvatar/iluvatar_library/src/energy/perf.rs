@@ -45,7 +45,7 @@ where
     )
     .await?;
     try_add_arg(tid, "Added cpu cache misses", "-e", "cpu/cache-misses/", &mut args).await?;
-    info!(tid=%tid, perf=?args, "perf arguments");
+    info!(tid=tid, perf=?args, "perf arguments");
     execute_cmd_nonblocking("/usr/bin/perf", &args, None, tid)
 }
 
@@ -58,7 +58,7 @@ async fn try_add_arg<'a>(
 ) -> Result<()> {
     let args = vec!["stat", flag, metric, "-I", "100"];
     if test_args(tid, &args).await? {
-        debug!(tid=%tid, msg);
+        debug!(tid = tid, msg);
         command.push(flag);
         command.push(metric);
     }
@@ -82,7 +82,7 @@ async fn test_args(tid: &TransactionId, args: &Vec<&str>) -> Result<bool> {
                 },
             },
             Err(e) => {
-                warn!(tid=%tid, error=%e, "Checking if `{:?}` args existed encountered an error", args);
+                warn!(tid=tid, error=%e, "Checking if `{:?}` args existed encountered an error", args);
                 return Ok(false);
             },
         };
@@ -91,7 +91,7 @@ async fn test_args(tid: &TransactionId, args: &Vec<&str>) -> Result<bool> {
     // safe to assume metric exists
     match child.kill() {
         Ok(_) => (),
-        Err(e) => bail_error!(tid=%tid, error=%e, "Failed to kill perf child when testing args"),
+        Err(e) => bail_error!(tid=tid, error=%e, "Failed to kill perf child when testing args"),
     };
     Ok(true)
 }

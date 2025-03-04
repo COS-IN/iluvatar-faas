@@ -93,6 +93,7 @@ impl StatusService {
         Ok(ret)
     }
 
+    #[tracing::instrument(level = "debug", skip_all)]
     async fn update_status(self: Arc<Self>, tid: TransactionId) {
         let mut gpu_utilization = vec![];
         if let Some(gpu) = &self.gpu {

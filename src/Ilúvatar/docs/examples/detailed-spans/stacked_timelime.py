@@ -54,7 +54,7 @@ with open(args.log, 'r') as f:
       print(line)
       exit(1)
     tid = get_tid(log)
-    if tid not in tids:
+    if tid is None or tid not in tids:
       continue
 
     if log["fields"]["message"] == "enter":
@@ -81,7 +81,7 @@ def find_matching_span(target_span, exit_list):
   else:
     tid = get_tid(log)
     n = short_span_name(target_span)
-    raise Exception(f"Unable to find exit span for {tid} {n}")
+    raise Exception(f"Unable to find exit span for {tid} {n} {log}")
 
 seen_once=False
 def get_span_timeline(span, sorted_start_spans, exit_spans, depth=1):

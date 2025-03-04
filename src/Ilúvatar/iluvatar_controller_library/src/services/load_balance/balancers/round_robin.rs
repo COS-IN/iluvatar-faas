@@ -43,7 +43,7 @@ impl RoundRobinLoadBalancer {
             if self.health.is_healthy(worker) {
                 return Ok(worker.clone());
             } else if i >= self.workers.read().len() {
-                warn!(tid=%tid, "Could not find a healthy worker!");
+                warn!(tid = tid, "Could not find a healthy worker!");
                 return Ok(worker.clone());
             }
             i += 1;
@@ -54,12 +54,12 @@ impl RoundRobinLoadBalancer {
 #[tonic::async_trait]
 impl LoadBalancerTrait for RoundRobinLoadBalancer {
     fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
-        info!(tid=%tid, worker=%worker.name, "Registering new worker in RoundRobin load balancer");
+        info!(tid=tid, worker=%worker.name, "Registering new worker in RoundRobin load balancer");
         let mut workers = self.workers.write();
         workers.push(worker);
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=tid)))]
     async fn send_invocation(
         &self,
         func: Arc<RegisteredFunction>,

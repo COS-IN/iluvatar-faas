@@ -1,9 +1,10 @@
 import sys, os
 
-sys.path.append("../../../../load/run")
-from run_trace import rust_build, run_live, RunTarget, BuildTarget, LOCALHOST_Q
-
 ILU_HOME = "../../.."
+
+sys.path.append(os.path.join(ILU_HOME, ".."))
+from load.run.run_trace import rust_build, run_live, RunTarget, BuildTarget, LOCALHOST_Q
+
 CORES = 2
 MEMORY = 4096
 build_level = BuildTarget.RELEASE_SPANS
@@ -33,7 +34,9 @@ kwargs = {
     "target": RunTarget.WORKER,
     "prewarm": 1,
     "benchmark_file": benchmark,
+    "log_level":"debug",
     "worker_spanning": "NEW+CLOSE",
+    "worker_include_spans_json": True,
 }
 # run entire experiment
 run_target = RunTarget.WORKER

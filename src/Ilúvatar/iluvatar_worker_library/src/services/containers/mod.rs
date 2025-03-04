@@ -102,12 +102,12 @@ impl IsolationFactory {
     ) -> Result<ContainerIsolationCollection> {
         let mut ret = HashMap::new();
         if iluvatar_library::utils::is_simulation() {
-            info!(tid=%tid, "Creating 'simulation' backend");
+            info!(tid = tid, "Creating 'simulation' backend");
             let c = SimulatorIsolation::new();
             self.insert_cycle(&mut ret, Arc::new(c))?;
         } else {
             if ContainerdIsolation::supported(tid).await {
-                info!(tid=%tid, "Creating 'containerd' backend");
+                info!(tid = tid, "Creating 'containerd' backend");
                 if let Some(networking) = self.worker_config.networking.as_ref() {
                     let netm = NamespaceManager::boxed(networking.clone(), tid, ensure_bridge)?;
                     let mut lifecycle = ContainerdIsolation::new(
@@ -119,11 +119,14 @@ impl IsolationFactory {
                     lifecycle.connect().await?;
                     self.insert_cycle(&mut ret, Arc::new(lifecycle))?;
                 } else {
-                    warn!(tid=%tid, "Containerd not supported because no networking config provided");
+                    warn!(
+                        tid = tid,
+                        "Containerd not supported because no networking config provided"
+                    );
                 }
             }
             if DockerIsolation::supported(tid).await {
-                info!(tid=%tid, "Creating 'docker' backend");
+                info!(tid = tid, "Creating 'docker' backend");
                 let d = Arc::new(DockerIsolation::new(
                     self.worker_config.container_resources.clone(),
                     self.worker_config.limits.clone(),

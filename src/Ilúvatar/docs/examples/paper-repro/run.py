@@ -6,7 +6,8 @@ sys.path.append(os.path.join(ILU_HOME, ".."))
 from load.run.run_trace import rust_build, run_sim, RunTarget, BuildTarget
 from multiprocessing import Pool
 
-build_level = BuildTarget.RELEASE
+# We have to run with all function spans enabled to capture worker information to separate log file
+build_level = BuildTarget.RELEASE_SPANS
 benchmark = "../benchmark/worker_function_benchmarks.json"
 
 # build the solution
@@ -18,10 +19,8 @@ results_dir = os.path.join(os.getcwd(), "results")
 
 
 def run_experiment(cpu_queue, cores):
-    worker_log_dir = os.path.join(os.getcwd(), "temp_results", cpu_queue, str(cores))
     exp_results_dir = os.path.join(os.getcwd(), results_dir, cpu_queue, str(cores))
     os.makedirs(results_dir, exist_ok=True)
-    os.makedirs(worker_log_dir, exist_ok=True)
 
     kwargs = {
         "ilu_home": ILU_HOME,
@@ -29,11 +28,12 @@ def run_experiment(cpu_queue, cores):
         "cores": cores,
         "memory": 10240,
         "worker_status_ms": 500,
-        "worker_log_dir": worker_log_dir,
+        "worker_log_dir": exp_results_dir,
         "cpu_queue_policy": cpu_queue,
         "target": RunTarget.WORKER,
         "prewarm": 1,
         "benchmark_file": benchmark,
+        "load_log_stdout": False,
     }
     # run entire experiment
     run_sim(input_csv, meta_csv, exp_results_dir, **kwargs)
@@ -54,9 +54,9 @@ def run_experiment(cpu_queue, cores):
 
 
 experiments = []
-for cores in [0, 10, 15, 16, 20]:
+for cores in [0, 10, 12, 15, 16, 20]:
     experiments.append(("fcfs", cores))
-for cores in [10, 15, 16, 20]:
+for cores in [10, 12, 15, 16, 20]:
     experiments.append(("minheap", cores))
 
 with Pool() as p:
@@ -68,6 +68,7 @@ from load.analysis.log_parser import *
 from load.run.run_trace import RunTarget, RunType
 from collections import defaultdict
 import pandas as pd
+import numpy as np
 import matplotlib as mpl
 
 mpl.use("Agg")

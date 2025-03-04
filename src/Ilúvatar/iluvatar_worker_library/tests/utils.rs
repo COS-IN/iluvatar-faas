@@ -1,5 +1,5 @@
+use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::{
-    characteristics_map::CharacteristicsMap,
     clock::ContainerTimeFormatter,
     logging::{start_tracing, LoggingConfig},
     transaction::{TransactionId, SIMULATION_START_TID, TEST_TID},
@@ -43,7 +43,7 @@ pub async fn sim_test_services(
     Arc<ContainerManager>,
     Arc<dyn Invoker>,
     Arc<RegistrationService>,
-    Arc<CharacteristicsMap>,
+    WorkerCharMap,
     Option<Arc<GpuResourceTracker>>,
 ) {
     iluvatar_library::utils::set_simulation(&SIMULATION_START_TID).unwrap();
@@ -63,7 +63,7 @@ pub async fn test_invoker_svc(
     Arc<ContainerManager>,
     Arc<dyn Invoker>,
     Arc<RegistrationService>,
-    Arc<CharacteristicsMap>,
+    WorkerCharMap,
     Option<Arc<GpuResourceTracker>>,
 ) {
     build_test_services(config_pth, overrides, log, &TEST_TID).await
@@ -80,7 +80,7 @@ async fn build_test_services(
     Arc<ContainerManager>,
     Arc<dyn Invoker>,
     Arc<RegistrationService>,
-    Arc<CharacteristicsMap>,
+    WorkerCharMap,
     Option<Arc<GpuResourceTracker>>,
 ) {
     let cfg: WorkerConfig = iluvatar_library::load_config_default!(
@@ -101,7 +101,7 @@ async fn build_test_services(
                 ..std::default::Default::default()
             });
             Some(
-                start_tracing(fake_logging, &cfg.name, &TEST_TID)
+                start_tracing(&fake_logging, &TEST_TID)
                     .unwrap_or_else(|e| panic!("Failed to load start tracing for test: {}", e)),
             )
         },

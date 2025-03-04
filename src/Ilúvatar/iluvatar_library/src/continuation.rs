@@ -32,7 +32,7 @@ impl Continuation {
     pub fn signal_application_exit(&self, tid: &TransactionId) {
         *self.signal.write() = false;
         GLOB_NOTIFIER.notify_waiters();
-        info!(tid=%tid, "Signalling worker exit");
+        info!(tid = tid, "Signalling worker exit");
         let start = now();
         while *self.outstanding_threads.read() > 0 {
             GLOB_NOTIFIER.notify_one();
@@ -45,12 +45,12 @@ impl Continuation {
     /// register that a thread tracking this has started
     pub fn thread_start(&self, tid: &TransactionId) {
         *self.outstanding_threads.write() += 1;
-        debug!(tid=%tid, "New thread start registered with Continuation");
+        debug!(tid = tid, "New thread start registered with Continuation");
     }
     /// register that a thread tracking this has finished
     pub fn thread_exit(&self, tid: &TransactionId) {
         *self.outstanding_threads.write() -= 1;
-        debug!(tid=%tid, "Thread exit registered with Continuation");
+        debug!(tid = tid, "Thread exit registered with Continuation");
     }
 
     /// Returns true if the application should continue running

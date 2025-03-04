@@ -3,7 +3,7 @@ use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::structs::{ContainerState, ParsedResult};
 use crate::services::registration::RegisteredFunction;
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
@@ -17,7 +17,6 @@ use tracing::{debug, error};
 //  CPU focused queues
 pub mod avail_scale;
 pub mod cold_priority;
-pub mod concur_mqfq;
 pub mod fcfs;
 pub mod minheap;
 pub mod minheap_ed;
@@ -61,13 +60,13 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
         &self,
         item: &Arc<EnqueuedInvocation>,
         cont_manager: &Arc<ContainerManager>,
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
     ) -> Result<f64> {
         Ok(
             match cont_manager.container_available(&item.registration.fqdn, iluvatar_library::types::Compute::CPU) {
-                ContainerState::Warm => cmap.get_warm_time(&item.registration.fqdn),
-                ContainerState::Prewarm => cmap.get_prewarm_time(&item.registration.fqdn),
-                _ => cmap.get_cold_time(&item.registration.fqdn),
+                ContainerState::Warm => cmap.get_avg(&item.registration.fqdn, Chars::CpuWarmTime),
+                ContainerState::Prewarm => cmap.get_avg(&item.registration.fqdn, Chars::CpuPreWarmTime),
+                _ => cmap.get_avg(&item.registration.fqdn, Chars::CpuColdTime),
             },
         )
     }
@@ -104,6 +103,8 @@ pub trait DeviceQueue: Send + Sync {
     fn expose_flow_report(&self) -> Option<gpu_mqfq::MqfqInfo> {
         None
     }
+
+    fn queue_tput(&self) -> f64;
 }
 
 #[derive(Debug)]
@@ -124,6 +125,8 @@ pub struct EnqueuedInvocation {
     pub est_completion_time: f64,
     /// Estimated device load upon queue insertion.
     pub insert_time_load: f64,
+    #[cfg(feature = "full_spans")]
+    pub span: tracing::Span,
 }
 
 impl EnqueuedInvocation {
@@ -145,6 +148,8 @@ impl EnqueuedInvocation {
             result_ptr: InvocationResult::boxed(),
             signal: Notify::new(),
             started: Mutex::new(false),
+            #[cfg(feature = "full_spans")]
+            span: tracing::Span::current(),
         }
     }
 

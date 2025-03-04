@@ -2,7 +2,6 @@
 pub mod utils;
 
 use crate::utils::{background_test_invoke, resolve_invoke, sim_args, sim_test_services, wait_for_queue_len};
-use iluvatar_library::characteristics_map::{Characteristics, Values};
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};
@@ -1171,6 +1170,7 @@ mod clean_tests {
 
 mod enqueueing_tests {
     use super::*;
+    use iluvatar_library::char_map::Chars;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn picks_gpu_queueing_exec() {
@@ -1196,8 +1196,8 @@ mod enqueueing_tests {
             .register(req, &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
-        cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(1.0), true);
-        cmap.add(&func.fqdn, Characteristics::GpuExecTime, Values::F64(0.5), true);
+        cmap.update(&func.fqdn, Chars::CpuExecTime, 1.0);
+        cmap.update(&func.fqdn, Chars::GpuExecTime, 0.5);
         let invoke = invoker
             .sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone())
             .await
@@ -1230,8 +1230,8 @@ mod enqueueing_tests {
             .register(req, &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
-        cmap.add(&func.fqdn, Characteristics::ExecTime, Values::F64(0.5), true);
-        cmap.add(&func.fqdn, Characteristics::GpuExecTime, Values::F64(1.0), true);
+        cmap.update(&func.fqdn, Chars::CpuExecTime, 0.5);
+        cmap.update(&func.fqdn, Chars::GpuExecTime, 1.0);
         let invoke = invoker
             .sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone())
             .await
@@ -1290,8 +1290,8 @@ mod enqueueing_tests {
             .register(req, &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
-        cmap.add(&func.fqdn, Characteristics::ColdTime, Values::F64(1.0), true);
-        cmap.add(&func.fqdn, Characteristics::GpuColdTime, Values::F64(0.5), true);
+        cmap.update(&func.fqdn, Chars::CpuColdTime, 1.0);
+        cmap.update(&func.fqdn, Chars::GpuColdTime, 0.5);
         let invoke = invoker
             .sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone())
             .await
@@ -1336,8 +1336,8 @@ mod enqueueing_tests {
             .register(req, &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
-        cmap.add(&func.fqdn, Characteristics::ColdTime, Values::F64(1.0), true);
-        cmap.add(&func.fqdn, Characteristics::GpuColdTime, Values::F64(1.5), true);
+        cmap.update(&func.fqdn, Chars::CpuColdTime, 0.1);
+        cmap.update(&func.fqdn, Chars::GpuColdTime, 1.5);
         let invoke = invoker
             .sync_invocation(func.clone(), sim_args().unwrap(), TEST_TID.clone())
             .await
@@ -1367,8 +1367,8 @@ mod enqueueing_tests {
             .register(req, &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
-        cmap.add(&func.fqdn, Characteristics::PreWarmTime, Values::F64(1.0), true);
-        cmap.add(&func.fqdn, Characteristics::GpuPreWarmTime, Values::F64(1.5), true);
+        cmap.update(&func.fqdn, Chars::CpuPreWarmTime, 1.0);
+        cmap.update(&func.fqdn, Chars::GpuPreWarmTime, 1.5);
         cm.prewarm(&func, &TEST_TID, Compute::CPU)
             .await
             .unwrap_or_else(|e| panic!("Prewarm failed: {}", e));
@@ -1420,8 +1420,8 @@ mod enqueueing_tests {
             .register(req, &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Registration failed: {}", e));
-        cmap.add(&func.fqdn, Characteristics::PreWarmTime, Values::F64(1.0), true);
-        cmap.add(&func.fqdn, Characteristics::GpuPreWarmTime, Values::F64(0.5), true);
+        cmap.update(&func.fqdn, Chars::CpuPreWarmTime, 1.0);
+        cmap.update(&func.fqdn, Chars::GpuPreWarmTime, 0.5);
         cm.prewarm(&func, &TEST_TID, Compute::CPU)
             .await
             .unwrap_or_else(|e| panic!("Prewarm failed: {}", e));

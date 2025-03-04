@@ -1,9 +1,9 @@
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::energy::energy_logging::EnergyLogger;
 use std::sync::Arc;
 
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub enum PowerCapVersion {
     /// Check if power usage is under limit to allow invocation
     V0,
@@ -11,7 +11,7 @@ pub enum PowerCapVersion {
     V1,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 /// Internal knobs for how the [crate::services::invocation::EnergyLimiter] works
 pub struct EnergyCapConfig {
     /// Maximum power usage before pausing invocations to wait for power drop
@@ -54,15 +54,15 @@ impl EnergyLimiter {
         return self.powcap > POWCAP_MIN;
     }
 
-    fn get_energy(&self, cmap: &Arc<CharacteristicsMap>, fqdn: &str, _power: f64) -> f64 {
-        let exec_time = cmap.get_exec_time(fqdn);
+    fn get_energy(&self, cmap: &WorkerCharMap, fqdn: &str, _power: f64) -> f64 {
+        let exec_time = cmap.get_avg(fqdn, Chars::CpuExecTime);
         let power_2 = 2.0;
         let j = exec_time * power_2;
         // tracing::debug!("get energy exec_time({}) * power({}) = j({})", exec_time, power_2, j);
         return j;
     }
 
-    pub fn ok_run_fn(&self, cmap: &Arc<CharacteristicsMap>, fname: &str) -> bool {
+    pub fn ok_run_fn(&self, cmap: &WorkerCharMap, fname: &str) -> bool {
         if !self.powcap_enabled() {
             // tracing::debug!(fname=%fname, "power cap disabled");
             return true;

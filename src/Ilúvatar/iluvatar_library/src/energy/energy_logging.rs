@@ -30,7 +30,7 @@ impl EnergyLogger {
                     true => {
                         let perf_file = Path::new(&config.log_folder);
                         let perf_file = perf_file.join("energy-perf.log");
-                        debug!(tid=%tid, "Starting perf energy monitoring");
+                        debug!(tid = tid, "Starting perf energy monitoring");
                         let f = match perf_file.to_str() {
                             Some(f) => f,
                             None => {
@@ -52,7 +52,7 @@ impl EnergyLogger {
                     true => {
                         let tegra_file = Path::new(&config.log_folder);
                         let tegra_file = tegra_file.join("tegrastats.log");
-                        debug!(tid=%tid, "Starting tegra monitoring");
+                        debug!(tid = tid, "Starting tegra monitoring");
                         let f = match tegra_file.to_str() {
                             Some(f) => f,
                             None => {
@@ -72,7 +72,7 @@ impl EnergyLogger {
 
                 let ipmi = match config.ipmi_enabled() {
                     true => {
-                        debug!(tid=%tid, "Starting IPMI energy monitoring");
+                        debug!(tid = tid, "Starting IPMI energy monitoring");
                         Some(IPMIMonitor::boxed(config.clone(), tid)?)
                     },
                     false => None,
@@ -80,7 +80,7 @@ impl EnergyLogger {
 
                 let rapl = match config.rapl_enabled() {
                     true => {
-                        debug!(tid=%tid, "Starting rapl energy monitoring");
+                        debug!(tid = tid, "Starting rapl energy monitoring");
                         Some(RaplMonitor::boxed(config.clone(), tid)?)
                     },
                     false => None,
@@ -88,7 +88,7 @@ impl EnergyLogger {
 
                 let proc = match config.process_enabled() {
                     true => {
-                        debug!(tid=%tid, "Starting process energy monitoring");
+                        debug!(tid = tid, "Starting process energy monitoring");
                         Some(ProcessMonitor::boxed(config.clone(), tid)?)
                     },
                     false => None,
@@ -96,7 +96,7 @@ impl EnergyLogger {
 
                 let cpu_mon = match config.cpu_freqs_enabled() {
                     true => {
-                        debug!(tid=%tid, "Starting cpu frequency monitoring");
+                        debug!(tid = tid, "Starting cpu frequency monitoring");
                         Some(CpuFreqMonitor::boxed(
                             config.kernel_cpu_frequencies_freq_ms,
                             config.hardware_cpu_frequencies_freq_ms,

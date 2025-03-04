@@ -42,16 +42,16 @@ impl Controller {
 
         let influx = match InfluxClient::new(config.influx.clone(), tid).await {
             Ok(i) => i,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to create InfluxClient"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to create InfluxClient"),
         };
         let load_svc = match LoadService::boxed(influx, config.load_balancer.clone(), tid, worker_fact.clone()) {
             Ok(l) => l,
-            Err(e) => bail_error!(tid=%tid, error=%e, "Failed to create LoadService"),
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to create LoadService"),
         };
         let lb: LoadBalancer =
             match get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()) {
                 Ok(lb) => lb,
-                Err(e) => bail_error!(tid=%tid, error=%e, "Failed to create load balancer"),
+                Err(e) => bail_error!(tid=tid, error=%e, "Failed to create load balancer"),
             };
         let reg_svc = RegistrationService::boxed(lb.clone(), worker_fact.clone());
         let async_svc = AsyncService::boxed(worker_fact.clone());
@@ -84,7 +84,7 @@ impl IluvatarController for Controller {
         }
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id, function_name=%request.get_ref().function_name, function_version=%request.get_ref().function_version))]
+    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn invoke(&self, request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
         match ControllerAPITrait::invoke(self, request.into_inner()).await {
             Ok(r) => Ok(Response::new(r)),
@@ -156,7 +156,7 @@ impl ControllerAPITrait for Controller {
         let fqdn = calculate_fqdn(&prewarm.function_name, &prewarm.function_version);
         match self.registration_svc.get_function(&fqdn) {
             Some(func) => {
-                info!(tid=%prewarm.transaction_id, fqdn=%fqdn, "Sending function to load balancer for invocation");
+                info!(tid=%prewarm.transaction_id, fqdn=%fqdn, "Sending function to load balancer for prewarm");
                 match self.lb.prewarm(func, &prewarm.transaction_id).await {
                     Ok(_dur) => Ok(PrewarmResponse {
                         success: true,
@@ -173,7 +173,7 @@ impl ControllerAPITrait for Controller {
         }
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version))]
+    #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
     async fn invoke(&self, request: InvokeRequest) -> Result<InvokeResponse> {
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         match self.registration_svc.get_function(&fqdn) {

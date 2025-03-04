@@ -20,10 +20,10 @@ def per_fn(name, iat, n):
   out = [(ceil(time * 1000), name) for time in times]
   return out
 
-f1 = per_fn("f1", 5, 30)
-f2 = per_fn("f2", 10, 20)
-f3 = per_fn("f3", 20, 10)
-f4 = per_fn("f4", 30, 5)
+f1 = per_fn("f1", 1, 300)
+f2 = per_fn("f2", 3, 200)
+f3 = per_fn("f3", 8, 100)
+f4 = per_fn("f4", 15, 50)
 
 allf = f1 + f2 + f3 + f4
 

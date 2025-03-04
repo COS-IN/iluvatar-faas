@@ -100,15 +100,6 @@ Can on-build, the ansible mappings of Iluvatar environment variables to config s
 Something like `iluvatar_worker` can reference `iluvatar_worker_library` in it's `build.rs`, giving it access to the types.
 Can it then generate the ansible vars and put them somewhere?
 
-## Cluster Simulation include worker node name
-
-Logs for workers in a cluster simulation scenario are put into one file.
-These become impossible to separate without any identifying factor.
-Either split up the logs into separate files on worker name, or include the name in each log message so it can be split in post-processing.
-
-Simple way: inject `basename` of logging config into each log statement and can post-filter on that.
-
-Probably use a filter in `tracing-subscriber`, see [here](https://stackoverflow.com/questions/76939805/tracing-how-to-filter-logs-under-specified-levels-for-layer) and [here](https://docs.rs/tracing-subscriber/0.3.16/tracing_subscriber/layer/index.html#filtering-with-layers).
 
 ## Docker-in-Docker Containerd for tests
 

@@ -23,9 +23,11 @@ use crate::{
     worker_api::worker_config::GPUResourceConfig,
 };
 use anyhow::Result;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
-use iluvatar_library::{characteristics_map::CharacteristicsMap, types::DroppableToken};
-use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute};
+use iluvatar_library::tput_calc::DeviceTput;
+use iluvatar_library::types::{Compute, DroppableToken};
+use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::{
@@ -34,6 +36,8 @@ use std::{
 };
 use tokio::sync::Notify;
 use tokio::time::Instant;
+#[cfg(feature = "full_spans")]
+use tracing::Instrument;
 use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
@@ -124,7 +128,7 @@ pub trait GpuQueuePolicy: Send + Sync {
 pub struct GpuQueueingInvoker {
     cont_manager: Arc<ContainerManager>,
     invocation_config: Arc<InvocationConfig>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     clock: Clock,
     running: AtomicU32,
     last_memory_warning: Mutex<Instant>,
@@ -138,6 +142,7 @@ pub struct GpuQueueingInvoker {
     /// means we need to know roughly when one will become available to better predict completion time for incoming invocations
     completion_tracker: Arc<CompletionTimeTracker>,
     gpu_config: Arc<GPUResourceConfig>,
+    device_tput: Arc<DeviceTput>,
 }
 
 #[allow(dyn_drop)]
@@ -149,7 +154,7 @@ impl GpuQueueingInvoker {
         function_config: Arc<FunctionLimits>,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
-        cmap: Arc<CharacteristicsMap>,
+        cmap: WorkerCharMap,
         cpu: Arc<CpuResourceTracker>,
         gpu: Option<Arc<GpuResourceTracker>>,
         gpu_config: &Option<Arc<GPUResourceConfig>>,
@@ -181,16 +186,17 @@ impl GpuQueueingInvoker {
                 .as_ref()
                 .ok_or_else(|| anyhow::format_err!("Creating GPU queue with no GPU config"))?
                 .clone(),
+            device_tput: DeviceTput::boxed(),
         });
         gpu_tx.send(svc.clone())?;
-        info!(tid=%tid, "Created GpuQueueingInvoker");
+        info!(tid = tid, "Created GpuQueueingInvoker");
         Ok(svc)
     }
 
     /// Create the GPU queue to use
     fn get_invoker_gpu_queue(
         invocation_config: &Arc<InvocationConfig>,
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
         cont_manager: &Arc<ContainerManager>,
         _tid: &TransactionId,
     ) -> Result<Arc<dyn GpuQueuePolicy>> {
@@ -211,10 +217,10 @@ impl GpuQueueingInvoker {
 
     async fn gpu_wait_on_queue(invoker_svc: Arc<GpuQueueingInvoker>, tid: TransactionId) {
         invoker_svc.signal.notified().await;
-        debug!(tid=%tid, "Invoker waken up by signal");
+        debug!(tid = tid, "Invoker waken up by signal");
     }
     /// Check the invocation queue, running things when there are sufficient resources
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
         while let Some(peek_reg) = self.queue.next_batch() {
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
@@ -225,7 +231,7 @@ impl GpuQueueingInvoker {
                     Some(batch) => self.spawn_tokio_worker(self.clone(), batch, permit, &tid),
                 }
             } else {
-                debug!(tid=%tid, fqdn=%peek_reg.fqdn, "Insufficient resources to run item");
+                debug!(tid=tid, fqdn=%peek_reg.fqdn, "Insufficient resources to run item");
                 break;
             }
         }
@@ -241,10 +247,13 @@ impl GpuQueueingInvoker {
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                        error!(
+                            tid = tid,
+                            "CPU Resource Monitor `try_acquire_cores` returned a closed error!"
+                        )
                     },
                     tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough CPU permits")
+                        debug!(tid=tid, fqdn=%reg.fqdn, "Not enough CPU permits")
                     },
                 };
                 return None;
@@ -255,10 +264,13 @@ impl GpuQueueingInvoker {
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%tid, "GPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                        error!(
+                            tid = tid,
+                            "GPU Resource Monitor `try_acquire_cores` returned a closed error!"
+                        )
                     },
                     tokio::sync::TryAcquireError::NoPermits => {
-                        debug!(tid=%tid, fqdn=%reg.fqdn, "Not enough GPU permits")
+                        debug!(tid=tid, fqdn=%reg.fqdn, "Not enough GPU permits")
                     },
                 };
                 return None;
@@ -268,9 +280,9 @@ impl GpuQueueingInvoker {
     }
 
     /// Runs the specific invocation inside a new tokio worker thread
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoker_svc, batch, permit), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, invoker_svc, batch, permit), fields(tid=tid)))]
     fn spawn_tokio_worker(&self, invoker_svc: Arc<Self>, batch: GpuBatch, permit: DroppableToken, tid: &TransactionId) {
-        debug!(tid=%tid, "Launching invocation thread for queued item");
+        debug!(tid = tid, "Launching invocation thread for queued item");
         tokio::spawn(async move {
             invoker_svc.invocation_worker_thread(batch, permit).await;
         });
@@ -281,7 +293,12 @@ impl GpuQueueingInvoker {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, batch, permit), fields(fqdn=batch.peek().registration.fqdn)))]
     async fn invocation_worker_thread(&self, batch: GpuBatch, permit: DroppableToken) {
         let tid: &TransactionId = &INVOKER_GPU_QUEUE_WORKER_TID;
-        info!(tid=%tid, fqdn=batch.item_registration().fqdn, batch_len=batch.len(), "Executing batch");
+        info!(
+            tid = tid,
+            fqdn = batch.item_registration().fqdn,
+            batch_len = batch.len(),
+            "Executing batch"
+        );
         let curr_time = self.clock.now();
         let est_finish_time = curr_time + time::Duration::seconds_f64(batch.est_queue_time());
         self.completion_tracker.add_item(est_finish_time);
@@ -316,15 +333,14 @@ impl GpuQueueingInvoker {
                     tokio::spawn(ContainerManager::move_to_device(ctr, t));
                 }
             }
-            match self
-                .invoke(
-                    // unwrap is safe, we either have a container or will go to the top of the loop
-                    ctr_lock.as_ref().unwrap(),
-                    &item,
-                    start,
-                )
-                .await
-            {
+            // unwrap is safe, we either have a container or will go to the top of the loop
+            #[cfg(feature = "full_spans")]
+            let fut = self
+                .invoke(ctr_lock.as_ref().unwrap(), &item, start)
+                .instrument(item.span.clone());
+            #[cfg(not(feature = "full_spans"))]
+            let fut = self.invoke(ctr_lock.as_ref().unwrap(), &item, start);
+            match fut.await {
                 Ok((result, duration, compute, container_state)) => {
                     item.mark_successful(result, duration, compute, container_state)
                 },
@@ -365,7 +381,7 @@ impl GpuQueueingInvoker {
     /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
     ///   Calls [Self::add_item_to_queue] to do this
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, cause), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=%item.tid)))]
     fn handle_invocation_error(&self, item: &Arc<EnqueuedInvocation>, cause: &anyhow::Error) {
         if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
             let mut warn_time = self.last_memory_warning.lock();
@@ -432,6 +448,7 @@ impl GpuQueueingInvoker {
             cold_time_start,
             &self.cmap,
             &self.clock,
+            &self.device_tput,
         )
         .await?;
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
@@ -440,13 +457,11 @@ impl GpuQueueingInvoker {
     }
 
     fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {
-        let exists = self
-            .cont_manager
-            .container_exists(&item.fqdn, iluvatar_library::types::Compute::GPU);
+        let exists = self.cont_manager.container_exists(&item.fqdn, Compute::GPU);
         let t = match exists {
-            ContainerState::Warm => self.cmap.get_gpu_warm_time(&item.fqdn),
-            ContainerState::Prewarm => self.cmap.get_gpu_prewarm_time(&item.fqdn),
-            _ => self.cmap.get_gpu_cold_time(&item.fqdn),
+            ContainerState::Warm => self.cmap.get_avg(&item.fqdn, Chars::GpuWarmTime),
+            ContainerState::Prewarm => self.cmap.get_avg(&item.fqdn, Chars::GpuPreWarmTime),
+            _ => self.cmap.get_avg(&item.fqdn, Chars::GpuColdTime),
         };
         (t, exists)
     }
@@ -463,7 +478,7 @@ impl DeviceQueue for GpuQueueingInvoker {
             len: self.queue.queue_len(),
             load: load,
             load_avg: load / self.gpu.max_concurrency() as f64,
-            tput: self.cmap.get_gpu_tput(),
+            tput: self.device_tput.get_tput(),
         }
     }
 
@@ -471,7 +486,7 @@ impl DeviceQueue for GpuQueueingInvoker {
         let est_qt = self.queue.est_queue_time();
         let qt = est_qt / self.gpu.max_concurrency() as f64;
         let (runtime, state) = self.get_est_completion_time_from_containers_gpu(reg);
-        debug!(tid=%tid, qt=qt, state=?state, runtime=runtime, "GPU estimated completion time of item");
+        debug!(tid=tid, qt=qt, state=?state, runtime=runtime, "GPU estimated completion time of item");
         (qt + runtime, est_qt)
     }
 
@@ -488,6 +503,10 @@ impl DeviceQueue for GpuQueueingInvoker {
 
     fn warm_hit_probability(&self, _reg: &Arc<RegisteredFunction>, _iat: f64) -> f64 {
         0.5 //TODO!
+    }
+
+    fn queue_tput(&self) -> f64 {
+        self.device_tput.get_tput()
     }
 }
 

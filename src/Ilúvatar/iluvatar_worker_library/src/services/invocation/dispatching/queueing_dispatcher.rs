@@ -5,7 +5,7 @@ use crate::services::invocation::dispatching::{
 };
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
-use crate::services::invocation::queueing::{concur_mqfq::ConcurMqfq, gpu_mqfq::MQFQ};
+use crate::services::invocation::queueing::gpu_mqfq::MQFQ;
 use crate::services::invocation::queueing::{DeviceQueue, EnqueuedInvocation};
 use crate::services::invocation::{
     async_tracker::AsyncHelper, cpu_q_invoke::CpuQueueingInvoker, gpu_q_invoke::GpuQueueingInvoker,
@@ -15,8 +15,7 @@ use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
-use iluvatar_library::characteristics_map::CharacteristicsMap;
-use iluvatar_library::characteristics_map::{Characteristics, Values};
+use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
 use ordered_float::OrderedFloat;
@@ -40,7 +39,7 @@ pub trait DispatchPolicy: Send + Sync {
 
 #[allow(unused)]
 pub struct PolymDispatchCtx {
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     /// cpu/gpu -> wt , based on device load.
     device_wts: HashMap<Compute, f64>,
     /// fn -> cpu_wt, gpu_wt , based on locality and speedup considerations.
@@ -60,7 +59,7 @@ pub struct PolymDispatchCtx {
 }
 
 impl PolymDispatchCtx {
-    pub fn boxed(cmap: &Arc<CharacteristicsMap>) -> Self {
+    pub fn boxed(cmap: &WorkerCharMap) -> Self {
         Self {
             cmap: cmap.clone(),
             device_wts: HashMap::from([(Compute::CPU, 1.0), (Compute::GPU, 1.0)]),
@@ -94,7 +93,7 @@ impl PolymDispatchCtx {
 pub struct QueueingDispatcher {
     async_functions: AsyncHelper,
     invocation_config: Arc<InvocationConfig>,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     clock: Clock,
     policy: Arc<dyn DispatchPolicy>,
     que_map: QueueMap,
@@ -111,7 +110,7 @@ impl QueueingDispatcher {
         function_config: Arc<FunctionLimits>,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
-        cmap: Arc<CharacteristicsMap>,
+        cmap: WorkerCharMap,
         cpu: Arc<CpuResourceTracker>,
         gpu: Option<Arc<GpuResourceTracker>>,
         gpu_config: &Option<Arc<GPUResourceConfig>>,
@@ -153,13 +152,13 @@ impl QueueingDispatcher {
             cmap,
             gpu_config: gpu_config.clone(),
         });
-        debug!(tid=%tid, "Created QueueingInvoker");
+        debug!(tid = tid, "Created QueueingInvoker");
         Ok(svc)
     }
 
     fn get_invoker_queue(
         invocation_config: &Arc<InvocationConfig>,
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
         cont_manager: &Arc<ContainerManager>,
         tid: &TransactionId,
         function_config: &Arc<FunctionLimits>,
@@ -180,7 +179,7 @@ impl QueueingDispatcher {
 
     fn get_invoker_gpu_queue(
         invocation_config: &Arc<InvocationConfig>,
-        cmap: &Arc<CharacteristicsMap>,
+        cmap: &WorkerCharMap,
         cont_manager: &Arc<ContainerManager>,
         tid: &TransactionId,
         function_config: &Arc<FunctionLimits>,
@@ -189,7 +188,10 @@ impl QueueingDispatcher {
         gpu_config: &Option<Arc<GPUResourceConfig>>,
     ) -> Result<Option<Arc<dyn DeviceQueue>>> {
         if gpu.is_none() || gpu_config.is_none() {
-            info!(tid=%tid, "GPU resource tracker or GPU config is missing, not creating gpu queue");
+            info!(
+                tid = tid,
+                "GPU resource tracker or GPU config is missing, not creating gpu queue"
+            );
             return Ok(None);
         }
         match invocation_config.queues.get(&Compute::GPU) {
@@ -207,16 +209,6 @@ impl QueueingDispatcher {
                     )?))
                 } else if q == "mqfq" {
                     Ok(Some(MQFQ::new(
-                        cont_manager.clone(),
-                        cmap.clone(),
-                        invocation_config.clone(),
-                        cpu.clone(),
-                        gpu,
-                        gpu_config,
-                        tid,
-                    )?))
-                } else if q == "concur_mqfq" {
-                    Ok(Some(ConcurMqfq::new(
                         cont_manager.clone(),
                         cmap.clone(),
                         invocation_config.clone(),
@@ -266,7 +258,7 @@ impl QueueingDispatcher {
         let mut enq = None;
         for c in compute.into_iter() {
             match self.que_map.get(&c) {
-                None => warn!(tid=%tid, compute=%c, "Tried to run invoke on compute with no queue"),
+                None => warn!(tid=tid, compute=%c, "Tried to run invoke on compute with no queue"),
                 Some(q) => {
                     let mut comp_time = est_comp_time;
                     let mut load = insert_time_load;
@@ -292,14 +284,14 @@ impl QueueingDispatcher {
             }
         }
         if enqueues == 0 {
-            bail_error!(tid=%tid, "Unable to enqueue function invocation, not matching compute");
+            bail_error!(tid = tid, "Unable to enqueue function invocation, not matching compute");
         }
         enq.ok_or_else(|| anyhow::anyhow!("Enqueued item was never created"))
     }
 
     fn get_dispatch_algo(
         invocation_config: &Arc<InvocationConfig>,
-        cmap: Arc<CharacteristicsMap>,
+        cmap: WorkerCharMap,
         que_map: QueueMap,
         gpu: &Option<Arc<GpuResourceTracker>>,
         reg: &Arc<RegistrationService>,
@@ -345,27 +337,36 @@ impl QueueingDispatcher {
 
     /// Forms invocation data into a [EnqueuedInvocation] that is returned.
     /// The default implementation also calls [Invoker::add_item_to_queue] to optionally insert that item into the implementation's queue.
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=tid)))]
     fn enqueue_new_invocation(
         &self,
         reg: &Arc<RegisteredFunction>,
         json_args: String,
         tid: TransactionId,
     ) -> Result<Arc<EnqueuedInvocation>> {
-        debug!(tid=%tid, "Enqueueing invocation");
+        debug!(tid = tid, "Enqueueing invocation");
         let insert_t = self.clock.now();
         if self.invocation_config.log_details() {
-            debug!(tid=%tid, "calc CPU est time");
-            let (cpu_est, cpu_load) = match self.que_map.get(&Compute::CPU) {
-                None => (NO_ESTIMATE, NO_ESTIMATE),
-                Some(q) => q.est_completion_time(reg, &tid),
+            debug!(tid = tid, "calc CPU est time");
+            let ((cpu_est, cpu_load), cpu_tput) = match self.que_map.get(&Compute::CPU) {
+                None => ((NO_ESTIMATE, NO_ESTIMATE), NO_ESTIMATE),
+                Some(q) => (q.est_completion_time(reg, &tid), q.queue_tput()),
             };
-            debug!(tid=%tid, "calc GPU est time");
-            let (gpu_est, gpu_load) = match self.que_map.get(&Compute::GPU) {
-                None => (NO_ESTIMATE, NO_ESTIMATE),
-                Some(q) => q.est_completion_time(reg, &tid),
+            debug!(tid = tid, "calc GPU est time");
+            let ((gpu_est, gpu_load), gpu_tput) = match self.que_map.get(&Compute::GPU) {
+                None => ((NO_ESTIMATE, NO_ESTIMATE), NO_ESTIMATE),
+                Some(q) => (q.est_completion_time(reg, &tid), q.queue_tput()),
             };
-            info!(tid=%tid, cpu_est=cpu_est, cpu_load=cpu_load, gpu_est=gpu_est, gpu_load=gpu_load, gpu_tput=self.cmap.get_gpu_tput(),"Est e2e time");
+            info!(
+                tid = tid,
+                cpu_est = cpu_est,
+                cpu_load = cpu_load,
+                cpu_tput = cpu_tput,
+                gpu_est = gpu_est,
+                gpu_load = gpu_load,
+                gpu_tput = gpu_tput,
+                "Est e2e time"
+            );
         }
 
         match reg.supported_compute {
@@ -375,8 +376,8 @@ impl QueueingDispatcher {
                 let (chosen_compute, load, est_time) = self.policy.choose(reg, &tid);
                 if self.invocation_config.log_details() {
                     match chosen_compute {
-                        Compute::GPU => info!(tid=%tid, fqdn=%reg.fqdn, "Cache Hit"),
-                        _ => info!(tid=%tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss"),
+                        Compute::GPU => info!(tid=tid, fqdn=%reg.fqdn, "Cache Hit"),
+                        _ => info!(tid=tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss"),
                     }
                 }
                 self.enqueue_compute(reg, json_args, tid, chosen_compute, insert_t, est_time, load)
@@ -402,7 +403,7 @@ struct HitTput {
     clock: Clock,
 }
 impl HitTput {
-    pub fn new(que_map: QueueMap, cmap: &Arc<CharacteristicsMap>, tid: &TransactionId) -> Result<Self> {
+    pub fn new(que_map: QueueMap, cmap: &WorkerCharMap, tid: &TransactionId) -> Result<Self> {
         Ok(Self {
             que_map,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(cmap)),
@@ -456,10 +457,10 @@ impl DispatchPolicy for HitTput {
 struct Mwua {
     dispatch_state: RwLock<PolymDispatchCtx>,
     clock: Clock,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
 }
 impl Mwua {
-    pub fn new(cmap: &Arc<CharacteristicsMap>, tid: &TransactionId) -> Result<Self> {
+    pub fn new(cmap: &WorkerCharMap, tid: &TransactionId) -> Result<Self> {
         Ok(Self {
             cmap: cmap.clone(),
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(cmap)),
@@ -480,13 +481,16 @@ impl DispatchPolicy for Mwua {
 
         // Apply the reward/cost
         let t_other = if prev_dispatch == Compute::GPU {
-            self.cmap.latest_gpu_e2e_t(fid)
+            self.cmap.get_latest(fid, Chars::E2EGpu)
         } else {
-            self.cmap.latest_cpu_e2e_t(fid)
+            self.cmap.get_latest(fid, Chars::E2ECpu)
         };
 
         // global minimum best ever recorded
-        let tmin = self.cmap.get_best_time(fid);
+        let tmin = f64::min(
+            self.cmap.get_min(fid, Chars::E2EGpu),
+            self.cmap.get_min(fid, Chars::E2ECpu),
+        );
 
         let cost = 1.0 - (eta * (t_other - tmin) / f64::min(t_other, 0.1));
         // Shrinking dartboard locality
@@ -533,10 +537,10 @@ impl DispatchPolicy for Mwua {
 struct Ucb1 {
     dispatch_state: RwLock<PolymDispatchCtx>,
     clock: Clock,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
 }
 impl Ucb1 {
-    pub fn new(cmap: &Arc<CharacteristicsMap>, tid: &TransactionId) -> Result<Self> {
+    pub fn new(cmap: &WorkerCharMap, tid: &TransactionId) -> Result<Self> {
         Ok(Self {
             cmap: cmap.clone(),
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(cmap)),
@@ -548,9 +552,9 @@ impl DispatchPolicy for Ucb1 {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         // device_wt = exec_time + sqrt(log steps/n), where n is number of times device has been selected for the function
         // Pick device with lowest weight and dispatch
-
-        let cpu_t = self.cmap.avg_cpu_e2e_t(&reg.fqdn); // supposed to running average?
-        let gpu_t = self.cmap.avg_gpu_e2e_t(&reg.fqdn);
+        let (cpu_t, gpu_t) = self
+            .cmap
+            .get_2(&reg.fqdn, Chars::E2ECpu, Value::Avg, Chars::E2EGpu, Value::Avg);
 
         let lck = self.dispatch_state.read();
         let total_dispatch = lck.total_dispatch as f64;
@@ -621,21 +625,28 @@ impl DispatchPolicy for EstCompTime {
     }
 }
 struct ShortestExecTime {
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
 }
 impl ShortestExecTime {
-    pub fn new(cmap: Arc<CharacteristicsMap>) -> Self {
+    pub fn new(cmap: WorkerCharMap) -> Self {
         Self { cmap }
     }
 }
 impl DispatchPolicy for ShortestExecTime {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         let mut opts = vec![];
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         if reg.supported_compute.contains(Compute::CPU) {
-            opts.push((self.cmap.get_exec_time(&reg.fqdn), Compute::CPU));
+            opts.push((cpu, Compute::CPU));
         }
         if reg.supported_compute.contains(Compute::GPU) {
-            opts.push((self.cmap.get_gpu_exec_time(&reg.fqdn), Compute::GPU));
+            opts.push((gpu, Compute::GPU));
         }
         if let Some((est, c)) = opts.iter().min_by_key(|i| OrderedFloat(i.0)) {
             return (*c, NO_ESTIMATE, *est);
@@ -645,11 +656,11 @@ impl DispatchPolicy for ShortestExecTime {
 }
 
 struct Speedup {
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     invocation_config: Arc<InvocationConfig>,
 }
 impl Speedup {
-    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>) -> Self {
+    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: WorkerCharMap) -> Self {
         Self {
             cmap,
             invocation_config,
@@ -658,8 +669,13 @@ impl Speedup {
 }
 impl DispatchPolicy for Speedup {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
-        let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
-        let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         let ratio = cpu / gpu;
         if ratio > self.invocation_config.speedup_ratio.unwrap_or(4.0) {
             (Compute::GPU, NO_ESTIMATE, NO_ESTIMATE)
@@ -671,11 +687,11 @@ impl DispatchPolicy for Speedup {
 
 struct EstSpeedup {
     que_map: QueueMap,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     invocation_config: Arc<InvocationConfig>,
 }
 impl EstSpeedup {
-    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, que_map: QueueMap) -> Self {
+    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: WorkerCharMap, que_map: QueueMap) -> Self {
         Self {
             que_map,
             cmap,
@@ -685,8 +701,13 @@ impl EstSpeedup {
 }
 impl DispatchPolicy for EstSpeedup {
     fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
-        let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
-        let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         let ratio = cpu / gpu;
         if ratio > self.invocation_config.speedup_ratio.unwrap_or(4.0) {
             let mut opts = vec![];
@@ -819,11 +840,11 @@ impl DispatchPolicy for MICE {
 
 struct RunningAvgEstSpeedup {
     que_map: QueueMap,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     running_avg_speedup: Mutex<f64>,
 }
 impl RunningAvgEstSpeedup {
-    pub fn new(invocation_config: &Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, que_map: QueueMap) -> Self {
+    pub fn new(invocation_config: &Arc<InvocationConfig>, cmap: WorkerCharMap, que_map: QueueMap) -> Self {
         Self {
             running_avg_speedup: Mutex::new(invocation_config.speedup_ratio.unwrap_or(4.0)),
             que_map,
@@ -833,14 +854,19 @@ impl RunningAvgEstSpeedup {
 }
 impl DispatchPolicy for RunningAvgEstSpeedup {
     fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
-        let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
-        let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         let ratio = cpu / gpu;
         let mut avg = self.running_avg_speedup.lock();
         let new_avg = *avg * 0.9 + ratio * 0.1;
         *avg = new_avg;
         drop(avg);
-        info!(tid=%tid, new_avg=new_avg, "running avg");
+        info!(tid = tid, new_avg = new_avg, "running avg");
         // let avg_scale = self.gpu_config.as_ref().map_or(1, |c| c.count) as f64;
         // if ratio > (new_avg / avg_scale) {
         if ratio > new_avg {
@@ -862,12 +888,12 @@ impl DispatchPolicy for RunningAvgEstSpeedup {
 
 struct QueueAdjustAvgEstSpeedup {
     que_map: QueueMap,
-    cmap: Arc<CharacteristicsMap>,
+    cmap: WorkerCharMap,
     invocation_config: Arc<InvocationConfig>,
     running_avg_speedup: Mutex<f64>,
 }
 impl QueueAdjustAvgEstSpeedup {
-    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: Arc<CharacteristicsMap>, que_map: QueueMap) -> Self {
+    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: WorkerCharMap, que_map: QueueMap) -> Self {
         Self {
             running_avg_speedup: Mutex::new(invocation_config.speedup_ratio.unwrap_or(4.0)),
             que_map,
@@ -878,8 +904,13 @@ impl QueueAdjustAvgEstSpeedup {
 }
 impl DispatchPolicy for QueueAdjustAvgEstSpeedup {
     fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
-        let cpu = self.cmap.avg_cpu_exec_t(&reg.fqdn);
-        let gpu = self.cmap.avg_gpu_exec_t(&reg.fqdn);
+        let (cpu, gpu) = self.cmap.get_2(
+            &reg.fqdn,
+            Chars::CpuExecTime,
+            Value::Avg,
+            Chars::GpuExecTime,
+            Value::Avg,
+        );
         let ratio = cpu / gpu;
         if ratio > *self.running_avg_speedup.lock() {
             let mut opts = vec![];
@@ -902,7 +933,7 @@ impl DispatchPolicy for QueueAdjustAvgEstSpeedup {
                             } else {
                                 // *avg = *avg * 0.975;
                             }
-                            debug!(tid=%tid, new_avg=*avg, "running avg");
+                            debug!(tid = tid, new_avg = *avg, "running avg");
                         }
                     }
                     (*c, *load, *est)
@@ -917,7 +948,7 @@ impl DispatchPolicy for QueueAdjustAvgEstSpeedup {
 
 #[tonic::async_trait]
 impl Invoker for QueueingDispatcher {
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, json_args), fields(tid=%tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, reg, json_args), fields(tid=tid)))]
     async fn sync_invocation(
         &self,
         reg: Arc<RegisteredFunction>,
@@ -931,17 +962,18 @@ impl Invoker for QueueingDispatcher {
             true => {
                 let e2etime = (self.clock.now() - queued.queue_insert_time).as_seconds_f64();
                 if result_ptr.compute == Compute::GPU {
-                    self.cmap
-                        .add(&reg.fqdn, Characteristics::E2EGpu, Values::F64(e2etime), false);
+                    self.cmap.update(&reg.fqdn, Chars::E2EGpu, e2etime);
                 } else {
-                    self.cmap
-                        .add(&reg.fqdn, Characteristics::E2ECpu, Values::F64(e2etime), false);
+                    self.cmap.update(&reg.fqdn, Chars::E2ECpu, e2etime);
                 }
-                info!(tid=%tid, fqdn=%reg.fqdn, e2etime=%e2etime, copmute=%result_ptr.compute, "Invocation complete");
+                info!(tid=tid, fqdn=%reg.fqdn, e2etime=%e2etime, compute=%result_ptr.compute, "Invocation complete");
                 Ok(queued.result_ptr.clone())
             },
             false => {
-                bail_error!(tid=%tid, "Invocation was signaled completion but completion value was not set")
+                bail_error!(
+                    tid = tid,
+                    "Invocation was signaled completion but completion value was not set"
+                )
             },
         }
     }
