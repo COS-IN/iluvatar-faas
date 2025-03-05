@@ -6,8 +6,7 @@ use crate::services::resources::gpu::GpuResourceTracker;
 use crate::services::status::status_service::StatusService;
 use crate::services::{registration::RegistrationService, worker_health::WorkerHealthService};
 use crate::worker_api::config::WorkerConfig;
-use iluvatar_library::char_map::{Chars, WorkerCharMap};
-use iluvatar_library::clock::now;
+use iluvatar_library::char_map::{Chars, IatTracker, WorkerCharMap};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{energy::energy_logging::EnergyLogger, utils::calculate_fqdn};
@@ -21,34 +20,8 @@ use iluvatar_rpc::rpc::{
     PingResponse, PrewarmResponse, RegisterResponse, StatusResponse,
 };
 use std::sync::Arc;
-use tokio::time::Instant;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
-
-struct IatTracker {
-    last_invoked: dashmap::DashMap<String, Instant>,
-}
-impl IatTracker {
-    fn new() -> Self {
-        Self {
-            last_invoked: dashmap::DashMap::new(),
-        }
-    }
-
-    fn track(&self, fqdn: &str) -> Option<f64> {
-        match self.last_invoked.get_mut(fqdn) {
-            None => {
-                self.last_invoked.insert(fqdn.to_owned(), now());
-                None
-            },
-            Some(mut l) => {
-                let r = l.value().elapsed().as_secs_f64();
-                *l.value_mut() = now();
-                Some(r)
-            },
-        }
-    }
-}
 
 #[allow(unused)]
 /// Public members are _only_ for use in testing

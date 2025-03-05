@@ -6,7 +6,7 @@ use crate::services::load_reporting::LoadService;
 use crate::services::registration::RegistrationService;
 use crate::services::ControllerAPITrait;
 use anyhow::Result;
-use iluvatar_library::char_map::worker_char_map;
+use iluvatar_library::char_map::{worker_char_map, Chars, IatTracker, WorkerCharMap};
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::utils::calculate_fqdn;
@@ -30,6 +30,8 @@ pub struct Controller {
     health_svc: Arc<dyn ControllerHealthService>,
     load_svc: Arc<LoadService>,
     registration_svc: Arc<RegistrationService>,
+    iats: IatTracker,
+    worker_cmap: WorkerCharMap,
 }
 unsafe impl Send for Controller {}
 
@@ -70,6 +72,8 @@ impl Controller {
             health_svc,
             load_svc,
             registration_svc: reg_svc,
+            iats: IatTracker::new(),
+            worker_cmap,
         })
     }
 }
@@ -186,6 +190,9 @@ impl ControllerAPITrait for Controller {
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         match self.registration_svc.get_function(&fqdn) {
             Some(func) => {
+                if let Some(iat) = self.iats.track(&fqdn) {
+                    self.worker_cmap.update(&fqdn, Chars::IAT, iat);
+                }
                 info!(tid=%request.transaction_id, fqdn=%fqdn, "Sending function to load balancer for invocation");
                 match self
                     .lb
@@ -209,6 +216,9 @@ impl ControllerAPITrait for Controller {
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         match self.registration_svc.get_function(&fqdn) {
             Some(func) => {
+                if let Some(iat) = self.iats.track(&fqdn) {
+                    self.worker_cmap.update(&fqdn, Chars::IAT, iat);
+                }
                 info!(tid=%request.transaction_id, fqdn=%fqdn, "Sending function to load balancer for async invocation");
                 match self
                     .lb

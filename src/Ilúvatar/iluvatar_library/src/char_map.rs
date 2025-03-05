@@ -1,9 +1,11 @@
+use crate::clock::now;
 use crate::linear_reg::LinearReg;
 use crate::transaction::TransactionId;
 use crate::types::{Compute, ResourceTimings};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::sync::Arc;
+use tokio::time::Instant;
 use tracing::debug;
 // A better Chars map system
 //
@@ -67,6 +69,31 @@ pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
     fn predict_gpu_load_est(&self, _x: f64) -> f64;
     /// Returns [-1.0] if insufficient data exists for interpolation.
     fn func_predict_gpu_load_est(&self, _fqdn: &str, _x: f64) -> f64;
+}
+
+pub struct IatTracker {
+    last_invoked: dashmap::DashMap<String, Instant>,
+}
+impl IatTracker {
+    pub fn new() -> Self {
+        Self {
+            last_invoked: dashmap::DashMap::new(),
+        }
+    }
+
+    pub fn track(&self, fqdn: &str) -> Option<f64> {
+        match self.last_invoked.get_mut(fqdn) {
+            None => {
+                self.last_invoked.insert(fqdn.to_owned(), now());
+                None
+            },
+            Some(mut l) => {
+                let r = l.value().elapsed().as_secs_f64();
+                *l.value_mut() = now();
+                Some(r)
+            },
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
