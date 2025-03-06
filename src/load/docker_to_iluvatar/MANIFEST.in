@@ -1,0 +1,2 @@
+recursive-include iluvatar_build_cli/templates *.template
+

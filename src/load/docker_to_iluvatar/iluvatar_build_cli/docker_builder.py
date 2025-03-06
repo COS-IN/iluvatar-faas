@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+from string import Template
 
 def build_docker_image_from_directory(function_dir: str, tag: str,
                                       base_image: str, install_command: str, server_command: str) -> None:
@@ -21,18 +22,20 @@ def build_docker_image_from_directory(function_dir: str, tag: str,
         shutil.copytree(function_dir, app_dir, dirs_exist_ok=True)
 
         # cmd_json = json.dumps(server_command.split())
-        dockerfile_content = f"""
-FROM {base_image}
-WORKDIR /app
-COPY app/ .
-RUN {install_command}
-ENTRYPOINT ["gunicorn", "-w", "1", "server:app"]
-        """.strip()
-
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        template_path = os.path.join(script_dir, "templates","Dockerfile.template")
+        with open(template_path, "r") as f:
+            template_content = f.read()
+        dockerfile_template = Template(template_content)
+        cmd_json = json.dumps(server_command.split())
+        dockerfile_content = dockerfile_template.substitute(
+            BASE_IMAGE=base_image,
+            INSTALL_COMMAND=install_command,
+            SERVER_COMMAND=cmd_json
+        )
         dockerfile_path = os.path.join(tmpdir, "Dockerfile")
         with open(dockerfile_path, "w") as f:
             f.write(dockerfile_content)
-
         command = ["docker", "build", "-t", tag, tmpdir]
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
@@ -58,17 +61,25 @@ def push_docker_image(tag: str, docker_username: str, docker_password: str, dock
     login_result = subprocess.run(login_command, capture_output=True, text=True)
     if login_result.returncode != 0:
         raise RuntimeError(f"Docker login failed: {login_result.stderr}")
-    # If the tag does not include a slash (registry prefix), tag it with the registry.
-    if "/" in tag:
-        full_tag = tag
-    else:
-        full_tag = f"{docker_registry}/{tag}"
-        tag_command = ["docker", "tag", tag, full_tag]
-        tag_result = subprocess.run(tag_command, capture_output=True, text=True)
-        if tag_result.returncode != 0:
-            raise RuntimeError(f"Docker tag failed: {tag_result.stderr}")
+    try:
+        # If the tag does not include a slash (registry prefix), tag it with the registry.
+        if "/" in tag:
+            full_tag = tag
+        else:
+            full_tag = f"{docker_registry}/{tag}"
+            tag_command = ["docker", "tag", tag, full_tag]
+            tag_result = subprocess.run(tag_command, capture_output=True, text=True)
+            if tag_result.returncode != 0:
+                raise RuntimeError(f"Docker tag failed: {tag_result.stderr}")
 
-    push_command = ["docker", "push", full_tag]
-    push_result = subprocess.run(push_command, capture_output=True, text=True)
-    if push_result.returncode != 0:
-        raise RuntimeError(f"Docker push failed: {push_result.stderr}")
+        push_command = ["docker", "push", full_tag]
+        push_result = subprocess.run(push_command, capture_output=True, text=True)
+        if push_result.returncode != 0:
+            raise RuntimeError(f"Docker push failed: {push_result.stderr}")
+    finally:
+        logout_command = ["docker", "logout", docker_registry]
+        logout_result = subprocess.run(logout_command, capture_output=True, text=True)
+        if logout_result.returncode != 0:
+            raise RuntimeError(f"Docker logout failed: {logout_result.stderr}")
+
+

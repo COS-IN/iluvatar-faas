@@ -1,21 +1,21 @@
-# Ilubuild - CLI for Building and Publishing Iluvatar FaaS Images  
+# py2lambda - CLI for Building and Publishing Iluvatar FaaS Images  
 
-**Ilubuild** is a command-line tool designed to streamline the process of creating and publishing Docker images for functions running on the **Iluvatar** Function-as-a-Service (FaaS) platform. It ensures that your function code meets Iluvatar's requirements, sets up dependencies, builds a Docker image, and optionally pushes it to a registry.  
+**py2lambda** is a command-line tool designed to streamline the process of creating and publishing Docker images for functions running on the **Iluvatar** Function-as-a-Service (FaaS) platform. It ensures that your function code meets Iluvatar's requirements, sets up dependencies, builds a Docker image, and optionally pushes it to a registry.  
 
 ---
 
 ## Installation  
 
-Ensure you have **Docker** installed and running on your system. Then, install `ilubuild` using `pip` (if distributed as a Python package) or download the binary from the releases page.  
+Ensure you have **Docker** installed and running on your system. Then, install `py2lambda` using `pip` (if distributed as a Python package) or download the binary from the releases page.  
 
 ```sh
-pip install ilubuild
+pip install py2lambda
 ```
 
 ## Usage
 
 ```sh
-Usage: ilubuild [OPTIONS]
+Usage: py2lambda [OPTIONS]
 
   CLI tool to build a Docker runtime for FaaS.
 
@@ -35,7 +35,7 @@ Options:
 
 Assuming your function is in a directory called my_function/, you can build a Docker image with:
 ```sh
-ilubuild --function-dir my_function --tag <tag_name>:version
+py2lambda --function-dir my_function --tag <tag_name>:version
 ```
 
 For python specific functions
@@ -45,7 +45,7 @@ This will:
 
 ### Build and Push to a Private Docker Registry
 ```sh
-    ilubuild --function-dir my_function \
+    py2lambda --function-dir my_function \
   --docker-user myusername \
   --docker-pass mypassword \
   --docker-registry docker.io \
