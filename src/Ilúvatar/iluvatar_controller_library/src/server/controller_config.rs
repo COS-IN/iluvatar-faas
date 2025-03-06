@@ -23,11 +23,6 @@ pub struct Configuration {
 pub struct LoadBalancingConfig {
     /// The load balancing algorithm to use.
     pub algorithm: LoadBalancerAlgo,
-    /// the load metric to use
-    ///   only relevant to those algorithms that use it
-    pub load_metric: String,
-    /// Duration in milliseconds the balancer's worker thread will sleep between runs (if it has one)
-    pub thread_sleep_ms: u64,
 }
 
 pub const CONTROLLER_ENV_PREFIX: &str = "ILUVATAR_CONTROLLER";

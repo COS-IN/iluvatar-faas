@@ -1,7 +1,9 @@
 use super::controller_health::ControllerHealthService;
-use super::load_reporting::LoadService;
 use crate::server::controller_config::ControllerConfig;
+use crate::services::load_balance::balancers::ch_rlu::ChRluLoadedBalancer;
+use crate::services::load_balance::balancers::least_loaded::LeastLoadedBalancer;
 use crate::services::load_balance::balancers::rrCH::CHGLoadBalancer;
+use crate::services::load_balance::balancers::rrG::RRGLoadBalancer;
 use crate::services::registration::RegisteredWorker;
 use anyhow::Result;
 use iluvatar_library::char_map::WorkerCharMap;
@@ -16,10 +18,23 @@ use std::time::Duration;
 mod balancers;
 
 #[derive(Debug, Deserialize)]
+pub struct LoadMetric {
+    pub load_metric: String,
+    /// Duration in milliseconds the balancer's worker thread will sleep between runs (if it has one)
+    pub thread_sleep_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+/// Sub-members can be passed with defaults but `"type"` value passed decides what is used.
+/// Allows re-use of variable names as between [LeastLoaded] and [CHRLU].
+/// See [here](https://serde.rs/enum-representations.html#internally-tagged) for details on deserializing this
 pub enum LoadBalancerAlgo {
     RoundRobin,
-    LeastLoaded,
-    CHGLoadBalancer,
+    LeastLoaded { metric: LoadMetric },
+    RrCh,
+    RrGuard,
+    CHRLU { metric: LoadMetric },
 }
 
 #[tonic::async_trait]
@@ -52,26 +67,25 @@ pub trait LoadBalancerTrait {
 
 pub type LoadBalancer = Arc<dyn LoadBalancerTrait + Send + Sync + 'static>;
 
-pub fn get_balancer(
+pub async fn get_balancer(
     config: &ControllerConfig,
     health_svc: Arc<dyn ControllerHealthService>,
     tid: &TransactionId,
-    load: Arc<LoadService>,
     worker_fact: Arc<WorkerAPIFactory>,
     worker_cmap: &WorkerCharMap,
 ) -> Result<LoadBalancer> {
-    match config.load_balancer.algorithm {
+    match &config.load_balancer.algorithm {
         LoadBalancerAlgo::RoundRobin => Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(
             health_svc,
             worker_fact,
         ))),
-        LoadBalancerAlgo::LeastLoaded => Ok(balancers::least_loaded::LeastLoadedBalancer::boxed(
-            health_svc,
-            load,
-            worker_fact,
-            tid,
-            config.load_balancer.clone(),
-        )),
-        LoadBalancerAlgo::CHGLoadBalancer => Ok(Arc::new(CHGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
+        LoadBalancerAlgo::LeastLoaded { metric } => {
+            Ok(LeastLoadedBalancer::boxed(health_svc, worker_fact, tid, config, metric).await?)
+        },
+        LoadBalancerAlgo::RrCh => Ok(Arc::new(CHGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
+        LoadBalancerAlgo::RrGuard => Ok(Arc::new(RRGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
+        LoadBalancerAlgo::CHRLU { metric } => {
+            Ok(ChRluLoadedBalancer::boxed(health_svc, worker_fact, tid, config, metric).await?)
+        },
     }
 }

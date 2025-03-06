@@ -226,9 +226,9 @@ controller_kwargs = [
     ("controller_include_spans_json", False, ("logging", "include_spans_json")),
     ("controller_log_level", "info", ("logging", "level")),
     ("controller_port", 8089, ("port",)),
-    ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm")),
-    ("controller_thread_sleep_ms", 5000, ("load_balancer", "thread_sleep_ms")),
-    ("controller_load_metric", "loadavg", ("load_balancer", "load_metric")),
+    ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm", "type")),
+    ("controller_thread_sleep_ms", 5000, ("load_balancer", "algorithm", "metric", "thread_sleep_ms")),
+    ("controller_load_metric", "loadavg", ("load_balancer", "algorithm", "metric", "load_metric")),
 ]
 worker_kwargs = [
     ("worker_port", 8070, ("port",)),

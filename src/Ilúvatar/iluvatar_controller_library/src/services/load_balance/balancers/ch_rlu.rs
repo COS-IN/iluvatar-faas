@@ -18,8 +18,10 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
+// TODO: actual implementation
+
 #[allow(unused)]
-pub struct LeastLoadedBalancer {
+pub struct ChRluLoadedBalancer {
     workers: RwLock<HashMap<String, Arc<RegisteredWorker>>>,
     worker_fact: Arc<WorkerAPIFactory>,
     health: Arc<dyn ControllerHealthService>,
@@ -28,7 +30,7 @@ pub struct LeastLoadedBalancer {
     load: Arc<LoadService>,
 }
 
-impl LeastLoadedBalancer {
+impl ChRluLoadedBalancer {
     pub async fn boxed(
         health: Arc<dyn ControllerHealthService>,
         worker_fact: Arc<WorkerAPIFactory>,
@@ -41,10 +43,10 @@ impl LeastLoadedBalancer {
         let (handle, tx) = tokio_thread(
             load_metric.thread_sleep_ms,
             LEAST_LOADED_TID.clone(),
-            LeastLoadedBalancer::find_least_loaded,
+            Self::find_least_loaded,
         );
 
-        let i = Arc::new(LeastLoadedBalancer {
+        let i = Arc::new(Self {
             workers: RwLock::new(HashMap::new()),
             worker_fact,
             health,
@@ -92,7 +94,7 @@ impl LeastLoadedBalancer {
 }
 
 #[tonic::async_trait]
-impl LoadBalancerTrait for LeastLoadedBalancer {
+impl LoadBalancerTrait for ChRluLoadedBalancer {
     fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
         info!(tid=tid, worker=%worker.name, "Registering new worker in LeastLoaded load balancer");
         if self.assigned_worker.read().is_none() {

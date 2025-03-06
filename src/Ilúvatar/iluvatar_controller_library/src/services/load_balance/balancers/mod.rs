@@ -1,3 +1,4 @@
+pub mod ch_rlu;
 pub mod least_loaded;
 pub mod round_robin;
 pub mod rrCH;
