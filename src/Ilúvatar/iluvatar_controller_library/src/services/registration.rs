@@ -9,8 +9,9 @@ use iluvatar_rpc::rpc::{RegisterRequest, RegisterWorkerRequest};
 use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
+use std::hash::Hasher;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::info;
 
 #[allow(unused)]
 #[derive(Deserialize, Serialize, Debug)]
@@ -23,6 +24,12 @@ pub struct RegisteredWorker {
     pub memory: i64,
     pub cpus: u32,
 }
+impl std::hash::Hash for RegisteredWorker {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
 impl RegisteredWorker {
     pub fn from(req: RegisterWorkerRequest) -> anyhow::Result<Self> {
         Ok(RegisteredWorker {
@@ -38,28 +45,79 @@ impl RegisteredWorker {
 }
 
 #[allow(unused)]
-pub struct RegistrationService {
-    pub lb: LoadBalancer,
+pub struct FunctionRegistration {
     functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,
-    workers: Arc<DashMap<String, Arc<RegisteredWorker>>>,
-    worker_fact: Arc<WorkerAPIFactory>,
     worker_cmap: WorkerCharMap,
 }
-
-impl RegistrationService {
-    pub fn boxed(lb: LoadBalancer, worker_fact: Arc<WorkerAPIFactory>, worker_cmap: &WorkerCharMap) -> Arc<Self> {
-        Arc::new(RegistrationService {
-            lb,
+impl FunctionRegistration {
+    pub fn boxed(worker_cmap: &WorkerCharMap) -> Arc<Self> {
+        Arc::new(Self {
             functions: Arc::new(DashMap::new()),
-            workers: Arc::new(DashMap::new()),
             worker_cmap: worker_cmap.clone(),
-            worker_fact,
         })
     }
 
     /// Return the function if it's been registered
     pub fn get_function(&self, fqdn: &str) -> Option<Arc<RegisteredFunction>> {
         self.functions.get(fqdn).map(|c| c.clone())
+    }
+
+    /// Return the function if it's been registered
+    pub fn get_all_functions(&self) -> Vec<Arc<RegisteredFunction>> {
+        self.functions.iter().map(|e| e.value().clone()).collect()
+    }
+
+    /// check if function has been registered already
+    fn function_registered(&self, fqdn: &str) -> bool {
+        self.functions.contains_key(fqdn)
+    }
+
+    /// Register a new function with workers
+    pub async fn register_function(
+        &self,
+        req: RegisterRequest,
+        tid: &TransactionId,
+    ) -> Result<Arc<RegisteredFunction>> {
+        let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
+        if self.function_registered(&fqdn) {
+            bail_error!(tid = tid, fqdn = fqdn, "Function was already registered");
+        } else {
+            let function: RegisteredFunction = req.try_into()?;
+            add_registration_timings(
+                &self.worker_cmap,
+                function.supported_compute,
+                &function.all_resource_timings,
+                &fqdn,
+                tid,
+            )?;
+            let r = Arc::new(function);
+            self.functions.insert(fqdn, r.clone());
+            info!(tid = tid, fqdn = r.fqdn, "Function was registered");
+            Ok(r)
+        }
+    }
+}
+
+#[allow(unused)]
+pub struct WorkerRegistration {
+    pub lb: LoadBalancer,
+    workers: Arc<DashMap<String, Arc<RegisteredWorker>>>,
+    worker_fact: Arc<WorkerAPIFactory>,
+    function_reg: Arc<FunctionRegistration>,
+}
+
+impl WorkerRegistration {
+    pub fn boxed(
+        lb: LoadBalancer,
+        worker_fact: Arc<WorkerAPIFactory>,
+        function_reg: &Arc<FunctionRegistration>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            lb,
+            workers: Arc::new(DashMap::new()),
+            worker_fact,
+            function_reg: function_reg.clone(),
+        })
     }
 
     /// Register a new worker
@@ -86,8 +144,7 @@ impl RegistrationService {
                 tid,
             )
             .await?;
-        for item in self.functions.iter() {
-            let function = item.value();
+        for function in self.function_reg.get_all_functions() {
             match api
                 .register(
                     function.function_name.clone(),
@@ -106,7 +163,7 @@ impl RegistrationService {
             {
                 Ok(_) => (),
                 Err(e) => {
-                    error!(tid=tid, worker=reg_worker.name, error=%e, "New worker failed to register function")
+                    bail_error!(tid=tid, worker=reg_worker.name, error=%e, "New worker failed to register function")
                 },
             };
         }
@@ -121,64 +178,47 @@ impl RegistrationService {
         self.workers.contains_key(name)
     }
 
-    /// check if function has been registered already
-    fn function_registered(&self, fqdn: &str) -> bool {
-        self.functions.contains_key(fqdn)
-    }
-
     /// Register a new function with workers
-    pub async fn register_function(&self, req: RegisterRequest, tid: &TransactionId) -> Result<()> {
-        let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
-        if self.function_registered(&fqdn) {
-            bail_error!(tid = tid, fqdn = fqdn, "Function was already registered");
-        } else {
-            let function: RegisteredFunction = req.try_into()?;
-            add_registration_timings(
-                &self.worker_cmap,
-                function.supported_compute,
-                &function.all_resource_timings,
-                &fqdn,
-                tid,
-            )?;
-            // let function = Arc::new(RegisteredFunction::from(req));
-            for item in self.workers.iter() {
-                let worker = item.value();
-                let mut api = self
-                    .worker_fact
-                    .get_worker_api(
-                        &worker.name,
-                        &worker.host,
-                        worker.port,
-                        worker.communication_method,
-                        tid,
-                    )
-                    .await?;
-                match api
-                    .register(
-                        function.function_name.clone(),
-                        function.function_version.clone(),
-                        function.image_name.clone(),
-                        function.memory,
-                        function.cpus,
-                        function.parallel_invokes,
-                        tid.clone(),
-                        function.isolation_type,
-                        function.supported_compute,
-                        function.container_server,
-                        function.all_resource_timings.as_ref(),
-                    )
-                    .await
-                {
-                    Ok(_) => (),
-                    Err(e) => {
-                        error!(tid=tid, worker=%worker.name, error=%e, "Worker failed to register new function")
-                    },
-                };
-            }
-            self.functions.insert(fqdn.clone(), Arc::new(function));
+    pub async fn new_function(&self, function: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
+        for item in self.workers.iter() {
+            let worker = item.value();
+            let mut api = self
+                .worker_fact
+                .get_worker_api(
+                    &worker.name,
+                    &worker.host,
+                    worker.port,
+                    worker.communication_method,
+                    tid,
+                )
+                .await?;
+            match api
+                .register(
+                    function.function_name.clone(),
+                    function.function_version.clone(),
+                    function.image_name.clone(),
+                    function.memory,
+                    function.cpus,
+                    function.parallel_invokes,
+                    tid.clone(),
+                    function.isolation_type,
+                    function.supported_compute,
+                    function.container_server,
+                    function.all_resource_timings.as_ref(),
+                )
+                .await
+            {
+                Ok(_) => (),
+                Err(e) => {
+                    bail_error!(tid=tid, worker=%worker.name, error=%e, "Worker failed to register new function")
+                },
+            };
         }
-
-        info!(tid = tid, fqdn = fqdn, "Function was registered");
+        info!(
+            tid = tid,
+            fqdn = function.fqdn,
+            "Function was registered across workers"
+        );
         Ok(())
     }
 

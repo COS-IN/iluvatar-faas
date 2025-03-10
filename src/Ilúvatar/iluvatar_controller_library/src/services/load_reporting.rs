@@ -1,3 +1,4 @@
+use crate::services::load_balance::LoadMetric;
 use iluvatar_library::transaction::{TransactionId, LOAD_MONITOR_TID};
 use iluvatar_library::{
     influx::{InfluxClient, WORKERS_BUCKET},
@@ -8,7 +9,6 @@ use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
-use crate::services::load_balance::LoadMetric;
 
 #[allow(unused)]
 pub struct LoadService {
@@ -132,5 +132,9 @@ impl LoadService {
 
     pub fn get_worker(&self, name: &str) -> Option<f64> {
         self.workers.read().get(name).copied()
+    }
+
+    pub fn get_workers(&self) -> HashMap<String, f64> {
+        self.workers.read().clone()
     }
 }

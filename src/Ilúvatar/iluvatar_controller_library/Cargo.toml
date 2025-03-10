@@ -24,6 +24,9 @@ dashmap = { version = "6", features = ["inline"] }
 tracing = "0.1"
 tonic = "0.12"
 hashring = "*"
+ordered-float = "3.9.2"
+statrs = { version="0.18", features = ["rand"] }
+rand = "0.8.5"
 
 [features]
 full_spans = []

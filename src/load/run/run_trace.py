@@ -229,6 +229,9 @@ controller_kwargs = [
     ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm", "type")),
     ("controller_thread_sleep_ms", 5000, ("load_balancer", "algorithm", "metric", "thread_sleep_ms")),
     ("controller_load_metric", "loadavg", ("load_balancer", "algorithm", "metric", "load_metric")),
+    ("controller_popular_pct", 0.1, ("load_balancer", "algorithm", "popular_pct")),
+    # CH-RLU
+    ("controller_bounded_ceil", 1.5, ("load_balancer", "algorithm", "bounded_ceil")),
 ]
 worker_kwargs = [
     ("worker_port", 8070, ("port",)),

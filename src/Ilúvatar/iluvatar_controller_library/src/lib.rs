@@ -2,13 +2,13 @@ extern crate anyhow;
 extern crate lazy_static;
 
 use crate::server::controller_config::ControllerConfig;
+use crate::services::load_balance::LoadMetric;
 use crate::services::load_reporting::LoadService;
 use iluvatar_library::bail_error;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::sync::Arc;
-use crate::services::load_balance::LoadMetric;
 
 pub mod server;
 pub mod services;

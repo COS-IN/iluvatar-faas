@@ -4,7 +4,7 @@ use crate::services::load_balance::balancers::ch_rlu::ChRluLoadedBalancer;
 use crate::services::load_balance::balancers::least_loaded::LeastLoadedBalancer;
 use crate::services::load_balance::balancers::rrCH::CHGLoadBalancer;
 use crate::services::load_balance::balancers::rrG::RRGLoadBalancer;
-use crate::services::registration::RegisteredWorker;
+use crate::services::registration::{FunctionRegistration, RegisteredWorker};
 use anyhow::Result;
 use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::transaction::TransactionId;
@@ -31,10 +31,18 @@ pub struct LoadMetric {
 /// See [here](https://serde.rs/enum-representations.html#internally-tagged) for details on deserializing this
 pub enum LoadBalancerAlgo {
     RoundRobin,
-    LeastLoaded { metric: LoadMetric },
+    LeastLoaded {
+        metric: LoadMetric,
+    },
     RrCh,
     RrGuard,
-    CHRLU { metric: LoadMetric },
+    CHRLU {
+        /// Load metric to determine worker "overload"
+        metric: LoadMetric,
+        /// Percentage of functions to mark as "popular" for forwarding.
+        popular_pct: f64,
+        bounded_ceil: f64,
+    },
 }
 
 #[tonic::async_trait]
@@ -73,6 +81,7 @@ pub async fn get_balancer(
     tid: &TransactionId,
     worker_fact: Arc<WorkerAPIFactory>,
     worker_cmap: &WorkerCharMap,
+    func_reg: &Arc<FunctionRegistration>,
 ) -> Result<LoadBalancer> {
     match &config.load_balancer.algorithm {
         LoadBalancerAlgo::RoundRobin => Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(
@@ -84,8 +93,21 @@ pub async fn get_balancer(
         },
         LoadBalancerAlgo::RrCh => Ok(Arc::new(CHGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
         LoadBalancerAlgo::RrGuard => Ok(Arc::new(RRGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
-        LoadBalancerAlgo::CHRLU { metric } => {
-            Ok(ChRluLoadedBalancer::boxed(health_svc, worker_fact, tid, config, metric).await?)
-        },
+        LoadBalancerAlgo::CHRLU {
+            metric,
+            popular_pct,
+            bounded_ceil,
+        } => Ok(ChRluLoadedBalancer::boxed(
+            health_svc,
+            worker_fact,
+            tid,
+            config,
+            metric,
+            *popular_pct,
+            *bounded_ceil,
+            worker_cmap,
+            func_reg,
+        )
+        .await?),
     }
 }
