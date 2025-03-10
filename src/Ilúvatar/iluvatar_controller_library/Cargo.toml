@@ -27,6 +27,7 @@ hashring = "*"
 ordered-float = "3.9.2"
 statrs = { version="0.18", features = ["rand"] }
 rand = "0.8.5"
+guid-create = "0.*"
 
 [features]
 full_spans = []

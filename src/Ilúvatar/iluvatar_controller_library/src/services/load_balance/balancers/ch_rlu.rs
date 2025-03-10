@@ -17,6 +17,7 @@ use ordered_float::OrderedFloat;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::hash::Hasher;
 use std::sync::atomic::{AtomicU64, Ordering};
 use rand::distributions::Distribution;
 use statrs::distribution::Normal;
@@ -41,6 +42,23 @@ impl AtomicF64 {
         f64::from_bits(as_u64)
     }
 }
+struct VNode {
+    pub idx: usize,
+    pub hashed: String,
+}
+impl VNode {
+    pub fn new(idx: usize) -> Self {
+        Self {
+            idx,
+            hashed: guid_create::GUID::rand().to_string(),
+        }
+    }
+}
+impl std::hash::Hash for VNode {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hashed.hash(state);
+    }
+}
 
 #[allow(unused)]
 pub struct ChRluLoadedBalancer {
@@ -53,7 +71,7 @@ pub struct ChRluLoadedBalancer {
     worker_cmap: WorkerCharMap,
     worker_loads: RwLock<HashMap<String, f64>>,
     popular_map: RwLock<HashSet<String>>,
-    worker_ring: RwLock<HashRing<usize>>,
+    worker_ring: RwLock<HashRing<VNode>>,
     popular_pct: f64,
     bounded_ceil: f64,
     sampling: AtomicF64,
@@ -129,7 +147,7 @@ impl ChRluLoadedBalancer {
 
     fn get_worker(&self, func: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {
         let in_map = self.popular_map.read().get(&func.fqdn).is_some();
-        let default_worker = *self.worker_ring.read().get(&func.fqdn).unwrap_or(&0);
+        let default_worker = self.worker_ring.read().get(&func.fqdn).map_or(0, |n| n.idx);
         let worker_idx = match in_map {
             false => default_worker,
             true => {
@@ -141,12 +159,14 @@ impl ChRluLoadedBalancer {
                 for i in 0..workers.len() {
                     let idx = (default_worker + i) % workers.len();
                     let load = loads.get(&workers[idx].name).unwrap_or(&0.0) + norm.sample(&mut thread_rng());
-                    info!(tid=tid, pos_forwad=workers[idx].name, "trying forwarding");
                     if load <= self.bounded_ceil {
-                        info!(tid=tid, forwad=workers[idx].name, "forwarding");
+                        if default_worker != idx {
+                            info!(tid=tid, from=workers[default_worker].name, to=workers[idx].name, "forwarding");
+                        }
                         chosen_worker = idx;
                         break;
                     }
+                    info!(tid=tid, pos_from=workers[idx].name, "trying forwarding");
                 }
                 chosen_worker
             },
@@ -164,9 +184,7 @@ impl LoadBalancerTrait for ChRluLoadedBalancer {
         lck.push(worker);
         drop(lck);
         // 'virtual' nodes
-        // self.worker_ring.write().add(len);
-        // self.worker_ring.write().add(len);
-        self.worker_ring.write().add(len);
+        self.worker_ring.write().batch_add(vec![VNode::new(len),VNode::new(len),VNode::new(len)]);
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=tid)))]

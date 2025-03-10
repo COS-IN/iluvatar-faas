@@ -57,9 +57,9 @@ def random_func():
         all_invokes += per_fn(name, 15, 50)
 
 
-all_invokes.sort()
-for _ in range(30):
+for _ in range(50):
     random_func()
+all_invokes = sorted(all_invokes, key=lambda x: x[0])
 
 trace_save_pth = os.path.join(args.out_folder, "four-functions.csv")
 with open(trace_save_pth, "w") as f:
