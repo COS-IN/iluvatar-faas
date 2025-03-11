@@ -54,7 +54,7 @@ use tracing::{debug, error, info, warn};
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct BGPacket {
     pid: u32,
     fqdn: String,
@@ -62,7 +62,6 @@ pub struct BGPacket {
     tid: TransactionId,
 }
 
-#[derive(Debug)]
 #[allow(dead_code)]
 pub struct ContainerdIsolation {
     channel: Option<Channel>,

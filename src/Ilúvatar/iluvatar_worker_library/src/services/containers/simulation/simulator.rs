@@ -7,6 +7,7 @@ use crate::services::registration::RegisteredFunction;
 use crate::services::resources::gpu::GPU;
 use anyhow::Result;
 use guid_create::GUID;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::ResultErrorVal;
 use iluvatar_library::{
@@ -18,18 +19,13 @@ use std::sync::Arc;
 
 pub mod simstructs;
 
-#[derive(Debug)]
-pub struct SimulatorIsolation {}
-
-impl Default for SimulatorIsolation {
-    fn default() -> Self {
-        Self::new()
-    }
+pub struct SimulatorIsolation {
+    cmap: WorkerCharMap,
 }
 
 impl SimulatorIsolation {
-    pub fn new() -> Self {
-        SimulatorIsolation {}
+    pub fn new(cmap: WorkerCharMap) -> Self {
+        SimulatorIsolation { cmap }
     }
 }
 
@@ -55,6 +51,12 @@ impl ContainerIsolationService for SimulatorIsolation {
         tid: &TransactionId,
     ) -> ResultErrorVal<Container, Option<GPU>> {
         let cid = format!("{}-{}", fqdn, GUID::rand());
+        // 'cold' container start delay
+        // TODO: fixing this is in TODO.md
+        tokio::time::sleep(tokio::time::Duration::from_secs(
+            (self.cmap.get_avg(fqdn, Chars::CpuColdTime) * 0.75).round() as u64,
+        ))
+        .await;
         match SimulatorContainer::new(
             &gen_tid(),
             cid,

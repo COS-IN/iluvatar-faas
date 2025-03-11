@@ -727,6 +727,7 @@ mod tests {
     use crate::services::containers::IsolationFactory;
     use crate::worker_api::config::WorkerConfig;
     use crate::worker_api::worker_config::WORKER_ENV_PREFIX;
+    use iluvatar_library::char_map::worker_char_map;
     use iluvatar_library::transaction::TEST_TID;
     use std::time::Duration;
 
@@ -755,7 +756,7 @@ mod tests {
             WORKER_ENV_PREFIX
         )
         .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
-        let fac = IsolationFactory::new(cfg.clone())
+        let fac = IsolationFactory::new(cfg.clone(), worker_char_map())
             .get_isolation_services(&TEST_TID, false)
             .await
             .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));

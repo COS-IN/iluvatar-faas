@@ -13,6 +13,11 @@ Figure out what is causing the problem and resolve/mitigate it.
 <img src="../examples/server-compare/invoke_scaling.png" alt="Ilúvatar logo" width="300"/>
 </center>
 
+## Simulation Cold Start
+
+The cold start time to create a new container should happen in the sim lifecycle.
+More accurate, and allows proper incrementing of system clock when creating a container.
+
 ## Improve Ansible interoperability
 
 [This library](https://ansible.readthedocs.io/projects/runner/en/latest/) allows calling `ansible-playbook` via Python code.

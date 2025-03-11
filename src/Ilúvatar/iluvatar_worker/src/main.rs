@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_library::char_map::worker_char_map;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_library::types::CommunicationMethod;
@@ -83,7 +84,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
 async fn clean(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     debug!(tid=?tid, config=?server_config, "loaded configuration");
 
-    let factory = IsolationFactory::new(server_config.clone());
+    let factory = IsolationFactory::new(server_config.clone(), worker_char_map());
     let lifecycles = factory.get_isolation_services(tid, false).await?;
 
     for (_, lifecycle) in lifecycles.iter() {

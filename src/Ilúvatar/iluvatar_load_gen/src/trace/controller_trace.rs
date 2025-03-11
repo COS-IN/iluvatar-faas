@@ -205,6 +205,7 @@ fn run_invokes(
         resolve_handles(handles, crate::utils::ErrorHandling::Print).await
     })?;
 
+    info!(tid = tid, "Threads closed, writing results to file");
     save_controller_results(results, &args)
 }
 

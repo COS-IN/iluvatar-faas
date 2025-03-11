@@ -55,7 +55,6 @@ pub struct DockerConfig {
     pub avoid_pull: bool,
 }
 
-#[derive(Debug)]
 #[allow(unused)]
 pub struct DockerIsolation {
     config: Arc<ContainerResourceConfig>,

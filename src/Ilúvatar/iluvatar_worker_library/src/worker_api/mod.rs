@@ -27,7 +27,7 @@ pub mod worker_comm;
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
     let cmap = worker_char_map();
 
-    let factory = IsolationFactory::new(worker_config.clone());
+    let factory = IsolationFactory::new(worker_config.clone(), cmap.clone());
     let load_avg = build_load_avg_signal();
     let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, load_avg.clone(), tid)
         .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make cpu resource tracker"))?;

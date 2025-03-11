@@ -168,7 +168,7 @@ impl ChRluLoadedBalancer {
         let len = iats.len() as f64;
         let avg_iat = iats.iter().fold(0.0, |acc, v| acc + v.0 .0) / len;
         let mut arrival_rate = 1.0 / avg_iat;
-        if ! arrival_rate.is_finite() {
+        if !arrival_rate.is_finite() {
             arrival_rate = 1.0;
         }
         self.arrival_rate.store(arrival_rate, Ordering::Relaxed);
