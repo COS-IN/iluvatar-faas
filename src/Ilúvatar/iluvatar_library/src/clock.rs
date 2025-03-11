@@ -21,8 +21,8 @@ pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
         return Ok(rt.clone());
     }
     let clk: Clock = match is_simulation() {
-        true => LocalTime::boxed(tid)?,
-        false => SimulatedTime::boxed(tid)?,
+        true => SimulatedTime::boxed(tid)?,
+        false => LocalTime::boxed(tid)?,
     };
     *CLOCK.lock() = Some(clk.clone());
     Ok(clk)

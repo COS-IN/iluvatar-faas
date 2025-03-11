@@ -227,11 +227,13 @@ controller_kwargs = [
     ("controller_log_level", "info", ("logging", "level")),
     ("controller_port", 8089, ("port",)),
     ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm", "type")),
-    ("controller_thread_sleep_ms", 5000, ("load_balancer", "algorithm", "metric", "thread_sleep_ms")),
-    ("controller_load_metric", "loadavg", ("load_balancer", "algorithm", "metric", "load_metric")),
+    ("controller_thread_sleep_ms", 5000, ("load_balancer", "algorithm", "load_metric", "thread_sleep_ms")),
+    ("controller_load_metric", "loadavg", ("load_balancer", "algorithm", "load_metric", "load_metric")),
     ("controller_popular_pct", 0.1, ("load_balancer", "algorithm", "popular_pct")),
     # CH-RLU
     ("controller_bounded_ceil", 1.5, ("load_balancer", "algorithm", "bounded_ceil")),
+    ("controller_chain_len", 4, ("load_balancer", "algorithm", "chain_len")),
+    ("controller_lb_vnodes", 3, ("load_balancer", "algorithm", "vnodes")),
 ]
 worker_kwargs = [
     ("worker_port", 8070, ("port",)),

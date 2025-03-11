@@ -15,8 +15,14 @@ use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
+
+#[derive(Debug, Deserialize)]
+pub struct LLConfig {
+    load_metric: LoadMetric,
+}
 
 #[allow(unused)]
 pub struct LeastLoadedBalancer {
@@ -34,12 +40,12 @@ impl LeastLoadedBalancer {
         worker_fact: Arc<WorkerAPIFactory>,
         tid: &TransactionId,
         config: &ControllerConfig,
-        load_metric: &LoadMetric,
+        ll_config: &LLConfig,
     ) -> Result<Arc<Self>> {
         let influx = build_influx(config, tid).await?;
-        let load = crate::build_load_svc(load_metric, tid, &worker_fact, influx)?;
+        let load = crate::build_load_svc(&ll_config.load_metric, tid, &worker_fact, influx)?;
         let (handle, tx) = tokio_thread(
-            load_metric.thread_sleep_ms,
+            ll_config.load_metric.thread_sleep_ms,
             LEAST_LOADED_TID.clone(),
             LeastLoadedBalancer::find_least_loaded,
         );

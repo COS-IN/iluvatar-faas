@@ -15,15 +15,17 @@ use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use ordered_float::OrderedFloat;
 use parking_lot::RwLock;
+use rand::distributions::Distribution;
+use rand::thread_rng;
+use rcu_cell::RcuCell;
+use serde::Deserialize;
+use statrs::distribution::Normal;
 use std::collections::HashSet;
-use std::{collections::HashMap, sync::Arc, time::Duration};
 use std::hash::Hasher;
 use std::sync::atomic::{AtomicU64, Ordering};
-use rand::distributions::Distribution;
-use statrs::distribution::Normal;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
-use rand::thread_rng;
 
 pub struct AtomicF64 {
     storage: AtomicU64,
@@ -31,7 +33,9 @@ pub struct AtomicF64 {
 impl AtomicF64 {
     pub fn new(value: f64) -> Self {
         let as_u64 = value.to_bits();
-        Self { storage: AtomicU64::new(as_u64) }
+        Self {
+            storage: AtomicU64::new(as_u64),
+        }
     }
     pub fn store(&self, value: f64, ordering: Ordering) {
         let as_u64 = value.to_bits();
@@ -42,22 +46,53 @@ impl AtomicF64 {
         f64::from_bits(as_u64)
     }
 }
+#[derive(Debug, Clone)]
 struct VNode {
     pub idx: usize,
+    pub cores: f64,
     pub hashed: String,
 }
 impl VNode {
-    pub fn new(idx: usize) -> Self {
+    pub fn new(idx: usize, cores: f64) -> Self {
         Self {
             idx,
+            cores,
             hashed: guid_create::GUID::rand().to_string(),
         }
+    }
+
+    pub fn batch(idx: usize, cores: f64, count: usize) -> Vec<Self> {
+        let mut v = vec![];
+        for _ in 0..count {
+            v.push(Self::new(idx, cores));
+        }
+        v
     }
 }
 impl std::hash::Hash for VNode {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.hashed.hash(state);
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChRluConfig {
+    /// Load metric to determine worker "overload"
+    load_metric: LoadMetric,
+    /// Percentage of functions to mark as "popular" for forwarding.
+    popular_pct: f64,
+    bounded_ceil: f64,
+    #[serde(default = "default_chain")]
+    chain_len: usize,
+    #[serde(default = "default_vnode")]
+    /// Number of vnodes per real node
+    vnodes: usize,
+}
+fn default_chain() -> usize {
+    4
+}
+fn default_vnode() -> usize {
+    3
 }
 
 #[allow(unused)]
@@ -70,11 +105,10 @@ pub struct ChRluLoadedBalancer {
     load: Arc<LoadService>,
     worker_cmap: WorkerCharMap,
     worker_loads: RwLock<HashMap<String, f64>>,
-    popular_map: RwLock<HashSet<String>>,
+    popular_map: RcuCell<HashSet<String>>,
     worker_ring: RwLock<HashRing<VNode>>,
-    popular_pct: f64,
-    bounded_ceil: f64,
-    sampling: AtomicF64,
+    chrlu_cfg: Arc<ChRluConfig>,
+    arrival_rate: AtomicF64,
 }
 
 impl ChRluLoadedBalancer {
@@ -83,16 +117,14 @@ impl ChRluLoadedBalancer {
         worker_fact: Arc<WorkerAPIFactory>,
         tid: &TransactionId,
         config: &ControllerConfig,
-        load_metric: &LoadMetric,
-        popular_pct: f64,
-        bounded_ceil: f64,
+        chrlu_cfg: &Arc<ChRluConfig>,
         worker_cmap: &WorkerCharMap,
         func_reg: &Arc<FunctionRegistration>,
     ) -> Result<Arc<Self>> {
         let ch_rlu_tid: TransactionId = "CH_RLU_LB".to_string();
         let influx = build_influx(config, tid).await?;
-        let load = crate::build_load_svc(load_metric, tid, &worker_fact, influx)?;
-        let (handle, tx) = tokio_thread(load_metric.thread_sleep_ms, ch_rlu_tid, Self::update);
+        let load = crate::build_load_svc(&chrlu_cfg.load_metric, tid, &worker_fact, influx)?;
+        let (handle, tx) = tokio_thread(chrlu_cfg.load_metric.thread_sleep_ms, ch_rlu_tid, Self::update);
 
         let i = Arc::new(Self {
             workers: RwLock::new(vec![]),
@@ -102,12 +134,11 @@ impl ChRluLoadedBalancer {
             _worker_thread: handle,
             load,
             worker_cmap: worker_cmap.clone(),
-            popular_map: RwLock::new(HashSet::new()),
+            popular_map: RcuCell::new(HashSet::new()),
             worker_ring: RwLock::new(Default::default()),
             worker_loads: RwLock::new(HashMap::new()),
-            popular_pct,
-            bounded_ceil,
-            sampling: AtomicF64::new(0.0),
+            chrlu_cfg: chrlu_cfg.clone(),
+            arrival_rate: AtomicF64::new(0.0),
         });
         tx.send(i.clone())?;
         Ok(i)
@@ -120,9 +151,9 @@ impl ChRluLoadedBalancer {
     }
 
     fn update_worker_loads(&self, tid: &TransactionId) {
-        let loads =  self.load.get_workers();
+        let loads = self.load.get_workers();
         debug!(tid=tid, loads=?loads, "latest worker loads");
-        *self.worker_loads.write() =loads;
+        *self.worker_loads.write() = loads;
     }
 
     fn calc_popular(&self, tid: &TransactionId) {
@@ -135,43 +166,77 @@ impl ChRluLoadedBalancer {
             .map(|r| (OrderedFloat(self.worker_cmap.get_avg(&r.fqdn, Chars::IAT)), r))
             .collect();
         let len = iats.len() as f64;
-        let avg_iat = iats.iter().fold(0.0, |acc, v| acc + v.0.0) / len;
-        let arrival_rate = 1.0 / avg_iat;
-        self.sampling.store(arrival_rate / 4.0, Ordering::Relaxed);
+        let avg_iat = iats.iter().fold(0.0, |acc, v| acc + v.0 .0) / len;
+        let mut arrival_rate = 1.0 / avg_iat;
+        if ! arrival_rate.is_finite() {
+            arrival_rate = 1.0;
+        }
+        self.arrival_rate.store(arrival_rate, Ordering::Relaxed);
         iats.sort_by(|a, b| a.0.cmp(&b.0));
-        let take = self.popular_pct * len;
+        let take = self.chrlu_cfg.popular_pct * len;
         let new_pop = HashSet::from_iter(iats.iter().take(f64::round(take) as usize).map(|a| a.1.fqdn.clone()));
         debug!(tid=tid, take=take, iats = ?iats, populars=?new_pop, "computed popularity");
-        *self.popular_map.write() = new_pop;
+        let _old = self.popular_map.write(new_pop);
     }
 
     fn get_worker(&self, func: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {
-        let in_map = self.popular_map.read().get(&func.fqdn).is_some();
-        let default_worker = self.worker_ring.read().get(&func.fqdn).map_or(0, |n| n.idx);
-        let worker_idx = match in_map {
-            false => default_worker,
+        let in_map = self.popular_map.read().is_some_and(|p| p.get(&func.fqdn).is_some());
+        let worker_chain = match self
+            .worker_ring
+            .read()
+            .get_with_replicas(&func.fqdn, self.chrlu_cfg.chain_len)
+        {
+            None => anyhow::bail!("No worker ring exists"),
+            Some(w) => w,
+        };
+        let default_worker = worker_chain[0].idx;
+        let worker = match in_map {
+            false => self.workers.read()[default_worker].clone(),
             true => {
-                let mut chosen_worker = default_worker;
-                let mean = self.sampling.load(Ordering::Relaxed);
-                let norm = Normal::new(mean, 0.1)?;
+                let mut chosen_worker = None;
+                let mean = self.arrival_rate.load(Ordering::Relaxed);
                 let loads = self.worker_loads.read();
                 let workers = self.workers.read();
-                for i in 0..workers.len() {
-                    let idx = (default_worker + i) % workers.len();
-                    let load = loads.get(&workers[idx].name).unwrap_or(&0.0) + norm.sample(&mut thread_rng());
-                    if load <= self.bounded_ceil {
-                        if default_worker != idx {
-                            info!(tid=tid, from=workers[default_worker].name, to=workers[idx].name, "forwarding");
+                for node in worker_chain {
+                    // safe if std_dev > 0.0
+                    let norm = Normal::new(mean / node.cores, 0.1)?;
+                    let noise = norm.sample(&mut thread_rng());
+                    let load = loads.get(&workers[node.idx].name).unwrap_or(&0.0) + noise;
+                    if load <= self.chrlu_cfg.bounded_ceil {
+                        if default_worker != node.idx {
+                            debug!(
+                                tid = tid,
+                                from = workers[default_worker].name,
+                                to = workers[node.idx].name,
+                                load = load,
+                                noise = noise,
+                                "forwarding"
+                            );
                         }
-                        chosen_worker = idx;
+                        let chosen = workers[node.idx].clone();
+                        drop(loads);
+                        drop(workers);
+                        if let Some(w) = self.worker_loads.write().get_mut(&chosen.name) {
+                            *w += noise;
+                        };
+                        chosen_worker = Some(chosen);
                         break;
                     }
-                    info!(tid=tid, pos_from=workers[idx].name, "trying forwarding");
+                    debug!(
+                        tid = tid,
+                        pos_from = workers[node.idx].name,
+                        load = load,
+                        noise = noise,
+                        "trying forwarding"
+                    );
                 }
-                chosen_worker
+                match chosen_worker {
+                    None => self.workers.read()[default_worker].clone(),
+                    Some(w) => w,
+                }
             },
         };
-        Ok(self.workers.read()[worker_idx].clone())
+        Ok(worker)
     }
 }
 
@@ -179,12 +244,15 @@ impl ChRluLoadedBalancer {
 impl LoadBalancerTrait for ChRluLoadedBalancer {
     fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
         info!(tid=tid, worker=%worker.name, "Registering new worker in CH-RLU load balancer");
+        let cores = worker.cpus as f64;
         let mut lck = self.workers.write();
         let len = lck.len();
         lck.push(worker);
         drop(lck);
         // 'virtual' nodes
-        self.worker_ring.write().batch_add(vec![VNode::new(len),VNode::new(len),VNode::new(len)]);
+        self.worker_ring
+            .write()
+            .batch_add(VNode::batch(len, cores, self.chrlu_cfg.vnodes));
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=tid)))]

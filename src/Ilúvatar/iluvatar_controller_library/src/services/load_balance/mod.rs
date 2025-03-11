@@ -1,7 +1,7 @@
 use super::controller_health::ControllerHealthService;
 use crate::server::controller_config::ControllerConfig;
 use crate::services::load_balance::balancers::ch_rlu::ChRluLoadedBalancer;
-use crate::services::load_balance::balancers::least_loaded::LeastLoadedBalancer;
+use crate::services::load_balance::balancers::least_loaded::{LLConfig, LeastLoadedBalancer};
 use crate::services::load_balance::balancers::rrCH::CHGLoadBalancer;
 use crate::services::load_balance::balancers::rrG::RRGLoadBalancer;
 use crate::services::registration::{FunctionRegistration, RegisteredWorker};
@@ -31,18 +31,10 @@ pub struct LoadMetric {
 /// See [here](https://serde.rs/enum-representations.html#internally-tagged) for details on deserializing this
 pub enum LoadBalancerAlgo {
     RoundRobin,
-    LeastLoaded {
-        metric: LoadMetric,
-    },
+    LeastLoaded(LLConfig),
     RrCh,
     RrGuard,
-    CHRLU {
-        /// Load metric to determine worker "overload"
-        metric: LoadMetric,
-        /// Percentage of functions to mark as "popular" for forwarding.
-        popular_pct: f64,
-        bounded_ceil: f64,
-    },
+    CHRLU(Arc<balancers::ch_rlu::ChRluConfig>),
 }
 
 #[tonic::async_trait]
@@ -88,26 +80,13 @@ pub async fn get_balancer(
             health_svc,
             worker_fact,
         ))),
-        LoadBalancerAlgo::LeastLoaded { metric } => {
+        LoadBalancerAlgo::LeastLoaded(metric) => {
             Ok(LeastLoadedBalancer::boxed(health_svc, worker_fact, tid, config, metric).await?)
         },
         LoadBalancerAlgo::RrCh => Ok(Arc::new(CHGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
         LoadBalancerAlgo::RrGuard => Ok(Arc::new(RRGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
-        LoadBalancerAlgo::CHRLU {
-            metric,
-            popular_pct,
-            bounded_ceil,
-        } => Ok(ChRluLoadedBalancer::boxed(
-            health_svc,
-            worker_fact,
-            tid,
-            config,
-            metric,
-            *popular_pct,
-            *bounded_ceil,
-            worker_cmap,
-            func_reg,
-        )
-        .await?),
+        LoadBalancerAlgo::CHRLU(cfg) => {
+            Ok(ChRluLoadedBalancer::boxed(health_svc, worker_fact, tid, config, cfg, worker_cmap, func_reg).await?)
+        },
     }
 }

@@ -342,8 +342,8 @@ class WorkerLogParser:
         metadata_csv: the _name_ of the trace metadata file, must be located in `folder_path`
         """
         self.source = folder_path
-        self.input_csv = input_csv
-        self.metadata_csv = metadata_csv
+        self.input_csv = os.path.join(self.source, input_csv)
+        self.metadata_csv = os.path.join(self.source, metadata_csv)
         self.run_type = run_type
         self.target = target
         self.run_data = run_data
