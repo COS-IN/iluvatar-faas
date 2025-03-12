@@ -10,7 +10,7 @@ macro_rules! send_invocation {
     {
       info!(tid=%$tid, fqdn=%$func.fqdn, worker=%$worker.name, "invoking function on worker");
 
-      let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $worker.communication_method, $tid).await?;
+      let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $tid).await?;
       let (result, duration) = api.invoke($func.function_name.clone(), $func.function_version.clone(), $json_args, $tid.clone()).timed().await;
       let result = match result {
         Ok(r) => r,
@@ -30,7 +30,7 @@ macro_rules! prewarm {
   ($func:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr) => {
     {
       info!(tid=%$tid, fqdn=%$func.fqdn, worker=%$worker.name, "prewarming function on worker");
-      let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $worker.communication_method, $tid).await?;
+      let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $tid).await?;
       let (result, duration) = api.prewarm($func.function_name.clone(), $func.function_version.clone(), $tid.clone(), iluvatar_library::types::Compute::CPU).timed().await;
       let result = match result {
         Ok(r) => r,
@@ -51,7 +51,7 @@ macro_rules! send_async_invocation {
     {
       info!(tid=%$tid, fqdn=%$func.fqdn, worker=%$worker.name, "invoking function async on worker");
 
-      let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $worker.communication_method, $tid).await?;
+      let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $tid).await?;
       let (result, duration) = api.invoke_async($func.function_name.clone(), $func.function_version.clone(), $json_args, $tid.clone()).timed().await;
       let result = match result {
         Ok(r) => r,

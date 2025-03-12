@@ -58,13 +58,7 @@ impl HealthService {
     async fn get_worker_health(&self, worker: &Arc<RegisteredWorker>, tid: &TransactionId) -> HealthStatus {
         let mut api = match self
             .worker_fact
-            .get_worker_api(
-                &worker.name,
-                &worker.host,
-                worker.port,
-                worker.communication_method,
-                tid,
-            )
+            .get_worker_api(&worker.name, &worker.host, worker.port, tid)
             .await
         {
             Ok(api) => api,

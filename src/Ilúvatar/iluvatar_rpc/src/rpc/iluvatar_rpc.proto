@@ -167,7 +167,6 @@ service IluvatarWorker {
 
 message RegisterWorkerRequest {
   string name = 1;
-  uint32 communication_method = 2;
   string host = 3;
   uint32 port = 4;
   int64 memory = 5;

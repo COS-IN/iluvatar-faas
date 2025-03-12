@@ -54,7 +54,9 @@ pub fn set_simulation(_tid: &TransactionId) -> Result<()> {
     *SIMULATION_CHECK.lock() = true;
     Ok(())
 }
-/// A method for anyone to check if the system is being run as a simulation
+/// A method for anyone to check if the system is being run as a simulation.
+/// Safe to capture and store in a variable as this is set atomically on boot.
+/// Will never change.
 pub fn is_simulation() -> bool {
     *SIMULATION_CHECK.lock()
 }

@@ -135,7 +135,6 @@ async fn scaling_thread(
         host.clone(),
         port,
         &factory,
-        None,
         isolation,
         compute,
         server,
@@ -162,7 +161,7 @@ async fn scaling_thread(
     while let Some(i) = it.next() {
         let wait = rand::rng().random_range(0..5000);
         tokio::time::sleep(Duration::from_millis(wait)).await;
-        match worker_prewarm(&name, &version, &host, port, &reg_tid, &factory, None, compute).await {
+        match worker_prewarm(&name, &version, &host, port, &reg_tid, &factory, compute).await {
             Ok((_s, _prewarm_dur)) => break,
             Err(e) => {
                 errors = format!("{} iteration {}: '{}';\n", errors, i, e);
@@ -190,19 +189,7 @@ async fn scaling_thread(
             },
             None => "{\"name\":\"TESTING\"}".to_string(),
         };
-        match worker_invoke(
-            &name,
-            &version,
-            &host,
-            port,
-            &tid,
-            Some(args),
-            clock.clone(),
-            &factory,
-            None,
-        )
-        .await
-        {
+        match worker_invoke(&name, &version, &host, port, &tid, Some(args), clock.clone(), &factory).await {
             Ok(worker_invocation) => {
                 data.push(worker_invocation);
             },

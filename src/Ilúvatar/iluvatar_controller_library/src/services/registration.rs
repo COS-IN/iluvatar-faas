@@ -2,7 +2,7 @@ use crate::services::load_balance::LoadBalancer;
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::char_map::{add_registration_timings, WorkerCharMap};
-use iluvatar_library::types::{CommunicationMethod, Isolation};
+use iluvatar_library::types::Isolation;
 use iluvatar_library::utils::port::Port;
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
 use iluvatar_rpc::rpc::{RegisterRequest, RegisterWorkerRequest};
@@ -18,7 +18,6 @@ use tracing::info;
 pub struct RegisteredWorker {
     pub name: String,
     pub isolation: Isolation,
-    pub communication_method: CommunicationMethod,
     pub host: String,
     pub port: Port,
     pub memory: i64,
@@ -35,7 +34,6 @@ impl RegisteredWorker {
         Ok(RegisteredWorker {
             name: req.name,
             isolation: Isolation::from(req.isolation),
-            communication_method: u32::try_into(req.communication_method)?,
             host: req.host,
             port: req.port as Port,
             memory: req.memory,
@@ -136,13 +134,7 @@ impl WorkerRegistration {
 
         let mut api = self
             .worker_fact
-            .get_worker_api(
-                &reg_worker.name,
-                &reg_worker.host,
-                reg_worker.port,
-                reg_worker.communication_method,
-                tid,
-            )
+            .get_worker_api(&reg_worker.name, &reg_worker.host, reg_worker.port, tid)
             .await?;
         for function in self.function_reg.get_all_functions() {
             match api
@@ -184,13 +176,7 @@ impl WorkerRegistration {
             let worker = item.value();
             let mut api = self
                 .worker_fact
-                .get_worker_api(
-                    &worker.name,
-                    &worker.host,
-                    worker.port,
-                    worker.communication_method,
-                    tid,
-                )
+                .get_worker_api(&worker.name, &worker.host, worker.port, tid)
                 .await?;
             match api
                 .register(
