@@ -51,7 +51,6 @@ pub trait ContainerIsolationService: ToAny + Send + Sync {
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
-        fqdn: &str,
         namespace: &str,
         tid: &TransactionId,
     ) -> Result<()>;

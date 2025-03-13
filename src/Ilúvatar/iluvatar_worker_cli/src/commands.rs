@@ -77,6 +77,7 @@ pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()
             args.compute.into(),
             args.server,
             None,
+            false, // would never register a system function from the CLI
         )
         .await?;
     info!("{}", ret);

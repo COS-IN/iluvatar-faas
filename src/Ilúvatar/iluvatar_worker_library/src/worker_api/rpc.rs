@@ -185,27 +185,23 @@ impl WorkerAPI for RPCWorkerAPI {
         compute: Compute,
         server: ContainerServer,
         timings: Option<&ResourceTimings>,
+        system_function: bool,
     ) -> Result<String> {
-        let request = Request::new(RegisterRequest {
-            function_name,
-            function_version: version,
-            memory,
+        let request = Request::new(RegisterRequest::new(
+            &function_name,
+            &version,
+            &image_name,
             cpus,
-            image_name,
-            parallel_invokes: match parallels {
-                0 => 1,
-                _ => parallels,
-            },
-            transaction_id: tid,
-            language: LanguageRuntime::Nolang.into(),
-            compute: compute.bits(),
-            isolate: isolate.bits(),
-            container_server: server as u32,
-            resource_timings_json: match timings {
-                Some(r) => serde_json::to_string(r)?,
-                None => "{}".to_string(),
-            },
-        });
+            memory,
+            timings,
+            LanguageRuntime::Nolang,
+            compute,
+            isolate,
+            server,
+            parallels,
+            &tid,
+            system_function,
+        )?);
         match self.client.register(request).await {
             Ok(response) => Ok(response.into_inner().function_json_result),
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:register]".to_string())),

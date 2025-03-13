@@ -256,6 +256,9 @@ impl ControllerAPITrait for Controller {
 
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
     async fn register(&self, request: RegisterRequest) -> Result<String> {
+        if request.system_function {
+            anyhow::bail!("Cannot register a system function, these are internal only!");
+        }
         let tid = request.transaction_id.clone();
         let reg = match self.func_reg.register_function(request, &tid).await {
             Ok(r) => r,

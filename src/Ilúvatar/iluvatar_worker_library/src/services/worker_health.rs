@@ -75,6 +75,7 @@ impl WorkerHealthService {
             isolate: isos.keys().fold(Isolation::empty(), |acc, i| acc | *i).bits(),
             resource_timings_json: "{}".to_string(),
             container_server: ContainerServer::HTTP as u32,
+            system_function: true,
         };
 
         let reg = reg

@@ -381,7 +381,6 @@ impl ContainerIsolationService for DockerIsolation {
         &self,
         rf: &mut RegisteredFunction,
         _namespace: &str,
-        _fqdn: &str,
         tid: &TransactionId,
     ) -> Result<()> {
         debug!(tid = tid, "prepare_function_registration");

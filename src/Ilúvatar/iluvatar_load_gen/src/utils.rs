@@ -287,7 +287,9 @@ pub async fn controller_register(
         compute,
         isolation,
         server,
+        1,
         &tid,
+        false, // would never register a system function from the load generator
     )?;
     match api.register(req).await {
         Ok(_) => Ok(start.elapsed()),
@@ -342,6 +344,7 @@ pub async fn worker_register(
             compute,
             server,
             timings,
+            false, // would never register a system function from the load generator
         )
         .timed()
         .await;

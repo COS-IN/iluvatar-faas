@@ -25,10 +25,11 @@ pub struct RegisteredFunction {
     pub snapshot_base: String,
     pub parallel_invokes: u32,
     pub isolation_type: Isolation,
-    pub supported_compute: Compute, // TODO: Rename Compute to ComputeDevice
+    pub supported_compute: Compute,
     pub container_server: ContainerServer,
     pub all_resource_timings: Option<ResourceTimings>,
     pub historical_runtime_data_sec: HashMap<Compute, Vec<f64>>,
+    pub system_function: bool,
 }
 
 impl RegisteredFunction {
@@ -69,6 +70,7 @@ impl TryFrom<RegisterRequest> for RegisteredFunction {
                 },
             },
             historical_runtime_data_sec: Default::default(),
+            system_function: req.system_function,
         })
     }
 }
@@ -145,9 +147,8 @@ impl RegistrationService {
             }
         }
 
-        let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
-        if self.reg_map.read().contains_key(&fqdn) {
-            anyhow::bail!("Function {} is already registered!", fqdn);
+        if self.reg_map.read().contains_key(&reg.fqdn) {
+            anyhow::bail!("Function {} is already registered!", reg.fqdn);
         }
 
         let mut isolations = reg.isolation_type;
@@ -157,13 +158,19 @@ impl RegistrationService {
             }
             isolations.remove(*lifecycle_iso);
             lifecycle
-                .prepare_function_registration(&mut reg, &fqdn, "default", tid)
+                .prepare_function_registration(&mut reg, "default", tid)
                 .await?;
         }
         if !isolations.is_empty() {
             anyhow::bail!("Could not register function with isolation(s): {:?}", isolations);
         }
-        add_registration_timings(&self.cmap, reg.supported_compute, &reg.all_resource_timings, &fqdn, tid)?;
+        add_registration_timings(
+            &self.cmap,
+            reg.supported_compute,
+            &reg.all_resource_timings,
+            &reg.fqdn,
+            tid,
+        )?;
 
         let ret = Arc::new(reg);
         debug!(
@@ -173,7 +180,7 @@ impl RegistrationService {
             fqdn = ret.fqdn,
             "Adding new registration to registered_functions map"
         );
-        self.reg_map.write().insert(fqdn.clone(), ret.clone());
+        self.reg_map.write().insert(ret.fqdn.clone(), ret.clone());
         self.cm.register(&ret, tid)?;
         info!(
             tid = tid,

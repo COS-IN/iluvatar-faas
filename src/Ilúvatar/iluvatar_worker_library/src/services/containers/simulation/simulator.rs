@@ -79,7 +79,6 @@ impl ContainerIsolationService for SimulatorIsolation {
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
-        _fqdn: &str,
         namespace: &str,
         _tid: &TransactionId,
     ) -> Result<()> {

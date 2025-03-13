@@ -178,6 +178,7 @@ pub trait WorkerAPI {
         compute: Compute,
         server: ContainerServer,
         timings: Option<&ResourceTimings>,
+        system_function: bool,
     ) -> Result<String>;
     /// Get worker status.
     async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse>;

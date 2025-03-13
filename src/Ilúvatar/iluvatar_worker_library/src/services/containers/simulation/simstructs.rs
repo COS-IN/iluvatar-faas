@@ -159,6 +159,7 @@ impl ContainerT for SimulatorContainer {
         let timer = ContainerTimeFormatter::new(tid)?;
 
         // "networking" overhead
+        // TODO: HTTP vs Socket container time diff
         tokio::time::sleep(Duration::from_micros(1400)).await;
 
         let start = timer.now();

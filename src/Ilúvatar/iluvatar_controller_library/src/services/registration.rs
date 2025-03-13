@@ -150,6 +150,7 @@ impl WorkerRegistration {
                     function.supported_compute,
                     function.container_server,
                     function.all_resource_timings.as_ref(),
+                    function.system_function,
                 )
                 .await
             {
@@ -191,6 +192,7 @@ impl WorkerRegistration {
                     function.supported_compute,
                     function.container_server,
                     function.all_resource_timings.as_ref(),
+                    function.system_function,
                 )
                 .await
             {
