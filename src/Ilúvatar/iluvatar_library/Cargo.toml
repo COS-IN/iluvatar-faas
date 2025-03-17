@@ -13,6 +13,7 @@ categories.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+iluvatar_derive = { path = "./iluvatar_derive" }
 lazy_static = "1"
 anyhow = "1"
 guid-create = "0.*"
@@ -29,7 +30,6 @@ pin-project = "1"
 dashmap = { version = "6", features = ["inline"] }
 parking_lot = "0.12"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot", "signal"] }
-ordered-float = "5"
 bitflags = { version="2", features=["serde"] }
 http = "1"
 influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
@@ -37,10 +37,10 @@ num-traits = "0.2"
 async-process = "2"
 num_cpus = "1.16"
 config = "0.15"
+rcu_cell = "1.2"
 
 [dev-dependencies]
-rstest = "0.24"
-float-cmp = "0.10"
+rstest = "0.25"
 nix = { version = "0.29", features = ["process", "signal"] }
 enum-iterator = "2.1"
 

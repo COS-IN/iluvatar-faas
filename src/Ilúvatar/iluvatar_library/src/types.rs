@@ -325,6 +325,17 @@ pub enum HealthStatus {
     OFFLINE,
 }
 
+/// A trait to allow dynamic casting
+pub trait ToAny: 'static {
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+#[macro_export]
+macro_rules! downcast {
+    ($item:expr, $cast_type:tt) => {
+        $item.as_any().downcast_ref::<$cast_type>()
+    };
+}
+
 #[cfg(test)]
 mod types_tests {
     use super::*;

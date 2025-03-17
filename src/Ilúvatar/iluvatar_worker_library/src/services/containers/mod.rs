@@ -1,11 +1,11 @@
-use self::{docker::DockerIsolation, structs::ToAny};
+use self::docker::DockerIsolation;
 use super::{registration::RegisteredFunction, resources::gpu::GPU};
 use crate::services::containers::{containerd::ContainerdIsolation, simulator::SimulatorIsolation, structs::Container};
 use crate::services::network::namespace_manager::NamespaceManager;
 use crate::worker_api::worker_config::WorkerConfig;
 use anyhow::Result;
 use iluvatar_library::char_map::WorkerCharMap;
-use iluvatar_library::types::ResultErrorVal;
+use iluvatar_library::types::{ResultErrorVal, ToAny};
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},

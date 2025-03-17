@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 pub mod simstructs;
 
+#[derive(iluvatar_library::ToAny)]
 pub struct SimulatorIsolation {
     cmap: WorkerCharMap,
 }
@@ -107,10 +108,5 @@ impl ContainerIsolationService for SimulatorIsolation {
     }
     async fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
         "".to_string()
-    }
-}
-impl crate::services::containers::structs::ToAny for SimulatorIsolation {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }

@@ -22,6 +22,7 @@ use tokio::time::Instant;
 use tracing::debug;
 
 #[allow(unused)]
+#[derive(iluvatar_library::ToAny)]
 pub struct SimulatorContainer {
     pub container_id: String,
     pub fqdn: String,
@@ -258,12 +259,6 @@ impl ContainerT for SimulatorContainer {
         for i in to_drop.into_iter() {
             drop(i);
         }
-    }
-}
-
-impl crate::services::containers::structs::ToAny for SimulatorContainer {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }
 

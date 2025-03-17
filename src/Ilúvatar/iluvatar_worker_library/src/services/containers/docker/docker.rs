@@ -56,6 +56,7 @@ pub struct DockerConfig {
 }
 
 #[allow(unused)]
+#[derive(iluvatar_library::ToAny)]
 pub struct DockerIsolation {
     config: Arc<ContainerResourceConfig>,
     limits_config: Arc<FunctionLimits>,
@@ -545,10 +546,5 @@ impl ContainerIsolationService for DockerIsolation {
     }
     async fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
         self.get_stderr(container, tid).await.unwrap_or_else(|_| "".to_string())
-    }
-}
-impl crate::services::containers::structs::ToAny for DockerIsolation {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }

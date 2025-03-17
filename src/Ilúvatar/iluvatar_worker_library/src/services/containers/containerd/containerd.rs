@@ -38,7 +38,9 @@ use iluvatar_library::utils::{
     port::Port,
     try_get_child_pid,
 };
-use iluvatar_library::{bail_error, bail_error_value, error_value, transaction::TransactionId, types::MemSizeMb};
+use iluvatar_library::{
+    bail_error, bail_error_value, error_value, transaction::TransactionId, types::MemSizeMb, ToAny,
+};
 use inotify::{Inotify, WatchMask};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use serde::Deserialize;
@@ -63,6 +65,7 @@ pub struct BGPacket {
 }
 
 #[allow(dead_code)]
+#[derive(ToAny)]
 pub struct ContainerdIsolation {
     channel: Option<Channel>,
     namespace_manager: Arc<NamespaceManager>,
@@ -1072,10 +1075,5 @@ impl ContainerIsolationService for ContainerdIsolation {
                 format!("STDERR_READ_ERROR: {}", e)
             },
         }
-    }
-}
-impl crate::services::containers::structs::ToAny for ContainerdIsolation {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }

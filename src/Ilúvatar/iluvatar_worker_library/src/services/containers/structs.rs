@@ -1,6 +1,7 @@
 use crate::services::resources::gpu::ProtectedGpuRef;
 use crate::services::{containers::containermanager::ContainerManager, registration::RegisteredFunction};
 use anyhow::Result;
+use iluvatar_library::types::ToAny;
 use iluvatar_library::{
     bail_error,
     transaction::TransactionId,
@@ -78,10 +79,6 @@ where
     }
 }
 
-/// A trait ContainerT implementers must also implement to enable casting back to the concrete type
-pub trait ToAny: 'static {
-    fn as_any(&self) -> &dyn std::any::Any;
-}
 pub type Container = Arc<dyn ContainerT>;
 
 #[derive(Debug, serde::Deserialize)]
