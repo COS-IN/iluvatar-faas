@@ -10,6 +10,9 @@ use iluvatar_rpc::rpc::iluvatar_controller_server::IluvatarControllerServer;
 use tonic::transport::Server;
 use tracing::{debug, info};
 
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {

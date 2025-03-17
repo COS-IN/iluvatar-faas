@@ -17,6 +17,9 @@ use utils::Args;
 
 pub mod utils;
 
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
 
