@@ -15,11 +15,13 @@
 //          Vec of cloned items
 //          Iterator over reference pointers
 
+use std::collections::HashMap;
 use crate::clock::now;
 use crate::types::ToAny;
 use parking_lot::RwLock;
 use rcu_cell::RcuCell;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::time::Instant;
 
 // punt networking issue
@@ -27,11 +29,15 @@ pub trait Wireable {}
 pub trait Bufferable: Wireable + ToAny {}
 impl<T: Wireable + ToAny> Bufferable for T {}
 
+/// A pointer to a single item in a buffer.
+pub type BufferItem = Arc<(Instant, Box<dyn Bufferable>)>;
+
 /// Buffer storage for a single item.
 /// Assumes only one writer will exist.
 ///     If this is NOT the case, items may be out of order
 pub struct BufferVec {
-    data: Vec<Arc<RcuCell<(Instant, Box<dyn Bufferable>)>>>,
+    data: Box<[Arc<RcuCell<(Instant, Box<dyn Bufferable>)>>]>,
+    /// Points to the bucket that will be inserted into *next* (future insertion)
     next_index: RwLock<usize>,
 }
 impl BufferVec {
@@ -42,9 +48,18 @@ impl BufferVec {
                 // This is how RcuCell is intended to work
                 #[allow(clippy::arc_with_non_send_sync)]
                 (0..entries).for_each(|_| v.push(Arc::new(RcuCell::none())));
-                v
+                v.into_boxed_slice()
             },
             next_index: RwLock::new(0),
+        }
+    }
+
+    #[inline(always)]
+    /// The most recent entry an item was inserted into.
+    fn latest_idx(&self) -> usize {
+        match *self.next_index.read() {
+            0 => self.data.len() - 1,
+            idx => idx - 1,
         }
     }
 
@@ -55,33 +70,82 @@ impl BufferVec {
         *idx = (*idx + 1) % self.data.len();
     }
 
-    pub fn latest(&self) -> Option<Arc<(Instant, Box<dyn Bufferable>)>> {
-        let mut idx = *self.next_index.read();
-        idx = match idx {
-            0 => self.data.len() - 1,
-            idx => idx - 1,
-        };
+    /// Gets the most recent item, if there is one
+    pub fn latest(&self) -> Option<BufferItem> {
+        let idx = self.latest_idx();
         self.data[idx].read()
+    }
+
+    /// All the entries in the past `previous` timeframe, in descending order.
+    /// I.e. the most recent item is first, oldest item is last.
+    pub fn history(&self, previous: Duration) ->  Vec<BufferItem> {
+        let mut v = vec![];
+        let mut idx = self.latest_idx();
+        while let Some(item) = self.data[idx].read() {
+            if item.0.elapsed() > previous {
+                break;
+            }
+            v.push(item.clone());
+            idx = match idx {
+                0 => self.data.len() - 1,
+                idx => idx - 1,
+            }
+        }
+        v
     }
 }
 
-// pub struct RingBuffer {
-//     entries: RwLock<HashMap<String, BufferVec>>,
-// }
-// impl RingBuffer {
-//     pub fn new() -> Self {
-//         Self {
-//             entries: RwLock::new(HashMap::new()),
-//         }
-//     }
-//
-//     // pub fn insert(&mut self, key: &str, item: &dyn Wireable) {
-//     //
-//     // }
-// }
+pub struct RingBuffer {
+    entries: RwLock<HashMap<String, BufferVec>>,
+    default_time_keep: Duration
+}
+impl RingBuffer {
+    pub fn new(default_time_keep: Duration) -> Self {
+        Self {
+            entries: RwLock::new(HashMap::new()),
+            default_time_keep,
+        }
+    }
+
+    pub fn insert(&self, key: &str, item: Box<dyn Bufferable>) {
+        let r_lck = self.entries.read();
+        if let Some(e) = r_lck.get(key) {
+            e.insert(item);
+        } else {
+            drop(r_lck);
+            let mut lck = self.entries.write();
+            if let Some(e) = lck.get(key) {
+                e.insert(item);
+                return;
+            } else {
+                // arbitrary backup value, clients should have set this up when registering callbacks
+                let buff = BufferVec::new(30);
+                buff.insert(item);
+                lck.insert(key.to_owned(), buff);
+            }
+        }
+    }
+
+
+    /// Gets the most recent item, if there is one
+    pub fn latest(&self, key: &str) -> Option<BufferItem> {
+        self.entries.read().get(key)?.latest()
+    }
+
+    /// All the entries in the past `previous` timeframe, in descending order.
+    /// I.e. the most recent item is first, oldest item is last.
+    /// Empty if nothing matching found.
+    pub fn history(&self, key: &str, previous: Duration) ->  Vec<BufferItem> {
+        match self.entries.read().get(key) {
+            None => vec![],
+            Some(e) => e.history(previous),
+        }
+    }
+}
 
 #[cfg(test)]
 mod buff_vec_tests {
+    use std::thread::sleep;
     use super::*;
     use crate::ToAny;
 
@@ -117,5 +181,55 @@ mod buff_vec_tests {
                 assert_eq!(i.idx, idx)
             }
         }
+    }
+    #[test]
+    fn history() {
+        let b = BufferVec::new(10);
+        for idx in 0..20 {
+            b.insert(Box::new(Item { idx }));
+            sleep(Duration::from_millis(10));
+        }
+        let hist = b.history(Duration::from_millis(51));
+        for i in 0..hist.len() {
+            if i == hist.len()-1 {
+                break;
+            }
+            assert!(hist[i].0 > hist[i+1].0, "History was not in descending order");
+        }
+        assert!(hist.len() == 5 || hist.len() == 4, "History length was not an expected size, was: {}", hist.len());
+    }
+}
+
+#[cfg(test)]
+mod ring_buff_tests {
+    use super::*;
+    use crate::ToAny;
+
+    const KEY: &str = "KEY";
+
+    #[derive(ToAny)]
+    struct Item {
+        idx: usize,
+    }
+    impl Wireable for Item {}
+
+    #[test]
+    fn build() {
+        let _ = RingBuffer::new(Duration::from_secs(60));
+    }
+
+    #[test]
+    fn empty() {
+        let ring = RingBuffer::new(Duration::from_secs(60));
+        assert!(ring.latest(KEY).is_none());
+        assert_eq!(ring.history(KEY, Duration::from_secs(60)).len(), 0);
+    }
+
+    #[test]
+    fn insert() {
+        let ring = RingBuffer::new(Duration::from_secs(60));
+        ring.insert(KEY, Box::new(Item{idx:0}));
+        assert!(ring.latest(KEY).is_some());
+        assert_eq!(ring.history(KEY, Duration::from_secs(60)).len(), 1);
     }
 }
