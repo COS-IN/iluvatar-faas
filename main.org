@@ -1,0 +1,84 @@
+#+TITLE: Iluvatar: A Fast Control Plane for Serverless Computing
+
+#+OPTIONS: toc:nil 
+
+** What is Iluvatar?
+
+Iluvatar provides a platform for Functions as a Service. It is a control-plane which orchestrates the execution of serverless functions.
+
+Understanding and optimizing the various facets of FaaS deployments, such as scheduling, load-balancing, containerization.
+
+Iluvatar is a platform for the performance engineering and analysis of FaaS workloads. Among its unique features, it supports a simulation container backend with discrete-event simulator. 
+
+It is implemented in Rust, and designed with e
+
+Iluvatar is a state-of-art 
+
+*** What's with the name?
+
+
+** Why are FaaS platforms interesting? 
+
+*** FaaS 
+Functions as a Service (FaaS) is an extremely popular and powerful way to deploy and scale cloud applications. For example, if you want to host a web service which...
+
+FaaS has a large number of use-cases, such as . . .
+
+*** FaaS platforms 
+
+FaaS moves all the complexity of deploying and scaling applications to the FaaS provider. FaaS platforms manage the server resources, and have to orchestrate a large number of containerized functions.
+
+
+FaaS platforms like 
+
+This guide is targeted for users interested in using Iluvatar as a FaaS platform
+
+*** Relation to container orchestration platforms like Kubernetes
+
+
+*** How is Iluvatar different from other FaaS frameworks like OpenWhisk?
+
+
+
+** Getting-started 
+
+*** Invoke a registered function
+
+*** Create a function
+
+*** Set up an Iluvatar worker
+
+
+** Performance engineering and analysis
+
+- load testing
+- log parsing
+- tracing
+- running multiple experiments
+- Simulation-mode
+- 
+
+** Architecture and key components
+
+*** Pure FaaS: Strict Isolation
+
+*** Worker-centric architecture
+
+*** Key Components
+1. Container Creation
+2. Container Pool for Keep-alive
+3. Invocation queue for CPU
+4. Characteristics Map
+5. GPU queueuing
+6. Polymorphic Dispatch
+
+*** Other Plumbing
+1. RPC interface
+2. Ansible [Parameters to select policies, etc] 
+3. 
+
+** Contribute
+- List of some open implementation issues: TODO
+- List of github issues
+
+
