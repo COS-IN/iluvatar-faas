@@ -914,7 +914,7 @@ impl GpuResourceTracker {
 
     /// get the utilization of GPUs on the system
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn smi_gpu_utilization(svc: Arc<Self>, tid: TransactionId) {
+    async fn smi_gpu_utilization(&self, tid: &TransactionId) {
         if !std::path::Path::new("/usr/bin/nvidia-smi").exists() {
             trace!(tid = tid, "nvidia-smi not found, not checking GPU utilization");
             return;
@@ -923,14 +923,14 @@ impl GpuResourceTracker {
             "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
             "--format=csv,noheader,nounits",
         ];
-        let nvidia = match execute_cmd_checked_async("/usr/bin/nvidia-smi", args, None, &tid).await {
+        let nvidia = match execute_cmd_checked_async("/usr/bin/nvidia-smi", args, None, tid).await {
             Ok(r) => r,
             Err(e) => {
                 error!(tid=tid, error=%e, "Failed to call nvidia-smi");
                 return;
             },
         };
-        let is_empty = (*svc.status_info.read()).is_empty();
+        let is_empty = (*self.status_info.read()).is_empty();
         let mut ret: Vec<GpuStatus> = vec![];
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
@@ -943,10 +943,10 @@ impl GpuResourceTracker {
                     if is_empty {
                         ret.push(rec.into());
                     } else {
-                        let mut lck = svc.status_info.write();
+                        let mut lck = self.status_info.write();
                         for (i, stat) in lck.iter_mut().enumerate() {
                             if stat.gpu_uuid == rec.gpu_uuid {
-                                let running = if let Some(meta) = svc.gpu_metadata.get(&(i as u32)) {
+                                let running = if let Some(meta) = self.gpu_metadata.get(&(i as u32)) {
                                     meta.max_running - meta.sem.available_permits() as u32
                                 } else {
                                     0
@@ -965,14 +965,14 @@ impl GpuResourceTracker {
         }
         if is_empty {
             debug!(tid = tid, "Setting GPU status info for first time");
-            *svc.status_info.write() = ret;
+            *self.status_info.write() = ret;
         }
     }
 
     #[cfg(target_os = "linux")]
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn nvml_gpu_utilization(nvml: &Nvml, svc: &Arc<Self>, tid: &TransactionId) -> Result<(), NvmlError> {
-        let is_empty = (*svc.status_info.read()).is_empty();
+    async fn nvml_gpu_utilization(&self, nvml: &Nvml, tid: &TransactionId) -> Result<(), NvmlError> {
+        let is_empty = (*self.status_info.read()).is_empty();
         let mut ret: Vec<GpuStatus> = vec![];
         let dev_count = nvml.device_count()?;
 
@@ -995,9 +995,9 @@ impl GpuResourceTracker {
             if is_empty {
                 ret.push(stat.into());
             } else {
-                let mut lck = svc.status_info.write();
+                let mut lck = self.status_info.write();
                 if lck.len() > i as usize {
-                    let running = if let Some(meta) = svc.gpu_metadata.get(&i) {
+                    let running = if let Some(meta) = self.gpu_metadata.get(&i) {
                         meta.max_running - meta.sem.available_permits() as u32
                     } else {
                         0
@@ -1008,37 +1008,37 @@ impl GpuResourceTracker {
         }
         if is_empty {
             debug!(tid = tid, "Setting GPU status info for first time");
-            *svc.status_info.write() = ret;
+            *self.status_info.write() = ret;
         }
         Ok(())
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn simulation_gpu_util(svc: &Arc<Self>, _tid: &TransactionId) {
+    async fn simulation_gpu_util(&self, _tid: &TransactionId) {
         let mut status: Vec<GpuStatus> = vec![];
         // TODO: proper GPU utilization
-        for (_gpu_id, metadata) in svc.gpu_metadata.iter() {
+        for (_gpu_id, metadata) in self.gpu_metadata.iter() {
             status.push(GpuStatus::new(
                 metadata.gpu_uuid.clone(),
                 metadata.hardware_memory_mb,
                 metadata.max_running - metadata.sem.available_permits() as u32,
             ));
         }
-        *svc.status_info.write() = status;
+        *self.status_info.write() = status;
     }
 
     /// get the utilization of GPUs on the system
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn gpu_utilization(svc: Arc<Self>, tid: TransactionId) {
+    async fn gpu_utilization(self: &Arc<Self>, tid: &TransactionId) {
         if iluvatar_library::utils::is_simulation() {
-            Self::simulation_gpu_util(&svc, &tid).await
-        } else if let Some(nvml) = &svc.nvml {
-            if let Err(e) = Self::nvml_gpu_utilization(nvml, &svc, &tid).await {
+            self.simulation_gpu_util(tid).await
+        } else if let Some(nvml) = &self.nvml {
+            if let Err(e) = self.nvml_gpu_utilization(nvml, tid).await {
                 error!(tid=tid, error=%e, "Error using NVML to query device utilization");
-                Self::smi_gpu_utilization(svc, tid).await
+                self.smi_gpu_utilization(tid).await
             }
         } else {
-            Self::smi_gpu_utilization(svc, tid).await
+            self.smi_gpu_utilization(tid).await
         }
     }
 

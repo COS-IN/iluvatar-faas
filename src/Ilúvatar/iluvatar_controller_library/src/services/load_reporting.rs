@@ -46,11 +46,11 @@ impl LoadService {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn monitor_worker_status(service: Arc<Self>, tid: TransactionId) {
+    async fn monitor_worker_status(self: &Arc<Self>, tid: &TransactionId) {
         if iluvatar_library::utils::is_simulation() {
-            service.monitor_simulation(&tid).await;
+            self.monitor_simulation(tid).await;
         } else {
-            service.monitor_live(&tid).await;
+            self.monitor_live(tid).await;
         }
     }
 

@@ -18,7 +18,7 @@ use iluvatar_library::types::{Compute, DroppableToken};
 use iluvatar_library::utils::missing_default;
 use iluvatar_library::{
     mindicator::Mindicator,
-    threading::{tokio_runtime, tokio_thread, EventualItem},
+    threading::{tokio_thread, tokio_waiter_thread, EventualItem},
 };
 use ordered_float::OrderedFloat;
 use parking_lot::RwLock;
@@ -350,7 +350,7 @@ pub struct MQFQ {
 
     signal: Notify,
     cpu: Arc<CpuResourceTracker>,
-    _thread: std::thread::JoinHandle<()>,
+    _thread: tokio::task::JoinHandle<()>,
     _mon_thread: Option<tokio::task::JoinHandle<()>>,
     gpu: Arc<GpuResourceTracker>,
     gpu_config: Arc<GPUResourceConfig>,
@@ -446,13 +446,12 @@ impl MQFQ {
             .clone()
             .ok_or_else(|| anyhow::format_err!("Tried to create MQFQ without a MqfqConfig"))?;
 
-        let (gpu_handle, gpu_tx) = tokio_runtime(
+        let (gpu_handle, gpu_tx) = tokio_waiter_thread(
             invocation_config.queue_sleep_ms,
             MQFQ_GPU_QUEUE_WORKER_TID.clone(),
             Self::monitor_queue,
             Some(Self::gpu_wait_on_queue),
-            None,
-        )?;
+        );
 
         let (mon_handle, mon_tx) = match &q_config.weight_logging_ms {
             Some(ms) => {
@@ -502,7 +501,7 @@ impl MQFQ {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn report_queue(self: Arc<Self>, tid: TransactionId) {
+    async fn report_queue(self: &Arc<Self>, tid: &TransactionId) {
         let log = self.get_flow_report();
         match serde_json::to_string(&log) {
             Ok(to_write) => {
@@ -547,20 +546,17 @@ impl MQFQ {
         }
     }
 
-    async fn gpu_wait_on_queue(invoker_svc: Arc<Self>, tid: TransactionId) {
-        invoker_svc.signal.notified().await;
+    async fn gpu_wait_on_queue(self: &Arc<Self>, tid: &TransactionId) {
+        self.signal.notified().await;
         debug!(tid = tid, "Invoker waken up by signal");
     }
     /// Check the invocation queue, running things when there are sufficient resources
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
-    async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
-        while let Some((next_item, gpu_token)) = self.dispatch(&tid) {
+    async fn monitor_queue(self: &Arc<Self>, tid: &TransactionId) {
+        while let Some((next_item, gpu_token)) = self.dispatch(tid) {
             debug!(tid=%next_item.invoke.tid, "Sending item for dispatch");
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it won't be concurrently invoked.
-            if let Some(cpu_token) = self
-                .acquire_resources_to_run(&next_item.invoke.registration, &tid)
-                .await
-            {
+            if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, tid).await {
                 let svc = self.clone();
                 tokio::spawn(async move {
                     svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;

@@ -13,7 +13,7 @@ use crate::services::invocation::{
 };
 use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
-use crate::worker_api::worker_config::{FunctionLimits, GPUResourceConfig, InvocationConfig};
+use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, Clock};
@@ -107,7 +107,6 @@ pub struct QueueingDispatcher {
 impl QueueingDispatcher {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
-        function_config: Arc<FunctionLimits>,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
         cmap: WorkerCharMap,
@@ -122,22 +121,14 @@ impl QueueingDispatcher {
             &cmap,
             &cont_manager,
             tid,
-            &function_config,
             &cpu,
             #[cfg(feature = "power_cap")]
             &energy,
         )?;
         let mut que_map = HashMap::from_iter([(Compute::CPU, cpu_q)]);
-        if let Some(gpu_q) = Self::get_invoker_gpu_queue(
-            &invocation_config,
-            &cmap,
-            &cont_manager,
-            tid,
-            &function_config,
-            &cpu,
-            &gpu,
-            gpu_config,
-        )? {
+        if let Some(gpu_q) =
+            Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid, &cpu, &gpu, gpu_config)?
+        {
             que_map.insert(Compute::GPU, gpu_q);
         }
 
@@ -161,13 +152,11 @@ impl QueueingDispatcher {
         cmap: &WorkerCharMap,
         cont_manager: &Arc<ContainerManager>,
         tid: &TransactionId,
-        function_config: &Arc<FunctionLimits>,
         cpu: &Arc<CpuResourceTracker>,
         #[cfg(feature = "power_cap")] energy: &Arc<EnergyLimiter>,
     ) -> Result<Arc<dyn DeviceQueue>> {
         Ok(CpuQueueingInvoker::new(
             cont_manager.clone(),
-            function_config.clone(),
             invocation_config.clone(),
             tid,
             cmap.clone(),
@@ -182,7 +171,6 @@ impl QueueingDispatcher {
         cmap: &WorkerCharMap,
         cont_manager: &Arc<ContainerManager>,
         tid: &TransactionId,
-        function_config: &Arc<FunctionLimits>,
         cpu: &Arc<CpuResourceTracker>,
         gpu: &Option<Arc<GpuResourceTracker>>,
         gpu_config: &Option<Arc<GPUResourceConfig>>,
@@ -199,7 +187,6 @@ impl QueueingDispatcher {
                 if q == "serial" {
                     Ok(Some(GpuQueueingInvoker::new(
                         cont_manager.clone(),
-                        function_config.clone(),
                         invocation_config.clone(),
                         tid,
                         cmap.clone(),

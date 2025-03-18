@@ -18,7 +18,7 @@ pub mod influx;
 mod linear_reg;
 pub mod logging;
 pub mod mindicator;
-mod ring_buff;
+pub mod ring_buff;
 pub mod threading;
 pub mod tokio_utils;
 pub mod tput_calc;

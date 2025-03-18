@@ -45,10 +45,14 @@ impl StatusService {
         signal: LoadAvg,
         ctr_config: &Arc<ContainerResourceConfig>,
     ) -> Result<Arc<Self>> {
-        let (handle, sender) = threading::tokio_thread(
+        let buff = Arc::new(iluvatar_library::ring_buff::RingBuffer::new(Duration::from_secs(60)));
+        let (handle, sender) = threading::tokio_logging_thread(
             config.report_freq_ms,
             STATUS_WORKER_TID.clone(),
-            StatusService::update_status,
+            buff,
+            "".to_string(),
+            tracing::Level::TRACE,
+            Self::update_status,
         );
 
         let cpu_count = match ctr_config.cpu_resource.count {
@@ -94,13 +98,13 @@ impl StatusService {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn update_status(self: Arc<Self>, tid: TransactionId) {
+    async fn update_status(self: &Arc<Self>, tid: &TransactionId) {
         let mut gpu_utilization = vec![];
         if let Some(gpu) = &self.gpu {
-            gpu_utilization = gpu.gpu_status(&tid);
+            gpu_utilization = gpu.gpu_status(tid);
         }
 
-        let (computed_util, minute_load_avg) = match self.cpu.cpu_util(&tid) {
+        let (computed_util, minute_load_avg) = match self.cpu.cpu_util(tid) {
             Ok((c, l)) => (c, l),
             Err(_) => return,
         };

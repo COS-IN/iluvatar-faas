@@ -508,6 +508,7 @@ mod gpu {
             "Got incorrect container"
         );
         drop(ctr);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let ctr = match cm.acquire_container(&func2, &TEST_TID, Compute::GPU) {
             EventualItem::Future(f) => f.await,

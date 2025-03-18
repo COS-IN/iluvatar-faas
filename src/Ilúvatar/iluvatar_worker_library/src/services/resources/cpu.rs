@@ -117,19 +117,19 @@ impl CpuResourceTracker {
         self.cores as usize
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(svc), fields(tid=tid)))]
-    async fn monitor_load(svc: Arc<CpuResourceTracker>, tid: TransactionId) {
-        let norm_load = *svc.load_avg.read() / svc.cores;
-        let current = *svc.current_concur.lock();
-        if norm_load > svc.max_load.unwrap() {
-            let change = current - svc.min_concur;
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
+    async fn monitor_load(self: &Arc<Self>, tid: &TransactionId) {
+        let norm_load = *self.load_avg.read() / self.cores;
+        let current = *self.current_concur.lock();
+        if norm_load > self.max_load.unwrap() {
+            let change = current - self.min_concur;
             let change = f64::ceil(change as f64 / 2.0) as u32;
             if change > 0 {
-                if let Some(sem) = &svc.concurrency_semaphore {
+                if let Some(sem) = &self.concurrency_semaphore {
                     match sem.acquire_many(change).await {
                         Ok(s) => {
                             s.forget();
-                            *svc.current_concur.lock() = u32::max(svc.min_concur, current - change);
+                            *self.current_concur.lock() = u32::max(self.min_concur, current - change);
                         },
                         Err(e) => {
                             error!(tid=tid, error=%e, "Failed to acquire concurrency semaphore")
@@ -137,15 +137,15 @@ impl CpuResourceTracker {
                     };
                 }
             }
-        } else if current < svc.max_concur {
-            if let Some(sem) = &svc.concurrency_semaphore {
+        } else if current < self.max_concur {
+            if let Some(sem) = &self.concurrency_semaphore {
                 sem.add_permits(1);
-                *svc.current_concur.lock() += 1;
+                *self.current_concur.lock() += 1;
             }
         }
         debug!(
             tid = tid,
-            concurrency = *svc.current_concur.lock(),
+            concurrency = *self.current_concur.lock(),
             load = norm_load,
             "Current concurrency"
         );

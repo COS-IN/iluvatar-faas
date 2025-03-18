@@ -144,10 +144,10 @@ impl ChRluLoadedBalancer {
         Ok(i)
     }
 
-    #[tracing::instrument(level="debug", skip(service), fields(tid=tid))]
-    async fn update(service: Arc<Self>, tid: TransactionId) {
-        service.update_worker_loads(&tid);
-        service.calc_popular(&tid);
+    #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
+    async fn update(self: &Arc<Self>, tid: &TransactionId) {
+        self.update_worker_loads(tid);
+        self.calc_popular(tid);
     }
 
     fn update_worker_loads(&self, tid: &TransactionId) {

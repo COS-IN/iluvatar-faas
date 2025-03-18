@@ -15,11 +15,12 @@
 //          Vec of cloned items
 //          Iterator over reference pointers
 
-use std::collections::HashMap;
 use crate::clock::now;
 use crate::types::ToAny;
 use parking_lot::RwLock;
 use rcu_cell::RcuCell;
+use std::any::Any;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -28,6 +29,13 @@ use tokio::time::Instant;
 pub trait Wireable {}
 pub trait Bufferable: Wireable + ToAny + Send + Sync {}
 impl<T: Wireable + ToAny + Send + Sync> Bufferable for T {}
+
+impl Wireable for () {}
+impl ToAny for () {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 /// A pointer to a single item in a buffer.
 pub type BufferItem = Arc<(Instant, Arc<dyn Bufferable>)>;
@@ -78,7 +86,7 @@ impl BufferVec {
 
     /// All the entries in the past `previous` timeframe, in descending order.
     /// I.e. the most recent item is first, oldest item is last.
-    pub fn history(&self, previous: Duration) ->  Vec<BufferItem> {
+    pub fn history(&self, previous: Duration) -> Vec<BufferItem> {
         let mut v = vec![];
         let mut idx = self.latest_idx();
         while let Some(item) = self.data[idx].read() {
@@ -97,7 +105,7 @@ impl BufferVec {
 
 pub struct RingBuffer {
     entries: RwLock<HashMap<String, BufferVec>>,
-    default_time_keep: Duration
+    default_time_keep: Duration,
 }
 impl RingBuffer {
     pub fn new(default_time_keep: Duration) -> Self {
@@ -116,7 +124,6 @@ impl RingBuffer {
             let mut lck = self.entries.write();
             if let Some(e) = lck.get(key) {
                 e.insert(item);
-                return;
             } else {
                 // arbitrary backup value, clients should have set this up when registering callbacks
                 let buff = BufferVec::new(30);
@@ -126,7 +133,6 @@ impl RingBuffer {
         }
     }
 
-
     /// Gets the most recent item, if there is one
     pub fn latest(&self, key: &str) -> Option<BufferItem> {
         self.entries.read().get(key)?.latest()
@@ -135,7 +141,7 @@ impl RingBuffer {
     /// All the entries in the past `previous` timeframe, in descending order.
     /// I.e. the most recent item is first, oldest item is last.
     /// Empty if nothing matching found.
-    pub fn history(&self, key: &str, previous: Duration) ->  Vec<BufferItem> {
+    pub fn history(&self, key: &str, previous: Duration) -> Vec<BufferItem> {
         match self.entries.read().get(key) {
             None => vec![],
             Some(e) => e.history(previous),
@@ -145,9 +151,9 @@ impl RingBuffer {
 
 #[cfg(test)]
 mod buff_vec_tests {
-    use std::thread::sleep;
     use super::*;
     use crate::ToAny;
+    use std::thread::sleep;
 
     #[derive(ToAny)]
     struct Item {
@@ -191,20 +197,24 @@ mod buff_vec_tests {
         }
         let hist = b.history(Duration::from_millis(51));
         for i in 0..hist.len() {
-            if i == hist.len()-1 {
+            if i == hist.len() - 1 {
                 break;
             }
-            assert!(hist[i].0 > hist[i+1].0, "History was not in descending order");
+            assert!(hist[i].0 > hist[i + 1].0, "History was not in descending order");
         }
-        assert!(hist.len() == 5 || hist.len() == 4, "History length was not an expected size, was: {}", hist.len());
+        assert!(
+            hist.len() == 5 || hist.len() == 4,
+            "History length was not an expected size, was: {}",
+            hist.len()
+        );
     }
 }
 
 #[cfg(test)]
 mod ring_buff_tests {
-    use tokio::task::JoinHandle;
     use super::*;
     use crate::ToAny;
+    use tokio::task::JoinHandle;
 
     const KEY: &str = "KEY";
 
@@ -229,7 +239,7 @@ mod ring_buff_tests {
     #[test]
     fn insert() {
         let ring = RingBuffer::new(Duration::from_secs(60));
-        ring.insert(KEY, Arc::new(Item{idx:0}));
+        ring.insert(KEY, Arc::new(Item { idx: 0 }));
         assert!(ring.latest(KEY).is_some());
         assert_eq!(ring.history(KEY, Duration::from_secs(60)).len(), 1);
     }
@@ -258,14 +268,14 @@ mod ring_buff_tests {
         let max = 20;
         let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
         let r2 = ring.clone();
-        ring.insert(KEY, Arc::new(Item{idx:0}));
+        ring.insert(KEY, Arc::new(Item { idx: 0 }));
         let writer = tokio::spawn(async move {
             for idx in 1..max {
                 ring.insert(KEY, Arc::new(Item { idx }));
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         });
-        let reader = reader(max-1, r2);
+        let reader = reader(max - 1, r2);
         writer.await.unwrap();
         reader.await.unwrap();
     }
@@ -274,11 +284,11 @@ mod ring_buff_tests {
     async fn readers_writer() {
         let max = 20;
         let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
-        ring.insert(KEY, Arc::new(Item{idx:0}));
+        ring.insert(KEY, Arc::new(Item { idx: 0 }));
         let mut readers = vec![];
         for _ in 0..3 {
             let r2 = ring.clone();
-            readers.push(reader(max-1, r2));
+            readers.push(reader(max - 1, r2));
         }
 
         let writer = tokio::spawn(async move {

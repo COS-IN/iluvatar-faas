@@ -62,22 +62,22 @@ impl LeastLoadedBalancer {
         Ok(i)
     }
 
-    #[tracing::instrument(level="debug", skip(service), fields(tid=tid))]
-    async fn find_least_loaded(service: Arc<Self>, tid: TransactionId) {
+    #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
+    async fn find_least_loaded(self: &Arc<Self>, tid: &TransactionId) {
         let mut least_ld = f64::MAX;
         let mut worker = &"".to_string();
-        let workers = service.workers.read();
+        let workers = self.workers.read();
         for worker_name in workers.keys() {
-            if let Some(worker_load) = service.load.get_worker(worker_name) {
+            if let Some(worker_load) = self.load.get_worker(worker_name) {
                 if worker_load < least_ld {
                     worker = worker_name;
                     least_ld = worker_load;
                 }
             }
         }
-        match service.workers.read().get(worker) {
+        match self.workers.read().get(worker) {
             Some(w) => {
-                *service.assigned_worker.write() = Some(w.clone());
+                *self.assigned_worker.write() = Some(w.clone());
                 info!(tid=tid, worker=%worker, "new least loaded worker");
             },
             None => {

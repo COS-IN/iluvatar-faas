@@ -17,17 +17,16 @@ use crate::services::{
     },
     invocation::invoke_on_container,
 };
-use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
 use crate::{
     services::{containers::structs::ContainerLock, registration::RegisteredFunction},
-    worker_api::worker_config::GPUResourceConfig,
+    worker_api::worker_config::{GPUResourceConfig, InvocationConfig},
 };
 use anyhow::Result;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::tput_calc::DeviceTput;
 use iluvatar_library::types::{Compute, DroppableToken};
-use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId};
+use iluvatar_library::{threading::tokio_waiter_thread, threading::EventualItem, transaction::TransactionId};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::{
@@ -35,6 +34,7 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 use tokio::time::Instant;
 #[cfg(feature = "full_spans")]
 use tracing::Instrument;
@@ -134,7 +134,7 @@ pub struct GpuQueueingInvoker {
     last_memory_warning: Mutex<Instant>,
     last_gpu_warning: Mutex<Instant>,
     cpu: Arc<CpuResourceTracker>,
-    _gpu_thread: std::thread::JoinHandle<()>,
+    _gpu_thread: JoinHandle<()>,
     gpu: Arc<GpuResourceTracker>,
     signal: Notify,
     queue: Arc<dyn GpuQueuePolicy>,
@@ -151,7 +151,6 @@ pub struct GpuQueueingInvoker {
 impl GpuQueueingInvoker {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
-        function_config: Arc<FunctionLimits>,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
         cmap: WorkerCharMap,
@@ -159,13 +158,12 @@ impl GpuQueueingInvoker {
         gpu: Option<Arc<GpuResourceTracker>>,
         gpu_config: &Option<Arc<GPUResourceConfig>>,
     ) -> Result<Arc<Self>> {
-        let (gpu_handle, gpu_tx) = tokio_runtime(
+        let (gpu_handle, gpu_tx) = tokio_waiter_thread(
             invocation_config.queue_sleep_ms,
             INVOKER_GPU_QUEUE_WORKER_TID.clone(),
             Self::monitor_queue,
             Some(Self::gpu_wait_on_queue),
-            Some(function_config.cpu_max as usize),
-        )?;
+        );
 
         let q = Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid);
         let svc = Arc::new(GpuQueueingInvoker {
@@ -215,20 +213,20 @@ impl GpuQueueingInvoker {
         }
     }
 
-    async fn gpu_wait_on_queue(invoker_svc: Arc<GpuQueueingInvoker>, tid: TransactionId) {
-        invoker_svc.signal.notified().await;
+    async fn gpu_wait_on_queue(self: &Arc<Self>, tid: &TransactionId) {
+        self.signal.notified().await;
         debug!(tid = tid, "Invoker waken up by signal");
     }
     /// Check the invocation queue, running things when there are sufficient resources
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
-    async fn monitor_queue(self: Arc<Self>, tid: TransactionId) {
+    async fn monitor_queue(self: &Arc<Self>, tid: &TransactionId) {
         while let Some(peek_reg) = self.queue.next_batch() {
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it wont be concurrently invoked.
-            if let Some(permit) = self.acquire_resources_to_run(&peek_reg, &tid) {
+            if let Some(permit) = self.acquire_resources_to_run(&peek_reg, tid) {
                 let b = self.queue.pop_queue();
                 match b {
                     None => break,
-                    Some(batch) => self.spawn_tokio_worker(self.clone(), batch, permit, &tid),
+                    Some(batch) => self.spawn_tokio_worker(self.clone(), batch, permit, tid),
                 }
             } else {
                 debug!(tid=tid, fqdn=%peek_reg.fqdn, "Insufficient resources to run item");

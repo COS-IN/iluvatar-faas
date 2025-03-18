@@ -9,7 +9,7 @@ use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
 use dashmap::DashMap;
 use futures::Future;
-use iluvatar_library::threading::{tokio_notify_thread, tokio_runtime, tokio_sender_thread, EventualItem};
+use iluvatar_library::threading::{tokio_notify_thread, tokio_sender_thread, tokio_thread, EventualItem};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
 use parking_lot::RwLock;
@@ -38,7 +38,7 @@ pub struct ContainerManager {
     /// For keep-alive eviction
     pub prioritized_list: RwLock<Subpool>,
     pub prioritized_gpu_list: RwLock<Subpool>,
-    _worker_thread: std::thread::JoinHandle<()>,
+    _worker_thread: tokio::task::JoinHandle<()>,
     _health_thread: tokio::task::JoinHandle<()>,
     _priorities_thread: tokio::task::JoinHandle<()>,
     /// Signal to tell to re-compute eviction priorities
@@ -58,13 +58,11 @@ impl ContainerManager {
         gpu_resources: Option<Arc<GpuResourceTracker>>,
         _tid: &TransactionId,
     ) -> Result<Arc<Self>> {
-        let (worker_handle, tx) = tokio_runtime(
+        let (worker_handle, tx) = tokio_thread(
             resources.pool_freq_ms,
             CTR_MGR_WORKER_TID.clone(),
             ContainerManager::monitor_pool,
-            None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>,
-            None,
-        )?;
+        );
         let (health_handle, health_tx, del_ctr_tx) =
             tokio_sender_thread(CTR_MGR_REMOVER_TID.clone(), Arc::new(Self::cull_unhealthy));
         let pri_notif = Arc::new(Notify::new());
@@ -101,15 +99,15 @@ impl ContainerManager {
         self.compute_gpu_eviction_priorities(tid);
     }
 
-    #[tracing::instrument(level="debug", skip(service), fields(tid=tid))]
-    async fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) {
-        service.update_memory_usages(&tid).await;
-        service.prioritiy_notify.notify_waiters();
-        if service.resources.memory_buffer_mb > 0 {
-            let reclaim = service.resources.memory_buffer_mb - service.free_memory();
+    #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
+    async fn monitor_pool(self: &Arc<Self>, tid: &TransactionId) {
+        self.update_memory_usages(tid).await;
+        self.prioritiy_notify.notify_waiters();
+        if self.resources.memory_buffer_mb > 0 {
+            let reclaim = self.resources.memory_buffer_mb - self.free_memory();
             if reclaim > 0 {
                 info!(tid = tid, amount = reclaim, "Trying to reclaim memory for monitor pool");
-                match service.reclaim_memory(reclaim, &tid).await {
+                match self.reclaim_memory(reclaim, tid).await {
                     Ok(_) => {},
                     Err(e) => error!(tid=tid, error=%e, "Error while trying to remove containers"),
                 };

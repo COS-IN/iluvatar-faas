@@ -54,10 +54,10 @@ impl InfluxUpdater {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn send_status(svc: Arc<Self>, tid: TransactionId) {
-        let status = svc.status_svc.get_status(&tid);
+    async fn send_status(self: &Arc<Self>, tid: &TransactionId) {
+        let status = self.status_svc.get_status(tid);
         let mut builder = String::new();
-        for measure in &svc.metrics {
+        for measure in &self.metrics {
             let val = match *measure {
                 "loadavg," => status.load_avg_1minute,
                 "cpu_util," => 100.0 - status.cpu_id,
@@ -70,11 +70,11 @@ impl InfluxUpdater {
                 continue;
             }
             builder.push_str(measure);
-            builder.push_str(&svc.tags);
+            builder.push_str(&self.tags);
             builder.push_str(&format!(" value={}\n", val));
         }
         debug!(tid = tid, data = builder, "writing to influx");
-        match svc.influx.write_data(WORKERS_BUCKET, builder).await {
+        match self.influx.write_data(WORKERS_BUCKET, builder).await {
             Ok(_) => (),
             Err(e) => error!(tid=tid, error=%e, "Failed to write worker status to InfluxDB"),
         };
