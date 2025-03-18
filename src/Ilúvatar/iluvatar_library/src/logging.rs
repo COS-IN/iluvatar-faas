@@ -3,6 +3,7 @@ use crate::clock::{get_global_clock, ClockWrapper};
 use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
 use anyhow::Result;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::{path::PathBuf, sync::Arc};
 use tracing::span::Attributes;
@@ -191,13 +192,19 @@ fn file_logger<S: Subscriber + for<'span> LookupSpan<'span>, P: AsRef<Path>>(
     let fname = format!("{}.log", base_filename);
     let dir = match std::fs::canonicalize(&folder_path) {
         Ok(d) => d,
-        Err(e) => anyhow::bail!(
-            "Failed to canonicalize log file '{:?}', error: '{}'",
-            folder_path.as_ref().to_str(),
-            e
-        ),
+        Err(e) => match e.kind() {
+            ErrorKind::NotFound => {
+                info!(tid = tid, "making log dir");
+                ensure_dir(&folder_path)?;
+                std::fs::canonicalize(&folder_path)?
+            },
+            _ => anyhow::bail!(
+                "Failed to canonicalize log file '{:?}', error: '{}'",
+                folder_path.as_ref().to_str(),
+                e
+            ),
+        },
     };
-    ensure_dir(&dir)?;
 
     let full_path = dir.join(&fname);
     println!("Logging to {}", full_path.to_string_lossy());

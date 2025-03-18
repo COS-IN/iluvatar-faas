@@ -96,7 +96,11 @@ impl RegistrationService {
     }
 
     /// Register a new function with workers
-    pub async fn register_function(&self, req: RegisterRequest, tid: &TransactionId) -> Result<()> {
+    pub async fn register_function(
+        &self,
+        req: RegisterRequest,
+        tid: &TransactionId,
+    ) -> Result<Arc<RegisteredFunction>> {
         let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
         if self.function_registered(&fqdn) {
             bail_error!(tid=tid, fqdn=%fqdn, "Function was already registered");
@@ -136,12 +140,10 @@ impl RegistrationService {
                     },
                 };
             }
-            // let function = Arc::new(function);
-            self.functions.insert(fqdn.clone(), function);
+            self.functions.insert(fqdn.clone(), function.clone());
+            info!(tid=tid, fqdn=%fqdn, "Function was registered");
+            Ok(function)
         }
-
-        info!(tid=tid, fqdn=%fqdn, "Function was registered");
-        Ok(())
     }
 
     /// Get a lock-free iterable over all the currently registered workers
