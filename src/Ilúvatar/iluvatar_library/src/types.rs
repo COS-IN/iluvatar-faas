@@ -330,6 +330,7 @@ pub trait ToAny: 'static {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 #[macro_export]
+/// Macro to make downcasting an object that implements [ToAny] take less code.
 macro_rules! downcast {
     ($item:expr, $cast_type:tt) => {
         $item.as_any().downcast_ref::<$cast_type>()

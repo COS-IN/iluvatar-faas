@@ -26,17 +26,17 @@ use tokio::time::Instant;
 
 // punt networking issue
 pub trait Wireable {}
-pub trait Bufferable: Wireable + ToAny {}
-impl<T: Wireable + ToAny> Bufferable for T {}
+pub trait Bufferable: Wireable + ToAny + Send + Sync {}
+impl<T: Wireable + ToAny + Send + Sync> Bufferable for T {}
 
 /// A pointer to a single item in a buffer.
-pub type BufferItem = Arc<(Instant, Box<dyn Bufferable>)>;
+pub type BufferItem = Arc<(Instant, Arc<dyn Bufferable>)>;
 
 /// Buffer storage for a single item.
 /// Assumes only one writer will exist.
 ///     If this is NOT the case, items may be out of order
 pub struct BufferVec {
-    data: Box<[Arc<RcuCell<(Instant, Box<dyn Bufferable>)>>]>,
+    data: Box<[Arc<RcuCell<(Instant, Arc<dyn Bufferable>)>>]>,
     /// Points to the bucket that will be inserted into *next* (future insertion)
     next_index: RwLock<usize>,
 }
@@ -63,7 +63,7 @@ impl BufferVec {
         }
     }
 
-    pub fn insert(&self, entry: Box<dyn Bufferable>) {
+    pub fn insert(&self, entry: Arc<dyn Bufferable>) {
         let mut idx = self.next_index.write();
         #[allow(clippy::arc_with_non_send_sync)]
         self.data[*idx].write(Arc::new((now(), entry)));
@@ -107,7 +107,7 @@ impl RingBuffer {
         }
     }
 
-    pub fn insert(&self, key: &str, item: Box<dyn Bufferable>) {
+    pub fn insert(&self, key: &str, item: Arc<dyn Bufferable>) {
         let r_lck = self.entries.read();
         if let Some(e) = r_lck.get(key) {
             e.insert(item);
@@ -163,14 +163,14 @@ mod buff_vec_tests {
     fn insert() {
         let b = BufferVec::new(10);
         for idx in 0..20 {
-            b.insert(Box::new(Item { idx }));
+            b.insert(Arc::new(Item { idx }));
         }
     }
     #[test]
     fn latest() {
         let b = BufferVec::new(10);
         for idx in 0..20 {
-            b.insert(Box::new(Item { idx }));
+            b.insert(Arc::new(Item { idx }));
             let item = b.latest();
             assert!(item.is_some());
             let item = item.unwrap();
@@ -186,7 +186,7 @@ mod buff_vec_tests {
     fn history() {
         let b = BufferVec::new(10);
         for idx in 0..20 {
-            b.insert(Box::new(Item { idx }));
+            b.insert(Arc::new(Item { idx }));
             sleep(Duration::from_millis(10));
         }
         let hist = b.history(Duration::from_millis(51));
@@ -202,6 +202,7 @@ mod buff_vec_tests {
 
 #[cfg(test)]
 mod ring_buff_tests {
+    use tokio::task::JoinHandle;
     use super::*;
     use crate::ToAny;
 
@@ -228,8 +229,68 @@ mod ring_buff_tests {
     #[test]
     fn insert() {
         let ring = RingBuffer::new(Duration::from_secs(60));
-        ring.insert(KEY, Box::new(Item{idx:0}));
+        ring.insert(KEY, Arc::new(Item{idx:0}));
         assert!(ring.latest(KEY).is_some());
         assert_eq!(ring.history(KEY, Duration::from_secs(60)).len(), 1);
+    }
+
+    fn reader(last_val: usize, buff: Arc<RingBuffer>) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut last = 0;
+            loop {
+                let item = buff.latest(KEY);
+                assert!(item.is_some());
+                let item = item.unwrap();
+                if let Some(i) = crate::downcast!(item.1, Item) {
+                    assert!(i.idx >= last);
+                    last = i.idx;
+                }
+                if last == last_val {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn read_write() {
+        let max = 20;
+        let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
+        let r2 = ring.clone();
+        ring.insert(KEY, Arc::new(Item{idx:0}));
+        let writer = tokio::spawn(async move {
+            for idx in 1..max {
+                ring.insert(KEY, Arc::new(Item { idx }));
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        });
+        let reader = reader(max-1, r2);
+        writer.await.unwrap();
+        reader.await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn readers_writer() {
+        let max = 20;
+        let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
+        ring.insert(KEY, Arc::new(Item{idx:0}));
+        let mut readers = vec![];
+        for _ in 0..3 {
+            let r2 = ring.clone();
+            readers.push(reader(max-1, r2));
+        }
+
+        let writer = tokio::spawn(async move {
+            for idx in 1..max {
+                ring.insert(KEY, Arc::new(Item { idx }));
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        });
+
+        writer.await.unwrap();
+        for r in readers {
+            r.await.unwrap();
+        }
     }
 }
