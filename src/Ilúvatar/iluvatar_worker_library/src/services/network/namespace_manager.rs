@@ -58,7 +58,7 @@ impl NamespaceManager {
                     Arc::new(Self::monitor_pool),
                 )?;
                 let ns = Arc::new(Self::new(config.clone(), Some(handle)));
-                tx.send(ns.clone()).unwrap();
+                tx.send(ns.clone())?;
                 ns
             },
         })

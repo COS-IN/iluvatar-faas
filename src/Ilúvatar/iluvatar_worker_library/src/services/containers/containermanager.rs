@@ -9,9 +9,10 @@ use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
 use dashmap::DashMap;
 use futures::Future;
-use iluvatar_library::threading::{tokio_notify_thread, tokio_sender_thread, tokio_thread, EventualItem};
+use iluvatar_library::ring_buff::{RingBuffer, Wireable};
+use iluvatar_library::threading::{tokio_logging_thread, tokio_notify_thread, tokio_sender_thread, EventualItem};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
-use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
+use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn, ToAny};
 use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::sync::{atomic::AtomicU32, Arc};
@@ -25,6 +26,14 @@ lazy_static::lazy_static! {
   pub static ref CTR_MGR_REMOVER_TID: TransactionId = "CtrMrgUnhealthyRemoved".to_string();
   pub static ref CTR_MGR_PRI_TID: TransactionId = "CtrMrgPriorities".to_string();
 }
+
+#[derive(ToAny)]
+pub struct ContainerMgrStat {
+    pub used_mem: MemSizeMb,
+    pub total_mem: MemSizeMb,
+    pub num_containers: u32,
+}
+impl Wireable for ContainerMgrStat {}
 
 /// Manage and control access to containers and system resources. CPU and GPU resource pools. Primary container state-tracking.
 pub struct ContainerManager {
@@ -56,13 +65,15 @@ impl ContainerManager {
         resources: Arc<ContainerResourceConfig>,
         cont_isolations: ContainerIsolationCollection,
         gpu_resources: Option<Arc<GpuResourceTracker>>,
+        ring_buff: &Arc<RingBuffer>,
         _tid: &TransactionId,
     ) -> Result<Arc<Self>> {
-        let (worker_handle, tx) = tokio_thread(
+        let (worker_handle, tx) = tokio_logging_thread(
             resources.pool_freq_ms,
             CTR_MGR_WORKER_TID.clone(),
+            ring_buff.clone(),
             ContainerManager::monitor_pool,
-        );
+        )?;
         let (health_handle, health_tx, del_ctr_tx) =
             tokio_sender_thread(CTR_MGR_REMOVER_TID.clone(), Arc::new(Self::cull_unhealthy));
         let pri_notif = Arc::new(Notify::new());
@@ -100,7 +111,7 @@ impl ContainerManager {
     }
 
     #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
-    async fn monitor_pool(self: &Arc<Self>, tid: &TransactionId) {
+    async fn monitor_pool(self: &Arc<Self>, tid: &TransactionId) -> Result<ContainerMgrStat> {
         self.update_memory_usages(tid).await;
         self.prioritiy_notify.notify_waiters();
         if self.resources.memory_buffer_mb > 0 {
@@ -113,6 +124,21 @@ impl ContainerManager {
                 };
             }
         }
+        let used_mem = self.used_memory();
+        let total_mem = self.total_memory();
+        let num_containers = self.num_containers();
+        info!(
+            tid = tid,
+            used_mem = used_mem,
+            total_mem = total_mem,
+            num_containers = num_containers,
+            "Container manager info"
+        );
+        Ok(ContainerMgrStat {
+            used_mem,
+            total_mem,
+            num_containers,
+        })
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, to_remove), fields(tid=tid)))]
@@ -758,7 +784,8 @@ mod tests {
             .get_isolation_services(&TEST_TID, false)
             .await
             .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
-        ContainerManager::boxed(cfg.container_resources.clone(), fac, None, &TEST_TID)
+        let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
+        ContainerManager::boxed(cfg.container_resources.clone(), fac, None, &ring, &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e))
     }

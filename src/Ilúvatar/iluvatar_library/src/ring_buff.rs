@@ -115,6 +115,17 @@ impl RingBuffer {
         }
     }
 
+    pub fn prepare_entry(&self, key: &str, insert_freq: Duration) -> anyhow::Result<()> {
+        let entries = self.default_time_keep.as_secs_f64() * (1.0 / insert_freq.as_secs_f64());
+        let buff = BufferVec::new(f64::ceil(entries) as usize);
+        let mut lck = self.entries.write();
+        if lck.contains_key(key) {
+            anyhow::bail!("Key {} already exists in RingBuffer", key);
+        }
+        lck.insert(key.to_owned(), buff);
+        Ok(())
+    }
+
     pub fn insert(&self, key: &str, item: Arc<dyn Bufferable>) {
         let r_lck = self.entries.read();
         if let Some(e) = r_lck.get(key) {
@@ -213,7 +224,10 @@ mod buff_vec_tests {
 #[cfg(test)]
 mod ring_buff_tests {
     use super::*;
+    use crate::threading::tokio_logging_thread;
+    use crate::transaction::gen_tid;
     use crate::ToAny;
+    use iluvatar_library::transaction::TransactionId;
     use tokio::task::JoinHandle;
 
     const KEY: &str = "KEY";
@@ -227,6 +241,32 @@ mod ring_buff_tests {
     #[test]
     fn build() {
         let _ = RingBuffer::new(Duration::from_secs(60));
+    }
+
+    #[rstest::rstest]
+    #[case(100, 60)]
+    #[case(200, 60)]
+    #[case(500, 60)]
+    #[case(1000, 60)]
+    #[case(2000, 60)]
+    #[case(100, 30)]
+    #[case(200, 30)]
+    #[case(500, 30)]
+    #[case(1000, 30)]
+    #[case(2000, 30)]
+    fn compute_entries(#[case] keep_time: u64, #[case] freq: u64) {
+        let ring = RingBuffer::new(Duration::from_secs(keep_time));
+        assert!(ring.latest(KEY).is_none());
+        ring.prepare_entry(KEY, Duration::from_millis(freq)).unwrap();
+        assert!(ring.latest(KEY).is_none());
+        let entries = ring
+            .entries
+            .read()
+            .get(KEY)
+            .expect("Entry should have been made")
+            .data
+            .len();
+        assert_eq!(entries, f64::ceil(keep_time as f64 * (1000.0 / freq as f64)) as usize);
     }
 
     #[test]
@@ -301,6 +341,36 @@ mod ring_buff_tests {
         writer.await.unwrap();
         for r in readers {
             r.await.unwrap();
+        }
+    }
+
+    struct Logger {}
+    impl Logger {
+        pub async fn call(self: &Arc<Self>, _tid: &TransactionId) -> anyhow::Result<Item> {
+            Ok(Item { idx: 0xBADCAFE })
+        }
+    }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    /// And End-to-end test of how callees will use RingBuffer, from a periodically called Tokio thread.
+    async fn background_writer() {
+        let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
+        let writer = Arc::new(Logger {});
+        let key = gen_tid();
+        let (_hand, t) = tokio_logging_thread(20, key.clone(), ring.clone(), Logger::call).unwrap();
+        t.send(writer)?;
+        let start = now();
+        loop {
+            if start.elapsed() > Duration::from_secs(10) {
+                panic!("failed to find item after 10 seconds");
+            }
+            let item = ring.latest(&key);
+            if let Some(i) = item {
+                if let Some(i) = crate::downcast!(i.1, Item) {
+                    assert_eq!(i.idx, 0xBADCAFE);
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
 }

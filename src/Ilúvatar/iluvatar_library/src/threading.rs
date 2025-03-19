@@ -59,6 +59,7 @@ pub fn os_thread<T: Send + Sync + 'static>(
     Ok((handle, tx))
 }
 
+/// Compiler hack to make the borrow checker happy about us passing async closures around
 pub trait Hack<'a, I: 'a, I2: 'a, R>: Fn(&'a I, &'a I2) -> Self::Fut {
     type Fut: Future<Output = R> + Send + 'a;
 }
@@ -77,14 +78,12 @@ pub fn tokio_logging_thread<F, S, L>(
     call_ms: u64,
     tid: TransactionId,
     ring_buff: Arc<RingBuffer>,
-    _message: String,
-    _log_level: tracing::Level,
     function: F,
-) -> (TokioHandle<()>, Sender<Arc<S>>)
+) -> anyhow::Result<(TokioHandle<()>, Sender<Arc<S>>)>
 where
     L: Bufferable + 'static,
     S: Send + Sync + 'static,
-    F: for<'a> Hack<'a, Arc<S>, TransactionId, L> + Send + 'static,
+    F: for<'a> Hack<'a, Arc<S>, TransactionId, anyhow::Result<L>> + Send + 'static,
 {
     let (tx, rx) = channel();
     let td = async move {
@@ -100,8 +99,12 @@ where
         while crate::continuation::GLOB_CONT_CHECK.check_continue() {
             tracing::trace!(tid = tid, "Executing");
             let start = now();
-            let t = function(&service, &tid).await;
-            ring_buff.insert("", Arc::new(t));
+            match function(&service, &tid).await {
+                Ok(l) => ring_buff.insert(&tid, Arc::new(l)),
+                Err(e) => {
+                    error!(tid=tid, error=%e, typename=%std::any::type_name::<S>(), "Background logging thread error")
+                },
+            }
             let sleep_t = sleep_time(call_ms, start, &tid);
             tracing::trace!(tid = tid, "Completed");
             tokio::time::sleep(Duration::from_millis(sleep_t)).await;
@@ -110,7 +113,7 @@ where
     };
     #[cfg(feature = "full_spans")]
     let td = td.instrument(Span::current());
-    (tokio::spawn(td), tx)
+    Ok((tokio::spawn(td), tx))
 }
 
 /// Start an async function inside a Tokio worker thread.

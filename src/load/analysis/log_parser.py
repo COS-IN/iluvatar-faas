@@ -1,11 +1,12 @@
 import json
+from string import whitespace
 from typing import List, Tuple, Optional, Dict, Set
 from collections import defaultdict
 import os, pickle
 import numpy as np
 import pandas
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from copy import deepcopy
 from multiprocessing import Pool
 from functools import reduce
@@ -700,7 +701,7 @@ class FullJsonMergeParser(BaseParser):
         )
         return start, finish
 
-    def get_compute(self, invoke):
+    def get_compute(self, invoke, tid):
         if self.main_parser.target == RunTarget.WORKER:
             compute = invoke["worker_response"]["compute"]
         else:
@@ -715,7 +716,7 @@ class FullJsonMergeParser(BaseParser):
         else:
             raise Exception(f"Unknown compute '{compute}' for '{tid}'")
 
-    def get_container_state(self, invoke):
+    def get_container_state(self, invoke, tid):
         if self.main_parser.target == RunTarget.WORKER:
             state = invoke["worker_response"]["container_state"]
         else:
@@ -737,8 +738,8 @@ class FullJsonMergeParser(BaseParser):
         data = []
         for invoke in self.main_parser.json_data:
             tid = invoke["tid"]
-            compute = self.get_compute(invoke)
-            state = self.get_container_state(invoke)
+            compute = self.get_compute(invoke, tid)
+            state = self.get_container_state(invoke, tid)
             start, finish = self.get_start_and_finish(invoke)
             data.append((tid, compute, state, start, finish))
         full_df = pd.DataFrame.from_records(
@@ -819,6 +820,7 @@ class EstTimeParser(BaseParser):
     }
 
 
+# TODO: re-write this now that logging status information has been balkanized
 @WorkerLogParser.register_parser
 class StatusParser(BaseParser):
     def __init__(self, main_parser: WorkerLogParser):

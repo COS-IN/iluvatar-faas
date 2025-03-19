@@ -4,12 +4,14 @@ use crate::{
 };
 use anyhow::Result;
 use dashmap::DashMap;
+use iluvatar_library::ring_buff::{RingBuffer, Wireable};
+use iluvatar_library::threading::tokio_logging_thread;
 use iluvatar_library::{
     bail_error,
-    threading::tokio_thread,
     transaction::TransactionId,
     types::{DroppableToken, MemSizeMb},
     utils::{execute_cmd_checked, execute_cmd_checked_async, missing_or_zero_default},
+    ToAny,
 };
 use nvml_wrapper::{error::NvmlError, Nvml};
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
@@ -85,6 +87,9 @@ pub struct GpuStatus {
     /// Estimated utilization manually tracked by service to account for newly launched functions
     pub est_utilization_gpu: f64,
 }
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone, ToAny)]
+pub struct GpuStatVec(Vec<GpuStatus>);
+impl Wireable for GpuStatVec {}
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct GpuParseStatus {
     pub gpu_uuid: GpuUuid,
@@ -294,6 +299,7 @@ impl GpuResourceTracker {
         tid: &TransactionId,
         docker: &Option<&Arc<dyn ContainerIsolationService>>,
         status_config: &Arc<crate::worker_api::worker_config::StatusConfig>,
+        ring_buff: &Arc<RingBuffer>,
     ) -> Result<Option<Arc<Self>>> {
         if let Some(config) = resources.clone() {
             if config.count == 0 {
@@ -331,11 +337,12 @@ impl GpuResourceTracker {
                     },
                 };
             }
-            let (handle, tx) = tokio_thread(
+            let (handle, tx) = tokio_logging_thread(
                 missing_or_zero_default(&config.status_update_freq_ms, status_config.report_freq_ms),
                 GPU_RESC_TID.to_owned(),
+                ring_buff.clone(),
                 Self::gpu_utilization,
-            );
+            )?;
             let mut stat_vec = vec![];
             for struc in gpu_structs.iter() {
                 let first = struc
@@ -914,10 +921,11 @@ impl GpuResourceTracker {
 
     /// get the utilization of GPUs on the system
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn smi_gpu_utilization(&self, tid: &TransactionId) {
+    async fn smi_gpu_utilization(&self, tid: &TransactionId) -> Result<Vec<GpuStatus>> {
+        let mut ret: Vec<GpuStatus> = vec![];
         if !std::path::Path::new("/usr/bin/nvidia-smi").exists() {
             trace!(tid = tid, "nvidia-smi not found, not checking GPU utilization");
-            return;
+            return Ok(ret);
         }
         let args = vec![
             "--query-gpu=gpu_uuid,pstate,memory.total,memory.used,utilization.gpu,utilization.memory,power.draw,power.limit",
@@ -927,11 +935,10 @@ impl GpuResourceTracker {
             Ok(r) => r,
             Err(e) => {
                 error!(tid=tid, error=%e, "Failed to call nvidia-smi");
-                return;
+                return Err(e);
             },
         };
         let is_empty = (*self.status_info.read()).is_empty();
-        let mut ret: Vec<GpuStatus> = vec![];
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
             .delimiter(b',')
@@ -952,6 +959,7 @@ impl GpuResourceTracker {
                                     0
                                 };
                                 stat.update(rec, running);
+                                ret.push(stat.clone());
                                 break;
                             }
                         }
@@ -963,15 +971,12 @@ impl GpuResourceTracker {
                 },
             }
         }
-        if is_empty {
-            debug!(tid = tid, "Setting GPU status info for first time");
-            *self.status_info.write() = ret;
-        }
+        Ok(ret)
     }
 
     #[cfg(target_os = "linux")]
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn nvml_gpu_utilization(&self, nvml: &Nvml, tid: &TransactionId) -> Result<(), NvmlError> {
+    async fn nvml_gpu_utilization(&self, nvml: &Nvml, _tid: &TransactionId) -> Result<Vec<GpuStatus>, NvmlError> {
         let is_empty = (*self.status_info.read()).is_empty();
         let mut ret: Vec<GpuStatus> = vec![];
         let dev_count = nvml.device_count()?;
@@ -1003,18 +1008,15 @@ impl GpuResourceTracker {
                         0
                     };
                     lck[i as usize].update(stat, running);
+                    ret.push(lck[i as usize].clone());
                 }
             }
         }
-        if is_empty {
-            debug!(tid = tid, "Setting GPU status info for first time");
-            *self.status_info.write() = ret;
-        }
-        Ok(())
+        Ok(ret)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn simulation_gpu_util(&self, _tid: &TransactionId) {
+    async fn simulation_gpu_util(&self, _tid: &TransactionId) -> Result<Vec<GpuStatus>> {
         let mut status: Vec<GpuStatus> = vec![];
         // TODO: proper GPU utilization
         for (_gpu_id, metadata) in self.gpu_metadata.iter() {
@@ -1024,22 +1026,27 @@ impl GpuResourceTracker {
                 metadata.max_running - metadata.sem.available_permits() as u32,
             ));
         }
-        *self.status_info.write() = status;
+        Ok(status)
     }
 
     /// get the utilization of GPUs on the system
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn gpu_utilization(self: &Arc<Self>, tid: &TransactionId) {
-        if iluvatar_library::utils::is_simulation() {
+    async fn gpu_utilization(self: &Arc<Self>, tid: &TransactionId) -> Result<GpuStatVec> {
+        let status = if iluvatar_library::utils::is_simulation() {
             self.simulation_gpu_util(tid).await
         } else if let Some(nvml) = &self.nvml {
-            if let Err(e) = self.nvml_gpu_utilization(nvml, tid).await {
-                error!(tid=tid, error=%e, "Error using NVML to query device utilization");
-                self.smi_gpu_utilization(tid).await
+            match self.nvml_gpu_utilization(nvml, tid).await {
+                Ok(s) => Ok(s),
+                Err(e) => {
+                    error!(tid=tid, error=%e, "Error using NVML to query device utilization");
+                    self.smi_gpu_utilization(tid).await
+                },
             }
         } else {
             self.smi_gpu_utilization(tid).await
-        }
+        }?;
+        *self.status_info.write() = status.clone();
+        Ok(GpuStatVec(status))
     }
 
     /// get the utilization of GPUs on the system

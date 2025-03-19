@@ -8,14 +8,17 @@ use crate::services::{
     containers::structs::{ContainerState, ParsedResult},
     registration::RegisteredFunction,
 };
+use crate::worker_api::config::StatusConfig;
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use dispatching::queueing_dispatcher::QueueingDispatcher;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::Clock;
+use iluvatar_library::ring_buff::{RingBuffer, Wireable};
 use iluvatar_library::tput_calc::DeviceTput;
 use iluvatar_library::{transaction::TransactionId, types::Compute};
 use parking_lot::Mutex;
+use std::fmt::Display;
 use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::time::Instant;
@@ -37,7 +40,18 @@ pub struct QueueLoad {
     pub load_avg: f64,
     pub tput: f64,
 }
-pub type InvokerLoad = std::collections::HashMap<Compute, QueueLoad>;
+#[derive(iluvatar_library::ToAny, Debug, serde::Serialize)]
+pub struct InvokerLoad(pub std::collections::HashMap<Compute, QueueLoad>);
+impl Wireable for InvokerLoad {}
+impl Display for InvokerLoad {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match serde_json::to_string::<std::collections::HashMap<Compute, QueueLoad>>(&self.0) {
+            Ok(s) => s,
+            Err(_e) => return Err(std::fmt::Error {}),
+        };
+        write!(f, "{}", s)
+    }
+}
 
 #[tonic::async_trait]
 /// A trait representing the functionality a queue policy must implement
@@ -72,6 +86,8 @@ pub struct InvokerFactory {
     gpu_resources: Option<Arc<GpuResourceTracker>>,
     gpu_config: Option<Arc<GPUResourceConfig>>,
     reg: Arc<RegistrationService>,
+    rin_buff: Arc<RingBuffer>,
+    config: Arc<StatusConfig>,
     #[cfg(feature = "power_cap")]
     energy: Arc<EnergyLimiter>,
 }
@@ -85,6 +101,8 @@ impl InvokerFactory {
         gpu_resources: Option<Arc<GpuResourceTracker>>,
         gpu_config: Option<Arc<GPUResourceConfig>>,
         reg: &Arc<RegistrationService>,
+        rin_buff: &Arc<RingBuffer>,
+        config: &Arc<StatusConfig>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Self {
         InvokerFactory {
@@ -95,6 +113,8 @@ impl InvokerFactory {
             gpu_resources,
             gpu_config,
             reg: reg.clone(),
+            rin_buff: rin_buff.clone(),
+            config: config.clone(),
             #[cfg(feature = "power_cap")]
             energy,
         }
@@ -110,6 +130,8 @@ impl InvokerFactory {
             self.gpu_resources.clone(),
             &self.gpu_config,
             &self.reg,
+            &self.rin_buff,
+            &self.config,
             #[cfg(feature = "power_cap")]
             self.energy.clone(),
         )?;

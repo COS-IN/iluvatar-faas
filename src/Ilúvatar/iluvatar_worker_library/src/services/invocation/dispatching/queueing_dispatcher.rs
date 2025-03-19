@@ -13,10 +13,13 @@ use crate::services::invocation::{
 };
 use crate::services::registration::{RegisteredFunction, RegistrationService};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
+use crate::worker_api::config::StatusConfig;
 use crate::worker_api::worker_config::{GPUResourceConfig, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, Clock};
+use iluvatar_library::ring_buff::RingBuffer;
+use iluvatar_library::threading::tokio_logging_thread;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
 use ordered_float::OrderedFloat;
 use parking_lot::{Mutex, RwLock};
@@ -30,6 +33,7 @@ lazy_static::lazy_static! {
   pub static ref INVOKER_CPU_QUEUE_WORKER_TID: TransactionId = "InvokerCPUQueue".to_string();
   pub static ref INVOKER_GPU_QUEUE_WORKER_TID: TransactionId = "InvokerGPUQueue".to_string();
 }
+pub const DISPATCHER_INVOKER_LOG_TID: &str = "DISPATCHER_INVOKER_LOG";
 
 pub trait DispatchPolicy: Send + Sync {
     /// Returns the selected device to enqueue the function's invocation, the load on that device, and est completion time on it.
@@ -114,6 +118,8 @@ impl QueueingDispatcher {
         gpu: Option<Arc<GpuResourceTracker>>,
         gpu_config: &Option<Arc<GPUResourceConfig>>,
         reg: &Arc<RegistrationService>,
+        rin_buff: &Arc<RingBuffer>,
+        config: &Arc<StatusConfig>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
         let cpu_q = Self::get_invoker_queue(
@@ -131,6 +137,12 @@ impl QueueingDispatcher {
         {
             que_map.insert(Compute::GPU, gpu_q);
         }
+        let (_handle, rx) = tokio_logging_thread(
+            config.report_freq_ms,
+            DISPATCHER_INVOKER_LOG_TID.to_string(),
+            rin_buff.clone(),
+            Self::log_queue_info,
+        )?;
 
         let policy = Self::get_dispatch_algo(&invocation_config, cmap.clone(), que_map.clone(), &gpu, reg, tid)?;
         let svc = Arc::new(QueueingDispatcher {
@@ -143,6 +155,7 @@ impl QueueingDispatcher {
             cmap,
             gpu_config: gpu_config.clone(),
         });
+        rx.send(svc.clone())?;
         debug!(tid = tid, "Created QueueingInvoker");
         Ok(svc)
     }
@@ -210,6 +223,12 @@ impl QueueingDispatcher {
             },
             None => anyhow::bail!("GPU queue was not specified"),
         }
+    }
+
+    async fn log_queue_info(self: &Arc<Self>, tid: &TransactionId) -> Result<InvokerLoad> {
+        let queue_lengths = self.queue_len();
+        info!(tid=tid, num_running_funcs=self.running_funcs(), queue_info=%queue_lengths, "current queue info");
+        Ok(queue_lengths)
     }
 
     fn make_enqueue(
@@ -990,7 +1009,7 @@ impl Invoker for QueueingDispatcher {
 
     /// The queue length of both CPU and GPU queues
     fn queue_len(&self) -> InvokerLoad {
-        self.que_map.iter().map(|q| (*q.0, q.1.queue_load())).collect()
+        InvokerLoad(self.que_map.iter().map(|q| (*q.0, q.1.queue_load())).collect())
     }
 
     /// The number of functions currently running

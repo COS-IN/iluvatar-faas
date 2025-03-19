@@ -329,6 +329,7 @@ pub enum HealthStatus {
 pub trait ToAny: 'static {
     fn as_any(&self) -> &dyn std::any::Any;
 }
+
 #[macro_export]
 /// Macro to make downcasting an object that implements [ToAny] take less code.
 macro_rules! downcast {

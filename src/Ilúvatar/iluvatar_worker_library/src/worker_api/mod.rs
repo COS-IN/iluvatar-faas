@@ -5,8 +5,8 @@ use crate::services::influx_updater::InfluxUpdater;
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::InvokerFactory;
 use crate::services::registration::RegistrationService;
+use crate::services::resources::cpu::{build_load_avg_signal, get_cpu_mon};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
-use crate::services::status::status_service::{build_load_avg_signal, StatusService};
 use crate::services::worker_health::WorkerHealthService;
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
 use anyhow::Result;
@@ -16,6 +16,8 @@ use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::{bail_error, transaction::TransactionId};
 use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, ListFunctionResponse, StatusResponse};
+use std::sync::Arc;
+use std::time::Duration;
 
 pub mod worker_config;
 pub use worker_config as config;
@@ -26,6 +28,7 @@ pub mod worker_comm;
 
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
     let cmap = worker_char_map();
+    let buff = Arc::new(iluvatar_library::ring_buff::RingBuffer::new(Duration::from_secs(60)));
 
     let factory = IsolationFactory::new(worker_config.clone(), cmap.clone());
     let load_avg = build_load_avg_signal();
@@ -42,6 +45,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         tid,
         &isos.get(&Isolation::DOCKER),
         &worker_config.status,
+        &buff,
     )
     .await
     .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make GPU resource tracker"))?;
@@ -50,6 +54,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         worker_config.container_resources.clone(),
         isos.clone(),
         gpu_resource.clone(),
+        &buff,
         tid,
     )
     .await
@@ -75,44 +80,37 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         container_man.clone(),
         worker_config.invocation.clone(),
         cmap.clone(),
-        cpu,
+        cpu.clone(),
         gpu_resource.clone(),
         worker_config.container_resources.gpu_resource.clone(),
         &reg,
+        &buff,
+        &worker_config.status,
         #[cfg(feature = "power_cap")]
         energy_limit.clone(),
     );
     let invoker = invoker_fact
         .get_invoker_service(tid)
         .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to get invoker service"))?;
+    let cpu_mon = get_cpu_mon(
+        &worker_config.status,
+        &buff,
+        cpu.cores as u32,
+        load_avg.clone(),
+        invoker.clone(),
+        tid,
+    )?;
     let health = WorkerHealthService::boxed(worker_config.clone(), invoker.clone(), reg.clone(), isos.clone(), tid)
         .await
         .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make worker health service"))?;
-    let status = StatusService::boxed(
-        container_man.clone(),
-        worker_config.name.clone(),
-        tid,
-        worker_config.status.clone(),
-        invoker.clone(),
-        gpu_resource.clone(),
-        load_avg,
-        &worker_config.container_resources,
-    )
-    .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make status service"))?;
 
     let influx_updater = match &worker_config.influx {
         Some(i_config) => {
             let client = InfluxClient::new(i_config.clone(), tid)
                 .await
                 .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make influx client"))?;
-            InfluxUpdater::boxed(
-                client,
-                i_config.clone(),
-                status.clone(),
-                worker_config.name.clone(),
-                tid,
-            )
-            .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make influx updater"))?
+            InfluxUpdater::boxed(client, i_config.clone(), &buff, worker_config.name.clone(), tid)
+                .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make influx updater"))?
         },
         None => None,
     };
@@ -121,7 +119,6 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         worker_config,
         container_man,
         invoker,
-        status,
         health,
         energy,
         cmap,
@@ -129,6 +126,8 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         influx_updater,
         gpu_resource,
         isos,
+        cpu_mon,
+        buff,
     ))
 }
 
