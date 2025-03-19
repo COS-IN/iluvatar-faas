@@ -1,55 +1,65 @@
-#+TITLE: Iluvatar: A Fast Control Plane for Serverless Computing
+#+TITLE: Iluvatar: Fast and Extensible Local Serverless Computing
 
 #+OPTIONS: toc:nil 
 
-** What is Iluvatar?
+# ** What is Iluvatar?
 
-Iluvatar provides a platform for Functions as a Service. It is a control-plane which orchestrates the execution of serverless functions.
+# Iluvatar provides a platform for Functions as a Service. It is a control-plane which orchestrates the execution of serverless functions.
 
-Understanding and optimizing the various facets of FaaS deployments, such as scheduling, load-balancing, containerization.
+# Understanding and optimizing the various facets of FaaS deployments, such as scheduling, load-balancing, containerization.
 
-Iluvatar is a platform for the performance engineering and analysis of FaaS workloads. Among its unique features, it supports a simulation container backend with discrete-event simulator. 
+# Iluvatar is a platform for the performance engineering and analysis of FaaS workloads. Among its unique features, it supports a simulation container backend with discrete-event simulator. 
 
-It is implemented in Rust, and designed with e
+# It is implemented in Rust, and designed with e
 
-Iluvatar is a state-of-art 
+# Iluvatar is a state-of-art 
 
-*** What's with the name?
-
-
-** Why are FaaS platforms interesting? 
-
-*** FaaS 
-Functions as a Service (FaaS) is an extremely popular and powerful way to deploy and scale cloud applications. For example, if you want to host a web service which...
-
-FaaS has a large number of use-cases, such as . . .
-
-*** FaaS platforms 
-
-FaaS moves all the complexity of deploying and scaling applications to the FaaS provider. FaaS platforms manage the server resources, and have to orchestrate a large number of containerized functions.
+# *** What's with the name?
 
 
-FaaS platforms like 
-
-This guide is targeted for users interested in using Iluvatar as a FaaS platform
-
-*** Relation to container orchestration platforms like Kubernetes
+# ** Why are FaaS platforms interesting? 
 
 
-*** How is Iluvatar different from other FaaS frameworks like OpenWhisk?
+Serverless platforms like AWS Lambda provide a convenient and powerful way to deploy and scale cloud-native applications.
+With a few lines of code (often an HTTP-triggered function), users can write services for machine learning, IoT, web services, etc.
 
+Iluvatar provides performance-optimized /local/ serverless computing---functions run on your computing baremetal or virtualized hardware. It is the software "control plane" for handling function invocations, and it orchestrates their containerization, scheduling, etc. Iluvatar is the culmination and testing-ground of bleeding-edge FaaS research, and incorporates performance optimizations for function scheduling and reducing cold-starts. Compared to other FaaS platforms like OpenWhisk, it provides more than 100x reduction in function latency. 
 
+Iluvatar was designed with two main intentions:
+1. Provide performance and energy optimized local serverless computing on heterogeneous hardware (GPUs).
+2. Provide a research platform for developing and evaluating serverless resource-management techniques such as container keep-alive, scheduling, load-balancing, GPU multiplexing, etc. 
 
-** Getting-started 
+* Highlights
 
-*** Invoke a registered function
+** Low overhead and function latency
+   With careful design and its Rust implementation, we can reduce the function latencies by more than 100x compared to OpenWhisk and other FaaS platforms.
+   
+** Containerd and Docker isolation
+   Iluvatar provides an isolated FaaS abstraction: each function runs in its containerized sandbox. Warm containers are reused across non-overlapping invocations to reduce the container and function initialization time. 
 
-*** Create a function
+** Simple worker-centric design
+   Distributed container orchestration platforms like Kubernetes require 100s of milliseconds to run functions inside containers. 
 
-*** Set up an Iluvatar worker
-
+** GPU functions 
+   
+** In-situ simulation
 
 ** Performance engineering and analysis
+
+
+
+
+* Getting-started 
+
+** Invoke a registered function
+
+** Create and deploy your function
+
+** Set-up Iluvatar
+
+
+
+* Performance engineering and analysis
 
 - load testing
 - log parsing
@@ -58,7 +68,16 @@ This guide is targeted for users interested in using Iluvatar as a FaaS platform
 - Simulation-mode
 - 
 
-** Architecture and key components
+* Architecture and key components
+
+*Worker*: Each physical or virtual server runs the [[file:src/Ilúvatar/iluvatar_worker/src/main.rs][worker-daemon]], which manages the containerization, invocation queueing, keep-alive, logging, etc. The [[file:src/Ilúvatar/iluvatar_worker/src/worker.json][worker.json]] configuration file has the key knobs for controlling container properties, scheduling, worker IP address and port, logging, etc.
+
+For interacting with the worker, you can use the [[file:src/Ilúvatar/iluvatar_worker_cli/src/commands.rs][CLI]], which has a one-to-one mapping with the worker API, with functions like ping, invoke, invoke_async, prewarm, register, etc. 
+
+The [[file:src/Ilúvatar/iluvatar_controller/src/main.rs][controller]] acts as the front-end, and performs load-balancing. Iluvatar is a worker-centric architecture, and you can run a worker without the controller. The worker's external API is identical to the controller. 
+
+The worker library has all the interesting implementation for the containerization and scheduling optimizations.
+
 
 *** Pure FaaS: Strict Isolation
 
@@ -77,7 +96,7 @@ This guide is targeted for users interested in using Iluvatar as a FaaS platform
 2. Ansible [Parameters to select policies, etc] 
 3. 
 
-** Contribute
+* Contribute
 - List of some open implementation issues: TODO
 - List of github issues
 
