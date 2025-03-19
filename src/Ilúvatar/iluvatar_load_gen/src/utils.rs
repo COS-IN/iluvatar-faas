@@ -590,14 +590,18 @@ pub fn save_result_json<P: AsRef<Path> + std::fmt::Debug, T: Serialize>(path: P,
     Ok(())
 }
 
-pub fn start_logging(path: &str, stdout: bool) -> anyhow::Result<impl Drop> {
-    let overrides = vec![
-        ("directory".to_string(), path.to_string()),
-        ("basename".to_string(), "load_gen".to_string()),
-        ("stdout".to_string(), stdout.to_string()),
-    ];
-    let log_cfg = iluvatar_library::config::load_config::<LoggingConfig>(None, None, Some(overrides), LOAD_GEN_PREFIX)?;
-    iluvatar_library::logging::start_tracing(&Arc::new(log_cfg), &"LOAD_GEN_MAIN".to_string())
+pub fn start_logging(path: &str, stdout: bool) -> Result<impl Drop> {
+    let cfg = LoggingConfig {
+        level: std::env::var(format!("{}__level", LOAD_GEN_PREFIX)).unwrap_or("info".to_string()),
+        directory: path.to_string(),
+        stdout: Some(stdout),
+        basename: "load_gen".to_string(),
+        spanning: "NONE".to_string(),
+        flame: "".to_string(),
+        span_energy_monitoring: false,
+        include_spans_json: false,
+    };
+    iluvatar_library::logging::start_tracing(&Arc::new(cfg), &"LOAD_GEN_MAIN".to_string())
 }
 
 pub fn wrap_logging<T>(
