@@ -2,6 +2,7 @@ use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::ContainerIsolationCollection;
 use crate::services::influx_updater::InfluxUpdater;
 use crate::services::invocation::Invoker;
+use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::GpuResourceTracker;
 use crate::services::status::status_service::StatusService;
 use crate::services::{registration::RegistrationService, worker_health::WorkerHealthService};
@@ -65,6 +66,7 @@ pub struct IluvatarWorkerImpl {
     pub gpu: Option<Arc<GpuResourceTracker>>,
     isolations: ContainerIsolationCollection,
     iats: IatTracker,
+    cpu: Arc<CpuResourceTracker>,
 }
 
 impl IluvatarWorkerImpl {
@@ -80,6 +82,7 @@ impl IluvatarWorkerImpl {
         updater: Option<Arc<InfluxUpdater>>,
         gpu: Option<Arc<GpuResourceTracker>>,
         isolations: ContainerIsolationCollection,
+        cpu: Arc<CpuResourceTracker>,
     ) -> IluvatarWorkerImpl {
         IluvatarWorkerImpl {
             container_manager,
@@ -94,6 +97,7 @@ impl IluvatarWorkerImpl {
             gpu,
             isolations,
             iats: IatTracker::new(),
+            cpu,
         }
     }
 
@@ -347,10 +351,9 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     ) -> Result<Response<ListFunctionResponse>, Status> {
         let request = request.into_inner();
         info!(tid=%request.transaction_id, "Handling list registered functions request");
-        let funcs: Vec<Arc<crate::services::registration::RegisteredFunction>> =
-            self.reg.get_all_registered_functions();
+        let funcs = self.reg.get_all_registered_functions();
         let rpc_funcs = funcs
-            .iter()
+            .values()
             .map(|func| RegisteredFunction {
                 function_name: func.function_name.clone(),
                 function_version: func.function_version.clone(),
@@ -365,12 +368,35 @@ impl IluvatarWorker for IluvatarWorkerImpl {
 
     async fn est_invoke_time(&self, request: Request<EstInvokeRequest>) -> Result<Response<EstInvokeResponse>, Status> {
         let request = request.into_inner();
-        Ok(Response::new(EstInvokeResponse {
-            est_time: request
-                .fqdns
-                .iter()
-                .map(|fqdn| match self.reg.get_registration(fqdn) {
-                    Some(r) => self.invoker.est_e2e_time(&r, &request.transaction_id),
+        // TODO: this logic doesn't consider GPU exhaustion/queuing
+        // TODO: this logic should be replaced when we have true system simulation
+        let mut open_cpus = self.cpu.available_cores();
+        let mut func_cache = None;
+        if request.fqdns.len() >= self.reg.num_registered() / 2 {
+            // avoid many calls to reg service, get all registrations even if we don't need them
+            func_cache = Some(self.reg.get_all_registered_functions());
+        }
+        // some value to simulate "queue time" if we don't have enough CPUs
+        let mut queue_time = 0.0;
+        let est_time = request
+            .fqdns
+            .iter()
+            .map(|fqdn| {
+                match func_cache
+                    .as_ref()
+                    .map_or_else(|| self.reg.get_registration(fqdn), |c| c.get(fqdn).cloned())
+                {
+                    Some(r) => {
+                        let t = self.invoker.est_e2e_time(&r, &request.transaction_id);
+                        queue_time += t;
+                        if open_cpus > 0 {
+                            open_cpus -= 1;
+                            t
+                        } else {
+                            // simulate increasing amount of queue time
+                            t + (queue_time / self.cpu.cores)
+                        }
+                    },
                     None => {
                         error!(
                             tid = request.transaction_id,
@@ -379,8 +405,9 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                         );
                         0.0
                     },
-                })
-                .collect(),
-        }))
+                }
+            })
+            .collect();
+        Ok(Response::new(EstInvokeResponse { est_time }))
     }
 }

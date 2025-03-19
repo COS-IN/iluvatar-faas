@@ -193,15 +193,19 @@ impl RegistrationService {
         Ok(ret)
     }
 
-    pub fn registered_funcs(&self) -> Vec<String> {
+    pub fn registered_fqdns(&self) -> Vec<String> {
         self.reg_map.read().keys().cloned().collect()
+    }
+
+    pub fn num_registered(&self) -> usize {
+        self.reg_map.read().len()
     }
 
     pub fn get_registration(&self, fqdn: &str) -> Option<Arc<RegisteredFunction>> {
         self.reg_map.read().get(fqdn).cloned()
     }
 
-    pub fn get_all_registered_functions(&self) -> Vec<Arc<RegisteredFunction>> {
-        self.reg_map.read().values().cloned().collect()
+    pub fn get_all_registered_functions(&self) -> HashMap<String, Arc<RegisteredFunction>> {
+        self.reg_map.read().clone()
     }
 }

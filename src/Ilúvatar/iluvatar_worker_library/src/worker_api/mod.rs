@@ -76,7 +76,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         worker_config.limits.clone(),
         worker_config.invocation.clone(),
         cmap.clone(),
-        cpu,
+        cpu.clone(),
         gpu_resource.clone(),
         worker_config.container_resources.gpu_resource.clone(),
         &reg,
@@ -130,6 +130,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         influx_updater,
         gpu_resource,
         isos,
+        cpu,
     ))
 }
 
