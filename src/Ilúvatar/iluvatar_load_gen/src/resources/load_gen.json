@@ -1,0 +1,8 @@
+{
+  "level": "info",
+  "directory": "/tmp/iluvatar/logs",
+  "basename": "load_gen",
+  "spanning": "NONE",
+  "flame": "",
+  "span_energy_monitoring": false
+}
