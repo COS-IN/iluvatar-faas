@@ -595,11 +595,11 @@ pub fn start_logging(path: &str, stdout: bool) -> Result<impl Drop> {
         ("stdout".to_string(), stdout.to_string()),
     ]);
     let log_cfg = iluvatar_library::load_config_default!(
-                "iluvatar_load_gen/src/resources/load_gen.json",
-                None,
-                overrides,
-                LOAD_GEN_PREFIX
-            )?;
+        "iluvatar_load_gen/src/resources/load_gen.json",
+        None,
+        overrides,
+        LOAD_GEN_PREFIX
+    )?;
     iluvatar_library::logging::start_tracing(&Arc::new(log_cfg), &"LOAD_GEN_MAIN".to_string())
 }
 
