@@ -3,7 +3,6 @@ use crate::LOAD_GEN_PREFIX;
 use anyhow::{Context, Result};
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::clock::{now, Clock};
-use iluvatar_library::logging::LoggingConfig;
 use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
@@ -591,17 +590,17 @@ pub fn save_result_json<P: AsRef<Path> + std::fmt::Debug, T: Serialize>(path: P,
 }
 
 pub fn start_logging(path: &str, stdout: bool) -> Result<impl Drop> {
-    let cfg = LoggingConfig {
-        level: std::env::var(format!("{}__level", LOAD_GEN_PREFIX)).unwrap_or("info".to_string()),
-        directory: path.to_string(),
-        stdout: Some(stdout),
-        basename: "load_gen".to_string(),
-        spanning: "NONE".to_string(),
-        flame: "".to_string(),
-        span_energy_monitoring: false,
-        include_spans_json: false,
-    };
-    iluvatar_library::logging::start_tracing(&Arc::new(cfg), &"LOAD_GEN_MAIN".to_string())
+    let overrides = Some(vec![
+        ("directory".to_string(), path.to_string()),
+        ("stdout".to_string(), stdout.to_string()),
+    ]);
+    let log_cfg = iluvatar_library::load_config_default!(
+                "iluvatar_load_gen/src/resources/load_gen.json",
+                None,
+                overrides,
+                LOAD_GEN_PREFIX
+            )?;
+    iluvatar_library::logging::start_tracing(&Arc::new(log_cfg), &"LOAD_GEN_MAIN".to_string())
 }
 
 pub fn wrap_logging<T>(
