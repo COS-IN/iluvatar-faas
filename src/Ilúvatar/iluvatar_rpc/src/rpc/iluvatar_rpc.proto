@@ -104,8 +104,13 @@ message RegisterRequest {
 }
 
 message RegisterResponse {
+  // If there was an error in registration.
   bool success = 1;
-  string function_json_result = 2;
+  // The FQDN (fully-qualified domain name) used for internal representation.
+  // Empty if failed.
+  string fqdn = 2;
+  // Cause of failure.
+  string error = 3;
 }
 
 message StatusRequest {
@@ -151,6 +156,17 @@ enum LanguageRuntime {
   PYTHON3 = 1;
 }
 
+message EstInvokeRequest {
+    repeated string fqdns = 1;
+    string transaction_id = 2;
+}
+message EstInvokeResponse {
+    // These are in the same order as [EstInvokeRequest.fqdns].
+    // If a value is 0.0, either an error occurred in the worker for it, or insufficient information was available to make an estimation.
+    // Will query GPU queue only instead of CPU if function supports GPU compute.
+    repeated double est_time = 1;
+}
+
 service IluvatarWorker {
   rpc ping(PingRequest) returns (PingResponse) {}
   rpc prewarm(PrewarmRequest) returns (PrewarmResponse) {}
@@ -163,6 +179,8 @@ service IluvatarWorker {
   // Instruct the worker to remove all containers it has created
   rpc clean(CleanRequest) returns (CleanResponse) {}
   rpc list_registered_funcs(ListFunctionRequest) returns (ListFunctionResponse) {}
+  // Returns the estimated E2E in seconds for each of the FQDNs when they are invoked concurrently.
+  rpc est_invoke_time(EstInvokeRequest) returns (EstInvokeResponse) {}
 }
 
 message RegisterWorkerRequest {

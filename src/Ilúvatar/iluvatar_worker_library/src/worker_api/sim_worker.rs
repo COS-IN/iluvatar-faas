@@ -178,7 +178,13 @@ impl WorkerAPI for SimWorkerAPI {
         #[cfg(feature = "full_spans")]
         let inv = inv.instrument(name_span!(self.worker.config.name));
         match inv.await {
-            Ok(response) => Ok(response.into_inner().function_json_result),
+            Ok(response) => {
+                let response = response.into_inner();
+                match response.success {
+                    true => Ok(response.fqdn),
+                    false => Err(anyhow::anyhow!(response.error)),
+                }
+            },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:register]".to_string())),
         }
     }

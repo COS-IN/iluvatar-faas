@@ -123,10 +123,7 @@ impl IluvatarController for Controller {
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn register(&self, request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
         match ControllerAPITrait::register(self, request.into_inner()).await {
-            Ok(r) => Ok(Response::new(RegisterResponse {
-                success: true,
-                function_json_result: r,
-            })),
+            Ok(r) => Ok(Response::new(r)),
             Err(e) => Err(Status::from_error(e.into())),
         }
     }
@@ -242,11 +239,20 @@ impl ControllerAPITrait for Controller {
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
-    async fn register(&self, request: RegisterRequest) -> Result<String> {
+    /// On success, returns registered function's assigned FQDN
+    async fn register(&self, request: RegisterRequest) -> Result<RegisterResponse> {
         let tid = request.transaction_id.clone();
         match self.registration_svc.register_function(request, &tid).await {
-            Ok(_) => Ok("{}".to_owned()),
-            Err(e) => Err(e),
+            Ok(reg) => Ok(RegisterResponse {
+                success: true,
+                fqdn: reg.fqdn.clone(),
+                error: "".to_string(),
+            }),
+            Err(e) => Ok(RegisterResponse {
+                success: false,
+                fqdn: "".to_string(),
+                error: format!("{:?}", e),
+            }),
         }
     }
 

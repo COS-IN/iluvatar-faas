@@ -5,7 +5,7 @@ use iluvatar_library::utils::port_utils::Port;
 use iluvatar_rpc::rpc::iluvatar_controller_client::IluvatarControllerClient;
 use iluvatar_rpc::rpc::{
     InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, InvokeResponse, PingRequest, PrewarmRequest,
-    PrewarmResponse, RegisterRequest, RegisterWorkerRequest,
+    PrewarmResponse, RegisterRequest, RegisterResponse, RegisterWorkerRequest,
 };
 use iluvatar_rpc::RPCError;
 use tonic::transport::Channel;
@@ -120,10 +120,10 @@ impl ControllerAPITrait for RpcControllerAPI {
         }
     }
 
-    async fn register(&self, request: RegisterRequest) -> Result<String> {
+    async fn register(&self, request: RegisterRequest) -> Result<RegisterResponse> {
         let request = Request::new(request);
         match self.client.clone().register(request).await {
-            Ok(response) => Ok(response.into_inner().function_json_result),
+            Ok(response) => Ok(response.into_inner()),
             Err(e) => bail!(RPCError::new(e, "[RCPcontrollerAPI:register]".to_string())),
         }
     }

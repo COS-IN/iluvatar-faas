@@ -206,7 +206,7 @@ impl GreedyWeights {
     #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
     async fn update_set(self: Arc<Self>, tid: String) {
         let mut data = vec![];
-        for fqdn in self.reg.registered_funcs() {
+        for fqdn in self.reg.registered_fqdns() {
             let (gpu, cpu, mut iat) = self.cmap.get_3(
                 &fqdn,
                 Chars::GpuExecTime,

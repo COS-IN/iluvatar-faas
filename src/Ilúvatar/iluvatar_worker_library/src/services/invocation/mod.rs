@@ -61,6 +61,8 @@ pub trait Invoker: Send + Sync {
     fn queue_len(&self) -> InvokerLoad;
     /// Number of running invocations
     fn running_funcs(&self) -> u32;
+    /// Returns the estimated E2E in seconds time for the fqdn.
+    fn est_e2e_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64;
 }
 
 /// A struct to create the appropriate [Invoker] from configuration at runtime.

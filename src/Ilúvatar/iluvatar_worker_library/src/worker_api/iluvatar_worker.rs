@@ -2,6 +2,7 @@ use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::ContainerIsolationCollection;
 use crate::services::influx_updater::InfluxUpdater;
 use crate::services::invocation::Invoker;
+use crate::services::resources::cpu::CpuResourceTracker;
 use crate::services::resources::gpu::GpuResourceTracker;
 use crate::services::status::status_service::StatusService;
 use crate::services::{registration::RegistrationService, worker_health::WorkerHealthService};
@@ -13,8 +14,8 @@ use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{energy::energy_logging::EnergyLogger, utils::calculate_fqdn};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
-    CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest,
-    PrewarmRequest, RegisterRequest, RegisteredFunction, StatusRequest,
+    CleanRequest, EstInvokeRequest, EstInvokeResponse, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest,
+    InvokeRequest, PingRequest, PrewarmRequest, RegisterRequest, RegisteredFunction, StatusRequest,
 };
 use iluvatar_rpc::rpc::{
     CleanResponse, HealthResponse, InvokeAsyncResponse, InvokeResponse, ListFunctionRequest, ListFunctionResponse,
@@ -65,6 +66,7 @@ pub struct IluvatarWorkerImpl {
     pub gpu: Option<Arc<GpuResourceTracker>>,
     isolations: ContainerIsolationCollection,
     iats: IatTracker,
+    cpu: Arc<CpuResourceTracker>,
 }
 
 impl IluvatarWorkerImpl {
@@ -80,6 +82,7 @@ impl IluvatarWorkerImpl {
         updater: Option<Arc<InfluxUpdater>>,
         gpu: Option<Arc<GpuResourceTracker>>,
         isolations: ContainerIsolationCollection,
+        cpu: Arc<CpuResourceTracker>,
     ) -> IluvatarWorkerImpl {
         IluvatarWorkerImpl {
             container_manager,
@@ -94,6 +97,7 @@ impl IluvatarWorkerImpl {
             gpu,
             isolations,
             iats: IatTracker::new(),
+            cpu,
         }
     }
 
@@ -276,10 +280,11 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         let reg_result = self.reg.register(request, &tid).await;
 
         match reg_result {
-            Ok(_) => {
+            Ok(r) => {
                 let reply = RegisterResponse {
                     success: true,
-                    function_json_result: "{\"Ok\": \"function registered\"}".into(),
+                    fqdn: r.fqdn.clone(),
+                    error: "".to_string(),
                 };
                 Ok(Response::new(reply))
             },
@@ -287,7 +292,8 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                 error!(tid=%tid, error=%msg, "Registration failed");
                 let reply = RegisterResponse {
                     success: false,
-                    function_json_result: format!("{{\"Error\": \"Error during registration: '{:?}\"}}", msg),
+                    fqdn: "".to_string(),
+                    error: format!("{:?}", msg),
                 };
                 Ok(Response::new(reply))
             },
@@ -345,10 +351,9 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     ) -> Result<Response<ListFunctionResponse>, Status> {
         let request = request.into_inner();
         info!(tid=%request.transaction_id, "Handling list registered functions request");
-        let funcs: Vec<Arc<crate::services::registration::RegisteredFunction>> =
-            self.reg.get_all_registered_functions();
+        let funcs = self.reg.get_all_registered_functions();
         let rpc_funcs = funcs
-            .iter()
+            .values()
             .map(|func| RegisteredFunction {
                 function_name: func.function_name.clone(),
                 function_version: func.function_version.clone(),
@@ -359,5 +364,50 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         let reply = ListFunctionResponse { functions: rpc_funcs };
 
         Ok(Response::new(reply))
+    }
+
+    async fn est_invoke_time(&self, request: Request<EstInvokeRequest>) -> Result<Response<EstInvokeResponse>, Status> {
+        let request = request.into_inner();
+        // TODO: this logic doesn't consider GPU exhaustion/queuing
+        // TODO: this logic should be replaced when we have true system simulation
+        let mut open_cpus = self.cpu.available_cores();
+        let mut func_cache = None;
+        if request.fqdns.len() >= self.reg.num_registered() / 2 {
+            // avoid many calls to reg service, get all registrations even if we don't need them
+            func_cache = Some(self.reg.get_all_registered_functions());
+        }
+        // some value to simulate "queue time" if we don't have enough CPUs
+        let mut queue_time = 0.0;
+        let est_time = request
+            .fqdns
+            .iter()
+            .map(|fqdn| {
+                match func_cache
+                    .as_ref()
+                    .map_or_else(|| self.reg.get_registration(fqdn), |c| c.get(fqdn).cloned())
+                {
+                    Some(r) => {
+                        let t = self.invoker.est_e2e_time(&r, &request.transaction_id);
+                        queue_time += t;
+                        if open_cpus > 0 {
+                            open_cpus -= 1;
+                            t
+                        } else {
+                            // simulate increasing amount of queue time
+                            t + (queue_time / self.cpu.cores)
+                        }
+                    },
+                    None => {
+                        error!(
+                            tid = request.transaction_id,
+                            fqdn = fqdn,
+                            "Unable to get registration in est_invoke_time"
+                        );
+                        0.0
+                    },
+                }
+            })
+            .collect();
+        Ok(Response::new(EstInvokeResponse { est_time }))
     }
 }

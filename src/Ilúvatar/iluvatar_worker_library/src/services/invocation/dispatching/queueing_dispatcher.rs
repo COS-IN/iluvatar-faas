@@ -882,4 +882,21 @@ impl Invoker for QueueingDispatcher {
     fn running_funcs(&self) -> u32 {
         self.que_map.iter().map(|q| q.1.running()).sum()
     }
+
+    /// Returns the estimated E2E in seconds time for the fqdn.
+    fn est_e2e_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> f64 {
+        if reg.supported_compute.contains(Compute::GPU) {
+            match self.que_map.get(&Compute::GPU) {
+                None => 0.0,
+                Some(q) => q.est_completion_time(reg, tid).0,
+            }
+        } else if reg.supported_compute.contains(Compute::CPU) {
+            match self.que_map.get(&Compute::CPU) {
+                None => 0.0,
+                Some(q) => q.est_completion_time(reg, tid).0,
+            }
+        } else {
+            0.0
+        }
+    }
 }
