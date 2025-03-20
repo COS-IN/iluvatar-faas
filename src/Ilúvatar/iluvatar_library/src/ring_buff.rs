@@ -357,7 +357,7 @@ mod ring_buff_tests {
         let writer = Arc::new(Logger {});
         let key = gen_tid();
         let (_hand, t) = tokio_logging_thread(20, key.clone(), ring.clone(), Logger::call).unwrap();
-        t.send(writer)?;
+        t.send(writer).expect("send should work");
         let start = now();
         loop {
             if start.elapsed() > Duration::from_secs(10) {

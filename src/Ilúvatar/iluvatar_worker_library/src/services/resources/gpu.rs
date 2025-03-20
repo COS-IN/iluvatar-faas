@@ -16,6 +16,7 @@ use iluvatar_library::{
 use nvml_wrapper::{error::NvmlError, Nvml};
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::{collections::HashMap, sync::Arc};
+use std::fmt::Display;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, trace, warn};
 
@@ -90,6 +91,16 @@ pub struct GpuStatus {
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone, ToAny)]
 pub struct GpuStatVec(Vec<GpuStatus>);
 impl Wireable for GpuStatVec {}
+impl Display for GpuStatVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match serde_json::to_string::<Vec<GpuStatus>>(&self.0) {
+            Ok(s) => s,
+            Err(_e) => return Err(std::fmt::Error {}),
+        };
+        write!(f, "{}", s)
+    }
+}
+
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct GpuParseStatus {
     pub gpu_uuid: GpuUuid,
@@ -1046,7 +1057,9 @@ impl GpuResourceTracker {
             self.smi_gpu_utilization(tid).await
         }?;
         *self.status_info.write() = status.clone();
-        Ok(GpuStatVec(status))
+        let r = GpuStatVec(status);
+        info!(tid=tid, gpu_util=%r, "GPU status");
+        Ok(r)
     }
 
     /// get the utilization of GPUs on the system
