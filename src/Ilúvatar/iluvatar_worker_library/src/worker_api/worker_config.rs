@@ -1,3 +1,4 @@
+use crate::services::containers::eviction::EvictionPolicy;
 use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
 use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
@@ -50,8 +51,8 @@ pub struct Configuration {
 pub struct ContainerResourceConfig {
     /// total memory pool in MB
     pub memory_mb: MemSizeMb,
-    /// eviction algorithm to use
-    pub eviction: String,
+    /// Eviction algorithm to use.
+    pub eviction: EvictionPolicy,
     /// timeout on container startup before error
     pub startup_timeout_ms: u64,
     /// amount of memory the container pool monitor will try and maintain as a buffer (eager eviction)
