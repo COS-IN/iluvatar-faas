@@ -49,24 +49,35 @@ Iluvatar was designed with two main intentions:
 
 
 
-* Getting-started 
+* Tutorials
 
 ** Invoke a registered function
+
+In this exercise, you will invoke a pre-registered function on an already running Iluvatar cluster. You can invoke a function through a regular HTTP request (from your browser or any other HTTP client), or through an RPC interface.
+
+For the HTTP invocation:
+
+=http:// =
 
 ** Create and deploy your function
 
 ** Set-up Iluvatar
 
+** Lithops Demo 
+
+** Implementing and Evaluating a resource management algorithm using the simulator
+
+In this exercise, you will learn how to implement a simple function queueing policy in Iluvatar, and examine its 
+
+*** Pre-built VM environment
+
+To expedite the process of setting up Iluvatar, we have a pre-built VM image which you can get here [LINK]. Alternatively, you can also log in here:
+
+*** Implementing a 'Random' queueing policy
+
+Create a file rand.rs in src/Ilúvatar/iluvatar_worker_library/src/services/invocation/queueing/. 
 
 
-* Performance engineering and analysis
-
-- load testing
-- log parsing
-- tracing
-- running multiple experiments
-- Simulation-mode
-- 
 
 * Architecture and key components
 
@@ -95,6 +106,16 @@ The worker library has all the interesting implementation for the containerizati
 1. RPC interface
 2. Ansible [Parameters to select policies, etc] 
 3. 
+
+* Performance engineering and analysis
+
+- load testing
+- log parsing
+- tracing
+- running multiple experiments
+- Simulation-mode
+- 
+
 
 * Contribute
 - List of some open implementation issues: TODO
