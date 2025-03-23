@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_http_library::create_http_server;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_library::types::CommunicationMethod;
@@ -36,6 +37,39 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
             .add_service(IluvatarWorkerServer::new(worker))
             .serve(addr.parse()?),
     );
+
+    match &server_config.http_server {
+        Some(c) => {
+            match c.enabled {
+                true => {
+                    info!(tid = tid, "HTTP server enabled, starting the server");
+                    let http_server = match create_http_server(
+                        &c.address,
+                        c.port,
+                        &server_config.address,
+                        server_config.port,
+                    )
+                    .await
+                    {
+                        Ok(s) => s,
+                        Err(e) => bail_error!(tid=tid, error=%e, "Error creating HTTP server on startup"),
+                    };
+                    tokio::spawn(async move {
+                        if let Err(e) = http_server.run().await {
+                            // silent error for now
+                            eprintln!("HTTP server error: {}", e);
+                        }
+                    });
+                },
+                false => {
+                    info!(tid = tid, "HTTP server disabled");
+                },
+            }
+        },
+        None => {
+            info!(tid = tid, "No http config provided, skipping HTTP server");
+        },
+    }
 
     match &server_config.load_balancer_host {
         Some(host) if !host.is_empty() => {

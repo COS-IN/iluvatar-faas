@@ -16,6 +16,7 @@ categories.workspace = true
 iluvatar_library = { path = "../iluvatar_library" }
 iluvatar_rpc = { path = "../iluvatar_rpc" }
 iluvatar_worker_library = { path = "../iluvatar_worker_library" }
+iluvatar_http_library = {path = "../iluvatar_http_library" }
 iluvatar_controller_library = { path = "../iluvatar_controller_library" }
 tonic = "0.12"
 tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "test-util", "parking_lot"] }
