@@ -175,7 +175,7 @@ pub struct InvocationConfig {
     pub queue_sleep_ms: u64,
     /// Queue to use for different compute resources
     pub queues: HashMap<Compute, String>,
-    /// Queueing policy to use for different compute resources
+    /// Queueing policy inside the queue to use for different compute resources
     pub queue_policies: HashMap<Compute, String>,
     /// The policy by which the worker decides how to enqueue polymorphic functions
     /// By default it uses [EnqueueingPolicy::All]

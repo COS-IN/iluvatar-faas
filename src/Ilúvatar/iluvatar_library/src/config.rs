@@ -49,7 +49,8 @@ where
     builder = builder.add_source(
         config::Environment::with_prefix(env_prefix)
             .try_parsing(true)
-            .separator("__"),
+            .separator("__")
+            .prefix_separator("__"),
     );
     if let Some(overrides) = overrides {
         for (k, v) in overrides {

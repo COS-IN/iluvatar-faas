@@ -36,7 +36,7 @@ influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 num-traits = "0.2"
 async-process = "2"
 num_cpus = "1.16"
-config = "0.15"
+config = { version = "0.15", default-features = false, features = ["json", "preserve_order"] }
 
 [dev-dependencies]
 rstest = "0.24"

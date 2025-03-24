@@ -110,7 +110,7 @@ impl CpuQueueingInvoker {
                 "minheap_iat" => MinHeapIATQueue::new(tid, cmap.clone(), cont_manager.clone())?,
                 "cold_pri" => ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?,
                 "scaling" => AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?,
-                unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
+                unknown => anyhow::bail!("Unknown CPU queueing policy '{}'", unknown),
             })
         } else {
             anyhow::bail!("No queue policy listed for compute '{:?}'", Compute::CPU)
