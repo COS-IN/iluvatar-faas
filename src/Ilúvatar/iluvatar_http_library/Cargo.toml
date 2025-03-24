@@ -1,0 +1,27 @@
+[package]
+name = "iluvatar_http_library"
+description = "http server library"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+categories.workspace = true
+
+
+[dependencies]
+axum = { version = "0.7", features = ["tokio", "http1"] }
+iluvatar_worker_library = { path = "../iluvatar_worker_library" }
+iluvatar_library = { path = "../iluvatar_library" }
+lazy_static = "1"
+anyhow = "1"
+guid-create = "0.*"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+time = { version = "0.3", features = [ "formatting" ] }
+tzdb = "0.7"
+tracing = "0.1"
+tokio = "1.43"

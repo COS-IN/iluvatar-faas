@@ -44,7 +44,7 @@ We have an HTTP API wrapper for our RPC calls using [Axum](https://github.com/to
  Example:
   ```bash
   curl "http://host:port/invoke/register/1?name=Saket"
-```
+  ```
 
 - **GET /async_invoke/:func_name/:version**  
   Similar to `/invoke`, but returns a cookie string from RPC invoke_async.
