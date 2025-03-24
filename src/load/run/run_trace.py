@@ -153,19 +153,19 @@ def _run_load(log_file, results_dir, input_csv, metadata, kwargs):
 
 
 def ansible_clean(log_file: str, **kwargs):
-    kwargs = default_kwargs.overwrite(**kwargs)
+    kwargs = load_kwargs(**kwargs)
     with open(log_file, "a") as f:
         _run_ansible_clean(f, kwargs)
 
 
 def copy_logs(log_file, results_dir, **kwargs):
-    kwargs = default_kwargs.overwrite(**kwargs)
+    kwargs = load_kwargs(**kwargs)
     with open(log_file, "a") as f:
         _copy_logs(f, results_dir, kwargs)
 
 
 def pre_run_cleanup(log_file, results_dir, **kwargs):
-    kwargs = default_kwargs.overwrite(**kwargs)
+    kwargs = load_kwargs(**kwargs)
     if type(log_file) == str:
         with open(log_file, "a") as f:
             _pre_run_cleanup(f, results_dir, kwargs)
@@ -174,7 +174,7 @@ def pre_run_cleanup(log_file, results_dir, **kwargs):
 
 
 def remote_cleanup(log_file, results_dir, **kwargs):
-    kwargs = default_kwargs.overwrite(**kwargs)
+    kwargs = load_kwargs(**kwargs)
     if type(log_file) == str:
         with open(log_file, "a") as f:
             _remote_cleanup(f, results_dir, kwargs)
@@ -183,7 +183,7 @@ def remote_cleanup(log_file, results_dir, **kwargs):
 
 
 def run_ansible(log_file, **kwargs):
-    kwargs = default_kwargs.overwrite(**kwargs)
+    kwargs = load_kwargs(**kwargs)
     if type(log_file) == str:
         with open(log_file, "a") as f:
             _run_ansible(f, kwargs)
@@ -356,13 +356,14 @@ worker_kwargs = [
         ("invocation", "greedy_weight_config", "fixed_assignment"),
     ),
 ]
-
-default_kwargs = LoadConfig()
-default_kwargs.bulk_add("runner", runner_config_kwargs)
-default_kwargs.bulk_add("load", load_gen_kwargs, env_var="LOAD_GEN")
-default_kwargs.bulk_add("controller", controller_kwargs, env_var="ILUVATAR_CONTROLLER")
-default_kwargs.bulk_add("worker", worker_kwargs, env_var="ILUVATAR_WORKER")
-
+def load_kwargs(**kwargs):
+    default_kwargs = LoadConfig()
+    default_kwargs.bulk_add("runner", runner_config_kwargs)
+    default_kwargs.bulk_add("load", load_gen_kwargs, env_var="LOAD_GEN")
+    default_kwargs.bulk_add("controller", controller_kwargs, env_var="ILUVATAR_CONTROLLER")
+    default_kwargs.bulk_add("worker", worker_kwargs, env_var="ILUVATAR_WORKER")
+    default_kwargs.overwrite(**kwargs)
+    return default_kwargs
 
 def run_live(
     trace_in: str,
@@ -378,7 +379,7 @@ def run_live(
     `results_dir`: where to store all results
     `kwargs`: custom config for the experimental run
     """
-    kwargs = default_kwargs.overwrite(**kwargs)
+    kwargs = load_kwargs(**kwargs)
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
     kwargs["function_trace_name"] = trace_base_name(trace_in)
@@ -445,7 +446,7 @@ def run_sim(
     `results_dir`: where to store all results
     `kwargs`: custom config for the experimental run
     """
-    kwargs = default_kwargs.overwrite(**kwargs)
+    kwargs = load_kwargs(**kwargs)
     kwargs["host"] = "NOT_SET_SIMULATION"
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
