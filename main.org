@@ -32,20 +32,23 @@ Iluvatar was designed with two main intentions:
 * Highlights
 
 ** Low overhead and function latency
-   With careful design and its Rust implementation, we can reduce the function latencies by more than 100x compared to OpenWhisk and other FaaS platforms.
+With careful design and its Rust implementation, we can reduce the function latencies by more than 100x compared to OpenWhisk and other FaaS platforms.
    
 ** Containerd and Docker isolation
-   Iluvatar provides an isolated FaaS abstraction: each function runs in its containerized sandbox. Warm containers are reused across non-overlapping invocations to reduce the container and function initialization time. 
+Iluvatar provides an isolated FaaS abstraction: each function runs in its containerized sandbox. Warm containers are reused across non-overlapping invocations to reduce the container and function initialization time. 
 
 ** Simple worker-centric design
-   Distributed container orchestration platforms like Kubernetes require 100s of milliseconds to run functions inside containers. 
+Distributed container orchestration platforms like Kubernetes require 100s of milliseconds to run functions inside containers. 
 
 ** GPU functions 
-   
+With the scheduling and MPS and MIG based multiplexing, we are able to run dozens of functions concurrently on NVIDIA GPUs. 
+
+
 ** In-situ simulation
+Many scenarios require discrete-event simulation: testing and validating scheduling policies, training reinforcement learning agents, etc. We have created an in-situ simulation architecture, where "real" function containers are replaced by timed-noops. The simulation and real workload has the same code-path and dependencies, which makes transferring policies very easy. 
 
 ** Performance engineering and analysis
-
+Load generation and testing, fine-grained analysis of per-function latency. Liberal trace-points for tracing the various operations. 
 
 
 
