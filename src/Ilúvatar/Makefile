@@ -26,10 +26,10 @@ check:
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) check --all-features --all-targets $(SHARED_FLAGS) $(CARGO_ARGS)
 release:
 	@echo "Building release"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(BIN_FLAGS) --profile=relwdebug $(CARGO_ARGS)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(BIN_FLAGS) --profile=release $(CARGO_ARGS)
 relwdebug:
 	@echo "Building release w/debug symbols"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(BIN_FLAGS) --release $(CARGO_ARGS)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(BIN_FLAGS) --profile=relwdebug $(CARGO_ARGS)
 
 tiny:
 # https://github.com/johnthagen/min-sized-rust
