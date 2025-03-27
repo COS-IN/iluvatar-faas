@@ -26,7 +26,11 @@ check:
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) check --all-features --all-targets $(SHARED_FLAGS) $(CARGO_ARGS)
 release:
 	@echo "Building release"
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(BIN_FLAGS) --profile=relwdebug $(CARGO_ARGS)
+relwdebug:
+	@echo "Building release w/debug symbols"
 	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(BIN_FLAGS) --release $(CARGO_ARGS)
+
 tiny:
 # https://github.com/johnthagen/min-sized-rust
 #
@@ -39,13 +43,13 @@ tiny:
 	@upx --best --lzma ./target/$(TARGET_PLAT)/tiny/iluvatar_*
 debug:
 	@echo "Building debug"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build $(BIN_FLAGS) $(CARGO_ARGS)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --profile=dev $(BIN_FLAGS) $(CARGO_ARGS)
 spans:
 	@echo "Building full_spans"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(BIN_FLAGS) --release $(CARGO_ARGS)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(BIN_FLAGS) --profile=spans $(CARGO_ARGS)
 spansd:
 	@echo "Building debug full_spans"
-	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(BIN_FLAGS) $(CARGO_ARGS)
+	@RUSTFLAGS=$(RUST_FLAGS) $(RUST_C) build --features full_spans $(BIN_FLAGS) --profile=spansd $(CARGO_ARGS)
 flame:
 	@echo "TODO: implement running flame"
 test:

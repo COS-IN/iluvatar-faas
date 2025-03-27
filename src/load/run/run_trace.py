@@ -23,6 +23,7 @@ class BuildTarget(Enum):
     DEBUG = "debug"
     DEBUG_SPANS = "spansd"
     RELEASE = "release"
+    RELEASE_WITH_DEBUG = "relwdebug"
     RELEASE_SPANS = "spans"
 
     def __str__(self) -> str:
@@ -32,10 +33,7 @@ class BuildTarget(Enum):
         return str(self)
 
     def path_name(self) -> str:
-        if self == self.DEBUG or self == self.DEBUG_SPANS:
-            return "debug"
-        elif self == self.RELEASE or self == self.RELEASE_SPANS:
-            return "release"
+        return self.value
 
 
 def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE):
