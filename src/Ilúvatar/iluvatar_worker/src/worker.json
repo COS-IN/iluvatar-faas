@@ -81,8 +81,8 @@
     "report_freq_ms": 5000
   },
   "http_server": {
-    "address": "127.0.0.1",
-    "enabled": false,
-    "port": 8082
+    "enabled": true,
+    "address":"127.0.0.1",
+    "port": 8080
   }
 }

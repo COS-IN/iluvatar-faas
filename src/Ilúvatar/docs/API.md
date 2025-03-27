@@ -12,7 +12,7 @@ We have an HTTP API wrapper for our RPC calls using [Axum](https://github.com/to
   curl "http://<host>:port/ping"
   ```
 
-- **POST /register**  
+- **PUT /register**  
   Expects a JSON payload with:
   - `function_name`
   - `version`
@@ -25,7 +25,7 @@ We have an HTTP API wrapper for our RPC calls using [Axum](https://github.com/to
   Example:
 
   ```bash
-  curl -X POST http://host:port/register \
+  curl -X PUT http://host:port/register \
   -H "Content-Type: application/json" \
   -d '{
         "function_name": "hello",
