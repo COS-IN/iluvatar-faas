@@ -20,6 +20,7 @@ use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
 use ordered_float::OrderedFloat;
 use parking_lot::{Mutex, RwLock};
+use rand::seq::IndexedRandom;
 use rand::Rng;
 use std::cmp::Ordering;
 use std::{collections::HashMap, sync::Arc};
@@ -303,6 +304,7 @@ impl QueueingDispatcher {
             .unwrap_or(&EnqueueingPolicy::All);
         match policy {
             EnqueueingPolicy::All => Ok(Arc::new(All {})),
+            EnqueueingPolicy::Random => Ok(Arc::new(Random {})),
             EnqueueingPolicy::AlwaysCPU => Ok(Arc::new(AlwaysCPU {})),
             EnqueueingPolicy::AlwaysGPU => Ok(Arc::new(AlwaysGPU {})),
             EnqueueingPolicy::ShortestExecTime => Ok(Arc::new(ShortestExecTime::new(cmap))),
@@ -585,6 +587,14 @@ struct All;
 impl DispatchPolicy for All {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         (reg.supported_compute, NO_ESTIMATE, NO_ESTIMATE)
+    }
+}
+struct Random;
+impl DispatchPolicy for Random {
+    fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
+        // unwrap safe, has to have some compute entry to get this far
+        let v: Vec<Compute> = reg.supported_compute.iter().collect();
+        (*v.choose(&mut rand::rng()).unwrap(), NO_ESTIMATE, NO_ESTIMATE)
     }
 }
 

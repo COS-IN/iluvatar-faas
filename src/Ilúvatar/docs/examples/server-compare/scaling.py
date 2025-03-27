@@ -54,6 +54,7 @@ def run_scaling(threads, server):
         "worker_status_ms": 1000,
         "worker_log_dir": worker_log_dir,
         "log_level": "warn",
+        "snapshotter": "overlayfs",
     }
     print(kwargs["worker_log_dir"])
     with open(log_file, "w") as log:
