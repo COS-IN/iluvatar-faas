@@ -41,6 +41,7 @@ kwargs = {
     "memory": 1024 * 10,
     "worker_status_ms": 1000,
     "worker_log_dir": worker_log_dir,
+    "snapshotter": "overlayfs",
 }
 
 
