@@ -62,16 +62,16 @@ cmd_missing () {
 }
 
 # basics
-sudo apt-get update -y && apt-get upgrade -y
+sudo apt-get update -y && sudo apt-get upgrade -y
 
 if [ "$LOAD" = "true" ]; then
-  sudo apt-get install -y curl jq protobuf-compiler # "linux-headers-$(uname -r)"
+  sudo apt-get install -y curl jq python3-pip python3-venv protobuf-compiler # "linux-headers-$(uname -r)"
 
   # rust
   if cmd_missing "cargo"; then
     curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh -s -- -y
-    . "$HOME/.cargo/env"
-    eco '"$HOME/.cargo/env"' >> "$HOME/.bashrc"
+    source "$HOME/.cargo/env"
+    echo 'source "$HOME/.cargo/env"' >> "$HOME/.bashrc"
   fi
   if cmd_missing "cross"; then
     cargo install cross --git https://github.com/cross-rs/cross
@@ -79,7 +79,6 @@ if [ "$LOAD" = "true" ]; then
 
   # python
   sudo apt-get install -y python3-pip
-  python3 -m pip install ansible numpy matplotlib pandas paramiko scp
 fi
 
 if [ "$WORKER" = "true" ]; then
@@ -105,7 +104,6 @@ sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plug
 if [ -n "$USER" ]; then
   sudo usermod -aG docker "$USER"
 fi
-newgrp docker
 
 # large docker file dir
 if [ -n "$DOCKER_DIR" ]; then
