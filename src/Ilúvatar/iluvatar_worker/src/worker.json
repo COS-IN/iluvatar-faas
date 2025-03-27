@@ -79,5 +79,10 @@
   },
   "status": {
     "report_freq_ms": 5000
+  },
+  "http_server": {
+    "enabled": true,
+    "address":"127.0.0.1",
+    "port": 8080
   }
 }

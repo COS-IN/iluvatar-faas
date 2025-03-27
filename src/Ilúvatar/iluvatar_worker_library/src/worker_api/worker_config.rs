@@ -5,6 +5,7 @@ use iluvatar_library::types::Compute;
 use iluvatar_library::{
     energy::EnergyConfig, influx::InfluxConfig, logging::LoggingConfig, types::MemSizeMb, utils::port_utils::Port,
 };
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,6 +44,7 @@ pub struct Configuration {
     pub energy_cap: Option<Arc<crate::services::invocation::energy_limiter::EnergyCapConfig>>,
     pub status: Arc<StatusConfig>,
     pub influx: Option<Arc<InfluxConfig>>,
+    pub http_server: Option<Arc<HttpServerConfig>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -220,6 +222,13 @@ pub struct NetworkingConfig {
 /// Config related to status monitoring of the worker system & host
 pub struct StatusConfig {
     pub report_freq_ms: u64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct HttpServerConfig {
+    pub address: String,
+    pub enabled: bool,
+    pub port: u16,
 }
 
 pub const WORKER_ENV_PREFIX: &str = "ILUVATAR_WORKER";

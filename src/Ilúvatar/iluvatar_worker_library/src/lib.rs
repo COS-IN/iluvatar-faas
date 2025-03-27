@@ -18,5 +18,6 @@ macro_rules! name_span {
     };
 }
 
+pub mod http;
 pub mod services;
 pub mod worker_api;
