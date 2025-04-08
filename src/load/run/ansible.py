@@ -62,8 +62,8 @@ def _copy_logs(log_file, results_dir, kwargs):
                 if src != dest:
                     shutil.move(src, dest)
     else:
-        from paramiko import SSHClient
         import paramiko
+        from paramiko import SSHClient
         from scp import SCPClient
 
         with SSHClient() as ssh:

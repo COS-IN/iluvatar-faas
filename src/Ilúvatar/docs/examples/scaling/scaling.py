@@ -7,7 +7,7 @@ from copy import deepcopy
 import subprocess
 import multiprocessing
 from load.run.run_trace import (
-    rust_build,
+    rust_build_native,
     BuildTarget,
     RunTarget,
     ansible_clean,
@@ -19,16 +19,16 @@ from load.run.run_trace import (
 
 build_level = BuildTarget.RELEASE
 # build the solution
-rust_build(ILU_HOME, None, build_level)
+rust_build_native(ILU_HOME, None, build_level)
 ansible_dir = os.path.join(ILU_HOME, "ansible")
 
 
 def run_scaling(threads):
     out_folder = os.path.join(os.getcwd(), "results", str(threads))
-    worker_log_dir= os.path.join(out_dir, "tmp")
+    os.makedirs(out_folder, exist_ok=True)
+    worker_log_dir= os.path.join(out_folder, "tmp")
     os.makedirs(worker_log_dir, exist_ok=True)
-    os.makedirs(results_dir, exist_ok=True)
-    log_file = os.path.join(results_dir, "orchestration.log")
+    log_file = os.path.join(out_folder, "orchestration.log")
     kwargs = {
         "ilu_home": ILU_HOME,
         "ansible_hosts_addrs": "@"
@@ -55,14 +55,14 @@ def run_scaling(threads):
     )
     img = "docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest"
     with open(log_file, "w") as log:
-        pre_run_cleanup(log_file, results_dir, **kwargs)
+        pre_run_cleanup(log_file, out_folder, **kwargs)
         try:
             run_ansible(log_file, **kwargs)
             args = [
                 load_pth,
                 "scaling",
                 "--out-folder",
-                results_dir,
+                out_folder,
                 "--port",
                 str(8070),
                 "--host",
@@ -79,8 +79,6 @@ def run_scaling(threads):
                 "cpu",
                 "--isolation",
                 "containerd",
-                "--out-folder",
-                out_folder,
                 "--duration=120",
             ]
             env = deepcopy(os.environ)
@@ -94,7 +92,7 @@ def run_scaling(threads):
             )
             completed.check_returncode()
         finally:
-            remote_cleanup(log_file, results_dir, **kwargs)
+            remote_cleanup(log_file, out_folder, **kwargs)
 
 
 mx = multiprocessing.cpu_count()

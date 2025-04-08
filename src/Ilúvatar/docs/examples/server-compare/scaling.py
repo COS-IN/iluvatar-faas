@@ -9,7 +9,7 @@ import multiprocessing
 import argparse
 import psutil
 from load.run.run_trace import (
-    rust_build,
+    rust_build_native,
     BuildTarget,
     RunTarget,
     ansible_clean,
@@ -30,7 +30,7 @@ script_args = parser.parse_args()
 
 build_level = BuildTarget.RELEASE
 # build the solution
-rust_build(ILU_HOME, None, build_level)
+rust_build_native(ILU_HOME, None, build_level)
 
 ansible_dir = os.path.join(ILU_HOME, "ansible")
 

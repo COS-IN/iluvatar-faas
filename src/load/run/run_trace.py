@@ -38,13 +38,36 @@ class BuildTarget(Enum):
             return "release"
 
 
-def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE):
+def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
+    """
+    Build the solution 'src/Ilúvatar' is located.
+
+    :param ilu_home: Directory where the
+    :param log_file: Optional log file to write build stdout to
+    :param build: build target
+    :param target_arch: rustc target triple build target architecture
+    """
     pwd = os.getcwd()
     os.chdir(ilu_home)
     build_args = ["make", build.make_name()]
-    _run_cmd(build_args, log_file)
+    _run_cmd(build_args, log_file, env={"TARGET_PLAT":target_arch})
     os.chdir(pwd)
 
+def rust_build_native(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
+    """
+    Build Ilúvatar to run on the local CPU, with native optimizations and features enabled.
+    WARNING: This build will only work on the local machine as it uses CPU-family specific instructions. Be aware of how you use it
+
+    :param ilu_home: Directory where the
+    :param log_file: Optional log file to write build stdout to
+    :param build: build target
+    :param target_arch: rustc target triple build target architecture
+    """
+    pwd = os.getcwd()
+    os.chdir(ilu_home)
+    build_args = ["make", build.make_name()]
+    _run_cmd(build_args, log_file, env={"TARGET_CPU":"native","TARGET_PLAT":target_arch})
+    os.chdir(pwd)
 
 class RunType(Enum):
     SIM = "sim"

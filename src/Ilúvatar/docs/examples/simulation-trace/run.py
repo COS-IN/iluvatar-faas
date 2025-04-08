@@ -3,7 +3,7 @@ import sys, os
 ILU_HOME = "../../.."
 
 sys.path.append(os.path.join(ILU_HOME, ".."))
-from load.run.run_trace import rust_build, run_sim, RunTarget, BuildTarget
+from load.run.run_trace import rust_build_native, run_sim, RunTarget, BuildTarget
 
 CORES = 4
 MEMORY = 20480
@@ -14,7 +14,7 @@ os.makedirs(results_dir, exist_ok=True)
 benchmark = "../benchmark/worker_function_benchmarks.json"
 
 # build the solution
-rust_build(ILU_HOME, None, build_level)
+rust_build_native(ILU_HOME, None, build_level)
 
 kwargs = {
     "ilu_home": ILU_HOME,

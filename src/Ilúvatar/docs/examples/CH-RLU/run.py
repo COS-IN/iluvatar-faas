@@ -3,7 +3,7 @@ import sys, os
 ILU_HOME = "../../.."
 
 sys.path.append(os.path.join(ILU_HOME, ".."))
-from load.run.run_trace import rust_build, run_sim, RunTarget, BuildTarget, RunType
+from load.run.run_trace import rust_build_native, run_sim, RunTarget, BuildTarget, RunType
 from load.analysis import LogParser
 
 import multiprocessing as mp
@@ -17,7 +17,7 @@ os.makedirs(results_dir, exist_ok=True)
 benchmark = "../benchmark/worker_function_benchmarks.json"
 
 # build the solution
-rust_build(ILU_HOME, None, build_level)
+rust_build_native(ILU_HOME, None, build_level)
 
 def plot_one_exp(results_dir: str, parser: LogParser):
     ## plot some results
