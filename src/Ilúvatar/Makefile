@@ -39,8 +39,8 @@ tiny:
 		-Z build-std=std,panic_abort -Z build-std-features="optimize_for_size" -Z build-std-features=panic_immediate_abort
 	@upx --best --lzma ./target/$(TARGET_PLAT)/tiny/iluvatar_*
 debug:
-	echo "Building debug"
-	RUSTFLAGS="$(RUST_FLAGS)" $(RUST_C) build $(BIN_FLAGS) $(CARGO_ARGS)
+	@echo "Building debug"
+	@RUSTFLAGS="$(RUST_FLAGS)" $(RUST_C) build $(BIN_FLAGS) $(CARGO_ARGS)
 spans:
 	@echo "Building full_spans"
 	@RUSTFLAGS="$(RUST_FLAGS)" $(RUST_C) build --features full_spans $(BIN_FLAGS) --release $(CARGO_ARGS)
