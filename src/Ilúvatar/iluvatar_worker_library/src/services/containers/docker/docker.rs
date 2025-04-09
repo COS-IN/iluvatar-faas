@@ -55,8 +55,8 @@ pub struct DockerConfig {
     pub avoid_pull: bool,
 }
 
-#[derive(Debug)]
 #[allow(unused)]
+#[derive(iluvatar_library::ToAny)]
 pub struct DockerIsolation {
     config: Arc<ContainerResourceConfig>,
     limits_config: Arc<FunctionLimits>,
@@ -199,8 +199,8 @@ impl DockerIsolation {
             image: Some(image_name.to_owned()),
             host_config: Some(host_config),
             env: Some(env),
-            exposed_ports: exposed_ports,
-            entrypoint: entrypoint,
+            exposed_ports,
+            entrypoint,
             ..Default::default()
         };
         debug!(tid=tid, container_id=%container_id, config=?config, "Creating container");
@@ -382,7 +382,6 @@ impl ContainerIsolationService for DockerIsolation {
         &self,
         rf: &mut RegisteredFunction,
         _namespace: &str,
-        _fqdn: &str,
         tid: &TransactionId,
     ) -> Result<()> {
         debug!(tid = tid, "prepare_function_registration");
@@ -547,10 +546,5 @@ impl ContainerIsolationService for DockerIsolation {
     }
     async fn read_stderr(&self, container: &Container, tid: &TransactionId) -> String {
         self.get_stderr(container, tid).await.unwrap_or_else(|_| "".to_string())
-    }
-}
-impl crate::services::containers::structs::ToAny for DockerIsolation {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }

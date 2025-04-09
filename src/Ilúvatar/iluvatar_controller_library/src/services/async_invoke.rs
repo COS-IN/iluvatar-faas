@@ -1,4 +1,5 @@
-use crate::server::{controller_errors::MissingAsyncCookieError, structs::RegisteredWorker};
+use crate::server::controller_errors::MissingAsyncCookieError;
+use crate::services::registration::RegisteredWorker;
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::bail_error;
@@ -36,13 +37,7 @@ impl AsyncService {
             let worker = worker.value();
             let mut api = self
                 .worker_fact
-                .get_worker_api(
-                    &worker.name,
-                    &worker.host,
-                    worker.port,
-                    worker.communication_method,
-                    tid,
-                )
+                .get_worker_api(&worker.name, &worker.host, worker.port, tid)
                 .await?;
             let result = api.invoke_async_check(&cookie, tid.clone()).await?;
             if result.success {

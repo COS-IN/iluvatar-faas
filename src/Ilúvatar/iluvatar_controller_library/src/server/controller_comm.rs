@@ -2,7 +2,8 @@ use super::{controller::Controller, rpc::RpcControllerAPI};
 use crate::services::ControllerAPI;
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_library::{bail_error, transaction::TransactionId, types::CommunicationMethod, utils::port::Port};
+use iluvatar_library::utils::is_simulation;
+use iluvatar_library::{bail_error, transaction::TransactionId, utils::port::Port};
 use std::sync::Arc;
 
 pub struct ControllerAPIFactory {
@@ -11,6 +12,7 @@ pub struct ControllerAPIFactory {
     /// better than opening a new one
     rpc_apis: DashMap<String, RpcControllerAPI>,
     sim_apis: DashMap<String, Arc<Controller>>,
+    is_simulation: bool,
 }
 
 impl ControllerAPIFactory {
@@ -18,6 +20,7 @@ impl ControllerAPIFactory {
         Arc::new(ControllerAPIFactory {
             rpc_apis: DashMap::new(),
             sim_apis: DashMap::new(),
+            is_simulation: is_simulation(),
         })
     }
 }
@@ -32,15 +35,9 @@ impl ControllerAPIFactory {
     }
 
     /// Get the controller API that matches it's implemented communication method
-    pub async fn get_controller_api(
-        &self,
-        host: &str,
-        port: Port,
-        communication_method: CommunicationMethod,
-        tid: &TransactionId,
-    ) -> Result<ControllerAPI> {
-        match communication_method {
-            CommunicationMethod::RPC => match self.try_get_rpcapi(host) {
+    pub async fn get_controller_api(&self, host: &str, port: Port, tid: &TransactionId) -> Result<ControllerAPI> {
+        match self.is_simulation {
+            false => match self.try_get_rpcapi(host) {
                 Some(r) => Ok(Arc::new(r) as ControllerAPI),
                 None => {
                     let api = match RpcControllerAPI::new(host, port, tid).await {
@@ -53,7 +50,7 @@ impl ControllerAPIFactory {
                     Ok(Arc::new(api) as ControllerAPI)
                 },
             },
-            CommunicationMethod::SIMULATION => {
+            true => {
                 let api = match self.try_get_simapi(host) {
                     Some(api) => api,
                     None => match self.sim_apis.entry(host.to_owned()) {

@@ -5,7 +5,7 @@ use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
-use iluvatar_library::types::{CommunicationMethod, Compute, ContainerServer, Isolation, MemSizeMb, ResourceTimings};
+use iluvatar_library::types::{Compute, ContainerServer, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
@@ -153,9 +153,7 @@ pub async fn benchmark_controller(
         info!("{}", function.name);
         let clock = get_global_clock(&gen_tid())?;
         let reg_tid = gen_tid();
-        let api = factory
-            .get_controller_api(&host, port, CommunicationMethod::RPC, &reg_tid)
-            .await?;
+        let api = factory.get_controller_api(&host, port, &reg_tid).await?;
         for iter in 0..cold_repeats {
             let name = format!("{}-bench-{}", function.name, iter);
             let version = format!("0.0.{}", iter);
@@ -279,7 +277,6 @@ pub fn benchmark_worker(
                     args.host.clone(),
                     args.port,
                     &factory,
-                    None,
                     function.isolation,
                     supported_compute,
                     function.server,
@@ -304,7 +301,6 @@ pub fn benchmark_worker(
                                 Some(func_args.clone()),
                                 clock.clone(),
                                 &factory,
-                                None,
                             )) {
                                 Ok(r) => invokes.push(r),
                                 Err(e) => {
@@ -327,7 +323,6 @@ pub fn benchmark_worker(
                                 Some(func_args.clone()),
                                 clock.clone(),
                                 &factory,
-                                None,
                             )) {
                                 Ok(r) => invokes.push(r),
                                 Err(e) => {
@@ -339,7 +334,7 @@ pub fn benchmark_worker(
                     },
                 };
                 if supported_compute != Compute::CPU {
-                    match threaded_rt.block_on(worker_clean(&args.host, args.port, &gen_tid(), &factory, None)) {
+                    match threaded_rt.block_on(worker_clean(&args.host, args.port, &gen_tid(), &factory)) {
                         Ok(_) => (),
                         Err(e) => error!("{:?}", e),
                     }

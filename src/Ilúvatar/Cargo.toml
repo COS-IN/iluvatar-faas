@@ -8,12 +8,13 @@ members = [
   "iluvatar_library",
   "iluvatar_worker_library",
   "iluvatar_energy_mon",
-  "iluvatar_rpc"
+  "iluvatar_rpc",
+  "iluvatar_library/iluvatar_derive",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Alex Fuerst <alfuerst@iu.edu>"]
 edition = "2021"
 keywords = ["FaaS", "Function as a Service", "Serverless Computing"]
@@ -68,3 +69,20 @@ debug-assertions=false
 overflow-checks=false
 incremental=false
 strip=true
+
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+single_match = { level = "allow", priority = 1 }
+new_without_default = { level = "allow", priority = 1 }
+too_many_arguments = { level = "allow", priority = 1 }
+type-complexity = { level = "allow", priority = 1 }
+doc-lazy-continuation = { level = "allow", priority = 1 }
+doc-overindented-list-items = { level = "allow", priority = 1 }
+upper-case-acronyms = { level = "allow", priority = 1 }
+from_over_into = "deny"
+redundant-field-names = "deny"
+suspicious = "deny"
+correctness = "deny"
+perf = "deny"

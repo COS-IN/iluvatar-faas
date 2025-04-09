@@ -1,16 +1,41 @@
+use super::controller_health::ControllerHealthService;
 use crate::server::controller_config::ControllerConfig;
-use crate::server::structs::{RegisteredFunction, RegisteredWorker};
+use crate::services::load_balance::balancers::ch_rlu::ChRluLoadedBalancer;
+use crate::services::load_balance::balancers::least_loaded::{LLConfig, LeastLoadedBalancer};
+use crate::services::load_balance::balancers::rrCH::CHGLoadBalancer;
+use crate::services::load_balance::balancers::rrG::RRGLoadBalancer;
+use crate::services::registration::{FunctionRegistration, RegisteredWorker};
 use anyhow::Result;
+use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_rpc::rpc::InvokeResponse;
+use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
+use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::debug;
 
-use super::controller_health::ControllerHealthService;
-use super::load_reporting::LoadService;
 mod balancers;
+
+#[derive(Debug, Deserialize)]
+pub struct LoadMetric {
+    pub load_metric: String,
+    /// Duration in milliseconds the balancer's worker thread will sleep between runs (if it has one)
+    pub thread_sleep_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+/// Sub-members can be passed with defaults but `"type"` value passed decides what is used.
+/// Allows re-use of variable names as between [LeastLoaded] and [CHRLU].
+/// See [here](https://serde.rs/enum-representations.html#internally-tagged) for details on deserializing this
+pub enum LoadBalancerAlgo {
+    RoundRobin,
+    LeastLoaded(LLConfig),
+    RrCh,
+    RrGuard,
+    CHRLU(Arc<balancers::ch_rlu::ChRluConfig>),
+}
 
 #[tonic::async_trait]
 pub trait LoadBalancerTrait {
@@ -42,32 +67,26 @@ pub trait LoadBalancerTrait {
 
 pub type LoadBalancer = Arc<dyn LoadBalancerTrait + Send + Sync + 'static>;
 
-pub fn get_balancer(
+pub async fn get_balancer(
     config: &ControllerConfig,
     health_svc: Arc<dyn ControllerHealthService>,
     tid: &TransactionId,
-    load: Arc<LoadService>,
     worker_fact: Arc<WorkerAPIFactory>,
+    worker_cmap: &WorkerCharMap,
+    func_reg: &Arc<FunctionRegistration>,
 ) -> Result<LoadBalancer> {
-    if config.load_balancer.algorithm == "RoundRobin" {
-        debug!(tid = tid, "starting round robin balancer");
-        Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(
+    match &config.load_balancer.algorithm {
+        LoadBalancerAlgo::RoundRobin => Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(
             health_svc,
             worker_fact,
-        )))
-    } else if config.load_balancer.algorithm == "LeastLoaded" {
-        debug!(tid = tid, "starting least loaded balancer");
-        Ok(balancers::least_loaded::LeastLoadedBalancer::boxed(
-            health_svc,
-            load,
-            worker_fact,
-            tid,
-            config.load_balancer.clone(),
-        ))
-    } else {
-        anyhow::bail!(
-            "Unimplemented load balancing algorithm {}",
-            config.load_balancer.algorithm
-        )
+        ))),
+        LoadBalancerAlgo::LeastLoaded(metric) => {
+            Ok(LeastLoadedBalancer::boxed(health_svc, worker_fact, tid, config, metric).await?)
+        },
+        LoadBalancerAlgo::RrCh => Ok(Arc::new(CHGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
+        LoadBalancerAlgo::RrGuard => Ok(Arc::new(RRGLoadBalancer::new(health_svc, worker_fact, worker_cmap))),
+        LoadBalancerAlgo::CHRLU(cfg) => {
+            Ok(ChRluLoadedBalancer::boxed(health_svc, worker_fact, tid, config, cfg, worker_cmap, func_reg).await?)
+        },
     }
 }

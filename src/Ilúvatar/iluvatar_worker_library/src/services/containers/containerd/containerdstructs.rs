@@ -13,6 +13,7 @@ use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, DroppableToken, Isolation, MemSizeMb},
     utils::port_utils::Port,
+    ToAny,
 };
 use parking_lot::{Mutex, RwLock};
 use std::{num::NonZeroU32, sync::Arc, time::Duration};
@@ -26,6 +27,7 @@ pub struct Task {
 }
 
 #[allow(unused)]
+#[derive(ToAny)]
 pub struct ContainerdContainer {
     pub container_id: String,
     /// The containerd task in the container
@@ -178,11 +180,5 @@ impl ContainerT for ContainerdContainer {
         for i in to_drop.into_iter() {
             drop(i);
         }
-    }
-}
-
-impl crate::services::containers::structs::ToAny for ContainerdContainer {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }

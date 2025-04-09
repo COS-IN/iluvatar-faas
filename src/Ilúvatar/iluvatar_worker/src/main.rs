@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
+use iluvatar_library::char_map::worker_char_map;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
-use iluvatar_library::types::CommunicationMethod;
 use iluvatar_library::{bail_error, logging::start_tracing, utils::wait_for_exit_signal};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
@@ -18,6 +18,9 @@ use tracing::{debug, error, info};
 use utils::Args;
 
 pub mod utils;
+
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     debug!(tid=tid.as_str(), config=?server_config, "loaded configuration");
@@ -69,7 +72,6 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                     server_config
                         .load_balancer_port
                         .ok_or_else(|| anyhow::anyhow!("Load balancer host provided, but not port"))?,
-                    CommunicationMethod::RPC,
                     tid,
                 )
                 .await
@@ -77,13 +79,12 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                 Ok(c) => {
                     c.register_worker(RegisterWorkerRequest {
                         name: server_config.name.clone(),
-                        communication_method: CommunicationMethod::RPC as u32,
                         host: server_config.address.clone(),
                         port: server_config.port.into(),
                         memory: server_config.container_resources.memory_mb,
                         cpus: server_config.container_resources.cpu_resource.count,
-                        compute: compute,
-                        isolation: isolation,
+                        compute,
+                        isolation,
                         gpus: server_config
                             .container_resources
                             .gpu_resource
@@ -107,7 +108,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
 async fn clean(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     debug!(tid=?tid, config=?server_config, "loaded configuration");
 
-    let factory = IsolationFactory::new(server_config.clone());
+    let factory = IsolationFactory::new(server_config.clone(), worker_char_map());
     let lifecycles = factory.get_isolation_services(tid, false).await?;
 
     for (_, lifecycle) in lifecycles.iter() {

@@ -1,8 +1,9 @@
 use crate::clock::now;
-use crate::tokio_utils::build_tokio_runtime;
+use crate::ring_buff::Bufferable;
 use crate::transaction::TransactionId;
+use iluvatar_library::ring_buff::RingBuffer;
 use std::future::Future;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 use std::thread::JoinHandle as OsHandle;
 use std::time::Duration;
@@ -58,45 +59,38 @@ pub fn os_thread<T: Send + Sync + 'static>(
     Ok((handle, tx))
 }
 
-/// Start an async function inside a Tokio worker thread.
-/// It will be executed every `call_ms` milliseconds.
-pub fn tokio_thread<S, T>(
-    call_ms: u64,
-    tid: TransactionId,
-    function: fn(Arc<S>, TransactionId) -> T,
-) -> (TokioHandle<()>, Sender<Arc<S>>)
-where
-    T: Future<Output = ()> + Send + 'static,
-    S: Send + Sync + 'static,
-{
-    let (tx, rx) = channel();
-    let handle = tokio_waiter_thread(
-        call_ms,
-        tid,
-        function,
-        None::<fn(Arc<S>, TransactionId) -> tokio::sync::futures::Notified<'static>>,
-        rx,
-    );
-    (handle, tx)
+/// Compiler hack to make the borrow checker happy about us passing async closures around
+pub trait Hack<'a, I: 'a, I2: 'a, R>: Fn(&'a I, &'a I2) -> Self::Fut {
+    type Fut: Future<Output = R> + Send + 'a;
 }
 
-fn tokio_waiter_thread<T, T2, S>(
+impl<'a, I: 'a, I2: 'a, R, F, Fut> Hack<'a, I, I2, R> for F
+where
+    F: Fn(&'a I, &'a I2) -> Fut,
+    Fut: Future<Output = R> + Send + 'a,
+{
+    type Fut = Fut;
+}
+
+/// Start an async function inside a Tokio worker thread.
+/// It will be executed every `call_ms` milliseconds.
+pub fn tokio_logging_thread<F, S, L>(
     call_ms: u64,
     tid: TransactionId,
-    function: fn(Arc<S>, TransactionId) -> T,
-    waiter_function: Option<fn(Arc<S>, TransactionId) -> T2>,
-    receiver: Receiver<Arc<S>>,
-) -> TokioHandle<()>
+    ring_buff: Arc<RingBuffer>,
+    function: F,
+) -> anyhow::Result<(TokioHandle<()>, Sender<Arc<S>>)>
 where
-    T: Future<Output = ()> + Send + 'static,
-    T2: Future<Output = ()> + Send + 'static,
+    L: Bufferable + 'static,
     S: Send + Sync + 'static,
+    F: for<'a> Hack<'a, Arc<S>, TransactionId, anyhow::Result<L>> + Send + 'static,
 {
+    let (tx, rx) = channel();
     let td = async move {
-        let service: Arc<S> = match receiver.recv() {
+        let service: Arc<S> = match rx.recv() {
             Ok(service) => service,
             Err(e) => {
-                error!(tid=tid, error=%e, typename=%std::any::type_name::<T>(), "Tokio runtime service thread failed to receive service from channel!");
+                error!(tid=tid, error=%e, typename=%std::any::type_name::<S>(), "Tokio runtime service thread failed to receive service from channel!");
                 return;
             },
         };
@@ -105,12 +99,70 @@ where
         while crate::continuation::GLOB_CONT_CHECK.check_continue() {
             tracing::trace!(tid = tid, "Executing");
             let start = now();
-            function(service.clone(), tid.clone()).await;
+            match function(&service, &tid).await {
+                Ok(l) => ring_buff.insert(&tid, Arc::new(l)),
+                Err(e) => {
+                    error!(tid=tid, error=%e, typename=%std::any::type_name::<S>(), "Background logging thread error")
+                },
+            }
             let sleep_t = sleep_time(call_ms, start, &tid);
             tracing::trace!(tid = tid, "Completed");
-            match waiter_function {
+            tokio::time::sleep(Duration::from_millis(sleep_t)).await;
+        }
+        crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
+    };
+    #[cfg(feature = "full_spans")]
+    let td = td.instrument(Span::current());
+    Ok((tokio::spawn(td), tx))
+}
+
+/// Start an async function inside a Tokio worker thread.
+/// It will be executed every `call_ms` milliseconds.
+#[inline(always)]
+pub fn tokio_thread<S, F>(call_ms: u64, tid: TransactionId, function: F) -> (TokioHandle<()>, Sender<Arc<S>>)
+where
+    S: Send + Sync + 'static,
+    F: for<'a> Hack<'a, Arc<S>, TransactionId, ()> + Send + 'static,
+{
+    tokio_waiter_thread(
+        call_ms,
+        tid,
+        function,
+        None::<fn(&Arc<S>, &TransactionId) -> tokio::sync::futures::Notified<'static>>,
+    )
+}
+
+pub fn tokio_waiter_thread<S, F, F2>(
+    call_ms: u64,
+    tid: TransactionId,
+    function: F,
+    waiter_function: Option<F2>,
+) -> (TokioHandle<()>, Sender<Arc<S>>)
+where
+    S: Send + Sync + 'static,
+    F: for<'a> Hack<'a, Arc<S>, TransactionId, ()> + Send + 'static,
+    F2: for<'a> Hack<'a, Arc<S>, TransactionId, ()> + Send + 'static,
+{
+    let (tx, rx) = channel::<Arc<S>>();
+    let td = async move {
+        let service: Arc<S> = match rx.recv() {
+            Ok(service) => service,
+            Err(e) => {
+                error!(tid=tid, error=%e, typename=%std::any::type_name::<S>(), "Tokio runtime service thread failed to receive service from channel!");
+                return;
+            },
+        };
+        crate::continuation::GLOB_CONT_CHECK.thread_start(&tid);
+
+        while crate::continuation::GLOB_CONT_CHECK.check_continue() {
+            tracing::trace!(tid = tid, "Executing");
+            let start = now();
+            function(&service, &tid).await;
+            let sleep_t = sleep_time(call_ms, start, &tid);
+            tracing::trace!(tid = tid, "Completed");
+            match &waiter_function {
                 Some(wf) => {
-                    let fut = wf(service.clone(), tid.clone());
+                    let fut = wf(&service, &tid);
                     match tokio::time::timeout(Duration::from_millis(sleep_t), fut).await {
                         Ok(_) => (), // woken up by future activation
                         Err(_elapsed) => {
@@ -129,7 +181,7 @@ where
     };
     #[cfg(feature = "full_spans")]
     let td = td.instrument(Span::current());
-    tokio::spawn(td)
+    (tokio::spawn(td), tx)
 }
 
 /// Start an async function inside a Tokio worker thread.
@@ -211,53 +263,4 @@ where
     let handle = tokio::spawn(td);
 
     (handle, service_tx, item_tx)
-}
-
-/// Start an async function on a new OS thread inside a private Tokio runtime
-/// * `call_ms` - The frequency with which the function will be executed every given milliseconds
-/// * `waiter_function` - An optional that can be passed that makes the thread wait on the future it returns with a timeout of `call_ms` instead
-/// * `function` is called after either case is met
-pub fn tokio_runtime<S: Send + Sync + 'static, T, T2>(
-    call_ms: u64,
-    tid: TransactionId,
-    function: fn(Arc<S>, TransactionId) -> T,
-    waiter_function: Option<fn(Arc<S>, TransactionId) -> T2>,
-    num_worker_threads: Option<usize>,
-) -> anyhow::Result<(OsHandle<()>, Sender<Arc<S>>)>
-where
-    T: Future<Output = ()> + Send + 'static,
-    T2: Future<Output = ()> + Send + 'static,
-{
-    let (tx, rx) = channel::<Arc<S>>();
-    match crate::utils::is_simulation() {
-        true => {
-            // Don't put this on an OS thread, causes weird clock skew inside Tokio when the CurrentThread runtime is shared across threads
-            let _handle = tokio_waiter_thread(call_ms, tid, function, waiter_function, rx);
-            // Dummy "thread" to match return type
-            let handle = std::thread::Builder::new().spawn(|| ())?;
-            Ok((handle, tx))
-        },
-        false => {
-            let handle = std::thread::Builder::new().name(tid.clone()).spawn(move || {
-                let worker_rt = match build_tokio_runtime(&None, &None, &num_worker_threads, &tid) {
-                    Ok(rt) => rt,
-                    Err(e) => {
-                        error!(tid=tid, error=%e, typename=%std::any::type_name::<T>(), "Failed to get tokio runtime!");
-                        return;
-                    },
-                };
-                debug!(tid=tid, typename=%std::any::type_name::<T>(), "tokio runtime worker thread started");
-                let tid_cln = tid.clone();
-                match worker_rt
-                    .block_on(async { tokio_waiter_thread(call_ms, tid_cln, function, waiter_function, rx).await })
-                {
-                    Ok(_) => (),
-                    Err(e) => {
-                        error!(tid=tid, error=%e, typename=%std::any::type_name::<T>(), "Joining thread ended in error")
-                    },
-                };
-            })?;
-            Ok((handle, tx))
-        },
-    }
 }

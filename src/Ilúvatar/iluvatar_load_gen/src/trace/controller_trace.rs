@@ -17,7 +17,7 @@ use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::logging::start_simulation_tracing;
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::transaction::{gen_tid, TransactionId, LIVE_WORKER_LOAD_TID, SIMULATION_START_TID};
-use iluvatar_library::types::{CommunicationMethod, Compute, Isolation};
+use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::utils::{config::args_to_json, is_simulation, port::Port};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use std::{collections::HashMap, sync::Arc};
@@ -30,7 +30,6 @@ async fn controller_register_functions(
     port: Port,
     benchmark: Option<&BenchmarkStore>,
     factory: Arc<ControllerAPIFactory>,
-    comm: CommunicationMethod,
 ) -> Result<()> {
     for (fid, func) in funcs.iter() {
         let image = func
@@ -51,7 +50,7 @@ async fn controller_register_functions(
             },
             None => None,
         };
-        let api = factory.get_controller_api(host, port, comm, &gen_tid()).await?;
+        let api = factory.get_controller_api(host, port, &gen_tid()).await?;
         let _reg_dur = controller_register(
             &func.func_name,
             &VERSION,
@@ -73,7 +72,6 @@ async fn controller_prewarm_funcs(
     host: &str,
     port: Port,
     factory: Arc<ControllerAPIFactory>,
-    comm: CommunicationMethod,
 ) -> Result<()> {
     for (fid, func) in funcs.iter() {
         for i in 0..func.prewarms.ok_or_else(|| {
@@ -83,7 +81,7 @@ async fn controller_prewarm_funcs(
             )
         })? {
             let tid = format!("{}-prewarm-{}", fid, i);
-            let api = factory.get_controller_api(host, port, comm, &tid).await?;
+            let api = factory.get_controller_api(host, port, &tid).await?;
             let _reg_dur = controller_prewarm(&func.func_name, &VERSION, api, &tid).await?;
         }
     }
@@ -96,7 +94,7 @@ pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
     let factory = ControllerAPIFactory::boxed();
     let host = args.host.clone();
     info!(tid = tid, "starting simulated run");
-    run_invokes(args, factory, threaded_rt, &host, CommunicationMethod::RPC, tid)
+    run_invokes(args, factory, threaded_rt, &host, tid)
 }
 
 async fn controller_sim_register_workers(
@@ -117,13 +115,12 @@ async fn controller_sim_register_workers(
         };
         let r = RegisterWorkerRequest {
             name: worker_config.name.clone(),
-            communication_method: CommunicationMethod::SIMULATION as u32,
             host: spec_config,
             port: 0,
             memory: worker_config.container_resources.memory_mb,
             cpus: worker_config.container_resources.cpu_resource.count,
-            gpus: gpus,
-            compute: compute,
+            gpus,
+            compute,
             isolation: (Isolation::CONTAINERD | Isolation::DOCKER).bits(),
         };
         let response = server.register_worker(r).await;
@@ -140,7 +137,6 @@ fn run_invokes(
     api_factory: Arc<ControllerAPIFactory>,
     threaded_rt: TokioRuntime,
     host: &str,
-    comm: CommunicationMethod,
     tid: &TransactionId,
 ) -> Result<()> {
     info!(tid = tid, "Starting invocations");
@@ -163,18 +159,16 @@ fn run_invokes(
         args.port,
         bench_data.as_ref(),
         api_factory.clone(),
-        comm,
     ))?;
     threaded_rt.block_on(controller_prewarm_funcs(
         &metadata,
         host,
         args.port,
         api_factory.clone(),
-        comm,
     ))?;
 
     let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();
-    let api = threaded_rt.block_on(api_factory.get_controller_api(host, args.port, comm, &gen_tid()))?;
+    let api = threaded_rt.block_on(api_factory.get_controller_api(host, args.port, &gen_tid()))?;
     let trace: Vec<CsvInvocation> = crate::trace::trace_utils::load_trace_csv(&args.input_csv, tid)?;
 
     let results = threaded_rt.block_on(async {
@@ -187,9 +181,9 @@ fn run_invokes(
                 )
             })?;
             let api_cln = api.clone();
-            let func_args = match comm {
-                CommunicationMethod::RPC => args_to_json(&prepare_function_args(func, args.load_type))?,
-                CommunicationMethod::SIMULATION => serde_json::to_string(func.sim_invoke_data.as_ref().unwrap())?,
+            let func_args = match is_simulation() {
+                false => args_to_json(&prepare_function_args(func, args.load_type))?,
+                true => serde_json::to_string(func.sim_invoke_data.as_ref().unwrap())?,
             };
             let clk = clock.clone();
             let f_c = func.func_name.clone();
@@ -205,6 +199,7 @@ fn run_invokes(
         resolve_handles(handles, crate::utils::ErrorHandling::Print).await
     })?;
 
+    info!(tid = tid, "Threads closed, writing results to file");
     save_controller_results(results, &args)
 }
 
@@ -230,11 +225,8 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
     let num_workers = args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize;
 
     let _guard = start_simulation_tracing(&controller_config.logging, true, num_workers, "worker", tid)?;
-    let controller = threaded_rt.block_on(async {
-        api_factory
-            .get_controller_api(&controller_config_pth, 0, CommunicationMethod::SIMULATION, tid)
-            .await
-    })?;
+    let controller =
+        threaded_rt.block_on(async { api_factory.get_controller_api(&controller_config_pth, 0, tid).await })?;
 
     info!(tid = tid, "starting live run");
     threaded_rt.block_on(controller_sim_register_workers(
@@ -242,12 +234,5 @@ pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
         &controller,
         &worker_config_pth,
     ))?;
-    run_invokes(
-        args,
-        api_factory,
-        threaded_rt,
-        &controller_config_pth,
-        CommunicationMethod::SIMULATION,
-        tid,
-    )
+    run_invokes(args, api_factory, threaded_rt, &controller_config_pth, tid)
 }

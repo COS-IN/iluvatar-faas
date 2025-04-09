@@ -1,14 +1,14 @@
-use crate::services::containers::containermanager::ContainerManager;
+use crate::services::containers::containermanager::{ContainerManager, ContainerMgrStat, CTR_MGR_WORKER_TID};
 use crate::services::containers::ContainerIsolationCollection;
 use crate::services::influx_updater::InfluxUpdater;
-use crate::services::invocation::Invoker;
-use crate::services::resources::cpu::CpuResourceTracker;
+use crate::services::invocation::dispatching::queueing_dispatcher::DISPATCHER_INVOKER_LOG_TID;
+use crate::services::invocation::{Invoker, InvokerLoad};
+use crate::services::resources::cpu::{CpuMonitor, CpuResourceTracker, CpuUtil, CPU_MON_TID};
 use crate::services::resources::gpu::GpuResourceTracker;
-use crate::services::status::status_service::StatusService;
 use crate::services::{registration::RegistrationService, worker_health::WorkerHealthService};
 use crate::worker_api::config::WorkerConfig;
-use iluvatar_library::char_map::{Chars, WorkerCharMap};
-use iluvatar_library::clock::now;
+use iluvatar_library::char_map::{Chars, IatTracker, WorkerCharMap};
+use iluvatar_library::ring_buff::RingBuffer;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{energy::energy_logging::EnergyLogger, utils::calculate_fqdn};
@@ -22,34 +22,8 @@ use iluvatar_rpc::rpc::{
     PingResponse, PrewarmResponse, RegisterResponse, StatusResponse,
 };
 use std::sync::Arc;
-use tokio::time::Instant;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
-
-struct IatTracker {
-    last_invoked: dashmap::DashMap<String, Instant>,
-}
-impl IatTracker {
-    fn new() -> Self {
-        Self {
-            last_invoked: dashmap::DashMap::new(),
-        }
-    }
-
-    fn track(&self, fqdn: &str) -> Option<f64> {
-        match self.last_invoked.get_mut(fqdn) {
-            None => {
-                self.last_invoked.insert(fqdn.to_owned(), now());
-                None
-            },
-            Some(mut l) => {
-                let r = l.value().elapsed().as_secs_f64();
-                *l.value_mut() = now();
-                Some(r)
-            },
-        }
-    }
-}
 
 #[allow(unused)]
 /// Public members are _only_ for use in testing
@@ -57,7 +31,6 @@ pub struct IluvatarWorkerImpl {
     pub container_manager: Arc<ContainerManager>,
     pub config: WorkerConfig,
     pub invoker: Arc<dyn Invoker>,
-    pub status: Arc<StatusService>,
     health: Arc<WorkerHealthService>,
     energy: Arc<EnergyLogger>,
     pub cmap: WorkerCharMap,
@@ -66,7 +39,9 @@ pub struct IluvatarWorkerImpl {
     pub gpu: Option<Arc<GpuResourceTracker>>,
     isolations: ContainerIsolationCollection,
     iats: IatTracker,
+    cpu_mon: CpuMonitor,
     cpu: Arc<CpuResourceTracker>,
+    ring_buff: Arc<RingBuffer>,
 }
 
 impl IluvatarWorkerImpl {
@@ -74,7 +49,6 @@ impl IluvatarWorkerImpl {
         config: WorkerConfig,
         container_manager: Arc<ContainerManager>,
         invoker: Arc<dyn Invoker>,
-        status: Arc<StatusService>,
         health: Arc<WorkerHealthService>,
         energy: Arc<EnergyLogger>,
         cmap: WorkerCharMap,
@@ -82,13 +56,14 @@ impl IluvatarWorkerImpl {
         updater: Option<Arc<InfluxUpdater>>,
         gpu: Option<Arc<GpuResourceTracker>>,
         isolations: ContainerIsolationCollection,
+        cpu_mon: CpuMonitor,
         cpu: Arc<CpuResourceTracker>,
+        ring_buff: Arc<RingBuffer>,
     ) -> IluvatarWorkerImpl {
         IluvatarWorkerImpl {
             container_manager,
             config,
             invoker,
-            status,
             health,
             energy,
             cmap,
@@ -97,7 +72,9 @@ impl IluvatarWorkerImpl {
             gpu,
             isolations,
             iats: IatTracker::new(),
+            cpu_mon,
             cpu,
+            ring_buff,
         }
     }
 
@@ -289,7 +266,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                 Ok(Response::new(reply))
             },
             Err(msg) => {
-                error!(tid=%tid, error=%msg, "Registration failed");
+                error!(tid=tid, error=%msg, "Registration failed");
                 let reply = RegisterResponse {
                     success: false,
                     fqdn: "".to_string(),
@@ -304,23 +281,49 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     async fn status(&self, request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
         let request = request.into_inner();
         debug!(tid=%request.transaction_id, "Handling status request");
-
-        let stat = self.status.get_status(&request.transaction_id);
-
-        let resp = StatusResponse {
+        let (load_avg, cpu_us, cpu_sy, cpu_id, cpu_wa, num_core) =
+            self.ring_buff
+                .latest(CPU_MON_TID)
+                .map_or((0.0, 0.0, 0.0, 0.0, 0.0, 0), |cpu| {
+                    match iluvatar_library::downcast!(cpu.1, CpuUtil) {
+                        None => (0.0, 0.0, 0.0, 0.0, 0.0, 0),
+                        Some(cpu) => (
+                            cpu.load_avg_1minute,
+                            cpu.cpu_us,
+                            cpu.cpu_sy,
+                            cpu.cpu_id,
+                            cpu.cpu_wa,
+                            cpu.num_system_cores,
+                        ),
+                    }
+                });
+        let queue_len = self.ring_buff.latest(DISPATCHER_INVOKER_LOG_TID).map_or(0, |que| {
+            match iluvatar_library::downcast!(que.1, InvokerLoad) {
+                None => 0,
+                Some(que) => {
+                    que.0.get(&Compute::CPU).map_or(0, |q| q.len) + que.0.get(&Compute::GPU).map_or(0, |q| q.len)
+                },
+            }
+        }) as i64;
+        let (used_mem, total_mem) = self.ring_buff.latest(&CTR_MGR_WORKER_TID).map_or((0, 0), |que| {
+            match iluvatar_library::downcast!(que.1, ContainerMgrStat) {
+                None => (0, 0),
+                Some(que) => (que.used_mem, que.total_mem),
+            }
+        });
+        Ok(Response::new(StatusResponse {
             success: true,
-            queue_len: stat.cpu_queue_len + stat.gpu_queue_len,
-            used_mem: stat.used_mem,
-            total_mem: stat.total_mem,
-            cpu_us: stat.cpu_us,
-            cpu_sy: stat.cpu_sy,
-            cpu_id: stat.cpu_id,
-            cpu_wa: stat.cpu_wa,
-            load_avg_1minute: stat.load_avg_1minute,
-            num_system_cores: stat.num_system_cores,
-            num_running_funcs: stat.num_running_funcs,
-        };
-        Ok(Response::new(resp))
+            queue_len,
+            used_mem,
+            total_mem,
+            cpu_us,
+            cpu_sy,
+            cpu_id,
+            cpu_wa,
+            load_avg_1minute: load_avg,
+            num_system_cores: num_core,
+            num_running_funcs: self.invoker.running_funcs(),
+        }))
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]

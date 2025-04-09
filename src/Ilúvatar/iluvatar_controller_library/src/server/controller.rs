@@ -2,11 +2,10 @@ use crate::server::controller_config::ControllerConfig;
 use crate::services::async_invoke::AsyncService;
 use crate::services::controller_health::{ControllerHealthService, HealthService, SimHealthService};
 use crate::services::load_balance::{get_balancer, LoadBalancer};
-use crate::services::load_reporting::LoadService;
-use crate::services::registration::RegistrationService;
+use crate::services::registration::{FunctionRegistration, WorkerRegistration};
 use crate::services::ControllerAPITrait;
 use anyhow::Result;
-use iluvatar_library::influx::InfluxClient;
+use iluvatar_library::char_map::{worker_char_map, Chars, IatTracker, WorkerCharMap};
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::utils::calculate_fqdn;
 use iluvatar_library::{bail_error, transaction::TransactionId};
@@ -27,41 +26,47 @@ pub struct Controller {
     lb: LoadBalancer,
     async_svc: Arc<AsyncService>,
     health_svc: Arc<dyn ControllerHealthService>,
-    load_svc: Arc<LoadService>,
-    registration_svc: Arc<RegistrationService>,
+    worker_reg: Arc<WorkerRegistration>,
+    func_reg: Arc<FunctionRegistration>,
+    iats: IatTracker,
+    worker_cmap: WorkerCharMap,
 }
 unsafe impl Send for Controller {}
 
 impl Controller {
     pub async fn new(config: ControllerConfig, tid: &TransactionId) -> Result<Self> {
         let worker_fact = WorkerAPIFactory::boxed();
+        let worker_cmap = worker_char_map();
         let health_svc: Arc<dyn ControllerHealthService> = match iluvatar_library::utils::is_simulation() {
             true => SimHealthService::boxed(),
             false => HealthService::boxed(worker_fact.clone()),
         };
 
-        let influx = match InfluxClient::new(config.influx.clone(), tid).await {
-            Ok(i) => i,
-            Err(e) => bail_error!(tid=tid, error=%e, "Failed to create InfluxClient"),
+        let func_reg = FunctionRegistration::boxed(&worker_cmap);
+        let lb: LoadBalancer = match get_balancer(
+            &config,
+            health_svc.clone(),
+            tid,
+            worker_fact.clone(),
+            &worker_cmap,
+            &func_reg,
+        )
+        .await
+        {
+            Ok(lb) => lb,
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to create load balancer"),
         };
-        let load_svc = match LoadService::boxed(influx, config.load_balancer.clone(), tid, worker_fact.clone()) {
-            Ok(l) => l,
-            Err(e) => bail_error!(tid=tid, error=%e, "Failed to create LoadService"),
-        };
-        let lb: LoadBalancer =
-            match get_balancer(&config, health_svc.clone(), tid, load_svc.clone(), worker_fact.clone()) {
-                Ok(lb) => lb,
-                Err(e) => bail_error!(tid=tid, error=%e, "Failed to create load balancer"),
-            };
-        let reg_svc = RegistrationService::boxed(lb.clone(), worker_fact.clone());
+        let worker_reg = WorkerRegistration::boxed(lb.clone(), worker_fact.clone(), &func_reg);
         let async_svc = AsyncService::boxed(worker_fact.clone());
         Ok(Controller {
             config,
             lb,
             async_svc,
             health_svc,
-            load_svc,
-            registration_svc: reg_svc,
+            worker_reg,
+            func_reg,
+            iats: IatTracker::new(),
+            worker_cmap,
         })
     }
 }
@@ -151,7 +156,7 @@ impl ControllerAPITrait for Controller {
     #[tracing::instrument(skip(self, prewarm), fields(tid=%prewarm.transaction_id))]
     async fn prewarm(&self, prewarm: PrewarmRequest) -> Result<PrewarmResponse> {
         let fqdn = calculate_fqdn(&prewarm.function_name, &prewarm.function_version);
-        match self.registration_svc.get_function(&fqdn) {
+        match self.func_reg.get_function(&fqdn) {
             Some(func) => {
                 info!(tid=%prewarm.transaction_id, fqdn=%fqdn, "Sending function to load balancer for prewarm");
                 match self.lb.prewarm(func, &prewarm.transaction_id).await {
@@ -173,9 +178,14 @@ impl ControllerAPITrait for Controller {
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
     async fn invoke(&self, request: InvokeRequest) -> Result<InvokeResponse> {
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
-        match self.registration_svc.get_function(&fqdn) {
+        match self.func_reg.get_function(&fqdn) {
             Some(func) => {
-                info!(tid=%request.transaction_id, fqdn=%fqdn, "Sending function to load balancer for invocation");
+                let mut iats = 0.0;
+                if let Some(iat) = self.iats.track(&fqdn) {
+                    self.worker_cmap.update(&fqdn, Chars::IAT, iat);
+                    iats = iat;
+                }
+                info!(tid=%request.transaction_id, iat=iats, fqdn=%fqdn, "Sending function to load balancer for invocation");
                 match self
                     .lb
                     .send_invocation(func, request.json_args, &request.transaction_id)
@@ -196,8 +206,11 @@ impl ControllerAPITrait for Controller {
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
     async fn invoke_async(&self, request: InvokeAsyncRequest) -> Result<String> {
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
-        match self.registration_svc.get_function(&fqdn) {
+        match self.func_reg.get_function(&fqdn) {
             Some(func) => {
+                if let Some(iat) = self.iats.track(&fqdn) {
+                    self.worker_cmap.update(&fqdn, Chars::IAT, iat);
+                }
                 info!(tid=%request.transaction_id, fqdn=%fqdn, "Sending function to load balancer for async invocation");
                 match self
                     .lb
@@ -239,15 +252,24 @@ impl ControllerAPITrait for Controller {
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
-    /// On success, returns registered function's assigned FQDN
     async fn register(&self, request: RegisterRequest) -> Result<RegisterResponse> {
+        if request.system_function {
+            anyhow::bail!("Cannot register a system function, these are internal only!");
+        }
         let tid = request.transaction_id.clone();
-        match self.registration_svc.register_function(request, &tid).await {
-            Ok(reg) => Ok(RegisterResponse {
-                success: true,
-                fqdn: reg.fqdn.clone(),
-                error: "".to_string(),
-            }),
+        match self.func_reg.register_function(request, &tid).await {
+            Ok(reg) => match self.worker_reg.new_function(reg, &tid).await {
+                Ok(reg) => Ok(RegisterResponse {
+                    success: true,
+                    fqdn: reg.fqdn.clone(),
+                    error: "".to_string(),
+                }),
+                Err(e) => Ok(RegisterResponse {
+                    success: false,
+                    fqdn: "".to_string(),
+                    error: format!("{:?}", e),
+                }),
+            },
             Err(e) => Ok(RegisterResponse {
                 success: false,
                 fqdn: "".to_string(),
@@ -259,7 +281,7 @@ impl ControllerAPITrait for Controller {
     #[tracing::instrument(skip(self, request), fields(tid=%request.name))]
     async fn register_worker(&self, request: RegisterWorkerRequest) -> Result<()> {
         let tid = gen_tid();
-        let worker = match self.registration_svc.register_worker(request, &tid).await {
+        let worker = match self.worker_reg.register_worker(request, &tid).await {
             Ok(w) => w,
             Err(e) => return Err(e),
         };

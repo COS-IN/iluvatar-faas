@@ -19,6 +19,7 @@ use tokio::time::Instant;
 use tracing::{debug, warn};
 
 #[allow(unused, dyn_drop)]
+#[derive(iluvatar_library::ToAny)]
 pub struct DockerContainer {
     pub container_id: String,
     fqdn: String,
@@ -164,11 +165,5 @@ impl ContainerT for DockerContainer {
         for i in to_drop.into_iter() {
             drop(i);
         }
-    }
-}
-
-impl crate::services::containers::structs::ToAny for DockerContainer {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }

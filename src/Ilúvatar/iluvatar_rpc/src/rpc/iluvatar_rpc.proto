@@ -101,6 +101,8 @@ message RegisterRequest {
   uint32 container_server = 11;
   // Optional. A serialized string of the iluvatar_library::types::ResourceTimings struct to pre-populate the worker with information
   string resource_timings_json = 12;
+  // Marks this function as purely internal to the Ilúvatar control plane.
+  bool system_function = 13;
 }
 
 message RegisterResponse {
@@ -185,7 +187,6 @@ service IluvatarWorker {
 
 message RegisterWorkerRequest {
   string name = 1;
-  uint32 communication_method = 2;
   string host = 3;
   uint32 port = 4;
   int64 memory = 5;

@@ -1,7 +1,7 @@
 use super::containers::{containermanager::ContainerManager, ContainerIsolationCollection};
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
-use iluvatar_library::char_map::{Chars, WorkerCharMap};
+use iluvatar_library::char_map::{add_registration_timings, WorkerCharMap};
 use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
     transaction::TransactionId,
@@ -25,9 +25,11 @@ pub struct RegisteredFunction {
     pub snapshot_base: String,
     pub parallel_invokes: u32,
     pub isolation_type: Isolation,
-    pub supported_compute: Compute, // TODO: Rename Compute to ComputeDevice
+    pub supported_compute: Compute,
     pub container_server: ContainerServer,
+    pub all_resource_timings: Option<ResourceTimings>,
     pub historical_runtime_data_sec: HashMap<Compute, Vec<f64>>,
+    pub system_function: bool,
 }
 
 impl RegisteredFunction {
@@ -44,13 +46,41 @@ impl RegisteredFunction {
         self.supported_compute.contains(Compute::GPU) && self.supported_compute.contains(Compute::CPU)
     }
 }
+impl TryFrom<RegisterRequest> for RegisteredFunction {
+    type Error = anyhow::Error;
+
+    fn try_from(req: RegisterRequest) -> Result<Self> {
+        Ok(RegisteredFunction {
+            fqdn: calculate_fqdn(&req.function_name, &req.function_version),
+            function_name: req.function_name,
+            function_version: req.function_version,
+            image_name: req.image_name,
+            memory: req.memory,
+            cpus: req.cpus,
+            snapshot_base: "".to_string(),
+            parallel_invokes: req.parallel_invokes,
+            isolation_type: Isolation::from(req.isolate),
+            supported_compute: Compute::from(req.compute),
+            container_server: ContainerServer::try_from(req.container_server).unwrap_or(ContainerServer::default()),
+            all_resource_timings: match req.resource_timings_json.is_empty() {
+                true => None,
+                _ => match serde_json::from_str::<ResourceTimings>(&req.resource_timings_json) {
+                    Ok(t) => Some(t),
+                    Err(e) => anyhow::bail!("failed to parse resource_timings_json: '{}'", e),
+                },
+            },
+            historical_runtime_data_sec: Default::default(),
+            system_function: req.system_function,
+        })
+    }
+}
 
 pub struct RegistrationService {
     reg_map: RwLock<HashMap<String, Arc<RegisteredFunction>>>,
     cm: Arc<ContainerManager>,
     lifecycles: ContainerIsolationCollection,
     limits_config: Arc<FunctionLimits>,
-    characteristics_map: WorkerCharMap,
+    cmap: WorkerCharMap,
     resources: Arc<ContainerResourceConfig>,
 }
 
@@ -67,41 +97,40 @@ impl RegistrationService {
             cm,
             lifecycles,
             limits_config,
-            characteristics_map,
+            cmap: characteristics_map,
             resources,
         })
     }
 
     pub async fn register(&self, request: RegisterRequest, tid: &TransactionId) -> Result<Arc<RegisteredFunction>> {
-        if request.function_name.is_empty() {
+        let mut reg: RegisteredFunction = request.try_into()?;
+
+        if reg.function_name.is_empty() {
             anyhow::bail!("Invalid function name");
         }
-        if request.function_version.is_empty() {
+        if reg.function_version.is_empty() {
             anyhow::bail!("Invalid function version");
         }
-        if request.memory < self.limits_config.mem_min_mb || request.memory > self.limits_config.mem_max_mb {
-            anyhow::bail!("Illegal memory allocation request '{}'", request.memory);
+        if reg.memory < self.limits_config.mem_min_mb || reg.memory > self.limits_config.mem_max_mb {
+            anyhow::bail!("Illegal memory allocation request '{}'", reg.memory);
         }
-        if request.cpus < 1 || request.cpus > self.limits_config.cpu_max {
-            anyhow::bail!("Illegal cpu allocation request '{}'", request.cpus);
+        if reg.cpus < 1 || reg.cpus > self.limits_config.cpu_max {
+            anyhow::bail!("Illegal cpu allocation request '{}'", reg.cpus);
         }
-        if request.parallel_invokes != 1 {
+        if reg.parallel_invokes != 1 {
             anyhow::bail!("Illegal parallel invokes set, must be 1");
         }
-        if request.function_name.contains('/') || request.function_name.contains('\\') {
+        if reg.function_name.contains('/') || reg.function_name.contains('\\') {
             anyhow::bail!("Illegal characters in function name: cannot container any \\,/");
         }
-        let mut isolation: Isolation = request.isolate.into();
-        if isolation.is_empty() {
+        if reg.isolation_type.is_empty() {
             anyhow::bail!("Could not register function with no specified isolation!");
         }
-
-        let compute: Compute = request.compute.into();
-        if compute.is_empty() {
+        if reg.supported_compute.is_empty() {
             anyhow::bail!("Could not register function with no specified compute!");
         }
 
-        for specific_compute in compute {
+        for specific_compute in reg.supported_compute {
             if (specific_compute == Compute::GPU && self.resources.gpu_resource.as_ref().map_or(0, |c| c.count) == 0)
                 || (specific_compute != Compute::CPU && specific_compute != Compute::GPU)
             {
@@ -110,86 +139,56 @@ impl RegistrationService {
                     specific_compute
                 );
             }
+            if let Some(timings) = &reg.all_resource_timings {
+                if let Some(warm) = timings.get(&specific_compute) {
+                    reg.historical_runtime_data_sec
+                        .insert(specific_compute, warm.warm_results_sec.clone());
+                }
+            }
         }
 
-        let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
-        if self.reg_map.read().contains_key(&fqdn) {
-            anyhow::bail!("Function {} is already registered!", fqdn);
+        if self.reg_map.read().contains_key(&reg.fqdn) {
+            anyhow::bail!("Function {} is already registered!", reg.fqdn);
         }
 
-        let mut rf = RegisteredFunction {
-            function_name: request.function_name,
-            function_version: request.function_version,
-            fqdn: fqdn.clone(),
-            image_name: request.image_name,
-            memory: request.memory,
-            cpus: request.cpus,
-            snapshot_base: "".to_string(),
-            parallel_invokes: request.parallel_invokes,
-            isolation_type: isolation,
-            supported_compute: compute,
-            historical_runtime_data_sec: HashMap::new(),
-            container_server: request.container_server.try_into()?,
-        };
+        let mut isolations = reg.isolation_type;
         for (lifecycle_iso, lifecycle) in self.lifecycles.iter() {
-            if !isolation.contains(*lifecycle_iso) {
+            if !isolations.contains(*lifecycle_iso) {
                 continue;
             }
-            isolation.remove(*lifecycle_iso);
+            isolations.remove(*lifecycle_iso);
             lifecycle
-                .prepare_function_registration(&mut rf, &fqdn, "default", tid)
+                .prepare_function_registration(&mut reg, "default", tid)
                 .await?;
         }
-        if !isolation.is_empty() {
-            anyhow::bail!("Could not register function with isolation(s): {:?}", isolation);
+        if !isolations.is_empty() {
+            anyhow::bail!("Could not register function with isolation(s): {:?}", isolations);
         }
+        add_registration_timings(
+            &self.cmap,
+            reg.supported_compute,
+            &reg.all_resource_timings,
+            &reg.fqdn,
+            tid,
+        )?;
 
-        if !request.resource_timings_json.is_empty() {
-            match serde_json::from_str::<ResourceTimings>(&request.resource_timings_json) {
-                Ok(r) => {
-                    for dev_compute in compute.into_iter() {
-                        if let Some(timings) = r.get(&dev_compute) {
-                            debug!(tid=%tid, compute=%dev_compute, from_compute=%compute, fqdn=%fqdn, timings=?r, "Registering timings for function");
-                            let (cold, warm, prewarm, exec, e2e, _) = Chars::get_chars(&dev_compute)?;
-                            for v in timings.cold_results_sec.iter() {
-                                self.characteristics_map.update(&fqdn, exec, *v);
-                            }
-                            for v in timings.warm_results_sec.iter() {
-                                self.characteristics_map.update(&fqdn, exec, *v);
-                            }
-                            for v in timings.cold_worker_duration_us.iter() {
-                                self.characteristics_map.update_2(
-                                    &fqdn,
-                                    cold,
-                                    *v as f64 / 1_000_000.0,
-                                    e2e,
-                                    *v as f64 / 1_000_000.0,
-                                );
-                            }
-                            for v in timings.warm_worker_duration_us.iter() {
-                                self.characteristics_map.update_3(
-                                    &fqdn,
-                                    warm,
-                                    *v as f64 / 1_000_000.0,
-                                    prewarm,
-                                    *v as f64 / 1_000_000.0,
-                                    e2e,
-                                    *v as f64 / 1_000_000.0,
-                                );
-                            }
-                            rf.historical_runtime_data_sec
-                                .insert(dev_compute, timings.warm_results_sec.clone());
-                        }
-                    }
-                },
-                Err(e) => anyhow::bail!("Failed to parse resource timings because {:?}", e),
-            };
-        }
-        let ret = Arc::new(rf);
-        debug!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "Adding new registration to registered_functions map");
-        self.reg_map.write().insert(fqdn.clone(), ret.clone());
+        let ret = Arc::new(reg);
+        debug!(
+            tid = tid,
+            function_name = ret.function_name,
+            function_version = ret.function_version,
+            fqdn = ret.fqdn,
+            "Adding new registration to registered_functions map"
+        );
+        self.reg_map.write().insert(ret.fqdn.clone(), ret.clone());
         self.cm.register(&ret, tid)?;
-        info!(tid=%tid, function_name=%ret.function_name, function_version=%ret.function_version, fqdn=%ret.fqdn, "function was successfully registered");
+        info!(
+            tid = tid,
+            function_name = ret.function_name,
+            function_version = ret.function_version,
+            fqdn = ret.fqdn,
+            "function was successfully registered"
+        );
         Ok(ret)
     }
 

@@ -12,7 +12,6 @@ use iluvatar_library::utils::is_simulation;
 use iluvatar_library::{
     logging::start_simulation_tracing,
     transaction::{gen_tid, TransactionId, LIVE_WORKER_LOAD_TID, SIMULATION_START_TID},
-    types::CommunicationMethod,
     utils::config::args_to_json,
 };
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
@@ -26,7 +25,6 @@ fn run_invokes(
     factory: Arc<WorkerAPIFactory>,
     runtime: TokioRuntime,
     host: String,
-    comm: CommunicationMethod,
 ) -> Result<()> {
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     let trace: Vec<CsvInvocation> = crate::trace::trace_utils::load_trace_csv(&args.input_csv, tid)?;
@@ -58,9 +56,9 @@ fn run_invokes(
                 )
             })?;
 
-            let func_args = match comm {
-                CommunicationMethod::RPC => args_to_json(&prepare_function_args(func, args.load_type))?,
-                CommunicationMethod::SIMULATION => serde_json::to_string(func.sim_invoke_data.as_ref().unwrap())?,
+            let func_args = match is_simulation() {
+                false => args_to_json(&prepare_function_args(func, args.load_type))?,
+                true => serde_json::to_string(func.sim_invoke_data.as_ref().unwrap())?,
             };
             let f_c = func.func_name.clone();
             let clk_clone = clock.clone();
@@ -81,7 +79,6 @@ fn run_invokes(
                     Some(func_args),
                     clk_clone,
                     &fct_cln,
-                    Some(comm),
                 )
                 .await
             }));
@@ -121,14 +118,7 @@ pub fn simulated_worker(args: TraceArgs) -> Result<()> {
     let factory = WorkerAPIFactory::boxed();
     info!(tid = tid, "starting simulation run");
 
-    run_invokes(
-        tid,
-        args,
-        factory,
-        threaded_rt,
-        spec_config,
-        CommunicationMethod::SIMULATION,
-    )
+    run_invokes(tid, args, factory, threaded_rt, spec_config)
 }
 
 pub fn live_worker(args: TraceArgs) -> Result<()> {
@@ -138,5 +128,5 @@ pub fn live_worker(args: TraceArgs) -> Result<()> {
     let host = args.host.clone();
     info!(tid = tid, "starting live run");
 
-    run_invokes(tid, args, factory, threaded_rt, host, CommunicationMethod::RPC)
+    run_invokes(tid, args, factory, threaded_rt, host)
 }

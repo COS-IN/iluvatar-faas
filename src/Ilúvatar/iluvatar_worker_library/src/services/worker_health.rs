@@ -75,6 +75,7 @@ impl WorkerHealthService {
             isolate: isos.keys().fold(Isolation::empty(), |acc, i| acc | *i).bits(),
             resource_timings_json: "{}".to_string(),
             container_server: ContainerServer::HTTP as u32,
+            system_function: true,
         };
 
         let reg = reg
@@ -109,18 +110,18 @@ impl WorkerHealthService {
                         if obj.body.greeting == format!("Hello {} from python!", TEST_FUNC_ARG) {
                             self.healthy()
                         } else {
-                            warn!(tid=%tid, greeting=%obj.body.greeting, "Received message from health function was incorrect");
+                            warn!(tid=tid, greeting=%obj.body.greeting, "Received message from health function was incorrect");
                             self.unhealthy()
                         }
                     },
                     Err(e) => {
-                        warn!(tid=%tid, json=%result.result_json, error=%e, "Got invalid json from health function invocation");
+                        warn!(tid=tid, json=%result.result_json, error=%e, "Got invalid json from health function invocation");
                         self.unhealthy()
                     },
                 }
             },
             Err(e) => {
-                warn!(tid=%tid, error=%e, "Got an error trying to run health function invocation");
+                warn!(tid=tid, error=%e, "Got an error trying to run health function invocation");
                 self.unhealthy()
             },
         }
