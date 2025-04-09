@@ -39,6 +39,21 @@ pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
     fn update_2(&self, _fqdn: &str, _k1: T, _v1: f64, _k2: T, _v2: f64) {}
     fn update_3(&self, _fqdn: &str, _k1: T, _v1: f64, _k2: T, _v2: f64, _k3: T, _v3: f64) {}
     fn update_4(&self, _fqdn: &str, _k1: T, _v1: f64, _k2: T, _v2: f64, _k3: T, _v3: f64, _k4: T, _v4: f64) {}
+    fn update_5(
+        &self,
+        _fqdn: &str,
+        _k1: T,
+        _v1: f64,
+        _k2: T,
+        _v2: f64,
+        _k3: T,
+        _v3: f64,
+        _k4: T,
+        _v4: f64,
+        _k5: T,
+        _v5: f64,
+    ) {
+    }
 
     fn get(&self, fqdn: &str, key: T, value: Value) -> f64;
     fn get_2(&self, fqdn: &str, k1: T, v1: Value, k2: T, v2: Value) -> (f64, f64);
@@ -69,7 +84,7 @@ pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
 }
 
 #[derive(Clone, Copy)]
-#[cfg_attr(test, derive(PartialEq, enum_iterator::Sequence))]
+#[cfg_attr(test, derive(PartialEq, Debug, enum_iterator::Sequence))]
 #[repr(usize)]
 pub enum Chars {
     /// Running avg of _all_ times on CPU for invocations.
@@ -101,9 +116,12 @@ pub enum Chars {
     /// The running avg IAT.
     /// Recorded by iluvatar_worker_library::worker_api::iluvatar_worker::IluvatarWorkerImpl::invoke and iluvatar_worker_library::worker_api::iluvatar_worker::IluvatarWorkerImpl::invoke_async
     IAT,
-    /// The running avg memory usage
-    /// TODO: record this somewhere
+    /// The running avg memory usage, in MB
+    /// Recorded in [ContainerManager::calc_container_pool_memory_usages]
     MemoryUsage,
+    /// The running avg memory usage of GPU allocations, in MB
+    /// Recorded by invoke_on_container_2
+    GpuMemoryUsage,
     /// Total end to end latency: queuing plus execution
     E2ECpu,
     E2EGpu,
@@ -285,6 +303,27 @@ impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for Cha
             },
         };
     }
+    fn update_5(&self, fqdn: &str, k1: T, v1: f64, k2: T, v2: f64, k3: T, v3: f64, k4: T, v4: f64, k5: T, v5: f64) {
+        match self.data.get_mut(fqdn) {
+            None => {
+                let mut data = vec![f64::NAN; S * (Value::SIZE)].into_boxed_slice();
+                set_data(&mut data, k1.as_() * (Value::SIZE), v1);
+                set_data(&mut data, k2.as_() * (Value::SIZE), v2);
+                set_data(&mut data, k3.as_() * (Value::SIZE), v3);
+                set_data(&mut data, k4.as_() * (Value::SIZE), v4);
+                set_data(&mut data, k5.as_() * (Value::SIZE), v5);
+                self.data.insert(fqdn.to_string(), data);
+            },
+            Some(mut d) => {
+                let data = d.value_mut();
+                update_data(data, k1.as_() * (Value::SIZE), v1);
+                update_data(data, k2.as_() * (Value::SIZE), v2);
+                update_data(data, k3.as_() * (Value::SIZE), v3);
+                update_data(data, k4.as_() * (Value::SIZE), v4);
+                update_data(data, k5.as_() * (Value::SIZE), v5);
+            },
+        };
+    }
 
     fn get(&self, fqdn: &str, key: T, value: Value) -> f64 {
         match self.data.get(fqdn) {
@@ -369,6 +408,7 @@ pub fn worker_char_map() -> WorkerCharMap {
 mod char_map_tests {
     use super::*;
     use enum_iterator::*;
+    use rand::seq::IteratorRandom;
 
     #[test]
     fn compile_test() {
@@ -428,6 +468,40 @@ mod char_map_tests {
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Max), 2.0);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Avg), 1.0 * 0.9 + 2.0 * 0.1);
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 2.0);
+    }
+
+    #[test]
+    fn multi_set_works() {
+        let cmap = worker_char_map();
+        let chosen_chars = all::<Chars>().choose_multiple(&mut rand::rng(), 3);
+        let err_msg = format!("Tested chars: {:?}", chosen_chars);
+
+        cmap.update_2("f1", chosen_chars[0], 1.0, chosen_chars[1], 1.0);
+        cmap.update_3("f1", chosen_chars[0], 2.0, chosen_chars[1], 2.0, chosen_chars[2], 2.0);
+        assert_eq!(cmap.get("f1", chosen_chars[0], Value::Min), 1.0, "{}", err_msg);
+        assert_eq!(cmap.get("f1", chosen_chars[0], Value::Max), 2.0, "{}", err_msg);
+        assert_eq!(
+            cmap.get("f1", chosen_chars[0], Value::Avg),
+            1.0 * 0.9 + 2.0 * 0.1,
+            "{}",
+            err_msg
+        );
+        assert_eq!(cmap.get("f1", chosen_chars[0], Value::Latest), 2.0, "{}", err_msg);
+
+        assert_eq!(cmap.get("f1", chosen_chars[1], Value::Min), 1.0, "{}", err_msg);
+        assert_eq!(cmap.get("f1", chosen_chars[1], Value::Max), 2.0, "{}", err_msg);
+        assert_eq!(
+            cmap.get("f1", chosen_chars[1], Value::Avg),
+            1.0 * 0.9 + 2.0 * 0.1,
+            "{}",
+            err_msg
+        );
+        assert_eq!(cmap.get("f1", chosen_chars[1], Value::Latest), 2.0, "{}", err_msg);
+
+        assert_eq!(cmap.get("f1", chosen_chars[2], Value::Min), 2.0, "{}", err_msg);
+        assert_eq!(cmap.get("f1", chosen_chars[2], Value::Max), 2.0, "{}", err_msg);
+        assert_eq!(cmap.get("f1", chosen_chars[2], Value::Avg), 2.0, "{}", err_msg);
+        assert_eq!(cmap.get("f1", chosen_chars[2], Value::Latest), 2.0, "{}", err_msg);
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
 use dashmap::DashMap;
 use futures::Future;
+use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::threading::{tokio_notify_thread, tokio_runtime, tokio_sender_thread, EventualItem};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
@@ -34,6 +35,7 @@ pub struct ContainerManager {
     gpu_containers: ContainerPool,
     resources: Arc<ContainerResourceConfig>,
     used_mem_mb: Arc<RwLock<MemSizeMb>>,
+    cmap: WorkerCharMap,
     cont_isolations: ContainerIsolationCollection,
     /// For keep-alive eviction
     pub prioritized_list: RwLock<Subpool>,
@@ -56,6 +58,7 @@ impl ContainerManager {
         resources: Arc<ContainerResourceConfig>,
         cont_isolations: ContainerIsolationCollection,
         gpu_resources: Option<Arc<GpuResourceTracker>>,
+        cmap: &WorkerCharMap,
         _tid: &TransactionId,
     ) -> Result<Arc<Self>> {
         let (worker_handle, tx) = tokio_runtime(
@@ -77,6 +80,7 @@ impl ContainerManager {
             resources,
             cont_isolations,
             gpu_resources,
+            cmap: cmap.clone(),
             used_mem_mb: Arc::new(RwLock::new(0)),
             cpu_containers: ContainerPool::new(Compute::CPU),
             gpu_containers: ContainerPool::new(Compute::GPU),
@@ -238,6 +242,7 @@ impl ContainerManager {
                     continue;
                 },
             };
+            self.cmap.update(container.fqdn(), Chars::MemoryUsage, new_usage as f64);
             new_total_mem += new_usage;
             debug!(tid=tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, "updated container memory usage");
         }
@@ -731,6 +736,7 @@ mod tests {
     use crate::services::containers::IsolationFactory;
     use crate::worker_api::config::WorkerConfig;
     use crate::worker_api::worker_config::WORKER_ENV_PREFIX;
+    use iluvatar_library::char_map::worker_char_map;
     use iluvatar_library::transaction::TEST_TID;
     use std::time::Duration;
 
@@ -763,9 +769,15 @@ mod tests {
             .get_isolation_services(&TEST_TID, false)
             .await
             .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
-        ContainerManager::boxed(cfg.container_resources.clone(), fac, None, &TEST_TID)
-            .await
-            .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e))
+        ContainerManager::boxed(
+            cfg.container_resources.clone(),
+            fac,
+            None,
+            &worker_char_map(),
+            &TEST_TID,
+        )
+        .await
+        .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e))
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
