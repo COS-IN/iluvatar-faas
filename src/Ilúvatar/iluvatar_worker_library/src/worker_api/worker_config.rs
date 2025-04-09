@@ -1,3 +1,4 @@
+use crate::services::containers::eviction::EvictionPolicy;
 use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
 use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
@@ -5,6 +6,7 @@ use iluvatar_library::types::Compute;
 use iluvatar_library::{
     energy::EnergyConfig, influx::InfluxConfig, logging::LoggingConfig, types::MemSizeMb, utils::port_utils::Port,
 };
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -43,6 +45,7 @@ pub struct Configuration {
     pub energy_cap: Option<Arc<crate::services::invocation::energy_limiter::EnergyCapConfig>>,
     pub status: Arc<StatusConfig>,
     pub influx: Option<Arc<InfluxConfig>>,
+    pub http_server: Option<Arc<HttpServerConfig>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -50,8 +53,8 @@ pub struct Configuration {
 pub struct ContainerResourceConfig {
     /// total memory pool in MB
     pub memory_mb: MemSizeMb,
-    /// eviction algorithm to use
-    pub eviction: String,
+    /// Eviction algorithm to use.
+    pub eviction: EvictionPolicy,
     /// timeout on container startup before error
     pub startup_timeout_ms: u64,
     /// amount of memory the container pool monitor will try and maintain as a buffer (eager eviction)
@@ -175,7 +178,7 @@ pub struct InvocationConfig {
     pub queue_sleep_ms: u64,
     /// Queue to use for different compute resources
     pub queues: HashMap<Compute, String>,
-    /// Queueing policy to use for different compute resources
+    /// Queueing policy inside the queue to use for different compute resources
     pub queue_policies: HashMap<Compute, String>,
     /// The policy by which the worker decides how to enqueue polymorphic functions
     /// By default it uses [EnqueueingPolicy::All]
@@ -220,6 +223,13 @@ pub struct NetworkingConfig {
 /// Config related to status monitoring of the worker system & host
 pub struct StatusConfig {
     pub report_freq_ms: u64,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct HttpServerConfig {
+    pub address: String,
+    pub enabled: bool,
+    pub port: u16,
 }
 
 pub const WORKER_ENV_PREFIX: &str = "ILUVATAR_WORKER";

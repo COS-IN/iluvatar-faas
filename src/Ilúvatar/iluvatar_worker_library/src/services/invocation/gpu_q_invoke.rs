@@ -206,7 +206,7 @@ impl GpuQueueingInvoker {
                 "oldest_batch" => BatchGpuQueue::new(cmap.clone())?,
                 "sized_batch" => SizedBatchGpuQueue::new(cmap.clone())?,
                 "paella" => PaellaGpuQueue::new(cmap.clone())?,
-                unknown => anyhow::bail!("Unknown queueing policy '{}'", unknown),
+                unknown => anyhow::bail!("Unknown GPU queueing policy '{}'", unknown),
             })
         } else {
             anyhow::bail!("No queue policy listed for compute '{:?}'", Compute::GPU)

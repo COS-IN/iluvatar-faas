@@ -172,42 +172,51 @@ impl WorkerRegistration {
     }
 
     /// Register a new function with workers
-    pub async fn new_function(&self, function: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
-        for item in self.workers.iter() {
-            let worker = item.value();
-            let mut api = self
-                .worker_fact
-                .get_worker_api(&worker.name, &worker.host, worker.port, tid)
-                .await?;
-            match api
-                .register(
-                    function.function_name.clone(),
-                    function.function_version.clone(),
-                    function.image_name.clone(),
-                    function.memory,
-                    function.cpus,
-                    function.parallel_invokes,
-                    tid.clone(),
-                    function.isolation_type,
-                    function.supported_compute,
-                    function.container_server,
-                    function.all_resource_timings.as_ref(),
-                    function.system_function,
-                )
-                .await
-            {
-                Ok(_) => (),
-                Err(e) => {
-                    bail_error!(tid=tid, worker=%worker.name, error=%e, "Worker failed to register new function")
-                },
-            };
+    pub async fn new_function(
+        &self,
+        reg: Arc<RegisteredFunction>,
+        tid: &TransactionId,
+    ) -> Result<Arc<RegisteredFunction>> {
+        if self.function_reg.function_registered(&reg.fqdn) {
+            bail_error!(tid=tid, fqdn=%reg.fqdn, "Function was already registered");
+        } else {
+            for item in self.workers.iter() {
+                let worker = item.value();
+                let mut api = self
+                    .worker_fact
+                    .get_worker_api(
+                        &worker.name,
+                        &worker.host,
+                        worker.port,
+                        tid,
+                    )
+                    .await?;
+                match api
+                    .register(
+                        reg.function_name.clone(),
+                        reg.function_version.clone(),
+                        reg.image_name.clone(),
+                        reg.memory,
+                        reg.cpus,
+                        reg.parallel_invokes,
+                        tid.clone(),
+                        reg.isolation_type,
+                        reg.supported_compute,
+                        reg.container_server,
+                        reg.all_resource_timings.as_ref(),
+                        reg.system_function,
+                    )
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(e) => {
+                        bail_error!(tid=tid, worker=%worker.name, error=%e, "Worker failed to register new function")
+                    },
+                };
+            }
+            info!(tid=tid, fqdn=%reg.fqdn, "Function was registered across workers");
+            Ok(reg)
         }
-        info!(
-            tid = tid,
-            fqdn = function.fqdn,
-            "Function was registered across workers"
-        );
-        Ok(())
     }
 
     /// Get a lock-free iterable over all the currently registered workers

@@ -7,12 +7,14 @@ use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
 use iluvatar_library::{bail_error, logging::start_tracing, utils::wait_for_exit_signal};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
+use iluvatar_worker_library::http::create_http_server;
 use iluvatar_worker_library::worker_api::config::Configuration;
 use iluvatar_worker_library::worker_api::create_worker;
 use iluvatar_worker_library::{services::containers::IsolationFactory, worker_api::config::WorkerConfig};
+use std::sync::Arc;
 use std::time::Duration;
 use tonic::transport::Server;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use utils::Args;
 
 pub mod utils;
@@ -27,6 +29,7 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
         Ok(w) => w,
         Err(e) => bail_error!(tid=tid, error=%e, "Error creating worker on startup"),
     };
+    let worker = Arc::new(worker);
     let compute = worker.supported_compute().bits();
     let isolation = worker.supported_isolation().bits();
 
@@ -36,9 +39,30 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
     let _j = tokio::spawn(
         Server::builder()
             .timeout(Duration::from_secs(server_config.timeout_sec))
-            .add_service(IluvatarWorkerServer::new(worker))
+            .add_service(IluvatarWorkerServer::from_arc(worker.clone()))
             .serve(addr.parse()?),
     );
+
+    match server_config.http_server.as_ref() {
+        Some(c) if c.enabled => {
+            info!(tid = tid, "HTTP server enabled, starting the server");
+            let http_server = match create_http_server(&c.address, c.port, worker.clone()).await {
+                Ok(s) => s,
+                Err(e) => bail_error!(tid = tid, error = %e, "Error creating HTTP server on startup"),
+            };
+            tokio::spawn(async move {
+                if let Err(e) = http_server.run().await {
+                    error!("HTTP server error: {}", e);
+                }
+            });
+        },
+        _ => {
+            info!(
+                tid = tid,
+                "Skipping HTTP server; either no config provided or server disabled"
+            );
+        },
+    }
 
     match &server_config.load_balancer_host {
         Some(host) if !host.is_empty() => {

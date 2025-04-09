@@ -33,6 +33,9 @@ lto=false
 incremental=true
 strip=false
 
+[profile.spansd]
+inherits="dev"
+
 [profile.release]
 opt-level=3
 codegen-units=4
@@ -44,17 +47,20 @@ incremental=false
 strip=true
 panic="abort"
 
+[profile.spans]
+inherits="release"
+
+[profile.relwdebug]
+inherits="release"
+debug=true
+overflow-checks=true
+incremental=true
+strip=false
+
 [profile.tiny]
 inherits="release"
 opt-level='z'
-lto=true
 codegen-units=1
-debug=0
-debug-assertions=false
-overflow-checks=false
-incremental=false
-strip=true
-panic="abort"
 
 [profile.release.package."*"]
 opt-level=3

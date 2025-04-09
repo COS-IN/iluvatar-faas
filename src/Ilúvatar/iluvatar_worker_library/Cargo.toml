@@ -11,6 +11,7 @@ repository.workspace = true
 categories.workspace = true
 
 [dependencies]
+axum = { version = "0.7"}
 iluvatar_library = { path = "../iluvatar_library" }
 iluvatar_rpc = { path = "../iluvatar_rpc" }
 tonic = "0.12"

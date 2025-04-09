@@ -6,9 +6,8 @@
 
 venv_name="examples-venv"
 
-sudo apt install -y jq python3-pip python3-venv
+
 cargo install cross --git https://github.com/cross-rs/cross
-python3 -m pip install virtualenv
 python3 -m venv --clear $venv_name
 source ./$venv_name/bin/activate
 python3 -m pip install --upgrade pip --no-warn-script-location

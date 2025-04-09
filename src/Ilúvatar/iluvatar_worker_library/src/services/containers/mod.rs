@@ -21,6 +21,7 @@ pub mod containerd;
 pub mod containermanager;
 #[path = "./docker/docker.rs"]
 pub mod docker;
+pub mod eviction;
 #[path = "./simulation/simulator.rs"]
 pub mod simulator;
 pub mod structs;

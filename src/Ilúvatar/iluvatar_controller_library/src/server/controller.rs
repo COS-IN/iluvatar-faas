@@ -128,10 +128,7 @@ impl IluvatarController for Controller {
     #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
     async fn register(&self, request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
         match ControllerAPITrait::register(self, request.into_inner()).await {
-            Ok(r) => Ok(Response::new(RegisterResponse {
-                success: true,
-                function_json_result: r,
-            })),
+            Ok(r) => Ok(Response::new(r)),
             Err(e) => Err(Status::from_error(e.into())),
         }
     }
@@ -255,18 +252,31 @@ impl ControllerAPITrait for Controller {
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=%request.transaction_id))]
-    async fn register(&self, request: RegisterRequest) -> Result<String> {
+    async fn register(&self, request: RegisterRequest) -> Result<RegisterResponse> {
         if request.system_function {
             anyhow::bail!("Cannot register a system function, these are internal only!");
         }
         let tid = request.transaction_id.clone();
-        let reg = match self.func_reg.register_function(request, &tid).await {
-            Ok(r) => r,
-            Err(e) => return Err(e),
-        };
-        match self.worker_reg.new_function(&reg, &tid).await {
-            Ok(_) => Ok("{}".to_owned()),
-            Err(e) => Err(e),
+        match self.func_reg.register_function(request, &tid).await {
+            Ok(reg) => {
+                match self.worker_reg.new_function(reg, &tid).await {
+                    Ok(reg) => Ok(RegisterResponse {
+                        success: true,
+                        fqdn: reg.fqdn.clone(),
+                        error: "".to_string(),
+                    }),
+                    Err(e) => Ok(RegisterResponse {
+                        success: false,
+                        fqdn: "".to_string(),
+                        error: format!("{:?}", e),
+                    }),
+                }
+            },
+            Err(e) => Ok(RegisterResponse {
+                success: false,
+                fqdn: "".to_string(),
+                error: format!("{:?}", e),
+            }),
         }
     }
 

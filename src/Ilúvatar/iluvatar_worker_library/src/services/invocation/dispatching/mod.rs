@@ -13,6 +13,8 @@ pub mod queueing_dispatcher;
 pub enum EnqueueingPolicy {
     /// Invocations will be placed in any relevant queue, and the first one to start first wins
     All,
+    /// Randomly assign functions to any queue they support, with equal probability.
+    Random,
     /// Use ratio of CPU/GPU
     Speedup,
     /// Mix of speedup ratio and estimated time
@@ -30,7 +32,7 @@ pub enum EnqueueingPolicy {
     /// Multi-armed bandit for polymorphic functions.
     UCB1,
     MWUA,
-    // /// Locality/E2E time
+    /// Locality/E2E time
     HitTput,
     /// Always GPU for polymorphic functions
     AlwaysGPU,

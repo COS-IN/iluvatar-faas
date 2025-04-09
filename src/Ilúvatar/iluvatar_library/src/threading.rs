@@ -186,12 +186,13 @@ where
 
 /// Start an async function inside a Tokio worker thread.
 /// It will be awakened on each notification.
-pub fn tokio_notify_thread<S>(
+pub fn tokio_notify_thread<S, T>(
     tid: TransactionId,
     notifier: Arc<Notify>,
-    function: Arc<dyn Fn(&S, &TransactionId) + Send + Sync + 'static>,
+    function: fn(Arc<S>, TransactionId) -> T,
 ) -> (TokioHandle<()>, Sender<Arc<S>>)
 where
+    T: Future<Output = ()> + Send + 'static,
     S: Send + Sync + 'static,
 {
     let (tx, rx) = channel();
@@ -207,7 +208,7 @@ where
         loop {
             tokio::select! {
               _ = crate::continuation::GLOB_NOTIFIER.notified() => break,
-              _ = notifier.notified() => function(&service, &tid),
+              _ = notifier.notified() => function(service.clone(), tid.clone()).await,
             }
         }
         crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);

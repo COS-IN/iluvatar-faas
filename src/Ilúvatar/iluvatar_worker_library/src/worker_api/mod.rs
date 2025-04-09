@@ -127,6 +127,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         gpu_resource,
         isos,
         cpu_mon,
+        cpu,
         buff,
     ))
 }

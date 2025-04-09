@@ -43,7 +43,8 @@ def run_scaling(threads):
         "memory": 1024 * threads,
         "worker_status_ms": 500,
         "worker_log_dir": worker_log_dir,
-        "log_level": "warn"
+        "log_level": "warn",
+        "snapshotter": "overlayfs",
     }
     print(kwargs["worker_log_dir"])
     bindir = os.path.join(

@@ -1,9 +1,8 @@
 use crate::benchmark::BenchmarkStore;
 use crate::LOAD_GEN_PREFIX;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::clock::{now, Clock};
-use iluvatar_library::logging::LoggingConfig;
 use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
@@ -16,7 +15,7 @@ use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResp
 use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs::File, io::Write, path::Path, sync::Arc, time::Duration};
+use std::{fs::File, io::Write, path::Path, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::error;
@@ -202,7 +201,10 @@ pub fn load_benchmark_data(path: &Option<String>) -> Result<Option<BenchmarkStor
     match path {
         Some(pth) => {
             // Choosing functions from json file benchmark data
-            let contents = std::fs::read_to_string(pth).context("Something went wrong reading the benchmark file")?;
+            let contents = match std::fs::read_to_string(pth) {
+                Ok(c) => c,
+                Err(e) => bail_error!(error=%e, "Something went wrong reading the benchmark file"),
+            };
             match serde_json::from_str::<BenchmarkStore>(&contents) {
                 Ok(d) => Ok(Some(d)),
                 Err(e) => anyhow::bail!("Failed to read and parse benchmark data! '{}'", e),
@@ -350,13 +352,7 @@ pub async fn worker_register(
         .await;
 
     match reg_out {
-        Ok(s) => match serde_json::from_str::<HashMap<String, String>>(&s) {
-            Ok(r) => match r.get("Ok") {
-                Some(_) => Ok((s, reg_dur, tid)),
-                None => anyhow::bail!("worker registration did not have 'Ok', got {:?}", r),
-            },
-            Err(e) => anyhow::bail!("worker registration parsing '{:?}' failed because {:?}", s, e),
-        },
+        Ok(fqdn) => Ok((fqdn, reg_dur, tid)),
         Err(e) => anyhow::bail!("worker registration encoutered an error because {:?}", e),
     }
 }
@@ -579,13 +575,17 @@ pub fn save_result_json<P: AsRef<Path> + std::fmt::Debug, T: Serialize>(path: P,
     Ok(())
 }
 
-pub fn start_logging(path: &str, stdout: bool) -> anyhow::Result<impl Drop> {
-    let overrides = vec![
+pub fn start_logging(path: &str, stdout: bool) -> Result<impl Drop> {
+    let overrides = Some(vec![
         ("directory".to_string(), path.to_string()),
-        ("basename".to_string(), "load_gen".to_string()),
         ("stdout".to_string(), stdout.to_string()),
-    ];
-    let log_cfg = iluvatar_library::config::load_config::<LoggingConfig>(None, None, Some(overrides), LOAD_GEN_PREFIX)?;
+    ]);
+    let log_cfg = iluvatar_library::load_config_default!(
+        "iluvatar_load_gen/src/resources/load_gen.json",
+        None,
+        overrides,
+        LOAD_GEN_PREFIX
+    )?;
     iluvatar_library::logging::start_tracing(&Arc::new(log_cfg), &"LOAD_GEN_MAIN".to_string())
 }
 

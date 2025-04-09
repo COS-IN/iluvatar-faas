@@ -2,6 +2,7 @@ use super::container_pool::{ContainerPool, Subpool};
 use super::structs::{Container, ContainerLock, ContainerState, ContainerT};
 use super::ContainerIsolationCollection;
 use crate::services::containers::docker::dockerstructs::DockerContainer;
+use crate::services::containers::eviction::order_pool_eviction;
 use crate::services::containers::structs::{InsufficientGPUError, InsufficientMemoryError};
 use crate::services::resources::gpu::{GpuToken, GPU};
 use crate::services::{registration::RegisteredFunction, resources::gpu::GpuResourceTracker};
@@ -14,7 +15,6 @@ use iluvatar_library::threading::{tokio_logging_thread, tokio_notify_thread, tok
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn, ToAny};
 use parking_lot::RwLock;
-use std::cmp::Ordering;
 use std::sync::{atomic::AtomicU32, Arc};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Notify;
@@ -80,7 +80,7 @@ impl ContainerManager {
         let (pri_handle, pri_tx) = tokio_notify_thread(
             CTR_MGR_PRI_TID.clone(),
             pri_notif.clone(),
-            Arc::new(Self::recompute_eviction_priorities),
+            Self::recompute_eviction_priorities,
         );
         let cm = Arc::new(ContainerManager {
             resources,
@@ -105,9 +105,10 @@ impl ContainerManager {
     }
 
     #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
-    fn recompute_eviction_priorities(&self, tid: &TransactionId) {
-        self.compute_eviction_priorities(tid);
-        self.compute_gpu_eviction_priorities(tid);
+    async fn recompute_eviction_priorities(self: Arc<Self>, tid: TransactionId) {
+        let mut evict = self.compute_eviction_priorities(&tid);
+        evict.extend(self.compute_gpu_eviction_priorities(&tid));
+        tokio::spawn(async move { self.try_evict_idle_containers(tid, evict).await });
     }
 
     #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
@@ -656,37 +657,40 @@ impl ContainerManager {
         Ok(())
     }
 
-    fn order_pool_eviction(&self, tid: &TransactionId, list: Subpool) -> Subpool {
-        debug!(tid = tid, "Computing eviction priorities");
-        let comparator = match self.resources.eviction.as_str() {
-            "LRU" => ContainerManager::lru_eviction,
-            _ => {
-                error!(tid=tid, algorithm=%self.resources.eviction, "Unknown eviction algorithm");
-                return list;
-            },
-        };
-        // NOTE: Rust will panic if the comparator doesn't implement total ordering.
-        // As the values used to sort containers _may_ change during sorting here, they must be pre-captured.
-        // Failure to do so will result in a panic and brick the system.
-        let mut insts: Vec<(tokio::time::Instant, Container)> = list.into_iter().map(|c| (c.last_used(), c)).collect();
-        insts.sort_unstable_by(comparator);
-        insts.into_iter().map(|c| c.1).collect()
-    }
-
-    fn compute_eviction_priorities(&self, tid: &TransactionId) {
+    /// Returns a list of containers to immediately evict
+    fn compute_eviction_priorities(&self, tid: &TransactionId) -> Subpool {
         let ordered = self.cpu_containers.iter();
         debug!(tid=tid, num_containers=%ordered.len(), "Computing CPU eviction priorities");
-        *self.prioritized_list.write() = self.order_pool_eviction(tid, ordered);
+        let (ordered, evict) = order_pool_eviction(self, &self.resources.eviction, tid, ordered);
+        *self.prioritized_list.write() = ordered;
+        evict
     }
 
-    fn compute_gpu_eviction_priorities(&self, tid: &TransactionId) {
+    /// Returns a list of containers to immediately evict
+    fn compute_gpu_eviction_priorities(&self, tid: &TransactionId) -> Subpool {
         let ordered = self.gpu_containers.iter();
         debug!(tid=tid, num_containers=%ordered.len(), "Computing GPU eviction priorities");
-        *self.prioritized_gpu_list.write() = self.order_pool_eviction(tid, ordered);
+        let (ordered, evict) = order_pool_eviction(self, &self.resources.eviction, tid, ordered);
+        *self.prioritized_gpu_list.write() = ordered;
+        evict
     }
 
-    fn lru_eviction(c1: &(tokio::time::Instant, Container), c2: &(tokio::time::Instant, Container)) -> Ordering {
-        c1.0.cmp(&c2.0)
+    async fn try_evict_idle_containers(&self, tid: TransactionId, list: Subpool) {
+        for to_remove in list {
+            if let Ok(pool) = self.get_resource_pool(to_remove.compute_type()) {
+                if pool.remove_container(&to_remove, &tid).is_none() {
+                    // likely container was picked up for invoke or deleted elsewhere
+                    // unlikely is we lost track of it and have runaway container leak
+                    debug!(tid=tid, container_id=%to_remove.container_id(), "Container not in idle pool for evict");
+                    continue;
+                }
+            }
+            debug!(tid=tid, container_id=%to_remove.container_id(), "Removing container");
+            match self.purge_container(to_remove, &tid).await {
+                Ok(_) => (),
+                Err(e) => error!(tid=tid, error=%e, "Got an error trying to evict container"),
+            };
+        }
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
