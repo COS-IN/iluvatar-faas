@@ -12,9 +12,11 @@
     "span_energy_monitoring": false
   },
   "load_balancer": {
-    "algorithm": "LeastLoaded",
-    "load_metric": "loadavg",
-    "thread_sleep_ms": 1000
+    "algorithm": {
+      "type": "LeastLoaded",
+      "load_metric": "loadavg",
+      "thread_sleep_ms": 1000
+    }
   },
   "influx": {
     "host": "http://localhost:8086",

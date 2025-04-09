@@ -36,13 +36,36 @@ class BuildTarget(Enum):
         return self.value
 
 
-def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE):
+def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
+    """
+    Build the solution 'src/Ilúvatar' is located.
+
+    :param ilu_home: Directory where the
+    :param log_file: Optional log file to write build stdout to
+    :param build: build target
+    :param target_arch: rustc target triple build target architecture
+    """
     pwd = os.getcwd()
     os.chdir(ilu_home)
     build_args = ["make", build.make_name()]
-    _run_cmd(build_args, log_file)
+    _run_cmd(build_args, log_file, env={"TARGET_PLAT":target_arch})
     os.chdir(pwd)
 
+def rust_build_native(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
+    """
+    Build Ilúvatar to run on the local CPU, with native optimizations and features enabled.
+    WARNING: This build will only work on the local machine as it uses CPU-family specific instructions. Be aware of how you use it
+
+    :param ilu_home: Directory where the
+    :param log_file: Optional log file to write build stdout to
+    :param build: build target
+    :param target_arch: rustc target triple build target architecture
+    """
+    pwd = os.getcwd()
+    os.chdir(ilu_home)
+    build_args = ["make", build.make_name()]
+    _run_cmd(build_args, log_file, env={"TARGET_CPU":"native","TARGET_PLAT":target_arch})
+    os.chdir(pwd)
 
 class RunType(Enum):
     SIM = "sim"
@@ -224,9 +247,14 @@ controller_kwargs = [
     ("controller_include_spans_json", False, ("logging", "include_spans_json")),
     ("controller_log_level", "info", ("logging", "level")),
     ("controller_port", 8089, ("port",)),
-    ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm")),
-    ("controller_thread_sleep_ms", 5000, ("load_balancer", "thread_sleep_ms")),
-    ("controller_load_metric", "loadavg", ("load_balancer", "load_metric")),
+    ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm", "type")),
+    ("controller_thread_sleep_ms", 5000, ("load_balancer", "algorithm", "load_metric", "thread_sleep_ms")),
+    ("controller_load_metric", "loadavg", ("load_balancer", "algorithm", "load_metric", "load_metric")),
+    ("controller_popular_pct", 0.1, ("load_balancer", "algorithm", "popular_pct")),
+    # CH-RLU
+    ("controller_bounded_ceil", 1.5, ("load_balancer", "algorithm", "bounded_ceil")),
+    ("controller_chain_len", 4, ("load_balancer", "algorithm", "chain_len")),
+    ("controller_lb_vnodes", 3, ("load_balancer", "algorithm", "vnodes")),
 ]
 worker_kwargs = [
     ("worker_port", 8070, ("port",)),

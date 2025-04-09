@@ -10,9 +10,10 @@ use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
 use dashmap::DashMap;
 use futures::Future;
-use iluvatar_library::threading::{tokio_notify_thread, tokio_runtime, tokio_sender_thread, EventualItem};
+use iluvatar_library::ring_buff::{RingBuffer, Wireable};
+use iluvatar_library::threading::{tokio_logging_thread, tokio_notify_thread, tokio_sender_thread, EventualItem};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
-use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
+use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn, ToAny};
 use parking_lot::RwLock;
 use std::sync::{atomic::AtomicU32, Arc};
 use tokio::sync::mpsc::UnboundedSender;
@@ -26,6 +27,14 @@ lazy_static::lazy_static! {
   pub static ref CTR_MGR_PRI_TID: TransactionId = "CtrMrgPriorities".to_string();
 }
 
+#[derive(ToAny)]
+pub struct ContainerMgrStat {
+    pub used_mem: MemSizeMb,
+    pub total_mem: MemSizeMb,
+    pub num_containers: u32,
+}
+impl Wireable for ContainerMgrStat {}
+
 /// Manage and control access to containers and system resources. CPU and GPU resource pools. Primary container state-tracking.
 pub struct ContainerManager {
     /// Containers that only use CPU compute resources
@@ -38,7 +47,7 @@ pub struct ContainerManager {
     /// For keep-alive eviction
     pub prioritized_list: RwLock<Subpool>,
     pub prioritized_gpu_list: RwLock<Subpool>,
-    _worker_thread: std::thread::JoinHandle<()>,
+    _worker_thread: tokio::task::JoinHandle<()>,
     _health_thread: tokio::task::JoinHandle<()>,
     _priorities_thread: tokio::task::JoinHandle<()>,
     /// Signal to tell to re-compute eviction priorities
@@ -56,14 +65,14 @@ impl ContainerManager {
         resources: Arc<ContainerResourceConfig>,
         cont_isolations: ContainerIsolationCollection,
         gpu_resources: Option<Arc<GpuResourceTracker>>,
+        ring_buff: &Arc<RingBuffer>,
         _tid: &TransactionId,
     ) -> Result<Arc<Self>> {
-        let (worker_handle, tx) = tokio_runtime(
+        let (worker_handle, tx) = tokio_logging_thread(
             resources.pool_freq_ms,
             CTR_MGR_WORKER_TID.clone(),
+            ring_buff.clone(),
             ContainerManager::monitor_pool,
-            None::<fn(Arc<ContainerManager>, TransactionId) -> tokio::sync::futures::Notified<'static>>,
-            None,
         )?;
         let (health_handle, health_tx, del_ctr_tx) =
             tokio_sender_thread(CTR_MGR_REMOVER_TID.clone(), Arc::new(Self::cull_unhealthy));
@@ -102,20 +111,35 @@ impl ContainerManager {
         tokio::spawn(async move { self.try_evict_idle_containers(tid, evict).await });
     }
 
-    #[tracing::instrument(level="debug", skip(service), fields(tid=tid))]
-    async fn monitor_pool<'r, 's>(service: Arc<Self>, tid: TransactionId) {
-        service.update_memory_usages(&tid).await;
-        service.prioritiy_notify.notify_waiters();
-        if service.resources.memory_buffer_mb > 0 {
-            let reclaim = service.resources.memory_buffer_mb - service.free_memory();
+    #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
+    async fn monitor_pool(self: &Arc<Self>, tid: &TransactionId) -> Result<ContainerMgrStat> {
+        self.update_memory_usages(tid).await;
+        self.prioritiy_notify.notify_waiters();
+        if self.resources.memory_buffer_mb > 0 {
+            let reclaim = self.resources.memory_buffer_mb - self.free_memory();
             if reclaim > 0 {
                 info!(tid = tid, amount = reclaim, "Trying to reclaim memory for monitor pool");
-                match service.reclaim_memory(reclaim, &tid).await {
+                match self.reclaim_memory(reclaim, tid).await {
                     Ok(_) => {},
                     Err(e) => error!(tid=tid, error=%e, "Error while trying to remove containers"),
                 };
             }
         }
+        let used_mem = self.used_memory();
+        let total_mem = self.total_memory();
+        let num_containers = self.num_containers();
+        info!(
+            tid = tid,
+            used_mem = used_mem,
+            total_mem = total_mem,
+            num_containers = num_containers,
+            "Container manager info"
+        );
+        Ok(ContainerMgrStat {
+            used_mem,
+            total_mem,
+            num_containers,
+        })
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, to_remove), fields(tid=tid)))]
@@ -731,6 +755,7 @@ mod tests {
     use crate::services::containers::IsolationFactory;
     use crate::worker_api::config::WorkerConfig;
     use crate::worker_api::worker_config::WORKER_ENV_PREFIX;
+    use iluvatar_library::char_map::worker_char_map;
     use iluvatar_library::transaction::TEST_TID;
     use std::time::Duration;
 
@@ -759,11 +784,12 @@ mod tests {
             WORKER_ENV_PREFIX
         )
         .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
-        let fac = IsolationFactory::new(cfg.clone())
+        let fac = IsolationFactory::new(cfg.clone(), worker_char_map())
             .get_isolation_services(&TEST_TID, false)
             .await
             .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
-        ContainerManager::boxed(cfg.container_resources.clone(), fac, None, &TEST_TID)
+        let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
+        ContainerManager::boxed(cfg.container_resources.clone(), fac, None, &ring, &TEST_TID)
             .await
             .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e))
     }

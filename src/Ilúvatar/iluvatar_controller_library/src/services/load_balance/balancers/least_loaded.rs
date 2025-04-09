@@ -1,8 +1,8 @@
-use crate::server::structs::{RegisteredFunction, RegisteredWorker};
-use crate::services::load_balance::LoadBalancerTrait;
+use crate::server::config::ControllerConfig;
+use crate::services::load_balance::{LoadBalancerTrait, LoadMetric};
+use crate::services::registration::RegisteredWorker;
 use crate::{
-    prewarm, send_async_invocation, send_invocation,
-    server::controller_config::LoadBalancingConfig,
+    build_influx, prewarm, send_async_invocation, send_invocation,
     services::{controller_health::ControllerHealthService, load_reporting::LoadService},
 };
 use anyhow::Result;
@@ -11,11 +11,18 @@ use iluvatar_library::{
     bail_error, threading::tokio_thread, transaction::TransactionId, transaction::LEAST_LOADED_TID,
 };
 use iluvatar_rpc::rpc::InvokeResponse;
+use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use parking_lot::RwLock;
+use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
+
+#[derive(Debug, Deserialize)]
+pub struct LLConfig {
+    load_metric: LoadMetric,
+}
 
 #[allow(unused)]
 pub struct LeastLoadedBalancer {
@@ -25,62 +32,52 @@ pub struct LeastLoadedBalancer {
     _worker_thread: JoinHandle<()>,
     assigned_worker: RwLock<Option<Arc<RegisteredWorker>>>,
     load: Arc<LoadService>,
-    config: Arc<LoadBalancingConfig>,
 }
 
 impl LeastLoadedBalancer {
-    fn new(
+    pub async fn boxed(
         health: Arc<dyn ControllerHealthService>,
-        worker_thread: JoinHandle<()>,
-        load: Arc<LoadService>,
         worker_fact: Arc<WorkerAPIFactory>,
-        config: Arc<LoadBalancingConfig>,
-    ) -> Self {
-        LeastLoadedBalancer {
-            workers: RwLock::new(HashMap::new()),
-            worker_fact,
-            health,
-            _worker_thread: worker_thread,
-            assigned_worker: RwLock::new(None),
-            load,
-            config,
-        }
-    }
-
-    pub fn boxed(
-        health: Arc<dyn ControllerHealthService>,
-        load: Arc<LoadService>,
-        worker_fact: Arc<WorkerAPIFactory>,
-        _tid: &TransactionId,
-        config: Arc<LoadBalancingConfig>,
-    ) -> Arc<Self> {
+        tid: &TransactionId,
+        config: &ControllerConfig,
+        ll_config: &LLConfig,
+    ) -> Result<Arc<Self>> {
+        let influx = build_influx(config, tid).await?;
+        let load = crate::build_load_svc(&ll_config.load_metric, tid, &worker_fact, influx)?;
         let (handle, tx) = tokio_thread(
-            config.thread_sleep_ms,
+            ll_config.load_metric.thread_sleep_ms,
             LEAST_LOADED_TID.clone(),
             LeastLoadedBalancer::find_least_loaded,
         );
 
-        let i = Arc::new(LeastLoadedBalancer::new(health, handle, load, worker_fact, config));
-        tx.send(i.clone()).unwrap();
-        i
+        let i = Arc::new(LeastLoadedBalancer {
+            workers: RwLock::new(HashMap::new()),
+            worker_fact,
+            health,
+            _worker_thread: handle,
+            assigned_worker: RwLock::new(None),
+            load,
+        });
+        tx.send(i.clone())?;
+        Ok(i)
     }
 
-    #[tracing::instrument(level="debug", skip(service), fields(tid=tid))]
-    async fn find_least_loaded(service: Arc<Self>, tid: TransactionId) {
+    #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
+    async fn find_least_loaded(self: &Arc<Self>, tid: &TransactionId) {
         let mut least_ld = f64::MAX;
         let mut worker = &"".to_string();
-        let workers = service.workers.read();
+        let workers = self.workers.read();
         for worker_name in workers.keys() {
-            if let Some(worker_load) = service.load.get_worker(worker_name) {
+            if let Some(worker_load) = self.load.get_worker(worker_name) {
                 if worker_load < least_ld {
                     worker = worker_name;
                     least_ld = worker_load;
                 }
             }
         }
-        match service.workers.read().get(worker) {
+        match self.workers.read().get(worker) {
             Some(w) => {
-                *service.assigned_worker.write() = Some(w.clone());
+                *self.assigned_worker.write() = Some(w.clone());
                 info!(tid=tid, worker=%worker, "new least loaded worker");
             },
             None => {

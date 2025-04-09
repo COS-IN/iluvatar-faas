@@ -46,6 +46,7 @@ pub enum EnqueueingPolicy {
     PopularEstTimeDispatch,
     PopularQueueLenDispatch,
     LeastPopular,
+    MICE,
 }
 
 type QueueMap = HashMap<Compute, Arc<dyn DeviceQueue>>;

@@ -11,12 +11,14 @@ use crate::services::containers::{
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::{invoke_on_container, QueueLoad};
 use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResourceTracker};
-use crate::worker_api::worker_config::{FunctionLimits, InvocationConfig};
+use crate::worker_api::worker_config::InvocationConfig;
 use anyhow::Result;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::tput_calc::DeviceTput;
-use iluvatar_library::{threading::tokio_runtime, threading::EventualItem, transaction::TransactionId, types::Compute};
+use iluvatar_library::{
+    threading::tokio_waiter_thread, threading::EventualItem, transaction::TransactionId, types::Compute,
+};
 use parking_lot::Mutex;
 use std::{
     sync::{atomic::AtomicU32, Arc},
@@ -40,7 +42,7 @@ pub struct CpuQueueingInvoker {
     running: AtomicU32,
     last_memory_warning: Mutex<Instant>,
     cpu: Arc<CpuResourceTracker>,
-    _cpu_thread: std::thread::JoinHandle<()>,
+    _cpu_thread: tokio::task::JoinHandle<()>,
     signal: Notify,
     queue: Arc<dyn InvokerCpuQueuePolicy>,
     _bypass_thread: tokio::task::JoinHandle<()>,
@@ -56,20 +58,18 @@ pub struct CpuQueueingInvoker {
 impl CpuQueueingInvoker {
     pub fn new(
         cont_manager: Arc<ContainerManager>,
-        function_config: Arc<FunctionLimits>,
         invocation_config: Arc<InvocationConfig>,
         tid: &TransactionId,
         cmap: WorkerCharMap,
         cpu: Arc<CpuResourceTracker>,
         #[cfg(feature = "power_cap")] energy: Arc<EnergyLimiter>,
     ) -> Result<Arc<Self>> {
-        let (cpu_handle, cpu_tx) = tokio_runtime(
+        let (cpu_handle, cpu_tx) = tokio_waiter_thread(
             invocation_config.queue_sleep_ms,
             INVOKER_CPU_QUEUE_WORKER_TID.clone(),
             Self::monitor_queue,
             Some(Self::cpu_wait_on_queue),
-            Some(function_config.cpu_max as usize),
-        )?;
+        );
         let (bypass_thread, bypass_tx, bypass_rx) = Self::bypass_thread();
 
         let svc = Arc::new(CpuQueueingInvoker {
@@ -118,14 +118,14 @@ impl CpuQueueingInvoker {
     }
 
     /// Wait on the Notify object for the queue to be available again
-    async fn cpu_wait_on_queue(invoker_svc: Arc<CpuQueueingInvoker>, tid: TransactionId) {
-        invoker_svc.signal.notified().await;
+    async fn cpu_wait_on_queue(self: &Arc<Self>, tid: &TransactionId) {
+        self.signal.notified().await;
         debug!(tid = tid, "Invoker waken up by signal");
     }
 
     /// Check the invocation queue, running things when there are sufficient resources
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, _tid), fields(tid=%_tid)))]
-    async fn monitor_queue(self: Arc<Self>, _tid: TransactionId) {
+    async fn monitor_queue(self: &Arc<Self>, _tid: &TransactionId) {
         while let Some(peek_item) = self.queue.peek_queue() {
             if let Some(permit) = self.acquire_resources_to_run(&peek_item) {
                 let item = self.queue.pop_queue();
@@ -391,7 +391,7 @@ impl DeviceQueue for CpuQueueingInvoker {
         let load = self.queue.est_queue_time();
         QueueLoad {
             len: self.queue.queue_len(),
-            load: load,
+            load,
             load_avg: load / self.cpu.cores,
             tput: self.device_tput.get_tput(),
         }

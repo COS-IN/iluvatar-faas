@@ -1,4 +1,4 @@
-use crate::server::controller_config::LoadBalancingConfig;
+use crate::services::load_balance::LoadMetric;
 use iluvatar_library::transaction::{TransactionId, LOAD_MONITOR_TID};
 use iluvatar_library::{
     influx::{InfluxClient, WORKERS_BUCKET},
@@ -15,19 +15,19 @@ pub struct LoadService {
     _worker_thread: JoinHandle<()>,
     influx: Option<Arc<InfluxClient>>,
     workers: RwLock<HashMap<String, f64>>,
-    config: Arc<LoadBalancingConfig>,
+    load_metric: String,
     fact: Arc<WorkerAPIFactory>,
 }
 
 impl LoadService {
     pub fn boxed(
         influx: Option<Arc<InfluxClient>>,
-        config: Arc<LoadBalancingConfig>,
+        load_metric: &LoadMetric,
         _tid: &TransactionId,
         fact: Arc<WorkerAPIFactory>,
     ) -> anyhow::Result<Arc<Self>> {
         let (handle, tx) = tokio_thread(
-            config.thread_sleep_ms,
+            load_metric.thread_sleep_ms,
             LOAD_MONITOR_TID.clone(),
             LoadService::monitor_worker_status,
         );
@@ -37,7 +37,7 @@ impl LoadService {
         let ret = Arc::new(LoadService {
             _worker_thread: handle,
             workers: RwLock::new(HashMap::new()),
-            config,
+            load_metric: load_metric.load_metric.clone(),
             fact,
             influx,
         });
@@ -46,11 +46,11 @@ impl LoadService {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn monitor_worker_status(service: Arc<Self>, tid: TransactionId) {
+    async fn monitor_worker_status(self: &Arc<Self>, tid: &TransactionId) {
         if iluvatar_library::utils::is_simulation() {
-            service.monitor_simulation(&tid).await;
+            self.monitor_simulation(tid).await;
         } else {
-            service.monitor_live(&tid).await;
+            self.monitor_live(tid).await;
         }
     }
 
@@ -66,7 +66,7 @@ impl LoadService {
                     continue;
                 },
             };
-            match self.config.load_metric.as_str() {
+            match self.load_metric.as_str() {
                 "loadavg" => update.insert(
                     name,
                     (status.queue_len as f64 + status.num_running_funcs as f64) / status.num_system_cores as f64,
@@ -76,7 +76,7 @@ impl LoadService {
                 "mem_pct" => update.insert(name, status.used_mem as f64 / status.total_mem as f64),
                 "queue" => update.insert(name, status.queue_len as f64),
                 _ => {
-                    error!(tid=tid, metric=%self.config.load_metric, "Unknown load metric");
+                    error!(tid=tid, metric=%self.load_metric, "Unknown load metric");
                     return;
                 },
             };
@@ -105,7 +105,7 @@ impl LoadService {
 |> filter(fn: (r) => r._measurement == \"{}\")
 |> last()",
             WORKERS_BUCKET,
-            self.config.load_metric.as_str()
+            self.load_metric.as_str()
         );
         let mut ret = HashMap::new();
         match &self.influx {
@@ -119,7 +119,7 @@ impl LoadService {
                         warn!(
                             tid = tid,
                             "Did not get any data in the last 5 minutes using the load metric '{}'",
-                            self.config.load_metric.as_str()
+                            self.load_metric.as_str()
                         );
                     }
                 },
@@ -132,5 +132,9 @@ impl LoadService {
 
     pub fn get_worker(&self, name: &str) -> Option<f64> {
         self.workers.read().get(name).copied()
+    }
+
+    pub fn get_workers(&self) -> HashMap<String, f64> {
+        self.workers.read().clone()
     }
 }

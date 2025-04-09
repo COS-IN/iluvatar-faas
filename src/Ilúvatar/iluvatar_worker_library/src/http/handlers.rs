@@ -105,6 +105,7 @@ pub async fn handle_register(
         isolate: isolation.bits(),
         container_server: server_type,
         resource_timings_json: "{}".to_string(),
+        system_function: false,
     };
     let request = Request::new(register_request);
 

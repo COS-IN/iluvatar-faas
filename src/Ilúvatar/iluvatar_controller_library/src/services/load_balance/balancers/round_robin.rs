@@ -1,10 +1,11 @@
-use crate::server::structs::{RegisteredFunction, RegisteredWorker};
 use crate::services::controller_health::ControllerHealthService;
 use crate::services::load_balance::LoadBalancerTrait;
+use crate::services::registration::RegisteredWorker;
 use crate::{prewarm, send_async_invocation, send_invocation};
 use anyhow::Result;
 use iluvatar_library::{transaction::TransactionId, utils::timing::TimedExt};
 use iluvatar_rpc::rpc::InvokeResponse;
+use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
@@ -29,7 +30,7 @@ impl RoundRobinLoadBalancer {
     }
 
     fn get_next(&self, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {
-        if self.workers.read().len() == 0 {
+        if self.workers.read().is_empty() {
             anyhow::bail!("There are not workers available to serve the request");
         }
         let mut i = 0;

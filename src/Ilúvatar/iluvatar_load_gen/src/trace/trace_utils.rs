@@ -9,12 +9,7 @@ use crate::{
 };
 use anyhow::Result;
 use iluvatar_library::tokio_utils::TokioRuntime;
-use iluvatar_library::{
-    bail_error,
-    transaction::TransactionId,
-    types::{CommunicationMethod, Compute},
-    utils::port::Port,
-};
+use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute, utils::port::Port};
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData;
 use iluvatar_worker_library::worker_api::config::{Configuration, WorkerConfig};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
@@ -246,7 +241,6 @@ fn worker_prewarm_functions(
     port: Port,
     rt: &TokioRuntime,
     factory: &Arc<WorkerAPIFactory>,
-    communication_method: CommunicationMethod,
 ) -> Result<()> {
     let mut prewarm_calls = vec![];
     for (func_name, func) in prewarm_data.iter() {
@@ -266,18 +260,7 @@ fn worker_prewarm_functions(
                 let mut errors = "Prewarm errors:".to_string();
                 let mut it = (1..4).peekable();
                 while let Some(i) = it.next() {
-                    match worker_prewarm(
-                        &f_c,
-                        &VERSION,
-                        &h_c,
-                        port,
-                        &tid,
-                        &fct_cln,
-                        Some(communication_method),
-                        compute,
-                    )
-                    .await
-                    {
+                    match worker_prewarm(&f_c, &VERSION, &h_c, port, &tid, &fct_cln, compute).await {
                         Ok((_s, _prewarm_dur)) => break,
                         Err(e) => {
                             errors = format!("{} iteration {}: '{}';\n", errors, i, e);
@@ -346,20 +329,12 @@ fn prepare_worker(
 ) -> Result<()> {
     match runtype {
         RunType::Live => {
-            worker_wait_reg(funcs, rt, port, host, factory, CommunicationMethod::RPC, func_data)?;
-            worker_prewarm_functions(funcs, host, port, rt, factory, CommunicationMethod::RPC)
+            worker_wait_reg(funcs, rt, port, host, factory, func_data)?;
+            worker_prewarm_functions(funcs, host, port, rt, factory)
         },
         RunType::Simulation => {
-            worker_wait_reg(
-                funcs,
-                rt,
-                port,
-                host,
-                factory,
-                CommunicationMethod::SIMULATION,
-                func_data,
-            )?;
-            worker_prewarm_functions(funcs, host, port, rt, factory, CommunicationMethod::SIMULATION)
+            worker_wait_reg(funcs, rt, port, host, factory, func_data)?;
+            worker_prewarm_functions(funcs, host, port, rt, factory)
         },
     }
 }
@@ -370,7 +345,6 @@ fn worker_wait_reg(
     port: Port,
     host: &str,
     factory: &Arc<WorkerAPIFactory>,
-    method: CommunicationMethod,
     func_data: &Option<String>,
 ) -> Result<()> {
     let mut func_iter = funcs.iter();
@@ -419,7 +393,6 @@ fn worker_wait_reg(
                     h_c,
                     port,
                     &fct_cln,
-                    Some(method),
                     isol,
                     comp,
                     server,

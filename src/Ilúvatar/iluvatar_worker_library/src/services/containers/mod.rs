@@ -1,10 +1,11 @@
-use self::{docker::DockerIsolation, structs::ToAny};
+use self::docker::DockerIsolation;
 use super::{registration::RegisteredFunction, resources::gpu::GPU};
 use crate::services::containers::{containerd::ContainerdIsolation, simulator::SimulatorIsolation, structs::Container};
 use crate::services::network::namespace_manager::NamespaceManager;
 use crate::worker_api::worker_config::WorkerConfig;
 use anyhow::Result;
-use iluvatar_library::types::ResultErrorVal;
+use iluvatar_library::char_map::WorkerCharMap;
+use iluvatar_library::types::{ResultErrorVal, ToAny};
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb},
@@ -27,7 +28,7 @@ pub mod structs;
 
 /// Run, manage, and interact-with containers.
 #[async_trait]
-pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
+pub trait ContainerIsolationService: ToAny + Send + Sync {
     /// Return a container that has been started with the given settings
     /// NOTE: you will have to ask the lifetime again to wait on the container to be started up
     async fn run_container(
@@ -51,7 +52,6 @@ pub trait ContainerIsolationService: ToAny + Send + Sync + std::fmt::Debug {
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
-        fqdn: &str,
         namespace: &str,
         tid: &TransactionId,
     ) -> Result<()>;
@@ -89,11 +89,12 @@ pub type ContainerIsolationCollection = Arc<std::collections::HashMap<Isolation,
 
 pub struct IsolationFactory {
     worker_config: WorkerConfig,
+    cmap: WorkerCharMap,
 }
 
 impl IsolationFactory {
-    pub fn new(worker_config: WorkerConfig) -> Self {
-        IsolationFactory { worker_config }
+    pub fn new(worker_config: WorkerConfig, cmap: WorkerCharMap) -> Self {
+        IsolationFactory { worker_config, cmap }
     }
 
     pub async fn get_isolation_services(
@@ -104,7 +105,7 @@ impl IsolationFactory {
         let mut ret = HashMap::new();
         if iluvatar_library::utils::is_simulation() {
             info!(tid = tid, "Creating 'simulation' backend");
-            let c = SimulatorIsolation::new();
+            let c = SimulatorIsolation::new(self.cmap.clone());
             self.insert_cycle(&mut ret, Arc::new(c))?;
         } else {
             if ContainerdIsolation::supported(tid).await {

@@ -20,9 +20,18 @@ anyhow = "1"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 parking_lot = "0.12"
-dashmap = "6.1"
+dashmap = { version = "6", features = ["inline"] }
 tracing = "0.1"
 tonic = "0.12"
+hashring = "*"
+ordered-float = "3.9.2"
+statrs = { version="0.18", features = ["rand"] }
+rand = "0.8.5"
+guid-create = "0.*"
+rcu_cell = "1.2"
 
 [features]
 full_spans = []
+
+[lints]
+workspace = true

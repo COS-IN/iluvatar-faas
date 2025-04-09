@@ -8,7 +8,7 @@ use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
     bail_error,
     transaction::{gen_tid, TransactionId},
-    types::{CommunicationMethod, Compute, Isolation, MemSizeMb, ResourceTimings},
+    types::{Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::{port::Port, timing::TimedExt},
 };
 use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResponse, RegisterRequest};
@@ -245,7 +245,7 @@ pub async fn controller_invoke(
                 function_name: name.to_owned(),
                 function_version: version.to_owned(),
                 invoke_start,
-                tid: tid,
+                tid,
             },
             Err(e) => CompletedControllerInvocation::error(
                 format!(
@@ -289,7 +289,9 @@ pub async fn controller_register(
         compute,
         isolation,
         server,
+        1,
         &tid,
+        false, // would never register a system function from the load generator
     )?;
     match api.register(req).await {
         Ok(_) => Ok(start.elapsed()),
@@ -324,18 +326,13 @@ pub async fn worker_register(
     host: String,
     port: Port,
     factory: &Arc<WorkerAPIFactory>,
-    comm_method: Option<CommunicationMethod>,
     isolation: Isolation,
     compute: Compute,
     server: ContainerServer,
     timings: Option<&ResourceTimings>,
 ) -> Result<(String, Duration, TransactionId)> {
     let tid: TransactionId = format!("{}-reg-tid", name);
-    let method = match comm_method {
-        Some(m) => m,
-        None => CommunicationMethod::RPC,
-    };
-    let mut api = factory.get_worker_api(&host, &host, port, method, &tid).await?;
+    let mut api = factory.get_worker_api(&host, &host, port, &tid).await?;
     let (reg_out, reg_dur) = api
         .register(
             name,
@@ -349,6 +346,7 @@ pub async fn worker_register(
             compute,
             server,
             timings,
+            false, // would never register a system function from the load generator
         )
         .timed()
         .await;
@@ -366,14 +364,9 @@ pub async fn worker_prewarm(
     port: Port,
     tid: &TransactionId,
     factory: &Arc<WorkerAPIFactory>,
-    comm_method: Option<CommunicationMethod>,
     compute: Compute,
 ) -> Result<(String, Duration)> {
-    let method = match comm_method {
-        Some(m) => m,
-        None => CommunicationMethod::RPC,
-    };
-    let mut api = factory.get_worker_api(host, host, port, method, tid).await?;
+    let mut api = factory.get_worker_api(host, host, port, tid).await?;
     let (res, dur) = api
         .prewarm(name.to_owned(), version.to_owned(), tid.to_string(), compute)
         .timed()
@@ -393,12 +386,10 @@ pub async fn worker_invoke(
     args: Option<String>,
     clock: Clock,
     factory: &Arc<WorkerAPIFactory>,
-    comm_method: Option<CommunicationMethod>,
 ) -> Result<CompletedWorkerInvocation> {
     let args = args.unwrap_or_else(|| "{}".to_string());
-    let method = comm_method.unwrap_or(CommunicationMethod::RPC);
     let invoke_start = clock.now_str()?;
-    let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
+    let mut api = match factory.get_worker_api(host, host, port, tid).await {
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };
@@ -445,10 +436,8 @@ pub async fn worker_clean(
     port: Port,
     tid: &TransactionId,
     factory: &Arc<WorkerAPIFactory>,
-    comm_method: Option<CommunicationMethod>,
 ) -> Result<CleanResponse> {
-    let method = comm_method.unwrap_or(CommunicationMethod::RPC);
-    let mut api = match factory.get_worker_api(host, host, port, method, tid).await {
+    let mut api = match factory.get_worker_api(host, host, port, tid).await {
         Ok(a) => a,
         Err(e) => anyhow::bail!("API creation error: {:?}", e),
     };

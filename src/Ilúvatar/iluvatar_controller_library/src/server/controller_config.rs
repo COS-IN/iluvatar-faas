@@ -1,3 +1,4 @@
+use crate::services::load_balance::LoadBalancerAlgo;
 use iluvatar_library::{influx::InfluxConfig, logging::LoggingConfig, utils::port_utils::Port};
 use serde::Deserialize;
 use std::sync::Arc;
@@ -20,13 +21,8 @@ pub struct Configuration {
 #[derive(Debug, Deserialize)]
 /// configuration for the load balancer
 pub struct LoadBalancingConfig {
-    /// the load balancing algorithm to use
-    pub algorithm: String,
-    /// the load metric to use
-    ///   only relevant to those algorithms that use it
-    pub load_metric: String,
-    /// Duration in milliseconds the balancer's worker thread will sleep between runs (if it has one)
-    pub thread_sleep_ms: u64,
+    /// The load balancing algorithm to use.
+    pub algorithm: LoadBalancerAlgo,
 }
 
 pub const CONTROLLER_ENV_PREFIX: &str = "ILUVATAR_CONTROLLER";

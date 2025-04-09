@@ -3,7 +3,7 @@ import sys, os
 ILU_HOME = "../../.."
 
 sys.path.append(os.path.join(ILU_HOME, ".."))
-from load.run.run_trace import rust_build, run_live, RunTarget, BuildTarget, LOCALHOST_Q
+from load.run.run_trace import rust_build_native, run_live, RunTarget, BuildTarget, LOCALHOST_Q
 
 CORES = 2
 MEMORY = 4096
@@ -16,7 +16,7 @@ os.makedirs(results_dir, exist_ok=True)
 os.makedirs(worker_log_dir, exist_ok=True)
 
 # build the solution
-rust_build(ILU_HOME, None, build_level)
+rust_build_native(ILU_HOME, None, build_level)
 
 ansible_dir = os.path.join(ILU_HOME, "ansible")
 kwargs = {

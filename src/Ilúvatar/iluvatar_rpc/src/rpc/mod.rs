@@ -30,15 +30,17 @@ impl RegisterRequest {
         compute: Compute,
         isolation: Isolation,
         server: ContainerServer,
+        parallel_invokes: u32,
         tid: &TransactionId,
+        system_function: bool,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             function_name: name.to_owned(),
             function_version: version.to_owned(),
             image_name: image.to_owned(),
             memory,
-            cpus: cpus,
-            parallel_invokes: 1,
+            cpus,
+            parallel_invokes,
             transaction_id: tid.to_owned(),
             language: language.into(),
             compute: compute.bits(),
@@ -48,6 +50,7 @@ impl RegisterRequest {
                 Some(r) => serde_json::to_string(r)?,
                 None => "{}".to_string(),
             },
+            system_function,
         })
     }
 }

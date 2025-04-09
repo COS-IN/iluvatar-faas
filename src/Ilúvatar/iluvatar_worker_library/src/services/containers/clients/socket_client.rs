@@ -85,12 +85,12 @@ impl SocketContainerClient {
         let init_bytes = unsafe { any_as_u8_slice(&cmd) };
         match sock.write(init_bytes).await {
             Ok(_) => (),
-            Err(e) => bail_error!(tid=tid, container_id=container_id, error=%e, "failed sending invoke metadata"),
+            Err(e) => bail_error!(tid=tid, container_id=container_id, error=%e, "failed sending command metadata"),
         };
         if let Some(bytes) = bytes {
             match sock.write(bytes).await {
                 Ok(_) => (),
-                Err(e) => bail_error!(tid=tid, container_id=container_id, error=%e, "failed sending invoke arguments"),
+                Err(e) => bail_error!(tid=tid, container_id=container_id, error=%e, "failed sending command arguments"),
             };
         }
         Ok(())

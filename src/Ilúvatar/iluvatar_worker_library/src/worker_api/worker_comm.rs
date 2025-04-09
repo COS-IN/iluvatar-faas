@@ -2,7 +2,8 @@ use super::rpc::RPCWorkerAPI;
 use crate::worker_api::{create_worker, iluvatar_worker::IluvatarWorkerImpl, sim_worker::SimWorkerAPI, WorkerAPI};
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_library::{bail_error, transaction::TransactionId, types::CommunicationMethod, utils::port::Port};
+use iluvatar_library::utils::is_simulation;
+use iluvatar_library::{bail_error, transaction::TransactionId, utils::port::Port};
 use std::sync::Arc;
 #[cfg(feature = "full_spans")]
 use tracing::Instrument;
@@ -13,6 +14,7 @@ pub struct WorkerAPIFactory {
     /// better than opening a new one
     rpc_apis: DashMap<String, RPCWorkerAPI>,
     sim_apis: DashMap<String, Arc<IluvatarWorkerImpl>>,
+    is_simulation: bool,
 }
 
 impl WorkerAPIFactory {
@@ -20,6 +22,7 @@ impl WorkerAPIFactory {
         Arc::new(WorkerAPIFactory {
             rpc_apis: DashMap::new(),
             sim_apis: DashMap::new(),
+            is_simulation: is_simulation(),
         })
     }
 }
@@ -55,24 +58,23 @@ impl WorkerAPIFactory {
         worker: &str,
         host: &str,
         port: Port,
-        communication_method: CommunicationMethod,
         tid: &TransactionId,
     ) -> Result<Box<dyn WorkerAPI + Send>> {
-        match communication_method {
-            CommunicationMethod::RPC => match self.try_get_rpcapi(worker) {
+        match self.is_simulation {
+            false => match self.try_get_rpcapi(worker) {
                 Some(r) => Ok(Box::new(r)),
                 None => {
                     let api = match RPCWorkerAPI::new(host, port, tid).await {
                         Ok(api) => api,
                         Err(e) => {
-                            bail_error!(tid=%tid, worker=%worker, error=%e, "Unable to create API for worker")
+                            bail_error!(tid=tid, worker=%worker, error=%e, "Unable to create API for worker")
                         },
                     };
                     self.rpc_apis.insert(worker.to_owned(), api.clone());
                     Ok(Box::new(api))
                 },
             },
-            CommunicationMethod::SIMULATION => {
+            true => {
                 let api = match self.try_get_simapi(worker) {
                     Some(api) => api,
                     None => match self.sim_apis.entry(worker.to_owned()) {

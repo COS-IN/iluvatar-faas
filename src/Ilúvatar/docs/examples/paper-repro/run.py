@@ -3,7 +3,7 @@ import sys, os
 ILU_HOME = "../../.."
 
 sys.path.append(os.path.join(ILU_HOME, ".."))
-from load.run.run_trace import rust_build, run_sim, RunTarget, BuildTarget
+from load.run.run_trace import rust_build_native, run_sim, RunTarget, BuildTarget
 from multiprocessing import Pool
 
 # We have to run with all function spans enabled to capture worker information to separate log file
@@ -11,7 +11,7 @@ build_level = BuildTarget.RELEASE_SPANS
 benchmark = "../benchmark/worker_function_benchmarks.json"
 
 # build the solution
-rust_build(ILU_HOME, None, build_level)
+rust_build_native(ILU_HOME, None, build_level)
 
 input_csv = "./trace/trace.csv"
 meta_csv = "./trace/metadata-trace.csv"

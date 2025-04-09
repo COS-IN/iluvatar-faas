@@ -15,25 +15,6 @@ pub fn err_val<T, D>(error: Error, value: D) -> ResultErrorVal<T, D> {
 
 pub type MemSizeMb = i64;
 
-#[derive(clap::ValueEnum, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
-/// How to communicate with a worker.
-/// Generally not needed to know, but live = RPC, otherwise simulation
-pub enum CommunicationMethod {
-    RPC = 0,
-    SIMULATION = 1,
-}
-impl TryInto<CommunicationMethod> for u32 {
-    type Error = Error;
-
-    fn try_into(self) -> Result<CommunicationMethod, Self::Error> {
-        match self {
-            0 => Ok(CommunicationMethod::RPC),
-            1 => Ok(CommunicationMethod::SIMULATION),
-            _ => anyhow::bail!("Cannot parse {:?} for CommunicationMethod", self),
-        }
-    }
-}
-
 #[derive(serde::Deserialize, serde::Serialize, Default, Debug, Copy, Clone)]
 /// The server type running inside the container
 pub enum ContainerServer {
@@ -342,6 +323,19 @@ pub enum HealthStatus {
     HEALTHY,
     UNHEALTHY,
     OFFLINE,
+}
+
+/// A trait to allow dynamic casting
+pub trait ToAny: 'static {
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+#[macro_export]
+/// Macro to make downcasting an object that implements [ToAny] take less code.
+macro_rules! downcast {
+    ($item:expr, $cast_type:tt) => {
+        $item.as_any().downcast_ref::<$cast_type>()
+    };
 }
 
 #[cfg(test)]

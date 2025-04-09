@@ -13,36 +13,38 @@ categories.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+iluvatar_derive = { path = "./iluvatar_derive" }
 lazy_static = "1"
 anyhow = "1"
 guid-create = "0.*"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }
-time = { version = "0.3", features = [ "formatting" ] }
+time = { version = "0.3", features = [ "formatting","parsing"] }
 tzdb = "0.7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "tracing-log", "parking_lot", "env-filter"] }
 tracing-appender = "0.2"
 tracing-flame="0.2"
 pin-project = "1"
-dashmap = "6"
+dashmap = { version = "6", features = ["inline"] }
 parking_lot = "0.12"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util", "sync", "parking_lot", "signal"] }
-ordered-float = "5"
 bitflags = { version="2", features=["serde"] }
-http = "1"
 influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 num-traits = "0.2"
 async-process = "2"
 num_cpus = "1.16"
+rcu_cell = "1.2"
 config = { version = "0.15", default-features = false, features = ["json", "preserve_order"] }
 
 [dev-dependencies]
-rstest = "0.24"
-float-cmp = "0.10"
+rstest = "0.25"
 nix = { version = "0.29", features = ["process", "signal"] }
 enum-iterator = "2.1"
 
 [features]
 full_spans = []
+
+[lints]
+workspace = true

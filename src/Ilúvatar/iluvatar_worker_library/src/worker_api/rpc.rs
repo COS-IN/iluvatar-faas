@@ -42,7 +42,7 @@ impl RPCWorkerAPI {
                     return Ok(api);
                 },
                 Err(e) => {
-                    warn!(error=%e, tid=%tid, "Error opening RPC connection to Worker API");
+                    warn!(error=%e, tid=tid, "Error opening RPC connection to Worker API");
                     retries -= 1;
                     if retries == 0 {
                         return Err(e);
@@ -124,10 +124,10 @@ impl WorkerAPI for RPCWorkerAPI {
             Ok(response) => {
                 let response = response.into_inner();
                 if response.success {
-                    debug!(tid=%tid, "Async invoke succeeded");
+                    debug!(tid = tid, "Async invoke succeeded");
                     Ok(response.lookup_cookie)
                 } else {
-                    error!(tid=%tid, "Async invoke failed");
+                    error!(tid = tid, "Async invoke failed");
                     anyhow::bail!("Async invoke failed")
                 }
             },
@@ -165,7 +165,7 @@ impl WorkerAPI for RPCWorkerAPI {
                 let err = format!("Prewarm request failed: {:?}", response.message);
                 match response.success {
                     true => Ok(response.message),
-                    false => bail_error!(tid=%tid, message=%response.message, err),
+                    false => bail_error!(tid=tid, message=%response.message, err),
                 }
             },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:prewarm]".to_string())),
@@ -185,27 +185,23 @@ impl WorkerAPI for RPCWorkerAPI {
         compute: Compute,
         server: ContainerServer,
         timings: Option<&ResourceTimings>,
+        system_function: bool,
     ) -> Result<String> {
-        let request = Request::new(RegisterRequest {
-            function_name,
-            function_version: version,
-            memory,
+        let request = Request::new(RegisterRequest::new(
+            &function_name,
+            &version,
+            &image_name,
             cpus,
-            image_name,
-            parallel_invokes: match parallels {
-                0 => 1,
-                _ => parallels,
-            },
-            transaction_id: tid,
-            language: LanguageRuntime::Nolang.into(),
-            compute: compute.bits(),
-            isolate: isolate.bits(),
-            container_server: server as u32,
-            resource_timings_json: match timings {
-                Some(r) => serde_json::to_string(r)?,
-                None => "{}".to_string(),
-            },
-        });
+            memory,
+            timings,
+            LanguageRuntime::Nolang,
+            compute,
+            isolate,
+            server,
+            parallels,
+            &tid,
+            system_function,
+        )?);
         match self.client.register(request).await {
             Ok(response) => {
                 let response = response.into_inner();

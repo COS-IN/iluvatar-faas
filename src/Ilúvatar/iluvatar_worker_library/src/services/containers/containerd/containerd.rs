@@ -38,7 +38,9 @@ use iluvatar_library::utils::{
     port::Port,
     try_get_child_pid,
 };
-use iluvatar_library::{bail_error, bail_error_value, error_value, transaction::TransactionId, types::MemSizeMb};
+use iluvatar_library::{
+    bail_error, bail_error_value, error_value, transaction::TransactionId, types::MemSizeMb, ToAny,
+};
 use inotify::{Inotify, WatchMask};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use serde::Deserialize;
@@ -54,7 +56,7 @@ use tracing::{debug, error, info, warn};
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct BGPacket {
     pid: u32,
     fqdn: String,
@@ -62,8 +64,8 @@ pub struct BGPacket {
     tid: TransactionId,
 }
 
-#[derive(Debug)]
 #[allow(dead_code)]
+#[derive(ToAny)]
 pub struct ContainerdIsolation {
     channel: Option<Channel>,
     namespace_manager: Arc<NamespaceManager>,
@@ -712,10 +714,10 @@ impl ContainerdIsolation {
                 return Err((e, device_resource));
             },
         };
-        debug!(tid=%tid, "Mounts loaded");
+        debug!(tid = tid, "Mounts loaded");
         let resources_dir = container_path(&cid);
         if let Err(e) = make_paths(&resources_dir, tid) {
-            bail_error_value!(tid=%tid, error=%e, "make_paths failed", device_resource);
+            bail_error_value!(tid=tid, error=%e, "make_paths failed", device_resource);
         };
 
         let stdin = self.stdin_pth(&cid);
@@ -890,7 +892,6 @@ impl ContainerIsolationService for ContainerdIsolation {
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
-        _fqdn: &str,
         namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
@@ -1074,10 +1075,5 @@ impl ContainerIsolationService for ContainerdIsolation {
                 format!("STDERR_READ_ERROR: {}", e)
             },
         }
-    }
-}
-impl crate::services::containers::structs::ToAny for ContainerdIsolation {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }

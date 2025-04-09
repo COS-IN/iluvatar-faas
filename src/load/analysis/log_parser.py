@@ -1,11 +1,12 @@
 import json
+from string import whitespace
 from typing import List, Tuple, Optional, Dict, Set
 from collections import defaultdict
 import os, pickle
 import numpy as np
 import pandas
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from copy import deepcopy
 from multiprocessing import Pool
 from functools import reduce
@@ -265,7 +266,10 @@ class ControllerLogParser:
         """
         invoke_dfs = []
         for worker in parent.worker_parsers:
-            invoke_dfs.append(worker.invokes_df)
+            if len(worker.invokes_df)>0:
+                invoke_dfs.append(worker.invokes_df)
+            else:
+                print(f"WARN: worker {worker.results_log} didn't have any invocations")
         invoke_dfs = pd.concat(invoke_dfs)
         invoke_dfs["worker"] = self.invokes_df["worker"]
         self.invokes_df = invoke_dfs
@@ -342,8 +346,8 @@ class WorkerLogParser:
         metadata_csv: the _name_ of the trace metadata file, must be located in `folder_path`
         """
         self.source = folder_path
-        self.input_csv = input_csv
-        self.metadata_csv = metadata_csv
+        self.input_csv = os.path.join(self.source, input_csv)
+        self.metadata_csv = os.path.join(self.source, metadata_csv)
         self.run_type = run_type
         self.target = target
         self.run_data = run_data
@@ -700,7 +704,7 @@ class FullJsonMergeParser(BaseParser):
         )
         return start, finish
 
-    def get_compute(self, invoke):
+    def get_compute(self, invoke, tid):
         if self.main_parser.target == RunTarget.WORKER:
             compute = invoke["worker_response"]["compute"]
         else:
@@ -715,7 +719,7 @@ class FullJsonMergeParser(BaseParser):
         else:
             raise Exception(f"Unknown compute '{compute}' for '{tid}'")
 
-    def get_container_state(self, invoke):
+    def get_container_state(self, invoke, tid):
         if self.main_parser.target == RunTarget.WORKER:
             state = invoke["worker_response"]["container_state"]
         else:
@@ -737,8 +741,8 @@ class FullJsonMergeParser(BaseParser):
         data = []
         for invoke in self.main_parser.json_data:
             tid = invoke["tid"]
-            compute = self.get_compute(invoke)
-            state = self.get_container_state(invoke)
+            compute = self.get_compute(invoke, tid)
+            state = self.get_container_state(invoke, tid)
             start, finish = self.get_start_and_finish(invoke)
             data.append((tid, compute, state, start, finish))
         full_df = pd.DataFrame.from_records(
@@ -823,83 +827,138 @@ class EstTimeParser(BaseParser):
 class StatusParser(BaseParser):
     def __init__(self, main_parser: WorkerLogParser):
         super().__init__(main_parser)
-        self.status_data = []
+        self.queue_data = []
+        self.cpu_data = []
+        self.container_data = []
+        self.gpu_data = []
 
-    def parse_status(self, log):
+    def parse_queue(self, log):
         t = pd.to_datetime(log["timestamp"])
-        status = json.loads(log["fields"]["status"])
+        num_running = int(log["fields"]["num_running_funcs"])
+        queue_info = json.loads(log["fields"]["queue_info"])
+        self.queue_data.append((
+            t,
+            num_running,
+            get_from_dict(queue_info, ["GPU", "len"], 0),
+            get_from_dict(queue_info, ["GPU", "load"], 0.0),
+            get_from_dict(queue_info, ["GPU", "load_avg"], 0.0),
+            get_from_dict(queue_info, ["GPU", "tput"], 0.0),
+            get_from_dict(queue_info, ["CPU", "len"], 0),
+            get_from_dict(queue_info, ["CPU", "load"], 0.0),
+            get_from_dict(queue_info, ["CPU", "load_avg"], 0.0),
+            get_from_dict(queue_info, ["CPU", "tput"], 0.0),
+        ))
+
+    def parse_cpu(self, log):
+        t = pd.to_datetime(log["timestamp"])
+        cpu_util = json.loads(log["fields"]["cpu_util"])
+        if cpu_util["cpu_us"] is None:
+            return
+        self.cpu_data.append((
+            t,
+            cpu_util["cpu_us"]+cpu_util["cpu_sy"],
+            cpu_util["cpu_us"],
+            cpu_util["cpu_sy"],
+            cpu_util["cpu_id"],
+            cpu_util["cpu_wa"],
+            cpu_util["load_avg_1minute"],
+        ))
+
+    def parse_container_man(self, log):
+        t = pd.to_datetime(log["timestamp"])
+        self.container_data.append((
+            t,
+            log["fields"]["used_mem"],
+            log["fields"]["total_mem"],
+            (float(log["fields"]["used_mem"]) / float(log["fields"]["total_mem"]))*100.0,
+            log["fields"]["num_containers"],
+        ))
+
+    def parse_gpu(self, log):
+        t = pd.to_datetime(log["timestamp"])
+        gpu_util_log = json.loads(log["fields"]["gpu_util"])
         gpu_util = 0
         gpu_mem = 0
         gpu_instant = 0
-        if len(status["gpu_utilization"]) > 0:
+        if len(gpu_util_log) > 0:
             gpu_util = sum(
-                [gpu["utilization_gpu"] for gpu in status["gpu_utilization"]]
-            ) / len(status["gpu_utilization"])
+                [gpu["utilization_gpu"] for gpu in gpu_util_log]
+            ) / len(gpu_util_log)
             gpu_instant = sum(
-                [gpu["utilization_gpu"] for gpu in status["gpu_utilization"]]
-            ) / len(status["gpu_utilization"])
+                [gpu["utilization_gpu"] for gpu in gpu_util_log]
+            ) / len(gpu_util_log)
             gpu_mem = sum(
                 [
                     float(gpu["memory_used"]) / float(gpu["memory_total"])
-                    for gpu in status["gpu_utilization"]
+                    for gpu in gpu_util_log
                 ]
-            ) / len(status["gpu_utilization"])
-        cpu_util = get_from_dict_no_none(
-            status, ["cpu_us"], 0.0
-        ) + get_from_dict_no_none(status, ["cpu_sy"], 0.0)
-        self.status_data.append(
-            (
-                t,
-                gpu_util,
-                cpu_util,
-                gpu_mem * 100.0,
-                gpu_instant,
-                status["num_containers"],
-                status["num_running_funcs"],
-                get_from_dict(
-                    status,
-                    ["queue_load", "GPU", "len"],
-                    status["gpu_queue_len"],
-                ),
-                get_from_dict(
-                    status,
-                    ["queue_load", "CPU", "len"],
-                    status["cpu_queue_len"],
-                ),
-                get_from_dict(status, ["queue_load", "GPU", "load"], 0.0),
-                get_from_dict(status, ["queue_load", "GPU", "laod_avg"], 0.0),
-                get_from_dict(status, ["queue_load", "GPU", "tput"], 0.0),
-                get_from_dict(status, ["queue_load", "CPU", "load"], 0.0),
-                get_from_dict(status, ["queue_load", "CPU", "laod_avg"], 0.0),
-                get_from_dict(status, ["queue_load", "CPU", "tput"], 0.0),
-            )
-        )
+            ) / len(gpu_util_log)
+        self.gpu_data.append((t, gpu_util, gpu_mem, gpu_instant))
 
     def log_completed(self):
-        status_df = pd.DataFrame.from_records(
-            self.status_data,
+        cpu_df = pd.DataFrame.from_records(
+            self.cpu_data,
+           columns=[
+               "timestamp",
+               "cpu_util",
+               "cpu_us",
+               "cpu_sy",
+               "cpu_id",
+               "cpu_wa",
+               "load_avg_1minute",
+           ])
+
+        queue_df = pd.DataFrame.from_records(
+            self.queue_data,
             columns=[
                 "timestamp",
-                "gpu_util",
-                "cpu_util",
-                "mem",
-                "instant",
-                "num_containers",
                 "num_running",
-                "gpu_queue_len",
-                "cpu_queue_len",
+                "gpu_len",
                 "gpu_load",
                 "gpu_load_avg",
                 "gpu_tput",
+                "cpu_len",
                 "cpu_load",
                 "cpu_load_avg",
                 "cpu_tput",
-            ],
-        )
+            ])
+
+        container_df = pd.DataFrame.from_records(
+            self.container_data,
+            columns=[
+                "timestamp",
+                "cpu_used_mem",
+                "cpu_total_mem",
+                "memory_util_pct",
+                "num_containers",
+            ])
+        dfs = [queue_df,cpu_df,container_df]
+
+        if len(self.gpu_data) > 0:
+            gpu_df = pd.DataFrame.from_records(
+                self.gpu_data,
+                columns=[
+                    "timestamp",
+                    "gpu_util",
+                    "gpu_mem",
+                    "gpu_instant",
+                ])
+            dfs.append(gpu_df)
+        status_df = pd.concat(dfs)
+        status_df.index = status_df["timestamp"]
+        # fix up empties because all our status data isn't coming in one drop, but "close enough"
+        # all are on the same log schedule
+        status_df.ffill(inplace=True)
+        status_df.bfill(inplace=True)
         status_df["norm_time"] = status_df["timestamp"] - status_df["timestamp"].min()
         self.main_parser.status_df = status_df
 
-    parser_map = {"current load status": parse_status}
+    parser_map = {
+        "current queue info": parse_queue,
+        "CPU utilization": parse_cpu,
+        "Container manager info": parse_container_man,
+        "GPU status": parse_gpu,
+    }
 
 
 @WorkerLogParser.register_parser
