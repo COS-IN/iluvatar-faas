@@ -15,8 +15,8 @@ use iluvatar_library::{
 };
 use nvml_wrapper::{error::NvmlError, Nvml};
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
-use std::{collections::HashMap, sync::Arc};
 use std::fmt::Display;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, trace, warn};
 

@@ -184,12 +184,7 @@ impl WorkerRegistration {
                 let worker = item.value();
                 let mut api = self
                     .worker_fact
-                    .get_worker_api(
-                        &worker.name,
-                        &worker.host,
-                        worker.port,
-                        tid,
-                    )
+                    .get_worker_api(&worker.name, &worker.host, worker.port, tid)
                     .await?;
                 match api
                     .register(

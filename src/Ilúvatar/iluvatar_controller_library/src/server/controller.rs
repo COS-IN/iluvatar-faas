@@ -258,19 +258,17 @@ impl ControllerAPITrait for Controller {
         }
         let tid = request.transaction_id.clone();
         match self.func_reg.register_function(request, &tid).await {
-            Ok(reg) => {
-                match self.worker_reg.new_function(reg, &tid).await {
-                    Ok(reg) => Ok(RegisterResponse {
-                        success: true,
-                        fqdn: reg.fqdn.clone(),
-                        error: "".to_string(),
-                    }),
-                    Err(e) => Ok(RegisterResponse {
-                        success: false,
-                        fqdn: "".to_string(),
-                        error: format!("{:?}", e),
-                    }),
-                }
+            Ok(reg) => match self.worker_reg.new_function(reg, &tid).await {
+                Ok(reg) => Ok(RegisterResponse {
+                    success: true,
+                    fqdn: reg.fqdn.clone(),
+                    error: "".to_string(),
+                }),
+                Err(e) => Ok(RegisterResponse {
+                    success: false,
+                    fqdn: "".to_string(),
+                    error: format!("{:?}", e),
+                }),
             },
             Err(e) => Ok(RegisterResponse {
                 success: false,
