@@ -1,10 +1,9 @@
 use super::container_pool::{ContainerPool, Subpool};
-use super::structs::{Container, ContainerLock, ContainerState, ContainerT};
+use super::structs::{Container, ContainerLock, ContainerState};
 use super::ContainerIsolationCollection;
-use crate::services::containers::docker::dockerstructs::DockerContainer;
 use crate::services::containers::eviction::order_pool_eviction;
 use crate::services::containers::structs::{InsufficientGPUError, InsufficientMemoryError};
-use crate::services::resources::gpu::{GpuToken, GPU};
+use crate::services::resources::gpu::{GpuToken, PrivateGpuId, GPU};
 use crate::services::{registration::RegisteredFunction, resources::gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
@@ -719,38 +718,57 @@ impl ContainerManager {
         Ok(ret)
     }
 
-    pub async fn move_to_device(cont: Container, tid: TransactionId) {
-        match crate::services::containers::structs::cast::<DockerContainer>(&cont) {
-            Ok(c) => match c.client.move_to_device(&tid, &c.container_id).await {
-                Ok(()) => c.set_state(ContainerState::Warm),
-                Err(e) => error!(tid=tid, error=%e, "Error moving data to device"),
-            },
-            Err(e) => error!(tid=tid, error=%e, "move_to_device Error casting container to DockerContainer"),
-        };
-    }
-    /// Tell all GPU containers of the given function to move memory onto the device
-    pub async fn madvise_to_device(&self, fqdn: String, tid: TransactionId) {
-        debug!(tid=tid, fqdn=%fqdn, "moving to device");
-        let f = Self::move_to_device;
-        self.gpu_containers.iter_fqdn(tid, &fqdn, f).await;
-    }
-    pub async fn move_off_device(cont: Container, tid: TransactionId) {
-        match crate::services::containers::structs::cast::<DockerContainer>(&cont) {
-            Ok(c) => {
-                match c.client.move_from_device(&tid, &c.container_id).await {
-                    // container is "prewarmed" because we need to do work to fully start
-                    Ok(()) => c.set_state(ContainerState::Prewarm),
-                    Err(e) => error!(tid=tid, error=%e, "Error moving data from device"),
+    /// Go through prioritized idle containers to make enough room on GPU.
+    pub async fn make_room_on_gpu(&self, tid: TransactionId, mut amt: MemSizeMb, device: PrivateGpuId) {
+        debug!(tid=tid, amount=%amt, "making room on GPU");
+        // match specific GPU
+        let ctrs = self
+            .prioritized_gpu_list
+            .read()
+            .iter()
+            .filter(|c| {
+                c.device_resource()
+                    .as_ref()
+                    .map_or(false, |gpu| gpu.gpu_hardware_id == device)
+            })
+            .cloned()
+            .collect::<Vec<Container>>();
+        for c in ctrs {
+            let (memory, present) = c.device_memory();
+            if present {
+                if let Err(e) = c.move_to_device(&tid).await {
+                    error!(tid=tid, error=%e, container_id=c.container_id(), "Error moving memory to device");
+                } else {
+                    c.set_state(ContainerState::Prewarm);
+                    if let Some(gr) = &self.gpu_resources {
+                        if let Some(gpu) = c.device_resource().as_ref() {
+                            gr.update_mem_usage(gpu, -c.device_memory().0)
+                        }
+                    }
                 }
-            },
-            Err(e) => error!(tid=tid, error=%e, "move_off_device Error casting container to DockerContainer"),
-        };
+                amt -= memory;
+                if amt <= 0 {
+                    break;
+                }
+            }
+        }
     }
-    /// Tell all GPU containers of the given function to move memory off of the device
-    pub async fn madvise_off_device(&self, fqdn: String, tid: TransactionId) {
+    /// Tell all (idle) GPU containers of the given function to move memory off of the device
+    pub async fn move_off_device(&self, fqdn: String, tid: TransactionId) {
         debug!(tid=tid, fqdn=%fqdn, "moving off device");
-        let f = Self::move_off_device;
-        self.gpu_containers.iter_fqdn(tid, &fqdn, f).await;
+        let ctrs = self.gpu_containers.iter_idle_fqdn(&fqdn);
+        for c in ctrs {
+            if let Err(e) = c.move_from_device(&tid).await {
+                error!(tid=tid, error=%e, container_id=c.container_id(), "Error moving memory from device");
+            } else {
+                c.set_state(ContainerState::Prewarm);
+                if let Some(gr) = &self.gpu_resources {
+                    if let Some(gpu) = c.device_resource().as_ref() {
+                        gr.update_mem_usage(gpu, -c.device_memory().0)
+                    }
+                }
+            }
+        }
     }
 }
 

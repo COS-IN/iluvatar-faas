@@ -45,8 +45,14 @@ pub trait ContainerT: ToAny + Send + Sync {
     fn compute_type(&self) -> Compute;
     /// Returned with [Some(&GPU)] if the container has extra resources
     fn device_resource(&self) -> ProtectedGpuRef<'_>;
+    /// Update amount of device memory the container uses.
+    fn set_device_memory(&self, size: MemSizeMb);
+    /// Get amount of device memory the container uses, and if memory was set to be _on_ device currently.
+    fn device_memory(&self) -> (MemSizeMb, bool);
     /// Remove the attached device if it exists
     fn revoke_device(&self) -> Option<crate::services::resources::gpu::GPU>;
+    async fn move_to_device(&self, tid: &TransactionId) -> Result<()>;
+    async fn move_from_device(&self, tid: &TransactionId) -> Result<()>;
     /// Perform any actions that might improve performance before invocation(s) are sent
     async fn prewarm_actions(&self, _tid: &TransactionId) -> Result<()> {
         Ok(())

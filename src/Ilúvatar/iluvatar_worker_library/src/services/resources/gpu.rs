@@ -14,7 +14,7 @@ use iluvatar_library::{
     ToAny,
 };
 use nvml_wrapper::{error::NvmlError, Nvml};
-use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use parking_lot::{RwLock, RwLockReadGuard};
 use std::fmt::Display;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -181,7 +181,6 @@ struct GpuMetadata {
     pub hardware_id: PrivateGpuId,
     pub hardware_memory_mb: MemSizeMb,
     pub device_allocated_memory: RwLock<MemSizeMb>,
-    pub allocation_breakdown: Mutex<Vec<MemSizeMb>>,
     pub num_structs: u32,
     pub max_running: u32,
     pub sem: Arc<Semaphore>,
@@ -202,7 +201,6 @@ impl GpuMetadata {
             sem,
             hardware_id,
             device_allocated_memory: RwLock::new(0),
-            allocation_breakdown: Mutex::new(vec![0; structs.len()]),
         }
     }
 }
@@ -505,7 +503,6 @@ impl GpuResourceTracker {
                 max_running: sem.available_permits() as u32,
                 sem,
                 device_allocated_memory: RwLock::new(0),
-                allocation_breakdown: Mutex::new(vec![0; gpu_structs.len()]),
             };
             meta.insert(gpu_hardware_id, metadata);
             ret.insert(gpu_hardware_id, gpu_structs);
@@ -1067,44 +1064,15 @@ impl GpuResourceTracker {
         (*self.status_info.read()).clone()
     }
 
-    pub fn update_usage(&self, gpu: &GPU) {
-        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
-            None => (),
-            Some(meta) => {
-                let mut allocations = meta.allocation_breakdown.lock();
-                let old = allocations[gpu.struct_id as usize];
-                allocations[gpu.struct_id as usize] = gpu.allocated_mb;
-                let change = old - gpu.allocated_mb;
-                *meta.device_allocated_memory.write() += change;
-            },
+    pub fn update_mem_usage(&self, gpu: &GPU, amt: MemSizeMb) {
+        if let Some(meta) = self.gpu_metadata.get(&gpu.gpu_hardware_id) {
+            *meta.device_allocated_memory.write() += amt;
         }
     }
-
-    pub fn remove(&self, gpu: &GPU) {
+    pub fn get_free_mem(&self, gpu: &GPU) -> MemSizeMb {
         match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
-            None => (),
-            Some(meta) => {
-                let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
-                *meta.device_allocated_memory.write() -= curr;
-            },
-        }
-    }
-    pub fn add(&self, gpu: &GPU) {
-        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
-            None => (),
-            Some(meta) => {
-                let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
-                *meta.device_allocated_memory.write() += curr;
-            },
-        }
-    }
-    pub fn memory_pressure(&self, gpu: &GPU) -> (MemSizeMb, MemSizeMb) {
-        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
-            None => (0, 0),
-            Some(meta) => {
-                let curr = *meta.device_allocated_memory.read();
-                (curr, meta.hardware_memory_mb)
-            },
+            Some(meta) => meta.hardware_memory_mb - *meta.device_allocated_memory.read(),
+            None => 0,
         }
     }
 }

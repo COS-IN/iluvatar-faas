@@ -328,7 +328,7 @@ impl GpuQueueingInvoker {
                     // unwrap is safe, we either have a container or will go to the top of the loop
                     let ctr = ctr_lock.as_ref().unwrap().container.clone();
                     let t = item.tid.clone();
-                    tokio::spawn(ContainerManager::move_to_device(ctr, t));
+                    tokio::spawn(async move { ctr.move_from_device(&t).await });
                 }
             }
             // unwrap is safe, we either have a container or will go to the top of the loop
@@ -366,7 +366,7 @@ impl GpuQueueingInvoker {
             if let Some(ctr_lck) = &ctr_lock {
                 let ctr = ctr_lck.container.clone();
                 let t = INVOKER_GPU_QUEUE_WORKER_TID.clone();
-                tokio::spawn(ContainerManager::move_off_device(ctr, t));
+                tokio::spawn(async move { ctr.move_from_device(&t).await });
             }
         }
         drop(ctr_lock);

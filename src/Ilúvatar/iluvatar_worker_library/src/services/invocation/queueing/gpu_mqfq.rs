@@ -14,7 +14,7 @@ use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
 use iluvatar_library::tput_calc::DeviceTput;
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::{Compute, DroppableToken};
+use iluvatar_library::types::{Compute, DroppableToken, MemSizeMb};
 use iluvatar_library::utils::missing_default;
 use iluvatar_library::{
     mindicator::Mindicator,
@@ -197,7 +197,7 @@ impl FlowQ {
                 let ctr = self.cont_manager.clone();
                 let fname = self.fqdn.clone();
                 tokio::spawn(async move {
-                    ctr.madvise_off_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
+                    ctr.move_off_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
                 });
             }
             self.state = new_state;
@@ -465,8 +465,6 @@ impl MQFQ {
             None => (None, None),
         };
 
-        let policy: MqfqPolicy = invocation_config.queue_policies.get(&Compute::GPU).try_into()?;
-
         let svc = Arc::new(MQFQ {
             mqfq_set: DashMap::new(),
             ctrack: Arc::new(CompletionTimeTracker::new(tid)?),
@@ -486,7 +484,7 @@ impl MQFQ {
                 .ok_or_else(|| anyhow::format_err!("Creating GPU queue invoker with no GPU config"))?
                 .clone(),
             q_config,
-            policy,
+            policy: invocation_config.queue_policies.get(&Compute::GPU).try_into()?,
             sticky_queue: RwLock::new("".to_string()),
             mindicator: Mindicator::boxed(0),
             active_flows: RwLock::new(0),
@@ -582,7 +580,7 @@ impl MQFQ {
     /// On failure, [Invoker::handle_invocation_error] is called
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cpu_token, gpu_token), fields(fqdn=item.invoke.registration.fqdn)))]
     async fn invocation_worker_thread(
-        &self,
+        self: &Arc<Self>,
         item: Arc<MQRequest>,
         cpu_token: DroppableToken,
         gpu_token: DroppableToken,
@@ -614,7 +612,8 @@ impl MQFQ {
                 if state != MQState::Active {
                     if let Some(ctr) = container {
                         if self.gpu_config.send_driver_memory_hints() {
-                            tokio::spawn(ContainerManager::move_off_device(ctr, item.invoke.tid.clone()));
+                            let t = item.invoke.tid.clone();
+                            tokio::spawn(async move { ctr.move_from_device(&t).await });
                         }
                     }
                 }
@@ -644,7 +643,7 @@ impl MQFQ {
     /// [ContainerState]: State the container was in for the invocation
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoke, gpu_token, cpu_token), fields(tid=%invoke.tid)))]
     async fn invoke<'a>(
-        &'a self,
+        self: &'a Arc<Self>,
         invoke: &'a Arc<EnqueuedInvocation>,
         cpu_token: DroppableToken,
         gpu_token: DroppableToken,
@@ -662,9 +661,26 @@ impl MQFQ {
             EventualItem::Now(n) => {
                 let n = n?;
                 if self.gpu_config.send_driver_memory_hints() {
-                    let ctr = n.container.clone();
-                    let t = invoke.tid.clone();
-                    tokio::spawn(ContainerManager::move_to_device(ctr, t));
+                    let (mut memory, present) = n.container.device_memory();
+                    if memory == 0 {
+                        // new container or some weirdness like rodinia funcs
+                        memory = self.cmap.get_avg(&invoke.registration.fqdn, Chars::GpuMemoryUsage) as MemSizeMb;
+                    }
+                    if !present {
+                        if let Some(g) = n.container.device_resource().as_ref() {
+                            let free = self.gpu.get_free_mem(g);
+                            let diff = free - memory;
+                            if diff < 0 {
+                                let t = invoke.tid.clone();
+                                let ctr_man = self.cont_manager.clone();
+                                let id = g.gpu_hardware_id.clone();
+                                tokio::spawn(async move { ctr_man.make_room_on_gpu(t, -diff, id).await });
+                            }
+                        }
+                        let ctr = n.container.clone();
+                        let t = invoke.tid.clone();
+                        tokio::spawn(async move { ctr.move_to_device(&t).await });
+                    }
                 }
                 n
             },
@@ -1092,7 +1108,7 @@ impl MQFQ {
 
     /// Main
     fn dispatch(&self, tid: &TransactionId) -> Option<(Arc<MQRequest>, DroppableToken)> {
-        // Filter by active queues, and select with lowest start time.
+        // Filter by active queues, and select with the lowest start time.
         let qlen = self.queue_len();
         if qlen == 0 {
             debug!(tid = tid, qlen = qlen, "Empty queue");

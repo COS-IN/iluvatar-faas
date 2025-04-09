@@ -261,6 +261,7 @@ async fn invoke_on_container_2(
     );
     device_tput.add_tput(time);
     if compute == Compute::GPU {
+        ctr_lock.container.set_device_memory(data.gpu_allocation_mb);
         cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
     }
     Ok((data, duration, ctr_lock.container.clone()))
