@@ -474,7 +474,7 @@ impl DeviceQueue for GpuQueueingInvoker {
         let load = self.queue.est_queue_time();
         QueueLoad {
             len: self.queue.queue_len(),
-            load: load,
+            load,
             load_avg: load / self.gpu.max_concurrency() as f64,
             tput: self.device_tput.get_tput(),
         }

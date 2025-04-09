@@ -199,8 +199,8 @@ impl DockerIsolation {
             image: Some(image_name.to_owned()),
             host_config: Some(host_config),
             env: Some(env),
-            exposed_ports: exposed_ports,
-            entrypoint: entrypoint,
+            exposed_ports,
+            entrypoint,
             ..Default::default()
         };
         debug!(tid=tid, container_id=%container_id, config=?config, "Creating container");

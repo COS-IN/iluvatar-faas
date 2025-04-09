@@ -245,7 +245,7 @@ pub async fn controller_invoke(
                 function_name: name.to_owned(),
                 function_version: version.to_owned(),
                 invoke_start,
-                tid: tid,
+                tid,
             },
             Err(e) => CompletedControllerInvocation::error(
                 format!(

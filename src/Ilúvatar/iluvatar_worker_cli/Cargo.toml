@@ -20,3 +20,6 @@ clap = { version = "4.5", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util", "parking_lot"] }
 anyhow = "1"
 tracing = "0.1"
+
+[lints]
+workspace = true

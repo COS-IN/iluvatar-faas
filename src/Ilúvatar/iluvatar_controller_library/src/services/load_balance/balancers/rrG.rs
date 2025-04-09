@@ -48,8 +48,8 @@ impl RRGLoadBalancer {
         worker_cmap: &WorkerCharMap,
     ) -> Self {
         RRGLoadBalancer {
-            worker_fact: worker_fact,
-            health: health,
+            worker_fact,
+            health,
             lbs: Mutex::new(LBState_G_RR {
                 workers: Vec::new(),
                 next: 0,

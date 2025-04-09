@@ -32,3 +32,6 @@ rcu_cell = "1.2"
 
 [features]
 full_spans = []
+
+[lints]
+workspace = true

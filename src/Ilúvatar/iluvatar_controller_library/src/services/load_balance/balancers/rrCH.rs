@@ -53,8 +53,8 @@ impl CHGLoadBalancer {
         worker_cmap: &WorkerCharMap,
     ) -> Self {
         CHGLoadBalancer {
-            worker_fact: worker_fact,
-            health: health,
+            worker_fact,
+            health,
             worker_cmap: worker_cmap.clone(),
             lbs: Mutex::new(LBState_G_CH {
                 workers: Vec::new(),

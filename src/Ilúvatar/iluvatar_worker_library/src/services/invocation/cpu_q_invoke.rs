@@ -391,7 +391,7 @@ impl DeviceQueue for CpuQueueingInvoker {
         let load = self.queue.est_queue_time();
         QueueLoad {
             len: self.queue.queue_len(),
-            load: load,
+            load,
             load_avg: load / self.cpu.cores,
             tput: self.device_tput.get_tput(),
         }

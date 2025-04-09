@@ -119,8 +119,8 @@ async fn controller_sim_register_workers(
             port: 0,
             memory: worker_config.container_resources.memory_mb,
             cpus: worker_config.container_resources.cpu_resource.count,
-            gpus: gpus,
-            compute: compute,
+            gpus,
+            compute,
             isolation: (Isolation::CONTAINERD | Isolation::DOCKER).bits(),
         };
         let response = server.register_worker(r).await;

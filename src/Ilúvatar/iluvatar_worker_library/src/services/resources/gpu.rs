@@ -134,7 +134,7 @@ impl GpuStatus {
             utilization_memory: 0.0,
             power_draw: 0.0,
             power_limit: 0.0,
-            num_running: num_running,
+            num_running,
             est_utilization_gpu: 0.0,
         }
     }

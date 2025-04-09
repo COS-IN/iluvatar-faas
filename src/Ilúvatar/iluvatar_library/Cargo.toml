@@ -45,3 +45,6 @@ enum-iterator = "2.1"
 
 [features]
 full_spans = []
+
+[lints]
+workspace = true

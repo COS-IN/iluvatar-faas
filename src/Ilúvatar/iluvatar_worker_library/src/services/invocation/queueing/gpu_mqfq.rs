@@ -1295,7 +1295,7 @@ impl DeviceQueue for MQFQ {
         let load = rpt.pending_load + rpt.active_load;
         QueueLoad {
             len: rpt.flows.iter().fold(0, |acc, f| acc + f.queue_len),
-            load: load,
+            load,
             load_avg: load / self.gpu.max_concurrency() as f64,
             tput: self.device_tput.get_tput(),
         }

@@ -30,7 +30,7 @@ impl RoundRobinLoadBalancer {
     }
 
     fn get_next(&self, tid: &TransactionId) -> Result<Arc<RegisteredWorker>> {
-        if self.workers.read().len() == 0 {
+        if self.workers.read().is_empty() {
             anyhow::bail!("There are not workers available to serve the request");
         }
         let mut i = 0;

@@ -55,3 +55,6 @@ tokio-test = "0.4"
 [features]
 full_spans = []
 power_cap = []
+
+[lints]
+workspace = true

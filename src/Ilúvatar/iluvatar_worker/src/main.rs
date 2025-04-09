@@ -83,8 +83,8 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
                         port: server_config.port.into(),
                         memory: server_config.container_resources.memory_mb,
                         cpus: server_config.container_resources.cpu_resource.count,
-                        compute: compute,
-                        isolation: isolation,
+                        compute,
+                        isolation,
                         gpus: server_config
                             .container_resources
                             .gpu_resource
