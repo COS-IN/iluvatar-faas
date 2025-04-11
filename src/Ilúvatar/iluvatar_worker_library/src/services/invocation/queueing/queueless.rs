@@ -42,7 +42,7 @@ impl InvokerCpuQueuePolicy for Queueless {
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
         let mut queue = self.async_queue.write();
         queue.push_back(item.clone());
-        debug!(tid=item.tid, "Added item to front of queue; waking worker thread");
+        debug!(tid = item.tid, "Added item to front of queue; waking worker thread");
         Ok(())
     }
 }

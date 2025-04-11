@@ -418,10 +418,14 @@ impl ContainerManager {
         Ok(None)
     }
 
-    fn return_gpu(&self, gpu: Option<GPU>, tid: &TransactionId) {
-        if let Some(gpu) = gpu {
+    fn return_gpu(&self, container: &Container, tid: &TransactionId) {
+        if let Some(gpu) = container.revoke_device() {
             if let Some(gpu_man) = self.gpu_resources.as_ref() {
-                gpu_man.return_gpu(gpu, tid)
+                let (gpu_mem, present) = container.device_memory();
+                if present {
+                    gpu_man.update_mem_usage(&gpu, gpu_mem);
+                }
+                gpu_man.return_gpu(gpu, tid);
             }
         }
     }
@@ -480,7 +484,11 @@ impl ContainerManager {
             Ok(cont) => cont,
             Err((e, gpu)) => {
                 *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
-                self.return_gpu(gpu, tid);
+                if let Some(gpu_man) = self.gpu_resources.as_ref() {
+                    if let Some(gpu) = gpu {
+                        gpu_man.return_gpu(gpu, tid);
+                    }
+                }
                 return Err(e);
             },
         };
@@ -492,7 +500,7 @@ impl ContainerManager {
             Ok(_) => (),
             Err(e) => {
                 *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
-                self.return_gpu(cont.revoke_device(), tid);
+                self.return_gpu(&cont, tid);
                 match cont_lifecycle.remove_container(cont, "default", tid).await {
                     Ok(_) => {
                         return Err(e);
@@ -602,7 +610,7 @@ impl ContainerManager {
             None => bail_error!(tid=tid, iso=?container.container_type(), "Lifecycle for container not supported"),
         };
         *self.used_mem_mb.write() -= container.get_curr_mem_usage();
-        self.return_gpu(container.revoke_device(), tid);
+        self.return_gpu(&container, tid);
         container.remove_drop(tid);
         self.prioritiy_notify.notify_waiters();
         r
@@ -718,44 +726,70 @@ impl ContainerManager {
         Ok(ret)
     }
 
-    /// Go through prioritized idle containers to make enough room on GPU.
-    pub async fn make_room_on_gpu(&self, tid: TransactionId, mut amt: MemSizeMb, device: PrivateGpuId) {
-        debug!(tid=tid, amount=%amt, "making room on GPU");
+    /// Go through idle containers in prioritized order to make enough room on GPU.
+    pub async fn make_room_on_gpu(&self, tid: TransactionId, amt: MemSizeMb, device: PrivateGpuId) {
         // match specific GPU
         let ctrs = self
-            .prioritized_gpu_list
-            .read()
-            .iter()
+            .gpu_containers
+            .iter_idle()
+            .into_iter()
             .filter(|c| {
                 c.device_resource()
                     .as_ref()
-                    .map_or(false, |gpu| gpu.gpu_hardware_id == device)
+                    .is_some_and(|gpu| gpu.gpu_hardware_id == device)
             })
-            .cloned()
             .collect::<Vec<Container>>();
-        for c in ctrs {
+        // sort according to proscribed eviction policy
+        let (ordered, mut evict) = order_pool_eviction(self, &self.resources.eviction, &tid, ctrs);
+        // those marked for "eviction" aren't deleted here, but we prioritize them for removal from GPU
+        evict.extend(ordered);
+        info!(
+            tid = tid,
+            amount = amt,
+            num_checking = evict.len(),
+            "making room on GPU"
+        );
+        let mut total_reclaimed = 0;
+        for c in evict {
             let (memory, present) = c.device_memory();
-            if present {
-                if let Err(e) = c.move_to_device(&tid).await {
-                    error!(tid=tid, error=%e, container_id=c.container_id(), "Error moving memory to device");
-                } else {
-                    c.set_state(ContainerState::Prewarm);
-                    if let Some(gr) = &self.gpu_resources {
-                        if let Some(gpu) = c.device_resource().as_ref() {
-                            gr.update_mem_usage(gpu, -c.device_memory().0)
-                        }
+            info!(
+                tid = tid,
+                memory = memory,
+                present = present,
+                container_id = c.container_id(),
+                "still making room on GPU"
+            );
+            // only care if they're present and hold memory
+            if present && memory > 0 {
+                let ctr = c.clone();
+                let t = tid.clone();
+                // actual removal is async (async in the container anyway, why wait)
+                tokio::spawn(async move {
+                    if let Err(e) = ctr.move_to_device(&t).await {
+                        error!(tid=%t, error=%e, container_id=ctr.container_id(), "Error moving memory to device");
+                        ctr.mark_unhealthy();
+                    } else {
+                        ctr.set_state(ContainerState::Prewarm);
+                    }
+                });
+                // account for removal immediately
+                if let Some(gr) = &self.gpu_resources {
+                    if let Some(gpu) = c.device_resource().as_ref() {
+                        gr.update_mem_usage(gpu, -memory);
                     }
                 }
-                amt -= memory;
-                if amt <= 0 {
+                total_reclaimed += memory;
+                info!(tid = tid, amount = amt, "still making room on GPU");
+                if amt <= total_reclaimed {
                     break;
                 }
             }
         }
+        info!(tid = tid, total_reclaimed = total_reclaimed, "reclaimed gpu memory");
     }
-    /// Tell all (idle) GPU containers of the given function to move memory off of the device
+    /// Tell all (idle) GPU containers of the given FQDN to move memory off of the device
     pub async fn move_off_device(&self, fqdn: String, tid: TransactionId) {
-        debug!(tid=tid, fqdn=%fqdn, "moving off device");
+        info!(tid=tid, fqdn=%fqdn, "moving off device");
         let ctrs = self.gpu_containers.iter_idle_fqdn(&fqdn);
         for c in ctrs {
             if let Err(e) = c.move_from_device(&tid).await {

@@ -134,7 +134,7 @@ impl CpuQueueingInvoker {
                 }
                 self.spawn_tokio_worker(self.clone(), item, permit);
             } else {
-                debug!(tid=peek_item.tid, "Insufficient resources to run item");
+                debug!(tid = peek_item.tid, "Insufficient resources to run item");
                 break;
             }
         }
@@ -194,10 +194,10 @@ impl CpuQueueingInvoker {
     /// Returns an owned permit if there are sufficient resources to run a function
     /// A return value of [None] means the resources failed to be acquired
     fn acquire_resources_to_run(&self, item: &Arc<EnqueuedInvocation>) -> Option<Box<dyn Drop + Send>> {
-        debug!(tid=item.tid, "checking resources");
+        debug!(tid = item.tid, "checking resources");
         #[cfg(feature = "power_cap")]
         if !self.energy.ok_run_fn(&self.cmap, &item.registration.fqdn) {
-            debug!(tid=item.tid, "Blocking invocation due to power overload");
+            debug!(tid = item.tid, "Blocking invocation due to power overload");
             return None;
         }
         let mut ret = vec![];
@@ -206,7 +206,10 @@ impl CpuQueueingInvoker {
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=item.tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                        error!(
+                            tid = item.tid,
+                            "CPU Resource Monitor `try_acquire_cores` returned a closed error!"
+                        )
                     },
                     tokio::sync::TryAcquireError::NoPermits => (),
                 };
@@ -224,7 +227,7 @@ impl CpuQueueingInvoker {
             let span = item.span.clone();
             let _handle = tokio::spawn(
                 async move {
-                    debug!(tid=item.tid, "Launching invocation thread for queued item");
+                    debug!(tid = item.tid, "Launching invocation thread for queued item");
                     invoker_svc.invocation_worker_thread(item, permit).await;
                 }
                 .instrument(span),
@@ -233,7 +236,7 @@ impl CpuQueueingInvoker {
         #[cfg(not(feature = "full_spans"))]
         {
             let _handle = tokio::spawn(async move {
-                debug!(tid=item.tid, "Launching invocation thread for queued item");
+                debug!(tid = item.tid, "Launching invocation thread for queued item");
                 invoker_svc.invocation_worker_thread(item, permit).await;
             });
         }
@@ -259,7 +262,7 @@ impl CpuQueueingInvoker {
         if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
             let mut warn_time = self.last_memory_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
-                warn!(tid=item.tid, "Insufficient memory to run item right now");
+                warn!(tid = item.tid, "Insufficient memory to run item right now");
                 *warn_time = now();
             }
             item.unlock();
@@ -271,7 +274,7 @@ impl CpuQueueingInvoker {
                 },
             };
         } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
-            warn!(tid=item.tid, "No GPU available to run item right now");
+            warn!(tid = item.tid, "No GPU available to run item right now");
             item.unlock();
         } else {
             error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
@@ -292,7 +295,7 @@ impl CpuQueueingInvoker {
     /// A return value of `false` means that the function would have run cold, and the caller should enqueue it instead
     /// `true` means the invocation was already run successfully
     async fn bypassing_invoke(&self, item: &Arc<EnqueuedInvocation>) -> Result<bool> {
-        info!(tid=item.tid, "Bypassing internal invocation starting");
+        info!(tid = item.tid, "Bypassing internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now();
         let ctr_lock = match self
@@ -338,7 +341,7 @@ impl CpuQueueingInvoker {
         item: &'a Arc<EnqueuedInvocation>,
         permit: Option<Box<dyn Drop + Send>>,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        debug!(tid=item.tid, "Internal invocation starting");
+        debug!(tid = item.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 

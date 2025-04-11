@@ -384,7 +384,7 @@ impl GpuQueueingInvoker {
         if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
             let mut warn_time = self.last_memory_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
-                warn!(tid=item.tid, "Insufficient memory to run item right now");
+                warn!(tid = item.tid, "Insufficient memory to run item right now");
                 *warn_time = now();
             }
             item.unlock();
@@ -398,7 +398,7 @@ impl GpuQueueingInvoker {
         } else if let Some(_gpu_err) = cause.downcast_ref::<InsufficientGPUError>() {
             let mut warn_time = self.last_gpu_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
-                warn!(tid=item.tid, "No GPU available to run item right now");
+                warn!(tid = item.tid, "No GPU available to run item right now");
                 *warn_time = now();
             }
             item.unlock();
@@ -430,7 +430,7 @@ impl GpuQueueingInvoker {
         item: &'a Arc<EnqueuedInvocation>,
         cold_time_start: Instant,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        debug!(tid=item.tid, "Internal invocation starting");
+        debug!(tid = item.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

@@ -42,8 +42,13 @@ impl InvokerCpuQueuePolicy for FCFSQueue {
         if let Some(e) = invoke_queue.peek() {
             func_name = e.item.registration.function_name.as_str();
         }
-        debug!(tid=v.tid,  "Popped item from queue fcfs heap - len: {} popped: {} top: {} ",
-           invoke_queue.len(), v.registration.function_name, func_name );
+        debug!(
+            tid = v.tid,
+            "Popped item from queue fcfs heap - len: {} popped: {} top: {} ",
+            invoke_queue.len(),
+            v.registration.function_name,
+            func_name
+        );
         v
     }
     fn queue_len(&self) -> usize {

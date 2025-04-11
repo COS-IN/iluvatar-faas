@@ -51,10 +51,14 @@ impl InvokerCpuQueuePolicy for MinHeapEDQueue {
         if let Some(e) = invoke_queue.peek() {
             func_name = e.item.registration.function_name.as_str();
         }
-        debug!(tid=v.tid,  component="minheap", "Popped item from queue minheap - len: {} popped: {} top: {} ",
-           invoke_queue.len(),
-           v.registration.function_name,
-           func_name );
+        debug!(
+            tid = v.tid,
+            component = "minheap",
+            "Popped item from queue minheap - len: {} popped: {} top: {} ",
+            invoke_queue.len(),
+            v.registration.function_name,
+            func_name
+        );
         v
     }
 
@@ -72,10 +76,14 @@ impl InvokerCpuQueuePolicy for MinHeapEDQueue {
         let mut queue = self.invoke_queue.lock();
         let deadline = self.cmap.get_avg(&item.registration.fqdn, Chars::CpuExecTime) + self.time_since_creation();
         queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), deadline, est_wall_time));
-        debug!(tid=item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ",
-                        queue.len(),
-                        item.registration.function_name,
-                        queue.peek().unwrap().item.registration.function_name );
+        debug!(
+            tid = item.tid,
+            component = "minheap",
+            "Added item to front of queue minheap - len: {} arrived: {} top: {} ",
+            queue.len(),
+            item.registration.function_name,
+            queue.peek().unwrap().item.registration.function_name
+        );
         Ok(())
     }
 }

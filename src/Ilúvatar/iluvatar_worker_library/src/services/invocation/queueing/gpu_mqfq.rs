@@ -20,6 +20,7 @@ use iluvatar_library::{
     mindicator::Mindicator,
     threading::{tokio_thread, tokio_waiter_thread, EventualItem},
 };
+use iluvatar_rpc::rpc::ContainerState;
 use ordered_float::OrderedFloat;
 use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
@@ -196,6 +197,7 @@ impl FlowQ {
             if self.state == MQState::Active && self.gpu_config.send_driver_memory_hints() {
                 let ctr = self.cont_manager.clone();
                 let fname = self.fqdn.clone();
+                info!(fqdn = fname, "TTL expired, moving memory off device");
                 tokio::spawn(async move {
                     ctr.move_off_device(fname, MQFQ_GPU_QUEUE_BKG_TID.clone()).await;
                 });
@@ -269,7 +271,12 @@ impl FlowQ {
     fn update_dispatched(&mut self) {
         if let Some(next_item) = self.queue.front() {
             if self.start_time_virt > next_item.start_time_virt {
-                error!(tid=next_item.invoke.tid, old_start=self.start_time_virt, new_start=next_item.start_time_virt, "curr start VT was somehow >= than next's start_time_virt");
+                error!(
+                    tid = next_item.invoke.tid,
+                    old_start = self.start_time_virt,
+                    new_start = next_item.start_time_virt,
+                    "curr start VT was somehow >= than next's start_time_virt"
+                );
             }
             self.start_time_virt = next_item.start_time_virt;
             self.mindicator.insert(self.flow_id, self.start_time_virt).unwrap();
@@ -552,7 +559,7 @@ impl MQFQ {
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     async fn monitor_queue(self: &Arc<Self>, tid: &TransactionId) {
         while let Some((next_item, gpu_token)) = self.dispatch(tid) {
-            debug!(tid=next_item.invoke.tid, "Sending item for dispatch");
+            debug!(tid = next_item.invoke.tid, "Sending item for dispatch");
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it won't be concurrently invoked.
             if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, tid).await {
                 let svc = self.clone();
@@ -648,7 +655,7 @@ impl MQFQ {
         cpu_token: DroppableToken,
         gpu_token: DroppableToken,
     ) -> Result<(ParsedResult, Duration, Container)> {
-        debug!(tid=invoke.tid, "Internal invocation starting");
+        debug!(tid = invoke.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
@@ -658,33 +665,74 @@ impl MQFQ {
             .acquire_container(&invoke.registration, &invoke.tid, Compute::GPU)
         {
             EventualItem::Future(f) => f.await?,
-            EventualItem::Now(n) => {
-                let n = n?;
-                if self.gpu_config.send_driver_memory_hints() {
-                    let (mut memory, present) = n.container.device_memory();
-                    if memory == 0 {
-                        // new container or some weirdness like rodinia funcs
-                        memory = self.cmap.get_avg(&invoke.registration.fqdn, Chars::GpuMemoryUsage) as MemSizeMb;
-                    }
-                    if !present {
-                        if let Some(g) = n.container.device_resource().as_ref() {
-                            let free = self.gpu.get_free_mem(g);
-                            let diff = free - memory;
-                            if diff < 0 {
-                                let t = invoke.tid.clone();
-                                let ctr_man = self.cont_manager.clone();
-                                let id = g.gpu_hardware_id.clone();
-                                tokio::spawn(async move { ctr_man.make_room_on_gpu(t, -diff, id).await });
-                            }
-                        }
-                        let ctr = n.container.clone();
+            EventualItem::Now(n) => n?,
+        };
+        if self.gpu_config.send_driver_memory_hints() {
+            let (mut memory, present) = ctr_lock.container.device_memory();
+            // let orig_mem = memory;
+            // if memory == 0 {
+            //     // new container or some weirdness like rodinia funcs
+            //     memory = self.cmap.get_avg(&invoke.registration.fqdn, Chars::GpuMemoryUsage) as MemSizeMb;
+            // }
+            info!(tid=invoke.tid, state=?ctr_lock.container.state(), present=present, memory=memory, "container about to be used");
+            if let Some(g) = ctr_lock.container.device_resource().as_ref() {
+                let free = self.gpu.get_free_mem(g);
+                info!(tid = invoke.tid, free = free, "device mem usage");
+            }
+            // memory == 0, cold container, or zero invocations means we need to pre-allocate space for a new container
+            if memory == 0
+                || !present
+                || (ctr_lock.container.invocations() == 0 || ctr_lock.container.state() == ContainerState::Cold)
+            {
+                if memory == 0 {
+                    // new container or some weirdness like rodinia funcs
+                    memory = self.cmap.get_avg(&invoke.registration.fqdn, Chars::GpuMemoryUsage) as MemSizeMb;
+                }
+                if memory == 0 {
+                    // Nothing in cmap either... give a couple GB
+                    // TODO: better number?
+                    memory = 1024 * 3;
+                }
+                if let Some(g) = ctr_lock.container.device_resource().as_ref() {
+                    let free = self.gpu.get_free_mem(g);
+                    let diff = free - memory;
+                    info!(
+                        tid = invoke.tid,
+                        ctd_id = ctr_lock.container.container_id(),
+                        free = free,
+                        needed = memory,
+                        to_clear = diff,
+                        "Moving memory onto device"
+                    );
+                    if diff < 0 {
+                        info!(
+                            tid = invoke.tid,
+                            free = free,
+                            needed = memory,
+                            to_clear = diff,
+                            "Making room for memory on device"
+                        );
                         let t = invoke.tid.clone();
-                        tokio::spawn(async move { ctr.move_to_device(&t).await });
+                        let ctr_man = self.cont_manager.clone();
+                        let id = g.gpu_hardware_id;
+                        tokio::spawn(async move { ctr_man.make_room_on_gpu(t, -diff, id).await });
                     }
                 }
-                n
-            },
-        };
+                let ctr = ctr_lock.container.clone();
+                let t = invoke.tid.clone();
+                tokio::spawn(async move { ctr.move_to_device(&t).await });
+                if let Some(g) = ctr_lock.container.device_resource().as_ref() {
+                    info!(
+                        tid = invoke.tid,
+                        alloc = memory,
+                        "setting device memory usage for moving to device"
+                    );
+                    ctr_lock.container.set_device_memory(memory);
+                    self.gpu.update_mem_usage(g, memory);
+                }
+            }
+        }
+        let (before_invoke_memory, _) = ctr_lock.container.device_memory();
         match invoke_on_container_2(
             &invoke.registration,
             &invoke.json_args,
@@ -702,6 +750,21 @@ impl MQFQ {
         .await
         {
             Ok((result, dur, container)) => {
+                let (after_invoke_memory, _) = ctr_lock.container.device_memory();
+                let mem_diff = before_invoke_memory - after_invoke_memory;
+                if mem_diff != 0 {
+                    if let Some(g) = ctr_lock.container.device_resource().as_ref() {
+                        info!(
+                            tid = invoke.tid,
+                            mem_diff = mem_diff,
+                            before = before_invoke_memory,
+                            after = after_invoke_memory,
+                            "post invoke updating device memory usage"
+                        );
+                        self.gpu.update_mem_usage(g, -mem_diff);
+                    }
+                }
+                drop(gpu_token);
                 drop(cpu_token);
                 Ok((result, dur, container))
             },
@@ -744,7 +807,7 @@ impl MQFQ {
         let virtual_time = self.mindicator.min();
         match self.mqfq_set.get_mut(&item.registration.fqdn) {
             Some(mut fq) => {
-                debug!(tid=item.tid, "Adding item to existing Q");
+                debug!(tid = item.tid, "Adding item to existing Q");
                 if fq.value_mut().push_flow(item, virtual_time) {
                     if let Err(e) = self.mindicator.insert(fq.flow_id, fq.start_time_virt) {
                         error!(error=%e, vt=virtual_time, "Error adding VT to mindicator");
@@ -752,7 +815,7 @@ impl MQFQ {
                 }
             },
             None => {
-                debug!(tid=item.tid, "Adding item to new Q");
+                debug!(tid = item.tid, "Adding item to new Q");
                 let fname = item.registration.fqdn.clone();
                 let id = self.mindicator.add_procs(1) - 1;
                 let weight = match &self.q_config.flow_weights {

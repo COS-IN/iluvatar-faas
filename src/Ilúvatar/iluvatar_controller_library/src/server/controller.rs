@@ -149,7 +149,7 @@ impl IluvatarController for Controller {
 impl ControllerAPITrait for Controller {
     #[tracing::instrument(skip(self, request), fields(tid=request.transaction_id))]
     async fn ping(&self, request: PingRequest) -> Result<String> {
-        info!(tid=request.transaction_id, "in ping");
+        info!(tid = request.transaction_id, "in ping");
         Ok("Pong".into())
     }
 

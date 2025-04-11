@@ -106,7 +106,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn invoke(&self, request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=request.transaction_id, "Handling invocation request");
+        info!(tid = request.transaction_id, "Handling invocation request");
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         let reg = match self.reg.get_registration(&fqdn) {
             Some(r) => r,
@@ -115,7 +115,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         if let Some(iat) = self.iats.track(&fqdn) {
             self.cmap.update(&fqdn, Chars::IAT, iat);
         }
-        debug!(tid=request.transaction_id, "Sending invocation to invoker");
+        debug!(tid = request.transaction_id, "Sending invocation to invoker");
         let resp = self
             .invoker
             .sync_invocation(reg, request.json_args, request.transaction_id)
@@ -188,7 +188,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         request: Request<InvokeAsyncLookupRequest>,
     ) -> Result<Response<InvokeResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=request.transaction_id, "Handling invoke async check");
+        info!(tid = request.transaction_id, "Handling invoke async check");
         let resp = self
             .invoker
             .invoke_async_check(&request.lookup_cookie, &request.transaction_id);
@@ -280,7 +280,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn status(&self, request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
         let request = request.into_inner();
-        debug!(tid=request.transaction_id, "Handling status request");
+        debug!(tid = request.transaction_id, "Handling status request");
         let (load_avg, cpu_us, cpu_sy, cpu_id, cpu_wa, num_core) =
             self.ring_buff
                 .latest(CPU_MON_TID)
@@ -329,7 +329,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn health(&self, request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
         let request = request.into_inner();
-        debug!(tid=request.transaction_id, "Handling health request");
+        debug!(tid = request.transaction_id, "Handling health request");
         let reply = self.health.check_health(&request.transaction_id).await;
         Ok(Response::new(reply))
     }
@@ -337,7 +337,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn clean(&self, request: Request<CleanRequest>) -> Result<Response<CleanResponse>, Status> {
         let request = request.into_inner();
-        debug!(tid=request.transaction_id, "Handling clean request");
+        debug!(tid = request.transaction_id, "Handling clean request");
         match self
             .container_manager
             .remove_idle_containers(&request.transaction_id)
@@ -353,7 +353,10 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         request: Request<ListFunctionRequest>,
     ) -> Result<Response<ListFunctionResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=request.transaction_id, "Handling list registered functions request");
+        info!(
+            tid = request.transaction_id,
+            "Handling list registered functions request"
+        );
         let funcs = self.reg.get_all_registered_functions();
         let rpc_funcs = funcs
             .values()
