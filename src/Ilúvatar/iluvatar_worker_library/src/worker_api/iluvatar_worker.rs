@@ -95,7 +95,7 @@ impl IluvatarWorkerImpl {
 
 #[tonic::async_trait]
 impl IluvatarWorker for IluvatarWorkerImpl {
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
         let reply = PingResponse { message: "Pong".into() };
         let request = request.into_inner();
@@ -103,10 +103,10 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok(Response::new(reply))
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn invoke(&self, request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, "Handling invocation request");
+        info!(tid=request.transaction_id, "Handling invocation request");
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         let reg = match self.reg.get_registration(&fqdn) {
             Some(r) => r,
@@ -115,7 +115,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         if let Some(iat) = self.iats.track(&fqdn) {
             self.cmap.update(&fqdn, Chars::IAT, iat);
         }
-        debug!(tid=%request.transaction_id, "Sending invocation to invoker");
+        debug!(tid=request.transaction_id, "Sending invocation to invoker");
         let resp = self
             .invoker
             .sync_invocation(reg, request.json_args, request.transaction_id)
@@ -140,13 +140,13 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         }
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn invoke_async(
         &self,
         request: Request<InvokeAsyncRequest>,
     ) -> Result<Response<InvokeAsyncResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling async invocation request");
+        info!(tid=request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling async invocation request");
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         let reg = match self.reg.get_registration(&fqdn) {
             Some(r) => r,
@@ -182,29 +182,29 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         }
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn invoke_async_check(
         &self,
         request: Request<InvokeAsyncLookupRequest>,
     ) -> Result<Response<InvokeResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, "Handling invoke async check");
+        info!(tid=request.transaction_id, "Handling invoke async check");
         let resp = self
             .invoker
             .invoke_async_check(&request.lookup_cookie, &request.transaction_id);
         match resp {
             Ok(resp) => Ok(Response::new(resp)),
             Err(e) => {
-                error!(tid=%request.transaction_id, error=%e, "Failed to check async invocation status");
+                error!(tid=request.transaction_id, error=%e, "Failed to check async invocation status");
                 Ok(Response::new(InvokeResponse::error(&e.to_string())))
             },
         }
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn prewarm(&self, request: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling prewarm request");
+        info!(tid=request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, "Handling prewarm request");
 
         let fqdn = calculate_fqdn(&request.function_name, &request.function_version);
         let reg = match self.reg.get_registration(&fqdn) {
@@ -239,7 +239,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                 Ok(Response::new(resp))
             },
             Err(e) => {
-                error!(tid=%request.transaction_id, error=%e, "Container prewarm failed");
+                error!(tid=request.transaction_id, error=%e, "Container prewarm failed");
                 let resp = PrewarmResponse {
                     success: false,
                     message: format!("{{ \"Error\": \"{}\" }}", e),
@@ -249,11 +249,11 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         }
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn register(&self, request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
         let request = request.into_inner();
         let tid: TransactionId = request.transaction_id.clone();
-        info!(tid=%request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, image=%request.image_name, "Handling register request");
+        info!(tid=request.transaction_id, function_name=%request.function_name, function_version=%request.function_version, image=%request.image_name, "Handling register request");
         let reg_result = self.reg.register(request, &tid).await;
 
         match reg_result {
@@ -277,10 +277,10 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         }
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn status(&self, request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
         let request = request.into_inner();
-        debug!(tid=%request.transaction_id, "Handling status request");
+        debug!(tid=request.transaction_id, "Handling status request");
         let (load_avg, cpu_us, cpu_sy, cpu_id, cpu_wa, num_core) =
             self.ring_buff
                 .latest(CPU_MON_TID)
@@ -326,18 +326,18 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         }))
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn health(&self, request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
         let request = request.into_inner();
-        debug!(tid=%request.transaction_id, "Handling health request");
+        debug!(tid=request.transaction_id, "Handling health request");
         let reply = self.health.check_health(&request.transaction_id).await;
         Ok(Response::new(reply))
     }
 
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn clean(&self, request: Request<CleanRequest>) -> Result<Response<CleanResponse>, Status> {
         let request = request.into_inner();
-        debug!(tid=%request.transaction_id, "Handling clean request");
+        debug!(tid=request.transaction_id, "Handling clean request");
         match self
             .container_manager
             .remove_idle_containers(&request.transaction_id)
@@ -347,13 +347,13 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             Err(e) => Err(Status::internal(format!("{:?}", e))),
         }
     }
-    #[tracing::instrument(skip(self, request), fields(tid=%request.get_ref().transaction_id))]
+    #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn list_registered_funcs(
         &self,
         request: Request<ListFunctionRequest>,
     ) -> Result<Response<ListFunctionResponse>, Status> {
         let request = request.into_inner();
-        info!(tid=%request.transaction_id, "Handling list registered functions request");
+        info!(tid=request.transaction_id, "Handling list registered functions request");
         let funcs = self.reg.get_all_registered_functions();
         let rpc_funcs = funcs
             .values()

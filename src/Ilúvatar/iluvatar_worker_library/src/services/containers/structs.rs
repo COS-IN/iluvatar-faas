@@ -156,7 +156,7 @@ impl ContainerLock {
     /// Returns
     /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
     /// [Duration]: The E2E latency between the worker and the container
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args), fields(tid=%self.transaction_id), name="ContainerLock::invoke"))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, json_args), fields(tid=self.transaction_id), name="ContainerLock::invoke"))]
     pub async fn invoke(&self, json_args: &str) -> Result<(ParsedResult, Duration)> {
         self.container.invoke(json_args, &self.transaction_id).await
     }
@@ -165,7 +165,7 @@ impl ContainerLock {
 /// Automatically release the lock on the container when the lock is dropped
 impl Drop for ContainerLock {
     fn drop(&mut self) {
-        debug!(tid=%self.transaction_id, container_id=%self.container.container_id(), "Dropping container lock");
+        debug!(tid=self.transaction_id, container_id=%self.container.container_id(), "Dropping container lock");
         self.container_mrg
             .return_container(&self.container, &self.transaction_id);
     }

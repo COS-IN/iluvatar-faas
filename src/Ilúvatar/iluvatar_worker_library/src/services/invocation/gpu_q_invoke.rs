@@ -319,7 +319,7 @@ impl GpuQueueingInvoker {
                 match lck {
                     Ok(c) => ctr_lock = Some(c),
                     Err(e) => {
-                        error!(tid=%item.tid, error=%e, "Failed to get a container to run item");
+                        error!(tid=item.tid, error=%e, "Failed to get a container to run item");
                         self.handle_invocation_error(&item, &e);
                         continue;
                     },
@@ -343,7 +343,7 @@ impl GpuQueueingInvoker {
                     item.mark_successful(result, duration, compute, container_state)
                 },
                 Err(cause) => {
-                    error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+                    error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
                     ctr_lock.as_ref().unwrap().container.mark_unhealthy();
                     ctr_lock = None;
                     if item.increment_error_retry(&cause, self.invocation_config.retries) {
@@ -379,12 +379,12 @@ impl GpuQueueingInvoker {
     /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
     ///   Calls [Self::add_item_to_queue] to do this
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=item.tid)))]
     fn handle_invocation_error(&self, item: &Arc<EnqueuedInvocation>, cause: &anyhow::Error) {
         if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
             let mut warn_time = self.last_memory_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
-                warn!(tid=%item.tid, "Insufficient memory to run item right now");
+                warn!(tid=item.tid, "Insufficient memory to run item right now");
                 *warn_time = now();
             }
             item.unlock();
@@ -398,7 +398,7 @@ impl GpuQueueingInvoker {
         } else if let Some(_gpu_err) = cause.downcast_ref::<InsufficientGPUError>() {
             let mut warn_time = self.last_gpu_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
-                warn!(tid=%item.tid, "No GPU available to run item right now");
+                warn!(tid=item.tid, "No GPU available to run item right now");
                 *warn_time = now();
             }
             item.unlock();
@@ -410,7 +410,7 @@ impl GpuQueueingInvoker {
                 },
             };
         } else {
-            error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+            error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
             item.mark_error(cause);
         }
     }
@@ -423,14 +423,14 @@ impl GpuQueueingInvoker {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, ctr_lock, cold_time_start), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, ctr_lock, cold_time_start), fields(tid=item.tid)))]
     async fn invoke<'a>(
         &'a self,
         ctr_lock: &'a ContainerLock,
         item: &'a Arc<EnqueuedInvocation>,
         cold_time_start: Instant,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        debug!(tid=%item.tid, "Internal invocation starting");
+        debug!(tid=item.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -488,7 +488,7 @@ impl DeviceQueue for GpuQueueingInvoker {
         (qt + runtime, est_qt)
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=item.tid)))]
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         self.queue.add_item_to_queue(item)?;
         self.signal.notify_waiters();

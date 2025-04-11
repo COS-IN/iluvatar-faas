@@ -269,7 +269,7 @@ impl FlowQ {
     fn update_dispatched(&mut self) {
         if let Some(next_item) = self.queue.front() {
             if self.start_time_virt > next_item.start_time_virt {
-                error!(tid=%next_item.invoke.tid, old_start=self.start_time_virt, new_start=next_item.start_time_virt, "curr start VT was somehow >= than next's start_time_virt");
+                error!(tid=next_item.invoke.tid, old_start=self.start_time_virt, new_start=next_item.start_time_virt, "curr start VT was somehow >= than next's start_time_virt");
             }
             self.start_time_virt = next_item.start_time_virt;
             self.mindicator.insert(self.flow_id, self.start_time_virt).unwrap();
@@ -552,7 +552,7 @@ impl MQFQ {
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     async fn monitor_queue(self: &Arc<Self>, tid: &TransactionId) {
         while let Some((next_item, gpu_token)) = self.dispatch(tid) {
-            debug!(tid=%next_item.invoke.tid, "Sending item for dispatch");
+            debug!(tid=next_item.invoke.tid, "Sending item for dispatch");
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it won't be concurrently invoked.
             if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, tid).await {
                 let svc = self.clone();
@@ -560,13 +560,13 @@ impl MQFQ {
                     svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;
                 });
             } else {
-                warn!(tid=%next_item.invoke.tid, fqdn=%next_item.invoke.registration.fqdn, "Insufficient resources to run item");
+                warn!(tid=next_item.invoke.tid, fqdn=%next_item.invoke.registration.fqdn, "Insufficient resources to run item");
                 match self.mqfq_set.get_mut(&next_item.invoke.registration.fqdn) {
                     None => {
                         next_item
                             .invoke
                             .mark_error(&anyhow::format_err!("Failed to re-insert item into MQFQ queue"));
-                        error!(tid=%next_item.invoke.tid, fqdn=%next_item.invoke.registration.fqdn, "Failed to re-insert item into MQFQ queue");
+                        error!(tid=next_item.invoke.tid, fqdn=%next_item.invoke.registration.fqdn, "Failed to re-insert item into MQFQ queue");
                     },
                     Some(mut s) => s.value_mut().reinsert_item(next_item),
                 }
@@ -627,9 +627,9 @@ impl MQFQ {
     /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
     ///   Calls [Self::add_item_to_queue] to do this
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=item.tid)))]
     fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
-        debug!(tid=%item.tid, error=%cause, "Marking invocation as error");
+        debug!(tid=item.tid, error=%cause, "Marking invocation as error");
         item.mark_error(&cause);
     }
 
@@ -641,14 +641,14 @@ impl MQFQ {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoke, gpu_token, cpu_token), fields(tid=%invoke.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, invoke, gpu_token, cpu_token), fields(tid=invoke.tid)))]
     async fn invoke<'a>(
         self: &'a Arc<Self>,
         invoke: &'a Arc<EnqueuedInvocation>,
         cpu_token: DroppableToken,
         gpu_token: DroppableToken,
     ) -> Result<(ParsedResult, Duration, Container)> {
-        debug!(tid=%invoke.tid, "Internal invocation starting");
+        debug!(tid=invoke.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
@@ -706,9 +706,9 @@ impl MQFQ {
                 Ok((result, dur, container))
             },
             Err(e) => {
-                debug!(tid=%invoke.tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
+                debug!(tid=invoke.tid, error=%e, container_id=%ctr_lock.container.container_id(), "Error on container invoke");
                 if !ctr_lock.container.is_healthy() {
-                    debug!(tid=%invoke.tid, container_id=%ctr_lock.container.container_id(), "Adding gpu token to drop_on_remove for container");
+                    debug!(tid=invoke.tid, container_id=%ctr_lock.container.container_id(), "Adding gpu token to drop_on_remove for container");
                     // container will be removed, but holds onto GPU until deleted
                     ctr_lock.container.add_drop_on_remove(gpu_token, &invoke.tid);
                 }
@@ -744,7 +744,7 @@ impl MQFQ {
         let virtual_time = self.mindicator.min();
         match self.mqfq_set.get_mut(&item.registration.fqdn) {
             Some(mut fq) => {
-                debug!(tid=%item.tid, "Adding item to existing Q");
+                debug!(tid=item.tid, "Adding item to existing Q");
                 if fq.value_mut().push_flow(item, virtual_time) {
                     if let Err(e) = self.mindicator.insert(fq.flow_id, fq.start_time_virt) {
                         error!(error=%e, vt=virtual_time, "Error adding VT to mindicator");
@@ -752,7 +752,7 @@ impl MQFQ {
                 }
             },
             None => {
-                debug!(tid=%item.tid, "Adding item to new Q");
+                debug!(tid=item.tid, "Adding item to new Q");
                 let fname = item.registration.fqdn.clone();
                 let id = self.mindicator.add_procs(1) - 1;
                 let weight = match &self.q_config.flow_weights {

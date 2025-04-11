@@ -1128,7 +1128,7 @@ impl GpuToken {
 impl Drop for GpuToken {
     fn drop(&mut self) {
         self.svc.drop_gpu_resource(self.gpu_id);
-        debug!(tid=%self.tid, gpu=self.gpu_id, "Dropping GPU token");
+        debug!(tid=self.tid, gpu=self.gpu_id, "Dropping GPU token");
     }
 }
 impl iluvatar_library::types::DroppableMovableTrait for GpuToken {}

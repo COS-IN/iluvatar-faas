@@ -93,7 +93,7 @@ impl ContainerdContainer {
         })
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=%_tid, fqdn=%self.fqdn)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=_tid, fqdn=%self.fqdn)))]
     fn update_metadata_on_invoke(&self, _tid: &TransactionId) {
         *self.invocations.lock() += 1;
         self.touch();

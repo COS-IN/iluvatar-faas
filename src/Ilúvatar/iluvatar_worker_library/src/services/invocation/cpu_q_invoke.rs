@@ -124,7 +124,7 @@ impl CpuQueueingInvoker {
     }
 
     /// Check the invocation queue, running things when there are sufficient resources
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, _tid), fields(tid=%_tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, _tid), fields(tid=_tid)))]
     async fn monitor_queue(self: &Arc<Self>, _tid: &TransactionId) {
         while let Some(peek_item) = self.queue.peek_queue() {
             if let Some(permit) = self.acquire_resources_to_run(&peek_item) {
@@ -134,7 +134,7 @@ impl CpuQueueingInvoker {
                 }
                 self.spawn_tokio_worker(self.clone(), item, permit);
             } else {
-                debug!(tid=%peek_item.tid, "Insufficient resources to run item");
+                debug!(tid=peek_item.tid, "Insufficient resources to run item");
                 break;
             }
         }
@@ -194,10 +194,10 @@ impl CpuQueueingInvoker {
     /// Returns an owned permit if there are sufficient resources to run a function
     /// A return value of [None] means the resources failed to be acquired
     fn acquire_resources_to_run(&self, item: &Arc<EnqueuedInvocation>) -> Option<Box<dyn Drop + Send>> {
-        debug!(tid=%item.tid, "checking resources");
+        debug!(tid=item.tid, "checking resources");
         #[cfg(feature = "power_cap")]
         if !self.energy.ok_run_fn(&self.cmap, &item.registration.fqdn) {
-            debug!(tid=%item.tid, "Blocking invocation due to power overload");
+            debug!(tid=item.tid, "Blocking invocation due to power overload");
             return None;
         }
         let mut ret = vec![];
@@ -206,7 +206,7 @@ impl CpuQueueingInvoker {
             Err(e) => {
                 match e {
                     tokio::sync::TryAcquireError::Closed => {
-                        error!(tid=%item.tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
+                        error!(tid=item.tid, "CPU Resource Monitor `try_acquire_cores` returned a closed error!")
                     },
                     tokio::sync::TryAcquireError::NoPermits => (),
                 };
@@ -217,14 +217,14 @@ impl CpuQueueingInvoker {
     }
 
     /// Runs the specific invocation inside a new tokio worker thread
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, invoker_svc, item, permit), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, invoker_svc, item, permit), fields(tid=item.tid)))]
     fn spawn_tokio_worker(&self, invoker_svc: Arc<Self>, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
         #[cfg(feature = "full_spans")]
         {
             let span = item.span.clone();
             let _handle = tokio::spawn(
                 async move {
-                    debug!(tid=%item.tid, "Launching invocation thread for queued item");
+                    debug!(tid=item.tid, "Launching invocation thread for queued item");
                     invoker_svc.invocation_worker_thread(item, permit).await;
                 }
                 .instrument(span),
@@ -233,7 +233,7 @@ impl CpuQueueingInvoker {
         #[cfg(not(feature = "full_spans"))]
         {
             let _handle = tokio::spawn(async move {
-                debug!(tid=%item.tid, "Launching invocation thread for queued item");
+                debug!(tid=item.tid, "Launching invocation thread for queued item");
                 invoker_svc.invocation_worker_thread(item, permit).await;
             });
         }
@@ -242,7 +242,7 @@ impl CpuQueueingInvoker {
     /// Handle executing an invocation, plus account for its success or failure
     /// On success, the results are moved to the pointer and it is signaled
     /// On failure, [Invoker::handle_invocation_error] is called
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, permit), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, permit), fields(tid=item.tid)))]
     async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
         match self.invoke(&item, Some(permit)).await {
             Ok((result, duration, compute, state)) => item.mark_successful(result, duration, compute, state),
@@ -254,12 +254,12 @@ impl CpuQueueingInvoker {
     /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
     ///   Calls [Self::add_item_to_queue] to do this
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=item.tid)))]
     fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
         if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
             let mut warn_time = self.last_memory_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
-                warn!(tid=%item.tid, "Insufficient memory to run item right now");
+                warn!(tid=item.tid, "Insufficient memory to run item right now");
                 *warn_time = now();
             }
             item.unlock();
@@ -271,10 +271,10 @@ impl CpuQueueingInvoker {
                 },
             };
         } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
-            warn!(tid=%item.tid, "No GPU available to run item right now");
+            warn!(tid=item.tid, "No GPU available to run item right now");
             item.unlock();
         } else {
-            error!(tid=%item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+            error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
             if item.increment_error_retry(&cause, self.invocation_config.retries) {
                 match self.queue.add_item_to_queue(&item, Some(0)) {
                     Ok(_) => self.signal.notify_waiters(),
@@ -287,12 +287,12 @@ impl CpuQueueingInvoker {
         }
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=item.tid)))]
     /// Run an invocation, bypassing any concurrency restrictions
     /// A return value of `false` means that the function would have run cold, and the caller should enqueue it instead
     /// `true` means the invocation was already run successfully
     async fn bypassing_invoke(&self, item: &Arc<EnqueuedInvocation>) -> Result<bool> {
-        info!(tid=%item.tid, "Bypassing internal invocation starting");
+        info!(tid=item.tid, "Bypassing internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now();
         let ctr_lock = match self
@@ -332,13 +332,13 @@ impl CpuQueueingInvoker {
     /// [Duration]: The E2E latency between the worker and the container
     /// [Compute]: Compute the invocation was run on
     /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=item.tid)))]
     async fn invoke<'a>(
         &'a self,
         item: &'a Arc<EnqueuedInvocation>,
         permit: Option<Box<dyn Drop + Send>>,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState)> {
-        debug!(tid=%item.tid, "Internal invocation starting");
+        debug!(tid=item.tid, "Internal invocation starting");
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
@@ -409,7 +409,7 @@ impl DeviceQueue for CpuQueueingInvoker {
         (qt + runtime, 0.0)
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=item.tid)))]
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         if self.should_bypass(&item.registration) {
             debug!(tid = item.tid, "CPU queue bypass");
