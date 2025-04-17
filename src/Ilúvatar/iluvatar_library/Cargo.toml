@@ -42,6 +42,7 @@ config = { version = "0.15", default-features = false, features = ["json", "pres
 rstest = "0.25"
 nix = { version = "0.29", features = ["process", "signal"] }
 enum-iterator = "2.1"
+rand = "0.9"
 
 [features]
 full_spans = []

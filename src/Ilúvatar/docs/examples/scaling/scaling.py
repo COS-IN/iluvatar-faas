@@ -16,6 +16,7 @@ from load.run.run_trace import (
     remote_cleanup,
     run_ansible,
 )
+from load.run.logging import create_logger
 
 build_level = BuildTarget.RELEASE
 # build the solution
@@ -55,45 +56,49 @@ def run_scaling(threads):
         "iluvatar_load_gen",
     )
     img = "docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest"
-    with open(log_file, "w") as log:
-        pre_run_cleanup(log_file, out_folder, **kwargs)
-        try:
-            run_ansible(log_file, **kwargs)
-            args = [
-                load_pth,
-                "scaling",
-                "--out-folder",
-                out_folder,
-                "--port",
-                str(8070),
-                "--host",
-                kwargs["host"],
-                "--start",
-                str(threads),
-                "--end",
-                str(threads),
-                "--image",
-                img,
-                "--memory-mb",
-                "1024",
-                "--compute",
-                "cpu",
-                "--isolation",
-                "containerd",
-                "--duration=120",
-            ]
-            env = deepcopy(os.environ)
-            env["RUST_BACTRACE"] = "1"
-            completed = subprocess.run(
-                args=args,
-                stdout=log_file,
-                stderr=log_file,
-                text=True,
-                env=env,
-            )
-            completed.check_returncode()
-        finally:
-            remote_cleanup(log_file, out_folder, **kwargs)
+    logger = create_logger(log_file)
+    pre_run_cleanup(log_file, out_folder, **kwargs)
+    try:
+        run_ansible(log_file, **kwargs)
+        args = [
+            load_pth,
+            "scaling",
+            "--target",
+            "worker",
+            "--out-folder",
+            out_folder,
+            "--port",
+            str(8070),
+            "--host",
+            kwargs["host"],
+            "--start",
+            str(threads),
+            "--end",
+            str(threads),
+            "--image",
+            img,
+            "--memory-mb",
+            "1024",
+            "--compute",
+            "CPU",
+            "--isolation",
+            "CONTAINERD",
+            "--duration=120",
+        ]
+        env = deepcopy(os.environ)
+        env["RUST_BACTRACE"] = "1"
+        completed = subprocess.run(
+            args=args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        logger.info(completed.stdout)
+        logger.info(completed.stderr)
+        completed.check_returncode()
+    finally:
+        remote_cleanup(log_file, out_folder, **kwargs)
 
 
 mx = multiprocessing.cpu_count()

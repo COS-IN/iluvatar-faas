@@ -32,14 +32,14 @@ impl AsyncHelper {
 
     /// returns the async invoke entry if it exists
     /// None otherwise
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, cookie), fields(tid=%_tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, cookie), fields(tid=_tid)))]
     fn get_async_entry(&self, cookie: &str, _tid: &TransactionId) -> Option<InvocationResultPtr> {
         let i = self.async_functions.get(cookie);
         i.map(|i| i.clone())
     }
 
     /// removes the async invoke entry from the tracked invocations
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, cookie), fields(tid=%_tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, cookie), fields(tid=_tid)))]
     fn remove_async_entry(&self, cookie: &str, _tid: &TransactionId) {
         self.async_functions.remove(cookie);
     }

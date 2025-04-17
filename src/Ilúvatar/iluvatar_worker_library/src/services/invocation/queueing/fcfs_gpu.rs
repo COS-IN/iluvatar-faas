@@ -51,7 +51,7 @@ impl GpuQueuePolicy for FcfsGpuQueue {
         *self.est_time.lock()
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         let est_time = match self
             .cont_manager

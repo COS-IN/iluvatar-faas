@@ -50,7 +50,7 @@ impl SocketContainerClient {
         let mut lck = self.socket.lock().await;
         if lck.is_none() {
             let start = now();
-            let mut allowed_errs = 50;
+            let mut allowed_errs = 50000;
             tracing::info!(tid=tid, socket=?self.sock_pth, "waiting to open socket");
             while start.elapsed() < Duration::from_secs(self.invoke_timeout) {
                 if let Ok(c) = tokio::fs::try_exists(&self.sock_pth).await {
@@ -199,6 +199,7 @@ impl ContainerClient for SocketContainerClient {
         self.check_driver_status(tid, &buff)
     }
     async fn move_from_device(&self, tid: &TransactionId, container_id: &str) -> Result<()> {
+        tracing::info!(tid = tid, "moving container data off device");
         let mut sock = self.get_socket(tid).await?;
         let invoke_cmd = SendMessage {
             command: Command::FromDevice,

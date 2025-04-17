@@ -33,6 +33,7 @@ pub struct DockerContainer {
     pub client: Box<dyn ContainerClient>,
     compute: Compute,
     device: RwLock<Option<GPU>>,
+    dev_mem_usage: RwLock<(MemSizeMb, bool)>,
     mem_usage: RwLock<MemSizeMb>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
 }
@@ -57,6 +58,7 @@ impl DockerContainer {
         };
         let r = DockerContainer {
             mem_usage: RwLock::new(function.memory),
+            dev_mem_usage: RwLock::new((0, true)),
             container_id,
             fqdn: fqdn.to_owned(),
             function: function.clone(),
@@ -87,14 +89,6 @@ impl ContainerT for DockerContainer {
                 Err(e)
             },
         }
-    }
-
-    async fn prewarm_actions(&self, tid: &TransactionId) -> Result<()> {
-        self.client.move_to_device(tid, &self.container_id).await
-    }
-
-    async fn cooldown_actions(&self, tid: &TransactionId) -> Result<()> {
-        self.client.move_from_device(tid, &self.container_id).await
     }
 
     fn touch(&self) {
@@ -133,9 +127,11 @@ impl ContainerT for DockerContainer {
     fn is_healthy(&self) -> bool {
         self.state() != ContainerState::Unhealthy
     }
+
     fn mark_unhealthy(&self) {
         self.set_state(ContainerState::Unhealthy);
     }
+
     fn state(&self) -> ContainerState {
         *self.state.lock()
     }
@@ -151,8 +147,38 @@ impl ContainerT for DockerContainer {
     fn device_resource(&self) -> ProtectedGpuRef<'_> {
         self.device.read()
     }
+    fn set_device_memory(&self, size: MemSizeMb) {
+        let mut lck = self.dev_mem_usage.write();
+        *lck = (size, lck.1);
+    }
+    async fn move_to_device(&self, tid: &TransactionId) -> Result<()> {
+        {
+            let mut lck = self.dev_mem_usage.write();
+            *lck = (lck.0, true);
+            drop(lck);
+        }
+        self.client.move_to_device(tid, &self.container_id).await
+    }
+    async fn move_from_device(&self, tid: &TransactionId) -> Result<()> {
+        {
+            let mut lck = self.dev_mem_usage.write();
+            *lck = (lck.0, false);
+            drop(lck);
+        }
+        self.client.move_from_device(tid, &self.container_id).await
+    }
+    fn device_memory(&self) -> (MemSizeMb, bool) {
+        *self.dev_mem_usage.read()
+    }
     fn revoke_device(&self) -> Option<GPU> {
+        *self.dev_mem_usage.write() = (0, false);
         self.device.write().take()
+    }
+    async fn prewarm_actions(&self, tid: &TransactionId) -> Result<()> {
+        self.client.move_to_device(tid, &self.container_id).await
+    }
+    async fn cooldown_actions(&self, tid: &TransactionId) -> Result<()> {
+        self.client.move_from_device(tid, &self.container_id).await
     }
     fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
         debug!(tid=tid, container_id=%self.container_id(), "Adding token to drop on remove");

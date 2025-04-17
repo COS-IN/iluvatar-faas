@@ -32,10 +32,11 @@ pub struct SimulatorContainer {
     /// number of invocations a container has performed
     pub invocations: Mutex<u32>,
     pub state: Mutex<ContainerState>,
-    current_memory: Mutex<MemSizeMb>,
+    current_memory: RwLock<MemSizeMb>,
     compute: Compute,
     iso: Isolation,
     device: RwLock<Option<GPU>>,
+    dev_mem_usage: RwLock<(MemSizeMb, bool)>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
     history_data: Option<Vec<f64>>,
     time_formatter: ContainerTimeFormatter,
@@ -62,11 +63,12 @@ impl SimulatorContainer {
             last_used: RwLock::new(now()),
             invocations: Mutex::new(0),
             state: Mutex::new(state),
-            current_memory: Mutex::new(reg.memory),
+            current_memory: RwLock::new(reg.memory),
             history_data: reg.historical_runtime_data_sec.get(&compute).cloned(),
             compute,
             iso,
             device: RwLock::new(device),
+            dev_mem_usage: RwLock::new((0, true)),
             drop_on_remove: Mutex::new(vec![]),
             time_formatter: formatter,
         })
@@ -154,7 +156,7 @@ impl ContainerT for SimulatorContainer {
                     },
                     None => data.warm_dur_ms as f64 / 1000.0 * 1.2,
                 },
-            }, // 1.2 multplication from concurrency degredation on CPU
+            }, // 1.2 multiplication from concurrency degradation on CPU
         };
         *self.invocations.lock() += 1;
         let timer = ContainerTimeFormatter::new(tid)?;
@@ -209,11 +211,11 @@ impl ContainerT for SimulatorContainer {
     }
 
     fn get_curr_mem_usage(&self) -> MemSizeMb {
-        *self.current_memory.lock()
+        *self.current_memory.read()
     }
 
     fn set_curr_mem_usage(&self, usage: MemSizeMb) {
-        *self.current_memory.lock() = usage;
+        *self.current_memory.write() = usage;
     }
 
     fn function(&self) -> Arc<RegisteredFunction> {
@@ -245,8 +247,26 @@ impl ContainerT for SimulatorContainer {
     fn device_resource(&self) -> ProtectedGpuRef<'_> {
         self.device.read()
     }
+    fn set_device_memory(&self, size: MemSizeMb) {
+        let mut lck = self.dev_mem_usage.write();
+        *lck = (size, lck.1);
+    }
+    fn device_memory(&self) -> (MemSizeMb, bool) {
+        *self.dev_mem_usage.read()
+    }
     fn revoke_device(&self) -> Option<GPU> {
+        *self.dev_mem_usage.write() = (0, false);
         self.device.write().take()
+    }
+    async fn move_to_device(&self, _tid: &TransactionId) -> Result<()> {
+        let mut lck = self.dev_mem_usage.write();
+        *lck = (lck.0, true);
+        Ok(())
+    }
+    async fn move_from_device(&self, _tid: &TransactionId) -> Result<()> {
+        let mut lck = self.dev_mem_usage.write();
+        *lck = (lck.0, false);
+        Ok(())
     }
     fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
         debug!(tid=tid, container_id=%self.container_id(), "Adding token to drop on remove");

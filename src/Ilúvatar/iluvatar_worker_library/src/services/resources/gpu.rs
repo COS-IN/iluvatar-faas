@@ -14,14 +14,43 @@ use iluvatar_library::{
     ToAny,
 };
 use nvml_wrapper::{error::NvmlError, Nvml};
-use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use parking_lot::{RwLock, RwLockReadGuard};
 use std::fmt::Display;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, error, info, trace, warn};
 
 pub type GpuUuid = String;
-pub type PrivateGpuId = u32;
+pub type InternalGpuId = u32;
+
+/// //////////////////////////////////////////////////////////////
+/// HIGH LEVEL GPU DOCS
+///
+/// Hardware enforcement of resource restrictions must be enabled & managed by the user.
+/// I.E. enabling MPS/MIG and verifying the correct distribution.
+///
+/// Structs:
+/// There are two types to control generic access to devices.
+/// [GPU]: control the # of container attached to a GPU. Used to create containers
+/// [GpuToken]: indicate that the holder can _execute_ on the specified GPU.
+///     They must hold/acquire a [GPU] as well to actualize this.
+///     To invoke on the wrong GPU is a logic ERROR (bug)
+/// Memory:
+/// [GpuResourceTracker] helps track memory usage per-container, but does not enforce any limits/controls.
+/// Calling [GpuResourceTracker::update_mem_usage] to update when a container's memory usage has notable changed.
+/// I.e. container removal, post-invocation, swapping onto/off device
+/// [GpuResourceTracker::get_free_mem] returns the available space in MB on the GPU, to allower caller to make decision on allocation.
+///
+/// Management of memory is left to high-up systems.
+/// [crate::services::containers::containermanager::ContainerManager] exposes two functions to help ease this
+///     [crate::services::containers::containermanager::ContainerManager::make_room_on_gpu]
+///     [crate::services::containers::containermanager::ContainerManager::move_off_device]
+///
+/// Each container (i.e. [crate::services::containers::structs::ContainerT]/[crate::services::containers::structs::Container] has an internal memory (exposed via functions)
+///   to track how much memory is last used on GPU and whether it was moved onto/off of device
+///
+/// The system that directs containers to move memory on/off device is responsible for calling [GpuResourceTracker] to update with relevant changes.
+/// //////////////////////////////////////////////////////////////
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub enum Pstate {
@@ -85,6 +114,8 @@ pub struct GpuStatus {
     pub power_limit: f64,
     /// Number of functions running at the time
     pub num_running: u32,
+    /// Tracked on-device memory allocation, if being monitored.
+    pub tracked_mem: MemSizeMb,
     /// Estimated utilization manually tracked by service to account for newly launched functions
     pub est_utilization_gpu: f64,
 }
@@ -136,9 +167,10 @@ impl GpuStatus {
             power_limit: 0.0,
             num_running,
             est_utilization_gpu: 0.0,
+            tracked_mem: 0,
         }
     }
-    pub fn update(&mut self, new_status: GpuParseStatus, num_running: u32) {
+    pub fn update(&mut self, new_status: GpuParseStatus, num_running: u32, tracked_mem: MemSizeMb) {
         let alpha = 0.6;
         self.pstate = new_status.pstate;
         self.instant_utilization_gpu = new_status.utilization_gpu;
@@ -147,6 +179,7 @@ impl GpuStatus {
         self.utilization_memory = Self::moving_avg_f(alpha, self.utilization_memory, new_status.utilization_memory);
         self.power_draw = Self::moving_avg_f(alpha, self.power_draw, new_status.power_draw);
         self.num_running = num_running;
+        self.tracked_mem = tracked_mem;
         self.est_utilization_gpu = self.utilization_gpu;
     }
     fn moving_avg_f(alpha: f64, old: f64, new: f64) -> f64 {
@@ -168,20 +201,20 @@ impl From<GpuParseStatus> for GpuStatus {
             utilization_memory: val.utilization_memory,
             power_draw: val.power_draw,
             power_limit: val.power_limit,
-            num_running: 0,
             est_utilization_gpu: val.utilization_gpu,
+            num_running: 0,
+            tracked_mem: 0,
         }
     }
 }
 
-type MetadataCollection = HashMap<PrivateGpuId, GpuMetadata>;
+type MetadataCollection = HashMap<InternalGpuId, GpuMetadata>;
 #[allow(unused)]
 struct GpuMetadata {
     pub gpu_uuid: GpuUuid,
-    pub hardware_id: PrivateGpuId,
+    pub hardware_id: InternalGpuId,
     pub hardware_memory_mb: MemSizeMb,
     pub device_allocated_memory: RwLock<MemSizeMb>,
-    pub allocation_breakdown: Mutex<Vec<MemSizeMb>>,
     pub num_structs: u32,
     pub max_running: u32,
     pub sem: Arc<Semaphore>,
@@ -189,7 +222,7 @@ struct GpuMetadata {
 impl GpuMetadata {
     fn new(
         gpu_uuid: GpuUuid,
-        hardware_id: PrivateGpuId,
+        hardware_id: InternalGpuId,
         memory_mb: MemSizeMb,
         structs: &[GPU],
         sem: Arc<Semaphore>,
@@ -202,21 +235,19 @@ impl GpuMetadata {
             sem,
             hardware_id,
             device_allocated_memory: RwLock::new(0),
-            allocation_breakdown: Mutex::new(vec![0; structs.len()]),
         }
     }
 }
-type GpuCollection = DashMap<PrivateGpuId, Vec<GPU>>;
+type GpuCollection = DashMap<InternalGpuId, Vec<GPU>>;
 pub type ProtectedGpuRef<'a> = RwLockReadGuard<'a, Option<GPU>>;
 #[derive(Debug)]
 #[allow(unused)]
 pub struct GPU {
     pub gpu_uuid: GpuUuid,
-    pub gpu_hardware_id: PrivateGpuId,
-    struct_id: PrivateGpuId,
+    pub gpu_hardware_id: InternalGpuId,
+    struct_id: InternalGpuId,
+    /// Total memory size of the device
     hardware_memory_mb: MemSizeMb,
-    /// Size in MB the owner has allocated, may be out of date
-    pub allocated_mb: MemSizeMb,
     /// Size in MB the owner is allotted on device
     pub allotted_mb: MemSizeMb,
     /// From 1-100, percentage of compute on device allotted
@@ -225,7 +256,7 @@ pub struct GPU {
 impl GPU {
     pub fn split_resources(
         gpu_uuid: &GpuUuid,
-        gpu_hardware_id: PrivateGpuId,
+        gpu_hardware_id: InternalGpuId,
         hardware_memory_mb: MemSizeMb,
         config: &Arc<GPUResourceConfig>,
         tid: &TransactionId,
@@ -242,7 +273,6 @@ impl GPU {
                 gpu_uuid: gpu_uuid.clone(),
                 struct_id: i,
                 hardware_memory_mb,
-                allocated_mb: 0,
                 allotted_mb: mem_size,
                 thread_pct,
                 gpu_hardware_id,
@@ -290,7 +320,7 @@ lazy_static::lazy_static! {
   static ref GPU_RESC_TID: TransactionId = "GPU_RESC_TRACK".to_string();
 }
 /// Struct that manages GPU control between containers
-/// A GPU can only be assigned to one container at a time, and must be reutrned via [GpuResourceTracker::return_gpu] after container deletion
+/// A GPU can only be assigned to one container at a time, and must be returned via [GpuResourceTracker::return_gpu] after container deletion
 /// For an invocation to use the GPU, it must have isolation over that resource by acquiring it via [GpuResourceTracker::try_acquire_resource]
 pub struct GpuResourceTracker {
     gpus: GpuCollection,
@@ -382,7 +412,7 @@ impl GpuResourceTracker {
 
     fn create_concurrency_semaphore(
         config: &Arc<GPUResourceConfig>,
-        gpu_hardware_id: PrivateGpuId,
+        gpu_hardware_id: InternalGpuId,
         gpus: &[GPU],
         _tid: &TransactionId,
     ) -> Result<Arc<Semaphore>> {
@@ -505,7 +535,6 @@ impl GpuResourceTracker {
                 max_running: sem.available_permits() as u32,
                 sem,
                 device_allocated_memory: RwLock::new(0),
-                allocation_breakdown: Mutex::new(vec![0; gpu_structs.len()]),
             };
             meta.insert(gpu_hardware_id, metadata);
             ret.insert(gpu_hardware_id, gpu_structs);
@@ -527,7 +556,7 @@ impl GpuResourceTracker {
         if gpu_config.is_tegra.unwrap_or(false) {
             let gpu_uuid = "tegra_00-0000-0000-0000-dummy_uuid00".to_string();
             let memory_mb: MemSizeMb = 30623;
-            let gpu_hardware_id: PrivateGpuId = 0;
+            let gpu_hardware_id: InternalGpuId = 0;
             let gpu_structs = GPU::split_resources(&gpu_uuid, gpu_hardware_id, memory_mb, gpu_config, tid)?;
             let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id, &gpu_structs, tid)?;
             let metadata = GpuMetadata::new(gpu_uuid.clone(), gpu_hardware_id, memory_mb, &gpu_structs, sem);
@@ -651,14 +680,14 @@ impl GpuResourceTracker {
             .filter(|str| str.starts_with("  MIG "))
             .collect::<Vec<&str>>();
         for (gpu_hardware_id, line) in migs.iter().enumerate() {
-            let gpu_hardware_id = gpu_hardware_id as PrivateGpuId;
+            let gpu_hardware_id = gpu_hardware_id as InternalGpuId;
             let parts = line.split(' ').filter(|str| !str.is_empty()).collect::<Vec<&str>>();
             let gb = parts[1].split('.').collect::<Vec<&str>>()[1];
             let memory_mb = &gb[0..gb.len() - 2].parse::<MemSizeMb>().unwrap() * 1024;
             let uuid = parts[parts.len() - 1];
             let uuid = uuid[0..uuid.len() - 1].to_string();
-            let structs = GPU::split_resources(&uuid, gpu_hardware_id as PrivateGpuId, memory_mb, gpu_config, tid)?;
-            let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id as PrivateGpuId, &structs, tid)?;
+            let structs = GPU::split_resources(&uuid, gpu_hardware_id as InternalGpuId, memory_mb, gpu_config, tid)?;
+            let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id as InternalGpuId, &structs, tid)?;
             let metadata = GpuMetadata::new(uuid, gpu_hardware_id, memory_mb, &structs, sem);
             meta.insert(gpu_hardware_id, metadata);
             ret.insert(gpu_hardware_id, structs);
@@ -824,7 +853,7 @@ impl GpuResourceTracker {
 
     /// Call on dropping a GPU execute token
     /// reduces the est_utilization_gpu for that GPU immediately (w/o querying which is slow) to make room for another function
-    fn drop_gpu_resource(&self, gpu_id: PrivateGpuId) {
+    fn drop_gpu_resource(&self, gpu_id: InternalGpuId) {
         let mut gpu_stat = self.status_info.write();
         let stat: &mut GpuStatus = &mut gpu_stat[gpu_id as usize];
         stat.est_utilization_gpu = if stat.num_running > 0 {
@@ -964,12 +993,15 @@ impl GpuResourceTracker {
                         let mut lck = self.status_info.write();
                         for (i, stat) in lck.iter_mut().enumerate() {
                             if stat.gpu_uuid == rec.gpu_uuid {
-                                let running = if let Some(meta) = self.gpu_metadata.get(&(i as u32)) {
-                                    meta.max_running - meta.sem.available_permits() as u32
+                                let (running, tracked_mem) = if let Some(meta) = self.gpu_metadata.get(&(i as u32)) {
+                                    (
+                                        meta.max_running - meta.sem.available_permits() as u32,
+                                        *meta.device_allocated_memory.read(),
+                                    )
                                 } else {
-                                    0
+                                    (0, 0)
                                 };
-                                stat.update(rec, running);
+                                stat.update(rec, running, tracked_mem);
                                 ret.push(stat.clone());
                                 break;
                             }
@@ -1013,12 +1045,15 @@ impl GpuResourceTracker {
             } else {
                 let mut lck = self.status_info.write();
                 if lck.len() > i as usize {
-                    let running = if let Some(meta) = self.gpu_metadata.get(&i) {
-                        meta.max_running - meta.sem.available_permits() as u32
+                    let (running, tracked_mem) = if let Some(meta) = self.gpu_metadata.get(&i) {
+                        (
+                            meta.max_running - meta.sem.available_permits() as u32,
+                            *meta.device_allocated_memory.read(),
+                        )
                     } else {
-                        0
+                        (0, 0)
                     };
-                    lck[i as usize].update(stat, running);
+                    lck[i as usize].update(stat, running, tracked_mem);
                     ret.push(lck[i as usize].clone());
                 }
             }
@@ -1067,45 +1102,35 @@ impl GpuResourceTracker {
         (*self.status_info.read()).clone()
     }
 
-    pub fn update_usage(&self, gpu: &GPU) {
-        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
-            None => (),
+    pub fn update_mem_usage(&self, gpu: &GPU, amt: MemSizeMb) {
+        if let Some(meta) = self.gpu_metadata.get(&gpu.gpu_hardware_id) {
+            debug!(
+                gpu_id = gpu.struct_id,
+                mem_diff = amt,
+                curr_used = *meta.device_allocated_memory.write(),
+                "updating device memory usage"
+            );
+            *meta.device_allocated_memory.write() += amt;
+        }
+    }
+    pub fn get_free_mem_by_id(&self, gpu_hardware_id: InternalGpuId) -> MemSizeMb {
+        match self.gpu_metadata.get(&gpu_hardware_id) {
             Some(meta) => {
-                let mut allocations = meta.allocation_breakdown.lock();
-                let old = allocations[gpu.struct_id as usize];
-                allocations[gpu.struct_id as usize] = gpu.allocated_mb;
-                let change = old - gpu.allocated_mb;
-                *meta.device_allocated_memory.write() += change;
+                let free = meta.hardware_memory_mb - *meta.device_allocated_memory.read();
+                debug!(
+                    hardware = meta.hardware_memory_mb,
+                    tracked = *meta.device_allocated_memory.read(),
+                    free = free,
+                    "Tracked GPU mem alloc get_free_mem"
+                );
+                meta.hardware_memory_mb - *meta.device_allocated_memory.read()
             },
+            None => 0,
         }
     }
 
-    pub fn remove(&self, gpu: &GPU) {
-        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
-            None => (),
-            Some(meta) => {
-                let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
-                *meta.device_allocated_memory.write() -= curr;
-            },
-        }
-    }
-    pub fn add(&self, gpu: &GPU) {
-        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
-            None => (),
-            Some(meta) => {
-                let curr = meta.allocation_breakdown.lock()[gpu.struct_id as usize];
-                *meta.device_allocated_memory.write() += curr;
-            },
-        }
-    }
-    pub fn memory_pressure(&self, gpu: &GPU) -> (MemSizeMb, MemSizeMb) {
-        match self.gpu_metadata.get(&gpu.gpu_hardware_id) {
-            None => (0, 0),
-            Some(meta) => {
-                let curr = *meta.device_allocated_memory.read();
-                (curr, meta.hardware_memory_mb)
-            },
-        }
+    pub fn get_free_mem(&self, gpu: &GPU) -> MemSizeMb {
+        self.get_free_mem_by_id(gpu.gpu_hardware_id)
     }
 }
 impl Drop for GpuResourceTracker {
@@ -1138,14 +1163,14 @@ impl Drop for GpuResourceTracker {
 
 pub struct GpuToken {
     _token: OwnedSemaphorePermit,
-    pub gpu_id: PrivateGpuId,
+    pub gpu_id: InternalGpuId,
     tid: TransactionId,
     svc: Arc<GpuResourceTracker>,
 }
 impl GpuToken {
     pub fn new(
         token: OwnedSemaphorePermit,
-        gpu_id: PrivateGpuId,
+        gpu_id: InternalGpuId,
         tid: TransactionId,
         svc: &Arc<GpuResourceTracker>,
     ) -> Self {
@@ -1160,7 +1185,7 @@ impl GpuToken {
 impl Drop for GpuToken {
     fn drop(&mut self) {
         self.svc.drop_gpu_resource(self.gpu_id);
-        debug!(tid=%self.tid, gpu=self.gpu_id, "Dropping GPU token");
+        debug!(tid = self.tid, gpu = self.gpu_id, "Dropping GPU token");
     }
 }
 impl iluvatar_library::types::DroppableMovableTrait for GpuToken {}

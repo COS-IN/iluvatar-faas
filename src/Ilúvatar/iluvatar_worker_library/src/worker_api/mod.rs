@@ -54,6 +54,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         worker_config.container_resources.clone(),
         isos.clone(),
         gpu_resource.clone(),
+        &cmap,
         &buff,
         tid,
     )

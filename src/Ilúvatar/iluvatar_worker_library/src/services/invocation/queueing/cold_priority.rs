@@ -45,8 +45,14 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
             Some(e) => e.item.registration.function_name.as_str(),
             None => "empty",
         };
-        debug!(tid=%v.tid,  component="minheap", "Popped item from queue - len: {} popped: {} top: {} ",
-           invoke_queue.len(), v.registration.function_name, func_name );
+        debug!(
+            tid = v.tid,
+            component = "minheap",
+            "Popped item from queue - len: {} popped: {} top: {} ",
+            invoke_queue.len(),
+            v.registration.function_name,
+            func_name
+        );
         v
     }
 
@@ -57,7 +63,7 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
         *self.est_time.lock()
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
         let mut priority = 0.0;
         if self.cont_manager.outstanding(&item.registration.fqdn) == 0 {
@@ -74,10 +80,14 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
         *self.est_time.lock() += priority;
         let mut queue = self.invoke_queue.lock();
         queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority, priority));
-        debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
-                        queue.len(),
-                        item.registration.fqdn,
-                        queue.peek().unwrap().item.registration.fqdn );
+        debug!(
+            tid = item.tid,
+            component = "minheap",
+            "Added item to front of queue minheap - len: {} arrived: {} top: {} ",
+            queue.len(),
+            item.registration.fqdn,
+            queue.peek().unwrap().item.registration.fqdn
+        );
         Ok(())
     }
 }

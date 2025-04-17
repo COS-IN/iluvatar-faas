@@ -2,10 +2,7 @@ use super::structs::{Container, ContainerState};
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute};
-use std::sync::{
-    atomic::{AtomicU32, Ordering},
-    Arc,
-};
+use std::sync::atomic::{AtomicU32, Ordering};
 use tracing::debug;
 
 pub type Subpool = Vec<Container>;
@@ -72,23 +69,14 @@ impl ContainerPool {
     }
 
     /// Apply a function to all the idle containers of the given function
-    pub async fn iter_fqdn<'a: 'b, 'b, T>(
-        &'a self,
-        tid: TransactionId,
-        fqdn: &'a str,
-        func: fn(Arc<dyn super::structs::ContainerT>, TransactionId) -> T,
-    ) where
-        T: std::future::Future<Output = ()> + Send + 'static,
-    {
+    pub fn iter_idle_fqdn(&self, fqdn: &str) -> Vec<Container> {
         let mut ctrs = vec![];
         if let Some(f) = self.idle_pool.get(fqdn) {
             for i in (*f).iter() {
                 ctrs.push(i.clone());
             }
         }
-        for i in ctrs.into_iter() {
-            func(i, tid.clone()).await;
-        }
+        ctrs
     }
 
     /// Add the container to the pool

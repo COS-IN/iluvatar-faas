@@ -51,7 +51,7 @@ impl GpuQueuePolicy for SjfGpuQueue {
         Some(GpuBatch::new(batch.item, batch.priority.0))
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item), fields(tid=item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
         let est_time = match self
             .cont_manager
