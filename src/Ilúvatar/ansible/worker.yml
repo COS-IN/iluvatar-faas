@@ -40,7 +40,8 @@
       state: directory
       recurse: yes
     become: yes
-      
+    when: mode == "clean" or mode == "deploy"
+
   - name: copy worker executable
     ansible.builtin.copy:
       src: "{{__bin_src}}/{{worker.bin_name}}"
@@ -48,6 +49,7 @@
       mode: "preserve"
       remote_src: "{{__remote_bin_src}}"
     become: yes
+    when: mode == "clean" or mode == "deploy"
 
   - name: copy worker config
     ansible.builtin.copy:
@@ -55,6 +57,7 @@
       dest: "{{config_dest}}"
       mode: "preserve"
     become: yes
+    when: mode == "clean" or mode == "deploy"
 
   - name: Get running worker process
     shell: "ps -ef | grep -v grep | grep -w {{ worker.bin_name }} | awk '{print $2}'"
@@ -117,6 +120,7 @@
   - name: debug print
     # when: ansible_host == "127.0.0.1" or ansible_host == "localhost"
     run_once: true
+    when: mode == "deploy"
     debug:
       msg: "{{ worker_output }}"
       
@@ -174,6 +178,10 @@
       debug:
         msg: "{{ file_data.content | b64decode }}"
 
-    # - name: Fail deploy
-    #   ansible.builtin.fail:
-    #     msg: "Connecting to worker failed!"
+  - name: Copy worker logs
+    ansible.posix.synchronize:
+      src: "{{ worker_log_dir }}"
+      dest: "{{ log_copy_dir }}"
+      mode: pull
+      recursive: true
+    when: mode == "logs"

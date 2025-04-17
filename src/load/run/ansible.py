@@ -6,6 +6,7 @@ from copy import deepcopy
 import shutil
 from enum import Enum
 from typing import Dict
+from logging import Logger
 
 class RunTarget(Enum):
     WORKER = "worker"
@@ -21,7 +22,7 @@ class RunTarget(Enum):
             return "iluvatar.yml"
 
 
-def _run_ansible_clean(log_file, kwargs):
+def _run_ansible_clean(logger: Logger, kwargs):
     run_args = [
         "ansible-playbook",
         "-i",
@@ -44,60 +45,50 @@ def _run_ansible_clean(log_file, kwargs):
 
     if kwargs["private_ssh_key"] is not None:
         run_args.append(f"--private-key={kwargs['private_ssh_key']}")
-    _run_cmd(run_args, log_file)
+    _run_cmd(run_args, logger)
 
 
-def _copy_logs(log_file, results_dir, kwargs):
-    if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
-        if os.path.isdir(kwargs["worker_log_dir"]):
-            for subdir in os.listdir(kwargs["worker_log_dir"]):
-                src = os.path.join(kwargs["worker_log_dir"], subdir)
-                dest = os.path.join(results_dir, subdir)
-                if src != dest:
-                    shutil.move(src, dest)
-        if os.path.isdir(kwargs["controller_log_dir"]):
-            for subdir in os.listdir(kwargs["controller_log_dir"]):
-                src = os.path.join(kwargs["controller_log_dir"], subdir)
-                dest = os.path.join(results_dir, subdir)
-                if src != dest:
-                    shutil.move(src, dest)
-    else:
-        import paramiko
-        from paramiko import SSHClient
-        from scp import SCPClient
-
-        with SSHClient() as ssh:
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.load_system_host_keys()
-            ssh.load_host_keys(os.path.expanduser("~/.ssh/known_hosts"))
-            ssh.connect(kwargs["host"])
-            with SCPClient(ssh.get_transport(), sanitize=lambda x: x) as scp:
-                scp.get(f"{kwargs['worker_log_dir']}/*", results_dir, recursive=True)
-
+def _copy_logs(logger: Logger, results_dir, kwargs):
+    logger.info(f"Copying remote logs to {results_dir}")
+    run_args = [
+        "ansible-playbook",
+        "-i",
+        kwargs["ansible_host_file"],
+        os.path.join(kwargs["ilu_home"], "ansible", kwargs["target"].yml()),
+    ]
+    env_args = [kwargs["ansible_hosts_addrs"], "mode=logs", f"log_copy_dir={results_dir}", f"worker_log_dir={kwargs['worker_log_dir']}/"]
+    if kwargs["target"] == RunTarget.CONTROLLER:
+        env_args.append(f"controller_log_dir={kwargs['controller_log_dir']}/")
+    for env_arg in env_args:
+        run_args.append("-e")
+        run_args.append(env_arg)
+    if kwargs["private_ssh_key"] is not None:
+        run_args.append(f"--private-key={kwargs['private_ssh_key']}")
+    _run_cmd(run_args, logger)
 
 def _pre_run_cleanup(
-    log_file,
+    logger: Logger,
     results_dir,
     kwargs,
 ):
-    _run_ansible_clean(log_file, kwargs)
+    _run_ansible_clean(logger, kwargs)
     clean_dir = os.path.join(results_dir, "precleanup")
     os.makedirs(clean_dir, exist_ok=True)
-    _copy_logs(log_file, clean_dir, kwargs)
+    _copy_logs(logger, clean_dir, kwargs)
 
 
 def _remote_cleanup(
-    log_file,
+    logger: Logger,
     results_dir,
     kwargs,
 ):
     print("Cleanup:", results_dir)
-    _copy_logs(log_file, results_dir, kwargs)
-    _run_ansible_clean(log_file, kwargs)
+    _copy_logs(logger, results_dir, kwargs)
+    _run_ansible_clean(logger, kwargs)
 
     if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
         if results_dir != kwargs["worker_log_dir"]:
-            _run_cmd(["rm", "-rf", kwargs["worker_log_dir"]], log_file, shell=False)
+            _run_cmd(["rm", "-rf", kwargs["worker_log_dir"]], logger, shell=False)
     else:
         from paramiko import SSHClient
         import paramiko
@@ -111,11 +102,7 @@ def _remote_cleanup(
             ssh.exec_command(f"sudo rm -rf {kwargs['worker_log_dir']}")
 
 
-def _run_cmd(cmd_args, log_file, shell: bool = False, env: Dict = None):
-    opened_log = False
-    if type(log_file) is str:
-        log_file = open(log_file, "a")
-        opened_log = True
+def _run_cmd(cmd_args, logger: Logger, shell: bool = False, env: Dict = None):
     try:
         formatted_args = []
         for x in cmd_args:
@@ -130,36 +117,34 @@ def _run_cmd(cmd_args, log_file, shell: bool = False, env: Dict = None):
             sys_env = {**sys_env, **env}
         completed = subprocess.run(
             args=formatted_args,
-            stdout=log_file,
-            stderr=log_file,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             shell=shell,
             env=sys_env,
         )
+        logger.info(completed.stdout)
+        logger.info(completed.stderr)
         completed.check_returncode()
         return completed.stdout
     except Exception as e:
-        if log_file is not None:
-            log_file.write("Exception encountered:\n")
-            log_file.write(str(e))
-            log_file.write("\n")
-            log_file.write(traceback.format_exc())
-            log_file.write("\n")
-            for arg in cmd_args:
-                log_file.write(f"{arg} ")
-                log_file.write("\n")
-            if env is not None:
-                log_file.write(json.dumps(env))
-                log_file.write("\n")
-
+        args = "Args: "
+        for arg in cmd_args:
+            args += f"{arg} \n"
+        env = f"Cust env: {json.dumps(env)}"
+        msg = "\n".join([
+            "Exception encountered:",
+            str(e),
+            traceback.format_exc(),
+            args,
+            env,
+        ])
+        logger.error(msg)
         raise e
-    finally:
-        if opened_log:
-            log_file.close()
 
 
 def _run_ansible(
-    log_file,
+    logger: Logger,
     kwargs,
 ):
     env_args = [
@@ -195,4 +180,4 @@ def _run_ansible(
         run_args.extend(ansible_args)
     elif type(kwargs["ansible_args"]) == list and len(kwargs["ansible_args"]) > 0:
         run_args.extend(kwargs["ansible_args"])
-    _run_cmd(run_args, log_file)
+    _run_cmd(run_args, logger)

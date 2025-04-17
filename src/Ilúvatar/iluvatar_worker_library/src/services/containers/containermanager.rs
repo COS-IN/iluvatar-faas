@@ -3,7 +3,7 @@ use super::structs::{Container, ContainerLock, ContainerState};
 use super::ContainerIsolationCollection;
 use crate::services::containers::eviction::order_pool_eviction;
 use crate::services::containers::structs::{InsufficientGPUError, InsufficientMemoryError};
-use crate::services::resources::gpu::{GpuToken, PrivateGpuId, GPU};
+use crate::services::resources::gpu::{GpuToken, InternalGpuId, GPU};
 use crate::services::{registration::RegisteredFunction, resources::gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::ContainerResourceConfig;
 use anyhow::{bail, Result};
@@ -727,7 +727,7 @@ impl ContainerManager {
     }
 
     /// Go through idle containers in prioritized order to make enough room on GPU.
-    pub async fn make_room_on_gpu(&self, tid: TransactionId, amt: MemSizeMb, device: PrivateGpuId) {
+    pub async fn make_room_on_gpu(&self, tid: TransactionId, amt: MemSizeMb, device: InternalGpuId) {
         // match specific GPU
         let ctrs = self
             .gpu_containers
@@ -743,20 +743,15 @@ impl ContainerManager {
         let (ordered, mut evict) = order_pool_eviction(self, &self.resources.eviction, &tid, ctrs);
         // those marked for "eviction" aren't deleted here, but we prioritize them for removal from GPU
         evict.extend(ordered);
-        info!(
-            tid = tid,
-            amount = amt,
-            num_checking = evict.len(),
-            "making room on GPU"
-        );
+        debug!(tid = tid, amount = amt, num_ctrs = evict.len(), "making room on GPU");
         let mut total_reclaimed = 0;
         for c in evict {
             let (memory, present) = c.device_memory();
-            info!(
+            debug!(
                 tid = tid,
                 memory = memory,
                 present = present,
-                container_id = c.container_id(),
+                cid = c.container_id(),
                 "still making room on GPU"
             );
             // only care if they're present and hold memory
@@ -779,17 +774,45 @@ impl ContainerManager {
                     }
                 }
                 total_reclaimed += memory;
-                info!(tid = tid, amount = amt, "still making room on GPU");
+                debug!(tid = tid, amount = amt, "still making room on GPU");
                 if amt <= total_reclaimed {
                     break;
                 }
             }
         }
-        info!(tid = tid, total_reclaimed = total_reclaimed, "reclaimed gpu memory");
+        debug!(tid = tid, total_reclaimed = total_reclaimed, "reclaimed gpu memory");
     }
+
+    /// Tell all (idle) GPU containers of the given FQDN to move memory off of the device
+    pub async fn try_move_on_device(&self, fqdn: String, tid: TransactionId) {
+        debug!(tid=tid, fqdn=%fqdn, "trying to move on device");
+        let ctrs = self.gpu_containers.iter_idle_fqdn(&fqdn);
+        for c in ctrs {
+            let (mem, present) = c.device_memory();
+            if !present {
+                let mut do_move = false;
+                if let Some(gpu) = c.device_resource().as_ref() {
+                    if let Some(gr) = &self.gpu_resources {
+                        let free = gr.get_free_mem(gpu);
+                        if free <= mem {
+                            do_move = true;
+                            c.set_state(ContainerState::Warm);
+                            gr.update_mem_usage(gpu, mem);
+                        }
+                    }
+                }
+                if do_move {
+                    if let Err(e) = c.move_to_device(&tid).await {
+                        error!(tid=tid, error=%e, container_id=c.container_id(), "Error moving memory to device");
+                    }
+                }
+            }
+        }
+    }
+
     /// Tell all (idle) GPU containers of the given FQDN to move memory off of the device
     pub async fn move_off_device(&self, fqdn: String, tid: TransactionId) {
-        info!(tid=tid, fqdn=%fqdn, "moving off device");
+        debug!(tid=tid, fqdn=%fqdn, "moving off device");
         let ctrs = self.gpu_containers.iter_idle_fqdn(&fqdn);
         for c in ctrs {
             if let Err(e) = c.move_from_device(&tid).await {
