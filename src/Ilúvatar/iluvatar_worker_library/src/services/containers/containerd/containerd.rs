@@ -138,7 +138,7 @@ impl ContainerdIsolation {
                     Ok(x) => {
                         let ccpid = try_get_child_pid(x.pid, 1, 500);
                         info!(
-                                  tid=%x.tid,
+                                  tid=x.tid,
                                   fqdn=%x.fqdn,
                                   container_id=%x.container_id,
                                   pid=%x.pid,

@@ -80,7 +80,7 @@ impl ControllerAPITrait for RpcControllerAPI {
         }
     }
 
-    #[tracing::instrument(skip(self, prewarm), fields(tid=%prewarm.transaction_id))]
+    #[tracing::instrument(skip(self, prewarm), fields(tid=prewarm.transaction_id))]
     async fn prewarm(&self, prewarm: PrewarmRequest) -> Result<PrewarmResponse> {
         let request = Request::new(prewarm);
         match self.client.clone().prewarm(request).await {

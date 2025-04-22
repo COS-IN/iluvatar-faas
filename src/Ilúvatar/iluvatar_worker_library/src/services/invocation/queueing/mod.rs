@@ -198,12 +198,16 @@ impl EnqueuedInvocation {
         result_ptr.compute = compute;
         result_ptr.container_state = state;
         self.signal();
-        debug!(tid=%self.tid, "queued invocation completed successfully");
+        debug!(tid = self.tid, "queued invocation completed successfully");
     }
 
     pub fn mark_error(&self, error: &anyhow::Error) {
         let mut result_ptr = self.result_ptr.lock();
-        error!(tid=%self.tid, attempts=result_ptr.attempts, "Abandoning attempt to run invocation after error");
+        error!(
+            tid = self.tid,
+            attempts = result_ptr.attempts,
+            "Abandoning attempt to run invocation after error"
+        );
         result_ptr.duration = Duration::from_micros(0);
         result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", error);
         result_ptr.completed = true;

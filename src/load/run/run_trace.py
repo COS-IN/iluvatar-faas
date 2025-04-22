@@ -4,6 +4,7 @@ from time import sleep
 import json
 import traceback
 from enum import Enum
+from typing import Optional
 import shutil
 from .config import LoadConfig
 
@@ -17,6 +18,7 @@ from .ansible import (
     _run_ansible_clean,
     RunTarget,
 )
+from .logging import create_logger
 
 
 class BuildTarget(Enum):
@@ -36,7 +38,7 @@ class BuildTarget(Enum):
         return self.value
 
 
-def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
+def rust_build(ilu_home, log_file: Optional[str]=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
     """
     Build the solution 'src/Ilúvatar' is located.
 
@@ -48,10 +50,11 @@ def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE
     pwd = os.getcwd()
     os.chdir(ilu_home)
     build_args = ["make", build.make_name()]
-    _run_cmd(build_args, log_file, env={"TARGET_PLAT":target_arch})
+    logger = create_logger(log_file)
+    _run_cmd(build_args, logger, env={"TARGET_PLAT":target_arch})
     os.chdir(pwd)
 
-def rust_build_native(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
+def rust_build_native(ilu_home, log_file: Optional[str]=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
     """
     Build Ilúvatar to run on the local CPU, with native optimizations and features enabled.
     WARNING: This build will only work on the local machine as it uses CPU-family specific instructions. Be aware of how you use it
@@ -64,7 +67,8 @@ def rust_build_native(ilu_home, log_file=None, build: BuildTarget = BuildTarget.
     pwd = os.getcwd()
     os.chdir(ilu_home)
     build_args = ["make", build.make_name()]
-    _run_cmd(build_args, log_file, env={"TARGET_CPU":"native","TARGET_PLAT":target_arch})
+    logger = create_logger(log_file)
+    _run_cmd(build_args, logger, env={"TARGET_CPU":"native","TARGET_PLAT":target_arch})
     os.chdir(pwd)
 
 class RunType(Enum):
@@ -114,7 +118,7 @@ def trace_base_name(trace_in_csv: str):
     return os.path.splitext(os.path.basename(trace_in_csv))[0]
 
 
-def _run_load(log_file, results_dir, input_csv, metadata, kwargs):
+def _run_load(logger, results_dir, input_csv, metadata, kwargs):
     setup = "live"
     if kwargs["simulation"]:
         setup = "simulation"
@@ -170,46 +174,37 @@ def _run_load(log_file, results_dir, input_csv, metadata, kwargs):
         load_args.append(kwargs["tick_step"])
 
     load_env = kwargs.to_env_var_dict("load")
-    _run_cmd(load_args, log_file, env=load_env)
+    _run_cmd(load_args, logger, env=load_env)
 
 
 def ansible_clean(log_file: str, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    with open(log_file, "a") as f:
-        _run_ansible_clean(f, kwargs)
+    logger = create_logger(log_file)
+    _run_ansible_clean(logger, kwargs)
 
 
-def copy_logs(log_file, results_dir, **kwargs):
+def copy_logs(log_file: str, results_dir, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    with open(log_file, "a") as f:
-        _copy_logs(f, results_dir, kwargs)
+    logger = create_logger(log_file)
+    _copy_logs(logger, results_dir, kwargs)
 
 
-def pre_run_cleanup(log_file, results_dir, **kwargs):
+def pre_run_cleanup(log_file: str, results_dir, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    if type(log_file) == str:
-        with open(log_file, "a") as f:
-            _pre_run_cleanup(f, results_dir, kwargs)
-    else:
-        _pre_run_cleanup(log_file, results_dir, kwargs)
+    logger = create_logger(log_file)
+    _pre_run_cleanup(logger, results_dir, kwargs)
 
 
-def remote_cleanup(log_file, results_dir, **kwargs):
+def remote_cleanup(log_file: str, results_dir, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    if type(log_file) == str:
-        with open(log_file, "a") as f:
-            _remote_cleanup(f, results_dir, kwargs)
-    else:
-        _remote_cleanup(log_file, results_dir, kwargs)
+    logger = create_logger(log_file)
+    _remote_cleanup(logger, results_dir, kwargs)
 
 
-def run_ansible(log_file, **kwargs):
+def run_ansible(log_file: str, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    if type(log_file) == str:
-        with open(log_file, "a") as f:
-            _run_ansible(f, kwargs)
-    else:
-        _run_ansible(log_file, kwargs)
+    logger = create_logger(log_file)
+    _run_ansible(logger, kwargs)
 
 
 runner_config_kwargs = [
@@ -408,6 +403,7 @@ def run_live(
     kwargs = load_kwargs(**kwargs)
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
+    logger = create_logger(log_file)
     kwargs["function_trace_name"] = trace_base_name(trace_in)
 
     if not kwargs["force"] and has_results(results_dir, kwargs["function_trace_name"]):
@@ -423,40 +419,40 @@ def run_live(
             kwargs["host"] = held_host.address
             print(f"Running {results_dir} on {kwargs['host']}")
 
-            with open(log_file, "w") as log_file_fp:
-                try:
-                    _pre_run_cleanup(
-                        log_file_fp,
-                        results_dir,
-                        kwargs,
-                    )
-                    _run_ansible(log_file_fp, kwargs)
-                    sleep(5)
-                    _run_load(
-                        log_file_fp,
-                        results_dir,
-                        trace_in,
-                        trace_meta,
-                        kwargs,
-                    )
-                    sleep(5)
-                    _remote_cleanup(
-                        log_file_fp,
-                        results_dir,
-                        kwargs,
-                    )
-                except Exception as e:
-                    log_file_fp.write("Exception encountered:\n")
-                    log_file_fp.write(str(e))
-                    log_file_fp.write("\n")
-                    log_file_fp.write(traceback.format_exc())
-                    log_file_fp.write("\n")
-                    _remote_cleanup(
-                        log_file_fp,
-                        results_dir,
-                        kwargs,
-                    )
-                    raise e
+            try:
+                _pre_run_cleanup(
+                    logger,
+                    results_dir,
+                    kwargs,
+                )
+                _run_ansible(logger, kwargs)
+                sleep(5)
+                _run_load(
+                    logger,
+                    results_dir,
+                    trace_in,
+                    trace_meta,
+                    kwargs,
+                )
+                sleep(5)
+                _remote_cleanup(
+                    logger,
+                    results_dir,
+                    kwargs,
+                )
+            except Exception as e:
+                msg = "\n".join([
+                    "Exception encountered:",
+                    str(e),
+                    traceback.format_exc()
+                ])
+                logger.error(msg)
+                _remote_cleanup(
+                    logger,
+                    results_dir,
+                    kwargs,
+                )
+                raise e
 
 
 def run_sim(
@@ -476,6 +472,7 @@ def run_sim(
     kwargs["host"] = "NOT_SET_SIMULATION"
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
+    logger = create_logger(log_file)
     kwargs["simulation"] = True
     kwargs["function_trace_name"] = trace_base_name(trace_in)
 
@@ -509,11 +506,10 @@ def run_sim(
         json.dump(json_data, f, indent=4)
 
     print(f"Running {results_dir}")
-    with open(log_file, 'w') as log_file_ptr:
-        _run_load(
-            log_file_ptr,
-            results_dir,
-            trace_in,
-            trace_meta,
-            kwargs,
-        )
+    _run_load(
+        logger,
+        results_dir,
+        trace_in,
+        trace_meta,
+        kwargs,
+    )

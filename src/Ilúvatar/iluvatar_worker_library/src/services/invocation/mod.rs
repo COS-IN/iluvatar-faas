@@ -238,7 +238,7 @@ async fn invoke_on_container_2(
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     let compute = ctr_lock.container.compute_type();
     let chars = Chars::get_chars(&compute)?;
-    let (char, time) = match ctr_lock.container.state() {
+    let (state_char, time) = match ctr_lock.container.state() {
         ContainerState::Warm => (chars.1, data.duration_sec),
         ContainerState::Prewarm => (chars.2, data.duration_sec),
         _ => (chars.0, cold_time_start.elapsed().as_secs_f64()),
@@ -246,9 +246,9 @@ async fn invoke_on_container_2(
     let now = clock.now();
     let e2etime = (now - queue_insert_time).as_seconds_f64();
     let err = e2etime - est_completion_time;
-    cmap.update_4(
+    cmap.update_5(
         &reg.fqdn,
-        char,
+        state_char,
         time,
         chars.3,
         data.duration_sec,
@@ -256,9 +256,12 @@ async fn invoke_on_container_2(
         e2etime,
         chars.5,
         err,
+        Chars::GpuMemoryUsage,
+        data.gpu_allocation_mb as f64,
     );
     device_tput.add_tput(time);
     if compute == Compute::GPU {
+        ctr_lock.container.set_device_memory(data.gpu_allocation_mb);
         cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
     }
     Ok((data, duration, ctr_lock.container.clone()))

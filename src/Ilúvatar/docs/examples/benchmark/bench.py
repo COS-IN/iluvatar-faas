@@ -16,7 +16,7 @@ from load.run.run_trace import (
     run_ansible,
 )
 
-build_level = BuildTarget.DEBUG
+build_level = BuildTarget.RELEASE
 results_dir = os.path.join(os.getcwd(), "results")
 os.makedirs(results_dir, exist_ok=True)
 worker_log_dir = os.path.join(os.getcwd(), "results", "tmp")

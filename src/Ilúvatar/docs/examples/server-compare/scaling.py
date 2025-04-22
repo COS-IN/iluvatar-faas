@@ -18,6 +18,7 @@ from load.run.run_trace import (
     remote_cleanup,
     run_ansible,
 )
+from load.run.logging import create_logger
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -57,59 +58,64 @@ def run_scaling(threads, server):
         "snapshotter": "overlayfs",
     }
     print(kwargs["worker_log_dir"])
-    with open(log_file, "w") as log:
-        pre_run_cleanup(log, out_dir, **kwargs)
-        try:
-            run_ansible(log, **kwargs)
-            bindir = os.path.join(
-                ILU_HOME, "target", "x86_64-unknown-linux-gnu", str(build_level)
-            )
-            load_pth = os.path.join(
-                bindir,
-                "iluvatar_load_gen",
-            )
-            # 'hello' image has minimal actual execution time, so highlights platform performance differences
-            img = f"docker.io/alfuerst/hello-iluvatar-action-{server}:latest"
-            args = [
-                load_pth,
-                "scaling",
-                "--out-folder",
-                out_dir,
-                "--port",
-                str(8070),
-                "--host",
-                kwargs["host"],
-                "--start",
-                str(threads),
-                "--end",
-                str(threads),
-                "--image",
-                img,
-                "--memory-mb",
-                "1024",
-                "--compute",
-                "CPU",
-                "--isolation",
-                "CONTAINERD",
-                "--server",
-                server,
-                "--duration",
-                str(script_args.duration),
-                "--target",
-                "worker",
-            ]
-            env = deepcopy(os.environ)
-            env["RUST_BACkTRACE"] = "1"
-            completed = subprocess.run(
-                args=args,
-                stdout=log,
-                stderr=log,
-                text=True,
-                env=env,
-            )
-            completed.check_returncode()
-        finally:
-            remote_cleanup(log, out_dir, **kwargs)
+    logger = create_logger(log_file)
+    pre_run_cleanup(logger, out_dir, **kwargs)
+    try:
+        run_ansible(logger, **kwargs)
+        bindir = os.path.join(
+            ILU_HOME, "target", "x86_64-unknown-linux-gnu", str(build_level)
+        )
+        load_pth = os.path.join(
+            bindir,
+            "iluvatar_load_gen",
+        )
+        # 'hello' image has minimal actual execution time, so highlights platform performance differences
+        img = f"docker.io/alfuerst/hello-iluvatar-action-{server}:latest"
+        args = [
+            load_pth,
+            "scaling",
+            "--target",
+            "worker",
+            "--out-folder",
+            out_dir,
+            "--port",
+            str(8070),
+            "--host",
+            kwargs["host"],
+            "--start",
+            str(threads),
+            "--end",
+            str(threads),
+            "--image",
+            img,
+            "--memory-mb",
+            "1024",
+            "--compute",
+            "CPU",
+            "--isolation",
+            "CONTAINERD",
+            "--server",
+            server,
+            "--duration",
+            str(script_args.duration),
+            "--target",
+            "worker",
+        ]
+        env = deepcopy(os.environ)
+        env["RUST_BACkTRACE"] = "1"
+        completed = subprocess.run(
+            args=args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        logger.info(completed.stdout)
+        logger.info(completed.stderr)
+
+        completed.check_returncode()
+    finally:
+        remote_cleanup(logger, out_dir, **kwargs)
 
 
 mx = multiprocessing.cpu_count()

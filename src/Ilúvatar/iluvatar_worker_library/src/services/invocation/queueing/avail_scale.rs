@@ -51,7 +51,7 @@ impl InvokerCpuQueuePolicy for AvailableScalingQueue {
         v.item
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
         let mut priority = 0.0;
         if self.cont_manager.outstanding(&item.registration.fqdn) == 0 {
@@ -68,10 +68,14 @@ impl InvokerCpuQueuePolicy for AvailableScalingQueue {
         *self.est_time.lock() += priority;
         let mut queue = self.invoke_queue.lock();
         queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), priority, priority));
-        debug!(tid=%item.tid,  component="minheap", "Added item to front of queue minheap - len: {} arrived: {} top: {} ", 
-                        queue.len(),
-                        item.registration.fqdn,
-                        queue.peek().unwrap().item.registration.fqdn );
+        debug!(
+            tid = item.tid,
+            component = "minheap",
+            "Added item to front of queue minheap - len: {} arrived: {} top: {} ",
+            queue.len(),
+            item.registration.fqdn,
+            queue.peek().unwrap().item.registration.fqdn
+        );
         Ok(())
     }
 }

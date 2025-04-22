@@ -42,8 +42,13 @@ impl InvokerCpuQueuePolicy for FCFSQueue {
         if let Some(e) = invoke_queue.peek() {
             func_name = e.item.registration.function_name.as_str();
         }
-        debug!(tid=%v.tid,  "Popped item from queue fcfs heap - len: {} popped: {} top: {} ",
-           invoke_queue.len(), v.registration.function_name, func_name );
+        debug!(
+            tid = v.tid,
+            "Popped item from queue fcfs heap - len: {} popped: {} top: {} ",
+            invoke_queue.len(),
+            v.registration.function_name,
+            func_name
+        );
         v
     }
     fn queue_len(&self) -> usize {
@@ -53,7 +58,7 @@ impl InvokerCpuQueuePolicy for FCFSQueue {
         *self.est_time.lock()
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=%item.tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
         let est_wall_time = self.est_wall_time(item, &self.cont_manager, &self.cmap)?;
         *self.est_time.lock() += est_wall_time;
