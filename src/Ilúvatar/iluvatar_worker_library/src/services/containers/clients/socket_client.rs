@@ -50,16 +50,14 @@ impl SocketContainerClient {
         let mut lck = self.socket.lock().await;
         if lck.is_none() {
             let start = now();
-            let mut allowed_errs = 50000;
             tracing::info!(tid=tid, socket=?self.sock_pth, "waiting to open socket");
-            while start.elapsed() < Duration::from_secs(self.invoke_timeout) {
+            loop {
                 if let Ok(c) = tokio::fs::try_exists(&self.sock_pth).await {
                     if !c {
-                        if allowed_errs <= 0 {
-                            bail_error!(tid = tid, "Bad socket file found");
+                        if start.elapsed() >= Duration::from_secs(self.invoke_timeout) {
+                            bail_error!(tid = tid, "Failed to open Unix socket after timeout");
                         }
                         tokio::time::sleep(Duration::from_micros(1)).await;
-                        allowed_errs -= 1;
                     } else {
                         break;
                     }

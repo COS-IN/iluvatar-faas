@@ -754,8 +754,7 @@ impl MQFQ {
                     let s = self.clone();
                     let tid = invoke.tid.clone();
                     let ctr = n.container.clone();
-                    // tokio::spawn(async move { s.free_memory_for_ctr(ctr, tid).await });
-                    s.free_memory_for_ctr(ctr, tid).await;
+                    tokio::spawn(async move { s.free_memory_for_ctr(ctr, tid).await });
                 }
                 n
             },

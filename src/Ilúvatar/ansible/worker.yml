@@ -158,8 +158,8 @@
         status_code: [-1]
       register: result
       until: result.msg == expected
-      retries: 5
-      delay: 2
+      retries: 10
+      delay: 5
       when: mode == "deploy" or mode == "perf"
 
     rescue:
