@@ -3,20 +3,55 @@ use crate::services::invocation::dispatching::queueing_dispatcher::DISPATCHER_IN
 use crate::services::invocation::InvokerLoad;
 use crate::services::resources::cpu::{CpuUtil, CPU_MON_TID};
 use anyhow::Result;
+use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::influx::{InfluxClient, InfluxConfig, WORKERS_BUCKET};
 use iluvatar_library::ring_buff::RingBuffer;
 use iluvatar_library::types::Compute;
 use iluvatar_library::{threading::tokio_thread, transaction::TransactionId};
+use iluvatar_rpc::rpc::StatusResponse;
 use influxdb2::FromDataPoint;
+use influxdb2_derive::WriteDataPoint;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
+// use crate::services::resources::gpu::{GpuStatVec, GPU_RESC_TID};
 
-#[derive(Debug, FromDataPoint, Default)]
-pub struct InfluxLoadData {
-    pub value: f64,
+#[derive(FromDataPoint, WriteDataPoint, Clone, PartialEq, Default, Debug)]
+#[measurement = "worker_load"]
+pub struct WorkerStatus {
+    #[influxdb(field)]
+    pub cpu_loadavg: f64,
+    #[influxdb(field)]
+    pub gpu_lodavg: f64,
+    #[influxdb(field)]
+    pub cpu_util: f64,
+    #[influxdb(field)]
+    pub cpu_queue_len: u64,
+    #[influxdb(field)]
+    pub gpu_queue_len: u64,
+    #[influxdb(field)]
+    pub host_mem_pct: f64,
+    #[influxdb(tag)]
     pub name: String,
+    #[influxdb(tag)]
     pub node_type: String,
+    #[influxdb(timestamp)]
+    time: i64,
+}
+impl From<StatusResponse> for WorkerStatus {
+    fn from(value: StatusResponse) -> Self {
+        WorkerStatus {
+            cpu_loadavg: value.cpu_load_avg,
+            gpu_lodavg: value.cpu_load_avg,
+            cpu_util: value.cpu_util,
+            cpu_queue_len: value.cpu_queue_len,
+            gpu_queue_len: value.gpu_queue_len,
+            host_mem_pct: value.used_mem_pct,
+            name: "".to_string(),
+            node_type: "".to_string(),
+            time: 0,
+        }
+    }
 }
 
 /// A struct to regularly send data to InfluxDb, if being used
@@ -24,8 +59,8 @@ pub struct InfluxUpdater {
     influx: Arc<InfluxClient>,
     ring_buff: Arc<RingBuffer>,
     _status_handle: JoinHandle<()>,
-    tags: String,
-    metrics: Vec<&'static str>,
+    worker_name: String,
+    clock: Clock,
 }
 
 lazy_static::lazy_static! {
@@ -45,8 +80,8 @@ impl InfluxUpdater {
 
             let r = Arc::new(Self {
                 _status_handle: stat,
-                tags: format!("name={},node_type=worker", worker_name),
-                metrics: vec!["loadavg,", "cpu_util,", "queue_len,", "mem_pct,", "used_mem,"],
+                worker_name,
+                clock: get_global_clock(tid)?,
                 influx,
                 ring_buff: ring_buff.clone(),
             });
@@ -60,45 +95,52 @@ impl InfluxUpdater {
 
     #[tracing::instrument(level = "debug", skip_all)]
     async fn send_status(self: &Arc<Self>, tid: &TransactionId) {
-        let (load_avg_1minute, cpu_id) = self.ring_buff.latest(CPU_MON_TID).map_or((0.0, 0.0), |cpu| {
+        let (cpu_loadavg, cpu_util) = self.ring_buff.latest(CPU_MON_TID).map_or((0.0, 0.0), |cpu| {
             match iluvatar_library::downcast!(cpu.1, CpuUtil) {
                 None => (0.0, 0.0),
-                Some(cpu) => (cpu.load_avg_1minute, cpu.cpu_id),
+                Some(cpu) => (cpu.load_avg_1minute, 100.0 - cpu.cpu_id),
             }
         });
-        let queue_len = self.ring_buff.latest(DISPATCHER_INVOKER_LOG_TID).map_or(0, |que| {
-            match iluvatar_library::downcast!(que.1, InvokerLoad) {
-                None => 0,
-                Some(que) => {
-                    que.0.get(&Compute::CPU).map_or(0, |q| q.len) + que.0.get(&Compute::GPU).map_or(0, |q| q.len)
-                },
-            }
-        }) as f64;
+        // let (used_mem, total_mem) = self.ring_buff.latest(&GPU_RESC_TID).map_or((0, 0), |gpu| {
+        //     match iluvatar_library::downcast!(gpu.1, GpuStatVec) {
+        //         None => (0, 0),
+        //         Some(que) => (que.used_mem, que.total_mem),
+        //     }
+        // });
+        let (cpu_len, (gpu_len, gpu_loadavg)) =
+            self.ring_buff
+                .latest(DISPATCHER_INVOKER_LOG_TID)
+                .map_or((0, (0, 0.0)), |que| {
+                    match iluvatar_library::downcast!(que.1, InvokerLoad) {
+                        None => (0, (0, 0.0)),
+                        Some(que) => (
+                            que.0.get(&Compute::CPU).map_or(0, |q| q.len) as u64,
+                            que.0
+                                .get(&Compute::GPU)
+                                .map_or((0, 0.0), |q| (q.len as u64, q.load_avg)),
+                        ),
+                    }
+                });
         let (used_mem, total_mem) = self.ring_buff.latest(&CTR_MGR_WORKER_TID).map_or((0, 0), |que| {
             match iluvatar_library::downcast!(que.1, ContainerMgrStat) {
                 None => (0, 0),
                 Some(que) => (que.used_mem, que.total_mem),
             }
         });
-        let mut builder = String::new();
-        for measure in &self.metrics {
-            let val = match *measure {
-                "loadavg," => load_avg_1minute,
-                "cpu_util," => 100.0 - cpu_id,
-                "queue_len," => queue_len,
-                "mem_pct," => (used_mem as f64 / total_mem as f64) * 100.0,
-                "used_mem," => used_mem as f64,
-                _ => continue,
-            };
-            if val.is_nan() {
-                continue;
-            }
-            builder.push_str(measure);
-            builder.push_str(&self.tags);
-            builder.push_str(&format!(" value={}\n", val));
-        }
-        debug!(tid = tid, data = builder, "writing to influx");
-        match self.influx.write_data(WORKERS_BUCKET, builder).await {
+        let data = vec![WorkerStatus {
+            cpu_loadavg,
+            cpu_util,
+            cpu_queue_len: cpu_len,
+            gpu_queue_len: gpu_len,
+            gpu_lodavg: gpu_loadavg,
+            host_mem_pct: used_mem as f64 / total_mem as f64,
+            name: self.worker_name.clone(),
+            node_type: "worker".to_string(),
+            #[allow(clippy::disallowed_methods)]
+            time: self.clock.now().unix_timestamp_nanos() as i64,
+        }];
+        debug!(tid = tid, "writing to influx");
+        match self.influx.write_struct_data(WORKERS_BUCKET, data).await {
             Ok(_) => (),
             Err(e) => error!(tid=tid, error=%e, "Failed to write worker status to InfluxDB"),
         };

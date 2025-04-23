@@ -1,5 +1,6 @@
 use crate::transaction::TransactionId;
 use anyhow::Result;
+use futures::prelude::*;
 use influxdb2::api::organization::ListOrganizationRequest;
 use influxdb2::models::{
     bucket::PostBucketRequest,
@@ -150,13 +151,12 @@ impl InfluxClient {
     }
 
     /// Write the given data to the bucket.
-    /// data must be in valid (InfluxDB line protocol)<https://docs.influxdata.com/influxdb/v1.8/write_protocols/line_protocol_reference/>
-    pub async fn write_data(&self, bucket: &str, line_data: String) -> Result<()> {
-        match self
-            .client
-            .write_line_protocol(&self.internal_org_id, bucket, line_data)
-            .await
-        {
+    pub async fn write_struct_data<T: influxdb2::models::WriteDataPoint + Send + Sync + 'static>(
+        &self,
+        bucket: &str,
+        data: Vec<T>,
+    ) -> Result<()> {
+        match self.client.write(bucket, stream::iter(data)).await {
             Ok(_) => Ok(()),
             Err(e) => anyhow::bail!("{:?}", e),
         }

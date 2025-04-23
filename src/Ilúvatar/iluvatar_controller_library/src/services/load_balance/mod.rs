@@ -21,9 +21,17 @@ pub mod round_robin;
 pub mod rrCH;
 pub mod rrG;
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub enum Metric {
+    LoadAvg,
+    Running,
+    CpuPct,
+    MemPct,
+    QueueLen,
+}
 #[derive(Debug, Deserialize)]
 pub struct LoadMetric {
-    pub load_metric: String,
+    pub load_metric: Metric,
     /// Duration in milliseconds the balancer's worker thread will sleep between runs (if it has one)
     pub thread_sleep_ms: u64,
 }
@@ -35,7 +43,7 @@ pub struct LoadMetric {
 /// See [here](https://serde.rs/enum-representations.html#internally-tagged) for details on deserializing this
 pub enum LoadBalancerAlgo {
     RoundRobin,
-    LeastLoaded(crate::services::load_balance::least_loaded::LLConfig),
+    LeastLoaded(least_loaded::LLConfig),
     RrCh,
     RrGuard,
     CHRLU(Arc<ch_rlu::ChRluConfig>),

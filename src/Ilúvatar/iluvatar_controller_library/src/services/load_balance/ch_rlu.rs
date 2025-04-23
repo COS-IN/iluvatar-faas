@@ -11,6 +11,7 @@ use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::utils::timing::TimedExt;
 use iluvatar_library::{threading::tokio_thread, transaction::TransactionId};
 use iluvatar_rpc::rpc::InvokeResponse;
+use iluvatar_worker_library::services::influx_updater::WorkerStatus;
 use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use ordered_float::OrderedFloat;
@@ -104,7 +105,7 @@ pub struct ChRluLoadedBalancer {
     _worker_thread: JoinHandle<()>,
     load: Arc<LoadService>,
     worker_cmap: WorkerCharMap,
-    worker_loads: RwLock<HashMap<String, f64>>,
+    worker_loads: RwLock<HashMap<String, WorkerStatus>>,
     popular_map: RcuCell<HashSet<String>>,
     worker_ring: RwLock<HashRing<VNode>>,
     chrlu_cfg: Arc<ChRluConfig>,
@@ -201,7 +202,7 @@ impl ChRluLoadedBalancer {
                     // safe if std_dev > 0.0
                     let norm = Normal::new(mean / node.cores, 0.1)?;
                     let noise = norm.sample(&mut thread_rng());
-                    let load = loads.get(&workers[node.idx].name).unwrap_or(&0.0) + noise;
+                    let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.cpu_loadavg) + noise;
                     if load <= self.chrlu_cfg.bounded_ceil {
                         if default_worker != node.idx {
                             debug!(
@@ -217,7 +218,7 @@ impl ChRluLoadedBalancer {
                         drop(loads);
                         drop(workers);
                         if let Some(w) = self.worker_loads.write().get_mut(&chosen.name) {
-                            *w += noise;
+                            w.cpu_loadavg += noise;
                         };
                         chosen_worker = Some(chosen);
                         break;

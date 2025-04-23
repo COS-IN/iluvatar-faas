@@ -317,7 +317,7 @@ impl GPU {
 
 const MPS_CONTAINER_NAME: &str = "iluvatar-mps-daemon";
 lazy_static::lazy_static! {
-  static ref GPU_RESC_TID: TransactionId = "GPU_RESC_TRACK".to_string();
+  pub static ref GPU_RESC_TID: TransactionId = "GPU_RESC_TRACK".to_string();
 }
 /// Struct that manages GPU control between containers
 /// A GPU can only be assigned to one container at a time, and must be returned via [GpuResourceTracker::return_gpu] after container deletion

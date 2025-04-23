@@ -281,22 +281,13 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     async fn status(&self, request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
         let request = request.into_inner();
         debug!(tid = request.transaction_id, "Handling status request");
-        let (load_avg, cpu_us, cpu_sy, cpu_id, cpu_wa, num_core) =
-            self.ring_buff
-                .latest(CPU_MON_TID)
-                .map_or((0.0, 0.0, 0.0, 0.0, 0.0, 0), |cpu| {
-                    match iluvatar_library::downcast!(cpu.1, CpuUtil) {
-                        None => (0.0, 0.0, 0.0, 0.0, 0.0, 0),
-                        Some(cpu) => (
-                            cpu.load_avg_1minute,
-                            cpu.cpu_us,
-                            cpu.cpu_sy,
-                            cpu.cpu_id,
-                            cpu.cpu_wa,
-                            cpu.num_system_cores,
-                        ),
-                    }
-                });
+        let (load_avg, cpu_us, cpu_sy, cpu_wa) =
+            self.ring_buff.latest(CPU_MON_TID).map_or((0.0, 0.0, 0.0, 0.0), |cpu| {
+                match iluvatar_library::downcast!(cpu.1, CpuUtil) {
+                    None => (0.0, 0.0, 0.0, 0.0),
+                    Some(cpu) => (cpu.load_avg_1minute, cpu.cpu_us, cpu.cpu_sy, cpu.cpu_wa),
+                }
+            });
         let queue_len = self.ring_buff.latest(DISPATCHER_INVOKER_LOG_TID).map_or(0, |que| {
             match iluvatar_library::downcast!(que.1, InvokerLoad) {
                 None => 0,
@@ -304,7 +295,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     que.0.get(&Compute::CPU).map_or(0, |q| q.len) + que.0.get(&Compute::GPU).map_or(0, |q| q.len)
                 },
             }
-        }) as i64;
+        });
         let (used_mem, total_mem) = self.ring_buff.latest(&CTR_MGR_WORKER_TID).map_or((0, 0), |que| {
             match iluvatar_library::downcast!(que.1, ContainerMgrStat) {
                 None => (0, 0),
@@ -312,17 +303,15 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             }
         });
         Ok(Response::new(StatusResponse {
-            success: true,
-            queue_len,
-            used_mem,
-            total_mem,
-            cpu_us,
-            cpu_sy,
-            cpu_id,
-            cpu_wa,
-            load_avg_1minute: load_avg,
-            num_system_cores: num_core,
+            cpu_queue_len: queue_len as u64,
+            gpu_queue_len: 0,
+            used_mem_pct: used_mem as f64 / total_mem as f64,
+            cpu_util: cpu_us + cpu_sy + cpu_wa,
+            cpu_load_avg: load_avg,
+            gpu_load_avg: 0.0,
             num_running_funcs: self.invoker.running_funcs(),
+            worker_name: "".to_string(),
+            timestamp: 0,
         }))
     }
 

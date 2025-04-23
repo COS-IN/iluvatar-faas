@@ -120,17 +120,15 @@ message StatusRequest {
 }
 
 message StatusResponse {
-  bool success = 1;
-  int64 queue_len = 2;
-  int64 used_mem = 3;
-  int64 total_mem = 4;
-  double cpu_us = 5;
-  double cpu_sy = 6;
-  double cpu_id = 7;
-  double cpu_wa = 8;
-  double load_avg_1minute = 9;
-  uint32 num_system_cores = 10;
-  uint32 num_running_funcs = 11;
+  uint64 cpu_queue_len = 1;
+  uint64 gpu_queue_len = 2;
+  double used_mem_pct = 3;
+  double cpu_util = 4;
+  double cpu_load_avg = 5;
+  double gpu_load_avg = 6;
+  uint32 num_running_funcs = 7;
+  string worker_name = 8;
+  uint64 timestamp = 9;
 }
 
 message HealthRequest {
