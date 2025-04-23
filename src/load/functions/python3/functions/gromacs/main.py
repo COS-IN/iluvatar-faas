@@ -39,9 +39,9 @@ def main(args):
     if not tpr_files:
         return {"error": "No .tpr file found in the extracted files."}
     tpr_file = tpr_files[0]
-    base_cmd = f"gmx mdrun -s {tpr_file} -nsteps {args['nsteps']} -resethway"
+    base_cmd = f"gmx mdrun -s {tpr_file} -nsteps {args['nsteps']}"
     
-    # Determine extra flags based on the mode: CPU, GPU, or hybrid.
+    # Determine extra flags based on the mode: CPU, GPU, or auto.
 
     # From documentation
     # -nb Used to set where to execute the short-range non-bonded interactions. 
@@ -54,7 +54,7 @@ def main(args):
     # compatible GPU if available. Setting “gpu” requires that a compatible GPU 
     # is available. Multiple PME ranks are not supported with PME on GPU, so if 
     # a GPU is used for the PME calculation -npme must be set to 1.
-    mode = args.get('mode', 'hybrid').lower()
+    mode = args.get('mode', 'auto').lower()
     if mode == "cpu":
         extra_flags = " -nb cpu -pme cpu"
     elif mode == "gpu":
@@ -67,7 +67,11 @@ def main(args):
     
     start_time = time.time()
     try:
-        subprocess.run(cmd, shell=True, check=True)
+        p = subprocess.run(cmd, shell=True, 
+        check=True,
+        capture_output=True,
+        text=True
+        )
     except subprocess.CalledProcessError as e:
         end_time = time.time()
         return {
@@ -79,10 +83,12 @@ def main(args):
             "latency": end_time - start_time
         }
     end_time = time.time()
+    full_output = (p.stdout or "") + (p.stderr or "")
 
     return {
         "cold": was_cold,
         "start": start_time,
         "end": end_time,
-        "latency": end_time - start_time
+        "latency": end_time - start_time,
+        "output": full_output
     }
