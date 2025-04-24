@@ -20,10 +20,13 @@ use tracing::{debug, error, info};
 #[measurement = "worker_load"]
 pub struct WorkerStatus {
     #[influxdb(field)]
+    /// CPU load average normalized by the number of cores on the node
     pub cpu_loadavg: f64,
     #[influxdb(field)]
+    /// GPU 'load average' (computed via GPU queue size) normalized by the maximum number of GPU items that can run concurrently
     pub gpu_loadavg: f64,
     #[influxdb(field)]
+    /// Busy CPU %
     pub cpu_util: f64,
     #[influxdb(field)]
     pub cpu_queue_len: u64,
@@ -101,7 +104,7 @@ impl InfluxUpdater {
         let (cpu_loadavg, cpu_util) = self.ring_buff.latest(CPU_MON_TID).map_or((0.0, 0.0), |cpu| {
             match iluvatar_library::downcast!(cpu.1, CpuUtil) {
                 None => (0.0, 0.0),
-                Some(cpu) => (cpu.load_avg_1minute, 100.0 - cpu.cpu_id),
+                Some(cpu) => (cpu.load_avg_1minute / cpu.num_system_cores as f64, 100.0 - cpu.cpu_id),
             }
         });
         // let (used_mem, total_mem) = self.ring_buff.latest(&GPU_RESC_TID).map_or((0, 0), |gpu| {

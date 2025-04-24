@@ -104,7 +104,7 @@ impl LoadService {
         }
         ret
     }
-    
+
     pub fn get_workers(&self) -> HashMap<String, WorkerStatus> {
         self.workers.read().clone()
     }

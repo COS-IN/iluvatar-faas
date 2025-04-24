@@ -1025,7 +1025,7 @@ impl Invoker for QueueingDispatcher {
             running += q.running();
             loads.insert(*compute, q.queue_load());
         }
-        InvokerLoad{
+        InvokerLoad {
             num_running_funcs: running,
             queues: loads,
         }

@@ -288,16 +288,19 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                     Some(cpu) => (cpu.load_avg_1minute, cpu.cpu_us, cpu.cpu_sy, cpu.cpu_wa),
                 }
             });
-        let (running, cpu_len, (gpu_len, gpu_loadavg)) = self.ring_buff.latest(DISPATCHER_INVOKER_LOG_TID).map_or((0,0,(0,0.0)), |que| {
-            match iluvatar_library::downcast!(que.1, InvokerLoad) {
-                None => (0,0,(0,0.0)),
-                Some(que) => {
-                    (que.num_running_funcs,
-                    que.queues.get(&Compute::CPU).map_or(0, |q| q.len),
-                     que.queues.get(&Compute::GPU).map_or((0,0.0), |q| (q.len, q.load_avg)))
-                },
-            }
-        });
+        let (running, cpu_len, (gpu_len, gpu_loadavg)) =
+            self.ring_buff
+                .latest(DISPATCHER_INVOKER_LOG_TID)
+                .map_or((0, 0, (0, 0.0)), |que| {
+                    match iluvatar_library::downcast!(que.1, InvokerLoad) {
+                        None => (0, 0, (0, 0.0)),
+                        Some(que) => (
+                            que.num_running_funcs,
+                            que.queues.get(&Compute::CPU).map_or(0, |q| q.len),
+                            que.queues.get(&Compute::GPU).map_or((0, 0.0), |q| (q.len, q.load_avg)),
+                        ),
+                    }
+                });
         let (used_mem, total_mem) = self.ring_buff.latest(&CTR_MGR_WORKER_TID).map_or((0, 0), |que| {
             match iluvatar_library::downcast!(que.1, ContainerMgrStat) {
                 None => (0, 0),
@@ -309,7 +312,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             gpu_queue_len: gpu_len as u64,
             used_mem_pct: used_mem as f64 / total_mem as f64,
             cpu_util: cpu_us + cpu_sy + cpu_wa,
-            cpu_load_avg: load_avg,
+            cpu_load_avg: load_avg / self.cpu.cores,
             gpu_load_avg: gpu_loadavg,
             num_running_funcs: running,
             worker_name: "".to_string(),

@@ -203,19 +203,21 @@ impl ChRluLoadedBalancer {
                 let workers = self.workers.read();
                 for node in worker_chain {
                     // safe if std_dev > 0.0
-                    let (noise, load) = if func.supported_compute == Compute::CPU {
-                        let norm = Normal::new(mean / node.cores, 0.1)?;
-                        let noise = norm.sample(&mut thread_rng());
-                        let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.cpu_loadavg) + noise;
-                        (noise, load)
+                    let (div, load) = if func.supported_compute == Compute::CPU {
+                        let div = node.cores;
+                        let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.cpu_loadavg);
+                        (div, load)
                     } else if func.supported_compute == Compute::GPU {
-                        let norm = Normal::new(mean / node.gpus, 0.1)?;
-                        let noise = norm.sample(&mut thread_rng());
-                        let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.gpu_loadavg) + noise;
-                        (noise, load)
+                        let div = node.gpus;
+                        let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.gpu_loadavg);
+                        (div, load)
                     } else {
                         bail_error!(tid = tid, "CH-RLU does not currently support polymorphic compute")
                     };
+                    let norm = Normal::new(mean / div, 0.1)?;
+                    let noise = norm.sample(&mut thread_rng());
+                    let load = load + noise;
+
                     if load <= self.chrlu_cfg.bounded_ceil {
                         if default_worker != node.idx {
                             debug!(

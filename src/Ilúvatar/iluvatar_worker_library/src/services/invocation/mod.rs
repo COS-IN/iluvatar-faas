@@ -41,7 +41,7 @@ pub struct QueueLoad {
     pub tput: f64,
 }
 #[derive(iluvatar_library::ToAny, Debug, serde::Serialize)]
-pub struct InvokerLoad{
+pub struct InvokerLoad {
     pub num_running_funcs: u32,
     pub queues: std::collections::HashMap<Compute, QueueLoad>,
 }
