@@ -196,7 +196,7 @@ pub fn background_test_invoke(
 pub async fn wait_for_queue_len(invok_svc: &Arc<dyn Invoker>, compute_queue: Compute, len: usize) {
     timeout(Duration::from_secs(20), async move {
         loop {
-            if invok_svc.queue_len().0.get(&compute_queue).unwrap().len >= len {
+            if invok_svc.queue_len().queues.get(&compute_queue).unwrap().len >= len {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(5)).await;

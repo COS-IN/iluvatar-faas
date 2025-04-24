@@ -22,7 +22,7 @@ pub struct WorkerStatus {
     #[influxdb(field)]
     pub cpu_loadavg: f64,
     #[influxdb(field)]
-    pub gpu_lodavg: f64,
+    pub gpu_loadavg: f64,
     #[influxdb(field)]
     pub cpu_util: f64,
     #[influxdb(field)]
@@ -31,6 +31,8 @@ pub struct WorkerStatus {
     pub gpu_queue_len: u64,
     #[influxdb(field)]
     pub host_mem_pct: f64,
+    #[influxdb(field)]
+    pub num_running_funcs: u64,
     #[influxdb(tag)]
     pub name: String,
     #[influxdb(tag)]
@@ -42,11 +44,12 @@ impl From<StatusResponse> for WorkerStatus {
     fn from(value: StatusResponse) -> Self {
         WorkerStatus {
             cpu_loadavg: value.cpu_load_avg,
-            gpu_lodavg: value.cpu_load_avg,
+            gpu_loadavg: value.cpu_load_avg,
             cpu_util: value.cpu_util,
             cpu_queue_len: value.cpu_queue_len,
             gpu_queue_len: value.gpu_queue_len,
             host_mem_pct: value.used_mem_pct,
+            num_running_funcs: value.num_running_funcs as u64,
             name: "".to_string(),
             node_type: "".to_string(),
             time: 0,
@@ -107,15 +110,16 @@ impl InfluxUpdater {
         //         Some(que) => (que.used_mem, que.total_mem),
         //     }
         // });
-        let (cpu_len, (gpu_len, gpu_loadavg)) =
+        let (running, cpu_len, (gpu_len, gpu_loadavg)) =
             self.ring_buff
                 .latest(DISPATCHER_INVOKER_LOG_TID)
-                .map_or((0, (0, 0.0)), |que| {
+                .map_or((0, 0, (0, 0.0)), |que| {
                     match iluvatar_library::downcast!(que.1, InvokerLoad) {
-                        None => (0, (0, 0.0)),
+                        None => (0, 0, (0, 0.0)),
                         Some(que) => (
-                            que.0.get(&Compute::CPU).map_or(0, |q| q.len) as u64,
-                            que.0
+                            que.num_running_funcs,
+                            que.queues.get(&Compute::CPU).map_or(0, |q| q.len) as u64,
+                            que.queues
                                 .get(&Compute::GPU)
                                 .map_or((0, 0.0), |q| (q.len as u64, q.load_avg)),
                         ),
@@ -129,14 +133,14 @@ impl InfluxUpdater {
         });
         let data = vec![WorkerStatus {
             cpu_loadavg,
+            gpu_loadavg,
             cpu_util,
             cpu_queue_len: cpu_len,
             gpu_queue_len: gpu_len,
-            gpu_lodavg: gpu_loadavg,
             host_mem_pct: used_mem as f64 / total_mem as f64,
             name: self.worker_name.clone(),
+            num_running_funcs: running as u64,
             node_type: "worker".to_string(),
-            #[allow(clippy::disallowed_methods)]
             time: self.clock.now().unix_timestamp_nanos() as i64,
         }];
         debug!(tid = tid, "writing to influx");

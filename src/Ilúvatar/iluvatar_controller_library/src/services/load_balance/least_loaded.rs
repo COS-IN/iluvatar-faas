@@ -1,5 +1,5 @@
 use crate::server::config::ControllerConfig;
-use crate::services::load_balance::{LoadBalancerTrait, LoadMetric};
+use crate::services::load_balance::{LoadBalancerTrait, LoadMetric, Metric};
 use crate::services::registration::RegisteredWorker;
 use crate::{
     build_influx, prewarm, send_async_invocation, send_invocation,
@@ -32,6 +32,7 @@ pub struct LeastLoadedBalancer {
     _worker_thread: JoinHandle<()>,
     assigned_worker: RwLock<Option<Arc<RegisteredWorker>>>,
     load: Arc<LoadService>,
+    load_metric: Metric,
 }
 
 impl LeastLoadedBalancer {
@@ -43,7 +44,7 @@ impl LeastLoadedBalancer {
         ll_config: &LLConfig,
     ) -> Result<Arc<Self>> {
         let influx = build_influx(config, tid).await?;
-        let load = crate::build_load_svc(&ll_config.load_metric, tid, &worker_fact, influx)?;
+        let load = crate::build_load_svc(ll_config.load_metric.thread_sleep_ms, tid, &worker_fact, influx)?;
         let (handle, tx) = tokio_thread(
             ll_config.load_metric.thread_sleep_ms,
             LEAST_LOADED_TID.clone(),
@@ -57,6 +58,7 @@ impl LeastLoadedBalancer {
             _worker_thread: handle,
             assigned_worker: RwLock::new(None),
             load,
+            load_metric: ll_config.load_metric.load_metric,
         });
         tx.send(i.clone())?;
         Ok(i)
@@ -66,12 +68,20 @@ impl LeastLoadedBalancer {
     async fn find_least_loaded(self: &Arc<Self>, tid: &TransactionId) {
         let mut least_ld = f64::MAX;
         let mut worker = &"".to_string();
+        let worker_loads = self.load.get_workers();
         let workers = self.workers.read();
         for worker_name in workers.keys() {
-            if let Some(worker_load) = self.load.get_worker(worker_name) {
-                if worker_load < least_ld {
+            if let Some(worker_load) = worker_loads.get(worker_name) {
+                let load = match self.load_metric {
+                    Metric::LoadAvg => worker_load.cpu_loadavg + worker_load.gpu_loadavg,
+                    Metric::Running => worker_load.num_running_funcs as f64,
+                    Metric::CpuPct => worker_load.cpu_util,
+                    Metric::MemPct => worker_load.host_mem_pct,
+                    Metric::QueueLen => (worker_load.cpu_queue_len + worker_load.gpu_queue_len) as f64,
+                };
+                if load < least_ld {
                     worker = worker_name;
-                    least_ld = worker_load;
+                    least_ld = load;
                 }
             }
         }

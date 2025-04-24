@@ -8,8 +8,9 @@ use crate::{
 use anyhow::Result;
 use hashring::HashRing;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
+use iluvatar_library::types::Compute;
 use iluvatar_library::utils::timing::TimedExt;
-use iluvatar_library::{threading::tokio_thread, transaction::TransactionId};
+use iluvatar_library::{bail_error, threading::tokio_thread, transaction::TransactionId};
 use iluvatar_rpc::rpc::InvokeResponse;
 use iluvatar_worker_library::services::influx_updater::WorkerStatus;
 use iluvatar_worker_library::services::registration::RegisteredFunction;
@@ -51,21 +52,23 @@ impl AtomicF64 {
 struct VNode {
     pub idx: usize,
     pub cores: f64,
+    pub gpus: f64,
     pub hashed: String,
 }
 impl VNode {
-    pub fn new(idx: usize, cores: f64) -> Self {
+    pub fn new(idx: usize, cores: f64, gpus: f64) -> Self {
         Self {
             idx,
             cores,
+            gpus,
             hashed: guid_create::GUID::rand().to_string(),
         }
     }
 
-    pub fn batch(idx: usize, cores: f64, count: usize) -> Vec<Self> {
+    pub fn batch(idx: usize, cores: f64, gpus: f64, count: usize) -> Vec<Self> {
         let mut v = vec![];
         for _ in 0..count {
-            v.push(Self::new(idx, cores));
+            v.push(Self::new(idx, cores, gpus));
         }
         v
     }
@@ -124,7 +127,7 @@ impl ChRluLoadedBalancer {
     ) -> Result<Arc<Self>> {
         let ch_rlu_tid: TransactionId = "CH_RLU_LB".to_string();
         let influx = build_influx(config, tid).await?;
-        let load = crate::build_load_svc(&chrlu_cfg.load_metric, tid, &worker_fact, influx)?;
+        let load = crate::build_load_svc(chrlu_cfg.load_metric.thread_sleep_ms, tid, &worker_fact, influx)?;
         let (handle, tx) = tokio_thread(chrlu_cfg.load_metric.thread_sleep_ms, ch_rlu_tid, Self::update);
 
         let i = Arc::new(Self {
@@ -200,9 +203,19 @@ impl ChRluLoadedBalancer {
                 let workers = self.workers.read();
                 for node in worker_chain {
                     // safe if std_dev > 0.0
-                    let norm = Normal::new(mean / node.cores, 0.1)?;
-                    let noise = norm.sample(&mut thread_rng());
-                    let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.cpu_loadavg) + noise;
+                    let (noise, load) = if func.supported_compute == Compute::CPU {
+                        let norm = Normal::new(mean / node.cores, 0.1)?;
+                        let noise = norm.sample(&mut thread_rng());
+                        let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.cpu_loadavg) + noise;
+                        (noise, load)
+                    } else if func.supported_compute == Compute::GPU {
+                        let norm = Normal::new(mean / node.gpus, 0.1)?;
+                        let noise = norm.sample(&mut thread_rng());
+                        let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.gpu_loadavg) + noise;
+                        (noise, load)
+                    } else {
+                        bail_error!(tid = tid, "CH-RLU does not currently support polymorphic compute")
+                    };
                     if load <= self.chrlu_cfg.bounded_ceil {
                         if default_worker != node.idx {
                             debug!(
@@ -246,6 +259,7 @@ impl LoadBalancerTrait for ChRluLoadedBalancer {
     fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
         info!(tid=tid, worker=%worker.name, "Registering new worker in CH-RLU load balancer");
         let cores = worker.cpus as f64;
+        let gpus = worker.gpus as f64;
         let mut lck = self.workers.write();
         let len = lck.len();
         lck.push(worker);
@@ -253,7 +267,7 @@ impl LoadBalancerTrait for ChRluLoadedBalancer {
         // 'virtual' nodes
         self.worker_ring
             .write()
-            .batch_add(VNode::batch(len, cores, self.chrlu_cfg.vnodes));
+            .batch_add(VNode::batch(len, cores, gpus, self.chrlu_cfg.vnodes));
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=tid)))]

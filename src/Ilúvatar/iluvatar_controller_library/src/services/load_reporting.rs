@@ -1,4 +1,3 @@
-use crate::services::load_balance::{LoadMetric, Metric};
 use iluvatar_library::transaction::{TransactionId, LOAD_MONITOR_TID};
 use iluvatar_library::{
     influx::{InfluxClient, WORKERS_BUCKET},
@@ -15,19 +14,18 @@ pub struct LoadService {
     _worker_thread: JoinHandle<()>,
     influx: Option<Arc<InfluxClient>>,
     workers: RwLock<HashMap<String, WorkerStatus>>,
-    load_metric: Metric,
     fact: Arc<WorkerAPIFactory>,
 }
 
 impl LoadService {
     pub fn boxed(
         influx: Option<Arc<InfluxClient>>,
-        load_metric: &LoadMetric,
+        load_freq_ms: u64,
         _tid: &TransactionId,
         fact: Arc<WorkerAPIFactory>,
     ) -> anyhow::Result<Arc<Self>> {
         let (handle, tx) = tokio_thread(
-            load_metric.thread_sleep_ms,
+            load_freq_ms,
             LOAD_MONITOR_TID.clone(),
             LoadService::monitor_worker_status,
         );
@@ -37,7 +35,6 @@ impl LoadService {
         let ret = Arc::new(LoadService {
             _worker_thread: handle,
             workers: RwLock::new(HashMap::new()),
-            load_metric: load_metric.load_metric,
             fact,
             influx,
         });
@@ -68,17 +65,6 @@ impl LoadService {
                 },
             };
             update.insert(name, status);
-            // match self.load_metric.as_str() {
-            //     "loadavg" => update.insert(name, status.cpu_load_avg),
-            //     "running" => update.insert(name, status.num_running_funcs as f64),
-            //     "cpu_pct" => update.insert(name, status.cpu_util),
-            //     "mem_pct" => update.insert(name, status.used_mem_pct),
-            //     "queue" => update.insert(name, status.cpu_queue_len as f64),
-            //     _ => {
-            //         error!(tid=tid, metric=%self.load_metric, "Unknown load metric");
-            //         return;
-            //     },
-            // };
         }
 
         info!(tid=tid, update=?update, "latest simulated worker update");
@@ -109,9 +95,7 @@ impl LoadService {
                         ret.insert(item.name.clone(), item);
                     }
                     if ret.is_empty() {
-                        warn!(
-                            tid = tid,
-                            "Did not get any influx data in the last 5 minutes!")
+                        warn!(tid = tid, "Did not get any influx data in the last 5 minutes!")
                     }
                 },
                 Err(e) => error!(tid=tid, error=%e, "Failed to query worker status to InfluxDB"),
@@ -120,11 +104,7 @@ impl LoadService {
         }
         ret
     }
-
-    pub fn get_worker(&self, name: &str) -> Option<f64> {
-        Some(self.workers.read().get(name)?.cpu_loadavg)
-    }
-
+    
     pub fn get_workers(&self) -> HashMap<String, WorkerStatus> {
         self.workers.read().clone()
     }

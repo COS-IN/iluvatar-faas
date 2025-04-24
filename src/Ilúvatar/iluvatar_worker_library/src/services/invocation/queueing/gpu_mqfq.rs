@@ -600,9 +600,9 @@ impl MQFQ {
         cpu_token: DroppableToken,
         gpu_token: GpuToken,
     ) {
-        let ct = self.clock.now();
-        self.ctrack.add_item(ct);
         if item.invoke.lock() {
+            let ct = self.clock.now();
+            self.ctrack.add_item(ct);
             #[cfg(feature = "full_spans")]
             let fut = self
                 .invoke(&item.invoke, cpu_token, gpu_token)
@@ -633,9 +633,9 @@ impl MQFQ {
                     }
                 }
             }
+            self.signal.notify_waiters();
+            self.ctrack.remove_item(ct);
         }
-        self.signal.notify_waiters();
-        self.ctrack.remove_item(ct);
     }
 
     /// Handle an error with the given enqueued invocation.

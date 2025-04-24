@@ -41,11 +41,14 @@ pub struct QueueLoad {
     pub tput: f64,
 }
 #[derive(iluvatar_library::ToAny, Debug, serde::Serialize)]
-pub struct InvokerLoad(pub std::collections::HashMap<Compute, QueueLoad>);
+pub struct InvokerLoad{
+    pub num_running_funcs: u32,
+    pub queues: std::collections::HashMap<Compute, QueueLoad>,
+}
 impl Wireable for InvokerLoad {}
 impl Display for InvokerLoad {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match serde_json::to_string::<std::collections::HashMap<Compute, QueueLoad>>(&self.0) {
+        let s = match serde_json::to_string::<InvokerLoad>(self) {
             Ok(s) => s,
             Err(_e) => return Err(std::fmt::Error {}),
         };

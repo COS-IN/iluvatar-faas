@@ -22,6 +22,7 @@ pub struct RegisteredWorker {
     pub port: Port,
     pub memory: i64,
     pub cpus: u32,
+    pub gpus: u32,
 }
 impl std::hash::Hash for RegisteredWorker {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -38,6 +39,7 @@ impl RegisteredWorker {
             port: req.port as Port,
             memory: req.memory,
             cpus: req.cpus,
+            gpus: req.gpus,
         })
     }
 }

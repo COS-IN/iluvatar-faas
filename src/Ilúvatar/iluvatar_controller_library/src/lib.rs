@@ -2,7 +2,6 @@ extern crate anyhow;
 extern crate lazy_static;
 
 use crate::server::controller_config::ControllerConfig;
-use crate::services::load_balance::LoadMetric;
 use crate::services::load_reporting::LoadService;
 use iluvatar_library::bail_error;
 use iluvatar_library::influx::InfluxClient;
@@ -21,12 +20,12 @@ pub async fn build_influx(config: &ControllerConfig, tid: &TransactionId) -> any
 }
 
 pub fn build_load_svc(
-    load_metric: &LoadMetric,
+    load_freq_ms: u64,
     tid: &TransactionId,
     worker_fact: &Arc<WorkerAPIFactory>,
     influx: Option<Arc<InfluxClient>>,
 ) -> anyhow::Result<Arc<LoadService>> {
-    match LoadService::boxed(influx, load_metric, tid, worker_fact.clone()) {
+    match LoadService::boxed(influx, load_freq_ms, tid, worker_fact.clone()) {
         Ok(l) => Ok(l),
         Err(e) => bail_error!(tid=tid, error=%e, "Failed to create LoadService"),
     }
