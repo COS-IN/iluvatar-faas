@@ -1,0 +1,34 @@
+
+FROM nvidia/cuda:11.8.0-base-ubuntu22.04 AS build
+RUN apt-get update && apt-get upgrade -y && apt-get install -y make gcc
+WORKDIR /app
+COPY . .
+RUN make -C driver-hooks
+FROM nvcr.io/nvidia/tensorrt:22.12-py3 AS nvbase
+
+FROM nvidia/cuda:11.8.0-base-ubuntu22.04 AS gpu
+COPY --from=nvbase /usr/lib/x86_64-linux-gnu/libcu*.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=nvbase /usr/local/cuda-11.8/targets/x86_64-linux/lib/ /usr/local/cuda-11.8/targets/x86_64-linux/lib/
+
+
+FROM gromacs/gromacs:latest
+
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y python3 python3-pip && \
+    python3 -m pip install --upgrade pip && \
+    python3 -m pip install flask gunicorn && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt *.py ./
+RUN python3 -m pip install -r requirements.txt && \
+    python3 -m pip cache purge && \
+    apt-get clean && apt-get autoremove
+
+COPY --from=build /app/driver-hooks/libgpushare.so .
+COPY --from=gpu /usr/lib/x86_64-linux-gnu/libcu*.so* /usr/lib/x86_64-linux-gnu/
+COPY --from=gpu /usr/local/cuda-11.8/targets/x86_64-linux/lib/ /usr/local/cuda-11.8/targets/x86_64-linux/lib/
+ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/:/usr/local/cuda-11.8/targets/x86_64-linux/lib/:/usr/local/lib/python3.8/dist-packages/nvidia/cublas/lib/:/usr/local/lib/python3.8/dist-packages/nvidia/cuda_runtime/lib/:/usr/local/lib/python3.8/dist-packages/nvidia/cudnn/lib/:/usr/local/lib/python3.8/dist-packages/nvidia/cufft/lib/:/usr/local/lib/python3.8/dist-packages/nvidia/curand/lib/"
+
+ENTRYPOINT [ "gunicorn", "-w", "1", "server:app" ]
+
