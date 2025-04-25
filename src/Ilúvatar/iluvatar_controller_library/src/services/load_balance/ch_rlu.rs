@@ -233,7 +233,12 @@ impl ChRluLoadedBalancer {
                         drop(loads);
                         drop(workers);
                         if let Some(w) = self.worker_loads.write().get_mut(&chosen.name) {
-                            w.cpu_loadavg += noise;
+                            if func.supported_compute == Compute::CPU {
+                                w.cpu_loadavg += noise;
+                            }
+                            if func.supported_compute == Compute::GPU {
+                                w.gpu_loadavg += noise;
+                            }
                         };
                         chosen_worker = Some(chosen);
                         break;
