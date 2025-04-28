@@ -259,7 +259,7 @@ pub fn benchmark_worker(
         let func_args = match &function.args {
             Some(arg) => {
                 dummy.args = Some(arg.clone());
-                args_to_json(&prepare_function_args(&dummy, LoadType::Functions))?
+                args_to_json(&prepare_function_args(&dummy, LoadType::Functions)?)?
             },
             None => "{\"name\":\"TESTING\"}".to_string(),
         };

@@ -49,8 +49,8 @@ fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms
         Some(0) => 0,
         Some(p) => match func.mean_iat {
             Some(iat_ms) => {
-                let mut prewarms = f64::ceil(func.warm_dur_ms as f64 * 1.0 / iat_ms) as u32;
-                let cold_prewarms = f64::ceil(func.cold_dur_ms as f64 * 1.0 / iat_ms) as u32;
+                let mut prewarms = f64::ceil(func.warm_dur_ms.unwrap_or(0) as f64 * 1.0 / iat_ms) as u32;
+                let cold_prewarms = f64::ceil(func.cold_dur_ms.unwrap_or(0) as f64 * 1.0 / iat_ms) as u32;
                 prewarms = max(prewarms, cold_prewarms);
                 min(min(prewarms, p), max_prewarms)
             },
@@ -127,7 +127,7 @@ fn map_from_benchmark(
             let mut chosen_cold_time_ms = chosen.1;
 
             for (name, avg_warm, avg_cold, image) in device_data.iter() {
-                if func.warm_dur_ms as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
+                if func.warm_dur_ms.unwrap_or(0) as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
                     chosen_name.clone_from(name);
                     chosen_image.clone_from(image);
                     chosen_warm_time_ms = *avg_warm;
@@ -137,8 +137,8 @@ fn map_from_benchmark(
 
             if func.image_name.is_none() {
                 info!(tid=tid, function=%&func.func_name, chosen_code=%chosen_name, "Function mapped to benchmark code");
-                func.cold_dur_ms = chosen_cold_time_ms as u64;
-                func.warm_dur_ms = chosen_warm_time_ms as u64;
+                func.cold_dur_ms = Some(chosen_cold_time_ms as u64);
+                func.warm_dur_ms = Some(chosen_warm_time_ms as u64);
                 func.chosen_name = Some(chosen_name);
                 func.image_name = Some(chosen_image);
             }

@@ -481,9 +481,9 @@ impl ContainerIsolationService for DockerIsolation {
         let start = now();
         loop {
             match self.get_logs(container.container_id(), tid).await {
-                Ok((_out, err)) => {
-                    // stderr was written to, gunicorn server is either up or crashed
-                    if err.contains("Booting worker with pid") {
+                Ok((out, _err)) => {
+                    // stdout will have container startup magic string
+                    if out.contains("MGK_GUN_READY_KMG") {
                         break;
                     }
                 },

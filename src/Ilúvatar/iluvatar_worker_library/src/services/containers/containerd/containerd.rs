@@ -41,7 +41,6 @@ use iluvatar_library::utils::{
 use iluvatar_library::{
     bail_error, bail_error_value, error_value, transaction::TransactionId, types::MemSizeMb, ToAny,
 };
-use inotify::{Inotify, WatchMask};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -979,47 +978,28 @@ impl ContainerIsolationService for ContainerdIsolation {
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, timeout_ms), fields(tid=tid)))]
     async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
         debug!(tid=tid, container_id=%container.container_id(), "Waiting for startup of container");
-        let stderr = self.stderr_pth(container.container_id());
         let start = now();
-
-        let mut inotify = match Inotify::init() {
-            Ok(i) => i,
-            Err(e) => bail_error!(error=%e, tid=tid, "Init inotify watch failed"),
-        };
-        let dscriptor = match inotify.watches().add(&stderr, WatchMask::MODIFY) {
-            Ok(d) => d,
-            Err(e) => bail_error!(error=%e, tid=tid, "Adding inotify watch to file failed"),
-        };
-        let mut buffer = [0; 256];
+        let stdout_pth = self.stderr_pth(container.container_id());
 
         loop {
-            match inotify.read_events(&mut buffer) {
-                Ok(_events) => {
-                    // stderr was written to, gunicorn server is either up or crashed
-                    match inotify.watches().remove(dscriptor) {
-                        Ok(_) => (),
-                        Err(e) => bail_error!(error=%e, tid=tid, "Deleting inotify watch failed"),
-                    };
-                    break;
-                },
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if start.elapsed().as_millis() as u64 >= timeout_ms {
-                        let stdout = self.read_stdout(container, tid).await;
-                        let stderr = self.read_stderr(container, tid).await;
-                        if !stderr.is_empty() {
-                            warn!(tid=tid, container_id=%&container.container_id(), "Timeout waiting for container start, but stderr was written to?");
-                            return Ok(());
-                        }
-                        bail_error!(tid=tid, container_id=%container.container_id(), stdout=%stdout, stderr=%stderr, "Timeout while reading inotify events for container");
+            if let Ok(c) = tokio::fs::try_exists(&stdout_pth).await {
+                if !c {
+                    bail_error!(tid=tid, container_id=%container.container_id(), "Broken file waiting on container startup");
+                } else {
+                    let stdout = self.read_stdout(container, tid).await;
+                    // stdout will have container startup magic string
+                    if !stdout.contains("MGK_GUN_READY_KMG") {
+                        return Ok(());
                     }
-                },
-                _ => {
-                    bail_error!(tid=tid, container_id=%container.container_id(), "Error while reading inotify events for container")
-                },
-            };
-            tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+                }
+            }
+            if start.elapsed() >= Duration::from_secs(timeout_ms) {
+                let stdout = self.read_stdout(container, tid).await;
+                let stderr = self.read_stderr(container, tid).await;
+                bail_error!(tid=tid, container_id=%container.container_id(), stdout=%stdout, stderr=%stderr, "Timeout while waiting container startup");
+            }
+            tokio::time::sleep(Duration::from_micros(100)).await;
         }
-        Ok(())
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=tid)))]
