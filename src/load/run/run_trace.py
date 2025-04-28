@@ -311,6 +311,7 @@ worker_kwargs = [
     ("tegra_freq_ms", 0, ("energy", "tegra_freq_ms")),
     # gpu
     ("gpus", 0, ("container_resources", "gpu_resource", "count")),
+    ("gpu_memory", 16*1024, ("container_resources", "gpu_resource", "memory_mb")),
     ("fpd", 32, ("container_resources", "gpu_resource", "funcs_per_device")),
     (
         "per_func_gpu_memory",

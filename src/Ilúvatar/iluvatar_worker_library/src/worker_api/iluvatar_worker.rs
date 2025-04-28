@@ -210,6 +210,10 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         let reg = match self.reg.get_registration(&fqdn) {
             Some(r) => r,
             None => {
+                error!(
+                    tid = request.transaction_id,
+                    "Cannot prewarm function that was not registered."
+                );
                 let resp = PrewarmResponse {
                     success: false,
                     message: "{ \"Error\": \"Function was not registered\" }".into(),
@@ -219,6 +223,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         };
         let compute: Compute = request.compute.into();
         if !reg.supported_compute.intersects(compute) {
+            error!(tid=request.transaction_id, reg_comp=%reg.supported_compute, prewarm_comp=%compute, "Cannot prewarm function with compute not in registration.");
             let resp = PrewarmResponse {
                 success: false,
                 message: "{ \"Error\": \"Function was not registered with the specified compute\" }".to_string(),

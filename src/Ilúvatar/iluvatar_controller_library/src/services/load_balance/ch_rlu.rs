@@ -7,6 +7,7 @@ use crate::{
 };
 use anyhow::Result;
 use hashring::HashRing;
+use iluvatar_library::char_map::Value::Avg;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::types::Compute;
 use iluvatar_library::utils::timing::TimedExt;
@@ -299,7 +300,21 @@ impl LoadBalancerTrait for ChRluLoadedBalancer {
     }
 
     async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Duration> {
+        let (cpu, gpu) = self
+            .worker_cmap
+            .get_2(&func.fqdn, Chars::CpuExecTime, Avg, Chars::GpuExecTime, Avg);
+        let mut choices = vec![];
+        if func.supported_compute == Compute::CPU {
+            choices.push((OrderedFloat(cpu), Compute::CPU));
+        }
+        if func.supported_compute == Compute::GPU {
+            choices.push((OrderedFloat(gpu), Compute::GPU));
+        }
+        choices.sort_by(|c1, c2| c1.0.cmp(&c2.0));
+        let c = choices
+            .first()
+            .ok_or_else(|| anyhow::format_err!("Could not prewarm with no compute"))?;
         let worker = self.get_worker(&func, tid)?;
-        prewarm!(func, tid, self.worker_fact, self.health, worker)
+        prewarm!(func, tid, self.worker_fact, self.health, worker, c.1)
     }
 }

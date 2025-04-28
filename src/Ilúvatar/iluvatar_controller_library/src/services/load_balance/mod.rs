@@ -126,11 +126,11 @@ macro_rules! send_invocation {
 
 #[macro_export]
 macro_rules! prewarm {
-  ($func:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr) => {
+  ($func:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr, $compute:expr) => {
     {
-      info!(tid=$tid, fqdn=%$func.fqdn, worker=%$worker.name, "prewarming function on worker");
+      info!(tid=$tid, fqdn=%$func.fqdn, worker=%$worker.name, compute=%$compute, "prewarming function on worker");
       let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $tid).await?;
-      let (result, duration) = api.prewarm($func.function_name.clone(), $func.function_version.clone(), $tid.clone(), iluvatar_library::types::Compute::CPU).timed().await;
+      let (result, duration) = api.prewarm($func.function_name.clone(), $func.function_version.clone(), $tid.clone(), $compute).timed().await;
       let result = match result {
         Ok(r) => r,
         Err(e) => {
