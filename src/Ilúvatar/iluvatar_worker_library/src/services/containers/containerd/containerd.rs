@@ -977,19 +977,31 @@ impl ContainerIsolationService for ContainerdIsolation {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, timeout_ms), fields(tid=tid)))]
     async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
-        info!(tid=tid, container_id=container.container_id(), "Waiting for startup of container");
+        info!(
+            tid = tid,
+            container_id = container.container_id(),
+            "Waiting for startup of container"
+        );
         let start = now();
         let stderr_pth = self.stderr_pth(container.container_id());
 
         loop {
             if let Ok(c) = tokio::fs::try_exists(&stderr_pth).await {
                 if !c {
-                    bail_error!(tid=tid, container_id=container.container_id(), "Broken file waiting on container startup");
+                    bail_error!(
+                        tid = tid,
+                        container_id = container.container_id(),
+                        "Broken file waiting on container startup"
+                    );
                 } else {
                     let stderr = self.read_stderr(container, tid).await;
                     // stderr will have container startup magic string
                     if stderr.contains("MGK_GUN_READY_KMG") {
-                        info!(tid=tid, container_id=container.container_id(), "container successfully started!");
+                        info!(
+                            tid = tid,
+                            container_id = container.container_id(),
+                            "container successfully started!"
+                        );
                         return Ok(());
                     }
                 }
@@ -997,7 +1009,13 @@ impl ContainerIsolationService for ContainerdIsolation {
             if start.elapsed() >= Duration::from_secs(timeout_ms) {
                 let stdout = self.read_stdout(container, tid).await;
                 let stderr = self.read_stderr(container, tid).await;
-                bail_error!(tid=tid, container_id=container.container_id(), stdout=stdout, stderr=stderr, "Timeout while waiting container startup");
+                bail_error!(
+                    tid = tid,
+                    container_id = container.container_id(),
+                    stdout = stdout,
+                    stderr = stderr,
+                    "Timeout while waiting container startup"
+                );
             }
             tokio::time::sleep(Duration::from_micros(100)).await;
         }
