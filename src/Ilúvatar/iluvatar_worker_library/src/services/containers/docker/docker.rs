@@ -481,9 +481,9 @@ impl ContainerIsolationService for DockerIsolation {
         let start = now();
         loop {
             match self.get_logs(container.container_id(), tid).await {
-                Ok((out, _err)) => {
-                    // stdout will have container startup magic string
-                    if out.contains("MGK_GUN_READY_KMG") {
+                Ok((_out, err)) => {
+                    // stderr will have container startup magic string
+                    if err.contains("MGK_GUN_READY_KMG") {
                         break;
                     }
                 },

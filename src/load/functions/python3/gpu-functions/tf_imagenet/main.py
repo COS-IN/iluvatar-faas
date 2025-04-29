@@ -40,20 +40,6 @@ def create_graph():
         _ = tf.import_graph_def(graph_def, name='')
         print("import_graph_def done")
 
-if not os.path.exists('/tmp/imagenet/'):
-    os.makedirs('/tmp/imagenet/')
-
-downloadFromURL(
-    url='http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz',
-    local_path='/tmp/imagenet/inception-2015-12-05.tgz'
-)
-
-print("global init")
-if not os.path.exists("/tmp/imagenet/classify_image_graph_def.pb"):
-  file = tarfile.open('/tmp/imagenet/inception-2015-12-05.tgz', 'r:gz')
-  file.extractall('/tmp/imagenet/')
-create_graph()
-
 class NodeLookup(object):
     """Converts integer node ID's to human readable labels."""
 
@@ -147,8 +133,19 @@ def main(args):
   global cold
   was_cold = cold
   cold = False
+  if not os.path.exists('/tmp/imagenet/'):
+      os.makedirs('/tmp/imagenet/')
 
-  print("in main")
+  downloadFromURL(
+      url='http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz',
+      local_path='/tmp/imagenet/inception-2015-12-05.tgz'
+  )
+
+  if not os.path.exists("/tmp/imagenet/classify_image_graph_def.pb"):
+      file = tarfile.open('/tmp/imagenet/inception-2015-12-05.tgz', 'r:gz')
+      file.extractall('/tmp/imagenet/')
+  create_graph()
+
   try:
     start = time()
 
