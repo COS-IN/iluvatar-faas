@@ -7,7 +7,7 @@ use iluvatar_library::transaction::TEST_TID;
 use rstest::rstest;
 use std::time::Duration;
 use utils::{
-    background_test_invoke, cust_register, get_start_end_time_from_invoke, prewarm, register, build_test_services,
+    background_test_invoke, build_test_services, cust_register, get_start_end_time_from_invoke, prewarm, register,
 };
 
 /// Only 1 CPU to force serial execution

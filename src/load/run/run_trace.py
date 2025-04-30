@@ -174,6 +174,7 @@ def _run_load(logger, results_dir, input_csv, metadata, kwargs):
         load_args.append(kwargs["tick_step"])
 
     load_env = kwargs.to_env_var_dict("load")
+    load_env["RUST_BACKTRACE"] = "full"
     _run_cmd(load_args, logger, env=load_env)
 
 

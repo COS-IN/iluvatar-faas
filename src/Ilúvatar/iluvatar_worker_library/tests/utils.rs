@@ -31,7 +31,6 @@ macro_rules! assert_error {
     };
 }
 
-
 /// Creates/sets up the services needed to test a worker setup.
 /// Passing [log] = Some("<level>") will enable logging to stdout, useful for test debugging.
 /// [config_pth] is an optional path to config to load.

@@ -1,7 +1,7 @@
 #[macro_use]
 pub mod utils;
 
-use crate::utils::{background_test_invoke, resolve_invoke, sim_args, build_test_services, wait_for_queue_len};
+use crate::utils::{background_test_invoke, build_test_services, resolve_invoke, sim_args, wait_for_queue_len};
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::{threading::EventualItem, transaction::TEST_TID};

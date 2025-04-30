@@ -10,9 +10,8 @@ use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::threading::{is_simulation, tokio_spawn_thread};
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::{
-    sync_live_scope,
     logging::start_simulation_tracing,
-    sync_sim_scope,
+    sync_live_scope, sync_sim_scope,
     transaction::{gen_tid, TransactionId, LIVE_WORKER_LOAD_TID, SIMULATION_START_TID},
     utils::config::args_to_json,
 };

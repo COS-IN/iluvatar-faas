@@ -1,7 +1,7 @@
 #[macro_use]
 pub mod utils;
 
-use crate::utils::{short_sim_args, sim_args, build_test_services};
+use crate::utils::{build_test_services, short_sim_args, sim_args};
 use iluvatar_library::clock::get_global_clock;
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::transaction::{gen_tid, TEST_TID};

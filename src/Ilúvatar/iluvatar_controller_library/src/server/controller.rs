@@ -9,7 +9,7 @@ use iluvatar_library::char_map::{worker_char_map, Chars, IatTracker, WorkerCharM
 use iluvatar_library::threading::is_simulation;
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::utils::calculate_fqdn;
-use iluvatar_library::{bail_error, transaction::TransactionId};
+use iluvatar_library::{async_live_scope, bail_error, transaction::TransactionId};
 use iluvatar_rpc::rpc::iluvatar_controller_server::IluvatarController;
 use iluvatar_rpc::rpc::{
     InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest, PrewarmRequest, PrewarmResponse,
@@ -76,26 +76,35 @@ impl Controller {
 impl IluvatarController for Controller {
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
-        match ControllerAPITrait::ping(self, request.into_inner()).await {
-            Ok(r) => Ok(Response::new(PingResponse { message: r })),
-            Err(e) => Err(Status::from_error(e.into())),
-        }
+        async_live_scope!(async {
+            match ControllerAPITrait::ping(self, request.into_inner()).await {
+                Ok(r) => Ok(Response::new(PingResponse { message: r })),
+                Err(e) => Err(Status::from_error(e.into())),
+            }
+        })
+        .await
     }
 
     #[tracing::instrument(skip(self, prewarm), fields(tid=prewarm.get_ref().transaction_id))]
     async fn prewarm(&self, prewarm: Request<PrewarmRequest>) -> Result<Response<PrewarmResponse>, Status> {
-        match ControllerAPITrait::prewarm(self, prewarm.into_inner()).await {
-            Ok(r) => Ok(Response::new(r)),
-            Err(e) => Err(Status::from_error(e.into())),
-        }
+        async_live_scope!(async {
+            match ControllerAPITrait::prewarm(self, prewarm.into_inner()).await {
+                Ok(r) => Ok(Response::new(r)),
+                Err(e) => Err(Status::from_error(e.into())),
+            }
+        })
+        .await
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn invoke(&self, request: Request<InvokeRequest>) -> Result<Response<InvokeResponse>, Status> {
-        match ControllerAPITrait::invoke(self, request.into_inner()).await {
-            Ok(r) => Ok(Response::new(r)),
-            Err(e) => Err(Status::from_error(e.into())),
-        }
+        async_live_scope!(async {
+            match ControllerAPITrait::invoke(self, request.into_inner()).await {
+                Ok(r) => Ok(Response::new(r)),
+                Err(e) => Err(Status::from_error(e.into())),
+            }
+        })
+        .await
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
@@ -103,13 +112,16 @@ impl IluvatarController for Controller {
         &self,
         request: Request<InvokeAsyncRequest>,
     ) -> Result<Response<InvokeAsyncResponse>, Status> {
-        match ControllerAPITrait::invoke_async(self, request.into_inner()).await {
-            Ok(r) => Ok(Response::new(InvokeAsyncResponse {
-                success: true,
-                lookup_cookie: r,
-            })),
-            Err(e) => Err(Status::from_error(e.into())),
-        }
+        async_live_scope!(async {
+            match ControllerAPITrait::invoke_async(self, request.into_inner()).await {
+                Ok(r) => Ok(Response::new(InvokeAsyncResponse {
+                    success: true,
+                    lookup_cookie: r,
+                })),
+                Err(e) => Err(Status::from_error(e.into())),
+            }
+        })
+        .await
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
@@ -117,21 +129,27 @@ impl IluvatarController for Controller {
         &self,
         request: Request<InvokeAsyncLookupRequest>,
     ) -> Result<Response<InvokeResponse>, Status> {
-        match ControllerAPITrait::invoke_async_check(self, request.into_inner()).await {
-            Ok(r) => match r {
-                Some(r) => Ok(Response::new(r)),
-                None => Err(Status::unavailable("NOT READY")),
-            },
-            Err(e) => Err(Status::from_error(e.into())),
-        }
+        async_live_scope!(async {
+            match ControllerAPITrait::invoke_async_check(self, request.into_inner()).await {
+                Ok(r) => match r {
+                    Some(r) => Ok(Response::new(r)),
+                    None => Err(Status::unavailable("NOT READY")),
+                },
+                Err(e) => Err(Status::from_error(e.into())),
+            }
+        })
+        .await
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]
     async fn register(&self, request: Request<RegisterRequest>) -> Result<Response<RegisterResponse>, Status> {
-        match ControllerAPITrait::register(self, request.into_inner()).await {
-            Ok(r) => Ok(Response::new(r)),
-            Err(e) => Err(Status::from_error(e.into())),
-        }
+        async_live_scope!(async {
+            match ControllerAPITrait::register(self, request.into_inner()).await {
+                Ok(r) => Ok(Response::new(r)),
+                Err(e) => Err(Status::from_error(e.into())),
+            }
+        })
+        .await
     }
 
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().name))]
@@ -139,10 +157,13 @@ impl IluvatarController for Controller {
         &self,
         request: Request<RegisterWorkerRequest>,
     ) -> Result<Response<RegisterWorkerResponse>, Status> {
-        match ControllerAPITrait::register_worker(self, request.into_inner()).await {
-            Ok(_) => Ok(Response::new(RegisterWorkerResponse {})),
-            Err(e) => Err(Status::from_error(e.into())),
-        }
+        async_live_scope!(async {
+            match ControllerAPITrait::register_worker(self, request.into_inner()).await {
+                Ok(_) => Ok(Response::new(RegisterWorkerResponse {})),
+                Err(e) => Err(Status::from_error(e.into())),
+            }
+        })
+        .await
     }
 }
 

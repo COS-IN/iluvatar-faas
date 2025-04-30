@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use clap::{command, Parser};
 use iluvatar_controller_library::server::{config::Configuration, controller::Controller};
-use iluvatar_library::sync_live_scope;
 use iluvatar_library::logging::start_tracing;
+use iluvatar_library::sync_live_scope;
 use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::transaction::{TransactionId, LOAD_BALANCER_TID};

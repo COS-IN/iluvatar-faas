@@ -1,7 +1,7 @@
 #[macro_use]
 pub mod utils;
 
-use crate::utils::{short_sim_args, sim_args, build_test_services, test_invoke};
+use crate::utils::{build_test_services, short_sim_args, sim_args, test_invoke};
 use iluvatar_library::transaction::{gen_tid, TEST_TID};
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_rpc::rpc::RegisterRequest;

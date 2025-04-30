@@ -5,7 +5,7 @@ use iluvatar_library::char_map::worker_char_map;
 use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
-use iluvatar_library::{bail_error, sync_live_scope, logging::start_tracing, utils::wait_for_exit_signal};
+use iluvatar_library::{bail_error, logging::start_tracing, sync_live_scope, utils::wait_for_exit_signal};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use iluvatar_worker_library::http::create_http_server;
