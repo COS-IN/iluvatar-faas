@@ -174,6 +174,7 @@ impl GlobalClock for SimulatedTime {
         GlobalClock::format_time(self, self.now())
     }
     fn now(&self) -> OffsetDateTime {
+        println!("Elapsed time: {:?}", self.tokio_elapsed.elapsed());
         self.start_time.add(self.tokio_elapsed.elapsed())
     }
     fn format_time(&self, time: OffsetDateTime) -> Result<String> {

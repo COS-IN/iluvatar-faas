@@ -534,7 +534,7 @@ mod gpu_batch_tests {
         ))
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn one_item_correct() {
         let clock = get_global_clock(&"clock".to_string()).unwrap();
         let b = GpuBatch::new(item(&clock), 1.0);
@@ -542,7 +542,7 @@ mod gpu_batch_tests {
         assert_eq!(b.est_queue_time(), 1.0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn added_items_correct() {
         let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut b = GpuBatch::new(item(&clock), 1.0);

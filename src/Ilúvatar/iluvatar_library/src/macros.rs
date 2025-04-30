@@ -119,7 +119,7 @@ macro_rules! async_live_scope {
     };
 }
 #[macro_export]
-macro_rules! live_sync_scope {
+macro_rules! sync_live_scope {
     ($func:expr) => {
         $crate::threading::SIMULATION.sync_scope(false, $func)
     };

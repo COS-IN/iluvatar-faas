@@ -1,10 +1,9 @@
 use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::{
-    async_sim_scope,
     clock::ContainerTimeFormatter,
     logging::{start_tracing, LoggingConfig},
-    transaction::{TransactionId, SIMULATION_START_TID, TEST_TID},
+    transaction::{TransactionId, TEST_TID},
     types::{Compute, Isolation, MemSizeMb},
 };
 use iluvatar_rpc::rpc::RegisterRequest;
@@ -32,31 +31,12 @@ macro_rules! assert_error {
     };
 }
 
-/// Creates/sets up the services needed to test a worker setup.
-/// Passing [log] = Some("<level>") will enable logging to stdout, useful for test debugging.
-/// [config_pth] is an optional path to config to load.
-#[allow(dyn_drop)]
-pub async fn sim_test_services(
-    config_pth: Option<&str>,
-    overrides: Option<Vec<(String, String)>>,
-    log: Option<&str>,
-) -> (
-    Option<Box<dyn Drop + Send + Sync + 'static>>,
-    WorkerConfig,
-    Arc<ContainerManager>,
-    Arc<dyn Invoker>,
-    Arc<RegistrationService>,
-    WorkerCharMap,
-    Option<Arc<GpuResourceTracker>>,
-) {
-    async_sim_scope!(build_test_services(config_pth, overrides, log, &SIMULATION_START_TID)).await
-}
 
 /// Creates/sets up the services needed to test a worker setup.
 /// Passing [log] = Some("<level>") will enable logging to stdout, useful for test debugging.
 /// [config_pth] is an optional path to config to load.
 #[allow(dyn_drop)]
-pub async fn test_invoker_svc(
+pub async fn build_test_services(
     config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
     log: Option<&str>,
@@ -69,24 +49,7 @@ pub async fn test_invoker_svc(
     WorkerCharMap,
     Option<Arc<GpuResourceTracker>>,
 ) {
-    build_test_services(config_pth, overrides, log, &TEST_TID).await
-}
-
-#[allow(dyn_drop)]
-async fn build_test_services(
-    config_pth: Option<&str>,
-    overrides: Option<Vec<(String, String)>>,
-    log: Option<&str>,
-    tid: &TransactionId,
-) -> (
-    Option<Box<dyn Drop + Send + Sync + 'static>>,
-    WorkerConfig,
-    Arc<ContainerManager>,
-    Arc<dyn Invoker>,
-    Arc<RegistrationService>,
-    WorkerCharMap,
-    Option<Arc<GpuResourceTracker>>,
-) {
+    let tid: TransactionId = TEST_TID.clone();
     let cfg: WorkerConfig = iluvatar_library::load_config_default!(
         "iluvatar_worker_library/tests/resources/worker.json",
         config_pth,
@@ -112,7 +75,7 @@ async fn build_test_services(
         None => None,
     };
 
-    let worker = iluvatar_worker_library::worker_api::create_worker(cfg.clone(), tid)
+    let worker = iluvatar_worker_library::worker_api::create_worker(cfg.clone(), &tid)
         .await
         .unwrap_or_else(|e| panic!("Error creating worker: {}", e));
     (

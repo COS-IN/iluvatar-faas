@@ -7,7 +7,7 @@ use iluvatar_library::transaction::TEST_TID;
 use rstest::rstest;
 use std::time::Duration;
 use utils::{
-    background_test_invoke, cust_register, get_start_end_time_from_invoke, prewarm, register, sim_test_services,
+    background_test_invoke, cust_register, get_start_end_time_from_invoke, prewarm, register, build_test_services,
 };
 
 /// Only 1 CPU to force serial execution
@@ -32,10 +32,10 @@ mod fcfs_tests {
     use super::*;
     use crate::utils::sim_args;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[iluvatar_library::sim_test]
     async fn no_reordering() {
         let env = build_serial_overrides("fcfs");
-        let (_log, _cfg, _cm, invok_svc, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invok_svc, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
         let json_args = sim_args().unwrap();
         let transaction_id = "testTID".to_string();
         let function_name = "test".to_string();
@@ -77,10 +77,10 @@ mod minheap_tests {
     use super::*;
     use crate::utils::{sim_args, test_invoke};
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[iluvatar_library::sim_test]
     async fn fast_put_first() {
         let env = build_serial_overrides("minheap");
-        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
         let json_args = sim_args().unwrap();
         let short_args = short_sim_args().unwrap();
         let transaction_id = "testTID".to_string();
@@ -122,10 +122,10 @@ mod minheap_tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[iluvatar_library::sim_test]
     async fn fast_not_moved() {
         let env = build_serial_overrides("minheap");
-        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
         let json_args = sim_args().unwrap();
         let short_args = short_sim_args().unwrap();
         let transaction_id = "testTID".to_string();
@@ -193,6 +193,7 @@ mod bypass_tests {
     use super::*;
     use iluvatar_library::clock::now;
 
+    #[iluvatar_library::sim_test]
     #[rstest]
     #[case("fcfs")]
     #[case("minheap")]
@@ -200,10 +201,9 @@ mod bypass_tests {
     #[case("minheap_ed")]
     #[case("cold_pri")]
     #[case("scaling")]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn fast_bypass_limits(#[case] invoker_q: &str) {
         let env = build_bypass_overrides(invoker_q);
-        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, cm, invok_svc, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
         let json_args = sim_args().unwrap();
         let short_args = short_sim_args().unwrap();
         let transaction_id = "testTID".to_string();
@@ -236,6 +236,7 @@ mod bypass_tests {
             let fast_invoke = background_test_invoke(&invok_svc, &fast_reg, &short_args, &transaction_id);
             let start = now();
             while start.elapsed() < Duration::from_secs(2) {
+                tokio::time::sleep(Duration::from_millis(1)).await;
                 if invok_svc.running_funcs() > 1 {
                     found = true;
                     break;

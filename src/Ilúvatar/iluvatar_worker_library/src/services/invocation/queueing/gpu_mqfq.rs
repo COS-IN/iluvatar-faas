@@ -309,16 +309,17 @@ impl FlowQ {
             return;
         }
         if self.state == MQState::Active {
-            let ttl_remaining = (self.clock.now() - self.last_serviced).as_seconds_f64();
+            let now = self.clock.now();
+            let ttl_remaining = (now - self.last_serviced).as_seconds_f64();
             let ttl = if self.ttl_sec < 0.0 {
                 self.cmap.get_avg(&self.fqdn, Chars::GpuExecTime) * f64::abs(self.ttl_sec)
             } else {
                 self.ttl_sec
             };
-            if ttl_remaining > ttl {
+            if ttl_remaining >= ttl {
                 self.update_state(MQState::Inactive);
                 // Update the active period/eviction time
-                let active_t = (self.clock.now() - self.active_start_t).as_seconds_f64();
+                let active_t = (now - self.active_start_t).as_seconds_f64();
                 let n = self.num_active_periods as f64;
                 let prev_avg = self.avg_active_t;
                 let new_avg = (n * prev_avg) + active_t / (n + 1.0);

@@ -164,7 +164,6 @@ impl RingBuffer {
 mod buff_vec_tests {
     use super::*;
     use crate::ToAny;
-    use std::thread::sleep;
 
     #[derive(ToAny)]
     struct Item {
@@ -172,18 +171,18 @@ mod buff_vec_tests {
     }
     impl Wireable for Item {}
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn build() {
         let _ = BufferVec::new(10);
     }
-    #[test]
+    #[iluvatar_library::sim_test]
     fn insert() {
         let b = BufferVec::new(10);
         for idx in 0..20 {
             b.insert(Arc::new(Item { idx }));
         }
     }
-    #[test]
+    #[iluvatar_library::sim_test]
     fn latest() {
         let b = BufferVec::new(10);
         for idx in 0..20 {
@@ -199,12 +198,12 @@ mod buff_vec_tests {
             }
         }
     }
-    #[test]
-    fn history() {
+    #[iluvatar_library::sim_test]
+    async fn history() {
         let b = BufferVec::new(10);
         for idx in 0..20 {
             b.insert(Arc::new(Item { idx }));
-            sleep(Duration::from_millis(10));
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
         let hist = b.history(Duration::from_millis(51));
         for i in 0..hist.len() {
@@ -238,7 +237,7 @@ mod ring_buff_tests {
     }
     impl Wireable for Item {}
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn build() {
         let _ = RingBuffer::new(Duration::from_secs(60));
     }
@@ -269,14 +268,14 @@ mod ring_buff_tests {
         assert_eq!(entries, f64::ceil(keep_time as f64 * (1000.0 / freq as f64)) as usize);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn empty() {
         let ring = RingBuffer::new(Duration::from_secs(60));
         assert!(ring.latest(KEY).is_none());
         assert_eq!(ring.history(KEY, Duration::from_secs(60)).len(), 0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn insert() {
         let ring = RingBuffer::new(Duration::from_secs(60));
         ring.insert(KEY, Arc::new(Item { idx: 0 }));
@@ -303,7 +302,7 @@ mod ring_buff_tests {
         })
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn read_write() {
         let max = 20;
         let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
@@ -320,7 +319,7 @@ mod ring_buff_tests {
         reader.await.unwrap();
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[iluvatar_library::sim_test]
     async fn readers_writer() {
         let max = 20;
         let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
@@ -350,7 +349,7 @@ mod ring_buff_tests {
             Ok(Item { idx: 0xBADCAFE })
         }
     }
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[iluvatar_library::sim_test]
     /// And End-to-end test of how callees will use RingBuffer, from a periodically called Tokio thread.
     async fn background_writer() {
         let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));

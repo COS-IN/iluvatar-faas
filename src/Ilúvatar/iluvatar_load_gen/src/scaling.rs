@@ -11,7 +11,12 @@ use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::types::ContainerServer;
-use iluvatar_library::{live_sync_scope, transaction::gen_tid, types::{Compute, Isolation, MemSizeMb}, utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port}};
+use iluvatar_library::{
+    sync_live_scope,
+    transaction::gen_tid,
+    types::{Compute, Isolation, MemSizeMb},
+    utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port},
+};
 use rand::prelude::*;
 use std::path::{Path, PathBuf};
 use std::{sync::Arc, time::Duration};
@@ -65,7 +70,7 @@ pub struct ScalingArgs {
 }
 
 pub fn scaling(args: ScalingArgs) -> Result<()> {
-    live_sync_scope!(|| {
+    sync_live_scope!(|| {
         ensure_dir(PathBuf::new().join(&args.out_folder))?;
         for threads in args.start..(args.end + 1) {
             let runtime = build_tokio_runtime(&None, &None, &Some(threads as usize), &"SCALING_TID".to_string())?;

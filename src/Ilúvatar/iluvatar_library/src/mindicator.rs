@@ -154,7 +154,7 @@ mod mindicator_tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[iluvatar_library::sim_test(worker_threads = 10)]
     async fn parallel_inserts_safe() {
         let size = 50;
         let m = Mindicator::boxed(size);
@@ -171,7 +171,7 @@ mod mindicator_tests {
         assert_eq!(m.min(), 0.0);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[iluvatar_library::sim_test(worker_threads = 10)]
     async fn parallel_insert_remove_safe() {
         let size = 50;
         let m = Mindicator::boxed(size);

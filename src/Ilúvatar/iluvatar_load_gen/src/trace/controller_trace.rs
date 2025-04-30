@@ -20,7 +20,7 @@ use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::transaction::{gen_tid, TransactionId, LIVE_WORKER_LOAD_TID, SIMULATION_START_TID};
 use iluvatar_library::types::{Compute, Isolation};
 use iluvatar_library::utils::{config::args_to_json, port::Port};
-use iluvatar_library::{live_sync_scope, sync_sim_scope};
+use iluvatar_library::{sync_live_scope, sync_sim_scope};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
@@ -91,7 +91,7 @@ async fn controller_prewarm_funcs(
 }
 
 pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
-    live_sync_scope!(|| {
+    sync_live_scope!(|| {
         let tid: &TransactionId = &LIVE_WORKER_LOAD_TID;
         let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
         let factory = ControllerAPIFactory::boxed();

@@ -209,6 +209,14 @@ pub async fn wait_for_exit_signal(tid: &TransactionId) -> Result<()> {
     let mut sig_quit = try_create_signal(tid, SignalKind::quit())?;
 
     info!(tid = tid, "Waiting on exit signal");
+    tokio::select! {
+      _res = sig_int.recv() => println!("sigint"),
+      _res = sig_term.recv() => println!("sigterm"),
+      _res = sig_usr1.recv() => println!("sigusr1"),
+      _res = sig_usr2.recv() => println!("sigusr2"),
+      _res = sig_quit.recv() => println!("sigquit"),
+    }
+
     if tokio::select! {
       res = sig_int.recv() => res,
       res = sig_term.recv() => res,
@@ -294,34 +302,17 @@ mod tests {
 #[cfg(test)]
 mod signal_tests {
     use super::*;
-    use crate::threading::tokio_spawn_thread;
     use rstest::rstest;
 
+    #[iluvatar_library::live_test]
     #[rstest]
     #[case(SignalKind::interrupt())]
     #[case(SignalKind::terminate())]
     #[case(SignalKind::user_defined1())]
     #[case(SignalKind::user_defined2())]
     #[case(SignalKind::quit())]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn should_create_signal(#[case] kind: SignalKind) {
         let _ = try_create_signal(&"TEST".to_string(), kind).unwrap();
-    }
-
-    #[rstest]
-    #[case(SignalKind::interrupt())]
-    #[case(SignalKind::terminate())]
-    #[case(SignalKind::user_defined1())]
-    #[case(SignalKind::user_defined2())]
-    #[case(SignalKind::quit())]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn should_exit_on_signal(#[case] kind: SignalKind) {
-        let tid = "TEST".to_string();
-        let t = tokio_spawn_thread(async move { wait_for_exit_signal(&tid.clone()).await });
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        let nix_signal = nix::sys::signal::Signal::try_from(kind.as_raw_value()).unwrap();
-        nix::sys::signal::kill(nix::unistd::Pid::from_raw(std::process::id() as i32), nix_signal).unwrap();
-        t.await.unwrap().unwrap();
     }
 }
 

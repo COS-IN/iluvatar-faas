@@ -10,7 +10,7 @@ use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::threading::{is_simulation, tokio_spawn_thread};
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::{
-    live_sync_scope,
+    sync_live_scope,
     logging::start_simulation_tracing,
     sync_sim_scope,
     transaction::{gen_tid, TransactionId, LIVE_WORKER_LOAD_TID, SIMULATION_START_TID},
@@ -119,7 +119,7 @@ pub fn simulated_worker(args: TraceArgs) -> Result<()> {
 }
 
 pub fn live_worker(args: TraceArgs) -> Result<()> {
-    live_sync_scope!(|| {
+    sync_live_scope!(|| {
         let tid: &TransactionId = &LIVE_WORKER_LOAD_TID;
         let factory = WorkerAPIFactory::boxed();
         let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;

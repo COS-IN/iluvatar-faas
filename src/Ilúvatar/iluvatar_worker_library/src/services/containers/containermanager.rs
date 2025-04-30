@@ -370,6 +370,7 @@ impl ContainerManager {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     pub fn return_container(&self, container: &Container, tid: &TransactionId) {
+        info!(tid = tid, "returning container");
         if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
             (*cnt).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         }
@@ -383,7 +384,7 @@ impl ContainerManager {
         let resource_pool = match self.get_resource_pool(container.compute_type()) {
             Ok(r) => r,
             Err(_) => {
-                error!(tid=tid, container_id=%container.container_id(), compute=?container.compute_type(), "Unknonwn compute for container");
+                error!(tid=tid, container_id=%container.container_id(), compute=?container.compute_type(), "Unknown compute for container");
                 return;
             },
         };
@@ -606,7 +607,6 @@ impl ContainerManager {
     /// Container **must** have already been removed from the container pool
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     async fn purge_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
-        info!(tid=tid, container_id=%container.container_id(), "Removing container");
         let r = match self.cont_isolations.get(&container.container_type()) {
             Some(c) => c.remove_container(container.clone(), "default", tid).await,
             None => bail_error!(tid=tid, iso=?container.container_type(), "Lifecycle for container not supported"),
@@ -837,7 +837,6 @@ mod tests {
     use crate::services::containers::IsolationFactory;
     use crate::worker_api::config::WorkerConfig;
     use crate::worker_api::worker_config::WORKER_ENV_PREFIX;
-    use iluvatar_library::async_sim_scope;
     use iluvatar_library::char_map::worker_char_map;
     use iluvatar_library::transaction::TEST_TID;
     use std::time::Duration;
@@ -882,86 +881,77 @@ mod tests {
         .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e))
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn cpu_unhealthy_removed() {
-        async_sim_scope!(async {
-            let cm = svc(None).await;
-            let func = cpu_reg();
-            cm.register(&func, &TEST_TID).unwrap();
-            let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
-                EventualItem::Future(f) => f.await,
-                EventualItem::Now(n) => n,
-            }
-            .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            assert_eq!(*cm.used_mem_mb.read(), func.memory);
-            let c1_cont = c1.container.clone();
-            c1_cont.mark_unhealthy();
-            drop(c1);
-            cm.prioritiy_notify.notify_waiters();
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            assert_eq!(cm.gpu_containers.len(), 0, "Unhealthy container should be gone");
-            assert_eq!(*cm.used_mem_mb.read(), 0);
-        })
-        .await;
+        let cm = svc(None).await;
+        let func = cpu_reg();
+        cm.register(&func, &TEST_TID).unwrap();
+        let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
+            EventualItem::Future(f) => f.await,
+            EventualItem::Now(n) => n,
+        }
+        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(*cm.used_mem_mb.read(), func.memory);
+        let c1_cont = c1.container.clone();
+        c1_cont.mark_unhealthy();
+        drop(c1);
+        cm.prioritiy_notify.notify_waiters();
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        assert_eq!(cm.gpu_containers.len(), 0, "Unhealthy container should be gone");
+        assert_eq!(*cm.used_mem_mb.read(), 0);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn purge_container() {
-        async_sim_scope!(async {
-            let cm = svc(None).await;
-            let func = cpu_reg();
-            cm.register(&func, &TEST_TID).unwrap();
-            let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
-                EventualItem::Future(f) => f.await,
-                EventualItem::Now(n) => n,
-            }
-            .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            assert_eq!(*cm.used_mem_mb.read(), func.memory);
-            assert_eq!(cm.cpu_containers.len(), 1, "Container should exist");
-            drop(c1);
-            cm.remove_idle_containers(&TEST_TID).await.unwrap();
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            let state = cm.container_exists(
-                &calculate_fqdn(&func.function_name, &func.function_version),
-                Compute::CPU,
-            );
-            assert_eq!(state, ContainerState::Cold, "After purging container, should be cold");
-            assert_eq!(cm.cpu_containers.len(), 0, "Purged container should be gone");
-            assert_eq!(cm.gpu_containers.len(), 0, "Purged container should be gone");
-            assert_eq!(*cm.used_mem_mb.read(), 0, "Used memory should be reset to zero");
-        })
-        .await;
+        let cm = svc(None).await;
+        let func = cpu_reg();
+        cm.register(&func, &TEST_TID).unwrap();
+        let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
+            EventualItem::Future(f) => f.await,
+            EventualItem::Now(n) => n,
+        }
+        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(*cm.used_mem_mb.read(), func.memory);
+        assert_eq!(cm.cpu_containers.len(), 1, "Container should exist");
+        drop(c1);
+        cm.remove_idle_containers(&TEST_TID).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        let state = cm.container_exists(
+            &calculate_fqdn(&func.function_name, &func.function_version),
+            Compute::CPU,
+        );
+        assert_eq!(state, ContainerState::Cold, "After purging container, should be cold");
+        assert_eq!(cm.cpu_containers.len(), 0, "Purged container should be gone");
+        assert_eq!(cm.gpu_containers.len(), 0, "Purged container should be gone");
+        assert_eq!(*cm.used_mem_mb.read(), 0, "Used memory should be reset to zero");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn memory_tracking() {
-        async_sim_scope!(async {
-            let cm = svc(None).await;
-            let func = cpu_reg();
-            cm.register(&func, &TEST_TID).unwrap();
-            let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
-                EventualItem::Future(f) => f.await,
-                EventualItem::Now(n) => n,
-            }
-            .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            assert_eq!(*cm.used_mem_mb.read(), func.memory, "first failed");
-            let _c2 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
-                EventualItem::Future(f) => f.await,
-                EventualItem::Now(n) => n,
-            }
-            .unwrap_or_else(|e| panic!("acquire container 2 failed: {:?}", e));
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            assert_eq!(*cm.used_mem_mb.read(), func.memory * 2, "second failed");
-            drop(c1);
-            cm.remove_idle_containers(&TEST_TID)
-                .await
-                .unwrap_or_else(|e| panic!("remove_idle_containers failed: {:?}", e));
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            assert_eq!(*cm.used_mem_mb.read(), func.memory, "thinrd failed");
-        })
-        .await;
+        let cm = svc(None).await;
+        let func = cpu_reg();
+        cm.register(&func, &TEST_TID).unwrap();
+        let c1 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
+            EventualItem::Future(f) => f.await,
+            EventualItem::Now(n) => n,
+        }
+        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(*cm.used_mem_mb.read(), func.memory, "first failed");
+        let _c2 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
+            EventualItem::Future(f) => f.await,
+            EventualItem::Now(n) => n,
+        }
+        .unwrap_or_else(|e| panic!("acquire container 2 failed: {:?}", e));
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(*cm.used_mem_mb.read(), func.memory * 2, "second failed");
+        drop(c1);
+        cm.remove_idle_containers(&TEST_TID)
+            .await
+            .unwrap_or_else(|e| panic!("remove_idle_containers failed: {:?}", e));
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(*cm.used_mem_mb.read(), func.memory, "thinrd failed");
     }
 }

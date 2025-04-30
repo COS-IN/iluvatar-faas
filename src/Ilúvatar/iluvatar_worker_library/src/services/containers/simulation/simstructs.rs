@@ -316,7 +316,7 @@ mod sim_struct_tests {
         )]))?)
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn no_data_empty_ecdf() {
         let reg = reg(None);
         let cont = SimulatorContainer::new(
@@ -333,7 +333,7 @@ mod sim_struct_tests {
         assert_eq!(cont.history_data, None);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn data_filled_ecdf() {
         let reg = reg(Some(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
         let cont = SimulatorContainer::new(
@@ -350,7 +350,7 @@ mod sim_struct_tests {
         assert_ne!(cont.history_data, None);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn no_args_fails() {
         let reg = reg(None);
         let cont = SimulatorContainer::new(
@@ -369,7 +369,7 @@ mod sim_struct_tests {
             .expect_err("No simulation args should error");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn cold_no_data_uses_passed_info() {
         let reg = reg(None);
         let cold_time = 100;
@@ -391,7 +391,7 @@ mod sim_struct_tests {
         assert_ge!(dur, Duration::from_millis(cold_time));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn warm_no_data_uses_passed_info() {
         let reg = reg(None);
         let warm_time = 10;
@@ -413,7 +413,7 @@ mod sim_struct_tests {
         assert_ge!(dur, Duration::from_millis(warm_time));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn warm_data_uses_sample() {
         let reg = reg(Some(vec![1.0, 1.1, 1.2, 1.5, 2.0]));
         let cont = SimulatorContainer::new(
