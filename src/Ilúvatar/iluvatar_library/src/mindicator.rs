@@ -68,6 +68,7 @@ impl Mindicator {
 #[cfg(test)]
 mod mindicator_tests {
     use super::*;
+    use crate::threading::tokio_spawn_thread;
     use rstest::rstest;
     use std::time::Duration;
 
@@ -160,7 +161,7 @@ mod mindicator_tests {
         let mut ts = vec![];
         for i in 0..size {
             let m_c = m.clone();
-            ts.push(tokio::spawn(async move {
+            ts.push(tokio_spawn_thread(async move {
                 m_c.insert(i, i as f64).unwrap();
             }));
         }
@@ -177,7 +178,7 @@ mod mindicator_tests {
         let mut ts = vec![];
         for i in 0..size {
             let m_c = m.clone();
-            ts.push(tokio::spawn(async move {
+            ts.push(tokio_spawn_thread(async move {
                 m_c.insert(i, i as f64).unwrap();
                 tokio::time::sleep(Duration::from_millis(2)).await;
                 m_c.insert(i, (i as f64) * 2.0).unwrap();

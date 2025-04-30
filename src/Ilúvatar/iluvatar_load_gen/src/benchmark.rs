@@ -7,7 +7,7 @@ use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::types::{Compute, ContainerServer, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
-use iluvatar_library::{transaction::gen_tid, utils::port_utils::Port};
+use iluvatar_library::{live_sync_scope, transaction::gen_tid, utils::port_utils::Port};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::{collections::HashMap, path::Path};
@@ -122,20 +122,21 @@ pub fn load_functions(args: &BenchmarkArgs) -> Result<Vec<ToBenchmarkFunction>> 
 }
 
 pub fn benchmark_functions(args: BenchmarkArgs) -> Result<()> {
-    let functions = load_functions(&args)?;
-    let threaded_rt = build_tokio_runtime(&None, &None, &None, &gen_tid())?;
-
-    match args.target {
-        Target::Worker => benchmark_worker(&threaded_rt, functions, args),
-        Target::Controller => threaded_rt.block_on(benchmark_controller(
-            args.host.clone(),
-            args.port,
-            functions,
-            args.out_folder.clone(),
-            args.cold_iters,
-            args.warm_iters,
-        )),
-    }
+    live_sync_scope!(|| {
+        let functions = load_functions(&args)?;
+        let threaded_rt = build_tokio_runtime(&None, &None, &None, &gen_tid())?;
+        match args.target {
+            Target::Worker => benchmark_worker(&threaded_rt, functions, args),
+            Target::Controller => threaded_rt.block_on(benchmark_controller(
+                args.host.clone(),
+                args.port,
+                functions,
+                args.out_folder.clone(),
+                args.cold_iters,
+                args.warm_iters,
+            )),
+        }
+    })
 }
 
 pub async fn benchmark_controller(

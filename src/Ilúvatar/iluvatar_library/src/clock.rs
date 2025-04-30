@@ -1,5 +1,5 @@
+use crate::threading::is_simulation;
 use crate::transaction::{gen_tid, TransactionId};
-use crate::utils::is_simulation;
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::ops::Add;

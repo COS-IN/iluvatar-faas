@@ -8,13 +8,10 @@ use crate::{
 use anyhow::Result;
 use clap::Parser;
 use iluvatar_library::clock::{get_global_clock, now};
+use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::types::ContainerServer;
-use iluvatar_library::{
-    transaction::gen_tid,
-    types::{Compute, Isolation, MemSizeMb},
-    utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port},
-};
+use iluvatar_library::{live_sync_scope, transaction::gen_tid, types::{Compute, Isolation, MemSizeMb}, utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port}};
 use rand::prelude::*;
 use std::path::{Path, PathBuf};
 use std::{sync::Arc, time::Duration};
@@ -68,17 +65,17 @@ pub struct ScalingArgs {
 }
 
 pub fn scaling(args: ScalingArgs) -> Result<()> {
-    ensure_dir(PathBuf::new().join(&args.out_folder))?;
-
-    for threads in args.start..(args.end + 1) {
-        let runtime = build_tokio_runtime(&None, &None, &Some(threads as usize), &"SCALING_TID".to_string())?;
-        info!("Running with {} threads", threads);
-        let result = runtime.block_on(run_one_scaling_test(threads as usize, &args))?;
-        let p = Path::new(&args.out_folder).join(format!("{}.json", threads));
-        save_result_json(p, &result)?;
-    }
-
-    Ok(())
+    live_sync_scope!(|| {
+        ensure_dir(PathBuf::new().join(&args.out_folder))?;
+        for threads in args.start..(args.end + 1) {
+            let runtime = build_tokio_runtime(&None, &None, &Some(threads as usize), &"SCALING_TID".to_string())?;
+            info!("Running with {} threads", threads);
+            let result = runtime.block_on(run_one_scaling_test(threads as usize, &args))?;
+            let p = Path::new(&args.out_folder).join(format!("{}.json", threads));
+            save_result_json(p, &result)?;
+        }
+        Ok(())
+    })
 }
 
 async fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<Vec<ThreadResult>> {
@@ -97,7 +94,7 @@ async fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<V
         let mem = args.memory_mb;
         let a = args.function_args.clone();
 
-        threads.push(tokio::task::spawn(async move {
+        threads.push(tokio_spawn_thread(async move {
             scaling_thread(
                 host_c, p, d, thread_id, b, i_c, compute, isolation, server, thread_cnt, mem, a,
             )

@@ -1,5 +1,7 @@
 use iluvatar_library::char_map::WorkerCharMap;
+use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::{
+    async_sim_scope,
     clock::ContainerTimeFormatter,
     logging::{start_tracing, LoggingConfig},
     transaction::{TransactionId, SIMULATION_START_TID, TEST_TID},
@@ -33,12 +35,13 @@ macro_rules! assert_error {
 /// Creates/sets up the services needed to test a worker setup.
 /// Passing [log] = Some("<level>") will enable logging to stdout, useful for test debugging.
 /// [config_pth] is an optional path to config to load.
+#[allow(dyn_drop)]
 pub async fn sim_test_services(
     config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
     log: Option<&str>,
 ) -> (
-    Option<impl Drop>,
+    Option<Box<dyn Drop + Send + Sync + 'static>>,
     WorkerConfig,
     Arc<ContainerManager>,
     Arc<dyn Invoker>,
@@ -46,19 +49,19 @@ pub async fn sim_test_services(
     WorkerCharMap,
     Option<Arc<GpuResourceTracker>>,
 ) {
-    iluvatar_library::utils::set_simulation(&SIMULATION_START_TID).unwrap();
-    build_test_services(config_pth, overrides, log, &SIMULATION_START_TID).await
+    async_sim_scope!(build_test_services(config_pth, overrides, log, &SIMULATION_START_TID)).await
 }
 
 /// Creates/sets up the services needed to test a worker setup.
 /// Passing [log] = Some("<level>") will enable logging to stdout, useful for test debugging.
 /// [config_pth] is an optional path to config to load.
+#[allow(dyn_drop)]
 pub async fn test_invoker_svc(
     config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
     log: Option<&str>,
 ) -> (
-    Option<impl Drop>,
+    Option<Box<dyn Drop + Send + Sync + 'static>>,
     WorkerConfig,
     Arc<ContainerManager>,
     Arc<dyn Invoker>,
@@ -69,13 +72,14 @@ pub async fn test_invoker_svc(
     build_test_services(config_pth, overrides, log, &TEST_TID).await
 }
 
+#[allow(dyn_drop)]
 async fn build_test_services(
     config_pth: Option<&str>,
     overrides: Option<Vec<(String, String)>>,
     log: Option<&str>,
     tid: &TransactionId,
 ) -> (
-    Option<impl Drop>,
+    Option<Box<dyn Drop + Send + Sync + 'static>>,
     WorkerConfig,
     Arc<ContainerManager>,
     Arc<dyn Invoker>,
@@ -190,7 +194,7 @@ pub fn background_test_invoke(
     let j = json_args.to_string();
     let t = transaction_id.clone();
     let r = reg.clone();
-    tokio::spawn(async move { cln.sync_invocation(r, j, t).await })
+    tokio_spawn_thread(async move { cln.sync_invocation(r, j, t).await })
 }
 
 pub async fn wait_for_queue_len(invok_svc: &Arc<dyn Invoker>, compute_queue: Compute, len: usize) {

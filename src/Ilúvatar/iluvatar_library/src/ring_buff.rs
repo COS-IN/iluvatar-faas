@@ -224,7 +224,7 @@ mod buff_vec_tests {
 #[cfg(test)]
 mod ring_buff_tests {
     use super::*;
-    use crate::threading::tokio_logging_thread;
+    use crate::threading::{tokio_logging_thread, tokio_spawn_thread};
     use crate::transaction::gen_tid;
     use crate::ToAny;
     use iluvatar_library::transaction::TransactionId;
@@ -285,7 +285,7 @@ mod ring_buff_tests {
     }
 
     fn reader(last_val: usize, buff: Arc<RingBuffer>) -> JoinHandle<()> {
-        tokio::spawn(async move {
+        tokio_spawn_thread(async move {
             let mut last = 0;
             loop {
                 let item = buff.latest(KEY);
@@ -309,7 +309,7 @@ mod ring_buff_tests {
         let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
         let r2 = ring.clone();
         ring.insert(KEY, Arc::new(Item { idx: 0 }));
-        let writer = tokio::spawn(async move {
+        let writer = tokio_spawn_thread(async move {
             for idx in 1..max {
                 ring.insert(KEY, Arc::new(Item { idx }));
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -331,7 +331,7 @@ mod ring_buff_tests {
             readers.push(reader(max - 1, r2));
         }
 
-        let writer = tokio::spawn(async move {
+        let writer = tokio_spawn_thread(async move {
             for idx in 1..max {
                 ring.insert(KEY, Arc::new(Item { idx }));
                 tokio::time::sleep(Duration::from_millis(10)).await;

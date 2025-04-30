@@ -15,10 +15,12 @@ use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_controller_library::services::ControllerAPI;
 use iluvatar_library::clock::{get_global_clock, now};
 use iluvatar_library::logging::start_simulation_tracing;
-use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
+use iluvatar_library::threading::{is_simulation, tokio_spawn_thread};
+use iluvatar_library::tokio_utils::build_tokio_runtime;
 use iluvatar_library::transaction::{gen_tid, TransactionId, LIVE_WORKER_LOAD_TID, SIMULATION_START_TID};
 use iluvatar_library::types::{Compute, Isolation};
-use iluvatar_library::utils::{config::args_to_json, is_simulation, port::Port};
+use iluvatar_library::utils::{config::args_to_json, port::Port};
+use iluvatar_library::{live_sync_scope, sync_sim_scope};
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
@@ -89,12 +91,14 @@ async fn controller_prewarm_funcs(
 }
 
 pub fn controller_trace_live(args: TraceArgs) -> Result<()> {
-    let tid: &TransactionId = &LIVE_WORKER_LOAD_TID;
-    let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
-    let factory = ControllerAPIFactory::boxed();
-    let host = args.host.clone();
-    info!(tid = tid, "starting simulated run");
-    run_invokes(args, factory, threaded_rt, &host, tid)
+    live_sync_scope!(|| {
+        let tid: &TransactionId = &LIVE_WORKER_LOAD_TID;
+        let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
+        let factory = ControllerAPIFactory::boxed();
+        let host = args.host.clone();
+        info!(tid = tid, "starting live run");
+        threaded_rt.block_on(run_invokes(args, factory, &host, tid))
+    })
 }
 
 async fn controller_sim_register_workers(
@@ -132,10 +136,9 @@ async fn controller_sim_register_workers(
     Ok(())
 }
 
-fn run_invokes(
+async fn run_invokes(
     args: TraceArgs,
     api_factory: Arc<ControllerAPIFactory>,
-    threaded_rt: TokioRuntime,
     host: &str,
     tid: &TransactionId,
 ) -> Result<()> {
@@ -143,7 +146,6 @@ fn run_invokes(
     let clock = get_global_clock(tid)?;
     let mut metadata = super::load_metadata(&args.metadata_csv)?;
     map_functions_to_prep(
-        crate::utils::RunType::Simulation,
         args.load_type,
         &args.function_data,
         &mut metadata,
@@ -153,25 +155,14 @@ fn run_invokes(
         tid,
     )?;
     let bench_data = load_benchmark_data(&args.function_data)?;
-    threaded_rt.block_on(controller_register_functions(
-        &metadata,
-        host,
-        args.port,
-        bench_data.as_ref(),
-        api_factory.clone(),
-    ))?;
-    threaded_rt.block_on(controller_prewarm_funcs(
-        &metadata,
-        host,
-        args.port,
-        api_factory.clone(),
-    ))?;
+    controller_register_functions(&metadata, host, args.port, bench_data.as_ref(), api_factory.clone()).await?;
+    controller_prewarm_funcs(&metadata, host, args.port, api_factory.clone()).await?;
 
     let mut handles: Vec<JoinHandle<Result<CompletedControllerInvocation>>> = Vec::new();
-    let api = threaded_rt.block_on(api_factory.get_controller_api(host, args.port, &gen_tid()))?;
+    let api = api_factory.get_controller_api(host, args.port, &gen_tid()).await?;
     let trace: Vec<CsvInvocation> = crate::trace::trace_utils::load_trace_csv(&args.input_csv, tid)?;
 
-    let results = threaded_rt.block_on(async {
+    let results = async {
         let start = now();
         for invocation in trace {
             let func = metadata.get(&invocation.func_name).ok_or_else(|| {
@@ -191,48 +182,47 @@ fn run_invokes(
                 true => wait_elapsed_sim(&start, invocation.invoke_time_ms, args.tick_step, args.sim_gran).await,
                 false => wait_elapsed_live(&start, invocation.invoke_time_ms).await,
             }
-            handles.push(tokio::task::spawn(async move {
+            handles.push(tokio_spawn_thread(async move {
                 controller_invoke(&f_c, &VERSION, Some(func_args), clk, api_cln).await
             }));
         }
         info!(tid = tid, "Invocations sent, awaiting on thread handles");
         resolve_handles(handles, crate::utils::ErrorHandling::Print).await
-    })?;
+    }
+    .await?;
 
     info!(tid = tid, "Threads closed, writing results to file");
     save_controller_results(results, &args)
 }
 
 pub fn controller_trace_sim(args: TraceArgs) -> Result<()> {
-    let tid: &TransactionId = &SIMULATION_START_TID;
-    iluvatar_library::utils::set_simulation(tid)?;
-    let api_factory = ControllerAPIFactory::boxed();
+    sync_sim_scope!(|| {
+        let tid: &TransactionId = &SIMULATION_START_TID;
+        let api_factory = ControllerAPIFactory::boxed();
 
-    let worker_config_pth = args
-        .worker_config
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Must have 'worker_config' for sim"))?
-        .clone();
-    let controller_config_pth = args
-        .controller_config
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Must have 'controller_config' for sim"))?
-        .clone();
-    let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
+        let worker_config_pth = args
+            .worker_config
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Must have 'worker_config' for sim"))?
+            .clone();
+        let controller_config_pth = args
+            .controller_config
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Must have 'controller_config' for sim"))?
+            .clone();
+        let threaded_rt = build_tokio_runtime(&None, &None, &None, tid)?;
 
-    let controller_config =
-        iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)?;
-    let num_workers = args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize;
+        let controller_config =
+            iluvatar_controller_library::server::controller_config::Configuration::boxed(&controller_config_pth)?;
+        let num_workers = args.workers.ok_or_else(|| anyhow::anyhow!("Must have workers > 0"))? as usize;
 
-    let _guard = start_simulation_tracing(&controller_config.logging, true, num_workers, "worker", tid)?;
-    let controller =
-        threaded_rt.block_on(async { api_factory.get_controller_api(&controller_config_pth, 0, tid).await })?;
+        let _guard = start_simulation_tracing(&controller_config.logging, true, num_workers, "worker", tid)?;
 
-    info!(tid = tid, "starting live run");
-    threaded_rt.block_on(controller_sim_register_workers(
-        num_workers,
-        &controller,
-        &worker_config_pth,
-    ))?;
-    run_invokes(args, api_factory, threaded_rt, &controller_config_pth, tid)
+        info!(tid = tid, "starting sim run");
+        threaded_rt.block_on(async move {
+            let controller = api_factory.get_controller_api(&controller_config_pth, 0, tid).await?;
+            controller_sim_register_workers(num_workers, &controller, &worker_config_pth).await?;
+            run_invokes(args, api_factory, &controller_config_pth, tid).await
+        })
+    })
 }

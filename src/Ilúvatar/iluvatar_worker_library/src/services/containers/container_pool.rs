@@ -239,6 +239,7 @@ impl ContainerPool {
 mod tests {
     use super::*;
     use crate::services::{containers::simulator::simstructs::SimulatorContainer, registration::RegisteredFunction};
+    use iluvatar_library::threading::tokio_spawn_thread;
     use iluvatar_library::transaction::gen_tid;
     use iluvatar_library::{types::Isolation, utils::calculate_fqdn};
     use std::sync::Arc;
@@ -472,7 +473,7 @@ mod tests {
         for t in 0..ts {
             let cp_c = cp.clone();
             let b_c = barrier.clone();
-            handles.push(tokio::task::spawn(async move {
+            handles.push(tokio_spawn_thread(async move {
                 let fqdn = t.to_string();
                 let reg = Arc::new(RegisteredFunction {
                     function_name: fqdn.clone(),

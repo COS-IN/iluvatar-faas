@@ -30,6 +30,7 @@ use containerd_client::tonic::{transport::Channel, Request};
 use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
+use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::types::{err_val, Compute, Isolation, ResultErrorVal};
 use iluvatar_library::utils::file::{container_path, make_paths};
 use iluvatar_library::utils::{
@@ -609,7 +610,7 @@ impl ContainerdIsolation {
         // // }
         // let cnl = self.channel().clone();
         // let nm = namespace.to_string();
-        // let j = tokio::spawn(async move {
+        // let j = tokio_spawn_thread(async move {
         //     let mut client = TransferClient::new(cnl);
         //     client.transfer(with_namespace!(request, nm)).await
         // });
@@ -928,7 +929,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             let svc_clone = self_src.clone();
             let ns_clone = ctd_namespace.to_string();
             let tid_clone = tid.to_string();
-            handles.push(tokio::spawn(async move {
+            handles.push(tokio_spawn_thread(async move {
                 let fut = match svc_clone.as_any().downcast_ref::<ContainerdIsolation>() {
                     Some(i) => {
                         futures::future::Either::Left(i.remove_container_internal(&container_id, &ns_clone, &tid_clone))

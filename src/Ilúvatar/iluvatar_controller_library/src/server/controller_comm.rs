@@ -2,7 +2,7 @@ use super::{controller::Controller, rpc::RpcControllerAPI};
 use crate::services::ControllerAPI;
 use anyhow::Result;
 use dashmap::DashMap;
-use iluvatar_library::utils::is_simulation;
+use iluvatar_library::threading::is_simulation;
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::port::Port};
 use std::sync::Arc;
 
@@ -12,7 +12,6 @@ pub struct ControllerAPIFactory {
     /// better than opening a new one
     rpc_apis: DashMap<String, RpcControllerAPI>,
     sim_apis: DashMap<String, Arc<Controller>>,
-    is_simulation: bool,
 }
 
 impl ControllerAPIFactory {
@@ -20,7 +19,6 @@ impl ControllerAPIFactory {
         Arc::new(ControllerAPIFactory {
             rpc_apis: DashMap::new(),
             sim_apis: DashMap::new(),
-            is_simulation: is_simulation(),
         })
     }
 }
@@ -36,7 +34,7 @@ impl ControllerAPIFactory {
 
     /// Get the controller API that matches it's implemented communication method
     pub async fn get_controller_api(&self, host: &str, port: Port, tid: &TransactionId) -> Result<ControllerAPI> {
-        match self.is_simulation {
+        match is_simulation() {
             false => match self.try_get_rpcapi(host) {
                 Some(r) => Ok(Arc::new(r) as ControllerAPI),
                 None => {

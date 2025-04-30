@@ -6,6 +6,7 @@ use crate::services::registration::{FunctionRegistration, WorkerRegistration};
 use crate::services::ControllerAPITrait;
 use anyhow::Result;
 use iluvatar_library::char_map::{worker_char_map, Chars, IatTracker, WorkerCharMap};
+use iluvatar_library::threading::is_simulation;
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::utils::calculate_fqdn;
 use iluvatar_library::{bail_error, transaction::TransactionId};
@@ -37,7 +38,7 @@ impl Controller {
     pub async fn new(config: ControllerConfig, tid: &TransactionId) -> Result<Self> {
         let worker_fact = WorkerAPIFactory::boxed();
         let worker_cmap = worker_char_map();
-        let health_svc: Arc<dyn ControllerHealthService> = match iluvatar_library::utils::is_simulation() {
+        let health_svc: Arc<dyn ControllerHealthService> = match is_simulation() {
             true => SimHealthService::boxed(),
             false => HealthService::boxed(worker_fact.clone()),
         };
