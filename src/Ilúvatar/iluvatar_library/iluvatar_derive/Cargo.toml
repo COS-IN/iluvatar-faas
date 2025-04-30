@@ -12,7 +12,7 @@ description.workspace = true
 
 [dependencies]
 quote = "1"
-syn = { version = "2", features = ["full"] }
+syn = { version = "2", features = ["derive"] }
 
 [lib]
 proc-macro = true

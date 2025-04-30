@@ -1,7 +1,7 @@
 #[macro_use]
 pub mod utils;
 
-use crate::utils::sim_test_services;
+use crate::utils::build_test_services;
 use iluvatar_library::transaction::TEST_TID;
 
 fn build_gpu_env(num: u32, memory_mb: u32) -> Vec<(String, String)> {
@@ -18,15 +18,15 @@ fn build_gpu_env(num: u32, memory_mb: u32) -> Vec<(String, String)> {
 mod gpu_tests {
     use super::*;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn current_num_physical_gpus() {
         let env = build_gpu_env(2, 1024);
-        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = build_test_services(None, Some(env), None).await;
         let gpu = gpu.unwrap_or_else(|| panic!("GPU resource tracker should have been present"));
         assert_eq!(gpu.physical_gpus(), 2);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn virtual_gpus_created_driver() {
         let mut env = build_gpu_env(2, 1024);
         env.push((
@@ -37,26 +37,26 @@ mod gpu_tests {
             "container_resources.gpu_resource.use_driver_hook".to_string(),
             "true".to_string(),
         ));
-        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = build_test_services(None, Some(env), None).await;
         let gpu = gpu.unwrap_or_else(|| panic!("GPU resource tracker should have been present"));
         assert_eq!(gpu.physical_gpus(), 2);
         assert_eq!(gpu.total_gpus(), 2 * 16);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn virtual_gpus_created_mem() {
         let mut env = build_gpu_env(2, 1024);
         env.push((
             "container_resources.gpu_resource.per_func_memory_mb".to_string(),
             "128".to_string(),
         ));
-        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = build_test_services(None, Some(env), None).await;
         let gpu = gpu.unwrap_or_else(|| panic!("GPU resource tracker should have been present"));
         assert_eq!(gpu.physical_gpus(), 2);
         assert_eq!(gpu.total_gpus(), 2 * (1024 / 128));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn acquire_gpu_changes_state() {
         let mut env = build_gpu_env(2, 1024);
         env.push((
@@ -67,7 +67,7 @@ mod gpu_tests {
             "container_resources.gpu_resource.use_driver_hook".to_string(),
             "true".to_string(),
         ));
-        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = build_test_services(None, Some(env), None).await;
         let gpu_svc = gpu.unwrap_or_else(|| panic!("GPU resource tracker should have been present"));
         assert_eq!(gpu_svc.physical_gpus(), 2);
         assert_eq!(gpu_svc.total_gpus(), 2 * 16);
@@ -78,7 +78,7 @@ mod gpu_tests {
         assert!(gpu2.is_some());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn try_acquire_none_returns_gpu0() {
         let mut env = build_gpu_env(2, 1024);
         env.push((
@@ -89,7 +89,7 @@ mod gpu_tests {
             "container_resources.gpu_resource.use_driver_hook".to_string(),
             "true".to_string(),
         ));
-        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = build_test_services(None, Some(env), None).await;
         let gpu_svc = gpu.unwrap_or_else(|| panic!("GPU resource tracker should have been present"));
         assert_eq!(gpu_svc.physical_gpus(), 2);
         assert_eq!(gpu_svc.total_gpus(), 2 * 16);
@@ -103,7 +103,7 @@ mod gpu_tests {
         drop(token);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn try_acquire_returns_given_gpu() {
         let mut env = build_gpu_env(2, 1024);
         env.push((
@@ -114,7 +114,7 @@ mod gpu_tests {
             "container_resources.gpu_resource.use_driver_hook".to_string(),
             "true".to_string(),
         ));
-        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = build_test_services(None, Some(env), None).await;
         let gpu_svc = gpu.unwrap_or_else(|| panic!("GPU resource tracker should have been present"));
         assert_eq!(gpu_svc.physical_gpus(), 2);
         assert_eq!(gpu_svc.total_gpus(), 2 * 16);
@@ -129,7 +129,7 @@ mod gpu_tests {
         assert_eq!(gpu_svc.outstanding(), 0);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn alloc_least_loaded_gpu() {
         let mut env = build_gpu_env(2, 1024);
         env.push((
@@ -140,7 +140,7 @@ mod gpu_tests {
             "container_resources.gpu_resource.use_driver_hook".to_string(),
             "true".to_string(),
         ));
-        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, _invoker, _reg_svc, _cmap, gpu) = build_test_services(None, Some(env), None).await;
         let gpu_svc = gpu.unwrap_or_else(|| panic!("GPU resource tracker should have been present"));
         assert_eq!(gpu_svc.physical_gpus(), 2);
         assert_eq!(gpu_svc.total_gpus(), 2 * 2);

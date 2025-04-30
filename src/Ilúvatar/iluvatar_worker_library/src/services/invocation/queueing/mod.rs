@@ -302,7 +302,7 @@ mod heapstructs {
         )
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn min_f64() {
         let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut heap = BinaryHeap::new();
@@ -362,7 +362,7 @@ mod heapstructs {
             0.0,
         )
     }
-    #[test]
+    #[iluvatar_library::sim_test]
     fn min_i64() {
         let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut heap = BinaryHeap::new();
@@ -422,7 +422,7 @@ mod heapstructs {
             0.0,
         )
     }
-    #[test]
+    #[iluvatar_library::sim_test]
     fn min_datetime() {
         let clock = get_global_clock(&"clock".to_string()).unwrap();
         let mut heap = BinaryHeap::new();

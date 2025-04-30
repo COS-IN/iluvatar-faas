@@ -15,6 +15,7 @@ use crate::worker_api::worker_config::InvocationConfig;
 use anyhow::Result;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
+use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::tput_calc::DeviceTput;
 use iluvatar_library::{
     threading::tokio_waiter_thread, threading::EventualItem, transaction::TransactionId, types::Compute,
@@ -158,7 +159,7 @@ impl CpuQueueingInvoker {
     ) {
         let (tx, rx) = std::sync::mpsc::channel();
         let (del_tx, mut del_rx) = tokio::sync::mpsc::unbounded_channel::<Arc<EnqueuedInvocation>>();
-        let handle = tokio::spawn(async move {
+        let handle = tokio_spawn_thread(async move {
             let tid: &TransactionId = &INVOKER_CPU_QUEUE_WORKER_TID;
             let service: Arc<Self> = match rx.recv() {
                 Ok(cm) => cm,
@@ -184,7 +185,7 @@ impl CpuQueueingInvoker {
                 };
                 #[cfg(feature = "full_spans")]
                 let td = td.instrument(span);
-                tokio::task::spawn(td);
+                tokio_spawn_thread(td);
             }
         });
 
@@ -225,7 +226,7 @@ impl CpuQueueingInvoker {
         #[cfg(feature = "full_spans")]
         {
             let span = item.span.clone();
-            let _handle = tokio::spawn(
+            let _handle = tokio_spawn_thread(
                 async move {
                     debug!(tid = item.tid, "Launching invocation thread for queued item");
                     invoker_svc.invocation_worker_thread(item, permit).await;
@@ -235,7 +236,7 @@ impl CpuQueueingInvoker {
         }
         #[cfg(not(feature = "full_spans"))]
         {
-            let _handle = tokio::spawn(async move {
+            let _handle = tokio_spawn_thread(async move {
                 debug!(tid = item.tid, "Launching invocation thread for queued item");
                 invoker_svc.invocation_worker_thread(item, permit).await;
             });

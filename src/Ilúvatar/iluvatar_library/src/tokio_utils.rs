@@ -1,3 +1,4 @@
+use crate::threading::is_simulation;
 use crate::transaction::TransactionId;
 use crate::utils::missing_or_zero_default;
 use parking_lot::Mutex;
@@ -39,7 +40,7 @@ pub fn build_tokio_runtime(
     num_threads: &Option<usize>,
     _tid: &TransactionId,
 ) -> anyhow::Result<TokioRuntime> {
-    let is_sim = crate::utils::is_simulation();
+    let is_sim = is_simulation();
     if is_sim {
         if let Some(rt) = SIM_RUNTIME.lock().as_ref() {
             return Ok(rt.clone());

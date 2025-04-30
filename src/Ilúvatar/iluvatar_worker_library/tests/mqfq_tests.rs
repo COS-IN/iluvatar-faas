@@ -1,7 +1,7 @@
 #[macro_use]
 pub mod utils;
 
-use crate::utils::{short_sim_args, sim_args, sim_test_services};
+use crate::utils::{build_test_services, short_sim_args, sim_args};
 use iluvatar_library::clock::get_global_clock;
 use iluvatar_library::mindicator::Mindicator;
 use iluvatar_library::transaction::{gen_tid, TEST_TID};
@@ -40,7 +40,7 @@ fn build_gpu_env(overrun: f64, timeout_sec: f64, mqfq_policy: &str) -> Vec<(Stri
 
 async fn build_flowq(overrun: f64) -> (Option<impl Drop>, Arc<ContainerManager>, FlowQ, Arc<Mindicator>) {
     let env = build_gpu_env(overrun, TIMEOUT_SEC, "mqfq");
-    let (log, cfg, cm, _invoker, _reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
+    let (log, cfg, cm, _invoker, _reg, cmap, _gpu) = build_test_services(None, Some(env), None).await;
     let min = Mindicator::boxed(1);
     let q = FlowQ::new(
         "test".to_string(),
@@ -66,7 +66,7 @@ async fn build_mqfq(
     mqfq_policy: &str,
 ) -> (Option<impl Drop>, Arc<ContainerManager>, Arc<MQFQ>) {
     let env = build_gpu_env(overrun, timeout_sec, mqfq_policy);
-    let (log, cfg, cm, _invoker, _reg, cmap, _gpu) = sim_test_services(None, Some(env), None).await;
+    let (log, cfg, cm, _invoker, _reg, cmap, _gpu) = build_test_services(None, Some(env), None).await;
     let load_avg = build_load_avg_signal();
     let buff = Arc::new(iluvatar_library::ring_buff::RingBuffer::new(
         std::time::Duration::from_secs(2),
@@ -124,7 +124,7 @@ fn item() -> Arc<EnqueuedInvocation> {
 mod flowq_tests {
     use super::*;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn insert_set_active() {
         let (_log, _cm, mut q, _mindi) = build_flowq(10.0).await;
         assert_eq!(q.state, MQState::Inactive);
@@ -134,23 +134,7 @@ mod flowq_tests {
         assert_eq!(q.state, MQState::Active, "queue should be set active");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn active_pop_stays() {
-        let (_log, _cm, mut q, _mindi) = build_flowq(15.0).await;
-        assert_eq!(q.state, MQState::Inactive);
-        let item = item();
-        let r = q.push_flow(item.clone(), 0.0);
-        assert!(r, "single item requests VT update");
-        let _r = q.push_flow(item.clone(), 0.0);
-        assert_eq!(q.state, MQState::Active, "queue should be set active");
-        let item2 = q.pop_flow();
-        assert!(item2.is_some(), "must get item from queue");
-        assert_eq!(item.queue_insert_time, item2.unwrap().invoke.queue_insert_time);
-        assert_eq!(q.start_time_virt, 5.0, "Queue start_time_virt was wrong");
-        assert_eq!(q.state, MQState::Active, "inline queue should be active");
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn active_pop_empty_timeout_to_inactive() {
         let (_log, _cm, mut q, _mindi) = build_flowq(10.0).await;
         assert_eq!(q.state, MQState::Inactive);
@@ -178,7 +162,23 @@ mod flowq_tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
+    async fn active_pop_stays() {
+        let (_log, _cm, mut q, _mindi) = build_flowq(15.0).await;
+        assert_eq!(q.state, MQState::Inactive);
+        let item = item();
+        let r = q.push_flow(item.clone(), 0.0);
+        assert!(r, "single item requests VT update");
+        let _r = q.push_flow(item.clone(), 0.0);
+        assert_eq!(q.state, MQState::Active, "queue should be set active");
+        let item2 = q.pop_flow();
+        assert!(item2.is_some(), "must get item from queue");
+        assert_eq!(item.queue_insert_time, item2.unwrap().invoke.queue_insert_time);
+        assert_eq!(q.start_time_virt, 5.0, "Queue start_time_virt was wrong");
+        assert_eq!(q.state, MQState::Active, "inline queue should be active");
+    }
+
+    #[iluvatar_library::sim_test]
     async fn overrun_pop_causes_throttle() {
         let (_log, _cm, mut q, mindi) = build_flowq(4.0).await;
         let id = mindi.add_procs(1) - 1;
@@ -198,7 +198,7 @@ mod flowq_tests {
         assert_eq!(q.state, MQState::Throttled, "advanced queue should be throttled");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn throttled_empty_q_made_active_grace_period() {
         let (_log, _cm, mut q, _mindi) = build_flowq(10.0).await;
         let item = item();
@@ -209,7 +209,7 @@ mod flowq_tests {
         assert_eq!(q.state, MQState::Active);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn throttled_full_q_made_active() {
         let (_log, _cm, mut q, _mindi) = build_flowq(10.0).await;
         let item = item();
@@ -242,15 +242,15 @@ mod mqfq_tests {
         }
     }
 
+    #[iluvatar_library::sim_test]
     #[rstest]
     #[case("mqfq")]
     #[case("mqfq_longest")]
     #[case("mqfq_wait")]
     #[case("mqfq_sticky")]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn mqfq_works(#[case] mqfq_pol: &str) {
         let env = build_gpu_env(20.0, TIMEOUT_SEC, mqfq_pol);
-        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = sim_test_services(None, Some(env), None).await;
+        let (_log, _cfg, _cm, invoker, reg, _cmap, _gpu) = build_test_services(None, Some(env), None).await;
         let func = reg
             .register(gpu_reg(), &TEST_TID)
             .await
@@ -264,12 +264,12 @@ mod mqfq_tests {
         assert_eq!(invoke.compute, Compute::GPU, "Invoke compute must be GPU");
     }
 
+    #[iluvatar_library::sim_test]
     #[rstest]
     #[case("mqfq")]
     #[case("mqfq_longest")]
     #[case("mqfq_wait")]
     #[case("mqfq_sticky")]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn function_active_until_timeout(#[case] mqfq_pol: &str) {
         let (_log, _cm, mqfq) = build_mqfq(20.0, TIMEOUT_SEC, mqfq_pol).await;
         let invoke1 = item();
@@ -299,12 +299,12 @@ mod mqfq_tests {
         drop(q);
     }
 
+    #[iluvatar_library::sim_test]
     #[rstest]
     #[case("mqfq")]
     #[case("mqfq_longest")]
     #[case("mqfq_wait")]
     #[case("mqfq_sticky")]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn function_inactive_zero_timeout(#[case] mqfq_pol: &str) {
         let (_log, _cm, mqfq) = build_mqfq(20.0, 0.0, mqfq_pol).await;
         let invoke1 = item();
@@ -317,7 +317,7 @@ mod mqfq_tests {
             if invoke1.result_ptr.lock().completed {
                 break;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
         }
 
         let q = mqfq.mqfq_set.get(&invoke1.registration.fqdn).unwrap();

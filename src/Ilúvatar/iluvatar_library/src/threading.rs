@@ -113,7 +113,7 @@ where
     };
     #[cfg(feature = "full_spans")]
     let td = td.instrument(Span::current());
-    Ok((tokio::spawn(td), tx))
+    Ok((tokio_spawn_thread(td), tx))
 }
 
 /// Start an async function inside a Tokio worker thread.
@@ -181,7 +181,7 @@ where
     };
     #[cfg(feature = "full_spans")]
     let td = td.instrument(Span::current());
-    (tokio::spawn(td), tx)
+    (tokio_spawn_thread(td), tx)
 }
 
 /// Start an async function inside a Tokio worker thread.
@@ -215,7 +215,7 @@ where
     };
     #[cfg(feature = "full_spans")]
     let td = td.instrument(Span::current());
-    let handle = tokio::spawn(td);
+    let handle = tokio_spawn_thread(td);
     (handle, tx)
 }
 
@@ -260,7 +260,30 @@ where
     };
     #[cfg(feature = "full_spans")]
     let td = td.instrument(Span::current());
-    let handle = tokio::spawn(td);
+    let handle = tokio_spawn_thread(td);
 
     (handle, service_tx, item_tx)
+}
+
+tokio::task_local! {
+    /// Public only for macros, do not reference directly!!
+    pub static SIMULATION: bool;
+}
+
+#[inline(always)]
+pub fn tokio_spawn_thread<F>(future: F) -> tokio::task::JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+{
+    let sim = SIMULATION.get();
+    #[allow(clippy::disallowed_methods)]
+    tokio::spawn(SIMULATION.scope(sim, future))
+}
+
+/// A method for anyone to check if the *thread* is being run as a simulation.
+/// This will panic if the proper scope will set up.
+/// It is a logic error for a thread at any point not to know if it is in simulation mode or not.
+pub fn is_simulation() -> bool {
+    SIMULATION.get()
 }

@@ -1,3 +1,4 @@
+use iluvatar_library::threading::is_simulation;
 use iluvatar_library::transaction::{TransactionId, LOAD_MONITOR_TID};
 use iluvatar_library::{
     influx::{InfluxClient, WORKERS_BUCKET},
@@ -29,7 +30,7 @@ impl LoadService {
             LOAD_MONITOR_TID.clone(),
             LoadService::monitor_worker_status,
         );
-        if !iluvatar_library::utils::is_simulation() && influx.is_none() {
+        if !is_simulation() && influx.is_none() {
             anyhow::bail!("Cannot run a live system with no Influx set up!");
         }
         let ret = Arc::new(LoadService {
@@ -44,7 +45,7 @@ impl LoadService {
 
     #[tracing::instrument(level = "debug", skip_all)]
     async fn monitor_worker_status(self: &Arc<Self>, tid: &TransactionId) {
-        if iluvatar_library::utils::is_simulation() {
+        if is_simulation() {
             self.monitor_simulation(tid).await;
         } else {
             self.monitor_live(tid).await;

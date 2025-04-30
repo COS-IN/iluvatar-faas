@@ -87,7 +87,7 @@ mod tracker_tests {
     use more_asserts::{assert_gt, assert_le, assert_lt};
     use rand::Rng;
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn added_items_ordered() {
         let time = OffsetDateTime::UNIX_EPOCH;
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
@@ -117,7 +117,7 @@ mod tracker_tests {
         }
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn random_insertions_ordered() {
         let time = OffsetDateTime::UNIX_EPOCH;
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
@@ -138,7 +138,7 @@ mod tracker_tests {
         }
     }
 
-    #[test]
+    #[iluvatar_library::live_test]
     fn next_avail_changes() {
         let time = get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(10);
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
@@ -147,7 +147,7 @@ mod tracker_tests {
         assert_ne!(tracker.next_avail(), tracker.next_avail());
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn single_item_works() {
         let time = get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(10);
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
@@ -158,7 +158,7 @@ mod tracker_tests {
         assert_le!(time.as_seconds_f64(), 10.0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn no_item_zero() {
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
@@ -166,7 +166,7 @@ mod tracker_tests {
         assert_eq!(time.as_seconds_f64(), 0.0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn newer_item_changes() {
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
@@ -177,7 +177,7 @@ mod tracker_tests {
         assert_le!(time.as_seconds_f64(), 5.0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn item_removal_changes() {
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 
@@ -195,7 +195,7 @@ mod tracker_tests {
         assert_le!(time.as_seconds_f64(), 10.0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn old_item_removed() {
         let tracker = CompletionTimeTracker::new(&gen_tid()).unwrap();
 

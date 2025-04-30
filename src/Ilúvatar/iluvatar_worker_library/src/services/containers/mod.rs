@@ -5,6 +5,7 @@ use crate::services::network::namespace_manager::NamespaceManager;
 use crate::worker_api::worker_config::WorkerConfig;
 use anyhow::Result;
 use iluvatar_library::char_map::WorkerCharMap;
+use iluvatar_library::threading::is_simulation;
 use iluvatar_library::types::{ResultErrorVal, ToAny};
 use iluvatar_library::{
     transaction::TransactionId,
@@ -103,7 +104,7 @@ impl IsolationFactory {
         ensure_bridge: bool,
     ) -> Result<ContainerIsolationCollection> {
         let mut ret = HashMap::new();
-        if iluvatar_library::utils::is_simulation() {
+        if is_simulation() {
             info!(tid = tid, "Creating 'simulation' backend");
             let c = SimulatorIsolation::new(self.cmap.clone());
             self.insert_cycle(&mut ret, Arc::new(c))?;

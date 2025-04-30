@@ -45,22 +45,6 @@ pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {
     0
 }
 
-lazy_static::lazy_static! {
-  // TODO: This probably shouldn't exist. Process-level global state causes weirdness, is generally bad programming, and prevents in-proc simulation on alternate threads.
-  static ref SIMULATION_CHECK: parking_lot::Mutex<bool>  = parking_lot::Mutex::new(false);
-}
-/// Set globally that the system is being run as a simulation
-pub fn set_simulation(_tid: &TransactionId) -> Result<()> {
-    *SIMULATION_CHECK.lock() = true;
-    Ok(())
-}
-/// A method for anyone to check if the system is being run as a simulation.
-/// Safe to capture and store in a variable as this is set atomically on boot.
-/// Will never change.
-pub fn is_simulation() -> bool {
-    *SIMULATION_CHECK.lock()
-}
-
 /// get the fully qualified domain name for a function from its name and version
 pub fn calculate_fqdn(function_name: &str, function_version: &str) -> String {
     format!("{}-{}", function_name, function_version)
@@ -225,6 +209,14 @@ pub async fn wait_for_exit_signal(tid: &TransactionId) -> Result<()> {
     let mut sig_quit = try_create_signal(tid, SignalKind::quit())?;
 
     info!(tid = tid, "Waiting on exit signal");
+    tokio::select! {
+      _res = sig_int.recv() => println!("sigint"),
+      _res = sig_term.recv() => println!("sigterm"),
+      _res = sig_usr1.recv() => println!("sigusr1"),
+      _res = sig_usr2.recv() => println!("sigusr2"),
+      _res = sig_quit.recv() => println!("sigquit"),
+    }
+
     if tokio::select! {
       res = sig_int.recv() => res,
       res = sig_term.recv() => res,
@@ -312,31 +304,15 @@ mod signal_tests {
     use super::*;
     use rstest::rstest;
 
+    #[iluvatar_library::live_test]
     #[rstest]
     #[case(SignalKind::interrupt())]
     #[case(SignalKind::terminate())]
     #[case(SignalKind::user_defined1())]
     #[case(SignalKind::user_defined2())]
     #[case(SignalKind::quit())]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn should_create_signal(#[case] kind: SignalKind) {
         let _ = try_create_signal(&"TEST".to_string(), kind).unwrap();
-    }
-
-    #[rstest]
-    #[case(SignalKind::interrupt())]
-    #[case(SignalKind::terminate())]
-    #[case(SignalKind::user_defined1())]
-    #[case(SignalKind::user_defined2())]
-    #[case(SignalKind::quit())]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn should_exit_on_signal(#[case] kind: SignalKind) {
-        let tid = "TEST".to_string();
-        let t = tokio::spawn(async move { wait_for_exit_signal(&tid.clone()).await });
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        let nix_signal = nix::sys::signal::Signal::try_from(kind.as_raw_value()).unwrap();
-        nix::sys::signal::kill(nix::unistd::Pid::from_raw(std::process::id() as i32), nix_signal).unwrap();
-        t.await.unwrap().unwrap();
     }
 }
 

@@ -342,13 +342,13 @@ macro_rules! downcast {
 mod types_tests {
     use super::*;
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn compute_format() {
         assert_eq!("CPU|GPU", format!("{}", Compute::CPU | Compute::GPU));
         assert_eq!("CPU", format!("{}", Compute::CPU));
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn isolation_format() {
         assert_eq!(
             "CONTAINERD|DOCKER",
@@ -357,7 +357,7 @@ mod types_tests {
         assert_eq!("DOCKER", format!("{}", Isolation::DOCKER));
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn compute_iterable() {
         let mut has_cpu = false;
         let mut has_gpu = false;

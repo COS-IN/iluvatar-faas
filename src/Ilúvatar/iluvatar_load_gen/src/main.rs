@@ -7,6 +7,7 @@ pub mod utils;
 use crate::utils::wrap_logging;
 use benchmark::BenchmarkArgs;
 use clap::{command, Parser, Subcommand};
+use iluvatar_library::sync_live_scope;
 use scaling::ScalingArgs;
 use trace::TraceArgs;
 
@@ -27,15 +28,16 @@ enum Commands {
 }
 
 fn main() -> anyhow::Result<()> {
-    match Args::parse().command {
-        Commands::Scaling(args) => wrap_logging(args.out_folder.clone(), args.log_stdout, args, scaling::scaling),
-        Commands::Trace(args) => trace::run_trace(args),
-        Commands::Benchmark(args) => wrap_logging(
-            args.out_folder.clone(),
-            args.log_stdout,
-            args,
-            benchmark::benchmark_functions,
-        ),
-    }?;
-    Ok(())
+    sync_live_scope!(|| {
+        match Args::parse().command {
+            Commands::Scaling(args) => wrap_logging(args.out_folder.clone(), args.log_stdout, args, scaling::scaling),
+            Commands::Trace(args) => trace::run_trace(args),
+            Commands::Benchmark(args) => wrap_logging(
+                args.out_folder.clone(),
+                args.log_stdout,
+                args,
+                benchmark::benchmark_functions,
+            ),
+        }
+    })
 }
