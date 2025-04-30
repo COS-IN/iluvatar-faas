@@ -185,7 +185,7 @@ async fn scaling_thread(
         let args = match &func_args {
             Some(arg) => {
                 dummy.args = Some(arg.clone());
-                args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions))?
+                args_to_json(&prepare_function_args(&dummy, crate::utils::LoadType::Functions)?)?
             },
             None => "{\"name\":\"TESTING\"}".to_string(),
         };

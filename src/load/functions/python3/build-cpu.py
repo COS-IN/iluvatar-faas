@@ -29,6 +29,7 @@ def push(func_name, log, server):
   docker_cmd(["push", image_name(func_name, server)], log)
 
 def build(path, function_name, dockerfile_base, basename, server):
+  shutil.copy("gunicorn.conf.py", path)
   if server == "http":
       shutil.copy("server.py", path)
   elif server == "unix":
@@ -52,6 +53,7 @@ def build(path, function_name, dockerfile_base, basename, server):
       push(function_name, log_file, server)
   finally:
     os.remove(os.path.join(path, "server.py"))
+    os.remove(os.path.join(path, "gunicorn.conf.py"))
     os.remove(os.path.join(path, dockerfile_base))
 
 if __name__ == "__main__":

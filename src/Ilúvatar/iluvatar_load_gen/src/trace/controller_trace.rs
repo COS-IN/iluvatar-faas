@@ -182,7 +182,7 @@ fn run_invokes(
             })?;
             let api_cln = api.clone();
             let func_args = match is_simulation() {
-                false => args_to_json(&prepare_function_args(func, args.load_type))?,
+                false => args_to_json(&prepare_function_args(func, args.load_type)?)?,
                 true => serde_json::to_string(func.sim_invoke_data.as_ref().unwrap())?,
             };
             let clk = clock.clone();

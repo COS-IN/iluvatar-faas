@@ -78,20 +78,20 @@ def run_benchmark(log_file):
     ]
     env = deepcopy(os.environ)
     env["RUST_BACTRACE"] = "1"
-    completed = subprocess.run(
-        args=args,
-        stdout=log_file,
-        stderr=log_file,
-        text=True,
-        env=env,
-    )
-    completed.check_returncode()
+    with open(log_file, "a") as log_file:
+        completed = subprocess.run(
+            args=args,
+            stdout=log_file,
+            stderr=log_file,
+            text=True,
+            env=env,
+        )
+        completed.check_returncode()
 
 
-with open(log_file, "w") as log_file:
-    pre_run_cleanup(log_file, results_dir, **kwargs)
-    try:
-        run_ansible(log_file, **kwargs)
-        run_benchmark(log_file)
-    finally:
-        remote_cleanup(log_file, results_dir, **kwargs)
+pre_run_cleanup(log_file, results_dir, **kwargs)
+try:
+    run_ansible(log_file, **kwargs)
+    run_benchmark(log_file)
+finally:
+    remote_cleanup(log_file, results_dir, **kwargs)

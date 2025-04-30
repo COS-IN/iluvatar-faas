@@ -41,7 +41,6 @@ use iluvatar_library::utils::{
 use iluvatar_library::{
     bail_error, bail_error_value, error_value, transaction::TransactionId, types::MemSizeMb, ToAny,
 };
-use inotify::{Inotify, WatchMask};
 use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -497,8 +496,8 @@ impl ContainerdIsolation {
             }
         }
         args.push(image_name);
-        let output = iluvatar_library::utils::execute_cmd("/usr/bin/ctr", args, None, tid);
-        match output {
+        let output = iluvatar_library::utils::execute_cmd_async("/usr/bin/ctr", args, None, tid);
+        match output.await {
             Err(e) => anyhow::bail!("Failed to pull the image '{}' because of error {}", image_name, e),
             Ok(output) => {
                 if let Some(status) = output.status.code() {
@@ -978,48 +977,48 @@ impl ContainerIsolationService for ContainerdIsolation {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container, timeout_ms), fields(tid=tid)))]
     async fn wait_startup(&self, container: &Container, timeout_ms: u64, tid: &TransactionId) -> Result<()> {
-        debug!(tid=tid, container_id=%container.container_id(), "Waiting for startup of container");
-        let stderr = self.stderr_pth(container.container_id());
+        info!(
+            tid = tid,
+            container_id = container.container_id(),
+            "Waiting for startup of container"
+        );
         let start = now();
-
-        let mut inotify = match Inotify::init() {
-            Ok(i) => i,
-            Err(e) => bail_error!(error=%e, tid=tid, "Init inotify watch failed"),
-        };
-        let dscriptor = match inotify.watches().add(&stderr, WatchMask::MODIFY) {
-            Ok(d) => d,
-            Err(e) => bail_error!(error=%e, tid=tid, "Adding inotify watch to file failed"),
-        };
-        let mut buffer = [0; 256];
+        let stderr_pth = self.stderr_pth(container.container_id());
 
         loop {
-            match inotify.read_events(&mut buffer) {
-                Ok(_events) => {
-                    // stderr was written to, gunicorn server is either up or crashed
-                    match inotify.watches().remove(dscriptor) {
-                        Ok(_) => (),
-                        Err(e) => bail_error!(error=%e, tid=tid, "Deleting inotify watch failed"),
-                    };
-                    break;
-                },
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if start.elapsed().as_millis() as u64 >= timeout_ms {
-                        let stdout = self.read_stdout(container, tid).await;
-                        let stderr = self.read_stderr(container, tid).await;
-                        if !stderr.is_empty() {
-                            warn!(tid=tid, container_id=%&container.container_id(), "Timeout waiting for container start, but stderr was written to?");
-                            return Ok(());
-                        }
-                        bail_error!(tid=tid, container_id=%container.container_id(), stdout=%stdout, stderr=%stderr, "Timeout while reading inotify events for container");
+            if let Ok(c) = tokio::fs::try_exists(&stderr_pth).await {
+                if !c {
+                    bail_error!(
+                        tid = tid,
+                        container_id = container.container_id(),
+                        "Broken file waiting on container startup"
+                    );
+                } else {
+                    let stderr = self.read_stderr(container, tid).await;
+                    // stderr will have container startup magic string
+                    if stderr.contains("MGK_GUN_READY_KMG") {
+                        info!(
+                            tid = tid,
+                            container_id = container.container_id(),
+                            "container successfully started!"
+                        );
+                        return Ok(());
                     }
-                },
-                _ => {
-                    bail_error!(tid=tid, container_id=%container.container_id(), "Error while reading inotify events for container")
-                },
-            };
-            tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+                }
+            }
+            if start.elapsed() >= Duration::from_secs(timeout_ms) {
+                let stdout = self.read_stdout(container, tid).await;
+                let stderr = self.read_stderr(container, tid).await;
+                bail_error!(
+                    tid = tid,
+                    container_id = container.container_id(),
+                    stdout = stdout,
+                    stderr = stderr,
+                    "Timeout while waiting container startup"
+                );
+            }
+            tokio::time::sleep(Duration::from_micros(100)).await;
         }
-        Ok(())
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, container), fields(tid=tid)))]
@@ -1035,7 +1034,7 @@ impl ContainerIsolationService for ContainerdIsolation {
         let contents = match std::fs::read_to_string(format!("/proc/{}/statm", cast_container.task.pid)) {
             Ok(c) => c,
             Err(e) => {
-                warn!(tid=tid, error=%e, container_id=%cast_container.container_id, "Error trying to read container /proc/<pid>/statm");
+                warn!(tid=tid, error=%e, container_id=cast_container.container_id, "Error trying to read container /proc/<pid>/statm");
                 container.mark_unhealthy();
                 return container.get_curr_mem_usage();
             },
@@ -1048,7 +1047,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             // multiply page size in bytes by number pages, then convert to mb
             Ok(size_pages) => (size_pages * 4096) / (1024 * 1024),
             Err(e) => {
-                warn!(tid=tid, error=%e, vmrss=%vmrss, "Error trying to parse virtual memory resource set size");
+                warn!(tid=tid, error=%e, vmrss=vmrss, "Error trying to parse virtual memory resource set size");
                 container.mark_unhealthy();
                 container.get_curr_mem_usage()
             },
@@ -1061,7 +1060,7 @@ impl ContainerIsolationService for ContainerdIsolation {
         match std::fs::read_to_string(path) {
             Ok(s) => str::replace(&s, "\n", "\\n"),
             Err(e) => {
-                error!(tid=tid, container_id=%container.container_id(), error=%e, "Error reading container");
+                error!(tid=tid, container_id=container.container_id(), error=%e, "Error reading container stdout");
                 format!("STDOUT_READ_ERROR: {}", e)
             },
         }
@@ -1071,7 +1070,7 @@ impl ContainerIsolationService for ContainerdIsolation {
         match std::fs::read_to_string(path) {
             Ok(s) => str::replace(&s, "\n", "\\n"),
             Err(e) => {
-                error!(tid=tid, container_id=%container.container_id(), error=%e, "Error reading container");
+                error!(tid=tid, container_id=container.container_id(), error=%e, "Error reading container stderr");
                 format!("STDERR_READ_ERROR: {}", e)
             },
         }

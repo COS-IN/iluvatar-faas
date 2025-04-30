@@ -108,9 +108,11 @@ fn load_metadata(path: &str) -> Result<HashMap<String, Function>> {
 /// Struct holding the details about a function that will be run against the Ilúvatar system
 /// If deserialized from JSON or via CSV, column names must match exactly
 pub struct Function {
+    /// The name given to the function.
     pub func_name: String,
-    pub cold_dur_ms: u64,
-    pub warm_dur_ms: u64,
+    pub cold_dur_ms: Option<u64>,
+    pub warm_dur_ms: Option<u64>,
+    /// Maximum memory the function is allowed to use.
     pub mem_mb: MemSizeMb,
     pub use_lookbusy: Option<bool>,
     /// An optioanl value denoting the mean inter-arrival-time of the function
@@ -132,9 +134,12 @@ pub struct Function {
     #[serde(default = "Isolation::default")]
     pub isolation: Isolation,
     #[serde(default = "ContainerServer::default")]
+    /// The type of server inside the container.
+    /// Tells internals to connect via UNIX sockets of HTTP connection
     pub server: ContainerServer,
     /// Used internally, The code name the function was mapped to
     pub chosen_name: Option<String>,
+    /// Compute-specific benchmark data to pass into simulation subsystem to fix 'execution' time in sim of function.
     pub sim_invoke_data: Option<SimulationInvocation>,
     /// Arguments to pass to each invocation of the function
     pub args: Option<String>,
@@ -156,25 +161,33 @@ pub fn safe_cmp(a: &f64, b: &f64) -> std::cmp::Ordering {
     }
 }
 
-pub fn prepare_function_args(func: &Function, load_type: LoadType) -> Vec<String> {
+pub fn prepare_function_args(func: &Function, load_type: LoadType) -> Result<Vec<String>> {
     if let Some(args) = &func.args {
-        return args.split(';').map(|x| x.to_string()).collect::<Vec<String>>();
+        return Ok(args.split(';').map(|x| x.to_string()).collect::<Vec<String>>());
     }
     if let Some(b) = func.use_lookbusy {
         if b {
-            return vec![
-                format!("cold_run_ms={}", func.cold_dur_ms),
-                format!("warm_run_ms={}", func.warm_dur_ms),
+            if func.cold_dur_ms.is_none() || func.warm_dur_ms.is_none() {
+                anyhow::bail!("Cannot use lookbusy for a function without 'cold_dur_ms' and 'warm_dur_ms'");
+            }
+            return Ok(vec![
+                format!("cold_run_ms={}", func.cold_dur_ms.unwrap()),
+                format!("warm_run_ms={}", func.warm_dur_ms.unwrap()),
                 format!("mem_mb={}", func.mem_mb),
-            ];
+            ]);
         }
     }
     match load_type {
-        LoadType::Lookbusy => vec![
-            format!("cold_run_ms={}", func.cold_dur_ms),
-            format!("warm_run_ms={}", func.warm_dur_ms),
-            format!("mem_mb={}", func.mem_mb),
-        ],
-        LoadType::Functions => vec![],
+        LoadType::Lookbusy => {
+            if func.cold_dur_ms.is_none() || func.warm_dur_ms.is_none() {
+                anyhow::bail!("Cannot use lookbusy for a function without 'cold_dur_ms' and 'warm_dur_ms'");
+            }
+            Ok(vec![
+                format!("cold_run_ms={}", func.cold_dur_ms.unwrap()),
+                format!("warm_run_ms={}", func.warm_dur_ms.unwrap()),
+                format!("mem_mb={}", func.mem_mb),
+            ])
+        },
+        LoadType::Functions => Ok(vec![]),
     }
 }
