@@ -1019,7 +1019,16 @@ impl Invoker for QueueingDispatcher {
 
     /// The queue length of both CPU and GPU queues
     fn queue_len(&self) -> InvokerLoad {
-        InvokerLoad(self.que_map.iter().map(|q| (*q.0, q.1.queue_load())).collect())
+        let mut running = 0;
+        let mut loads = HashMap::new();
+        for (compute, q) in self.que_map.iter() {
+            running += q.running();
+            loads.insert(*compute, q.queue_load());
+        }
+        InvokerLoad {
+            num_running_funcs: running,
+            queues: loads,
+        }
     }
 
     /// The number of functions currently running

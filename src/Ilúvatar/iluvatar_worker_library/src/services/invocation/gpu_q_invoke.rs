@@ -434,7 +434,7 @@ impl GpuQueueingInvoker {
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (data, duration, compute_type, state) = invoke_on_container(
+        let result = invoke_on_container(
             &item.registration,
             &item.json_args,
             &item.tid,
@@ -448,10 +448,9 @@ impl GpuQueueingInvoker {
             &self.clock,
             &self.device_tput,
         )
-        .await?;
+        .await;
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        // self.signal.notify_waiters();
-        Ok((data, duration, compute_type, state))
+        result
     }
 
     fn get_est_completion_time_from_containers_gpu(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {

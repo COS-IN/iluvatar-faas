@@ -242,11 +242,11 @@ controller_kwargs = [
     ("controller_include_spans_json", False, ("logging", "include_spans_json")),
     ("controller_log_level", "info", ("logging", "level")),
     ("controller_port", 8089, ("port",)),
-    ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm", "type")),
-    ("controller_thread_sleep_ms", 5000, ("load_balancer", "algorithm", "load_metric", "thread_sleep_ms")),
-    ("controller_load_metric", "loadavg", ("load_balancer", "algorithm", "load_metric", "load_metric")),
-    ("controller_popular_pct", 0.1, ("load_balancer", "algorithm", "popular_pct")),
+    ("controller_algorithm", "CHRLU", ("load_balancer", "algorithm", "type")),
+    ("controller_thread_sleep_ms", 500, ("load_balancer", "algorithm", "load_metric", "thread_sleep_ms")),
+    ("controller_load_metric", "LoadAvg", ("load_balancer", "algorithm", "load_metric", "load_metric")),
     # CH-RLU
+    ("controller_popular_pct", 0.1, ("load_balancer", "algorithm", "popular_pct")),
     ("controller_bounded_ceil", 1.5, ("load_balancer", "algorithm", "bounded_ceil")),
     ("controller_chain_len", 4, ("load_balancer", "algorithm", "chain_len")),
     ("controller_lb_vnodes", 3, ("load_balancer", "algorithm", "vnodes")),
@@ -270,7 +270,7 @@ worker_kwargs = [
         "mqfq_select_out_len",
         ("invocation", "queue_policies", "GPU"),
     ),
-    ("enqueueing", "All", ("invocation", "enqueueing_policy")),
+    ("enqueueing", "QueueAdjustAvgEstSpeedup", ("invocation", "enqueueing_policy")),
     ("invoke_queue_sleep_ms", 500, ("invocation", "queue_sleep_ms")),
     ("enqueuing_log_details", False, ("invocation", "enqueuing_log_details")),
     # docker
@@ -311,7 +311,8 @@ worker_kwargs = [
     ("tegra_freq_ms", 0, ("energy", "tegra_freq_ms")),
     # gpu
     ("gpus", 0, ("container_resources", "gpu_resource", "count")),
-    ("fpd", 16, ("container_resources", "gpu_resource", "funcs_per_device")),
+    ("gpu_memory", 16*1024, ("container_resources", "gpu_resource", "memory_mb")),
+    ("fpd", 32, ("container_resources", "gpu_resource", "funcs_per_device")),
     (
         "per_func_gpu_memory",
         16 * 1024,

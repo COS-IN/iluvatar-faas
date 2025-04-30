@@ -1,25 +1,37 @@
 use super::controller_health::ControllerHealthService;
 use crate::server::controller_config::ControllerConfig;
-use crate::services::load_balance::balancers::ch_rlu::ChRluLoadedBalancer;
-use crate::services::load_balance::balancers::least_loaded::{LLConfig, LeastLoadedBalancer};
-use crate::services::load_balance::balancers::rrCH::CHGLoadBalancer;
-use crate::services::load_balance::balancers::rrG::RRGLoadBalancer;
+use crate::services::load_balance::least_loaded::LeastLoadedBalancer;
 use crate::services::registration::{FunctionRegistration, RegisteredWorker};
 use anyhow::Result;
+use ch_rlu::ChRluLoadedBalancer;
 use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_rpc::rpc::InvokeResponse;
 use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
+use rrCH::CHGLoadBalancer;
+use rrG::RRGLoadBalancer;
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
 
-mod balancers;
+pub mod ch_rlu;
+pub mod least_loaded;
+pub mod round_robin;
+pub mod rrCH;
+pub mod rrG;
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub enum Metric {
+    LoadAvg,
+    Running,
+    CpuPct,
+    MemPct,
+    QueueLen,
+}
 #[derive(Debug, Deserialize)]
 pub struct LoadMetric {
-    pub load_metric: String,
+    pub load_metric: Metric,
     /// Duration in milliseconds the balancer's worker thread will sleep between runs (if it has one)
     pub thread_sleep_ms: u64,
 }
@@ -31,10 +43,10 @@ pub struct LoadMetric {
 /// See [here](https://serde.rs/enum-representations.html#internally-tagged) for details on deserializing this
 pub enum LoadBalancerAlgo {
     RoundRobin,
-    LeastLoaded(LLConfig),
+    LeastLoaded(least_loaded::LLConfig),
     RrCh,
     RrGuard,
-    CHRLU(Arc<balancers::ch_rlu::ChRluConfig>),
+    CHRLU(Arc<ch_rlu::ChRluConfig>),
 }
 
 #[tonic::async_trait]
@@ -76,7 +88,7 @@ pub async fn get_balancer(
     func_reg: &Arc<FunctionRegistration>,
 ) -> Result<LoadBalancer> {
     match &config.load_balancer.algorithm {
-        LoadBalancerAlgo::RoundRobin => Ok(Arc::new(balancers::round_robin::RoundRobinLoadBalancer::new(
+        LoadBalancerAlgo::RoundRobin => Ok(Arc::new(round_robin::RoundRobinLoadBalancer::new(
             health_svc,
             worker_fact,
         ))),
@@ -89,4 +101,66 @@ pub async fn get_balancer(
             Ok(ChRluLoadedBalancer::boxed(health_svc, worker_fact, tid, config, cfg, worker_cmap, func_reg).await?)
         },
     }
+}
+
+#[macro_export]
+macro_rules! send_invocation {
+  ($func:expr, $json_args:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr) => {
+    {
+      info!(tid=$tid, fqdn=%$func.fqdn, worker=%$worker.name, "invoking function on worker");
+
+      let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $tid).await?;
+      let (result, duration) = api.invoke($func.function_name.clone(), $func.function_version.clone(), $json_args, $tid.clone()).timed().await;
+      let result = match result {
+        Ok(r) => r,
+        Err(e) => {
+          $health.schedule_health_check($health.clone(), $worker, $tid, Some(Duration::from_secs(1)));
+          anyhow::bail!(e)
+        },
+      };
+      debug!(tid=$tid, json=%result.json_result, "invocation result");
+      Ok( (result, duration) )
+    }
+  };
+}
+
+#[macro_export]
+macro_rules! prewarm {
+  ($func:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr, $compute:expr) => {
+    {
+      info!(tid=$tid, fqdn=%$func.fqdn, worker=%$worker.name, compute=%$compute, "prewarming function on worker");
+      let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $tid).await?;
+      let (result, duration) = api.prewarm($func.function_name.clone(), $func.function_version.clone(), $tid.clone(), $compute).timed().await;
+      let result = match result {
+        Ok(r) => r,
+        Err(e) => {
+          $health.schedule_health_check($health.clone(), $worker, $tid, Some(Duration::from_secs(1)));
+          anyhow::bail!(e)
+        }
+      };
+      debug!(tid=$tid, result=?result, "prewarm result");
+      Ok(duration)
+    }
+  }
+}
+
+#[macro_export]
+macro_rules! send_async_invocation {
+  ($func:expr, $json_args:expr, $tid:expr, $worker_fact:expr, $health:expr, $worker:expr) => {
+    {
+      info!(tid=$tid, fqdn=%$func.fqdn, worker=%$worker.name, "invoking function async on worker");
+
+      let mut api = $worker_fact.get_worker_api(&$worker.name, &$worker.host, $worker.port, $tid).await?;
+      let (result, duration) = api.invoke_async($func.function_name.clone(), $func.function_version.clone(), $json_args, $tid.clone()).timed().await;
+      let result = match result {
+        Ok(r) => r,
+        Err(e) => {
+          $health.schedule_health_check($health.clone(), $worker, $tid, Some(Duration::from_secs(1)));
+          anyhow::bail!(e)
+        },
+      };
+      debug!(tid=$tid, result=%result, "invocation result");
+      Ok( (result, $worker, duration) )
+    }
+  }
 }

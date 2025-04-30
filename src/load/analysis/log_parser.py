@@ -835,7 +835,7 @@ class StatusParser(BaseParser):
     def parse_queue(self, log):
         t = pd.to_datetime(log["timestamp"])
         num_running = int(log["fields"]["num_running_funcs"])
-        queue_info = json.loads(log["fields"]["queue_info"])
+        queue_info = json.loads(log["fields"]["queue_info"])["queues"]
         self.queue_data.append((
             t,
             num_running,

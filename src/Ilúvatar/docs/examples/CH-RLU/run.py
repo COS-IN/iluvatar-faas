@@ -91,7 +91,7 @@ def run_load_balancer(algo: str):
         "target": RunTarget.CONTROLLER,
         "controller_thread_sleep_ms": 2000,
         "controller_log_level": "info",
-        "controller_load_metric": "loadavg",
+        "controller_load_metric": "LoadAvg",
         "controller_bounded_ceil": 1.4,
         "controller_popular_pct": 0.2,
         "controller_algorithm": algo,

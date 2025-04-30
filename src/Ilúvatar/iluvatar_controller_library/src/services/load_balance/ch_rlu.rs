@@ -7,10 +7,13 @@ use crate::{
 };
 use anyhow::Result;
 use hashring::HashRing;
+use iluvatar_library::char_map::Value::Avg;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
+use iluvatar_library::types::Compute;
 use iluvatar_library::utils::timing::TimedExt;
-use iluvatar_library::{threading::tokio_thread, transaction::TransactionId};
+use iluvatar_library::{bail_error, threading::tokio_thread, transaction::TransactionId};
 use iluvatar_rpc::rpc::InvokeResponse;
+use iluvatar_worker_library::services::influx_updater::WorkerStatus;
 use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use ordered_float::OrderedFloat;
@@ -50,21 +53,23 @@ impl AtomicF64 {
 struct VNode {
     pub idx: usize,
     pub cores: f64,
+    pub gpus: f64,
     pub hashed: String,
 }
 impl VNode {
-    pub fn new(idx: usize, cores: f64) -> Self {
+    pub fn new(idx: usize, cores: f64, gpus: f64) -> Self {
         Self {
             idx,
             cores,
+            gpus,
             hashed: guid_create::GUID::rand().to_string(),
         }
     }
 
-    pub fn batch(idx: usize, cores: f64, count: usize) -> Vec<Self> {
+    pub fn batch(idx: usize, cores: f64, gpus: f64, count: usize) -> Vec<Self> {
         let mut v = vec![];
         for _ in 0..count {
-            v.push(Self::new(idx, cores));
+            v.push(Self::new(idx, cores, gpus));
         }
         v
     }
@@ -104,7 +109,7 @@ pub struct ChRluLoadedBalancer {
     _worker_thread: JoinHandle<()>,
     load: Arc<LoadService>,
     worker_cmap: WorkerCharMap,
-    worker_loads: RwLock<HashMap<String, f64>>,
+    worker_loads: RwLock<HashMap<String, WorkerStatus>>,
     popular_map: RcuCell<HashSet<String>>,
     worker_ring: RwLock<HashRing<VNode>>,
     chrlu_cfg: Arc<ChRluConfig>,
@@ -123,7 +128,7 @@ impl ChRluLoadedBalancer {
     ) -> Result<Arc<Self>> {
         let ch_rlu_tid: TransactionId = "CH_RLU_LB".to_string();
         let influx = build_influx(config, tid).await?;
-        let load = crate::build_load_svc(&chrlu_cfg.load_metric, tid, &worker_fact, influx)?;
+        let load = crate::build_load_svc(chrlu_cfg.load_metric.thread_sleep_ms, tid, &worker_fact, influx)?;
         let (handle, tx) = tokio_thread(chrlu_cfg.load_metric.thread_sleep_ms, ch_rlu_tid, Self::update);
 
         let i = Arc::new(Self {
@@ -199,9 +204,21 @@ impl ChRluLoadedBalancer {
                 let workers = self.workers.read();
                 for node in worker_chain {
                     // safe if std_dev > 0.0
-                    let norm = Normal::new(mean / node.cores, 0.1)?;
+                    let (div, load) = if func.supported_compute == Compute::CPU {
+                        let div = node.cores;
+                        let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.cpu_loadavg);
+                        (div, load)
+                    } else if func.supported_compute == Compute::GPU {
+                        let div = node.gpus;
+                        let load = loads.get(&workers[node.idx].name).map_or(0.0, |s| s.gpu_loadavg);
+                        (div, load)
+                    } else {
+                        bail_error!(tid = tid, "CH-RLU does not currently support polymorphic compute")
+                    };
+                    let norm = Normal::new(mean / div, 0.1)?;
                     let noise = norm.sample(&mut thread_rng());
-                    let load = loads.get(&workers[node.idx].name).unwrap_or(&0.0) + noise;
+                    let load = load + noise;
+
                     if load <= self.chrlu_cfg.bounded_ceil {
                         if default_worker != node.idx {
                             debug!(
@@ -217,7 +234,12 @@ impl ChRluLoadedBalancer {
                         drop(loads);
                         drop(workers);
                         if let Some(w) = self.worker_loads.write().get_mut(&chosen.name) {
-                            *w += noise;
+                            if func.supported_compute == Compute::CPU {
+                                w.cpu_loadavg += noise;
+                            }
+                            if func.supported_compute == Compute::GPU {
+                                w.gpu_loadavg += noise;
+                            }
                         };
                         chosen_worker = Some(chosen);
                         break;
@@ -245,6 +267,7 @@ impl LoadBalancerTrait for ChRluLoadedBalancer {
     fn add_worker(&self, worker: Arc<RegisteredWorker>, tid: &TransactionId) {
         info!(tid=tid, worker=%worker.name, "Registering new worker in CH-RLU load balancer");
         let cores = worker.cpus as f64;
+        let gpus = worker.gpus as f64;
         let mut lck = self.workers.write();
         let len = lck.len();
         lck.push(worker);
@@ -252,7 +275,7 @@ impl LoadBalancerTrait for ChRluLoadedBalancer {
         // 'virtual' nodes
         self.worker_ring
             .write()
-            .batch_add(VNode::batch(len, cores, self.chrlu_cfg.vnodes));
+            .batch_add(VNode::batch(len, cores, gpus, self.chrlu_cfg.vnodes));
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, func, json_args), fields(tid=tid)))]
@@ -277,7 +300,21 @@ impl LoadBalancerTrait for ChRluLoadedBalancer {
     }
 
     async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Duration> {
+        let (cpu, gpu) = self
+            .worker_cmap
+            .get_2(&func.fqdn, Chars::CpuExecTime, Avg, Chars::GpuExecTime, Avg);
+        let mut choices = vec![];
+        if func.supported_compute == Compute::CPU {
+            choices.push((OrderedFloat(cpu), Compute::CPU));
+        }
+        if func.supported_compute == Compute::GPU {
+            choices.push((OrderedFloat(gpu), Compute::GPU));
+        }
+        choices.sort_by(|c1, c2| c1.0.cmp(&c2.0));
+        let c = choices
+            .first()
+            .ok_or_else(|| anyhow::format_err!("Could not prewarm with no compute"))?;
         let worker = self.get_worker(&func, tid)?;
-        prewarm!(func, tid, self.worker_fact, self.health, worker)
+        prewarm!(func, tid, self.worker_fact, self.health, worker, c.1)
     }
 }

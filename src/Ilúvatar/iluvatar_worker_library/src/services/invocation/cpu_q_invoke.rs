@@ -354,7 +354,7 @@ impl CpuQueueingInvoker {
             EventualItem::Now(n) => n?,
         };
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (data, duration, compute_type, state) = invoke_on_container(
+        let result = invoke_on_container(
             &item.registration,
             &item.json_args,
             &item.tid,
@@ -368,11 +368,12 @@ impl CpuQueueingInvoker {
             &self.clock,
             &self.device_tput,
         )
-        .await?;
+        .await;
+        // don't resolve Result of invoke, handle clean up and return as-is
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         drop(permit);
         self.signal.notify_waiters();
-        Ok((data, duration, compute_type, state))
+        result
     }
 
     fn get_est_completion_time_from_containers(&self, item: &Arc<RegisteredFunction>) -> (f64, ContainerState) {

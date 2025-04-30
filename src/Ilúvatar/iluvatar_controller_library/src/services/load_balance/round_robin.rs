@@ -73,7 +73,7 @@ impl LoadBalancerTrait for RoundRobinLoadBalancer {
 
     async fn prewarm(&self, func: Arc<RegisteredFunction>, tid: &TransactionId) -> Result<Duration> {
         let worker = self.get_next(tid)?;
-        prewarm!(func, tid, self.worker_fact, self.health, worker)
+        prewarm!(func, tid, self.worker_fact, self.health, worker, func.supported_compute)
     }
 
     async fn send_async_invocation(

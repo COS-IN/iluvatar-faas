@@ -210,6 +210,10 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         let reg = match self.reg.get_registration(&fqdn) {
             Some(r) => r,
             None => {
+                error!(
+                    tid = request.transaction_id,
+                    "Cannot prewarm function that was not registered."
+                );
                 let resp = PrewarmResponse {
                     success: false,
                     message: "{ \"Error\": \"Function was not registered\" }".into(),
@@ -219,6 +223,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         };
         let compute: Compute = request.compute.into();
         if !reg.supported_compute.intersects(compute) {
+            error!(tid=request.transaction_id, reg_comp=%reg.supported_compute, prewarm_comp=%compute, "Cannot prewarm function with compute not in registration.");
             let resp = PrewarmResponse {
                 success: false,
                 message: "{ \"Error\": \"Function was not registered with the specified compute\" }".to_string(),
@@ -281,30 +286,26 @@ impl IluvatarWorker for IluvatarWorkerImpl {
     async fn status(&self, request: Request<StatusRequest>) -> Result<Response<StatusResponse>, Status> {
         let request = request.into_inner();
         debug!(tid = request.transaction_id, "Handling status request");
-        let (load_avg, cpu_us, cpu_sy, cpu_id, cpu_wa, num_core) =
+        let (load_avg, cpu_us, cpu_sy, cpu_wa) =
+            self.ring_buff.latest(CPU_MON_TID).map_or((0.0, 0.0, 0.0, 0.0), |cpu| {
+                match iluvatar_library::downcast!(cpu.1, CpuUtil) {
+                    None => (0.0, 0.0, 0.0, 0.0),
+                    Some(cpu) => (cpu.load_avg_1minute, cpu.cpu_us, cpu.cpu_sy, cpu.cpu_wa),
+                }
+            });
+        let (running, cpu_len, (gpu_len, gpu_loadavg)) =
             self.ring_buff
-                .latest(CPU_MON_TID)
-                .map_or((0.0, 0.0, 0.0, 0.0, 0.0, 0), |cpu| {
-                    match iluvatar_library::downcast!(cpu.1, CpuUtil) {
-                        None => (0.0, 0.0, 0.0, 0.0, 0.0, 0),
-                        Some(cpu) => (
-                            cpu.load_avg_1minute,
-                            cpu.cpu_us,
-                            cpu.cpu_sy,
-                            cpu.cpu_id,
-                            cpu.cpu_wa,
-                            cpu.num_system_cores,
+                .latest(DISPATCHER_INVOKER_LOG_TID)
+                .map_or((0, 0, (0, 0.0)), |que| {
+                    match iluvatar_library::downcast!(que.1, InvokerLoad) {
+                        None => (0, 0, (0, 0.0)),
+                        Some(que) => (
+                            que.num_running_funcs,
+                            que.queues.get(&Compute::CPU).map_or(0, |q| q.len),
+                            que.queues.get(&Compute::GPU).map_or((0, 0.0), |q| (q.len, q.load_avg)),
                         ),
                     }
                 });
-        let queue_len = self.ring_buff.latest(DISPATCHER_INVOKER_LOG_TID).map_or(0, |que| {
-            match iluvatar_library::downcast!(que.1, InvokerLoad) {
-                None => 0,
-                Some(que) => {
-                    que.0.get(&Compute::CPU).map_or(0, |q| q.len) + que.0.get(&Compute::GPU).map_or(0, |q| q.len)
-                },
-            }
-        }) as i64;
         let (used_mem, total_mem) = self.ring_buff.latest(&CTR_MGR_WORKER_TID).map_or((0, 0), |que| {
             match iluvatar_library::downcast!(que.1, ContainerMgrStat) {
                 None => (0, 0),
@@ -312,17 +313,15 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             }
         });
         Ok(Response::new(StatusResponse {
-            success: true,
-            queue_len,
-            used_mem,
-            total_mem,
-            cpu_us,
-            cpu_sy,
-            cpu_id,
-            cpu_wa,
-            load_avg_1minute: load_avg,
-            num_system_cores: num_core,
-            num_running_funcs: self.invoker.running_funcs(),
+            cpu_queue_len: cpu_len as u64,
+            gpu_queue_len: gpu_len as u64,
+            used_mem_pct: used_mem as f64 / total_mem as f64,
+            cpu_util: cpu_us + cpu_sy + cpu_wa,
+            cpu_load_avg: load_avg / self.cpu.cores,
+            gpu_load_avg: gpu_loadavg,
+            num_running_funcs: running,
+            worker_name: "".to_string(),
+            timestamp: 0,
         }))
     }
 

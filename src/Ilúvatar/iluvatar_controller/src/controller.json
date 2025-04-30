@@ -14,7 +14,7 @@
   "load_balancer": {
     "algorithm": {
       "type": "LeastLoaded",
-      "load_metric": "loadavg",
+      "load_metric": "LoadAvg",
       "thread_sleep_ms": 1000
     }
   },

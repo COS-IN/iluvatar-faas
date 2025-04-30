@@ -37,6 +37,7 @@ async-process = "2"
 num_cpus = "1.16"
 rcu_cell = "1.2"
 config = { version = "0.15", default-features = false, features = ["json", "preserve_order"] }
+futures = "0.3.31"
 
 [dev-dependencies]
 rstest = "0.25"
