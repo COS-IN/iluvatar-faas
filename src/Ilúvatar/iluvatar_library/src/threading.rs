@@ -38,6 +38,7 @@ pub fn os_thread<T: Send + Sync + 'static>(
         anyhow::bail!("Creating an OS thread when in simulation mode is not allowed.");
     }
     let (tx, rx) = channel::<Arc<T>>();
+    #[allow(clippy::disallowed_types)]
     let handle = std::thread::Builder::new().name(tid.clone()).spawn(move || { sync_live_scope!(|| {
         let recv_svc = match rx.recv() {
             Ok(svc) => svc,

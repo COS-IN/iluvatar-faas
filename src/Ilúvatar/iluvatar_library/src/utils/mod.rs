@@ -16,32 +16,26 @@ use anyhow::Result;
 use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
 use std::process::{Child, Command, Output, Stdio};
-use std::{str, thread, time};
+use std::{str, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, error, info};
 
-pub fn get_child_pid(ppid: u32) -> Result<u32> {
+async fn get_child_pid(ppid: u32) -> Result<u32> {
     let ppid = ppid.to_string();
-    let output = execute_cmd("/usr/bin/pgrep", vec!["-P", ppid.as_str()], None, &ppid)?;
+    let output = execute_cmd_async("/usr/bin/pgrep", vec!["-P", ppid.as_str()], None, &ppid).await?;
     Ok(str::from_utf8(&output.stdout)?.trim().parse::<u32>()?)
 }
 
-pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {
+pub async fn try_get_child_pid(ppid: u32, timeout_ms: u64, mut tries: u32) -> u32 {
     let millis = time::Duration::from_millis(timeout_ms);
-    let mut tries = tries;
-
     while tries > 0 {
-        let r = get_child_pid(ppid);
-
-        let cpid = r.unwrap_or(0);
+        let cpid = get_child_pid(ppid).await.unwrap_or(0);
         if cpid != 0 {
             return cpid;
         }
-
         tries -= 1;
-        thread::sleep(millis);
+        tokio::time::sleep(millis).await;
     }
-
     0
 }
 

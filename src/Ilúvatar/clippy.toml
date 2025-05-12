@@ -2,6 +2,7 @@ disallowed-methods = [
     # fully qualified function/method name:
     "tokio::time::Instant::now",
     "tokio::spawn",
+    "std::thread::spawn",
     "std::time::Instant::now",
     "time::OffsetDateTime::now_utc",
     "time::OffsetDateTime::now",
@@ -12,4 +13,5 @@ disallowed-types = [
     # fully qualified function/method name:
     "std::time::Instant",
     "std::time::SystemTime",
+    "std::thread::Builder"
 ]
