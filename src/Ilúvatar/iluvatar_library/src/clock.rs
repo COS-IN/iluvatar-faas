@@ -17,14 +17,15 @@ static CLOCK: Mutex<Option<Clock>> = Mutex::new(None);
 
 /// Gets the current global clock. Creates a new [Clock] if not present.
 pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
-    if let Some(rt) = CLOCK.lock().as_ref() {
+    let mut lck = CLOCK.lock();
+    if let Some(rt) = lck.as_ref() {
         return Ok(rt.clone());
     }
     let clk: Clock = match is_simulation() {
-        true => SimulatedTime::boxed(tid)?,
         false => LocalTime::boxed(tid)?,
+        true => SimulatedTime::boxed(tid)?,
     };
-    *CLOCK.lock() = Some(clk.clone());
+    *lck = Some(clk.clone());
     Ok(clk)
 }
 
@@ -35,7 +36,7 @@ pub fn now() -> Instant {
     #[allow(clippy::disallowed_methods)]
     Instant::now()
 }
-pub fn timezone(tid: &TransactionId) -> Result<String> {
+fn timezone(tid: &TransactionId) -> Result<String> {
     let mut tz_str = match std::fs::read_to_string("/etc/timezone") {
         Ok(t) => t,
         Err(e) => {

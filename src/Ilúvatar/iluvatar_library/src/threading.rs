@@ -34,8 +34,11 @@ pub fn os_thread<T: Send + Sync + 'static>(
     tid: TransactionId,
     function: Arc<dyn Fn(&T, &TransactionId) + Send + Sync + 'static>,
 ) -> anyhow::Result<(OsHandle<()>, Sender<Arc<T>>)> {
+    if is_simulation() {
+        anyhow::bail!("Creating an OS thread when in simulation mode is not allowed.");
+    }
     let (tx, rx) = channel::<Arc<T>>();
-    let handle = std::thread::Builder::new().name(tid.clone()).spawn(move || {
+    let handle = std::thread::Builder::new().name(tid.clone()).spawn(move || { sync_live_scope!(|| {
         let recv_svc = match rx.recv() {
             Ok(svc) => svc,
             Err(e) => {
@@ -54,7 +57,7 @@ pub fn os_thread<T: Send + Sync + 'static>(
             std::thread::sleep(Duration::from_millis(sleep_t));
         }
         crate::continuation::GLOB_CONT_CHECK.thread_exit(&tid);
-    })?;
+    })})?;
 
     Ok((handle, tx))
 }

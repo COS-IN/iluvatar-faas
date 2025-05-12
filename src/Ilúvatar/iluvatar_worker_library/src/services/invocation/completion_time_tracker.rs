@@ -83,6 +83,7 @@ impl CompletionTimeTracker {
 #[cfg(test)]
 mod tracker_tests {
     use super::*;
+    use float_cmp::assert_approx_eq;
     use iluvatar_library::transaction::gen_tid;
     use more_asserts::{assert_gt, assert_le, assert_lt};
     use rand::Rng;
@@ -174,7 +175,7 @@ mod tracker_tests {
         tracker.add_item(get_global_clock(&gen_tid()).unwrap().now() + Duration::seconds(5));
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 0.0);
-        assert_le!(time.as_seconds_f64(), 5.0);
+        assert_approx_eq!(f64, time.as_seconds_f64(), 5.0, epsilon = 0.005);
     }
 
     #[iluvatar_library::sim_test]
@@ -187,12 +188,12 @@ mod tracker_tests {
         tracker.add_item(time2);
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 0.0);
-        assert_le!(time.as_seconds_f64(), 5.0);
+        assert_approx_eq!(f64, time.as_seconds_f64(), 5.0, epsilon = 0.005);
         tracker.remove_item(time2);
 
         let time = tracker.next_avail();
         assert_gt!(time.as_seconds_f64(), 5.0);
-        assert_le!(time.as_seconds_f64(), 10.0);
+        assert_approx_eq!(f64, time.as_seconds_f64(), 10.0, epsilon = 0.005);
     }
 
     #[iluvatar_library::sim_test]

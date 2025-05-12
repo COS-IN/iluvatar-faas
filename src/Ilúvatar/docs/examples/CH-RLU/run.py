@@ -65,9 +65,8 @@ def plot_one_exp(results_dir: str, parser: LogParser):
     fig, ax = plt.subplots()
     plt.tight_layout()
     fig.set_size_inches(5, 3)
-
     for worker in parser.worker_parsers:
-        ax.plot(worker.status_df["norm_time"].dt.total_seconds(), worker.status_df["cpu_queue_len"], label=worker.results_log.split('/')[-1].split('.')[0])
+        ax.plot(worker.status_df["norm_time"].dt.total_seconds(), worker.status_df["cpu_len"], label=worker.results_log.split('/')[-1].split('.')[0])
 
     ax.legend()
     ax.set_ylabel("Queue Length")

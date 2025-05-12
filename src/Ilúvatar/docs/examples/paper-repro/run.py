@@ -13,8 +13,8 @@ benchmark = "../benchmark/worker_function_benchmarks.json"
 # build the solution
 rust_build_native(ILU_HOME, None, build_level)
 
-input_csv = "./trace/trace.csv"
-meta_csv = "./trace/metadata-trace.csv"
+input_csv = os.path.join(os.getcwd(),"trace/trace.csv")
+meta_csv = os.path.join(os.getcwd(),"trace/metadata-trace.csv")
 results_dir = os.path.join(os.getcwd(), "results")
 
 

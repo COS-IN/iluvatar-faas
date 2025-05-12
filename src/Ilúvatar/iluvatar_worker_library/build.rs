@@ -1,12 +1,16 @@
 use std::env;
-use std::error::Error;
 use std::path::Path;
 use std::path::PathBuf;
 
 fn get_output_path() -> PathBuf {
     //<root or manifest path>/target/<build_target>/<profile>/
     let manifest_dir_string = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let build_type = env::var("PROFILE").unwrap();
+    let build_type = env::var("OUT_DIR")
+        .unwrap()
+        .split(std::path::MAIN_SEPARATOR)
+        .nth_back(3)
+        .unwrap()
+        .to_string();
     let build_target = env::var("TARGET").unwrap();
     Path::new(&manifest_dir_string)
         .join("..")
@@ -15,15 +19,17 @@ fn get_output_path() -> PathBuf {
         .join(build_type)
 }
 
-fn copy_folder(folder: &Path) -> Result<(), Box<dyn Error>> {
+fn copy_folder(folder: &Path) {
     let output_path = get_output_path().join(folder);
     std::fs::create_dir_all(&output_path).unwrap();
 
-    for path in std::fs::read_dir(Path::new("src").join(folder)).unwrap() {
+    let pth = Path::new("src").join(folder);
+    println!("cargo:rerun-if-changed={}", pth.to_string_lossy());
+    for path in std::fs::read_dir(&pth).unwrap() {
         let path = path.unwrap();
         let pth_type = path.file_type().unwrap();
         if pth_type.is_dir() {
-            copy_folder(Path::new(&folder).join(path.file_name()).as_path()).unwrap();
+            copy_folder(Path::new(&folder).join(path.file_name()).as_path());
         } else if pth_type.is_file() {
             let input_path = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap())
                 .join("src")
@@ -33,10 +39,8 @@ fn copy_folder(folder: &Path) -> Result<(), Box<dyn Error>> {
             std::fs::copy(input_path, output_path).unwrap();
         }
     }
-    Ok(())
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    copy_folder(Path::new("resources")).unwrap();
-    Ok(())
+fn main() {
+    copy_folder(Path::new("resources"));
 }
