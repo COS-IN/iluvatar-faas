@@ -1,5 +1,5 @@
+use crate::threading::is_simulation;
 use crate::transaction::{gen_tid, TransactionId};
-use crate::utils::is_simulation;
 use anyhow::Result;
 use parking_lot::Mutex;
 use std::ops::Add;
@@ -17,14 +17,15 @@ static CLOCK: Mutex<Option<Clock>> = Mutex::new(None);
 
 /// Gets the current global clock. Creates a new [Clock] if not present.
 pub fn get_global_clock(tid: &TransactionId) -> Result<Clock> {
-    if let Some(rt) = CLOCK.lock().as_ref() {
+    let mut lck = CLOCK.lock();
+    if let Some(rt) = lck.as_ref() {
         return Ok(rt.clone());
     }
     let clk: Clock = match is_simulation() {
-        true => SimulatedTime::boxed(tid)?,
         false => LocalTime::boxed(tid)?,
+        true => SimulatedTime::boxed(tid)?,
     };
-    *CLOCK.lock() = Some(clk.clone());
+    *lck = Some(clk.clone());
     Ok(clk)
 }
 
@@ -35,7 +36,7 @@ pub fn now() -> Instant {
     #[allow(clippy::disallowed_methods)]
     Instant::now()
 }
-pub fn timezone(tid: &TransactionId) -> Result<String> {
+fn timezone(tid: &TransactionId) -> Result<String> {
     let mut tz_str = match std::fs::read_to_string("/etc/timezone") {
         Ok(t) => t,
         Err(e) => {
@@ -174,6 +175,7 @@ impl GlobalClock for SimulatedTime {
         GlobalClock::format_time(self, self.now())
     }
     fn now(&self) -> OffsetDateTime {
+        println!("Elapsed time: {:?}", self.tokio_elapsed.elapsed());
         self.start_time.add(self.tokio_elapsed.elapsed())
     }
     fn format_time(&self, time: OffsetDateTime) -> Result<String> {

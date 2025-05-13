@@ -30,6 +30,7 @@ use containerd_client::tonic::{transport::Channel, Request};
 use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
+use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::types::{err_val, Compute, Isolation, ResultErrorVal};
 use iluvatar_library::utils::file::{container_path, make_paths};
 use iluvatar_library::utils::{
@@ -46,10 +47,10 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
+use tokio::sync::mpsc::Sender;
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 pub mod containerdstructs;
@@ -73,8 +74,8 @@ pub struct ContainerdIsolation {
     docker_config: Option<DockerConfig>,
     downloaded_images: Arc<DashMap<String, bool>>,
     creation_sem: Option<tokio::sync::Semaphore>,
-    tx: Arc<SyncSender<BGPacket>>,
-    bg_workqueue: thread::JoinHandle<Result<()>>,
+    tx: Arc<Sender<BGPacket>>,
+    bg_workqueue: JoinHandle<Result<()>>,
 }
 
 /// A service to handle the low-level details of containerd container lifecycles:
@@ -99,13 +100,16 @@ impl ContainerdIsolation {
         true
     }
 
-    fn send_bg_packet(&self, pid: u32, fqdn: &str, container_id: &str, tid: &TransactionId) {
-        let _ = self.tx.send(BGPacket {
-            pid,
-            fqdn: String::from(fqdn),
-            container_id: container_id.to_owned(),
-            tid: tid.clone(),
-        });
+    async fn send_bg_packet(&self, pid: u32, fqdn: &str, container_id: &str, tid: &TransactionId) {
+        let _ = self
+            .tx
+            .send(BGPacket {
+                pid,
+                fqdn: String::from(fqdn),
+                container_id: container_id.to_owned(),
+                tid: tid.clone(),
+            })
+            .await;
     }
 
     pub fn new(
@@ -119,7 +123,7 @@ impl ContainerdIsolation {
             i => Some(tokio::sync::Semaphore::new(i as usize)),
         };
 
-        let (send, recv) = sync_channel(30);
+        let (send, mut recv) = tokio::sync::mpsc::channel(30);
 
         ContainerdIsolation {
             // this is threadsafe if we clone channel
@@ -132,22 +136,24 @@ impl ContainerdIsolation {
             downloaded_images: Arc::new(DashMap::new()),
             creation_sem: sem,
             tx: Arc::new(send),
-            bg_workqueue: thread::spawn(move || loop {
-                match recv.recv() {
-                    Ok(x) => {
-                        let ccpid = try_get_child_pid(x.pid, 1, 500);
-                        info!(
-                                  tid=x.tid,
-                                  fqdn=%x.fqdn,
-                                  container_id=%x.container_id,
-                                  pid=%x.pid,
-                                  cpid=%ccpid,
-                                  "tag_pid_mapping"
-                        );
-                    },
-                    Err(e) => {
-                        bail_error!(error=%e, "ContainerdIsolation background receive channel broken!");
-                    },
+            bg_workqueue: tokio_spawn_thread(async move {
+                loop {
+                    match recv.recv().await {
+                        Some(x) => {
+                            let ccpid = try_get_child_pid(x.pid, 1, 500).await;
+                            info!(
+                                      tid=x.tid,
+                                      fqdn=%x.fqdn,
+                                      container_id=%x.container_id,
+                                      pid=%x.pid,
+                                      cpid=%ccpid,
+                                      "tag_pid_mapping"
+                            );
+                        },
+                        None => {
+                            bail_error!("ContainerdIsolation background receive channel broken!");
+                        },
+                    }
                 }
             }),
         }
@@ -609,7 +615,7 @@ impl ContainerdIsolation {
         // // }
         // let cnl = self.channel().clone();
         // let nm = namespace.to_string();
-        // let j = tokio::spawn(async move {
+        // let j = tokio_spawn_thread(async move {
         //     let mut client = TransferClient::new(cnl);
         //     client.transfer(with_namespace!(request, nm)).await
         // });
@@ -866,7 +872,8 @@ impl ContainerIsolationService for ContainerdIsolation {
                     fqdn,
                     &container.task.container_id.clone().unwrap(),
                     tid,
-                );
+                )
+                .await;
                 Ok(Arc::new(container))
             },
             Err(e) => {
@@ -928,7 +935,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             let svc_clone = self_src.clone();
             let ns_clone = ctd_namespace.to_string();
             let tid_clone = tid.to_string();
-            handles.push(tokio::spawn(async move {
+            handles.push(tokio_spawn_thread(async move {
                 let fut = match svc_clone.as_any().downcast_ref::<ContainerdIsolation>() {
                     Some(i) => {
                         futures::future::Either::Left(i.remove_container_internal(&container_id, &ns_clone, &tid_clone))

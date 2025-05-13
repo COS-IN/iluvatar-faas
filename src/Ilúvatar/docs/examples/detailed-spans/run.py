@@ -34,7 +34,7 @@ kwargs = {
     "target": RunTarget.WORKER,
     "prewarm": 1,
     "benchmark_file": benchmark,
-    "log_level":"debug",
+    "log_level":"info",
     "worker_spanning": "NEW+CLOSE",
     "worker_include_spans_json": True,
 }

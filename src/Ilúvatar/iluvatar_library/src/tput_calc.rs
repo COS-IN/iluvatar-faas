@@ -57,7 +57,7 @@ mod device_tput {
     use std::ops::Add;
     use std::time::Duration;
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn items_added() {
         let c = now();
         let mut tracker = DeviceTputCalc::new();
@@ -67,7 +67,7 @@ mod device_tput {
         assert_eq!(tracker.tput_record.len(), 3);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn max_buff_size() {
         let c = now();
         let mut tracker = DeviceTputCalc::new();
@@ -77,7 +77,7 @@ mod device_tput {
         assert_eq!(tracker.tput_record.len(), 20);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn tput() {
         let c = now();
         let mut tracker = DeviceTputCalc::new();

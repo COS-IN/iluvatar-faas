@@ -68,6 +68,7 @@ impl Mindicator {
 #[cfg(test)]
 mod mindicator_tests {
     use super::*;
+    use crate::threading::tokio_spawn_thread;
     use rstest::rstest;
     use std::time::Duration;
 
@@ -153,14 +154,14 @@ mod mindicator_tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[iluvatar_library::sim_test(worker_threads = 10)]
     async fn parallel_inserts_safe() {
         let size = 50;
         let m = Mindicator::boxed(size);
         let mut ts = vec![];
         for i in 0..size {
             let m_c = m.clone();
-            ts.push(tokio::spawn(async move {
+            ts.push(tokio_spawn_thread(async move {
                 m_c.insert(i, i as f64).unwrap();
             }));
         }
@@ -170,14 +171,14 @@ mod mindicator_tests {
         assert_eq!(m.min(), 0.0);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+    #[iluvatar_library::sim_test(worker_threads = 10)]
     async fn parallel_insert_remove_safe() {
         let size = 50;
         let m = Mindicator::boxed(size);
         let mut ts = vec![];
         for i in 0..size {
             let m_c = m.clone();
-            ts.push(tokio::spawn(async move {
+            ts.push(tokio_spawn_thread(async move {
                 m_c.insert(i, i as f64).unwrap();
                 tokio::time::sleep(Duration::from_millis(2)).await;
                 m_c.insert(i, (i as f64) * 2.0).unwrap();

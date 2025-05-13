@@ -4,11 +4,11 @@ use crate::{
     trace::safe_cmp,
     utils::{
         load_benchmark_data, save_result_json, worker_prewarm, worker_register, CompletedControllerInvocation,
-        LoadType, RunType, VERSION,
+        LoadType, VERSION,
     },
 };
 use anyhow::Result;
-use iluvatar_library::tokio_utils::TokioRuntime;
+use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::{bail_error, transaction::TransactionId, types::Compute, utils::port::Port};
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimInvokeData;
 use iluvatar_worker_library::worker_api::config::{Configuration, WorkerConfig};
@@ -214,7 +214,6 @@ fn map_from_args(
 }
 
 pub fn map_functions_to_prep(
-    _runtype: RunType,
     load_type: LoadType,
     func_json_data_path: &Option<String>,
     funcs: &mut HashMap<String, Function>,
@@ -235,11 +234,10 @@ pub fn map_functions_to_prep(
     }
 }
 
-fn worker_prewarm_functions(
+async fn worker_prewarm_functions(
     prewarm_data: &HashMap<String, Function>,
     host: &str,
     port: Port,
-    rt: &TokioRuntime,
     factory: &Arc<WorkerAPIFactory>,
 ) -> Result<()> {
     let mut prewarm_calls = vec![];
@@ -279,69 +277,47 @@ fn worker_prewarm_functions(
         let mut handles = vec![];
         for _ in 0..4 {
             match prewarm_calls.pop() {
-                Some(p) => handles.push(rt.spawn(p)),
+                Some(p) => handles.push(tokio_spawn_thread(p)),
                 None => break,
             }
-            std::thread::sleep(Duration::from_millis(10));
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
         for handle in handles {
-            rt.block_on(handle)??;
+            handle.await??;
         }
     }
     Ok(())
 }
 
-pub fn worker_prepare_functions(
-    runtype: RunType,
+pub async fn worker_prepare_functions(
     funcs: &mut HashMap<String, Function>,
     host: &str,
     port: Port,
     load_type: LoadType,
     func_data: Option<String>,
-    rt: &TokioRuntime,
     prewarms: Option<u32>,
     trace_pth: &str,
     factory: &Arc<WorkerAPIFactory>,
     max_prewarms: u32,
     tid: &TransactionId,
 ) -> Result<()> {
-    map_functions_to_prep(
-        runtype,
-        load_type,
-        &func_data,
-        funcs,
-        prewarms,
-        trace_pth,
-        max_prewarms,
-        tid,
-    )?;
-    prepare_worker(funcs, host, port, runtype, rt, factory, &func_data)
+    map_functions_to_prep(load_type, &func_data, funcs, prewarms, trace_pth, max_prewarms, tid)?;
+    prepare_worker(funcs, host, port, factory, &func_data).await
 }
 
-fn prepare_worker(
+async fn prepare_worker(
     funcs: &mut HashMap<String, Function>,
     host: &str,
     port: Port,
-    runtype: RunType,
-    rt: &TokioRuntime,
     factory: &Arc<WorkerAPIFactory>,
     func_data: &Option<String>,
 ) -> Result<()> {
-    match runtype {
-        RunType::Live => {
-            worker_wait_reg(funcs, rt, port, host, factory, func_data)?;
-            worker_prewarm_functions(funcs, host, port, rt, factory)
-        },
-        RunType::Simulation => {
-            worker_wait_reg(funcs, rt, port, host, factory, func_data)?;
-            worker_prewarm_functions(funcs, host, port, rt, factory)
-        },
-    }
+    worker_wait_reg(funcs, port, host, factory, func_data).await?;
+    worker_prewarm_functions(funcs, host, port, factory).await
 }
 
-fn worker_wait_reg(
+async fn worker_wait_reg(
     funcs: &HashMap<String, Function>,
-    rt: &TokioRuntime,
     port: Port,
     host: &str,
     factory: &Arc<WorkerAPIFactory>,
@@ -384,7 +360,7 @@ fn worker_wait_reg(
                 },
                 None => None,
             };
-            handles.push(rt.spawn(async move {
+            handles.push(tokio_spawn_thread(async move {
                 worker_register(
                     f_c,
                     &VERSION,
@@ -402,7 +378,7 @@ fn worker_wait_reg(
             }));
         }
         for h in handles {
-            let (_s, _d, _s2) = rt.block_on(h)??;
+            let (_s, _d, _s2) = h.await??;
         }
         if !cont {
             return Ok(());

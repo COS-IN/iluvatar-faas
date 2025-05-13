@@ -11,7 +11,9 @@ use dashmap::DashMap;
 use futures::Future;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::ring_buff::{RingBuffer, Wireable};
-use iluvatar_library::threading::{tokio_logging_thread, tokio_notify_thread, tokio_sender_thread, EventualItem};
+use iluvatar_library::threading::{
+    tokio_logging_thread, tokio_notify_thread, tokio_sender_thread, tokio_spawn_thread, EventualItem,
+};
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn, ToAny};
 use parking_lot::RwLock;
@@ -111,7 +113,7 @@ impl ContainerManager {
     async fn recompute_eviction_priorities(self: Arc<Self>, tid: TransactionId) {
         let mut evict = self.compute_eviction_priorities(&tid);
         evict.extend(self.compute_gpu_eviction_priorities(&tid));
-        tokio::spawn(async move { self.try_evict_idle_containers(tid, evict).await });
+        tokio_spawn_thread(async move { self.try_evict_idle_containers(tid, evict).await });
     }
 
     #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
@@ -368,6 +370,7 @@ impl ContainerManager {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     pub fn return_container(&self, container: &Container, tid: &TransactionId) {
+        info!(tid = tid, "returning container");
         if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
             (*cnt).fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         }
@@ -381,7 +384,7 @@ impl ContainerManager {
         let resource_pool = match self.get_resource_pool(container.compute_type()) {
             Ok(r) => r,
             Err(_) => {
-                error!(tid=tid, container_id=%container.container_id(), compute=?container.compute_type(), "Unknonwn compute for container");
+                error!(tid=tid, container_id=%container.container_id(), compute=?container.compute_type(), "Unknown compute for container");
                 return;
             },
         };
@@ -604,7 +607,6 @@ impl ContainerManager {
     /// Container **must** have already been removed from the container pool
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     async fn purge_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
-        info!(tid=tid, container_id=%container.container_id(), "Removing container");
         let r = match self.cont_isolations.get(&container.container_type()) {
             Some(c) => c.remove_container(container.clone(), "default", tid).await,
             None => bail_error!(tid=tid, iso=?container.container_type(), "Lifecycle for container not supported"),
@@ -759,7 +761,7 @@ impl ContainerManager {
                 let ctr = c.clone();
                 let t = tid.clone();
                 // actual removal is async (async in the container anyway, why wait)
-                tokio::spawn(async move {
+                tokio_spawn_thread(async move {
                     if let Err(e) = ctr.move_to_device(&t).await {
                         error!(tid=%t, error=%e, container_id=ctr.container_id(), "Error moving memory to device");
                         ctr.mark_unhealthy();
@@ -855,8 +857,6 @@ mod tests {
     }
 
     async fn svc(overrides: Option<Vec<(String, String)>>) -> Arc<ContainerManager> {
-        let tid: &TransactionId = &iluvatar_library::transaction::SIMULATION_START_TID;
-        iluvatar_library::utils::set_simulation(tid).unwrap_or_else(|e| panic!("Failed to make system clock: {:?}", e));
         let cfg: WorkerConfig = iluvatar_library::load_config_default!(
             "iluvatar_worker_library/tests/resources/worker.json",
             None,
@@ -881,7 +881,7 @@ mod tests {
         .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e))
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn cpu_unhealthy_removed() {
         let cm = svc(None).await;
         let func = cpu_reg();
@@ -902,7 +902,7 @@ mod tests {
         assert_eq!(*cm.used_mem_mb.read(), 0);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn purge_container() {
         let cm = svc(None).await;
         let func = cpu_reg();
@@ -928,7 +928,7 @@ mod tests {
         assert_eq!(*cm.used_mem_mb.read(), 0, "Used memory should be reset to zero");
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[iluvatar_library::sim_test]
     async fn memory_tracking() {
         let cm = svc(None).await;
         let func = cpu_reg();

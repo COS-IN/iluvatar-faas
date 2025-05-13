@@ -239,11 +239,12 @@ impl ContainerPool {
 mod tests {
     use super::*;
     use crate::services::{containers::simulator::simstructs::SimulatorContainer, registration::RegisteredFunction};
+    use iluvatar_library::threading::tokio_spawn_thread;
     use iluvatar_library::transaction::gen_tid;
     use iluvatar_library::{types::Isolation, utils::calculate_fqdn};
     use std::sync::Arc;
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn reg() {
         let cp = ContainerPool::new(Compute::CPU);
         let fqdn = calculate_fqdn("name", "vesr");
@@ -271,7 +272,7 @@ mod tests {
         cp.add_idle_container(ctr, &"test".to_string());
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn get() {
         let tid = "test".to_string();
         let fqdn = calculate_fqdn("name", "vesr");
@@ -304,7 +305,7 @@ mod tests {
 
         assert_eq!(&ctr.container_id, ctr2.container_id(), "Container IDs should match");
     }
-    #[test]
+    #[iluvatar_library::sim_test]
     fn remove_returns_correct() {
         let tid = "test".to_string();
         let cp = ContainerPool::new(Compute::CPU);
@@ -334,7 +335,7 @@ mod tests {
         let removed = cp.remove_container(&ctr, &tid).expect("should remove a container");
         assert_eq!(ctr.container_id(), removed.container_id(), "Container IDs should match");
     }
-    #[test]
+    #[iluvatar_library::sim_test]
     fn remove_means_gone() {
         let tid = "test".to_string();
         let cp = ContainerPool::new(Compute::CPU);
@@ -369,7 +370,7 @@ mod tests {
             None => (),
         }
     }
-    #[test]
+    #[iluvatar_library::sim_test]
     fn len() {
         let cp = ContainerPool::new(Compute::CPU);
         let fqdn = calculate_fqdn("name", "vesr");
@@ -462,7 +463,7 @@ mod tests {
         assert_eq!(cp.len(), 3);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 11)]
+    #[iluvatar_library::sim_test(worker_threads = 11)]
     async fn parallel_len() {
         let cp = Arc::new(ContainerPool::new(Compute::CPU));
         let mut handles: Vec<tokio::task::JoinHandle<Result<()>>> = vec![];
@@ -472,7 +473,7 @@ mod tests {
         for t in 0..ts {
             let cp_c = cp.clone();
             let b_c = barrier.clone();
-            handles.push(tokio::task::spawn(async move {
+            handles.push(tokio_spawn_thread(async move {
                 let fqdn = t.to_string();
                 let reg = Arc::new(RegisteredFunction {
                     function_name: fqdn.clone(),
@@ -508,7 +509,7 @@ mod tests {
         assert_eq!(cp.len(), ts * creates);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn move_to_idle() {
         let tid = "test".to_string();
         let cp = ContainerPool::new(Compute::CPU);
@@ -541,7 +542,7 @@ mod tests {
         assert_eq!(cp.idle_pool.get(&fqdn).unwrap().len(), 1);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn has_idle_container() {
         let tid = "test".to_string();
         let cp = ContainerPool::new(Compute::CPU);
@@ -587,7 +588,7 @@ mod tests {
         assert_eq!(cp.has_idle_container(&fqdn), ContainerState::Warm);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn has_container() {
         let tid = "test".to_string();
         let cp = ContainerPool::new(Compute::CPU);

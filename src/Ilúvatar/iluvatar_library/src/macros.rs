@@ -111,3 +111,28 @@ macro_rules! bail_error_value {
     $crate::bail_error_value_recurr!([$($arg)+])
   };
 }
+
+#[macro_export]
+macro_rules! async_live_scope {
+    ($future:expr) => {
+        $crate::threading::SIMULATION.scope(false, $future)
+    };
+}
+#[macro_export]
+macro_rules! sync_live_scope {
+    ($func:expr) => {
+        $crate::threading::SIMULATION.sync_scope(false, $func)
+    };
+}
+#[macro_export]
+macro_rules! sync_sim_scope {
+    ($func:expr) => {
+        $crate::threading::SIMULATION.sync_scope(true, $func)
+    };
+}
+#[macro_export]
+macro_rules! async_sim_scope {
+    ($future:expr) => {
+        $crate::threading::SIMULATION.scope(true, $future)
+    };
+}

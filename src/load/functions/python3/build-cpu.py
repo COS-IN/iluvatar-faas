@@ -13,6 +13,8 @@ args = argparser.parse_args()
 
 def image_name(func_name, server):
   return f"{args.hub}/{args.repo}/{func_name}-iluvatar-action-{server}:{args.version}"
+def image_name_no_server(func_name):
+    return f"{args.hub}/{args.repo}/{func_name}-iluvatar-action:{args.version}"
 
 def base_image_name(func_name):
   return f"{args.hub}/{args.repo}/{func_name}:{args.version}"
@@ -27,6 +29,9 @@ def docker_cmd(args, log_file=None):
 
 def push(func_name, log, server):
   docker_cmd(["push", image_name(func_name, server)], log)
+  if server == "http":
+      docker_cmd(["tag", image_name(func_name, server), image_name_no_server(func_name)], log)
+      docker_cmd(["push", image_name_no_server(func_name)], log)
 
 def build(path, function_name, dockerfile_base, basename, server):
   shutil.copy("gunicorn.conf.py", path)

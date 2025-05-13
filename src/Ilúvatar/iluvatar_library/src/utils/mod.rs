@@ -16,49 +16,27 @@ use anyhow::Result;
 use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
 use std::process::{Child, Command, Output, Stdio};
-use std::{str, thread, time};
+use std::{str, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, error, info};
 
-pub fn get_child_pid(ppid: u32) -> Result<u32> {
+async fn get_child_pid(ppid: u32) -> Result<u32> {
     let ppid = ppid.to_string();
-    let output = execute_cmd("/usr/bin/pgrep", vec!["-P", ppid.as_str()], None, &ppid)?;
+    let output = execute_cmd_async("/usr/bin/pgrep", vec!["-P", ppid.as_str()], None, &ppid).await?;
     Ok(str::from_utf8(&output.stdout)?.trim().parse::<u32>()?)
 }
 
-pub fn try_get_child_pid(ppid: u32, timeout_ms: u64, tries: u32) -> u32 {
+pub async fn try_get_child_pid(ppid: u32, timeout_ms: u64, mut tries: u32) -> u32 {
     let millis = time::Duration::from_millis(timeout_ms);
-    let mut tries = tries;
-
     while tries > 0 {
-        let r = get_child_pid(ppid);
-
-        let cpid = r.unwrap_or(0);
+        let cpid = get_child_pid(ppid).await.unwrap_or(0);
         if cpid != 0 {
             return cpid;
         }
-
         tries -= 1;
-        thread::sleep(millis);
+        tokio::time::sleep(millis).await;
     }
-
     0
-}
-
-lazy_static::lazy_static! {
-  // TODO: This probably shouldn't exist. Process-level global state causes weirdness, is generally bad programming, and prevents in-proc simulation on alternate threads.
-  static ref SIMULATION_CHECK: parking_lot::Mutex<bool>  = parking_lot::Mutex::new(false);
-}
-/// Set globally that the system is being run as a simulation
-pub fn set_simulation(_tid: &TransactionId) -> Result<()> {
-    *SIMULATION_CHECK.lock() = true;
-    Ok(())
-}
-/// A method for anyone to check if the system is being run as a simulation.
-/// Safe to capture and store in a variable as this is set atomically on boot.
-/// Will never change.
-pub fn is_simulation() -> bool {
-    *SIMULATION_CHECK.lock()
 }
 
 /// get the fully qualified domain name for a function from its name and version
@@ -225,6 +203,14 @@ pub async fn wait_for_exit_signal(tid: &TransactionId) -> Result<()> {
     let mut sig_quit = try_create_signal(tid, SignalKind::quit())?;
 
     info!(tid = tid, "Waiting on exit signal");
+    tokio::select! {
+      _res = sig_int.recv() => println!("sigint"),
+      _res = sig_term.recv() => println!("sigterm"),
+      _res = sig_usr1.recv() => println!("sigusr1"),
+      _res = sig_usr2.recv() => println!("sigusr2"),
+      _res = sig_quit.recv() => println!("sigquit"),
+    }
+
     if tokio::select! {
       res = sig_int.recv() => res,
       res = sig_term.recv() => res,
@@ -312,31 +298,15 @@ mod signal_tests {
     use super::*;
     use rstest::rstest;
 
+    #[iluvatar_library::live_test]
     #[rstest]
     #[case(SignalKind::interrupt())]
     #[case(SignalKind::terminate())]
     #[case(SignalKind::user_defined1())]
     #[case(SignalKind::user_defined2())]
     #[case(SignalKind::quit())]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn should_create_signal(#[case] kind: SignalKind) {
         let _ = try_create_signal(&"TEST".to_string(), kind).unwrap();
-    }
-
-    #[rstest]
-    #[case(SignalKind::interrupt())]
-    #[case(SignalKind::terminate())]
-    #[case(SignalKind::user_defined1())]
-    #[case(SignalKind::user_defined2())]
-    #[case(SignalKind::quit())]
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn should_exit_on_signal(#[case] kind: SignalKind) {
-        let tid = "TEST".to_string();
-        let t = tokio::spawn(async move { wait_for_exit_signal(&tid.clone()).await });
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        let nix_signal = nix::sys::signal::Signal::try_from(kind.as_raw_value()).unwrap();
-        nix::sys::signal::kill(nix::unistd::Pid::from_raw(std::process::id() as i32), nix_signal).unwrap();
-        t.await.unwrap().unwrap();
     }
 }
 

@@ -476,12 +476,12 @@ mod char_map_tests {
     use enum_iterator::*;
     use rand::seq::IteratorRandom;
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn compile_test() {
         let _cmap: WorkerCharMap = CharMapRW::<{ Chars::SIZE }>::boxed();
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn missing_get_returns_zero() {
         let cmap = worker_char_map();
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Min), 0.0);
@@ -490,7 +490,7 @@ mod char_map_tests {
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 0.0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn first_sets_all() {
         let cmap = worker_char_map();
         cmap.update("f1", Chars::CpuExecTime, 1.0);
@@ -500,7 +500,7 @@ mod char_map_tests {
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 1.0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn get_helpers_work() {
         let cmap = worker_char_map();
         cmap.update("f1", Chars::CpuExecTime, 1.0);
@@ -525,7 +525,7 @@ mod char_map_tests {
         );
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn second_updates() {
         let cmap = worker_char_map();
         cmap.update("f1", Chars::CpuExecTime, 1.0);
@@ -536,7 +536,7 @@ mod char_map_tests {
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 2.0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn multi_set_works() {
         let cmap = worker_char_map();
         let chosen_chars = all::<Chars>().choose_multiple(&mut rand::rng(), 3);
@@ -570,7 +570,7 @@ mod char_map_tests {
         assert_eq!(cmap.get("f1", chosen_chars[2], Value::Latest), 2.0, "{}", err_msg);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn read_only_cannot_update() {
         let cmap = worker_char_map();
         cmap.update("f1", Chars::CpuExecTime, 1.0);
@@ -594,7 +594,7 @@ mod char_map_tests {
         assert_eq!(cmap.get("f1", Chars::CpuExecTime, Value::Latest), 3.0);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn write_to_all_chars() {
         let cmap = worker_char_map();
         for (i, char) in all::<Chars>().enumerate() {
@@ -616,12 +616,12 @@ mod char_map_tests {
         }
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn max_char_correct() {
         assert_eq!(last::<Chars>().unwrap() as usize, Chars::MAX);
     }
 
-    #[test]
+    #[iluvatar_library::sim_test]
     fn size_char_correct() {
         assert_eq!(cardinality::<Chars>(), Chars::SIZE);
     }

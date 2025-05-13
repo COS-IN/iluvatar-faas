@@ -1,5 +1,6 @@
 use crate::services::registration::RegisteredWorker;
 use dashmap::DashMap;
+use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::{transaction::TransactionId, types::HealthStatus};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use std::sync::Arc;
@@ -102,7 +103,7 @@ impl ControllerHealthService for HealthService {
         in_secs: Option<Duration>,
     ) {
         debug!(tid=tid, name=%worker.name, "scheduling future health check for worker");
-        tokio::spawn(async move {
+        tokio_spawn_thread(async move {
             let tid: &TransactionId = &iluvatar_library::transaction::HEALTH_TID;
             let dur = match in_secs {
                 Some(t) => t,
