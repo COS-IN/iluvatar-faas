@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Barrier;
 use tracing::{error, info};
+use iluvatar_rpc::rpc::Runtime;
 
 #[derive(Parser, Debug)]
 /// Test scaling of worker with increasing amount of requests
@@ -98,7 +99,6 @@ async fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<V
         let d = args.duration.into();
         let mem = args.memory_mb;
         let a = args.function_args.clone();
-
         threads.push(tokio_spawn_thread(async move {
             scaling_thread(
                 host_c, p, d, thread_id, b, i_c, compute, isolation, server, thread_cnt, mem, a,
@@ -141,6 +141,8 @@ async fn scaling_thread(
         compute,
         server,
         None,
+        "",
+        Runtime::Nolang,
     )
     .await
     {

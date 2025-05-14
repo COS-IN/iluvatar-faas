@@ -153,6 +153,8 @@ impl WorkerRegistration {
                     function.container_server,
                     function.all_resource_timings.as_ref(),
                     function.system_function,
+                    function.code_zip.clone(),
+                    function.runtime,
                 )
                 .await
             {
@@ -199,6 +201,8 @@ impl WorkerRegistration {
                     reg.container_server,
                     reg.all_resource_timings.as_ref(),
                     reg.system_function,
+                    reg.code_zip.clone(),
+                    reg.runtime,
                 )
                 .await
             {

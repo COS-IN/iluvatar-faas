@@ -265,15 +265,10 @@ impl ContainerIsolationService for DockerIsolation {
     /// creates and starts the entrypoint for a container based on the given image
     /// Run inside the specified namespace
     /// returns a new, unique ID representing it
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, _namespace, mem_limit_mb, cpus), fields(tid=tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, _namespace, iso, compute, device_resource), fields(tid=tid)))]
     async fn run_container(
         &self,
-        fqdn: &str,
-        image_name: &str,
-        parallel_invokes: u32,
         _namespace: &str,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
@@ -284,7 +279,7 @@ impl ContainerIsolationService for DockerIsolation {
             error_value!("Only supports docker Isolation, now {:?}", iso, device_resource);
         }
         let mut env = vec![];
-        let cid = format!("{}-{}", fqdn, GUID::rand());
+        let cid = format!("{}-{}", reg.fqdn, GUID::rand());
         let port = match free_local_port() {
             Ok(p) => p,
             Err(e) => return err_val(e, device_resource),
@@ -322,11 +317,11 @@ impl ContainerIsolationService for DockerIsolation {
         if let Err(e) = self
             .docker_run(
                 tid,
-                image_name,
+                &reg.image_name,
                 cid.as_str(),
                 env,
-                mem_limit_mb,
-                cpus,
+                reg.memory,
+                reg.cpus,
                 &device_resource,
                 Some(ports),
                 None,
@@ -343,8 +338,7 @@ impl ContainerIsolationService for DockerIsolation {
                 cid,
                 port,
                 "0.0.0.0".to_string(),
-                std::num::NonZeroU32::new_unchecked(parallel_invokes),
-                fqdn,
+                std::num::NonZeroU32::new_unchecked(reg.parallel_invokes),
                 reg,
                 self.limits_config.timeout_sec,
                 ContainerState::Cold,

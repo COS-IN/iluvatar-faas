@@ -3,15 +3,23 @@ use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
 use iluvatar_library::char_map::{add_registration_timings, WorkerCharMap};
 use iluvatar_library::types::ContainerServer;
+use iluvatar_library::utils::execute_cmd_checked_async;
+use iluvatar_library::utils::file::temp_pth;
 use iluvatar_library::{
+    bail_error,
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb, ResourceTimings},
     utils::calculate_fqdn,
 };
-use iluvatar_rpc::rpc::RegisterRequest;
+use iluvatar_rpc::rpc::{RegisterRequest, Runtime};
 use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info};
+
+// enum RunFunction {
+//     Image { image_name: String },
+//     Runtime{ runtime: Runtime, code: Vec<u8> },
+// }
 
 /// A registered function is ready to be run if invoked later. Resource configuration is set here (CPU, mem, isolation, compute-device.
 #[derive(Debug, Default)]
@@ -30,6 +38,8 @@ pub struct RegisteredFunction {
     pub all_resource_timings: Option<ResourceTimings>,
     pub historical_runtime_data_sec: HashMap<Compute, Vec<f64>>,
     pub system_function: bool,
+    pub runtime: Runtime,
+    pub code_zip: Vec<u8>,
 }
 
 impl RegisteredFunction {
@@ -44,6 +54,9 @@ impl RegisteredFunction {
     #[inline(always)]
     pub fn polymorphic(&self) -> bool {
         self.supported_compute.contains(Compute::GPU) && self.supported_compute.contains(Compute::CPU)
+    }
+    pub fn storage_folder(&self) -> String {
+        temp_pth(&self.fqdn)
     }
 }
 impl TryFrom<RegisterRequest> for RegisteredFunction {
@@ -71,6 +84,8 @@ impl TryFrom<RegisterRequest> for RegisteredFunction {
             },
             historical_runtime_data_sec: Default::default(),
             system_function: req.system_function,
+            runtime: req.runtime.try_into()?,
+            code_zip: req.code_zip,
         })
     }
 }
@@ -100,6 +115,52 @@ impl RegistrationService {
             cmap: characteristics_map,
             resources,
         })
+    }
+
+    async fn prepare_on_disk(&self, reg: &RegisteredFunction, tid: &TransactionId) -> Result<()> {
+        let storage = reg.storage_folder();
+        if std::fs::exists(&storage)? {
+            // old instance of matching fqdn
+            // we check for dupe function registration before this, so this is safe
+            tokio::fs::remove_dir_all(&storage).await?;
+        }
+        let tar = format!("{}/{}", storage, "code.tar.gz");
+        info!(tid = tid, "making dir");
+        std::fs::create_dir_all(&storage)?;
+        info!(tid = tid, "saving tar");
+        tokio::fs::write(&tar, reg.code_zip.as_slice()).await?;
+        info!(tid = tid, "un-tarring");
+        let code = format!("{}/{}", storage, "code");
+        std::fs::create_dir_all(&code)?;
+        execute_cmd_checked_async("/usr/bin/tar", vec!["-xzvf", tar.as_str(), "--strip-components=2", "-C", code.as_str()], None, tid).await?;
+        let packages = format!("{}/{}", storage, "packages");
+        let reqs = format!("{}/{}", code, "reqs.txt");
+        info!(tid = tid, "intalling packages");
+        match reg.runtime {
+            Runtime::Python3gpu | Runtime::Python3 => {
+                execute_cmd_checked_async(
+                    "/usr/bin/python3",
+                    vec![
+                        "-m",
+                        "pip",
+                        "install",
+                        "--ignore-installed",
+                        "--progress-bar",
+                        "off",
+                        "--compile",
+                        "--target",
+                        packages.as_str(),
+                        "-r",
+                        reqs.as_str(),
+                    ],
+                    None,
+                    tid,
+                )
+                .await?;
+            },
+            _ => bail_error!(tid = tid, "cannot prepare packages for function's runtime"),
+        }
+        Ok(())
     }
 
     pub async fn register(&self, request: RegisterRequest, tid: &TransactionId) -> Result<Arc<RegisteredFunction>> {
@@ -149,6 +210,12 @@ impl RegistrationService {
 
         if self.reg_map.read().contains_key(&reg.fqdn) {
             anyhow::bail!("Function {} is already registered!", reg.fqdn);
+        }
+
+        if reg.runtime != Runtime::Nolang {
+            if let Err(e) = self.prepare_on_disk(&reg, tid).await {
+                bail_error!(error=%e, tid=tid, "prepare_on_disk failed");
+            };
         }
 
         let mut isolations = reg.isolation_type;

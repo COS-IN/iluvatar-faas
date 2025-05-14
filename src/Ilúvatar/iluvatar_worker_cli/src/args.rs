@@ -2,6 +2,7 @@
 use clap::{command, Parser, Subcommand};
 use iluvatar_library::types::{Compute, ContainerServer, Isolation};
 use iluvatar_library::{types::MemSizeMb, utils::port_utils::Port};
+use iluvatar_worker_library::Runtime;
 
 #[derive(Parser, Debug)]
 pub struct InvokeArgs {
@@ -50,9 +51,14 @@ pub struct RegisterArgs {
     #[arg(short, long)]
     /// Version of function to register
     pub version: String,
-    #[arg(short, long)]
+    #[arg(short, long, required = false)]
     /// Image of function to register
-    pub image: String,
+    pub image: Option<String>,
+    #[arg( long, required = false)]
+    /// Path to zip file containing code
+    pub code_zip: Option<String>,
+    #[arg(long, required=false, default_value_t = Runtime::Nolang)]
+    pub runtime: Runtime,
     #[arg(short, long)]
     /// Memory in mb to allocate
     pub memory: MemSizeMb,

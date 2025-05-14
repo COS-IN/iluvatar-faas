@@ -34,12 +34,7 @@ pub trait ContainerIsolationService: ToAny + Send + Sync {
     /// NOTE: you will have to ask the lifetime again to wait on the container to be started up
     async fn run_container(
         &self,
-        fqdn: &str,
-        image_name: &str,
-        parallel_invokes: u32,
         namespace: &str,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,

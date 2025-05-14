@@ -11,6 +11,11 @@ pub fn temp_file_pth(with_tail: &str, with_extension: &str) -> String {
     format!("{}/{}.{}", TEMP_DIR, with_tail, with_extension)
 }
 
+/// Return an absolute path for a folder temp dir
+pub fn temp_pth(with_tail: &str) -> String {
+    format!("{}/{}", TEMP_DIR, with_tail)
+}
+
 pub fn container_path(container_id: &str) -> PathBuf {
     PathBuf::from(TEMP_DIR).join(container_id)
 }

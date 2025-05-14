@@ -15,10 +15,22 @@ use crate::utils::port::Port;
 use anyhow::Result;
 use async_process::Command as AsyncCommand;
 use std::collections::HashMap;
+use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::{str, time};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tracing::{debug, error, info};
+
+/// Loads the zip file if present, returns an error if file is missing or read fails.
+pub async fn try_load_code_zip(path: &str) -> Result<Vec<u8>> {
+    if path.is_empty() {
+        Ok(Vec::new())
+    } else if Path::new(path).exists() {
+        Ok(tokio::fs::read(path).await?)
+    } else {
+        anyhow::bail!("Code zip file did not exist")
+    }
+}
 
 async fn get_child_pid(ppid: u32) -> Result<u32> {
     let ppid = ppid.to_string();
@@ -203,14 +215,6 @@ pub async fn wait_for_exit_signal(tid: &TransactionId) -> Result<()> {
     let mut sig_quit = try_create_signal(tid, SignalKind::quit())?;
 
     info!(tid = tid, "Waiting on exit signal");
-    tokio::select! {
-      _res = sig_int.recv() => println!("sigint"),
-      _res = sig_term.recv() => println!("sigterm"),
-      _res = sig_usr1.recv() => println!("sigusr1"),
-      _res = sig_usr2.recv() => println!("sigusr2"),
-      _res = sig_quit.recv() => println!("sigquit"),
-    }
-
     if tokio::select! {
       res = sig_int.recv() => res,
       res = sig_term.recv() => res,

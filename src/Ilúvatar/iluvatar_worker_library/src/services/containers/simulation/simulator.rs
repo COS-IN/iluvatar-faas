@@ -39,29 +39,23 @@ impl ContainerIsolationService for SimulatorIsolation {
 
     async fn run_container(
         &self,
-        fqdn: &str,
-        image_name: &str,
-        _parallel_invokes: u32,
         namespace: &str,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
         device_resource: Option<GPU>,
         tid: &TransactionId,
     ) -> ResultErrorVal<Container, Option<GPU>> {
-        let cid = format!("{}-{}", fqdn, GUID::rand());
+        let cid = format!("{}-{}", reg.fqdn, GUID::rand());
         // 'cold' container start delay
         // TODO: fixing this is in TODO.md
         tokio::time::sleep(tokio::time::Duration::from_secs(
-            (self.cmap.get_avg(fqdn, Chars::CpuColdTime) * 0.75).round() as u64,
+            (self.cmap.get_avg(&reg.fqdn, Chars::CpuColdTime) * 0.75).round() as u64,
         ))
         .await;
         match SimulatorContainer::new(
             &gen_tid(),
             cid,
-            fqdn,
             reg,
             ContainerState::Cold,
             iso,

@@ -638,12 +638,7 @@ impl ContainerdIsolation {
     /// Does not start any process in it
     async fn create_container(
         &self,
-        fqdn: &str,
-        image_name: &str,
         namespace: &str,
-        parallel_invokes: u32,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
         reg: &Arc<RegisteredFunction>,
         tid: &TransactionId,
         compute: Compute,
@@ -664,7 +659,7 @@ impl ContainerdIsolation {
             None => None,
         };
 
-        let cid = format!("{}-{}", fqdn, GUID::rand());
+        let cid = format!("{}-{}", reg.fqdn, GUID::rand());
         let ns = match self.namespace_manager.get_namespace(tid) {
             Ok(n) => n,
             Err(e) => return err_val(e, device_resource),
@@ -673,13 +668,13 @@ impl ContainerdIsolation {
 
         let address = &ns.namespace.ips[0].address;
 
-        let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name, &cid);
+        let spec = self.spec(address, port, reg.memory, reg.cpus, &ns.name, &cid);
         let mut labels: HashMap<String, String> = HashMap::new();
         labels.insert("owner".to_string(), "iluvatar_worker".to_string());
 
         let container = Containerd_Container {
             id: cid.to_string(),
-            image: image_name.to_string(),
+            image: reg.image_name.to_string(),
             runtime: Some(Runtime {
                 name: "io.containerd.runc.v2".to_string(),
                 options: None,
@@ -772,8 +767,7 @@ impl ContainerdIsolation {
                         task,
                         port,
                         address.clone(),
-                        std::num::NonZeroU32::new_unchecked(parallel_invokes),
-                        fqdn,
+                        std::num::NonZeroU32::new_unchecked(reg.parallel_invokes),
                         reg,
                         ns,
                         self.limits_config.timeout_sec,
@@ -822,15 +816,10 @@ impl ContainerIsolationService for ContainerdIsolation {
     /// creates and starts the entrypoint for a container based on the given image
     /// Run inside the specified namespace
     /// returns a new, unique ID representing it
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, namespace, iso, compute, device_resource), fields(tid=tid)))]
     async fn run_container(
         &self,
-        fqdn: &str,
-        image_name: &str,
-        parallel_invokes: u32,
         namespace: &str,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
@@ -840,20 +829,9 @@ impl ContainerIsolationService for ContainerdIsolation {
         if !iso.eq(&Isolation::CONTAINERD) {
             error_value!("Only supports containerd Isolation, now {:?}", iso, device_resource);
         }
-        info!(tid=tid, image=%image_name, namespace=%namespace, "Creating container from image");
+        info!(tid=tid, namespace=%namespace, "Creating container from image");
         let mut container = self
-            .create_container(
-                fqdn,
-                image_name,
-                namespace,
-                parallel_invokes,
-                mem_limit_mb,
-                cpus,
-                reg,
-                tid,
-                compute,
-                device_resource,
-            )
+            .create_container(namespace, reg, tid, compute, device_resource)
             .await?;
         let mut client = TasksClient::new(self.channel());
 
@@ -869,7 +847,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 container.task.running = true;
                 self.send_bg_packet(
                     container.task.pid,
-                    fqdn,
+                    &reg.fqdn,
                     &container.task.container_id.clone().unwrap(),
                     tid,
                 )

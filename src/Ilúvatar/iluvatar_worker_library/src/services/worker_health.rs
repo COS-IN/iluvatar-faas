@@ -10,7 +10,7 @@ use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation},
 };
-use iluvatar_rpc::rpc::{HealthResponse, LanguageRuntime, RegisterRequest};
+use iluvatar_rpc::rpc::{HealthResponse, RegisterRequest, Runtime};
 use std::sync::Arc;
 use tracing::warn;
 
@@ -68,7 +68,7 @@ impl WorkerHealthService {
             cpus: 1,
             parallel_invokes: 1,
             transaction_id: tid.clone(),
-            language: LanguageRuntime::Nolang.into(),
+            runtime: Runtime::Nolang.into(),
             compute: Compute::CPU.bits(),
             // support all available isolations
             // TODO: health service should probably test each independently
@@ -76,6 +76,7 @@ impl WorkerHealthService {
             resource_timings_json: "{}".to_string(),
             container_server: ContainerServer::HTTP as u32,
             system_function: true,
+            code_zip: vec![],
         };
 
         let reg = reg

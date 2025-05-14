@@ -6,6 +6,7 @@ use iluvatar_library::clock::{now, Clock};
 use iluvatar_library::threading::is_simulation;
 use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::types::ContainerServer;
+use iluvatar_library::utils::try_load_code_zip;
 use iluvatar_library::{
     bail_error,
     transaction::{gen_tid, TransactionId},
@@ -13,7 +14,7 @@ use iluvatar_library::{
     utils::{port::Port, timing::TimedExt},
 };
 use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResponse, RegisterRequest};
-use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
+use iluvatar_rpc::rpc::{PrewarmRequest, Runtime};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Write, path::Path, sync::Arc, time::Duration};
@@ -275,6 +276,7 @@ pub async fn controller_register(
     compute: Compute,
     server: ContainerServer,
     timings: Option<&ResourceTimings>,
+    code_zip_pth: &str,
     api: ControllerAPI,
 ) -> Result<Duration> {
     let start = now();
@@ -286,13 +288,14 @@ pub async fn controller_register(
         1,
         memory,
         timings,
-        LanguageRuntime::Python3,
+        Runtime::Python3,
         compute,
         isolation,
         server,
         1,
         &tid,
         false, // would never register a system function from the load generator
+        try_load_code_zip(code_zip_pth).await?,
     )?;
     match api.register(req).await {
         Ok(_) => Ok(start.elapsed()),
@@ -331,6 +334,8 @@ pub async fn worker_register(
     compute: Compute,
     server: ContainerServer,
     timings: Option<&ResourceTimings>,
+    code_zip_pth: &str,
+    runtime: Runtime,
 ) -> Result<(String, Duration, TransactionId)> {
     let tid: TransactionId = format!("{}-reg-tid", name);
     let mut api = factory.get_worker_api(&host, &host, port, &tid).await?;
@@ -348,6 +353,8 @@ pub async fn worker_register(
             server,
             timings,
             false, // would never register a system function from the load generator
+            try_load_code_zip(code_zip_pth).await?,
+            runtime,
         )
         .timed()
         .await;

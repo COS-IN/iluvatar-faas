@@ -247,7 +247,6 @@ mod tests {
     #[iluvatar_library::sim_test]
     fn reg() {
         let cp = ContainerPool::new(Compute::CPU);
-        let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
@@ -260,7 +259,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Cold,
                 Isolation::CONTAINERD,
@@ -289,7 +287,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Cold,
                 Isolation::CONTAINERD,
@@ -309,7 +306,6 @@ mod tests {
     fn remove_returns_correct() {
         let tid = "test".to_string();
         let cp = ContainerPool::new(Compute::CPU);
-        let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
@@ -322,7 +318,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Cold,
                 Isolation::CONTAINERD,
@@ -352,7 +347,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Cold,
                 Isolation::CONTAINERD,
@@ -382,7 +376,6 @@ mod tests {
             isolation_type: Isolation::all(),
             ..std::default::Default::default()
         });
-        let fqdn2 = calculate_fqdn("name2", "vesr");
         let reg2 = Arc::new(RegisteredFunction {
             function_name: "name2".to_string(),
             function_version: "vesr".to_string(),
@@ -395,7 +388,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid1".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Cold,
                 Isolation::CONTAINERD,
@@ -410,7 +402,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid2".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Cold,
                 Isolation::CONTAINERD,
@@ -425,7 +416,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid3".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Cold,
                 Isolation::CONTAINERD,
@@ -440,7 +430,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid3".to_string(),
-                &fqdn2,
                 &reg2,
                 ContainerState::Cold,
                 Isolation::CONTAINERD,
@@ -489,7 +478,6 @@ mod tests {
                         SimulatorContainer::new(
                             &gen_tid(),
                             format!("cid{}", i),
-                            &fqdn,
                             &reg,
                             ContainerState::Cold,
                             Isolation::CONTAINERD,
@@ -526,7 +514,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Cold,
                 Isolation::CONTAINERD,
@@ -560,7 +547,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Prewarm,
                 Isolation::CONTAINERD,
@@ -575,7 +561,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Warm,
                 Isolation::CONTAINERD,
@@ -606,7 +591,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Prewarm,
                 Isolation::CONTAINERD,
@@ -621,7 +605,6 @@ mod tests {
             SimulatorContainer::new(
                 &gen_tid(),
                 "cid".to_string(),
-                &fqdn,
                 &reg,
                 ContainerState::Warm,
                 Isolation::CONTAINERD,

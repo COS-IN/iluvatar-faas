@@ -10,7 +10,7 @@ use iluvatar_rpc::rpc::{
     CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, ListFunctionRequest,
     PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
 };
-use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, LanguageRuntime, ListFunctionResponse, StatusResponse};
+use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, ListFunctionResponse, Runtime, StatusResponse};
 use iluvatar_rpc::RPCError;
 use tonic::transport::Channel;
 use tonic::{Code, Request, Status};
@@ -186,6 +186,8 @@ impl WorkerAPI for RPCWorkerAPI {
         server: ContainerServer,
         timings: Option<&ResourceTimings>,
         system_function: bool,
+        code_zip: Vec<u8>,
+        runtime: Runtime,
     ) -> Result<String> {
         let request = Request::new(RegisterRequest::new(
             &function_name,
@@ -194,13 +196,14 @@ impl WorkerAPI for RPCWorkerAPI {
             cpus,
             memory,
             timings,
-            LanguageRuntime::Nolang,
+            runtime,
             compute,
             isolate,
             server,
             parallels,
             &tid,
             system_function,
+            code_zip,
         )?);
         match self.client.register(request).await {
             Ok(response) => {

@@ -2,7 +2,7 @@ use crate::args::{AsyncCheck, InvokeArgs, PrewarmArgs, RegisterArgs};
 use anyhow::Result;
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::HealthStatus;
-use iluvatar_library::utils::{config::args_to_json, port::Port};
+use iluvatar_library::utils::{config::args_to_json, port::Port, try_load_code_zip};
 use iluvatar_worker_library::worker_api::{rpc::RPCWorkerAPI, WorkerAPI};
 use serde_json::json;
 use tracing::{error, info};
@@ -64,11 +64,15 @@ pub async fn prewarm(host: String, port: Port, args: PrewarmArgs) -> Result<()> 
 pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()> {
     let tid = gen_tid();
     let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
+    let zip = match args.code_zip {
+        None => vec![],
+        Some(pth) => try_load_code_zip(&pth).await?,
+    };
     let ret = api
         .register(
             args.name,
             args.version,
-            args.image,
+            args.image.unwrap_or("".to_string()),
             args.memory,
             args.cpu,
             1,
@@ -78,6 +82,8 @@ pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()
             args.server,
             None,
             false, // would never register a system function from the CLI
+            zip,
+            args.runtime,
         )
         .await?;
     info!("{}", ret);

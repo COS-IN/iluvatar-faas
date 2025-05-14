@@ -18,6 +18,8 @@ macro_rules! name_span {
     };
 }
 
+pub use iluvatar_rpc::rpc::Runtime;
+
 pub mod http;
 pub mod services;
 pub mod worker_api;

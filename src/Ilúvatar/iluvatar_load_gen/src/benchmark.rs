@@ -12,11 +12,18 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::{collections::HashMap, path::Path};
 use tracing::{error, info};
+use iluvatar_rpc::rpc::Runtime;
 
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct ToBenchmarkFunction {
     pub name: String,
     pub image_name: String,
+    /// An optional value denoting a zip file containing code for the function.
+    /// Must specify a special `runtime` too
+    pub code_zip_pth: String,
+    #[serde(default = "Runtime::default")]
+    /// The runtime to use for the function, default assumes an existing image will be used.
+    pub runtime: Runtime,
     /// The compute(s) to test the function with, in the form CPU|GPU|etc.
     #[serde(default = "Compute::default")]
     pub compute: Compute,
@@ -167,6 +174,7 @@ pub async fn benchmark_controller(
                 function.compute,
                 function.server,
                 None,
+                &function.code_zip_pth,
                 api.clone(),
             )
             .await
@@ -282,6 +290,8 @@ pub fn benchmark_worker(
                     supported_compute,
                     function.server,
                     None,
+                    &function.code_zip_pth,
+                    function.runtime,
                 )) {
                     Ok(r) => r,
                     Err(e) => {

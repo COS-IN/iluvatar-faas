@@ -15,7 +15,7 @@ use iluvatar_library::energy::energy_logging::EnergyLogger;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::{bail_error, transaction::TransactionId};
-use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, ListFunctionResponse, StatusResponse};
+use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, ListFunctionResponse, Runtime, StatusResponse};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -179,6 +179,8 @@ pub trait WorkerAPI {
         server: ContainerServer,
         timings: Option<&ResourceTimings>,
         system_function: bool,
+        code_zip: Vec<u8>,
+        runtime: Runtime,
     ) -> Result<String>;
     /// Get worker status.
     async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse>;

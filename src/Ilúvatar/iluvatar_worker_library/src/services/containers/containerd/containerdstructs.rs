@@ -34,7 +34,6 @@ pub struct ContainerdContainer {
     pub task: Task,
     pub port: Port,
     pub address: String,
-    fqdn: String,
     /// the associated function inside the container
     pub function: Arc<RegisteredFunction>,
     last_used: RwLock<Instant>,
@@ -60,7 +59,6 @@ impl ContainerdContainer {
         port: Port,
         address: String,
         _parallel_invokes: NonZeroU32,
-        fqdn: &str,
         function: &Arc<RegisteredFunction>,
         ns: Arc<Namespace>,
         invoke_timeout: u64,
@@ -80,7 +78,6 @@ impl ContainerdContainer {
             address,
             client,
             compute,
-            fqdn: fqdn.to_owned(),
             function: function.clone(),
             last_used: RwLock::new(now()),
             namespace: ns,
@@ -93,7 +90,7 @@ impl ContainerdContainer {
         })
     }
 
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=_tid, fqdn=%self.fqdn)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self), fields(tid=_tid)))]
     fn update_metadata_on_invoke(&self, _tid: &TransactionId) {
         *self.invocations.lock() += 1;
         self.touch();
@@ -102,7 +99,7 @@ impl ContainerdContainer {
 
 #[tonic::async_trait]
 impl ContainerT for ContainerdContainer {
-    #[tracing::instrument(skip(self, json_args), fields(tid=tid, fqdn=%self.fqdn), name="ContainerdContainer::invoke")]
+    #[tracing::instrument(skip(self, json_args), fields(tid=tid), name="ContainerdContainer::invoke")]
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
         self.update_metadata_on_invoke(tid);
         match self.client.invoke(json_args, tid, &self.container_id).await {
@@ -144,7 +141,7 @@ impl ContainerT for ContainerdContainer {
     }
 
     fn fqdn(&self) -> &String {
-        &self.fqdn
+        &self.function.fqdn
     }
 
     fn is_healthy(&self) -> bool {
