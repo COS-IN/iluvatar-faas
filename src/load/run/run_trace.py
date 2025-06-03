@@ -4,7 +4,6 @@ from time import sleep
 import json
 import traceback
 from enum import Enum
-from typing import Optional
 import shutil
 from .config import LoadConfig
 
@@ -18,14 +17,12 @@ from .ansible import (
     _run_ansible_clean,
     RunTarget,
 )
-from .logging import create_logger
 
 
 class BuildTarget(Enum):
     DEBUG = "debug"
     DEBUG_SPANS = "spansd"
     RELEASE = "release"
-    RELEASE_WITH_DEBUG = "relwdebug"
     RELEASE_SPANS = "spans"
 
     def __str__(self) -> str:
@@ -35,41 +32,19 @@ class BuildTarget(Enum):
         return str(self)
 
     def path_name(self) -> str:
-        return self.value
+        if self == self.DEBUG or self == self.DEBUG_SPANS:
+            return "debug"
+        elif self == self.RELEASE or self == self.RELEASE_SPANS:
+            return "release"
 
 
-def rust_build(ilu_home, log_file: Optional[str]=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
-    """
-    Build the solution 'src/Ilúvatar' is located.
-
-    :param ilu_home: Directory where the
-    :param log_file: Optional log file to write build stdout to
-    :param build: build target
-    :param target_arch: rustc target triple build target architecture
-    """
+def rust_build(ilu_home, log_file=None, build: BuildTarget = BuildTarget.RELEASE):
     pwd = os.getcwd()
     os.chdir(ilu_home)
     build_args = ["make", build.make_name()]
-    logger = create_logger(log_file)
-    _run_cmd(build_args, logger, env={"TARGET_PLAT":target_arch})
+    _run_cmd(build_args, log_file)
     os.chdir(pwd)
 
-def rust_build_native(ilu_home, log_file: Optional[str]=None, build: BuildTarget = BuildTarget.RELEASE, target_arch: str = "x86_64-unknown-linux-gnu"):
-    """
-    Build Ilúvatar to run on the local CPU, with native optimizations and features enabled.
-    WARNING: This build will only work on the local machine as it uses CPU-family specific instructions. Be aware of how you use it
-
-    :param ilu_home: Directory where the
-    :param log_file: Optional log file to write build stdout to
-    :param build: build target
-    :param target_arch: rustc target triple build target architecture
-    """
-    pwd = os.getcwd()
-    os.chdir(ilu_home)
-    build_args = ["make", build.make_name()]
-    logger = create_logger(log_file)
-    _run_cmd(build_args, logger, env={"TARGET_CPU":"native","TARGET_PLAT":target_arch})
-    os.chdir(pwd)
 
 class RunType(Enum):
     SIM = "sim"
@@ -118,7 +93,7 @@ def trace_base_name(trace_in_csv: str):
     return os.path.splitext(os.path.basename(trace_in_csv))[0]
 
 
-def _run_load(logger, results_dir, input_csv, metadata, kwargs):
+def _run_load(log_file, results_dir, input_csv, metadata, kwargs):
     setup = "live"
     if kwargs["simulation"]:
         setup = "simulation"
@@ -174,38 +149,46 @@ def _run_load(logger, results_dir, input_csv, metadata, kwargs):
         load_args.append(kwargs["tick_step"])
 
     load_env = kwargs.to_env_var_dict("load")
-    load_env["RUST_BACKTRACE"] = "full"
-    _run_cmd(load_args, logger, env=load_env)
+    _run_cmd(load_args, log_file, env=load_env)
 
 
 def ansible_clean(log_file: str, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    logger = create_logger(log_file)
-    _run_ansible_clean(logger, kwargs)
+    with open(log_file, "a") as f:
+        _run_ansible_clean(f, kwargs)
 
 
-def copy_logs(log_file: str, results_dir, **kwargs):
+def copy_logs(log_file, results_dir, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    logger = create_logger(log_file)
-    _copy_logs(logger, results_dir, kwargs)
+    with open(log_file, "a") as f:
+        _copy_logs(f, results_dir, kwargs)
 
 
-def pre_run_cleanup(log_file: str, results_dir, **kwargs):
+def pre_run_cleanup(log_file, results_dir, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    logger = create_logger(log_file)
-    _pre_run_cleanup(logger, results_dir, kwargs)
+    if type(log_file) == str:
+        with open(log_file, "a") as f:
+            _pre_run_cleanup(f, results_dir, kwargs)
+    else:
+        _pre_run_cleanup(log_file, results_dir, kwargs)
 
 
-def remote_cleanup(log_file: str, results_dir, **kwargs):
+def remote_cleanup(log_file, results_dir, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    logger = create_logger(log_file)
-    _remote_cleanup(logger, results_dir, kwargs)
+    if type(log_file) == str:
+        with open(log_file, "a") as f:
+            _remote_cleanup(f, results_dir, kwargs)
+    else:
+        _remote_cleanup(log_file, results_dir, kwargs)
 
 
-def run_ansible(log_file: str, **kwargs):
+def run_ansible(log_file, **kwargs):
     kwargs = load_kwargs(**kwargs)
-    logger = create_logger(log_file)
-    _run_ansible(logger, kwargs)
+    if type(log_file) == str:
+        with open(log_file, "a") as f:
+            _run_ansible(f, kwargs)
+    else:
+        _run_ansible(log_file, kwargs)
 
 
 runner_config_kwargs = [
@@ -243,14 +226,9 @@ controller_kwargs = [
     ("controller_include_spans_json", False, ("logging", "include_spans_json")),
     ("controller_log_level", "info", ("logging", "level")),
     ("controller_port", 8089, ("port",)),
-    ("controller_algorithm", "CHRLU", ("load_balancer", "algorithm", "type")),
-    ("controller_thread_sleep_ms", 500, ("load_balancer", "algorithm", "load_metric", "thread_sleep_ms")),
-    ("controller_load_metric", "LoadAvg", ("load_balancer", "algorithm", "load_metric", "load_metric")),
-    # CH-RLU
-    ("controller_popular_pct", 0.1, ("load_balancer", "algorithm", "popular_pct")),
-    ("controller_bounded_ceil", 1.5, ("load_balancer", "algorithm", "bounded_ceil")),
-    ("controller_chain_len", 4, ("load_balancer", "algorithm", "chain_len")),
-    ("controller_lb_vnodes", 3, ("load_balancer", "algorithm", "vnodes")),
+    ("controller_algorithm", "LeastLoaded", ("load_balancer", "algorithm")),
+    ("controller_thread_sleep_ms", 5000, ("load_balancer", "thread_sleep_ms")),
+    ("controller_load_metric", "loadavg", ("load_balancer", "load_metric")),
 ]
 worker_kwargs = [
     ("worker_port", 8070, ("port",)),
@@ -271,7 +249,7 @@ worker_kwargs = [
         "mqfq_select_out_len",
         ("invocation", "queue_policies", "GPU"),
     ),
-    ("enqueueing", "QueueAdjustAvgEstSpeedup", ("invocation", "enqueueing_policy")),
+    ("enqueueing", "All", ("invocation", "enqueueing_policy")),
     ("invoke_queue_sleep_ms", 500, ("invocation", "queue_sleep_ms")),
     ("enqueuing_log_details", False, ("invocation", "enqueuing_log_details")),
     # docker
@@ -301,6 +279,8 @@ worker_kwargs = [
     ("worker_log_dir", "/tmp/iluvatar/logs/ansible", ("logging", "directory")),
     ("worker_include_spans_json", False, ("logging", "include_spans_json")),
     ("worker_status_ms", 500, ("status", "report_freq_ms")),
+    ("worker_stdout", True, ("logging","stdout")),
+    
     # energy
     ("ipmi_freq_ms", 0, ("energy", "ipmi_freq_ms")),
     ("ipmi_pass_file", "", ("energy", "ipmi_pass_file")),
@@ -312,8 +292,7 @@ worker_kwargs = [
     ("tegra_freq_ms", 0, ("energy", "tegra_freq_ms")),
     # gpu
     ("gpus", 0, ("container_resources", "gpu_resource", "count")),
-    ("gpu_memory", 16*1024, ("container_resources", "gpu_resource", "memory_mb")),
-    ("fpd", 32, ("container_resources", "gpu_resource", "funcs_per_device")),
+    ("fpd", 16, ("container_resources", "gpu_resource", "funcs_per_device")),
     (
         "per_func_gpu_memory",
         16 * 1024,
@@ -405,7 +384,6 @@ def run_live(
     kwargs = load_kwargs(**kwargs)
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
-    logger = create_logger(log_file)
     kwargs["function_trace_name"] = trace_base_name(trace_in)
 
     if not kwargs["force"] and has_results(results_dir, kwargs["function_trace_name"]):
@@ -421,40 +399,40 @@ def run_live(
             kwargs["host"] = held_host.address
             print(f"Running {results_dir} on {kwargs['host']}")
 
-            try:
-                _pre_run_cleanup(
-                    logger,
-                    results_dir,
-                    kwargs,
-                )
-                _run_ansible(logger, kwargs)
-                sleep(5)
-                _run_load(
-                    logger,
-                    results_dir,
-                    trace_in,
-                    trace_meta,
-                    kwargs,
-                )
-                sleep(5)
-                _remote_cleanup(
-                    logger,
-                    results_dir,
-                    kwargs,
-                )
-            except Exception as e:
-                msg = "\n".join([
-                    "Exception encountered:",
-                    str(e),
-                    traceback.format_exc()
-                ])
-                logger.error(msg)
-                _remote_cleanup(
-                    logger,
-                    results_dir,
-                    kwargs,
-                )
-                raise e
+            with open(log_file, "w") as log_file_fp:
+                try:
+                    _pre_run_cleanup(
+                        log_file_fp,
+                        results_dir,
+                        kwargs,
+                    )
+                    _run_ansible(log_file_fp, kwargs)
+                    sleep(5)
+                    _run_load(
+                        log_file_fp,
+                        results_dir,
+                        trace_in,
+                        trace_meta,
+                        kwargs,
+                    )
+                    sleep(5)
+                    _remote_cleanup(
+                        log_file_fp,
+                        results_dir,
+                        kwargs,
+                    )
+                except Exception as e:
+                    log_file_fp.write("Exception encountered:\n")
+                    log_file_fp.write(str(e))
+                    log_file_fp.write("\n")
+                    log_file_fp.write(traceback.format_exc())
+                    log_file_fp.write("\n")
+                    _remote_cleanup(
+                        log_file_fp,
+                        results_dir,
+                        kwargs,
+                    )
+                    raise e
 
 
 def run_sim(
@@ -474,7 +452,6 @@ def run_sim(
     kwargs["host"] = "NOT_SET_SIMULATION"
     os.makedirs(results_dir, exist_ok=True)
     log_file = os.path.join(results_dir, "orchestration.log")
-    logger = create_logger(log_file)
     kwargs["simulation"] = True
     kwargs["function_trace_name"] = trace_base_name(trace_in)
 
@@ -508,10 +485,11 @@ def run_sim(
         json.dump(json_data, f, indent=4)
 
     print(f"Running {results_dir}")
-    _run_load(
-        logger,
-        results_dir,
-        trace_in,
-        trace_meta,
-        kwargs,
-    )
+    with open(log_file, 'w') as log_file_ptr:
+        _run_load(
+            log_file_ptr,
+            results_dir,
+            trace_in,
+            trace_meta,
+            kwargs,
+        )

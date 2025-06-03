@@ -15,12 +15,9 @@ class ConfigItem:
         c = json_config
         if self.tree == None:
             print(self.name)
-        for i, p in enumerate(self.tree[:-1]):
+        for p in self.tree[:-1]:
             if p in c:
-                if type(c[p]) is dict:
-                    pass
-                elif i != len(self.tree[:-1]):
-                    c[p] = dict()
+                pass
             else:
                 c[p] = dict()
             c = c[p]
