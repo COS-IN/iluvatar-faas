@@ -5,7 +5,11 @@ volumes = ["/var/run/docker.sock=/var/run/docker.sock", "/tmp=/tmp"]
 pre-build = [
     "dpkg --add-architecture $CROSS_DEB_ARCH",
     "apt-get update",
-    "apt-get install protobuf-compiler -y",
+    "apt-get install -y curl unzip",
+    # Install Protobuf compiler manually
+    "curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip",
+    "unzip protoc-21.12-linux-x86_64.zip -d /usr/local",
+    "rm protoc-21.12-linux-x86_64.zip",
     "ln -snf /usr/share/zoneinfo/America/Indiana/Indianapolis /etc/localtime",
     "echo America/Indiana/Indianapolis > /etc/timezone"
 ]
