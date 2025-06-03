@@ -15,6 +15,8 @@ pub enum EnqueueingPolicy {
     All,
     /// Randomly assign functions to any queue they support, with equal probability.
     Random,
+    /// Weighted Random
+    WeightedRandom,
     /// Use ratio of CPU/GPU
     Speedup,
     /// Mix of speedup ratio and estimated time

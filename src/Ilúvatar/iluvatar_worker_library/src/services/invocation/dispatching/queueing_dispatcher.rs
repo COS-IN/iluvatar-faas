@@ -311,6 +311,7 @@ impl QueueingDispatcher {
         match policy {
             EnqueueingPolicy::All => Ok(Arc::new(All {})),
             EnqueueingPolicy::Random => Ok(Arc::new(Random {})),
+            EnqueueingPolicy::WeightedRandom => Ok(Arc::new(WeightedRandom {gpu_probability: 0.7})),
             EnqueueingPolicy::AlwaysCPU => Ok(Arc::new(AlwaysCPU {})),
             EnqueueingPolicy::AlwaysGPU => Ok(Arc::new(AlwaysGPU {})),
             EnqueueingPolicy::ShortestExecTime => Ok(Arc::new(ShortestExecTime::new(cmap))),
