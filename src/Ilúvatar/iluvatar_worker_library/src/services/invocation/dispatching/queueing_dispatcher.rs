@@ -615,7 +615,7 @@ struct WeightedRandom{
     gpu_probability: f64,
 }
 impl DispatchPolicy for WeightedRandom {
-    fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
+    fn choose(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
     let mut rng = rand::rng();
     let roll: f64 = rng.random_range(0.0..1.0);
 
