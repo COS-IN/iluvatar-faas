@@ -610,6 +610,24 @@ impl DispatchPolicy for Random {
     }
 }
 
+struct WeightedRandom{
+    gpu_probability: f64,
+}
+impl DispatchPolicy for WeightedRandom {
+    fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
+    let mut rng = rand::rng();
+    let roll: f64 = rng.random_range(0.0..1.0);
+
+    let selected = if roll < self.gpu_probability {
+        Compute::GPU
+    } else {
+        Compute::CPU
+    };
+
+    (selected, NO_ESTIMATE, NO_ESTIMATE)
+    }
+}
+
 struct AlwaysCPU;
 impl DispatchPolicy for AlwaysCPU {
     fn choose(&self, _reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
