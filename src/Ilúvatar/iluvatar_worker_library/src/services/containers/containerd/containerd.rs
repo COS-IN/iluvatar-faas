@@ -178,6 +178,14 @@ impl ContainerdIsolation {
             .clone()
     }
 
+    // fn insert_json(mut json: &mut serde_json::Value, val: &serde_json::Value, path: &[&str]) -> Result<()> {
+    //     for p in path {
+    //         json = json.get_mut(p).unwrap();
+    //     }
+    //     json.p
+    //     Ok(())
+    // }
+
     /// get the default container spec
     fn spec(
         &self,
@@ -191,28 +199,52 @@ impl ContainerdIsolation {
         // one second of time, in microseconds
         let one_sec_in_us: u64 = 1000 * 1000;
         // https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
-        let spec = include_str!("../../../resources/container_spec.json");
-        let spec = spec
-            .to_string()
-            .replace("$ROOTFS", "rootfs")
-            .replace("$OUTPUT", "")
-            .replace("$HOST_ADDR", host_addr)
-            .replace("$PORT", &port.to_string())
-            .replace("$SOCK", "/iluvatar/sockets")
-            .replace("$CTR_ID", container_id)
-            .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
-            .replace("\"$MEMLIMIT\"", &(mem_limit_mb * 1024 * 1024).to_string())
-            //        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
-            // .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
-            // a function with 1 cpu will have an equal number of
-            .replace("\"$CPUQUOTA\"", &((cpus as u64) * one_sec_in_us).to_string())
-            .replace("\"$CPUPERIOD\"", &one_sec_in_us.to_string())
-            .replace("$INVOKE_TIMEOUT", &self.limits_config.timeout_sec.to_string())
-            .replace("$CGROUPSPATH", &cgroup_namespace(container_id))
-            .replace("$RESOLV_CONF", &NamespaceManager::resolv_conf_path());
+        let mut spec =
+            serde_json::from_str::<serde_json::Value>(include_str!("../../../resources/container_spec.json")).unwrap();
+        spec["root"]["path"] = serde_json::json!("rootfs");
+        let env = spec["process"]["env"].as_array_mut().unwrap();
+        env.push(serde_json::Value::String(format!("__IL_PORT={}", port)));
+        env.push(serde_json::Value::String(format!("__IL_HOST={}", host_addr)));
+        env.push(serde_json::Value::String(format!(
+            "__IL_SOCKET={}",
+            "/iluvatar/sockets/sock"
+        )));
+        env.push(serde_json::Value::String(format!("FLASK_RUN_PORT={}", port)));
+        env.push(serde_json::Value::String(format!("FLASK_RUN_HOST={}", host_addr)));
+        env.push(serde_json::Value::String(format!(
+            "GUNICORN_CMD_ARGS=--workers=1 --timeout={} --bind={}:{} --enable-stdio-inheritance -e PYTHONUNBUFFERED=1",
+            self.limits_config.timeout_sec, host_addr, port
+        )));
+
+        let mounts = spec["mounts"].as_array_mut().unwrap();
+        mounts.push(serde_json::json!({
+            "source": format!("/tmp/iluvatar/{}/", container_id),
+            "destination": "/iluvatar/sockets",
+            "options": [ "rw", "bind" ],
+            "type": "none"
+        }));
+        mounts.push(serde_json::json!({
+            "destination": "/etc/resolv.conf",
+            "type": "none",
+            "source": NamespaceManager::resolv_conf_path(),
+            "options": [ "ro", "bind" ]
+        }));
+
+        spec["linux"]["cgroupsPath"] = serde_json::Value::String(cgroup_namespace(container_id));
+        spec["linux"]["resources"]["memory"]["limit"] = serde_json::Value::Number((mem_limit_mb * 1024 * 1024).into());
+        spec["linux"]["resources"]["cpu"]["quota"] = serde_json::Value::Number(((cpus as u64) * one_sec_in_us).into());
+        spec["linux"]["resources"]["cpu"]["period"] = serde_json::Value::Number(one_sec_in_us.into());
+
+        spec["linux"]["namespaces"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+              "type": "network",
+              "path": NamespaceManager::net_namespace(net_ns_name)
+            }));
         prost_types::Any {
             type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
-            value: spec.into_bytes(),
+            value: spec.to_string().into_bytes(),
         }
     }
 

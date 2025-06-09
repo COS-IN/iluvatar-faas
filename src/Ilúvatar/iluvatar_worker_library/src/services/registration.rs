@@ -99,21 +99,22 @@ impl RegisteredFunction {
         let (run_info, image_name) = match runtime {
             Runtime::Python3gpu | Runtime::Python3 => {
                 match Self::prepare_on_disk(&fqdn, runtime, &req.transaction_id, req.code_zip).await {
-                    Ok((packages, main)) => (RunFunction::Runtime {
-                        packages_dir: packages,
-                        main_dir: main,
-                        container_server,
-                    }, match runtime {
-                        Runtime::Python3gpu => base_images.python_gpu.clone(),
-                        Runtime::Python3 => base_images.python_cpu.clone(),
-                        _ => unreachable!(),
-                    }),
+                    Ok((packages, main)) => (
+                        RunFunction::Runtime {
+                            packages_dir: packages,
+                            main_dir: main,
+                            container_server,
+                        },
+                        match runtime {
+                            Runtime::Python3gpu => base_images.python_gpu.clone(),
+                            Runtime::Python3 => base_images.python_cpu.clone(),
+                            _ => unreachable!(),
+                        },
+                    ),
                     Err(e) => bail_error!(error=%e, tid=req.transaction_id, "prepare_on_disk failed"),
                 }
             },
-            Runtime::Nolang => (RunFunction::Image {
-                container_server,
-            }, req.image_name),
+            Runtime::Nolang => (RunFunction::Image { container_server }, req.image_name),
         };
         let r = Self {
             fqdn,
@@ -221,7 +222,7 @@ impl RegistrationService {
             lifecycles,
             limits_config,
             cmap: characteristics_map,
-            resources, 
+            resources,
             base_images,
         })
     }

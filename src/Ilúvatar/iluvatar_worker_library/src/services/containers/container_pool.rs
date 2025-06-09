@@ -276,6 +276,7 @@ mod tests {
         let fqdn = calculate_fqdn("name", "vesr");
         let cp = ContainerPool::new(Compute::CPU);
         let reg = Arc::new(RegisteredFunction {
+            fqdn: fqdn.clone(),
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
@@ -369,6 +370,7 @@ mod tests {
         let cp = ContainerPool::new(Compute::CPU);
         let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
+            fqdn: fqdn.clone(),
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
@@ -377,6 +379,7 @@ mod tests {
             ..std::default::Default::default()
         });
         let reg2 = Arc::new(RegisteredFunction {
+            fqdn: calculate_fqdn("name2", "vesr"),
             function_name: "name2".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
@@ -465,6 +468,7 @@ mod tests {
             handles.push(tokio_spawn_thread(async move {
                 let fqdn = t.to_string();
                 let reg = Arc::new(RegisteredFunction {
+                    fqdn: fqdn.clone(),
                     function_name: fqdn.clone(),
                     function_version: "vesr".to_string(),
                     image_name: "img".to_string(),
@@ -503,6 +507,7 @@ mod tests {
         let cp = ContainerPool::new(Compute::CPU);
         let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
+            fqdn: fqdn.clone(),
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
@@ -535,6 +540,7 @@ mod tests {
         let cp = ContainerPool::new(Compute::CPU);
         let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
+            fqdn: fqdn.clone(),
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
@@ -579,6 +585,7 @@ mod tests {
         let cp = ContainerPool::new(Compute::CPU);
         let fqdn = calculate_fqdn("name", "vesr");
         let reg = Arc::new(RegisteredFunction {
+            fqdn: fqdn.clone(),
             function_name: "name".to_string(),
             function_version: "vesr".to_string(),
             image_name: "img".to_string(),
