@@ -96,25 +96,26 @@ impl RegisteredFunction {
         let runtime = req.runtime.try_into()?;
         let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
         let container_server = ContainerServer::try_from(req.container_server).unwrap_or(ContainerServer::default());
-        let (run_info, image_name) = match runtime {
+        let (run_info, image_name, container_server) = match runtime {
             Runtime::Python3gpu | Runtime::Python3 => {
                 match Self::prepare_on_disk(&fqdn, runtime, &req.transaction_id, req.code_zip).await {
                     Ok((packages, main)) => (
                         RunFunction::Runtime {
                             packages_dir: packages,
                             main_dir: main,
-                            container_server,
+                            container_server: ContainerServer::UnixSocket,
                         },
                         match runtime {
                             Runtime::Python3gpu => base_images.python_gpu.clone(),
                             Runtime::Python3 => base_images.python_cpu.clone(),
                             _ => unreachable!(),
                         },
+                        ContainerServer::UnixSocket
                     ),
                     Err(e) => bail_error!(error=%e, tid=req.transaction_id, "prepare_on_disk failed"),
                 }
             },
-            Runtime::Nolang => (RunFunction::Image { container_server }, req.image_name),
+            Runtime::Nolang => (RunFunction::Image { container_server }, req.image_name, container_server),
         };
         let r = Self {
             fqdn,

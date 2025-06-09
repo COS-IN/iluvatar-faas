@@ -3,7 +3,7 @@ use super::ContainerIsolationService;
 use crate::services::containers::containerd::containerdstructs::{ContainerdContainer, Task};
 use crate::services::containers::structs::{Container, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
-use crate::services::registration::RegisteredFunction;
+use crate::services::registration::{RegisteredFunction, RunFunction};
 use crate::services::resources::gpu::GPU;
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
@@ -191,8 +191,7 @@ impl ContainerdIsolation {
         &self,
         host_addr: &str,
         port: Port,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
+        reg: &Arc<RegisteredFunction>,
         net_ns_name: &str,
         container_id: &str,
     ) -> prost_types::Any {
@@ -229,10 +228,36 @@ impl ContainerdIsolation {
             "source": NamespaceManager::resolv_conf_path(),
             "options": [ "ro", "bind" ]
         }));
+        match &reg.run_info {
+            RunFunction::Runtime {
+                packages_dir, main_dir, ..
+            } => {
+                mounts.push(serde_json::json!({
+                    "destination": "/packages",
+                    "type": "none",
+                    "source": packages_dir,
+                    "options": [ "rw", "bind" ]
+                }));
+                mounts.push(serde_json::json!({
+                    "destination": "/main",
+                    "type": "none",
+                    "source": main_dir,
+                    "options": [ "rw", "bind" ]
+                }));
+                spec["process"]["env"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::Value::String(
+                        "PYTHONPATH=/main:/packages".to_string(),
+                    ));
+            },
+            _ => {},
+        };
 
         spec["linux"]["cgroupsPath"] = serde_json::Value::String(cgroup_namespace(container_id));
-        spec["linux"]["resources"]["memory"]["limit"] = serde_json::Value::Number((mem_limit_mb * 1024 * 1024).into());
-        spec["linux"]["resources"]["cpu"]["quota"] = serde_json::Value::Number(((cpus as u64) * one_sec_in_us).into());
+        spec["linux"]["resources"]["memory"]["limit"] = serde_json::Value::Number((reg.memory * 1024 * 1024).into());
+        spec["linux"]["resources"]["cpu"]["quota"] =
+            serde_json::Value::Number(((reg.cpus as u64) * one_sec_in_us).into());
         spec["linux"]["resources"]["cpu"]["period"] = serde_json::Value::Number(one_sec_in_us.into());
 
         spec["linux"]["namespaces"]
@@ -242,6 +267,7 @@ impl ContainerdIsolation {
               "type": "network",
               "path": NamespaceManager::net_namespace(net_ns_name)
             }));
+        info!(spec=spec.to_string(), "containerd spec",);
         prost_types::Any {
             type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
             value: spec.to_string().into_bytes(),
@@ -700,7 +726,7 @@ impl ContainerdIsolation {
 
         let address = &ns.namespace.ips[0].address;
 
-        let spec = self.spec(address, port, reg.memory, reg.cpus, &ns.name, &cid);
+        let spec = self.spec(address, port, reg, &ns.name, &cid);
         let mut labels: HashMap<String, String> = HashMap::new();
         labels.insert("owner".to_string(), "iluvatar_worker".to_string());
 

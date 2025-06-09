@@ -32,6 +32,7 @@ use iluvatar_library::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
+use crate::services::registration::RunFunction;
 
 pub mod dockerstructs;
 
@@ -111,19 +112,17 @@ impl DockerIsolation {
     pub async fn docker_run(
         &self,
         tid: &TransactionId,
-        image_name: &str,
         container_id: &str,
         mut env: Vec<String>,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
+        reg: &Arc<RegisteredFunction>,
         device_resource: &Option<GPU>,
         ports: BollardPortBindings,
         host_config: Option<HostConfig>,
         entrypoint: Option<Vec<String>>,
     ) -> Result<()> {
         let mut host_config = host_config.unwrap_or_default();
-        host_config.cpu_shares = Some((cpus * 1024) as i64);
-        host_config.memory = Some(mem_limit_mb * 1024 * 1024);
+        host_config.cpu_shares = Some((reg.cpus * 1024) as i64);
+        host_config.memory = Some(reg.memory * 1024 * 1024);
         let exposed_ports: Option<HashMap<String, HashMap<(), ()>>> = match ports.as_ref() {
             Some(p) => {
                 let mut exposed = HashMap::new();
@@ -138,6 +137,17 @@ impl DockerIsolation {
         make_paths(&ctr_dir, tid)?;
         let mut volumes = vec![format!("{}:/iluvatar/sockets", ctr_dir.to_string_lossy())];
         let mut device_requests = vec![];
+
+        match &reg.run_info {
+            RunFunction::Runtime {
+                packages_dir, main_dir, ..
+            } => {
+                volumes.push(format!("{}:/app/packages", packages_dir));
+                volumes.push(format!("{}:/app/main", main_dir));
+                env.push("PYTHONPATH=/app/main:/app/packages".to_string());
+            },
+            _ => {},
+        };
 
         if let Some(device) = device_resource.as_ref() {
             info!(tid=tid, container_id=%container_id, "Container will get a GPU");
@@ -196,7 +206,7 @@ impl DockerIsolation {
 
         let config: Config<String> = Config {
             labels: Some(HashMap::from([("owner".to_owned(), "iluvatar_worker".to_owned())])),
-            image: Some(image_name.to_owned()),
+            image: Some(reg.image_name.to_owned()),
             host_config: Some(host_config),
             env: Some(env),
             exposed_ports,
@@ -317,11 +327,9 @@ impl ContainerIsolationService for DockerIsolation {
         if let Err(e) = self
             .docker_run(
                 tid,
-                &reg.image_name,
                 cid.as_str(),
                 env,
-                reg.memory,
-                reg.cpus,
+                reg,
                 &device_resource,
                 Some(ports),
                 None,

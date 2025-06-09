@@ -426,7 +426,7 @@ impl GpuResourceTracker {
 
     async fn start_mps(
         gpu_config: &Arc<GPUResourceConfig>,
-        docker: &DockerIsolation,
+        _docker: &DockerIsolation,
         tid: &TransactionId,
     ) -> Result<()> {
         debug!(tid = tid, "Setting MPS exclusive");
@@ -441,29 +441,30 @@ impl GpuResourceTracker {
             capabilities: Some(vec![vec!["gpu".into()]]),
             options: Some(HashMap::new()),
         }];
-        let cfg = bollard::models::HostConfig {
+        let _cfg = bollard::models::HostConfig {
             ipc_mode: Some("host".to_owned()),
             binds: Some(vec!["/tmp/nvidia-mps:/tmp/nvidia-mps".to_owned()]),
             runtime: Some("nvidia".to_owned()),
             device_requests: Some(devices),
             ..Default::default()
         };
-        let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
-        let entrypoint = vec!["/usr/bin/nvidia-cuda-mps-control".to_owned(), "-f".to_owned()];
-        docker
-            .docker_run(
-                tid,
-                img_name,
-                MPS_CONTAINER_NAME,
-                vec![],
-                1024,
-                1,
-                &None,
-                None,
-                Some(cfg),
-                Some(entrypoint),
-            )
-            .await
+        let _img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
+        let _entrypoint = vec!["/usr/bin/nvidia-cuda-mps-control".to_owned(), "-f".to_owned()];
+        // docker
+        //     .docker_run(
+        //         tid,
+        //         img_name,
+        //         MPS_CONTAINER_NAME,
+        //         vec![],
+        //         1024,
+        //         1,
+        //         &None,
+        //         None,
+        //         Some(cfg),
+        //         Some(entrypoint),
+        //     )
+        //     .await
+        todo!()
     }
 
     fn list_gpus(tid: &TransactionId) -> Result<Vec<String>> {
