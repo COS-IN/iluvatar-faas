@@ -54,7 +54,7 @@ pub struct RegisterArgs {
     #[arg(short, long, required = false)]
     /// Image of function to register
     pub image: Option<String>,
-    #[arg( long, required = false)]
+    #[arg(long, required = false)]
     /// Path to zip file containing code
     pub code_zip: Option<String>,
     #[arg(long, required=false, default_value_t = Runtime::Nolang)]

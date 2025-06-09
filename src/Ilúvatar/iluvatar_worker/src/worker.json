@@ -84,5 +84,9 @@
     "enabled": false,
     "address":"127.0.0.1",
     "port": 8080
+  },
+  "base_images": {
+    "python_cpu": "docker.io/alfuerst/iluvatar-action-base:latest",
+    "python_gpu": "docker.io/alfuerst/iluvatar-action-gpu-base:latest"
   }
 }

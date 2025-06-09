@@ -1,0 +1,11 @@
+uuid
+s3transfer
+jmespath
+tensorboard==2.13
+tensorflow==2.13
+tensorflow-estimator==2.13
+numpy==1.22
+keras==2.13.1
+Keras-Applications
+Keras-Preprocessing
+Pillow

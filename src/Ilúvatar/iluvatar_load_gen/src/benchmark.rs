@@ -8,11 +8,11 @@ use iluvatar_library::tokio_utils::{build_tokio_runtime, TokioRuntime};
 use iluvatar_library::types::{Compute, ContainerServer, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::config::args_to_json;
 use iluvatar_library::{sync_live_scope, transaction::gen_tid, utils::port_utils::Port};
+use iluvatar_rpc::rpc::Runtime;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::{collections::HashMap, path::Path};
 use tracing::{error, info};
-use iluvatar_rpc::rpc::Runtime;
 
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct ToBenchmarkFunction {

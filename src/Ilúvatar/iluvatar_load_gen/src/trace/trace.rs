@@ -5,9 +5,9 @@ use controller_trace::{controller_trace_live, controller_trace_sim};
 use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::types::{Compute, ContainerServer, Isolation};
 use iluvatar_library::{types::MemSizeMb, utils::port::Port};
+use iluvatar_rpc::rpc::Runtime;
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use std::collections::HashMap;
-use iluvatar_rpc::rpc::Runtime;
 
 mod controller_trace;
 mod trace_utils;

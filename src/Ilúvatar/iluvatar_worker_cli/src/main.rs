@@ -4,8 +4,8 @@ pub mod commands;
 use anyhow::Result;
 use args::Args;
 use clap::Parser;
-use iluvatar_library::{bail_error, async_live_scope};
 use iluvatar_library::logging::{start_tracing, LoggingConfig};
+use iluvatar_library::{async_live_scope, bail_error};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -37,6 +37,7 @@ async fn main() -> Result<()> {
         } {
             bail_error!("Command failed because of error {}", e);
         };
-        Ok(())      
-    }).await
+        Ok(())
+    })
+    .await
 }

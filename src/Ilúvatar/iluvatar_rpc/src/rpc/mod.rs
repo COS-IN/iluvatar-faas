@@ -1,13 +1,13 @@
 #![allow(clippy::derive_partial_eq_without_eq)]
 tonic::include_proto!("iluvatar_rpc");
 
-use std::fmt::{Display, Formatter};
 use anyhow::Error;
 use iluvatar_library::types::ContainerServer;
 use iluvatar_library::{
     transaction::TransactionId,
     types::{Compute, Isolation, MemSizeMb, ResourceTimings},
 };
+use std::fmt::{Display, Formatter};
 
 impl InvokeResponse {
     pub fn error(message: &str) -> Self {

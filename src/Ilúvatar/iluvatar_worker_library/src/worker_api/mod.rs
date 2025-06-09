@@ -67,6 +67,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         worker_config.limits.clone(),
         cmap.clone(),
         worker_config.container_resources.clone(),
+        worker_config.base_images.clone(),
     );
 
     let energy = EnergyLogger::boxed(worker_config.energy.as_ref(), tid)

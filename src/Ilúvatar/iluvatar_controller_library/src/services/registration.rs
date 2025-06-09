@@ -2,11 +2,10 @@ use crate::services::load_balance::LoadBalancer;
 use anyhow::Result;
 use dashmap::DashMap;
 use iluvatar_library::char_map::{add_registration_timings, WorkerCharMap};
-use iluvatar_library::types::Isolation;
+use iluvatar_library::types::{Compute, ContainerServer, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::utils::port::Port;
 use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn};
-use iluvatar_rpc::rpc::{RegisterRequest, RegisterWorkerRequest};
-use iluvatar_worker_library::services::registration::RegisteredFunction;
+use iluvatar_rpc::rpc::{RegisterRequest, RegisterWorkerRequest, Runtime};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
 use std::hash::Hasher;
@@ -44,6 +43,52 @@ impl RegisteredWorker {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct RegisteredFunction {
+    pub function_name: String,
+    pub function_version: String,
+    pub fqdn: String,
+    pub image_name: String,
+    pub memory: MemSizeMb,
+    pub cpus: u32,
+    pub parallel_invokes: u32,
+    pub isolation_type: Isolation,
+    pub supported_compute: Compute,
+    pub container_server: ContainerServer,
+    pub all_resource_timings: Option<ResourceTimings>,
+    pub system_function: bool,
+    pub runtime: Runtime,
+    pub code_zip: Vec<u8>,
+}
+
+impl TryFrom<RegisterRequest> for RegisteredFunction {
+    type Error = anyhow::Error;
+
+    fn try_from(req: RegisterRequest) -> Result<Self> {
+        Ok(RegisteredFunction {
+            fqdn: calculate_fqdn(&req.function_name, &req.function_version),
+            function_name: req.function_name,
+            function_version: req.function_version,
+            image_name: req.image_name,
+            memory: req.memory,
+            cpus: req.cpus,
+            parallel_invokes: req.parallel_invokes,
+            isolation_type: Isolation::from(req.isolate),
+            supported_compute: Compute::from(req.compute),
+            container_server: ContainerServer::try_from(req.container_server).unwrap_or(ContainerServer::default()),
+            all_resource_timings: match req.resource_timings_json.is_empty() {
+                true => None,
+                _ => match serde_json::from_str::<ResourceTimings>(&req.resource_timings_json) {
+                    Ok(t) => Some(t),
+                    Err(e) => anyhow::bail!("failed to parse resource_timings_json: '{}'", e),
+                },
+            },
+            system_function: req.system_function,
+            runtime: req.runtime.try_into()?,
+            code_zip: req.code_zip,
+        })
+    }
+}
 #[allow(unused)]
 pub struct FunctionRegistration {
     functions: Arc<DashMap<String, Arc<RegisteredFunction>>>,

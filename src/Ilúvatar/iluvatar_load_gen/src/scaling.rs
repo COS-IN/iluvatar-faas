@@ -17,12 +17,12 @@ use iluvatar_library::{
     types::{Compute, Isolation, MemSizeMb},
     utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port},
 };
+use iluvatar_rpc::rpc::Runtime;
 use rand::prelude::*;
 use std::path::{Path, PathBuf};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Barrier;
 use tracing::{error, info};
-use iluvatar_rpc::rpc::Runtime;
 
 #[derive(Parser, Debug)]
 /// Test scaling of worker with increasing amount of requests
