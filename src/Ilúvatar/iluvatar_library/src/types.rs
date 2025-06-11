@@ -15,7 +15,7 @@ pub fn err_val<T, D>(error: Error, value: D) -> ResultErrorVal<T, D> {
 
 pub type MemSizeMb = i64;
 
-#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Copy, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Copy, Clone, Eq, PartialEq)]
 /// The server type running inside the container
 pub enum ContainerServer {
     #[default]

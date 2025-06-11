@@ -1,3 +1,4 @@
+use crate::services::registration::RegisteredFunction;
 use crate::{
     services::containers::{docker::DockerIsolation, ContainerIsolationService},
     worker_api::worker_config::{ContainerResourceConfig, GPUResourceConfig},
@@ -426,7 +427,7 @@ impl GpuResourceTracker {
 
     async fn start_mps(
         gpu_config: &Arc<GPUResourceConfig>,
-        _docker: &DockerIsolation,
+        docker: &DockerIsolation,
         tid: &TransactionId,
     ) -> Result<()> {
         debug!(tid = tid, "Setting MPS exclusive");
@@ -441,30 +442,37 @@ impl GpuResourceTracker {
             capabilities: Some(vec![vec!["gpu".into()]]),
             options: Some(HashMap::new()),
         }];
-        let _cfg = bollard::models::HostConfig {
+        let cfg = bollard::models::HostConfig {
             ipc_mode: Some("host".to_owned()),
             binds: Some(vec!["/tmp/nvidia-mps:/tmp/nvidia-mps".to_owned()]),
             runtime: Some("nvidia".to_owned()),
             device_requests: Some(devices),
             ..Default::default()
         };
-        let _img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
-        let _entrypoint = vec!["/usr/bin/nvidia-cuda-mps-control".to_owned(), "-f".to_owned()];
-        // docker
-        //     .docker_run(
-        //         tid,
-        //         img_name,
-        //         MPS_CONTAINER_NAME,
-        //         vec![],
-        //         1024,
-        //         1,
-        //         &None,
-        //         None,
-        //         Some(cfg),
-        //         Some(entrypoint),
-        //     )
-        //     .await
-        todo!()
+        let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
+        let entrypoint = vec!["/usr/bin/nvidia-cuda-mps-control".to_owned(), "-f".to_owned()];
+        let fake_reg = Arc::new(RegisteredFunction {
+            function_name: "mps".to_string(),
+            function_version: "0".to_string(),
+            fqdn: "mps-0".to_string(),
+            image_name: img_name.to_string(),
+            memory: 1024,
+            cpus: 1,
+            parallel_invokes: 1,
+            ..Default::default()
+        });
+        docker
+            .docker_run(
+                tid,
+                MPS_CONTAINER_NAME,
+                vec![],
+                &fake_reg,
+                &None,
+                None,
+                Some(cfg),
+                Some(entrypoint),
+            )
+            .await
     }
 
     fn list_gpus(tid: &TransactionId) -> Result<Vec<String>> {

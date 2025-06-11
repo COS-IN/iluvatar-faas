@@ -56,7 +56,7 @@ pub fn try_remove_pth<P: AsRef<Path>>(path: P, tid: &TransactionId) {
             Err(_) => warn!(tid=tid, path=%pth.display(), "Unable to remove file"),
         };
     } else if pth.is_dir() {
-        match std::fs::remove_dir(pth) {
+        match std::fs::remove_dir_all(pth) {
             Ok(_) => {},
             Err(_) => warn!(tid=tid, path=%pth.display(), "Unable to remove directory"),
         };

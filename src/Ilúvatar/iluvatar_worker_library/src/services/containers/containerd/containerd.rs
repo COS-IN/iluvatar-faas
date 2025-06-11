@@ -27,11 +27,12 @@ use containerd_client as client;
 use containerd_client::tonic::{transport::Channel, Request};
 // use containerd_client::types::transfer::{ImageStore, OciRegistry, RegistryResolver, UnpackConfiguration};
 // use containerd_client::types::Platform;
+use containerd_client::services::v1::ListTasksRequest;
 use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::threading::tokio_spawn_thread;
-use iluvatar_library::types::{err_val, Compute, Isolation, ResultErrorVal};
+use iluvatar_library::types::{err_val, Compute, ContainerServer, Isolation, ResultErrorVal};
 use iluvatar_library::utils::file::{container_path, make_paths};
 use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
@@ -46,7 +47,7 @@ use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
@@ -178,36 +179,42 @@ impl ContainerdIsolation {
             .clone()
     }
 
-    // fn insert_json(mut json: &mut serde_json::Value, val: &serde_json::Value, path: &[&str]) -> Result<()> {
-    //     for p in path {
-    //         json = json.get_mut(p).unwrap();
-    //     }
-    //     json.p
-    //     Ok(())
-    // }
-
     /// get the default container spec
     fn spec(
         &self,
         host_addr: &str,
         port: Port,
-        reg: &Arc<RegisteredFunction>,
+        reg: &RegisteredFunction,
         net_ns_name: &str,
         container_id: &str,
+        entrypoint: Option<Vec<String>>,
+        rw_mounts: Option<Vec<(String, String)>>,
     ) -> prost_types::Any {
         // one second of time, in microseconds
         let one_sec_in_us: u64 = 1000 * 1000;
+        let mut mounts = vec![];
+        let mut env = vec![];
         // https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
         let mut spec =
             serde_json::from_str::<serde_json::Value>(include_str!("../../../resources/container_spec.json")).unwrap();
+        if let Some(entry) = entrypoint {
+            spec["process"]["args"] =
+                serde_json::Value::Array(entry.into_iter().map(serde_json::Value::String).collect());
+        }
+        if let Some(rw_mounts) = rw_mounts {
+            for (src, dest) in rw_mounts {
+                mounts.push(serde_json::json!({
+                    "destination": dest,
+                    "type": "none",
+                    "source": src,
+                    "options": [ "rw", "bind" ]
+                }));
+            }
+        }
+
         spec["root"]["path"] = serde_json::json!("rootfs");
-        let env = spec["process"]["env"].as_array_mut().unwrap();
         env.push(serde_json::Value::String(format!("__IL_PORT={}", port)));
         env.push(serde_json::Value::String(format!("__IL_HOST={}", host_addr)));
-        env.push(serde_json::Value::String(format!(
-            "__IL_SOCKET={}",
-            "/iluvatar/sockets/sock"
-        )));
         env.push(serde_json::Value::String(format!("FLASK_RUN_PORT={}", port)));
         env.push(serde_json::Value::String(format!("FLASK_RUN_HOST={}", host_addr)));
         env.push(serde_json::Value::String(format!(
@@ -215,19 +222,24 @@ impl ContainerdIsolation {
             self.limits_config.timeout_sec, host_addr, port
         )));
 
-        let mounts = spec["mounts"].as_array_mut().unwrap();
-        mounts.push(serde_json::json!({
-            "source": format!("/tmp/iluvatar/{}/", container_id),
-            "destination": "/iluvatar/sockets",
-            "options": [ "rw", "bind" ],
-            "type": "none"
-        }));
         mounts.push(serde_json::json!({
             "destination": "/etc/resolv.conf",
             "type": "none",
             "source": NamespaceManager::resolv_conf_path(),
             "options": [ "ro", "bind" ]
         }));
+        if reg.container_server == ContainerServer::UnixSocket {
+            mounts.push(serde_json::json!({
+                "source": format!("/tmp/iluvatar/{}/", container_id),
+                "destination": "/iluvatar/sockets",
+                "options": [ "rw", "bind" ],
+                "type": "none"
+            }));
+            env.push(serde_json::Value::String(format!(
+                "__IL_SOCKET={}",
+                "/iluvatar/sockets/sock"
+            )));
+        }
         match &reg.run_info {
             RunFunction::Runtime {
                 packages_dir, main_dir, ..
@@ -236,20 +248,15 @@ impl ContainerdIsolation {
                     "destination": "/packages",
                     "type": "none",
                     "source": packages_dir,
-                    "options": [ "rw", "bind" ]
+                    "options": [ "ro", "bind" ]
                 }));
                 mounts.push(serde_json::json!({
                     "destination": "/main",
                     "type": "none",
                     "source": main_dir,
-                    "options": [ "rw", "bind" ]
+                    "options": [ "ro", "bind" ]
                 }));
-                spec["process"]["env"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(serde_json::Value::String(
-                        "PYTHONPATH=/main:/packages".to_string(),
-                    ));
+                env.push(serde_json::Value::String("PYTHONPATH=/main:/packages".to_string()));
             },
             _ => {},
         };
@@ -259,7 +266,6 @@ impl ContainerdIsolation {
         spec["linux"]["resources"]["cpu"]["quota"] =
             serde_json::Value::Number(((reg.cpus as u64) * one_sec_in_us).into());
         spec["linux"]["resources"]["cpu"]["period"] = serde_json::Value::Number(one_sec_in_us.into());
-
         spec["linux"]["namespaces"]
             .as_array_mut()
             .unwrap()
@@ -267,7 +273,9 @@ impl ContainerdIsolation {
               "type": "network",
               "path": NamespaceManager::net_namespace(net_ns_name)
             }));
-        info!(spec=spec.to_string(), "containerd spec",);
+
+        spec["mounts"].as_array_mut().unwrap().extend(mounts);
+        spec["process"]["env"].as_array_mut().unwrap().extend(env);
         prost_types::Any {
             type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
             value: spec.to_string().into_bytes(),
@@ -455,7 +463,7 @@ impl ContainerdIsolation {
         Ok(())
     }
 
-    /// Read through an image's digest to find it's snapshot base
+    /// Read through an image's digest to find its snapshot base
     async fn search_image_digest(&self, image: &str, namespace: &str, tid: &TransactionId) -> Result<String> {
         // Step 1. get image digest
         let get_image_req = GetImageRequest { name: image.into() };
@@ -464,7 +472,7 @@ impl ContainerdIsolation {
             Ok(rsp) => rsp.into_inner(),
             Err(e) => bail_error!(tid=tid, error=%e, "Failed to get image"),
         };
-        debug!(tid=tid,response=?rsp, "image response");
+        debug!(tid = tid, "image response");
         let (image_digest, media_type) = if let Some(image) = rsp.image {
             image
                 .target
@@ -474,7 +482,7 @@ impl ContainerdIsolation {
             anyhow::bail!("Could not find image")
         };
 
-        debug!(tid=tid, image=%image, digest=?image_digest, "got image digest");
+        debug!(tid = tid, "got image digest");
 
         // Step 2. get image content manifests
         let content = self.read_content(namespace, image_digest).await?;
@@ -485,7 +493,7 @@ impl ContainerdIsolation {
                     Ok(s) => s,
                     Err(e) => bail_error!(tid=tid, error=%e, "JSON error getting ImageIndex"),
                 };
-                debug!(tid=tid, index=?config_index, "config ImageIndex");
+                debug!(tid = tid, "config ImageIndex");
 
                 let manifest_item = config_index
                     .manifests()
@@ -498,7 +506,7 @@ impl ContainerdIsolation {
                     .digest()
                     .to_owned();
 
-                debug!(tid=tid, manifest=?manifest_item, "Acquired manifest item");
+                debug!(tid = tid, "Acquired manifest item");
                 // Step 3. load image manifest from specific platform filter
                 let layer_item: ImageManifest =
                     match serde_json::from_slice(&self.read_content(namespace, manifest_item.to_string()).await?) {
@@ -509,7 +517,7 @@ impl ContainerdIsolation {
             },
             "application/vnd.docker.distribution.manifest.v2+json" => {
                 let config_index: ImageManifest = serde_json::from_slice(&content)?;
-                debug!(tid=tid, manifest=?config_index, "config ImageManifest");
+                debug!(tid = tid, "config ImageManifest");
                 config_index.config().to_owned()
             },
             _ => anyhow::bail!("Don't know how to handle unknown image media type '{}'", media_type),
@@ -535,7 +543,7 @@ impl ContainerdIsolation {
             let sha = hex::encode(hasher.finalize());
             prev_digest = format!("sha256:{}", sha)
         }
-        debug!(tid=tid, image=%image, digest=%prev_digest, "loaded diff digest");
+        debug!(tid = tid, "loaded diff digest");
         Ok(prev_digest)
     }
 
@@ -701,6 +709,8 @@ impl ContainerdIsolation {
         tid: &TransactionId,
         compute: Compute,
         device_resource: Option<GPU>,
+        entrypoint: Option<Vec<String>>,
+        rw_mounts: Option<Vec<(String, String)>>,
     ) -> ResultErrorVal<ContainerdContainer, Option<GPU>> {
         let port = 8080;
 
@@ -726,7 +736,7 @@ impl ContainerdIsolation {
 
         let address = &ns.namespace.ips[0].address;
 
-        let spec = self.spec(address, port, reg, &ns.name, &cid);
+        let spec = self.spec(address, port, reg, &ns.name, &cid, entrypoint, rw_mounts);
         let mut labels: HashMap<String, String> = HashMap::new();
         labels.insert("owner".to_string(), "iluvatar_worker".to_string());
 
@@ -854,6 +864,103 @@ impl ContainerdIsolation {
         }
     }
 
+    /// Install package dependencies of function that uploaded code.
+    async fn dependencies(&self, rf: &RegisteredFunction, tid: &TransactionId) -> Result<()> {
+        let pkg_namespace = "package";
+        let entrypoint = [
+            "python3",
+            "-m",
+            "pip",
+            "install",
+            "--ignore-installed",
+            "--progress-bar",
+            "off",
+            "--compile",
+            "--target",
+            "/install/packages",
+            "-r",
+            "/install/main/reqs.txt",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let mut mounts = vec![];
+        match &rf.run_info {
+            RunFunction::Runtime { packages_dir, main_dir } => {
+                make_paths(Path::new(packages_dir), tid)?;
+                make_paths(Path::new(main_dir), tid)?;
+                mounts.push((packages_dir.clone(), "/install/packages".to_string()));
+                mounts.push((main_dir.clone(), "/install/main".to_string()));
+            },
+            // this func should only be called if using a runtime
+            _ => unreachable!(),
+        };
+        info!(tid = tid, "starting package install");
+        match self
+            .create_container(
+                pkg_namespace,
+                &Arc::new(rf.clone()),
+                tid,
+                Compute::CPU,
+                None,
+                Some(entrypoint),
+                Some(mounts),
+            )
+            .await
+        {
+            Ok(ctr) => {
+                let mut client = TasksClient::new(self.channel());
+                let req = StartRequest {
+                    container_id: ctr.container_id.clone(),
+                    ..Default::default()
+                };
+                match client.start(with_namespace!(req, pkg_namespace)).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        bail_error!(tid=tid, error=%e, "Starting task failed");
+                    },
+                };
+
+                debug!(tid = tid, "waiting for package install to finish");
+                loop {
+                    let r = ListTasksRequest { filter: "".to_string() };
+                    let req = with_namespace!(r, pkg_namespace);
+                    let list = client.list(req).await?.into_inner();
+                    for c in list.tasks {
+                        if c.id == ctr.container_id {
+                            match c.status() {
+                                containerd_client::types::v1::Status::Stopped => {
+                                    let ctr: Container = Arc::new(ctr);
+                                    if c.exit_status == 0 {
+                                        debug!(tid = tid, "package install finished");
+                                        return self.remove_container(ctr, pkg_namespace, tid).await;
+                                    } else {
+                                        let stdout = self.read_stdout(&ctr, tid).await;
+                                        let stderr = self.read_stderr(&ctr, tid).await;
+                                        if let Err(e) = self.remove_container(ctr, pkg_namespace, tid).await {
+                                            error!(tid=tid, error=%e, "cleanup removal failed");
+                                        };
+                                        bail_error!(
+                                            tid = tid,
+                                            exit_status = c.exit_status,
+                                            stdout = stdout,
+                                            stderr = stderr,
+                                            "bad exit on packages"
+                                        );
+                                    }
+                                },
+                                _ => (),
+                            }
+                            break;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            },
+            Err(e) => Err(e.0),
+        }
+    }
+
     fn stdout_pth(&self, container_id: &str) -> PathBuf {
         container_path(container_id).join("stdout")
     }
@@ -889,7 +996,7 @@ impl ContainerIsolationService for ContainerdIsolation {
         }
         info!(tid=tid, namespace=%namespace, "Creating container from image");
         let mut container = self
-            .create_container(namespace, reg, tid, compute, device_resource)
+            .create_container(namespace, reg, tid, compute, device_resource, None, None)
             .await?;
         let mut client = TasksClient::new(self.channel());
 
@@ -940,7 +1047,10 @@ impl ContainerIsolationService for ContainerdIsolation {
         self.ensure_image(&rf.image_name, tid, namespace).await?;
         let snapshot_base = self.search_image_digest(&rf.image_name, "default", tid).await?;
         rf.snapshot_base = snapshot_base;
-        Ok(())
+        match &rf.run_info {
+            RunFunction::Runtime { .. } => self.dependencies(rf, tid).await,
+            _ => Ok(()),
+        }
     }
 
     async fn clean_containers(

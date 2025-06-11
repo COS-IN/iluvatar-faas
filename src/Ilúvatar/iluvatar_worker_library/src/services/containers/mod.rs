@@ -45,6 +45,7 @@ pub trait ContainerIsolationService: ToAny + Send + Sync {
     /// removes a specific container, and all the related resources
     async fn remove_container(&self, container_id: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;
 
+    /// Ensures the image the function uses is local, and installs dependencies if it uploaded code.
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,

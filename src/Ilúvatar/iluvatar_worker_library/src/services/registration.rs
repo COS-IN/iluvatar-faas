@@ -17,33 +17,19 @@ use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, info};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RunFunction {
-    Image {
-        // image_name: String,
-        container_server: ContainerServer,
-        // snapshot_base: String,
-    },
-    Runtime {
-        // base_image: String,
-        packages_dir: String,
-        main_dir: String,
-        container_server: ContainerServer,
-        // snapshot_base: String,
-    },
+    Image {},
+    Runtime { packages_dir: String, main_dir: String },
 }
 impl Default for RunFunction {
     fn default() -> Self {
-        Self::Image {
-            // image_name: "".to_string(),
-            container_server: Default::default(),
-            // snapshot_base: "".to_string(),
-        }
+        Self::Image {}
     }
 }
 
 /// A registered function is ready to be run if invoked later. Resource configuration is set here (CPU, mem, isolation, compute-device.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct RegisteredFunction {
     pub function_name: String,
     pub function_version: String,
@@ -74,127 +60,6 @@ impl RegisteredFunction {
     #[inline(always)]
     pub fn polymorphic(&self) -> bool {
         self.supported_compute.contains(Compute::GPU) && self.supported_compute.contains(Compute::CPU)
-    }
-
-    pub async fn convert(
-        req: RegisterRequest,
-        base_images: &Arc<BaseImages>,
-    ) -> Result<(Self, Option<ResourceTimings>)> {
-        let all_resource_timings = match req.resource_timings_json.is_empty() {
-            true => None,
-            _ => match serde_json::from_str::<ResourceTimings>(&req.resource_timings_json) {
-                Ok(t) => Some(t),
-                Err(e) => anyhow::bail!("failed to parse resource_timings_json: '{}'", e),
-            },
-        };
-        let mut runtime_data = HashMap::new();
-        if let Some(timings) = &all_resource_timings {
-            for (compute, c_times) in timings.iter() {
-                runtime_data.insert(*compute, c_times.warm_results_sec.clone());
-            }
-        }
-        let runtime = req.runtime.try_into()?;
-        let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
-        let container_server = ContainerServer::try_from(req.container_server).unwrap_or(ContainerServer::default());
-        let (run_info, image_name, container_server) = match runtime {
-            Runtime::Python3gpu | Runtime::Python3 => {
-                match Self::prepare_on_disk(&fqdn, runtime, &req.transaction_id, req.code_zip).await {
-                    Ok((packages, main)) => (
-                        RunFunction::Runtime {
-                            packages_dir: packages,
-                            main_dir: main,
-                            container_server: ContainerServer::UnixSocket,
-                        },
-                        match runtime {
-                            Runtime::Python3gpu => base_images.python_gpu.clone(),
-                            Runtime::Python3 => base_images.python_cpu.clone(),
-                            _ => unreachable!(),
-                        },
-                        ContainerServer::UnixSocket
-                    ),
-                    Err(e) => bail_error!(error=%e, tid=req.transaction_id, "prepare_on_disk failed"),
-                }
-            },
-            Runtime::Nolang => (RunFunction::Image { container_server }, req.image_name, container_server),
-        };
-        let r = Self {
-            fqdn,
-            function_name: req.function_name,
-            function_version: req.function_version,
-            image_name,
-            memory: req.memory,
-            cpus: req.cpus,
-            snapshot_base: "".to_string(),
-            parallel_invokes: req.parallel_invokes,
-            isolation_type: Isolation::from(req.isolate),
-            supported_compute: Compute::from(req.compute),
-            container_server,
-            historical_runtime_data_sec: runtime_data,
-            system_function: req.system_function,
-            runtime,
-            run_info,
-        };
-
-        Ok((r, all_resource_timings))
-    }
-
-    async fn prepare_on_disk(
-        fqdn: &str,
-        runtime: Runtime,
-        tid: &TransactionId,
-        code_zip: Vec<u8>,
-    ) -> Result<(String, String)> {
-        let storage = temp_pth(fqdn);
-        if std::fs::exists(&storage)? {
-            // old instance of matching fqdn
-            // we check for dupe function registration before this, so this is safe
-            tokio::fs::remove_dir_all(&storage).await?;
-        }
-        let tar = format!("{}/{}", storage, "code.tar.gz");
-        info!(tid = tid, "making dir");
-        std::fs::create_dir_all(&storage)?;
-        info!(tid = tid, "saving tar");
-        tokio::fs::write(&tar, code_zip.as_slice()).await?;
-        info!(tid = tid, "un-tarring");
-        let code = format!("{}/{}", storage, "code");
-        std::fs::create_dir_all(&code)?;
-        execute_cmd_checked_async(
-            "/usr/bin/tar",
-            vec!["-xzvf", tar.as_str(), "--strip-components=2", "-C", code.as_str()],
-            None,
-            tid,
-        )
-        .await?;
-        let packages = format!("{}/{}", storage, "packages");
-        let reqs = format!("{}/{}", code, "reqs.txt");
-        info!(tid = tid, "intalling packages");
-        match runtime {
-            Runtime::Python3gpu | Runtime::Python3 => {
-                // TODO: do this within a docker container that has Python?
-                // Remove need for python on host, can't know Py version matches container
-                execute_cmd_checked_async(
-                    "/usr/bin/python3",
-                    vec![
-                        "-m",
-                        "pip",
-                        "install",
-                        "--ignore-installed",
-                        "--progress-bar",
-                        "off",
-                        "--compile",
-                        "--target",
-                        packages.as_str(),
-                        "-r",
-                        reqs.as_str(),
-                    ],
-                    None,
-                    tid,
-                )
-                .await?;
-            },
-            _ => bail_error!(tid = tid, "function not using runtime, cannot prepare packages"),
-        }
-        Ok((packages, code))
     }
 }
 
@@ -229,7 +94,7 @@ impl RegistrationService {
     }
 
     pub async fn register(&self, request: RegisterRequest, tid: &TransactionId) -> Result<Arc<RegisteredFunction>> {
-        let (mut reg, all_resource_timings) = RegisteredFunction::convert(request, &self.base_images).await?;
+        let (mut reg, all_resource_timings) = self.convert_registration(request).await?;
 
         if reg.function_name.is_empty() {
             anyhow::bail!("Invalid function name");
@@ -277,6 +142,7 @@ impl RegistrationService {
                 continue;
             }
             isolations.remove(*lifecycle_iso);
+            // TODO: with multiple isolations, do we download dependencies twice?
             lifecycle
                 .prepare_function_registration(&mut reg, "default", tid)
                 .await?;
@@ -304,6 +170,95 @@ impl RegistrationService {
             "function was successfully registered"
         );
         Ok(ret)
+    }
+
+    async fn convert_registration(
+        &self,
+        req: RegisterRequest,
+    ) -> Result<(RegisteredFunction, Option<ResourceTimings>)> {
+        let all_resource_timings = match req.resource_timings_json.is_empty() {
+            true => None,
+            _ => match serde_json::from_str::<ResourceTimings>(&req.resource_timings_json) {
+                Ok(t) => Some(t),
+                Err(e) => anyhow::bail!("failed to parse resource_timings_json: '{}'", e),
+            },
+        };
+        let mut runtime_data = HashMap::new();
+        if let Some(timings) = &all_resource_timings {
+            for (compute, c_times) in timings.iter() {
+                runtime_data.insert(*compute, c_times.warm_results_sec.clone());
+            }
+        }
+        let runtime = req.runtime.try_into()?;
+        let fqdn = calculate_fqdn(&req.function_name, &req.function_version);
+        let (run_info, image_name, container_server) = match runtime {
+            Runtime::Python3gpu | Runtime::Python3 => match self.prepare_on_disk(&fqdn, runtime, &req).await {
+                Ok((packages, main)) => (
+                    RunFunction::Runtime {
+                        packages_dir: packages,
+                        main_dir: main,
+                    },
+                    match runtime {
+                        Runtime::Python3 => self.base_images.python_cpu.clone(),
+                        Runtime::Python3gpu => self.base_images.python_gpu.clone(),
+                        _ => unreachable!(),
+                    },
+                    ContainerServer::UnixSocket,
+                ),
+                Err(e) => bail_error!(error=%e, tid=req.transaction_id, "prepare_on_disk failed"),
+            },
+            Runtime::Nolang => (
+                RunFunction::Image {},
+                req.image_name,
+                ContainerServer::try_from(req.container_server).unwrap_or(ContainerServer::default()),
+            ),
+        };
+        let r = RegisteredFunction {
+            fqdn,
+            function_name: req.function_name,
+            function_version: req.function_version,
+            image_name,
+            memory: req.memory,
+            cpus: req.cpus,
+            snapshot_base: "".to_string(),
+            parallel_invokes: req.parallel_invokes,
+            isolation_type: Isolation::from(req.isolate),
+            supported_compute: Compute::from(req.compute),
+            container_server,
+            historical_runtime_data_sec: runtime_data,
+            system_function: req.system_function,
+            runtime,
+            run_info,
+        };
+
+        Ok((r, all_resource_timings))
+    }
+
+    async fn prepare_on_disk(&self, fqdn: &str, _runtime: Runtime, req: &RegisterRequest) -> Result<(String, String)> {
+        let storage = temp_pth(fqdn);
+        if std::fs::exists(&storage)? {
+            // old instance of matching fqdn
+            // we check for dupe function registration before this, so this is safe
+            tokio::fs::remove_dir_all(&storage).await?;
+        }
+        let tar = format!("{}/{}", storage, "code.tar.gz");
+        info!(tid = req.transaction_id, "making dir");
+        std::fs::create_dir_all(&storage)?;
+        info!(tid = req.transaction_id, "saving tar");
+        tokio::fs::write(&tar, req.code_zip.as_slice()).await?;
+        info!(tid = req.transaction_id, "un-tarring");
+        let code = format!("{}/{}", storage, "code");
+        std::fs::create_dir_all(&code)?;
+        // TODO: replace with this https://docs.rs/tar/latest/tar/struct.Archive.html#method.unpack
+        execute_cmd_checked_async(
+            "/usr/bin/tar",
+            vec!["-xzvf", tar.as_str(), "--strip-components=2", "-C", code.as_str()],
+            None,
+            &req.transaction_id,
+        )
+        .await?;
+        let packages = format!("{}/{}", storage, "packages");
+        Ok((packages, code))
     }
 
     pub fn registered_fqdns(&self) -> Vec<String> {
