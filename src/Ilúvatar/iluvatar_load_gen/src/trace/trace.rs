@@ -122,9 +122,9 @@ pub struct Function {
     /// An optional value denoting the image to use for the function
     /// One will be chosen if not provided
     pub image_name: Option<String>,
-    /// An optional value denoting a zip file containing code for the function.
+    /// An optional value denoting a folder containing code for the function.
     /// Must specify a special `runtime` too
-    pub code_zip_path: Option<String>,
+    pub code_folder: Option<String>,
     #[serde(default = "Runtime::default")]
     /// The runtime to use for the function, default assumes an existing image will be used.
     pub runtime: Runtime,

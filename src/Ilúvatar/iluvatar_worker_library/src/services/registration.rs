@@ -4,7 +4,6 @@ use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
 use iluvatar_library::char_map::{add_registration_timings, WorkerCharMap};
 use iluvatar_library::types::ContainerServer;
-use iluvatar_library::utils::execute_cmd_checked_async;
 use iluvatar_library::utils::file::temp_pth;
 use iluvatar_library::{
     bail_error,
@@ -236,28 +235,27 @@ impl RegistrationService {
 
     async fn prepare_on_disk(&self, fqdn: &str, _runtime: Runtime, req: &RegisterRequest) -> Result<(String, String)> {
         let storage = temp_pth(fqdn);
-        if std::fs::exists(&storage)? {
-            // old instance of matching fqdn
-            // we check for dupe function registration before this, so this is safe
-            tokio::fs::remove_dir_all(&storage).await?;
+        match std::fs::exists(&storage) {
+            Ok(true) => {
+                // old instance of matching fqdn
+                // we check for dupe function registration before this, so this is safe
+                if let Err(e) = tokio::fs::remove_dir_all(&storage).await {
+                    bail_error!(error=%e, d=storage, "rmdir failed")
+                };
+            },
+            Ok(false) => (),
+            Err(e) => bail_error!(error=%e, d=storage, "exists failed"),
         }
-        let tar = format!("{}/{}", storage, "code.tar.gz");
-        info!(tid = req.transaction_id, "making dir");
-        std::fs::create_dir_all(&storage)?;
-        info!(tid = req.transaction_id, "saving tar");
-        tokio::fs::write(&tar, req.code_zip.as_slice()).await?;
-        info!(tid = req.transaction_id, "un-tarring");
         let code = format!("{}/{}", storage, "code");
-        std::fs::create_dir_all(&code)?;
-        // TODO: replace with this https://docs.rs/tar/latest/tar/struct.Archive.html#method.unpack
-        execute_cmd_checked_async(
-            "/usr/bin/tar",
-            vec!["-xzvf", tar.as_str(), "--strip-components=2", "-C", code.as_str()],
-            None,
-            &req.transaction_id,
-        )
-        .await?;
         let packages = format!("{}/{}", storage, "packages");
+        if let Err(e) = std::fs::create_dir_all(&code) {
+            bail_error!(error=%e, d=code, "mkdirs code failed");
+        };
+        if let Err(e) = std::fs::create_dir_all(&packages) {
+            bail_error!(error=%e, c=packages, "mkdirs packages failed");
+        };
+
+        crate::unpack_tar(&code, req.code_zip.as_slice(), &req.transaction_id)?;
         Ok((packages, code))
     }
 

@@ -27,7 +27,7 @@ use containerd_client as client;
 use containerd_client::tonic::{transport::Channel, Request};
 // use containerd_client::types::transfer::{ImageStore, OciRegistry, RegistryResolver, UnpackConfiguration};
 // use containerd_client::types::Platform;
-use containerd_client::services::v1::ListTasksRequest;
+use containerd_client::services::v1::GetRequest;
 use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
@@ -923,35 +923,35 @@ impl ContainerdIsolation {
 
                 debug!(tid = tid, "waiting for package install to finish");
                 loop {
-                    let r = ListTasksRequest { filter: "".to_string() };
-                    let req = with_namespace!(r, pkg_namespace);
-                    let list = client.list(req).await?.into_inner();
-                    for c in list.tasks {
-                        if c.id == ctr.container_id {
-                            match c.status() {
-                                containerd_client::types::v1::Status::Stopped => {
-                                    let ctr: Container = Arc::new(ctr);
-                                    if c.exit_status == 0 {
-                                        debug!(tid = tid, "package install finished");
-                                        return self.remove_container(ctr, pkg_namespace, tid).await;
-                                    } else {
-                                        let stdout = self.read_stdout(&ctr, tid).await;
-                                        let stderr = self.read_stderr(&ctr, tid).await;
-                                        if let Err(e) = self.remove_container(ctr, pkg_namespace, tid).await {
-                                            error!(tid=tid, error=%e, "cleanup removal failed");
-                                        };
-                                        bail_error!(
-                                            tid = tid,
-                                            exit_status = c.exit_status,
-                                            stdout = stdout,
-                                            stderr = stderr,
-                                            "bad exit on packages"
-                                        );
-                                    }
-                                },
-                                _ => (),
-                            }
-                            break;
+                    let r = GetRequest {
+                        container_id: ctr.container_id.clone(),
+                        ..Default::default()
+                    };
+                    let task = client.get(with_namespace!(r, pkg_namespace)).await?.into_inner();
+                    info!(tid = tid, task=?task, "task deets");
+                    if let Some(proc) = task.process {
+                        match proc.status() {
+                            containerd_client::types::v1::Status::Stopped => {
+                                let ctr: Container = Arc::new(ctr);
+                                if proc.exit_status == 0 {
+                                    debug!(tid = tid, "package install finished");
+                                    return self.remove_container(ctr, pkg_namespace, tid).await;
+                                } else {
+                                    let stdout = self.read_stdout(&ctr, tid).await;
+                                    let stderr = self.read_stderr(&ctr, tid).await;
+                                    if let Err(e) = self.remove_container(ctr, pkg_namespace, tid).await {
+                                        error!(tid=tid, error=%e, "cleanup removal failed");
+                                    };
+                                    bail_error!(
+                                        tid = tid,
+                                        exit_status = proc.exit_status,
+                                        stdout = stdout,
+                                        stderr = stderr,
+                                        "bad exit on packages"
+                                    );
+                                }
+                            },
+                            _ => (),
                         }
                     }
                     tokio::time::sleep(Duration::from_secs(1)).await;

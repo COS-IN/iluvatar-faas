@@ -6,7 +6,6 @@ use iluvatar_library::clock::{now, Clock};
 use iluvatar_library::threading::is_simulation;
 use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::types::ContainerServer;
-use iluvatar_library::utils::try_load_code_zip;
 use iluvatar_library::{
     bail_error,
     transaction::{gen_tid, TransactionId},
@@ -295,7 +294,7 @@ pub async fn controller_register(
         1,
         &tid,
         false, // would never register a system function from the load generator
-        try_load_code_zip(code_zip_pth).await?,
+        try_load_code_zip(code_zip_pth, &tid).await?,
     )?;
     match api.register(req).await {
         Ok(_) => Ok(start.elapsed()),
@@ -353,7 +352,7 @@ pub async fn worker_register(
             server,
             timings,
             false, // would never register a system function from the load generator
-            try_load_code_zip(code_zip_pth).await?,
+            try_load_code_zip(code_zip_pth, &tid).await?,
             runtime,
         )
         .timed()
@@ -607,5 +606,15 @@ pub fn wrap_logging<T>(
     match run(args) {
         Err(e) => bail_error!(error=%e, "Load failed, check error log"),
         _ => Ok(()),
+    }
+}
+
+/// Loads the zip file, returns an error if file is missing or read fails.
+/// Returns empty vec if path is empty
+pub async fn try_load_code_zip(path: &str, tid: &TransactionId) -> Result<Vec<u8>> {
+    if path.is_empty() {
+        Ok(Vec::new())
+    } else {
+        iluvatar_worker_library::tar_folder(path, tid)
     }
 }

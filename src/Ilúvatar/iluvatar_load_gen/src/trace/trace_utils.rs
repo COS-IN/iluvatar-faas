@@ -347,7 +347,7 @@ async fn worker_wait_reg(
             let isol = func.isolation;
             let server = func.server;
             let mem = func.mem_mb;
-            let zip = func.code_zip_path.clone().unwrap_or("".to_string());
+            let zip = func.code_folder.clone().unwrap_or("".to_string());
             let runtime = func.runtime;
             let func_timings = match &func.chosen_name {
                 Some(chosen_name) => match bench_data.as_ref() {

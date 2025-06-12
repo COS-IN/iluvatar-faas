@@ -8,10 +8,10 @@ use crate::{
 };
 use anyhow::Result;
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, CreateImageOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
-    StartContainerOptions, StatsOptions,
+    CreateContainerOptionsBuilder, CreateImageOptions, InspectContainerOptions, ListContainersOptions, LogsOptions,
+    RemoveContainerOptions, StartContainerOptions, StatsOptions,
 };
-use bollard::secret::{ContainerCreateBody, ContainerSummaryStateEnum};
+use bollard::secret::{ContainerCreateBody, ContainerStateStatusEnum};
 use bollard::Docker;
 use bollard::{
     auth::DockerCredentials,
@@ -268,6 +268,24 @@ impl DockerIsolation {
         Ok(out)
     }
 
+    async fn dependency_err(
+        &self,
+        cid: &str,
+        tid: &TransactionId,
+        state: &bollard::secret::ContainerState,
+    ) -> Result<()> {
+        let (stdout, stderr) = self.get_logs(cid, tid).await?;
+        self.remove_container_intern(cid, tid).await?;
+        bail_error!(
+            tid = tid,
+            stdout = stdout,
+            stderr = stderr,
+            status = ?state.status,
+            code = state.exit_code,
+            "failed installing dependencies"
+        )
+    }
+
     async fn dependencies(&self, rf: &RegisteredFunction, tid: &TransactionId) -> Result<()> {
         match &rf.run_info {
             RunFunction::Runtime { .. } => {
@@ -299,35 +317,26 @@ impl DockerIsolation {
                 };
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-                let mut list_container_filters = HashMap::new();
-                list_container_filters.insert(String::from("name"), vec![cid.clone()]);
                 debug!(tid = tid, "waiting for package install to finish");
                 loop {
-                    let containers = &self
+                    let container = &self
                         .docker_api
-                        .list_containers(Some(
-                            bollard::query_parameters::ListContainersOptionsBuilder::default()
-                                .filters(&list_container_filters)
-                                .all(true)
-                                .build(),
-                        ))
+                        .inspect_container(&cid, Some(InspectContainerOptions { size: false }))
                         .await?;
-                    for c in containers {
-                        match c.state {
+                    if let Some(state) = &container.state {
+                        match &state.status {
                             Some(s) => match s {
-                                ContainerSummaryStateEnum::EXITED => {
-                                    self.remove_container_intern(&cid, tid).await?;
-                                    return Ok(());
+                                &ContainerStateStatusEnum::EXITED => {
+                                    return match state.exit_code {
+                                        Some(0) => {
+                                            self.remove_container_intern(&cid, tid).await?;
+                                            Ok(())
+                                        },
+                                        _ => self.dependency_err(&cid, tid, state).await,
+                                    };
                                 },
-                                ContainerSummaryStateEnum::REMOVING | ContainerSummaryStateEnum::DEAD => {
-                                    let (stdout, stderr) = self.get_logs(&cid, tid).await?;
-                                    self.remove_container_intern(&cid, tid).await?;
-                                    bail_error!(
-                                        tid = tid,
-                                        stdout = stdout,
-                                        stderr = stderr,
-                                        "failed installing dependencies"
-                                    )
+                                &ContainerStateStatusEnum::REMOVING | &ContainerStateStatusEnum::DEAD => {
+                                    return self.dependency_err(&cid, tid, state).await;
                                 },
                                 _ => tokio::time::sleep(tokio::time::Duration::from_secs(1)).await,
                             },
@@ -350,6 +359,68 @@ impl DockerIsolation {
             Ok(_) => Ok(()),
             Err(e) => bail_error!(tid=tid, error=%e, "Failed to remove Docker container"),
         }
+    }
+
+    async fn pull_image(&self, rf: &RegisteredFunction, tid: &TransactionId) -> Result<()> {
+        if self.pulled_images.contains(&rf.image_name) {
+            debug!(tid = tid, "image exists, skipping");
+            return Ok(());
+        }
+
+        let auth = match &self.docker_config {
+            Some(cfg) => {
+                if cfg.avoid_pull {
+                    let image_name_no_hub = rf.image_name.split('/').skip(1).collect::<Vec<&str>>().join("/");
+                    debug!(tid = tid, query = image_name_no_hub, "querying images");
+                    let list = bollard::query_parameters::ListImagesOptionsBuilder::default()
+                        .filters(&HashMap::from_iter([(
+                            "reference".to_string(),
+                            vec![image_name_no_hub.clone()],
+                        )]))
+                        .build();
+
+                    match self.docker_api.list_images(Some(list)).await {
+                        Ok(ls) => {
+                            for image in ls {
+                                for tag in &image.repo_tags {
+                                    if tag == &image_name_no_hub {
+                                        info!(tid=tid, image=?image, "image found, skipping pull");
+                                        self.dependencies(rf, tid).await?;
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        },
+                        Err(e) => warn!(tid=tid, error=%e, "Failed to list docker images"),
+                    };
+                }
+                match &cfg.auth {
+                    Some(a) if rf.image_name.starts_with(a.repository.as_str()) => Some(DockerCredentials {
+                        username: Some(a.username.clone()),
+                        password: Some(a.password.clone()),
+                        ..Default::default()
+                    }),
+                    _ => None,
+                }
+            },
+            None => None,
+        };
+
+        let options = Some(CreateImageOptions {
+            from_image: Some(rf.image_name.clone()),
+            ..Default::default()
+        });
+
+        let mut stream = self.docker_api.create_image(options, None, auth);
+        while let Some(res) = stream.next().await {
+            match res {
+                Ok(inf) => debug!(tid=tid, info=?inf, "pull info update"),
+                Err(e) => bail_error!(tid=tid, error=%e, "Failed to pull image"),
+            }
+        }
+        info!(tid=tid, name=%rf.image_name, "Docker image pulled successfully");
+        self.pulled_images.insert(rf.image_name.clone());
+        Ok(())
     }
 }
 
@@ -444,19 +515,6 @@ impl ContainerIsolationService for DockerIsolation {
     /// Removed the specified container in the containerd namespace
     async fn remove_container(&self, container: Container, _ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
         self.remove_container_intern(container.container_id(), tid).await
-        // let options = RemoveContainerOptions {
-        //     force: true,
-        //     v: true,
-        //     link: false,
-        // };
-        // match self
-        //     .docker_api
-        //     .remove_container(container.container_id().as_str(), Some(options))
-        //     .await
-        // {
-        //     Ok(_) => Ok(()),
-        //     Err(e) => bail_error!(tid=tid, error=%e, "Failed to remove Docker container"),
-        // }
     }
 
     async fn prepare_function_registration(
@@ -465,65 +523,8 @@ impl ContainerIsolationService for DockerIsolation {
         _namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
-        debug!(tid = tid, "prepare_function_registration");
-        if self.pulled_images.contains(&rf.image_name) {
-            debug!(tid = tid, "image exists, skipping");
-            return Ok(());
-        }
-
-        let auth = match &self.docker_config {
-            Some(cfg) => {
-                if cfg.avoid_pull {
-                    let image_name_no_hub = rf.image_name.split('/').skip(1).collect::<Vec<&str>>().join("/");
-                    debug!(tid = tid, query = image_name_no_hub, "querying images");
-                    let list = bollard::query_parameters::ListImagesOptionsBuilder::default()
-                        .filters(&HashMap::from_iter([(
-                            "reference".to_string(),
-                            vec![image_name_no_hub.clone()],
-                        )]))
-                        .build();
-
-                    match self.docker_api.list_images(Some(list)).await {
-                        Ok(ls) => {
-                            for image in ls {
-                                for tag in &image.repo_tags {
-                                    if tag == &image_name_no_hub {
-                                        info!(tid=tid, image=?image, "image found, skipping pull");
-                                        self.dependencies(rf, tid).await?;
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                        },
-                        Err(e) => warn!(tid=tid, error=%e, "Failed to list docker images"),
-                    };
-                }
-                match &cfg.auth {
-                    Some(a) if rf.image_name.starts_with(a.repository.as_str()) => Some(DockerCredentials {
-                        username: Some(a.username.clone()),
-                        password: Some(a.password.clone()),
-                        ..Default::default()
-                    }),
-                    _ => None,
-                }
-            },
-            None => None,
-        };
-
-        let options = Some(CreateImageOptions {
-            from_image: Some(rf.image_name.clone()),
-            ..Default::default()
-        });
-
-        let mut stream = self.docker_api.create_image(options, None, auth);
-        while let Some(res) = stream.next().await {
-            match res {
-                Ok(inf) => debug!(tid=tid, info=?inf, "pull info update"),
-                Err(e) => bail_error!(tid=tid, error=%e, "Failed to pull image"),
-            }
-        }
-        info!(tid=tid, name=%rf.image_name, "Docker image pulled successfully");
-        self.pulled_images.insert(rf.image_name.clone());
+        debug!(tid = tid, reg=?rf, "prepare_function_registration");
+        self.pull_image(rf, tid).await?;
         self.dependencies(rf, tid).await?;
         Ok(())
     }

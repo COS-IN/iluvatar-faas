@@ -1,5 +1,9 @@
 [build.env]
-volumes = ["/var/run/docker.sock=/var/run/docker.sock", "/tmp=/tmp"]
+volumes = [
+    "DOCKER_SOCK=/var/run/docker.sock",
+    "TEMP=/tmp",
+    "PY_FUNCS=../load/functions/python3",
+]
 
 [build]
 pre-build = [
