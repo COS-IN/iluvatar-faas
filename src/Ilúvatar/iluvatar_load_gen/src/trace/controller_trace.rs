@@ -62,6 +62,7 @@ async fn controller_register_functions(
             func.compute,
             func.server,
             func_timings,
+            func.code_folder.as_ref().unwrap_or(&"".to_string()),
             api,
         )
         .await?;

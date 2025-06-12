@@ -7,7 +7,7 @@ use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, ContainerServer, Isolation};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
-    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, LanguageRuntime, PingRequest, RegisterRequest,
+    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest, RegisterRequest, Runtime,
 };
 use serde_json::{json, to_string};
 use std::collections::HashMap;
@@ -100,12 +100,13 @@ pub async fn handle_register(
         image_name: params.image,
         parallel_invokes: 1,
         transaction_id: tid,
-        language: LanguageRuntime::Nolang.into(),
+        runtime: Runtime::Nolang.into(),
         compute: compute.bits(),
         isolate: isolation.bits(),
         container_server: server_type,
         resource_timings_json: "{}".to_string(),
         system_function: false,
+        code_zip: vec![],
     };
     let request = Request::new(register_request);
 

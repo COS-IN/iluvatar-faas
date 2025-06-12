@@ -1,27 +1,27 @@
 use self::dockerstructs::DockerContainer;
 use super::{structs::Container, ContainerIsolationService};
+use crate::services::registration::RunFunction;
 use crate::services::resources::gpu::GPU;
 use crate::{
     services::{containers::structs::ContainerState, registration::RegisteredFunction},
     worker_api::worker_config::{ContainerResourceConfig, FunctionLimits},
 };
 use anyhow::Result;
+use bollard::query_parameters::{
+    CreateContainerOptionsBuilder, CreateImageOptions, InspectContainerOptions, ListContainersOptions, LogsOptions,
+    RemoveContainerOptions, StartContainerOptions, StatsOptions,
+};
+use bollard::secret::{ContainerCreateBody, ContainerStateStatusEnum};
 use bollard::Docker;
 use bollard::{
     auth::DockerCredentials,
     models::{DeviceRequest, HostConfig, PortBinding},
 };
-use bollard::{
-    container::{
-        Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions, StatsOptions,
-    },
-    image::{CreateImageOptions, ListImagesOptions},
-};
 use dashmap::DashSet;
 use futures::StreamExt;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
-use iluvatar_library::types::{err_val, ResultErrorVal};
+use iluvatar_library::types::{err_val, ContainerServer, ResultErrorVal};
 use iluvatar_library::utils::file::{container_path, make_paths};
 use iluvatar_library::{
     bail_error, bail_error_value, error_value,
@@ -111,19 +111,17 @@ impl DockerIsolation {
     pub async fn docker_run(
         &self,
         tid: &TransactionId,
-        image_name: &str,
         container_id: &str,
         mut env: Vec<String>,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
+        reg: &RegisteredFunction,
         device_resource: &Option<GPU>,
         ports: BollardPortBindings,
         host_config: Option<HostConfig>,
         entrypoint: Option<Vec<String>>,
     ) -> Result<()> {
         let mut host_config = host_config.unwrap_or_default();
-        host_config.cpu_shares = Some((cpus * 1024) as i64);
-        host_config.memory = Some(mem_limit_mb * 1024 * 1024);
+        host_config.cpu_shares = Some((reg.cpus * 1024) as i64);
+        host_config.memory = Some(reg.memory * 1024 * 1024);
         let exposed_ports: Option<HashMap<String, HashMap<(), ()>>> = match ports.as_ref() {
             Some(p) => {
                 let mut exposed = HashMap::new();
@@ -136,8 +134,23 @@ impl DockerIsolation {
         };
         let ctr_dir = container_path(container_id);
         make_paths(&ctr_dir, tid)?;
-        let mut volumes = vec![format!("{}:/iluvatar/sockets", ctr_dir.to_string_lossy())];
+        let mut volumes = vec![];
         let mut device_requests = vec![];
+
+        if reg.container_server == ContainerServer::UnixSocket {
+            volumes.push(format!("{}:/iluvatar/sockets", ctr_dir.to_string_lossy()));
+        }
+
+        match &reg.run_info {
+            RunFunction::Runtime {
+                packages_dir, main_dir, ..
+            } => {
+                volumes.push(format!("{}:/app/packages", packages_dir));
+                volumes.push(format!("{}:/app/main", main_dir));
+                env.push("PYTHONPATH=/app/main:/app/packages".to_string());
+            },
+            _ => {},
+        };
 
         if let Some(device) = device_resource.as_ref() {
             info!(tid=tid, container_id=%container_id, "Container will get a GPU");
@@ -189,14 +202,10 @@ impl DockerIsolation {
             },
             None => host_config.port_bindings = ports,
         };
-        let options = CreateContainerOptions {
-            name: container_id,
-            platform: None,
-        };
-
-        let config: Config<String> = Config {
+        let options = CreateContainerOptionsBuilder::new().name(container_id).build();
+        let config = ContainerCreateBody {
             labels: Some(HashMap::from([("owner".to_owned(), "iluvatar_worker".to_owned())])),
-            image: Some(image_name.to_owned()),
+            image: Some(reg.image_name.to_owned()),
             host_config: Some(host_config),
             env: Some(env),
             exposed_ports,
@@ -210,7 +219,11 @@ impl DockerIsolation {
         };
         debug!(tid=tid, container_id=%container_id, "Container created");
 
-        match self.docker_api.start_container::<String>(container_id, None).await {
+        match self
+            .docker_api
+            .start_container(container_id, None::<StartContainerOptions>)
+            .await
+        {
             Ok(_) => (),
             Err(e) => bail_error!(tid=tid, error=%e, "Error starting container"),
         };
@@ -220,7 +233,7 @@ impl DockerIsolation {
 
     /// Get the stdout and stderr of a container
     pub async fn get_logs(&self, container_id: &str, tid: &TransactionId) -> Result<(String, String)> {
-        let options = LogsOptions::<String> {
+        let options = LogsOptions {
             stdout: true,
             stderr: true,
             ..Default::default()
@@ -254,6 +267,161 @@ impl DockerIsolation {
         let (out, _err) = self.get_logs(container.container_id(), tid).await?;
         Ok(out)
     }
+
+    async fn dependency_err(
+        &self,
+        cid: &str,
+        tid: &TransactionId,
+        state: &bollard::secret::ContainerState,
+    ) -> Result<()> {
+        let (stdout, stderr) = self.get_logs(cid, tid).await?;
+        self.remove_container_intern(cid, tid).await?;
+        bail_error!(
+            tid = tid,
+            stdout = stdout,
+            stderr = stderr,
+            status = ?state.status,
+            code = state.exit_code,
+            "failed installing dependencies"
+        )
+    }
+
+    async fn dependencies(&self, rf: &RegisteredFunction, tid: &TransactionId) -> Result<()> {
+        match &rf.run_info {
+            RunFunction::Runtime { .. } => {
+                let env = vec![];
+                let cid = format!("{}-prep", rf.fqdn);
+                let entrypoint = [
+                    "python3",
+                    "-m",
+                    "pip",
+                    "install",
+                    "--ignore-installed",
+                    "--progress-bar",
+                    "off",
+                    "--compile",
+                    "--target",
+                    "/app/packages",
+                    "-r",
+                    "/app/main/reqs.txt",
+                ]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+
+                if let Err(e) = self
+                    .docker_run(tid, cid.as_str(), env, rf, &None, None, None, Some(entrypoint))
+                    .await
+                {
+                    bail_error!(error=%e, tid=tid, "failed preparing code");
+                };
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+                debug!(tid = tid, "waiting for package install to finish");
+                loop {
+                    let container = &self
+                        .docker_api
+                        .inspect_container(&cid, Some(InspectContainerOptions { size: false }))
+                        .await?;
+                    if let Some(state) = &container.state {
+                        match &state.status {
+                            Some(s) => match s {
+                                &ContainerStateStatusEnum::EXITED => {
+                                    return match state.exit_code {
+                                        Some(0) => {
+                                            self.remove_container_intern(&cid, tid).await?;
+                                            Ok(())
+                                        },
+                                        _ => self.dependency_err(&cid, tid, state).await,
+                                    };
+                                },
+                                &ContainerStateStatusEnum::REMOVING | &ContainerStateStatusEnum::DEAD => {
+                                    return self.dependency_err(&cid, tid, state).await;
+                                },
+                                _ => tokio::time::sleep(tokio::time::Duration::from_secs(1)).await,
+                            },
+                            _ => (),
+                        }
+                    }
+                }
+            },
+            _ => Ok(()),
+        }
+    }
+
+    async fn remove_container_intern(&self, container_id: &str, tid: &TransactionId) -> Result<()> {
+        let options = RemoveContainerOptions {
+            force: true,
+            v: true,
+            link: false,
+        };
+        match self.docker_api.remove_container(container_id, Some(options)).await {
+            Ok(_) => Ok(()),
+            Err(e) => bail_error!(tid=tid, error=%e, "Failed to remove Docker container"),
+        }
+    }
+
+    async fn pull_image(&self, rf: &RegisteredFunction, tid: &TransactionId) -> Result<()> {
+        if self.pulled_images.contains(&rf.image_name) {
+            debug!(tid = tid, "image exists, skipping");
+            return Ok(());
+        }
+
+        let auth = match &self.docker_config {
+            Some(cfg) => {
+                if cfg.avoid_pull {
+                    let image_name_no_hub = rf.image_name.split('/').skip(1).collect::<Vec<&str>>().join("/");
+                    debug!(tid = tid, query = image_name_no_hub, "querying images");
+                    let list = bollard::query_parameters::ListImagesOptionsBuilder::default()
+                        .filters(&HashMap::from_iter([(
+                            "reference".to_string(),
+                            vec![image_name_no_hub.clone()],
+                        )]))
+                        .build();
+
+                    match self.docker_api.list_images(Some(list)).await {
+                        Ok(ls) => {
+                            for image in ls {
+                                for tag in &image.repo_tags {
+                                    if tag == &image_name_no_hub {
+                                        info!(tid=tid, image=?image, "image found, skipping pull");
+                                        self.dependencies(rf, tid).await?;
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        },
+                        Err(e) => warn!(tid=tid, error=%e, "Failed to list docker images"),
+                    };
+                }
+                match &cfg.auth {
+                    Some(a) if rf.image_name.starts_with(a.repository.as_str()) => Some(DockerCredentials {
+                        username: Some(a.username.clone()),
+                        password: Some(a.password.clone()),
+                        ..Default::default()
+                    }),
+                    _ => None,
+                }
+            },
+            None => None,
+        };
+
+        let options = Some(CreateImageOptions {
+            from_image: Some(rf.image_name.clone()),
+            ..Default::default()
+        });
+
+        let mut stream = self.docker_api.create_image(options, None, auth);
+        while let Some(res) = stream.next().await {
+            match res {
+                Ok(inf) => debug!(tid=tid, info=?inf, "pull info update"),
+                Err(e) => bail_error!(tid=tid, error=%e, "Failed to pull image"),
+            }
+        }
+        info!(tid=tid, name=%rf.image_name, "Docker image pulled successfully");
+        self.pulled_images.insert(rf.image_name.clone());
+        Ok(())
+    }
 }
 
 #[tonic::async_trait]
@@ -265,15 +433,10 @@ impl ContainerIsolationService for DockerIsolation {
     /// creates and starts the entrypoint for a container based on the given image
     /// Run inside the specified namespace
     /// returns a new, unique ID representing it
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, _namespace, mem_limit_mb, cpus), fields(tid=tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, _namespace, iso, compute, device_resource), fields(tid=tid)))]
     async fn run_container(
         &self,
-        fqdn: &str,
-        image_name: &str,
-        parallel_invokes: u32,
         _namespace: &str,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
@@ -284,7 +447,7 @@ impl ContainerIsolationService for DockerIsolation {
             error_value!("Only supports docker Isolation, now {:?}", iso, device_resource);
         }
         let mut env = vec![];
-        let cid = format!("{}-{}", fqdn, GUID::rand());
+        let cid = format!("{}-{}", reg.fqdn, GUID::rand());
         let port = match free_local_port() {
             Ok(p) => p,
             Err(e) => return err_val(e, device_resource),
@@ -320,18 +483,7 @@ impl ContainerIsolationService for DockerIsolation {
 
         info!(tid = tid, cid = cid, "launching container");
         if let Err(e) = self
-            .docker_run(
-                tid,
-                image_name,
-                cid.as_str(),
-                env,
-                mem_limit_mb,
-                cpus,
-                &device_resource,
-                Some(ports),
-                None,
-                None,
-            )
+            .docker_run(tid, cid.as_str(), env, reg, &device_resource, Some(ports), None, None)
             .await
         {
             bail_error_value!(error=%e, tid=tid, "Error trying to acquire docker creation semaphore", device_resource);
@@ -343,8 +495,7 @@ impl ContainerIsolationService for DockerIsolation {
                 cid,
                 port,
                 "0.0.0.0".to_string(),
-                std::num::NonZeroU32::new_unchecked(parallel_invokes),
-                fqdn,
+                std::num::NonZeroU32::new_unchecked(reg.parallel_invokes),
                 reg,
                 self.limits_config.timeout_sec,
                 ContainerState::Cold,
@@ -363,19 +514,7 @@ impl ContainerIsolationService for DockerIsolation {
 
     /// Removed the specified container in the containerd namespace
     async fn remove_container(&self, container: Container, _ctd_namespace: &str, tid: &TransactionId) -> Result<()> {
-        let options = RemoveContainerOptions {
-            force: true,
-            v: true,
-            link: false,
-        };
-        match self
-            .docker_api
-            .remove_container(container.container_id().as_str(), Some(options))
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => bail_error!(tid=tid, error=%e, "Failed to remove Docker container"),
-        }
+        self.remove_container_intern(container.container_id(), tid).await
     }
 
     async fn prepare_function_registration(
@@ -384,63 +523,9 @@ impl ContainerIsolationService for DockerIsolation {
         _namespace: &str,
         tid: &TransactionId,
     ) -> Result<()> {
-        debug!(tid = tid, "prepare_function_registration");
-        if self.pulled_images.contains(&rf.image_name) {
-            debug!(tid = tid, "image exists, skipping");
-            return Ok(());
-        }
-
-        let auth = match &self.docker_config {
-            Some(cfg) => {
-                if cfg.avoid_pull {
-                    let image_name_no_hub = rf.image_name.split('/').skip(1).collect::<Vec<&str>>().join("/");
-                    let list = Some(ListImagesOptions {
-                        all: false,
-                        filters: HashMap::from_iter([("reference", vec![image_name_no_hub.as_ref()])]),
-                        digests: false,
-                    });
-
-                    debug!(tid = tid, query = image_name_no_hub, "querying images");
-                    match self.docker_api.list_images(list).await {
-                        Ok(ls) => {
-                            for image in ls {
-                                for tag in &image.repo_tags {
-                                    if tag == &image_name_no_hub {
-                                        info!(tid=tid, image=?image, "image found, skipping pull");
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                        },
-                        Err(e) => warn!(tid=tid, error=%e, "Failed to list docker images"),
-                    };
-                }
-                match &cfg.auth {
-                    Some(a) if rf.image_name.starts_with(a.repository.as_str()) => Some(DockerCredentials {
-                        username: Some(a.username.clone()),
-                        password: Some(a.password.clone()),
-                        ..Default::default()
-                    }),
-                    _ => None,
-                }
-            },
-            None => None,
-        };
-
-        let options = Some(CreateImageOptions {
-            from_image: rf.image_name.as_str(),
-            ..Default::default()
-        });
-
-        let mut stream = self.docker_api.create_image(options, None, auth);
-        while let Some(res) = stream.next().await {
-            match res {
-                Ok(inf) => debug!(tid=tid, info=?inf, "pull info update"),
-                Err(e) => bail_error!(tid=tid, error=%e, "Failed to pull image"),
-            }
-        }
-        info!(tid=tid, name=%rf.image_name, "Docker image pulled successfully");
-        self.pulled_images.insert(rf.image_name.clone());
+        debug!(tid = tid, reg=?rf, "prepare_function_registration");
+        self.pull_image(rf, tid).await?;
+        self.dependencies(rf, tid).await?;
         Ok(())
     }
 
@@ -454,7 +539,10 @@ impl ContainerIsolationService for DockerIsolation {
             all: true,
             limit: None,
             size: false,
-            filters: HashMap::from_iter(vec![("label", vec![OWNER_TAG])]),
+            filters: Some(HashMap::from_iter(vec![(
+                "label".to_owned(),
+                vec![OWNER_TAG.to_owned()],
+            )])),
         };
         let list = match self.docker_api.list_containers(Some(options)).await {
             Ok(l) => l,
@@ -524,7 +612,7 @@ impl ContainerIsolationService for DockerIsolation {
         while let Some(res) = stream.next().await {
             match res {
                 Ok(stats) => {
-                    if let Some(usage_bytes) = stats.memory_stats.usage {
+                    if let Some(usage_bytes) = stats.memory_stats.and_then(|s| s.usage.or(None)) {
                         let usage_mb: MemSizeMb = (usage_bytes / (1024 * 1024)) as MemSizeMb;
                         container.set_curr_mem_usage(usage_mb);
                         return usage_mb;

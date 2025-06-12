@@ -46,6 +46,14 @@ pub struct Configuration {
     pub status: Arc<StatusConfig>,
     pub influx: Option<Arc<InfluxConfig>>,
     pub http_server: Option<Arc<HttpServerConfig>>,
+    /// Base runtime images to use for code uploads.
+    pub base_images: Arc<BaseImages>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct BaseImages {
+    pub python_cpu: String,
+    pub python_gpu: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]

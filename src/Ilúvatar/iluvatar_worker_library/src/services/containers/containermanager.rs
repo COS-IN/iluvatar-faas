@@ -15,7 +15,7 @@ use iluvatar_library::threading::{
     tokio_logging_thread, tokio_notify_thread, tokio_sender_thread, tokio_spawn_thread, EventualItem,
 };
 use iluvatar_library::types::{Compute, Isolation, MemSizeMb};
-use iluvatar_library::{bail_error, transaction::TransactionId, utils::calculate_fqdn, ToAny};
+use iluvatar_library::{bail_error, transaction::TransactionId, ToAny};
 use parking_lot::RwLock;
 use std::sync::{atomic::AtomicU32, Arc};
 use tokio::sync::mpsc::UnboundedSender;
@@ -467,21 +467,8 @@ impl ContainerManager {
         } else {
             *self.used_mem_mb.write() += reg.memory;
         }
-        let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
         let cont = cont_lifecycle
-            .run_container(
-                &fqdn,
-                &reg.image_name,
-                reg.parallel_invokes,
-                "default",
-                reg.memory,
-                reg.cpus,
-                reg,
-                chosen_iso,
-                compute,
-                gpu,
-                tid,
-            )
+            .run_container("default", reg, chosen_iso, compute, gpu, tid)
             .await;
         let cont = match cont {
             Ok(cont) => cont,
@@ -516,7 +503,7 @@ impl ContainerManager {
                 };
             },
         };
-        info!(tid=tid, image=%reg.image_name, container_id=%cont.container_id(), "Container was launched");
+        info!(tid=tid, container_id=%cont.container_id(), "Container was launched");
         Ok(cont)
     }
 
@@ -918,10 +905,7 @@ mod tests {
         drop(c1);
         cm.remove_idle_containers(&TEST_TID).await.unwrap();
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        let state = cm.container_exists(
-            &calculate_fqdn(&func.function_name, &func.function_version),
-            Compute::CPU,
-        );
+        let state = cm.container_exists(&func.fqdn, Compute::CPU);
         assert_eq!(state, ContainerState::Cold, "After purging container, should be cold");
         assert_eq!(cm.cpu_containers.len(), 0, "Purged container should be gone");
         assert_eq!(cm.gpu_containers.len(), 0, "Purged container should be gone");

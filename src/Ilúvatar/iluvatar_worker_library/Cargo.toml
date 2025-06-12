@@ -31,7 +31,7 @@ dashmap = { version = "6", features = ["inline"] }
 tracing = "0.1"
 futures = "0.3"
 time = "0.3"
-ordered-float = "4"
+ordered-float = "5"
 csv = "1.*"
 influxdb2 = { version = "0.5", default-features = false, features = ["rustls"]}
 influxdb2-derive = "0.1.1"
@@ -39,10 +39,11 @@ num-traits = "0.2"
 influxdb2-structmap = "0.2"
 rand = "0.9"
 nvml-wrapper = "0.10"
-bollard = "0.18"
+bollard = "0.19"
 prost-types = "0.13"
 num_cpus = "1.16"
 async-trait = "0.1"
+tar = "0.4"
 
 [dev-dependencies]
 rstest = "0.25"

@@ -4,6 +4,11 @@ import os, traceback, json
 from datetime import datetime
 from http import HTTPStatus
 from math import ceil
+# disgusting stupid python nonsense, fails importing in some cases of Flask
+try:
+    import encodings.idna
+except Exception as e:
+    print("failed to import 'encodings.idna' with error:", e)
 
 DRIVER="libgpushare.so"
 def driver_enabled() -> bool:
@@ -118,7 +123,7 @@ def invoke():
   except Exception as e:
     # User code failed, report the error with the rest of our information
     end = datetime.now()
-    return append_metadata(e, start, end, was_cold, success=False), HTTPStatus.UNPROCESSABLE_ENTITY
+    return append_metadata(str(e), start, end, was_cold, success=False), HTTPStatus.UNPROCESSABLE_ENTITY
 
 port = os.environ.get("__IL_PORT", 8080)
 host = os.environ.get("__IL_HOST", "0.0.0.0")

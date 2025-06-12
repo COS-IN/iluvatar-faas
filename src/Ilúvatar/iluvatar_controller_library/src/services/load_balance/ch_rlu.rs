@@ -1,6 +1,6 @@
 use crate::server::config::ControllerConfig;
 use crate::services::load_balance::{LoadBalancerTrait, LoadMetric};
-use crate::services::registration::{FunctionRegistration, RegisteredWorker};
+use crate::services::registration::{FunctionRegistration, RegisteredFunction, RegisteredWorker};
 use crate::{
     build_influx, prewarm, send_async_invocation, send_invocation,
     services::{controller_health::ControllerHealthService, load_reporting::LoadService},
@@ -14,7 +14,6 @@ use iluvatar_library::utils::timing::TimedExt;
 use iluvatar_library::{bail_error, threading::tokio_thread, transaction::TransactionId};
 use iluvatar_rpc::rpc::InvokeResponse;
 use iluvatar_worker_library::services::influx_updater::WorkerStatus;
-use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use ordered_float::OrderedFloat;
 use parking_lot::RwLock;

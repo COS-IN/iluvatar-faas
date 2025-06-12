@@ -70,5 +70,9 @@
   },
   "status": {
     "report_freq_ms": 5000
+  },
+  "base_images": {
+    "python_cpu": "docker.io/alfuerst/iluvatar-action-base:latest",
+    "python_gpu": "docker.io/alfuerst/iluvatar-action-gpu-base:latest"
   }
 }

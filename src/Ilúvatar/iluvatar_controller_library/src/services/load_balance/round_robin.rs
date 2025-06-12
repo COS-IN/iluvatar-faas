@@ -1,11 +1,10 @@
 use crate::services::controller_health::ControllerHealthService;
 use crate::services::load_balance::LoadBalancerTrait;
-use crate::services::registration::RegisteredWorker;
+use crate::services::registration::{RegisteredFunction, RegisteredWorker};
 use crate::{prewarm, send_async_invocation, send_invocation};
 use anyhow::Result;
 use iluvatar_library::{transaction::TransactionId, utils::timing::TimedExt};
 use iluvatar_rpc::rpc::InvokeResponse;
-use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;

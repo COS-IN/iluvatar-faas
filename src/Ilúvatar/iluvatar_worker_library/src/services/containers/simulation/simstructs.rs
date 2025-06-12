@@ -25,7 +25,6 @@ use tracing::debug;
 #[derive(iluvatar_library::ToAny)]
 pub struct SimulatorContainer {
     pub container_id: String,
-    pub fqdn: String,
     /// the associated function inside the container
     pub function: Arc<RegisteredFunction>,
     pub last_used: RwLock<Instant>,
@@ -45,7 +44,6 @@ impl SimulatorContainer {
     pub fn new(
         tid: &TransactionId,
         cid: String,
-        fqdn: &str,
         reg: &Arc<RegisteredFunction>,
         state: ContainerState,
         iso: Isolation,
@@ -58,7 +56,6 @@ impl SimulatorContainer {
         };
         Ok(SimulatorContainer {
             container_id: cid,
-            fqdn: fqdn.to_owned(),
             function: reg.clone(),
             last_used: RwLock::new(now()),
             invocations: Mutex::new(0),
@@ -131,7 +128,7 @@ pub struct Body {
 
 #[tonic::async_trait]
 impl ContainerT for SimulatorContainer {
-    #[tracing::instrument(skip(self, json_args), fields(tid=tid, fqdn=%self.fqdn), name="SimulatorContainer::invoke")]
+    #[tracing::instrument(skip(self, json_args), fields(tid=tid), name="SimulatorContainer::invoke")]
     async fn invoke(&self, json_args: &str, tid: &TransactionId) -> Result<(ParsedResult, Duration)> {
         // just sleep for a while based on data from json args
         let data = match serde_json::from_str::<SimulationInvocation>(json_args) {
@@ -223,7 +220,7 @@ impl ContainerT for SimulatorContainer {
     }
 
     fn fqdn(&self) -> &String {
-        &self.fqdn
+        &self.function.fqdn
     }
 
     fn is_healthy(&self) -> bool {
@@ -322,7 +319,6 @@ mod sim_struct_tests {
         let cont = SimulatorContainer::new(
             &gen_tid(),
             "cid".to_owned(),
-            "fqdn",
             &reg,
             ContainerState::Cold,
             Isolation::CONTAINERD,
@@ -339,7 +335,6 @@ mod sim_struct_tests {
         let cont = SimulatorContainer::new(
             &gen_tid(),
             "cid".to_owned(),
-            "fqdn",
             &reg,
             ContainerState::Cold,
             Isolation::CONTAINERD,
@@ -356,7 +351,6 @@ mod sim_struct_tests {
         let cont = SimulatorContainer::new(
             &gen_tid(),
             "cid".to_owned(),
-            "fqdn",
             &reg,
             ContainerState::Cold,
             Isolation::CONTAINERD,
@@ -376,7 +370,6 @@ mod sim_struct_tests {
         let cont = SimulatorContainer::new(
             &gen_tid(),
             "cid".to_owned(),
-            "fqdn",
             &reg,
             ContainerState::Cold,
             Isolation::CONTAINERD,
@@ -398,7 +391,6 @@ mod sim_struct_tests {
         let cont = SimulatorContainer::new(
             &gen_tid(),
             "cid".to_owned(),
-            "fqdn",
             &reg,
             ContainerState::Warm,
             Isolation::CONTAINERD,
@@ -419,7 +411,6 @@ mod sim_struct_tests {
         let cont = SimulatorContainer::new(
             &gen_tid(),
             "cid".to_owned(),
-            "fqdn",
             &reg,
             ContainerState::Warm,
             Isolation::CONTAINERD,

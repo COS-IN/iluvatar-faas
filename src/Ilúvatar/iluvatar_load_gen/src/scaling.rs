@@ -17,6 +17,7 @@ use iluvatar_library::{
     types::{Compute, Isolation, MemSizeMb},
     utils::{config::args_to_json, file_utils::ensure_dir, port_utils::Port},
 };
+use iluvatar_rpc::rpc::Runtime;
 use rand::prelude::*;
 use std::path::{Path, PathBuf};
 use std::{sync::Arc, time::Duration};
@@ -98,7 +99,6 @@ async fn run_one_scaling_test(thread_cnt: usize, args: &ScalingArgs) -> Result<V
         let d = args.duration.into();
         let mem = args.memory_mb;
         let a = args.function_args.clone();
-
         threads.push(tokio_spawn_thread(async move {
             scaling_thread(
                 host_c, p, d, thread_id, b, i_c, compute, isolation, server, thread_cnt, mem, a,
@@ -141,6 +141,8 @@ async fn scaling_thread(
         compute,
         server,
         None,
+        "",
+        Runtime::Nolang,
     )
     .await
     {

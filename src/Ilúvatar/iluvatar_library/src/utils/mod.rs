@@ -203,14 +203,6 @@ pub async fn wait_for_exit_signal(tid: &TransactionId) -> Result<()> {
     let mut sig_quit = try_create_signal(tid, SignalKind::quit())?;
 
     info!(tid = tid, "Waiting on exit signal");
-    tokio::select! {
-      _res = sig_int.recv() => println!("sigint"),
-      _res = sig_term.recv() => println!("sigterm"),
-      _res = sig_usr1.recv() => println!("sigusr1"),
-      _res = sig_usr2.recv() => println!("sigusr2"),
-      _res = sig_quit.recv() => println!("sigquit"),
-    }
-
     if tokio::select! {
       res = sig_int.recv() => res,
       res = sig_term.recv() => res,
