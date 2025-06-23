@@ -18,6 +18,7 @@ use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::{task::JoinHandle, time::timeout};
+use iluvatar_library::utils::file::ensure_temp_dir;
 
 #[macro_export]
 macro_rules! assert_error {
@@ -49,6 +50,7 @@ pub async fn build_test_services(
     Option<Arc<GpuResourceTracker>>,
 ) {
     let tid: TransactionId = TEST_TID.clone();
+    ensure_temp_dir().unwrap();
     let cfg: WorkerConfig = iluvatar_library::load_config_default!(
         "iluvatar_worker_library/tests/resources/worker.json",
         config_pth,

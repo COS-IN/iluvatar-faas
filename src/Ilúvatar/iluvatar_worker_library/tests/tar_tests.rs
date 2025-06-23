@@ -10,11 +10,11 @@ use std::path::PathBuf;
 
 fn make_tar(func: &str) -> Vec<u8> {
     tracing::info!("pwd: {:?}", std::env::current_dir());
-    let pth = std::env::var("PY_FUNCS").unwrap();
+    let pth = std::env::var("PY_FUNCS").expect("no py funcs dir");
     let mut pth = PathBuf::from(pth);
     pth.push("functions");
     pth.push(func);
-    iluvatar_worker_library::tar_folder(pth, &"tar_tid".to_string()).unwrap()
+    iluvatar_worker_library::tar_folder(pth, &"tar_tid".to_string()).expect("failed to tar folder")
 }
 
 fn basic_reg_req_docker(path: &str) -> RegisterRequest {

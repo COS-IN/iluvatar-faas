@@ -105,7 +105,7 @@ impl IsolationFactory {
             let c = SimulatorIsolation::new(self.cmap.clone());
             self.insert_cycle(&mut ret, Arc::new(c))?;
         } else {
-            if ContainerdIsolation::supported(tid).await {
+            if ContainerdIsolation::supported(tid, &self.worker_config.container_resources).await {
                 info!(tid = tid, "Creating 'containerd' backend");
                 if let Some(networking) = self.worker_config.networking.as_ref() {
                     let netm = NamespaceManager::boxed(networking.clone(), tid, ensure_bridge)?;

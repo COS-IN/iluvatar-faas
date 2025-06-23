@@ -81,6 +81,11 @@ pub struct ContainerResourceConfig {
     /// Configuration to be passed to Docker
     /// Currently this is also passed to Containerd for repository authentication
     pub docker_config: Option<DockerConfig>,
+    
+    /// Path to the containerd socket
+    #[serde(default = "crate::services::containers::containerd::containerd_sock")]
+    pub containerd_socket: String,
+    
     /// Settings for the CPU compute resources the worker can use
     pub cpu_resource: Arc<CPUResourceConfig>,
     /// Settings for the CPU compute resources the worker can use

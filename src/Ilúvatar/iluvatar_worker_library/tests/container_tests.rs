@@ -187,8 +187,6 @@ mod registration {
         );
     }
 
-    #[ignore]
-    // ignored because containerd testing is currently broken
     #[iluvatar_library::live_test]
     async fn image_invalid_registration_fails_ctr() {
         let (_log, _cfg, _cm, _invoker, reg, _, _) = build_test_services(None, None, None).await;
@@ -770,10 +768,7 @@ mod server_invokable {
 
     #[iluvatar_library::live_test]
     #[rstest]
-    // ignored because containerd testing is currently broken
-    #[ignore]
     #[case("http")]
-    #[ignore]
     #[case("unix")]
     async fn containerd_severs_work(#[case] server: &str) {
         let image = format!("docker.io/alfuerst/hello-iluvatar-action-{}:latest", server);

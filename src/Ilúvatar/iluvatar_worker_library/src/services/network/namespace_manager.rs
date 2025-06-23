@@ -255,7 +255,7 @@ impl NamespaceManager {
             None,
             tid,
         ) {
-            Ok(_) => debug!(tid = tid, "Forwarding bridge to interface succeded"),
+            Ok(_) => debug!(tid = tid, "Forwarding bridge to interface succeeded"),
             Err(e) => bail_error!(tid=tid, error=%e, "Forwarding bridge to interface failed"),
         };
         match execute_cmd_checked("/sbin/sysctl", vec!["-w", "net.ipv4.conf.all.forwarding=1"], None, tid) {

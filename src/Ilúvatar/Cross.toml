@@ -1,15 +1,24 @@
-[build.env]
-volumes = [
-    "DOCKER_SOCK=/var/run/docker.sock",
-    "TEMP=/tmp",
-    "PY_FUNCS=../load/functions/python3",
-]
+#[build.env]
+#volumes = [
+#    "DOCKER_SOCK=/var/run/docker.sock",
+#    "CTR_SOCK=/run/containerd/containerd.sock",
+#    "CTR_D=/var/lib/containerd",
+#    "TEMP=/tmp/iluvatar",
+#    "NET_NS=/run/netns",
+#    "VAR_RUN=/var/run",
+#    "PY_FUNCS=../load/functions/python3",
+#]
 
 [build]
+#dockerfile = "./Dockerfile.build"
+#image = "docker:dind"
+#context = "."
 pre-build = [
     "dpkg --add-architecture $CROSS_DEB_ARCH",
     "apt-get update",
-    "apt-get install protobuf-compiler -y",
-    "ln -snf /usr/share/zoneinfo/America/Indiana/Indianapolis /etc/localtime",
-    "echo America/Indiana/Indianapolis > /etc/timezone"
+    "apt-get install protobuf-compiler -y"
+#    "ln -snf /usr/share/zoneinfo/America/Indiana/Indianapolis /etc/localtime",
+#    "echo America/Indiana/Indianapolis > /etc/timezone",
+#    "ls",
+#    "./docs/setup.sh --worker"
 ]

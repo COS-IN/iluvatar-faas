@@ -56,6 +56,9 @@ use tracing::{debug, error, info, warn};
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
+pub fn containerd_sock() -> String {
+    CONTAINERD_SOCK.to_string()
+}
 
 #[derive(Deserialize)]
 pub struct BGPacket {
@@ -82,8 +85,8 @@ pub struct ContainerdIsolation {
 /// A service to handle the low-level details of containerd container lifecycles:
 ///   creation, destruction, pulling images, etc
 impl ContainerdIsolation {
-    pub async fn supported(tid: &TransactionId) -> bool {
-        let channel = match containerd_client::connect(CONTAINERD_SOCK).await {
+    pub async fn supported(tid: &TransactionId, config: &Arc<ContainerResourceConfig>) -> bool {
+        let channel = match containerd_client::connect(&config.containerd_socket).await {
             Ok(c) => c,
             Err(e) => {
                 warn!(tid=tid, error=?e, "Failed to connect to containerd socket");
@@ -165,7 +168,7 @@ impl ContainerdIsolation {
         if self.channel.is_some() {
             Ok(())
         } else {
-            let channel = containerd_client::connect(CONTAINERD_SOCK).await?;
+            let channel = containerd_client::connect(&self.config.containerd_socket).await?;
             self.channel = Some(channel);
             Ok(())
         }
@@ -556,7 +559,7 @@ impl ContainerdIsolation {
         if self.downloaded_images.contains_key(image_name) {
             return Ok(());
         }
-        let mut args = vec!["images", "pull", "--snapshotter", self.config.snapshotter.as_str()];
+        let mut args = vec!["--address", self.config.containerd_socket.as_str(), "images", "pull", "--snapshotter", self.config.snapshotter.as_str()];
         let auth_str;
         if let Some(docker) = &self.docker_config {
             if let Some(auth) = &docker.auth {
