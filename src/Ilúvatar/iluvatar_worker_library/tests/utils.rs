@@ -1,5 +1,6 @@
 use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::threading::tokio_spawn_thread;
+use iluvatar_library::utils::file::ensure_temp_dir;
 use iluvatar_library::{
     clock::ContainerTimeFormatter,
     logging::{start_tracing, LoggingConfig},
@@ -18,7 +19,6 @@ use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
 use time::OffsetDateTime;
 use tokio::{task::JoinHandle, time::timeout};
-use iluvatar_library::utils::file::ensure_temp_dir;
 
 #[macro_export]
 macro_rules! assert_error {

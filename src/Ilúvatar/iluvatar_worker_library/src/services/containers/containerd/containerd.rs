@@ -559,7 +559,14 @@ impl ContainerdIsolation {
         if self.downloaded_images.contains_key(image_name) {
             return Ok(());
         }
-        let mut args = vec!["--address", self.config.containerd_socket.as_str(), "images", "pull", "--snapshotter", self.config.snapshotter.as_str()];
+        let mut args = vec![
+            "--address",
+            self.config.containerd_socket.as_str(),
+            "images",
+            "pull",
+            "--snapshotter",
+            self.config.snapshotter.as_str(),
+        ];
         let auth_str;
         if let Some(docker) = &self.docker_config {
             if let Some(auth) = &docker.auth {
