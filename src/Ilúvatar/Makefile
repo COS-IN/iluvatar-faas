@@ -68,7 +68,7 @@ test:
                                  docker pull docker.io/alfuerst/hello-iluvatar-action:latest && \
                                  docker pull docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest && \
                                  docker pull docker.io/alfuerst/iluvatar-action-base:latest"
-	@docker exec -e PY_FUNCS=/funcs -e "RUSTFLAGS=$(RUST_FLAGS)" --workdir /app -it iluv-test /root/.cargo/bin/cargo test \
+	@docker exec -e PY_FUNCS=/funcs -e "RUSTFLAGS=$(RUST_FLAGS)" --workdir /app iluv-test /root/.cargo/bin/cargo test \
                 --jobs $(NPROCS) $(CARGO_ARGS)
 	@-docker rm --force iluv-test
 format:
