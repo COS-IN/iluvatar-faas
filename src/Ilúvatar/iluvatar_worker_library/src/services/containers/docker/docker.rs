@@ -23,6 +23,7 @@ use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::types::{err_val, ContainerServer, ResultErrorVal};
 use iluvatar_library::utils::file::{container_path, make_paths};
+use iluvatar_library::utils::file_utils::package_cache;
 use iluvatar_library::{
     bail_error, bail_error_value, error_value,
     transaction::TransactionId,
@@ -296,10 +297,13 @@ impl DockerIsolation {
                     "-m",
                     "pip",
                     "install",
-                    "--ignore-installed",
                     "--progress-bar",
                     "off",
                     "--compile",
+                    "--no-input",
+                    "--cache-dir",
+                    "/cache",
+                    "--no-color",
                     "--target",
                     "/app/packages",
                     "-r",
@@ -309,15 +313,21 @@ impl DockerIsolation {
                 .map(|s| s.to_string())
                 .collect();
 
+                let pkg_cache = package_cache("python");
+                make_paths(&pkg_cache, tid)?;
+                let cfg = HostConfig {
+                    binds: Some(vec![format!("{pkg_cache}:/cache")]),
+                    ..Default::default()
+                };
                 if let Err(e) = self
-                    .docker_run(tid, cid.as_str(), env, rf, &None, None, None, Some(entrypoint))
+                    .docker_run(tid, cid.as_str(), env, rf, &None, None, Some(cfg), Some(entrypoint))
                     .await
                 {
                     bail_error!(error=%e, tid=tid, "failed preparing code");
                 };
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-                debug!(tid = tid, "waiting for package install to finish");
+                info!(tid = tid, "waiting for package install to finish");
                 loop {
                     let container = &self
                         .docker_api
@@ -330,6 +340,7 @@ impl DockerIsolation {
                                     return match state.exit_code {
                                         Some(0) => {
                                             self.remove_container_intern(&cid, tid).await?;
+                                            info!(tid = tid, "package install finished");
                                             Ok(())
                                         },
                                         _ => self.dependency_err(&cid, tid, state).await,

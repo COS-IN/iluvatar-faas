@@ -33,7 +33,7 @@ use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::threading::tokio_spawn_thread;
 use iluvatar_library::types::{err_val, Compute, ContainerServer, Isolation, ResultErrorVal};
-use iluvatar_library::utils::file::{container_path, make_paths};
+use iluvatar_library::utils::file::{container_path, make_paths, package_cache};
 use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
     file::{touch, try_remove_pth},
@@ -823,14 +823,11 @@ impl ContainerdIsolation {
             terminal: false,
             runtime_path: "".to_owned(),
         };
-        // match std::os::unix::net::UnixListener::bind("/tmp/iluvatar/socks/ctr") {
-        //     Ok(_) => info!(tid=tid, "socket created OK"),
-        //     Err(e) => error!(tid=tid, error=%e, "socket creation error"),
-        // };
         let req = with_namespace!(req, namespace);
         match client.create(req).await {
             Ok(t) => {
                 drop(permit);
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                 debug!(tid = tid, "Dropped containerd creation semaphore after success");
                 let t = t.into_inner();
                 debug!(tid=tid, task=?t, "Task created");
@@ -882,10 +879,13 @@ impl ContainerdIsolation {
             "-m",
             "pip",
             "install",
-            "--ignore-installed",
             "--progress-bar",
             "off",
             "--compile",
+            "--no-input",
+            "--cache-dir",
+            "/cache",
+            "--no-color",
             "--target",
             "/install/packages",
             "-r",
@@ -894,7 +894,9 @@ impl ContainerdIsolation {
         .iter()
         .map(|s| s.to_string())
         .collect();
-        let mut mounts = vec![];
+        let pkg_cache = package_cache("python");
+        make_paths(&pkg_cache, tid)?;
+        let mut mounts = vec![(pkg_cache, "/cache".to_owned())];
         match &rf.run_info {
             RunFunction::Runtime { packages_dir, main_dir } => {
                 make_paths(Path::new(packages_dir), tid)?;

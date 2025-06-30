@@ -772,7 +772,7 @@ mod server_invokable {
     #[case("unix")]
     async fn containerd_severs_work(#[case] server: &str) {
         let image = format!("docker.io/alfuerst/hello-iluvatar-action-{}:latest", server);
-        let (_log, _cfg, cm, invoker, reg, _, _) = build_test_services(None, None, None).await;
+        let (_log, _cfg, cm, invoker, reg, _, _) = build_test_services(None, None, Some("warn")).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),

@@ -16,10 +16,14 @@ pub fn temp_pth(with_tail: &str) -> String {
     format!("{}/{}", TEMP_DIR, with_tail)
 }
 
+pub fn package_cache(language: &str) -> String {
+    temp_pth(&format!("packages/{language}"))
+}
+
 pub fn container_path(container_id: &str) -> PathBuf {
     PathBuf::from(TEMP_DIR).join(container_id)
 }
-pub fn make_paths(pth: &Path, tid: &TransactionId) -> Result<()> {
+pub fn make_paths<P: AsRef<Path>>(pth: P, tid: &TransactionId) -> Result<()> {
     match std::fs::create_dir_all(pth) {
         Ok(_) => Ok(()),
         Err(e) => crate::bail_error!(tid=tid, error=%e, "Failed to make paths"),
