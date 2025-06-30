@@ -249,7 +249,7 @@ async fn worker_prewarm_functions(
                 func_name
             )
         })? {
-            let tid = format!("{}-{}-prewarm", i, &func_name);
+            let tid = format!("{i}-{func_name}-prewarm");
             let h_c = host.to_owned();
             let f_c = func_name.clone();
             let fct_cln = factory.clone();
@@ -261,9 +261,9 @@ async fn worker_prewarm_functions(
                     match worker_prewarm(&f_c, &VERSION, &h_c, port, &tid, &fct_cln, compute).await {
                         Ok((_s, _prewarm_dur)) => break,
                         Err(e) => {
-                            errors = format!("{} iteration {}: '{}';\n", errors, i, e);
+                            errors = format!("{errors} iteration {i}: '{e}';\n");
                             if it.peek().is_none() {
-                                anyhow::bail!("prewarm failed because {}", errors)
+                                anyhow::bail!("prewarm failed because {errors}")
                             }
                             tokio::time::sleep(Duration::from_millis(100)).await;
                         },
@@ -354,8 +354,7 @@ async fn worker_wait_reg(
                     Some(t) => match t.data.get(chosen_name) {
                         Some(d) => Some(d.resource_data.clone()),
                         None => anyhow::bail!(format!(
-                            "Benchmark was passed but function '{}' was not present",
-                            chosen_name
+                            "Benchmark was passed but function '{chosen_name}' was not present"
                         )),
                     },
                     None => None,
@@ -450,7 +449,7 @@ pub fn make_simulation_worker_config(id: usize, orig_config_path: &str) -> Resul
     let p = Path::new(orig_config_path)
         .parent()
         .unwrap()
-        .join(format!("{}.json", worker_name));
+        .join(format!("{worker_name}.json"));
     match File::create(&p) {
         Ok(f) => match serde_json::to_writer_pretty(f, &worker_config) {
             Ok(_) => (),

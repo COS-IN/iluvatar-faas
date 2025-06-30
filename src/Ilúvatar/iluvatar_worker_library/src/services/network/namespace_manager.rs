@@ -123,7 +123,7 @@ impl NamespaceManager {
             Ok(f) => f,
             Err(e) => anyhow::bail!("[{}] error creating 'resolv' temp file: {}", tid, e),
         };
-        match writeln!(&mut file, "{}", resolv_conf) {
+        match writeln!(&mut file, "{resolv_conf}") {
             Ok(_) => Ok(()),
             Err(e) => bail_error!(tid=tid, error=%e, "Failed to write 'resolv' conf file"),
         }
@@ -140,7 +140,7 @@ impl NamespaceManager {
             .to_string()
             .replace("$BRIDGE", &config.bridge);
 
-        match writeln!(&mut file, "{}", bridge_json) {
+        match writeln!(&mut file, "{bridge_json}") {
             Ok(_) => Ok(()),
             Err(e) => bail_error!(tid=tid, error=%e, "Failed to write 'il_worker_br' conf file"),
         }
@@ -311,7 +311,7 @@ impl NamespaceManager {
 
     /// Format the network namespace name to the full path
     pub fn net_namespace(name: &str) -> String {
-        format!("/run/netns/{}", name)
+        format!("/run/netns/{name}")
     }
 
     fn namespace_exists(name: &str) -> bool {
@@ -403,7 +403,7 @@ impl NamespaceManager {
     }
 
     fn generate_net_namespace_name(&self) -> String {
-        format!("{}{}", NAMESPACE_IDENTIFIER, GUID::rand())
+        format!("{NAMESPACE_IDENTIFIER}{}", GUID::rand())
     }
 
     fn is_owned_namespace(&self, ns: &str) -> bool {

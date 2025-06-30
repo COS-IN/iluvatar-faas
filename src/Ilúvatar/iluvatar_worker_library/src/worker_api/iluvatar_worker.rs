@@ -86,10 +86,7 @@ impl IluvatarWorkerImpl {
             }
     }
     pub fn supported_isolation(&self) -> Isolation {
-        self.isolations
-            .iter()
-            .map(|(iso, _svc)| iso)
-            .fold(Isolation::empty(), |acc, item| acc | *item)
+        self.isolations.keys().fold(Isolation::empty(), |acc, item| acc | *item)
     }
 }
 
@@ -247,7 +244,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                 error!(tid=request.transaction_id, error=%e, "Container prewarm failed");
                 let resp = PrewarmResponse {
                     success: false,
-                    message: format!("{{ \"Error\": \"{}\" }}", e),
+                    message: format!("{{ \"Error\": \"{e}\" }}"),
                 };
                 Ok(Response::new(resp))
             },
@@ -275,7 +272,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                 let reply = RegisterResponse {
                     success: false,
                     fqdn: "".to_string(),
-                    error: format!("{:?}", msg),
+                    error: format!("{msg:?}"),
                 };
                 Ok(Response::new(reply))
             },
@@ -343,7 +340,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             .await
         {
             Ok(_) => Ok(Response::new(CleanResponse {})),
-            Err(e) => Err(Status::internal(format!("{:?}", e))),
+            Err(e) => Err(Status::internal(format!("{e:?}"))),
         }
     }
     #[tracing::instrument(skip(self, request), fields(tid=request.get_ref().transaction_id))]

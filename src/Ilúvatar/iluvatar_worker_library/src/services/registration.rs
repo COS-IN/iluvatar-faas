@@ -246,8 +246,8 @@ impl RegistrationService {
             Ok(false) => (),
             Err(e) => bail_error!(error=%e, d=storage, "exists failed"),
         }
-        let code = format!("{}/{}", storage, "code");
-        let packages = format!("{}/{}", storage, "packages");
+        let code = format!("{storage}/code");
+        let packages = format!("{storage}/packages");
         if let Err(e) = std::fs::create_dir_all(&code) {
             bail_error!(error=%e, d=code, "mkdirs code failed");
         };

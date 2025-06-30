@@ -28,7 +28,7 @@ impl ContainerPool {
             idle_pool: DashMap::new(),
             running_pool: DashMap::new(),
             len: AtomicU32::new(0),
-            pool_name: format!("{:?}", compute),
+            pool_name: format!("{compute:?}"),
         }
     }
 
@@ -481,7 +481,7 @@ mod tests {
                     let ctr = Arc::new(
                         SimulatorContainer::new(
                             &gen_tid(),
-                            format!("cid{}", i),
+                            format!("cid{i}"),
                             &reg,
                             ContainerState::Cold,
                             Isolation::CONTAINERD,

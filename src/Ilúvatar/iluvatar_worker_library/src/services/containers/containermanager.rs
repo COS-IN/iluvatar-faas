@@ -850,11 +850,11 @@ mod tests {
             overrides,
             WORKER_ENV_PREFIX
         )
-        .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
+        .unwrap_or_else(|e| panic!("Failed to load config file for test: {e}"));
         let fac = IsolationFactory::new(cfg.clone(), worker_char_map())
             .get_isolation_services(&TEST_TID, false)
             .await
-            .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e));
+            .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {e:?}"));
         let ring = Arc::new(RingBuffer::new(Duration::from_secs(60)));
         ContainerManager::boxed(
             cfg.container_resources.clone(),
@@ -865,7 +865,7 @@ mod tests {
             &TEST_TID,
         )
         .await
-        .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {:?}", e))
+        .unwrap_or_else(|e| panic!("Failed to load config file for sim test: {e:?}"))
     }
 
     #[iluvatar_library::sim_test]
@@ -877,7 +877,7 @@ mod tests {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         tokio::time::sleep(Duration::from_secs(10)).await;
         assert_eq!(*cm.used_mem_mb.read(), func.memory);
         let c1_cont = c1.container.clone();
@@ -898,7 +898,7 @@ mod tests {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(*cm.used_mem_mb.read(), func.memory);
         assert_eq!(cm.cpu_containers.len(), 1, "Container should exist");
@@ -921,20 +921,20 @@ mod tests {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(*cm.used_mem_mb.read(), func.memory, "first failed");
         let _c2 = match cm.acquire_container(&func, &TEST_TID, Compute::CPU) {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container 2 failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container 2 failed: {e:?}"));
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(*cm.used_mem_mb.read(), func.memory * 2, "second failed");
         drop(c1);
         cm.remove_idle_containers(&TEST_TID)
             .await
-            .unwrap_or_else(|e| panic!("remove_idle_containers failed: {:?}", e));
+            .unwrap_or_else(|e| panic!("remove_idle_containers failed: {e:?}"));
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert_eq!(*cm.used_mem_mb.read(), func.memory, "thinrd failed");
     }

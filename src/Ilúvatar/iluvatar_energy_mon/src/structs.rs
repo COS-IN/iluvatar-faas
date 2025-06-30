@@ -42,8 +42,8 @@ impl<'de> Deserialize<'de> for Span {
 
         let span: SubSpan = serde_json::from_value(json.get("span").expect("span").clone()).unwrap();
         let spans = serde_json::from_value(json.get("spans").expect("spans").clone()).unwrap();
-        let name = format!("{}::{}", target, span.name);
-        let uuid = format!("{}::{}", span.tid, name);
+        let name = format!("{target}::{}", span.name);
+        let uuid = format!("{}::{name}", span.tid);
 
         Ok(Span {
             timestamp,

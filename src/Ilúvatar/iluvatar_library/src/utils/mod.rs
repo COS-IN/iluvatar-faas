@@ -41,11 +41,11 @@ pub async fn try_get_child_pid(ppid: u32, timeout_ms: u64, mut tries: u32) -> u3
 
 /// get the fully qualified domain name for a function from its name and version
 pub fn calculate_fqdn(function_name: &str, function_version: &str) -> String {
-    format!("{}-{}", function_name, function_version)
+    format!("{function_name}-{function_version}")
 }
 
 pub fn format_uri(address: &str, port: Port, path: &str) -> String {
-    format!("http://{}:{}/{}", address, port, path)
+    format!("http://{address}:{port}/{path}")
 }
 
 pub fn calculate_invoke_uri(address: &str, port: Port) -> String {

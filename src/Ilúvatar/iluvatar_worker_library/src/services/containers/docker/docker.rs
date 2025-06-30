@@ -146,8 +146,8 @@ impl DockerIsolation {
             RunFunction::Runtime {
                 packages_dir, main_dir, ..
             } => {
-                volumes.push(format!("{}:/app/packages", packages_dir));
-                volumes.push(format!("{}:/app/main", main_dir));
+                volumes.push(format!("{packages_dir}:/app/packages"));
+                volumes.push(format!("{main_dir}:/app/main"));
                 env.push("PYTHONPATH=/app/main:/app/packages".to_string());
             },
             _ => {},
@@ -470,13 +470,13 @@ impl ContainerIsolationService for DockerIsolation {
         env.push(gunicorn_args);
         let mut ports = HashMap::new();
         ports.insert(
-            format!("{}/tcp", port),
+            format!("{port}/tcp"),
             Some(vec![PortBinding {
                 host_ip: Some("".to_string()),
                 host_port: Some(port.to_string()),
             }]),
         );
-        env.push(format!("__IL_PORT={}", port));
+        env.push(format!("__IL_PORT={port}"));
         env.push(format!("__IL_SOCKET={}", "/iluvatar/sockets/sock"));
 
         let permit = match &self.creation_sem {

@@ -8,12 +8,12 @@ pub const TEMP_DIR: &str = "/tmp/iluvatar";
 /// Return an absolute path to a file in the temp dir
 /// Takes a tail file name an extension
 pub fn temp_file_pth(with_tail: &str, with_extension: &str) -> String {
-    format!("{}/{}.{}", TEMP_DIR, with_tail, with_extension)
+    format!("{TEMP_DIR}/{with_tail}.{with_extension}")
 }
 
 /// Return an absolute path for a folder temp dir
 pub fn temp_pth(with_tail: &str) -> String {
-    format!("{}/{}", TEMP_DIR, with_tail)
+    format!("{TEMP_DIR}/{with_tail}")
 }
 
 pub fn package_cache(language: &str) -> String {

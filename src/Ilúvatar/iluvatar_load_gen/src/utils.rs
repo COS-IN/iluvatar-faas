@@ -250,8 +250,8 @@ pub async fn controller_invoke(
             },
             Err(e) => CompletedControllerInvocation::error(
                 format!(
-                    "FunctionExecOutput Deserialization error: {}; {}",
-                    e, &response.json_result
+                    "FunctionExecOutput Deserialization error: {e}; {}",
+                    &response.json_result
                 ),
                 name,
                 version,
@@ -260,7 +260,7 @@ pub async fn controller_invoke(
             ),
         },
         Err(e) => {
-            CompletedControllerInvocation::error(format!("Invocation error: {}", e), name, version, &tid, invoke_start)
+            CompletedControllerInvocation::error(format!("Invocation error: {e}"), name, version, &tid, invoke_start)
         },
     };
     Ok(r)
@@ -279,7 +279,7 @@ pub async fn controller_register(
     api: ControllerAPI,
 ) -> Result<Duration> {
     let start = now();
-    let tid = format!("{}-{}-reg", name, version);
+    let tid = format!("{name}-{version}-reg");
     let req = RegisterRequest::new(
         name,
         version,
@@ -336,7 +336,7 @@ pub async fn worker_register(
     code_zip_pth: &str,
     runtime: Runtime,
 ) -> Result<(String, Duration, TransactionId)> {
-    let tid: TransactionId = format!("{}-reg-tid", name);
+    let tid: TransactionId = format!("{name}-reg-tid");
     let mut api = factory.get_worker_api(&host, &host, port, &tid).await?;
     let (reg_out, reg_dur) = api
         .register(
@@ -427,7 +427,7 @@ pub async fn worker_invoke(
             ),
         },
         Err(e) => CompletedWorkerInvocation::error(
-            format!("Invocation error: {:?}", e),
+            format!("Invocation error: {e:?}"),
             name,
             version,
             tid,

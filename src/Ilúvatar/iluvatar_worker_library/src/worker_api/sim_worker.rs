@@ -212,7 +212,7 @@ impl WorkerAPI for SimWorkerAPI {
                     // HealthStatus::Unhealthy
                     1 => Ok(HealthStatus::UNHEALTHY),
                     i => anyhow::bail!(RPCError::new(
-                        tonic::Status::new(tonic::Code::InvalidArgument, format!("Got unexpected status of {}", i)),
+                        tonic::Status::new(tonic::Code::InvalidArgument, format!("Got unexpected status of {i}")),
                         "[RCPWorkerAPI:health]".to_string()
                     )),
                 }

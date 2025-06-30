@@ -129,7 +129,7 @@ impl Display for GpuStatVec {
             Ok(s) => s,
             Err(_e) => return Err(std::fmt::Error {}),
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -533,7 +533,7 @@ impl GpuResourceTracker {
             .memory_mb
             .ok_or_else(|| anyhow::format_err!("`memory_mb` config must be provided during simulation"))?;
         for gpu_hardware_id in 0..gpu_config.count {
-            let gpu_uuid = format!("GPU-{}", gpu_hardware_id);
+            let gpu_uuid = format!("GPU-{gpu_hardware_id}");
             let gpu_structs = GPU::split_resources(&gpu_uuid, gpu_hardware_id, memory_mb, gpu_config, tid)?;
             let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id, &gpu_structs, tid)?;
             let metadata = GpuMetadata {

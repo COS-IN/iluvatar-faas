@@ -163,8 +163,8 @@ pub async fn benchmark_controller(
         let reg_tid = gen_tid();
         let api = factory.get_controller_api(&host, port, &reg_tid).await?;
         for iter in 0..cold_repeats {
-            let name = format!("{}-bench-{}", function.name, iter);
-            let version = format!("0.0.{}", iter);
+            let name = format!("{}-bench-{iter}", function.name);
+            let version = format!("0.0.{iter}");
             let _reg_dur = match controller_register(
                 &name,
                 &version,
@@ -276,7 +276,7 @@ pub fn benchmark_worker(
             info!("Running {} {}", &function.name, supported_compute);
 
             for iter in 0..cold_repeats {
-                let name = format!("{}.{}.{}", &function.name, supported_compute, iter);
+                let name = format!("{}.{supported_compute}.{iter}", function.name);
                 let version = iter.to_string();
                 let (_s, _reg_dur, _tid) = match threaded_rt.block_on(worker_register(
                     name.clone(),

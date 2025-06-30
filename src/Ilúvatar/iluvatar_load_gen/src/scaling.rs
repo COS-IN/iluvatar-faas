@@ -77,7 +77,7 @@ pub fn scaling(args: ScalingArgs) -> Result<()> {
             let runtime = build_tokio_runtime(&None, &None, &Some(threads as usize), &"SCALING_TID".to_string())?;
             info!("Running with {} threads", threads);
             let result = runtime.block_on(run_one_scaling_test(threads as usize, &args))?;
-            let p = Path::new(&args.out_folder).join(format!("{}.json", threads));
+            let p = Path::new(&args.out_folder).join(format!("{threads}.json"));
             save_result_json(p, &result)?;
         }
         Ok(())
@@ -127,8 +127,8 @@ async fn scaling_thread(
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
     barrier.wait().await;
 
-    let name = format!("scaling-{}", thread_cnt);
-    let version = format!("{}", thread_id);
+    let name = format!("scaling-{thread_cnt}");
+    let version = format!("{thread_id}");
     let (reg_result, reg_tid) = match worker_register(
         name.clone(),
         &version,
@@ -168,9 +168,9 @@ async fn scaling_thread(
         match worker_prewarm(&name, &version, &host, port, &reg_tid, &factory, compute).await {
             Ok((_s, _prewarm_dur)) => break,
             Err(e) => {
-                errors = format!("{} iteration {}: '{}';\n", errors, i, e);
+                errors = format!("{errors} iteration {i}: '{e}';\n");
                 if it.peek().is_none() {
-                    error!("thread {} prewarm failed because {}", thread_id, errors);
+                    error!("thread {thread_id} prewarm failed because {errors}");
                     std::process::exit(1);
                 }
             },

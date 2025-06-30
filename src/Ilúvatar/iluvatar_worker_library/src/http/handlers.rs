@@ -137,7 +137,7 @@ pub async fn handle_invoke(
     Query(query_params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let arguments = to_string(&query_params)
-        .map_err(|e| AppError::BadRequest(format!("Error converting query parameters to JSON: {:?}", e)))?;
+        .map_err(|e| AppError::BadRequest(format!("Error converting query parameters to JSON: {e:?}")))?;
 
     let tid = gen_tid();
 
@@ -154,7 +154,7 @@ pub async fn handle_invoke(
         .worker
         .invoke(request)
         .await
-        .map_err(|e| AppError::InternalError(format!("Invoke RPC failed: {:?}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Invoke RPC failed: {e:?}")))?;
 
     let response = ret.into_inner();
 
@@ -176,7 +176,7 @@ pub async fn handle_async_invoke(
     Query(query_params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let arguments = to_string(&query_params)
-        .map_err(|e| AppError::BadRequest(format!("Error converting query parameters to JSON: {:?}", e)))?;
+        .map_err(|e| AppError::BadRequest(format!("Error converting query parameters to JSON: {e:?}")))?;
 
     let tid = gen_tid();
 
@@ -193,7 +193,7 @@ pub async fn handle_async_invoke(
         .worker
         .invoke_async(request)
         .await
-        .map_err(|e| AppError::InternalError(format!("Async invoke RPC failed: {:?}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Async invoke RPC failed: {e:?}")))?;
     let response = ret.into_inner();
 
     if response.success {
@@ -225,7 +225,7 @@ pub async fn handle_async_invoke_check(
         .worker
         .invoke_async_check(request)
         .await
-        .map_err(|e| AppError::InternalError(format!("Async invoke check RPC failed: {:?}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Async invoke check RPC failed: {e:?}")))?;
 
     let response = ret.into_inner();
 

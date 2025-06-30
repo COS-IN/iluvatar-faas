@@ -216,13 +216,13 @@ impl ContainerdIsolation {
         }
 
         spec["root"]["path"] = serde_json::json!("rootfs");
-        env.push(serde_json::Value::String(format!("__IL_PORT={}", port)));
-        env.push(serde_json::Value::String(format!("__IL_HOST={}", host_addr)));
-        env.push(serde_json::Value::String(format!("FLASK_RUN_PORT={}", port)));
-        env.push(serde_json::Value::String(format!("FLASK_RUN_HOST={}", host_addr)));
+        env.push(serde_json::Value::String(format!("__IL_PORT={port}")));
+        env.push(serde_json::Value::String(format!("__IL_HOST={host_addr}")));
+        env.push(serde_json::Value::String(format!("FLASK_RUN_PORT={port}")));
+        env.push(serde_json::Value::String(format!("FLASK_RUN_HOST={host_addr}")));
         env.push(serde_json::Value::String(format!(
-            "GUNICORN_CMD_ARGS=--workers=1 --timeout={} --bind={}:{} --enable-stdio-inheritance -e PYTHONUNBUFFERED=1",
-            self.limits_config.timeout_sec, host_addr, port
+            "GUNICORN_CMD_ARGS=--workers=1 --timeout={} --bind={host_addr}:{port} --enable-stdio-inheritance -e PYTHONUNBUFFERED=1",
+            self.limits_config.timeout_sec,
         )));
 
         mounts.push(serde_json::json!({
@@ -233,7 +233,7 @@ impl ContainerdIsolation {
         }));
         if reg.container_server == ContainerServer::UnixSocket {
             mounts.push(serde_json::json!({
-                "source": format!("/tmp/iluvatar/{}/", container_id),
+                "source": format!("/tmp/iluvatar/{container_id}/"),
                 "destination": "/iluvatar/sockets",
                 "options": [ "rw", "bind" ],
                 "type": "none"
@@ -544,7 +544,7 @@ impl ContainerdIsolation {
             hasher.update(" ");
             hasher.update(v);
             let sha = hex::encode(hasher.finalize());
-            prev_digest = format!("sha256:{}", sha)
+            prev_digest = format!("sha256:{sha}")
         }
         debug!(tid = tid, "loaded diff digest");
         Ok(prev_digest)
@@ -1226,7 +1226,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             Ok(s) => str::replace(&s, "\n", "\\n"),
             Err(e) => {
                 error!(tid=tid, container_id=container.container_id(), error=%e, "Error reading container stdout");
-                format!("STDOUT_READ_ERROR: {}", e)
+                format!("STDOUT_READ_ERROR: {e}")
             },
         }
     }
@@ -1236,7 +1236,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             Ok(s) => str::replace(&s, "\n", "\\n"),
             Err(e) => {
                 error!(tid=tid, container_id=container.container_id(), error=%e, "Error reading container stderr");
-                format!("STDERR_READ_ERROR: {}", e)
+                format!("STDERR_READ_ERROR: {e}")
             },
         }
     }

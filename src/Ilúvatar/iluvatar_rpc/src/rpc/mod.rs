@@ -12,7 +12,7 @@ use std::fmt::{Display, Formatter};
 impl InvokeResponse {
     pub fn error(message: &str) -> Self {
         InvokeResponse {
-            json_result: format!("{{ \"Error\": \"{}\" }}", message),
+            json_result: format!("{{ \"Error\": \"{message}\" }}"),
             success: false,
             duration_us: 0,
             compute: Compute::empty().bits(),

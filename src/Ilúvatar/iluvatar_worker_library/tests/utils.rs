@@ -57,7 +57,7 @@ pub async fn build_test_services(
         overrides,
         WORKER_ENV_PREFIX
     )
-    .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
+    .unwrap_or_else(|e| panic!("Failed to load config file for test: {e}"));
     let log = match log {
         Some(level) => {
             let fake_logging = Arc::new(LoggingConfig {

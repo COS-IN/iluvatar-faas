@@ -192,7 +192,7 @@ fn file_logger<S: Subscriber + for<'span> LookupSpan<'span>, P: AsRef<Path>>(
     Box<dyn Layer<S> + Send + Sync + 'static>,
     Box<dyn Drop + Send + Sync + 'static>,
 )> {
-    let fname = format!("{}.log", base_filename);
+    let fname = format!("{base_filename}.log");
     let dir = match std::fs::canonicalize(&folder_path) {
         Ok(d) => d,
         Err(e) => match e.kind() {
@@ -256,7 +256,7 @@ pub fn start_simulation_tracing(
     for worker_id in 0..num_workers {
         // filter logs from each worker to separate files
         if !config.directory.is_empty() {
-            let file_name = format!("{}_{}", worker_name, worker_id);
+            let file_name = format!("{worker_name}_{worker_id}");
             // Look at the span to know what worker we're in
             let (file_layer, guard) = file_logger(
                 &config.directory,

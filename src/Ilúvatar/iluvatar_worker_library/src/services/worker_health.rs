@@ -108,7 +108,7 @@ impl WorkerHealthService {
                 let result = result_ptr.lock();
                 match serde_json::from_str::<TestReturnFormat>(&result.result_json) {
                     Ok(obj) => {
-                        if obj.body.greeting == format!("Hello {} from python!", TEST_FUNC_ARG) {
+                        if obj.body.greeting == format!("Hello {TEST_FUNC_ARG} from python!") {
                             self.healthy()
                         } else {
                             warn!(tid=tid, greeting=%obj.body.greeting, "Received message from health function was incorrect");

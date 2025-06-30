@@ -143,7 +143,7 @@ impl IPMIMonitor {
                 return;
             },
         };
-        let to_write = format!("{},{}\n", t, ipmi_uj);
+        let to_write = format!("{t},{ipmi_uj}\n");
         self.write_text(to_write, tid);
     }
 

@@ -85,7 +85,7 @@ impl CpuFreqMonitor {
         let base = Path::new(BASE_CPU_DIR);
 
         for cpu in 0..self.nprocs {
-            let shared_path = base.join(format!("cpu{}", cpu));
+            let shared_path = base.join(format!("cpu{cpu}"));
             let kernel_path = shared_path.join("cpufreq/scaling_cur_freq");
             let parsed = match self.read_freq(kernel_path, tid) {
                 Ok(p) => p,
@@ -105,7 +105,7 @@ impl CpuFreqMonitor {
         let base = Path::new(BASE_CPU_DIR);
 
         for cpu in 0..self.nprocs {
-            let shared_path = base.join(format!("cpu{}", cpu));
+            let shared_path = base.join(format!("cpu{cpu}"));
             let hw_path = shared_path.join("cpufreq/cpuinfo_cur_freq");
             let parsed = match self.read_freq(hw_path, tid) {
                 Ok(p) => p,

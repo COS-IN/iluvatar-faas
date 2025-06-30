@@ -44,8 +44,7 @@ async fn controller_register_functions(
                 Some(t) => match t.data.get(chosen_name) {
                     Some(d) => Some(&d.resource_data),
                     None => anyhow::bail!(format!(
-                        "Benchmark was passed but function '{}' was not present",
-                        chosen_name
+                        "Benchmark was passed but function '{chosen_name}' was not present",
                     )),
                 },
                 None => None,
@@ -83,7 +82,7 @@ async fn controller_prewarm_funcs(
                 fid
             )
         })? {
-            let tid = format!("{}-prewarm-{}", fid, i);
+            let tid = format!("{fid}-prewarm-{i}");
             let api = factory.get_controller_api(host, port, &tid).await?;
             let _reg_dur = controller_prewarm(&func.func_name, &VERSION, api, &tid).await?;
         }
