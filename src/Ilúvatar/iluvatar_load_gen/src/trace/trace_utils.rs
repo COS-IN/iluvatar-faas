@@ -83,11 +83,7 @@ fn choose_bench_data_for_func<'a>(func: &'a Function, bench_data: &'a BenchmarkS
                 / timings.cold_invoke_duration_us.len() as f64;
             let avg_warm_us = tot as f64 / timings.warm_invoke_duration_us.len() as f64;
             // Cold uses E2E duration because of the cold start time needed
-            data.push((
-                k.clone(),
-                avg_warm_us / 1000.0,
-                avg_cold_us / 1000.0,
-            ));
+            data.push((k.clone(), avg_warm_us / 1000.0, avg_cold_us / 1000.0));
         }
     }
     Ok(data)

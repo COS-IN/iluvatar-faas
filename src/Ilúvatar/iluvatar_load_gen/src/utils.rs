@@ -614,6 +614,6 @@ pub fn wrap_logging<T>(
 pub async fn try_load_code_zip(path: Option<&str>, tid: &TransactionId) -> Result<Vec<u8>> {
     match path {
         None => Ok(Vec::new()),
-        Some(path) => iluvatar_worker_library::tar_folder(path, tid)
+        Some(path) => iluvatar_worker_library::tar_folder(path, tid),
     }
 }

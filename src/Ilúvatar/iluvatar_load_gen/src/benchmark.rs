@@ -159,7 +159,7 @@ pub async fn benchmark_controller(
     let factory = ControllerAPIFactory::boxed();
     let mut full_data = BenchmarkStore::new();
     for function in &functions {
-        let mut func_data = FunctionStore::new(&function);
+        let mut func_data = FunctionStore::new(function);
         info!("{}", function.name);
         let clock = get_global_clock(&gen_tid())?;
         let reg_tid = gen_tid();
@@ -246,9 +246,7 @@ pub fn benchmark_worker(
 ) -> Result<()> {
     let mut full_data = BenchmarkStore::new();
     for f in &functions {
-        full_data
-            .data
-            .insert(f.name.clone(), FunctionStore::new(f));
+        full_data.data.insert(f.name.clone(), FunctionStore::new(f));
     }
     let mut invokes = vec![];
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
@@ -390,7 +388,13 @@ pub fn benchmark_worker(
                 resource_entry.warm_invoke_duration_us.push(invoke.client_latency_us);
             }
         } else {
-            error!(tid=invoke.tid, name=invoke.function_name, version=invoke.function_version, "invoke failure {:?}", invoke.worker_response.json_result);
+            error!(
+                tid = invoke.tid,
+                name = invoke.function_name,
+                version = invoke.function_version,
+                "invoke failure {:?}",
+                invoke.worker_response.json_result
+            );
         }
     }
     let p = Path::new(&args.out_folder).join("worker_function_benchmarks.json");
