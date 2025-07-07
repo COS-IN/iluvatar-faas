@@ -630,7 +630,7 @@ impl ContainerIsolationService for DockerIsolation {
                     }
                 },
                 Err(e) => {
-                    error!(tid=tid, error=%e, "Failed to query stats");
+                    error!(tid=tid, error=%e, cid=cast_container.container_id, "Failed to query stats");
                     container.mark_unhealthy();
                     return container.get_curr_mem_usage();
                 },

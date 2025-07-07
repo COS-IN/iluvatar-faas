@@ -17,13 +17,13 @@ use tracing::{error, info};
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct ToBenchmarkFunction {
     pub name: String,
-    pub image_name: String,
-    /// An optional value denoting a zip file containing code for the function.
+    pub image_name: Option<String>,
+    /// An optional value denoting a folder containing code for the function.
     /// Must specify a special `runtime` too
-    pub code_zip_pth: String,
-    #[serde(default = "Runtime::default")]
+    pub code_pth: Option<String>,
+    // #[serde(default = "Runtime::default")]
     /// The runtime to use for the function, default assumes an existing image will be used.
-    pub runtime: Runtime,
+    pub runtime: Option<Runtime>,
     /// The compute(s) to test the function with, in the form CPU|GPU|etc.
     #[serde(default = "Compute::default")]
     pub compute: Compute,
@@ -34,8 +34,8 @@ pub struct ToBenchmarkFunction {
     /// If empty, will default to 512
     pub memory: Option<MemSizeMb>,
     /// The type of server in the image
-    #[serde(default = "ContainerServer::default")]
-    pub server: ContainerServer,
+    // #[serde(default = "ContainerServer::default")]
+    pub server: Option<ContainerServer>,
     /// Arguments to pass to each invocation of the function
     pub args: Option<String>,
 }
@@ -61,14 +61,16 @@ impl BenchmarkStore {
 /// A struct to hold the benchmark results of a single function
 pub struct FunctionStore {
     pub function_name: String,
-    pub image_name: String,
+    pub image_name: Option<String>,
+    pub rel_path: Option<String>,
     pub resource_data: ResourceTimings,
 }
 impl FunctionStore {
-    pub fn new(image_name: String, function_name: String) -> Self {
+    pub fn new(func: &ToBenchmarkFunction) -> Self {
         FunctionStore {
-            function_name,
-            image_name,
+            function_name: func.name.clone(),
+            image_name: func.image_name.clone(),
+            rel_path: func.code_pth.clone(),
             resource_data: HashMap::new(),
         }
     }
@@ -157,7 +159,7 @@ pub async fn benchmark_controller(
     let factory = ControllerAPIFactory::boxed();
     let mut full_data = BenchmarkStore::new();
     for function in &functions {
-        let mut func_data = FunctionStore::new(function.image_name.clone(), function.name.clone());
+        let mut func_data = FunctionStore::new(&function);
         info!("{}", function.name);
         let clock = get_global_clock(&gen_tid())?;
         let reg_tid = gen_tid();
@@ -168,13 +170,13 @@ pub async fn benchmark_controller(
             let _reg_dur = match controller_register(
                 &name,
                 &version,
-                &function.image_name,
+                function.image_name.as_deref(),
                 512,
                 function.isolation,
                 function.compute,
-                function.server,
+                function.server.unwrap_or(ContainerServer::UnixSocket),
                 None,
-                &function.code_zip_pth,
+                function.code_pth.as_deref(),
                 api.clone(),
             )
             .await
@@ -246,7 +248,7 @@ pub fn benchmark_worker(
     for f in &functions {
         full_data
             .data
-            .insert(f.name.clone(), FunctionStore::new(f.image_name.clone(), f.name.clone()));
+            .insert(f.name.clone(), FunctionStore::new(f));
     }
     let mut invokes = vec![];
     let factory = iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory::boxed();
@@ -281,17 +283,17 @@ pub fn benchmark_worker(
                 let (_s, _reg_dur, _tid) = match threaded_rt.block_on(worker_register(
                     name.clone(),
                     &version,
-                    function.image_name.clone(),
+                    function.image_name.as_deref(),
                     memory,
                     args.host.clone(),
                     args.port,
                     &factory,
                     function.isolation,
                     supported_compute,
-                    function.server,
+                    function.server.unwrap_or(ContainerServer::UnixSocket),
                     None,
-                    &function.code_zip_pth,
-                    function.runtime,
+                    function.code_pth.as_deref(),
+                    function.runtime.unwrap_or(Runtime::Nolang),
                 )) {
                     Ok(r) => r,
                     Err(e) => {
@@ -388,7 +390,7 @@ pub fn benchmark_worker(
                 resource_entry.warm_invoke_duration_us.push(invoke.client_latency_us);
             }
         } else {
-            error!("invoke failure {:?}", invoke.worker_response.json_result);
+            error!(tid=invoke.tid, name=invoke.function_name, version=invoke.function_version, "invoke failure {:?}", invoke.worker_response.json_result);
         }
     }
     let p = Path::new(&args.out_folder).join("worker_function_benchmarks.json");

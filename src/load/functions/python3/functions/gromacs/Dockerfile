@@ -20,8 +20,8 @@ RUN apt-get update && apt-get upgrade -y && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt *.py ./
-RUN python3 -m pip install -r requirements.txt && \
+COPY reqs.txt *.py ./
+RUN python3 -m pip install -r reqs.txt && \
     python3 -m pip cache purge && \
     apt-get clean && apt-get autoremove
 

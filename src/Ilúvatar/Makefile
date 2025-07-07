@@ -57,7 +57,7 @@ flame:
 test:
 	@echo "Running unit tests"
 	@-docker rm --force iluv-test
-	@docker build -t iluv-test -f Dockerfile.test .
+	@docker build -t iluv-test -f Test.Dockerfile .
 	@docker run -d --name iluv-test --tmpfs /var/lib/docker:rw -v ~/.cargo/registry:/root/.cargo/registry/ \
              -v "$(ROOT_DIR)/../load/functions/python3:/funcs" -v "$(ROOT_DIR):/app" \
              --privileged docker.io/library/iluv-test

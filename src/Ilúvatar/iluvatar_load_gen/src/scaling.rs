@@ -132,7 +132,7 @@ async fn scaling_thread(
     let (reg_result, reg_tid) = match worker_register(
         name.clone(),
         &version,
-        image,
+        Some(&image),
         memory_mb,
         host.clone(),
         port,
@@ -141,7 +141,7 @@ async fn scaling_thread(
         compute,
         server,
         None,
-        "",
+        None,
         Runtime::Nolang,
     )
     .await

@@ -59,7 +59,7 @@ fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms
     }
 }
 
-type ComputeChoiceList = Vec<(String, f64, f64, String)>;
+type ComputeChoiceList = Vec<(String, f64, f64)>;
 fn choose_bench_data_for_func<'a>(func: &'a Function, bench_data: &'a BenchmarkStore) -> Result<ComputeChoiceList> {
     let mut data = vec![];
     for (k, v) in bench_data.data.iter() {
@@ -87,7 +87,6 @@ fn choose_bench_data_for_func<'a>(func: &'a Function, bench_data: &'a BenchmarkS
                 k.clone(),
                 avg_warm_us / 1000.0,
                 avg_cold_us / 1000.0,
-                v.image_name.clone(),
             ));
         }
     }
@@ -122,14 +121,12 @@ fn map_from_benchmark(
                 None => anyhow::bail!("failed to get a minimum func from {:?}", device_data),
             };
             let mut chosen_name = chosen.0.clone();
-            let mut chosen_image = chosen.3.clone();
             let mut chosen_warm_time_ms = chosen.1;
             let mut chosen_cold_time_ms = chosen.1;
 
-            for (name, avg_warm, avg_cold, image) in device_data.iter() {
+            for (name, avg_warm, avg_cold) in device_data.iter() {
                 if func.warm_dur_ms.unwrap_or(0) as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
                     chosen_name.clone_from(name);
-                    chosen_image.clone_from(image);
                     chosen_warm_time_ms = *avg_warm;
                     chosen_cold_time_ms = *avg_cold;
                 }
@@ -140,7 +137,6 @@ fn map_from_benchmark(
                 func.cold_dur_ms = Some(chosen_cold_time_ms as u64);
                 func.warm_dur_ms = Some(chosen_warm_time_ms as u64);
                 func.chosen_name = Some(chosen_name);
-                func.image_name = Some(chosen_image);
             }
         }
         if func.prewarms.is_none() {
@@ -347,7 +343,7 @@ async fn worker_wait_reg(
             let isol = func.isolation;
             let server = func.server;
             let mem = func.mem_mb;
-            let zip = func.code_folder.clone().unwrap_or("".to_string());
+            let code_pth = func.code_folder.clone();
             let runtime = func.runtime;
             let func_timings = match &func.chosen_name {
                 Some(chosen_name) => match bench_data.as_ref() {
@@ -365,7 +361,7 @@ async fn worker_wait_reg(
                 worker_register(
                     f_c,
                     &VERSION,
-                    image,
+                    Some(&image),
                     mem,
                     h_c,
                     port,
@@ -374,7 +370,7 @@ async fn worker_wait_reg(
                     comp,
                     server,
                     func_timings.as_ref(),
-                    &zip,
+                    code_pth.as_deref(),
                     runtime,
                 )
                 .await

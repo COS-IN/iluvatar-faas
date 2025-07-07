@@ -33,12 +33,8 @@ async fn controller_register_functions(
     benchmark: Option<&BenchmarkStore>,
     factory: Arc<ControllerAPIFactory>,
 ) -> Result<()> {
-    for (fid, func) in funcs.iter() {
-        let image = func
-            .image_name
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Unable to get image name for function '{}'", fid))?;
-        info!("Registering {}, {}", func.func_name, image);
+    for (_, func) in funcs.iter() {
+        info!("Registering {}", func.func_name);
         let func_timings = match &func.chosen_name {
             Some(chosen_name) => match benchmark.as_ref() {
                 Some(t) => match t.data.get(chosen_name) {
@@ -55,13 +51,13 @@ async fn controller_register_functions(
         let _reg_dur = controller_register(
             &func.func_name,
             &VERSION,
-            image,
+            func.image_name.as_deref(),
             func.mem_mb,
             func.isolation,
             func.compute,
             func.server,
             func_timings,
-            func.code_folder.as_ref().unwrap_or(&"".to_string()),
+            func.code_folder.as_deref(),
             api,
         )
         .await?;

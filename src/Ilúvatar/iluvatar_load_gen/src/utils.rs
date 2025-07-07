@@ -269,13 +269,13 @@ pub async fn controller_invoke(
 pub async fn controller_register(
     name: &str,
     version: &str,
-    image: &str,
+    image: Option<&str>,
     memory: MemSizeMb,
     isolation: Isolation,
     compute: Compute,
     server: ContainerServer,
     timings: Option<&ResourceTimings>,
-    code_zip_pth: &str,
+    code_pth: Option<&str>,
     api: ControllerAPI,
 ) -> Result<Duration> {
     let start = now();
@@ -283,7 +283,7 @@ pub async fn controller_register(
     let req = RegisterRequest::new(
         name,
         version,
-        image,
+        image.unwrap_or(""),
         1,
         memory,
         timings,
@@ -294,7 +294,7 @@ pub async fn controller_register(
         1,
         &tid,
         false, // would never register a system function from the load generator
-        try_load_code_zip(code_zip_pth, &tid).await?,
+        try_load_code_zip(code_pth, &tid).await?,
     )?;
     match api.register(req).await {
         Ok(_) => Ok(start.elapsed()),
@@ -324,7 +324,7 @@ pub async fn controller_prewarm(
 pub async fn worker_register(
     name: String,
     version: &str,
-    image: String,
+    image: Option<&str>,
     memory: MemSizeMb,
     host: String,
     port: Port,
@@ -333,7 +333,7 @@ pub async fn worker_register(
     compute: Compute,
     server: ContainerServer,
     timings: Option<&ResourceTimings>,
-    code_zip_pth: &str,
+    code_pth: Option<&str>,
     runtime: Runtime,
 ) -> Result<(String, Duration, TransactionId)> {
     let tid: TransactionId = format!("{name}-reg-tid");
@@ -342,7 +342,7 @@ pub async fn worker_register(
         .register(
             name,
             version.to_owned(),
-            image,
+            image.unwrap_or("").to_string(),
             memory,
             1,
             1,
@@ -352,7 +352,7 @@ pub async fn worker_register(
             server,
             timings,
             false, // would never register a system function from the load generator
-            try_load_code_zip(code_zip_pth, &tid).await?,
+            try_load_code_zip(code_pth, &tid).await?,
             runtime,
         )
         .timed()
@@ -360,7 +360,7 @@ pub async fn worker_register(
 
     match reg_out {
         Ok(fqdn) => Ok((fqdn, reg_dur, tid)),
-        Err(e) => anyhow::bail!("worker registration encoutered an error because {:?}", e),
+        Err(e) => anyhow::bail!("worker registration encountered an error because {:?}", e),
     }
 }
 
@@ -611,10 +611,9 @@ pub fn wrap_logging<T>(
 
 /// Loads the zip file, returns an error if file is missing or read fails.
 /// Returns empty vec if path is empty
-pub async fn try_load_code_zip(path: &str, tid: &TransactionId) -> Result<Vec<u8>> {
-    if path.is_empty() {
-        Ok(Vec::new())
-    } else {
-        iluvatar_worker_library::tar_folder(path, tid)
+pub async fn try_load_code_zip(path: Option<&str>, tid: &TransactionId) -> Result<Vec<u8>> {
+    match path {
+        None => Ok(Vec::new()),
+        Some(path) => iluvatar_worker_library::tar_folder(path, tid)
     }
 }

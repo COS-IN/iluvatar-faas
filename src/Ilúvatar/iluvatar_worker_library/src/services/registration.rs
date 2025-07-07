@@ -141,7 +141,6 @@ impl RegistrationService {
                 continue;
             }
             isolations.remove(*lifecycle_iso);
-            // TODO: with multiple isolations, do we download dependencies twice?
             lifecycle
                 .prepare_function_registration(&mut reg, "default", tid)
                 .await?;

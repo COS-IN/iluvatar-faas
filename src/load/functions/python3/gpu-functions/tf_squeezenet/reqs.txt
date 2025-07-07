@@ -1,4 +1,3 @@
-uuid
 s3transfer
 jmespath
 protobuf==3.20.3
