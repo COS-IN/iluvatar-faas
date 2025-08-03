@@ -61,13 +61,14 @@ test:
 	@docker run -d --name iluv-test --tmpfs /var/lib/docker:rw -v ~/.cargo/registry:/root/.cargo/registry/ \
              -v "$(ROOT_DIR)/../load/functions/python3:/funcs" -v "$(ROOT_DIR):/app" \
              --privileged docker.io/library/iluv-test
- # cache common images used in testing
-	@docker exec iluv-test sh -c "ctr --address /var/run/docker/containerd/containerd.sock image pull docker.io/alfuerst/hello-iluvatar-action:latest && \
-                                 ctr --address /var/run/docker/containerd/containerd.sock image pull docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest && \
-                                 ctr --address /var/run/docker/containerd/containerd.sock image pull docker.io/alfuerst/iluvatar-action-base:latest && \
-                                 docker pull docker.io/alfuerst/hello-iluvatar-action:latest && \
-                                 docker pull docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest && \
-                                 docker pull docker.io/alfuerst/iluvatar-action-base:latest"
+	@sleep 3
+#   cache common images used in testing
+# 	@docker exec iluv-test sh -c "ctr --address /var/run/docker/containerd/containerd.sock image pull docker.io/alfuerst/hello-iluvatar-action:latest && \
+#                                  ctr --address /var/run/docker/containerd/containerd.sock image pull docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest && \
+#                                  ctr --address /var/run/docker/containerd/containerd.sock image pull docker.io/alfuerst/iluvatar-action-base:latest && \
+#                                  docker pull docker.io/alfuerst/hello-iluvatar-action:latest && \
+#                                  docker pull docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest && \
+#                                  docker pull docker.io/alfuerst/iluvatar-action-base:latest"
 	@docker exec -e PY_FUNCS=/funcs -e "RUSTFLAGS=$(RUST_FLAGS)" --workdir /app iluv-test /root/.cargo/bin/cargo test \
                 --jobs $(NPROCS) $(CARGO_ARGS)
 	@-docker rm --force iluv-test
