@@ -17,10 +17,9 @@ use tracing::{debug, info, warn};
 
 extern crate hashring;
 
-use crate::services::registration::RegisteredWorker;
+use crate::services::registration::{RegisteredFunction, RegisteredWorker};
 use hashring::HashRing;
 use iluvatar_library::char_map::{Chars, Value, WorkerCharMap};
-use iluvatar_worker_library::services::registration::RegisteredFunction;
 
 /// Load balancer state for the Guardrail policy with consistent hashing
 struct LBState_G_CH {

@@ -67,7 +67,7 @@ pub fn build_tokio_runtime(
     {
         Ok(rt) => Arc::new(rt),
         Err(e) => {
-            anyhow::bail!(format!("Tokio thread runtime for main failed to start because: {}", e));
+            anyhow::bail!(format!("Tokio thread runtime for main failed to start because: {e}"));
         },
     };
     if is_sim {

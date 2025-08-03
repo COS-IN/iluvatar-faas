@@ -22,7 +22,6 @@ use tracing::{debug, warn};
 #[derive(iluvatar_library::ToAny)]
 pub struct DockerContainer {
     pub container_id: String,
-    fqdn: String,
     /// the associated function inside the container
     pub function: Arc<RegisteredFunction>,
     last_used: RwLock<Instant>,
@@ -44,7 +43,6 @@ impl DockerContainer {
         port: Port,
         address: String,
         _parallel_invokes: NonZeroU32,
-        fqdn: &str,
         function: &Arc<RegisteredFunction>,
         invoke_timeout: u64,
         state: ContainerState,
@@ -60,7 +58,6 @@ impl DockerContainer {
             mem_usage: RwLock::new(function.memory),
             dev_mem_usage: RwLock::new((0, true)),
             container_id,
-            fqdn: fqdn.to_owned(),
             function: function.clone(),
             last_used: RwLock::new(now()),
             invocations: Mutex::new(0),
@@ -121,7 +118,7 @@ impl ContainerT for DockerContainer {
     }
 
     fn fqdn(&self) -> &String {
-        &self.fqdn
+        &self.function.fqdn
     }
 
     fn is_healthy(&self) -> bool {

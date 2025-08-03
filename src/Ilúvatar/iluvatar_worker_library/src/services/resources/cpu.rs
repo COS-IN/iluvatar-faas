@@ -202,7 +202,7 @@ impl std::fmt::Display for CpuUtil {
             Ok(s) => s,
             Err(_e) => return Err(std::fmt::Error {}),
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

@@ -192,7 +192,7 @@ impl EnqueuedInvocation {
         result_ptr.exec_time = result.duration_sec;
         result_ptr.result_json = result
             .result_string()
-            .unwrap_or_else(|cause| format!("{{ \"Error\": \"{}\" }}", cause));
+            .unwrap_or_else(|cause| format!("{{ \"Error\": \"{cause}\" }}"));
         result_ptr.completed = true;
         result_ptr.worker_result = Some(result);
         result_ptr.compute = compute;
@@ -209,7 +209,7 @@ impl EnqueuedInvocation {
             "Abandoning attempt to run invocation after error"
         );
         result_ptr.duration = Duration::from_micros(0);
-        result_ptr.result_json = format!("{{ \"Error\": \"{}\" }}", error);
+        result_ptr.result_json = format!("{{ \"Error\": \"{error}\" }}");
         result_ptr.completed = true;
         self.signal();
     }

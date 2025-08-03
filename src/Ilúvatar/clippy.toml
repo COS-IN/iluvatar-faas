@@ -5,8 +5,7 @@ disallowed-methods = [
     "std::thread::spawn",
     "std::time::Instant::now",
     "time::OffsetDateTime::now_utc",
-    "time::OffsetDateTime::now",
-    "time::OffsetDateTime::now_local",
+    { path = "time::OffsetDateTime::now_local", allow-invalid = true },
 ]
 
 disallowed-types = [

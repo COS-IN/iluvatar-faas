@@ -540,7 +540,7 @@ mod char_map_tests {
     fn multi_set_works() {
         let cmap = worker_char_map();
         let chosen_chars = all::<Chars>().choose_multiple(&mut rand::rng(), 3);
-        let err_msg = format!("Tested chars: {:?}", chosen_chars);
+        let err_msg = format!("Tested chars: {chosen_chars:?}");
 
         cmap.update_2("f1", chosen_chars[0], 1.0, chosen_chars[1], 1.0);
         cmap.update_3("f1", chosen_chars[0], 2.0, chosen_chars[1], 2.0, chosen_chars[2], 2.0);

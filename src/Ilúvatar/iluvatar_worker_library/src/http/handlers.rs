@@ -7,7 +7,7 @@ use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::{Compute, ContainerServer, Isolation};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
-    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, LanguageRuntime, PingRequest, RegisterRequest,
+    InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, PingRequest, RegisterRequest, Runtime,
 };
 use serde_json::{json, to_string};
 use std::collections::HashMap;
@@ -100,12 +100,13 @@ pub async fn handle_register(
         image_name: params.image,
         parallel_invokes: 1,
         transaction_id: tid,
-        language: LanguageRuntime::Nolang.into(),
+        runtime: Runtime::Nolang.into(),
         compute: compute.bits(),
         isolate: isolation.bits(),
         container_server: server_type,
         resource_timings_json: "{}".to_string(),
         system_function: false,
+        code_zip: vec![],
     };
     let request = Request::new(register_request);
 
@@ -136,7 +137,7 @@ pub async fn handle_invoke(
     Query(query_params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let arguments = to_string(&query_params)
-        .map_err(|e| AppError::BadRequest(format!("Error converting query parameters to JSON: {:?}", e)))?;
+        .map_err(|e| AppError::BadRequest(format!("Error converting query parameters to JSON: {e:?}")))?;
 
     let tid = gen_tid();
 
@@ -153,7 +154,7 @@ pub async fn handle_invoke(
         .worker
         .invoke(request)
         .await
-        .map_err(|e| AppError::InternalError(format!("Invoke RPC failed: {:?}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Invoke RPC failed: {e:?}")))?;
 
     let response = ret.into_inner();
 
@@ -175,7 +176,7 @@ pub async fn handle_async_invoke(
     Query(query_params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, AppError> {
     let arguments = to_string(&query_params)
-        .map_err(|e| AppError::BadRequest(format!("Error converting query parameters to JSON: {:?}", e)))?;
+        .map_err(|e| AppError::BadRequest(format!("Error converting query parameters to JSON: {e:?}")))?;
 
     let tid = gen_tid();
 
@@ -192,7 +193,7 @@ pub async fn handle_async_invoke(
         .worker
         .invoke_async(request)
         .await
-        .map_err(|e| AppError::InternalError(format!("Async invoke RPC failed: {:?}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Async invoke RPC failed: {e:?}")))?;
     let response = ret.into_inner();
 
     if response.success {
@@ -224,7 +225,7 @@ pub async fn handle_async_invoke_check(
         .worker
         .invoke_async_check(request)
         .await
-        .map_err(|e| AppError::InternalError(format!("Async invoke check RPC failed: {:?}", e)))?;
+        .map_err(|e| AppError::InternalError(format!("Async invoke check RPC failed: {e:?}")))?;
 
     let response = ret.into_inner();
 

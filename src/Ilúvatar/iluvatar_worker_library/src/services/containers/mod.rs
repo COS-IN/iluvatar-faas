@@ -34,12 +34,7 @@ pub trait ContainerIsolationService: ToAny + Send + Sync {
     /// NOTE: you will have to ask the lifetime again to wait on the container to be started up
     async fn run_container(
         &self,
-        fqdn: &str,
-        image_name: &str,
-        parallel_invokes: u32,
         namespace: &str,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
@@ -50,6 +45,7 @@ pub trait ContainerIsolationService: ToAny + Send + Sync {
     /// removes a specific container, and all the related resources
     async fn remove_container(&self, container_id: Container, ctd_namespace: &str, tid: &TransactionId) -> Result<()>;
 
+    /// Ensures the image the function uses is local, and installs dependencies if it uploaded code.
     async fn prepare_function_registration(
         &self,
         rf: &mut RegisteredFunction,
@@ -109,7 +105,7 @@ impl IsolationFactory {
             let c = SimulatorIsolation::new(self.cmap.clone());
             self.insert_cycle(&mut ret, Arc::new(c))?;
         } else {
-            if ContainerdIsolation::supported(tid).await {
+            if ContainerdIsolation::supported(tid, &self.worker_config.container_resources).await {
                 info!(tid = tid, "Creating 'containerd' backend");
                 if let Some(networking) = self.worker_config.networking.as_ref() {
                     let netm = NamespaceManager::boxed(networking.clone(), tid, ensure_bridge)?;

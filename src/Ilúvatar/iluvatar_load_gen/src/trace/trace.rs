@@ -5,6 +5,7 @@ use controller_trace::{controller_trace_live, controller_trace_sim};
 use iluvatar_library::tokio_utils::SimulationGranularity;
 use iluvatar_library::types::{Compute, ContainerServer, Isolation};
 use iluvatar_library::{types::MemSizeMb, utils::port::Port};
+use iluvatar_rpc::rpc::Runtime;
 use iluvatar_worker_library::services::containers::simulator::simstructs::SimulationInvocation;
 use std::collections::HashMap;
 
@@ -115,13 +116,19 @@ pub struct Function {
     /// Maximum memory the function is allowed to use.
     pub mem_mb: MemSizeMb,
     pub use_lookbusy: Option<bool>,
-    /// An optioanl value denoting the mean inter-arrival-time of the function
+    /// An optional value denoting the mean inter-arrival-time of the function
     /// Used for optimized prewarming, in milliseconds
     pub mean_iat: Option<f64>,
-    /// An optioanl value denoting the image to use for the function
+    /// An optional value denoting the image to use for the function
     /// One will be chosen if not provided
     pub image_name: Option<String>,
-    /// An optioanl value denoting the number of prewarms for the function
+    /// An optional value denoting a folder containing code for the function.
+    /// Must specify a special `runtime` too
+    pub code_folder: Option<String>,
+    #[serde(default = "Runtime::default")]
+    /// The runtime to use for the function, default assumes an existing image will be used.
+    pub runtime: Runtime,
+    /// An optional value denoting the number of prewarms for the function
     /// There will be no prewarmed GPU containers
     pub prewarms: Option<u32>,
     /// The compute(s) to test the function with, in the form CPU|GPU|etc.

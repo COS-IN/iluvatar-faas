@@ -46,6 +46,14 @@ pub struct Configuration {
     pub status: Arc<StatusConfig>,
     pub influx: Option<Arc<InfluxConfig>>,
     pub http_server: Option<Arc<HttpServerConfig>>,
+    /// Base runtime images to use for code uploads.
+    pub base_images: Arc<BaseImages>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct BaseImages {
+    pub python_cpu: String,
+    pub python_gpu: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -73,6 +81,11 @@ pub struct ContainerResourceConfig {
     /// Configuration to be passed to Docker
     /// Currently this is also passed to Containerd for repository authentication
     pub docker_config: Option<DockerConfig>,
+
+    /// Path to the containerd socket
+    #[serde(default = "crate::services::containers::containerd::containerd_sock")]
+    pub containerd_socket: String,
+
     /// Settings for the CPU compute resources the worker can use
     pub cpu_resource: Arc<CPUResourceConfig>,
     /// Settings for the CPU compute resources the worker can use

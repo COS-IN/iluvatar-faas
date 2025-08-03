@@ -33,19 +33,14 @@ async fn controller_register_functions(
     benchmark: Option<&BenchmarkStore>,
     factory: Arc<ControllerAPIFactory>,
 ) -> Result<()> {
-    for (fid, func) in funcs.iter() {
-        let image = func
-            .image_name
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Unable to get image name for function '{}'", fid))?;
-        info!("Registering {}, {}", func.func_name, image);
+    for (_, func) in funcs.iter() {
+        info!("Registering {}", func.func_name);
         let func_timings = match &func.chosen_name {
             Some(chosen_name) => match benchmark.as_ref() {
                 Some(t) => match t.data.get(chosen_name) {
                     Some(d) => Some(&d.resource_data),
                     None => anyhow::bail!(format!(
-                        "Benchmark was passed but function '{}' was not present",
-                        chosen_name
+                        "Benchmark was passed but function '{chosen_name}' was not present",
                     )),
                 },
                 None => None,
@@ -56,12 +51,13 @@ async fn controller_register_functions(
         let _reg_dur = controller_register(
             &func.func_name,
             &VERSION,
-            image,
+            func.image_name.as_deref(),
             func.mem_mb,
             func.isolation,
             func.compute,
             func.server,
             func_timings,
+            func.code_folder.as_deref(),
             api,
         )
         .await?;
@@ -82,7 +78,7 @@ async fn controller_prewarm_funcs(
                 fid
             )
         })? {
-            let tid = format!("{}-prewarm-{}", fid, i);
+            let tid = format!("{fid}-prewarm-{i}");
             let api = factory.get_controller_api(host, port, &tid).await?;
             let _reg_dur = controller_prewarm(&func.func_name, &VERSION, api, &tid).await?;
         }

@@ -64,11 +64,15 @@ pub async fn prewarm(host: String, port: Port, args: PrewarmArgs) -> Result<()> 
 pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()> {
     let tid = gen_tid();
     let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
+    let zip = match args.code_folder {
+        None => vec![],
+        Some(pth) => iluvatar_worker_library::tar_folder(&pth, &tid)?,
+    };
     let ret = api
         .register(
             args.name,
             args.version,
-            args.image,
+            args.image.unwrap_or("".to_string()),
             args.memory,
             args.cpu,
             1,
@@ -78,6 +82,8 @@ pub async fn register(host: String, port: Port, args: RegisterArgs) -> Result<()
             args.server,
             None,
             false, // would never register a system function from the CLI
+            zip,
+            args.runtime,
         )
         .await?;
     info!("{}", ret);

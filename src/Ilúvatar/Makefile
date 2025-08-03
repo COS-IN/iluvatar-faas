@@ -1,3 +1,4 @@
+ROOT_DIR:=$(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
 NPROCS:=$(shell grep -c ^processor /proc/cpuinfo)
 CROSS_FLAGS=CROSS_CONTAINER_UID=0 CROSS_CONTAINER_GID=0 CROSS_ROOTLESS_CONTAINER_ENGINE=false CROSS_CONTAINER_USER_NAMESPACE=none CROSS_CONTAINER_OPTS=--privileged
 TARGET_CPU?=generic
@@ -55,15 +56,22 @@ flame:
 	@echo "TODO: implement running flame"
 test:
 	@echo "Running unit tests"
-	@# containerd networking nonsense breaks tests
-	@# See TODO.md
-	@# these hacks seem to be working well
-	@CROSS_CONTAINER_ENGINE="docker" CROSS_CONTAINER_UID=0 \
-		CROSS_CONTAINER_OPTS="--network=host" CROSS_ROOTLESS_CONTAINER_ENGINE="auto" \
-		 RUSTFLAGS="$(RUST_FLAGS)" $(RUST_C) test --jobs $(NPROCS) $(CARGO_ARGS)
-	@# Clean up containers from testing.
-	@docker ps --filter "label=owner=iluvatar_worker" -q | xargs --no-run-if-empty docker kill
-	@docker ps --filter "label=owner=iluvatar_worker" -aq | xargs --no-run-if-empty docker rm
+	@-docker rm --force iluv-test
+	@docker build -t iluv-test -f Test.Dockerfile .
+	@docker run -d --name iluv-test --tmpfs /var/lib/docker:rw -v ~/.cargo/registry:/root/.cargo/registry/ \
+             -v "$(ROOT_DIR)/../load/functions/python3:/funcs" -v "$(ROOT_DIR):/app" \
+             --privileged docker.io/library/iluv-test
+	@sleep 3
+#   cache common images used in testing
+# 	@docker exec iluv-test sh -c "ctr --address /var/run/docker/containerd/containerd.sock image pull docker.io/alfuerst/hello-iluvatar-action:latest && \
+#                                  ctr --address /var/run/docker/containerd/containerd.sock image pull docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest && \
+#                                  ctr --address /var/run/docker/containerd/containerd.sock image pull docker.io/alfuerst/iluvatar-action-base:latest && \
+#                                  docker pull docker.io/alfuerst/hello-iluvatar-action:latest && \
+#                                  docker pull docker.io/alfuerst/json_dumps_loads-iluvatar-action:latest && \
+#                                  docker pull docker.io/alfuerst/iluvatar-action-base:latest"
+	@docker exec -e PY_FUNCS=/funcs -e "RUSTFLAGS=$(RUST_FLAGS)" --workdir /app iluv-test /root/.cargo/bin/cargo test \
+                --jobs $(NPROCS) $(CARGO_ARGS)
+	@-docker rm --force iluv-test
 format:
 	@cargo fmt --all
 format-check:

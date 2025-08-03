@@ -18,7 +18,7 @@ pub fn args_to_json(args: &Vec<String>) -> anyhow::Result<String> {
         let val = split[1];
 
         // Format as "key":"value"
-        let fmt = format!("\"{}\":\"{}\"", key, val);
+        let fmt = format!("\"{key}\":\"{val}\"");
 
         // If this isn’t the first key-value pair, add a comma
         if ret.len() > 1 {

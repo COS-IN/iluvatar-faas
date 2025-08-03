@@ -3,7 +3,7 @@ use super::ContainerIsolationService;
 use crate::services::containers::containerd::containerdstructs::{ContainerdContainer, Task};
 use crate::services::containers::structs::{Container, ContainerState};
 use crate::services::network::namespace_manager::NamespaceManager;
-use crate::services::registration::RegisteredFunction;
+use crate::services::registration::{RegisteredFunction, RunFunction};
 use crate::services::resources::gpu::GPU;
 use crate::worker_api::worker_config::{ContainerResourceConfig, FunctionLimits};
 use anyhow::Result;
@@ -27,12 +27,13 @@ use containerd_client as client;
 use containerd_client::tonic::{transport::Channel, Request};
 // use containerd_client::types::transfer::{ImageStore, OciRegistry, RegistryResolver, UnpackConfiguration};
 // use containerd_client::types::Platform;
+use containerd_client::services::v1::GetRequest;
 use dashmap::DashMap;
 use guid_create::GUID;
 use iluvatar_library::clock::now;
 use iluvatar_library::threading::tokio_spawn_thread;
-use iluvatar_library::types::{err_val, Compute, Isolation, ResultErrorVal};
-use iluvatar_library::utils::file::{container_path, make_paths};
+use iluvatar_library::types::{err_val, Compute, ContainerServer, Isolation, ResultErrorVal};
+use iluvatar_library::utils::file::{container_path, make_paths, package_cache};
 use iluvatar_library::utils::{
     cgroup::cgroup_namespace,
     file::{touch, try_remove_pth},
@@ -46,7 +47,7 @@ use oci_spec::image::{ImageConfiguration, ImageIndex, ImageManifest};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
@@ -55,6 +56,9 @@ use tracing::{debug, error, info, warn};
 
 pub mod containerdstructs;
 const CONTAINERD_SOCK: &str = "/run/containerd/containerd.sock";
+pub fn containerd_sock() -> String {
+    CONTAINERD_SOCK.to_string()
+}
 
 #[derive(Deserialize)]
 pub struct BGPacket {
@@ -81,8 +85,8 @@ pub struct ContainerdIsolation {
 /// A service to handle the low-level details of containerd container lifecycles:
 ///   creation, destruction, pulling images, etc
 impl ContainerdIsolation {
-    pub async fn supported(tid: &TransactionId) -> bool {
-        let channel = match containerd_client::connect(CONTAINERD_SOCK).await {
+    pub async fn supported(tid: &TransactionId, config: &Arc<ContainerResourceConfig>) -> bool {
+        let channel = match containerd_client::connect(&config.containerd_socket).await {
             Ok(c) => c,
             Err(e) => {
                 warn!(tid=tid, error=?e, "Failed to connect to containerd socket");
@@ -164,7 +168,7 @@ impl ContainerdIsolation {
         if self.channel.is_some() {
             Ok(())
         } else {
-            let channel = containerd_client::connect(CONTAINERD_SOCK).await?;
+            let channel = containerd_client::connect(&self.config.containerd_socket).await?;
             self.channel = Some(channel);
             Ok(())
         }
@@ -183,36 +187,101 @@ impl ContainerdIsolation {
         &self,
         host_addr: &str,
         port: Port,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
+        reg: &RegisteredFunction,
         net_ns_name: &str,
         container_id: &str,
+        entrypoint: Option<Vec<String>>,
+        rw_mounts: Option<Vec<(String, String)>>,
     ) -> prost_types::Any {
         // one second of time, in microseconds
         let one_sec_in_us: u64 = 1000 * 1000;
+        let mut mounts = vec![];
+        let mut env = vec![];
         // https://github.com/opencontainers/runtime-spec/blob/main/config-linux.md
-        let spec = include_str!("../../../resources/container_spec.json");
-        let spec = spec
-            .to_string()
-            .replace("$ROOTFS", "rootfs")
-            .replace("$OUTPUT", "")
-            .replace("$HOST_ADDR", host_addr)
-            .replace("$PORT", &port.to_string())
-            .replace("$SOCK", "/iluvatar/sockets")
-            .replace("$CTR_ID", container_id)
-            .replace("$NET_NS", &NamespaceManager::net_namespace(net_ns_name))
-            .replace("\"$MEMLIMIT\"", &(mem_limit_mb * 1024 * 1024).to_string())
-            //        .replace("\"$SWAPLIMIT\"", &(mem_limit_mb*1024*1024*2).to_string())
-            // .replace("\"$CPUSHARES\"", &(cpus*1024).to_string())
-            // a function with 1 cpu will have an equal number of
-            .replace("\"$CPUQUOTA\"", &((cpus as u64) * one_sec_in_us).to_string())
-            .replace("\"$CPUPERIOD\"", &one_sec_in_us.to_string())
-            .replace("$INVOKE_TIMEOUT", &self.limits_config.timeout_sec.to_string())
-            .replace("$CGROUPSPATH", &cgroup_namespace(container_id))
-            .replace("$RESOLV_CONF", &NamespaceManager::resolv_conf_path());
+        let mut spec =
+            serde_json::from_str::<serde_json::Value>(include_str!("../../../resources/container_spec.json")).unwrap();
+        if let Some(entry) = entrypoint {
+            spec["process"]["args"] =
+                serde_json::Value::Array(entry.into_iter().map(serde_json::Value::String).collect());
+        }
+        if let Some(rw_mounts) = rw_mounts {
+            for (src, dest) in rw_mounts {
+                mounts.push(serde_json::json!({
+                    "destination": dest,
+                    "type": "none",
+                    "source": src,
+                    "options": [ "rw", "bind" ]
+                }));
+            }
+        }
+
+        spec["root"]["path"] = serde_json::json!("rootfs");
+        env.push(serde_json::Value::String(format!("__IL_PORT={port}")));
+        env.push(serde_json::Value::String(format!("__IL_HOST={host_addr}")));
+        env.push(serde_json::Value::String(format!("FLASK_RUN_PORT={port}")));
+        env.push(serde_json::Value::String(format!("FLASK_RUN_HOST={host_addr}")));
+        env.push(serde_json::Value::String(format!(
+            "GUNICORN_CMD_ARGS=--workers=1 --timeout={} --bind={host_addr}:{port} --enable-stdio-inheritance -e PYTHONUNBUFFERED=1",
+            self.limits_config.timeout_sec,
+        )));
+
+        mounts.push(serde_json::json!({
+            "destination": "/etc/resolv.conf",
+            "type": "none",
+            "source": NamespaceManager::resolv_conf_path(),
+            "options": [ "ro", "bind" ]
+        }));
+        if reg.container_server == ContainerServer::UnixSocket {
+            mounts.push(serde_json::json!({
+                "source": format!("/tmp/iluvatar/{container_id}/"),
+                "destination": "/iluvatar/sockets",
+                "options": [ "rw", "bind" ],
+                "type": "none"
+            }));
+            env.push(serde_json::Value::String(format!(
+                "__IL_SOCKET={}",
+                "/iluvatar/sockets/sock"
+            )));
+        }
+        match &reg.run_info {
+            RunFunction::Runtime {
+                packages_dir, main_dir, ..
+            } => {
+                mounts.push(serde_json::json!({
+                    "destination": "/packages",
+                    "type": "none",
+                    "source": packages_dir,
+                    "options": [ "ro", "bind" ]
+                }));
+                mounts.push(serde_json::json!({
+                    "destination": "/main",
+                    "type": "none",
+                    "source": main_dir,
+                    "options": [ "ro", "bind" ]
+                }));
+                env.push(serde_json::Value::String("PYTHONPATH=/main:/packages".to_string()));
+            },
+            _ => {},
+        };
+
+        spec["linux"]["cgroupsPath"] = serde_json::Value::String(cgroup_namespace(container_id));
+        spec["linux"]["resources"]["memory"]["limit"] = serde_json::Value::Number((reg.memory * 1024 * 1024).into());
+        spec["linux"]["resources"]["cpu"]["quota"] =
+            serde_json::Value::Number(((reg.cpus as u64) * one_sec_in_us).into());
+        spec["linux"]["resources"]["cpu"]["period"] = serde_json::Value::Number(one_sec_in_us.into());
+        spec["linux"]["namespaces"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+              "type": "network",
+              "path": NamespaceManager::net_namespace(net_ns_name)
+            }));
+
+        spec["mounts"].as_array_mut().unwrap().extend(mounts);
+        spec["process"]["env"].as_array_mut().unwrap().extend(env);
         prost_types::Any {
             type_url: "types.containerd.io/opencontainers/runtime-spec/1/Spec".to_string(),
-            value: spec.into_bytes(),
+            value: spec.to_string().into_bytes(),
         }
     }
 
@@ -397,7 +466,7 @@ impl ContainerdIsolation {
         Ok(())
     }
 
-    /// Read through an image's digest to find it's snapshot base
+    /// Read through an image's digest to find its snapshot base
     async fn search_image_digest(&self, image: &str, namespace: &str, tid: &TransactionId) -> Result<String> {
         // Step 1. get image digest
         let get_image_req = GetImageRequest { name: image.into() };
@@ -406,7 +475,7 @@ impl ContainerdIsolation {
             Ok(rsp) => rsp.into_inner(),
             Err(e) => bail_error!(tid=tid, error=%e, "Failed to get image"),
         };
-        debug!(tid=tid,response=?rsp, "image response");
+        debug!(tid = tid, "image response");
         let (image_digest, media_type) = if let Some(image) = rsp.image {
             image
                 .target
@@ -416,7 +485,7 @@ impl ContainerdIsolation {
             anyhow::bail!("Could not find image")
         };
 
-        debug!(tid=tid, image=%image, digest=?image_digest, "got image digest");
+        debug!(tid = tid, "got image digest");
 
         // Step 2. get image content manifests
         let content = self.read_content(namespace, image_digest).await?;
@@ -427,7 +496,7 @@ impl ContainerdIsolation {
                     Ok(s) => s,
                     Err(e) => bail_error!(tid=tid, error=%e, "JSON error getting ImageIndex"),
                 };
-                debug!(tid=tid, index=?config_index, "config ImageIndex");
+                debug!(tid = tid, "config ImageIndex");
 
                 let manifest_item = config_index
                     .manifests()
@@ -440,7 +509,7 @@ impl ContainerdIsolation {
                     .digest()
                     .to_owned();
 
-                debug!(tid=tid, manifest=?manifest_item, "Acquired manifest item");
+                debug!(tid = tid, "Acquired manifest item");
                 // Step 3. load image manifest from specific platform filter
                 let layer_item: ImageManifest =
                     match serde_json::from_slice(&self.read_content(namespace, manifest_item.to_string()).await?) {
@@ -451,7 +520,7 @@ impl ContainerdIsolation {
             },
             "application/vnd.docker.distribution.manifest.v2+json" => {
                 let config_index: ImageManifest = serde_json::from_slice(&content)?;
-                debug!(tid=tid, manifest=?config_index, "config ImageManifest");
+                debug!(tid = tid, "config ImageManifest");
                 config_index.config().to_owned()
             },
             _ => anyhow::bail!("Don't know how to handle unknown image media type '{}'", media_type),
@@ -475,9 +544,9 @@ impl ContainerdIsolation {
             hasher.update(" ");
             hasher.update(v);
             let sha = hex::encode(hasher.finalize());
-            prev_digest = format!("sha256:{}", sha)
+            prev_digest = format!("sha256:{sha}")
         }
-        debug!(tid=tid, image=%image, digest=%prev_digest, "loaded diff digest");
+        debug!(tid = tid, "loaded diff digest");
         Ok(prev_digest)
     }
 
@@ -490,7 +559,14 @@ impl ContainerdIsolation {
         if self.downloaded_images.contains_key(image_name) {
             return Ok(());
         }
-        let mut args = vec!["images", "pull", "--snapshotter", self.config.snapshotter.as_str()];
+        let mut args = vec![
+            "--address",
+            self.config.containerd_socket.as_str(),
+            "images",
+            "pull",
+            "--snapshotter",
+            self.config.snapshotter.as_str(),
+        ];
         let auth_str;
         if let Some(docker) = &self.docker_config {
             if let Some(auth) = &docker.auth {
@@ -638,16 +714,13 @@ impl ContainerdIsolation {
     /// Does not start any process in it
     async fn create_container(
         &self,
-        fqdn: &str,
-        image_name: &str,
         namespace: &str,
-        parallel_invokes: u32,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
         reg: &Arc<RegisteredFunction>,
         tid: &TransactionId,
         compute: Compute,
         device_resource: Option<GPU>,
+        entrypoint: Option<Vec<String>>,
+        rw_mounts: Option<Vec<(String, String)>>,
     ) -> ResultErrorVal<ContainerdContainer, Option<GPU>> {
         let port = 8080;
 
@@ -664,7 +737,7 @@ impl ContainerdIsolation {
             None => None,
         };
 
-        let cid = format!("{}-{}", fqdn, GUID::rand());
+        let cid = format!("{}-{}", reg.fqdn, GUID::rand());
         let ns = match self.namespace_manager.get_namespace(tid) {
             Ok(n) => n,
             Err(e) => return err_val(e, device_resource),
@@ -673,13 +746,13 @@ impl ContainerdIsolation {
 
         let address = &ns.namespace.ips[0].address;
 
-        let spec = self.spec(address, port, mem_limit_mb, cpus, &ns.name, &cid);
+        let spec = self.spec(address, port, reg, &ns.name, &cid, entrypoint, rw_mounts);
         let mut labels: HashMap<String, String> = HashMap::new();
         labels.insert("owner".to_string(), "iluvatar_worker".to_string());
 
         let container = Containerd_Container {
             id: cid.to_string(),
-            image: image_name.to_string(),
+            image: reg.image_name.to_string(),
             runtime: Some(Runtime {
                 name: "io.containerd.runc.v2".to_string(),
                 options: None,
@@ -750,14 +823,11 @@ impl ContainerdIsolation {
             terminal: false,
             runtime_path: "".to_owned(),
         };
-        // match std::os::unix::net::UnixListener::bind("/tmp/iluvatar/socks/ctr") {
-        //     Ok(_) => info!(tid=tid, "socket created OK"),
-        //     Err(e) => error!(tid=tid, error=%e, "socket creation error"),
-        // };
         let req = with_namespace!(req, namespace);
         match client.create(req).await {
             Ok(t) => {
                 drop(permit);
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
                 debug!(tid = tid, "Dropped containerd creation semaphore after success");
                 let t = t.into_inner();
                 debug!(tid=tid, task=?t, "Task created");
@@ -772,8 +842,7 @@ impl ContainerdIsolation {
                         task,
                         port,
                         address.clone(),
-                        std::num::NonZeroU32::new_unchecked(parallel_invokes),
-                        fqdn,
+                        std::num::NonZeroU32::new_unchecked(reg.parallel_invokes),
                         reg,
                         ns,
                         self.limits_config.timeout_sec,
@@ -802,6 +871,108 @@ impl ContainerdIsolation {
         }
     }
 
+    /// Install package dependencies of function that uploaded code.
+    async fn dependencies(&self, rf: &RegisteredFunction, tid: &TransactionId) -> Result<()> {
+        let pkg_namespace = "package";
+        let entrypoint = [
+            "python3",
+            "-m",
+            "pip",
+            "install",
+            "--progress-bar",
+            "off",
+            "--compile",
+            "--no-input",
+            "--cache-dir",
+            "/cache",
+            "--no-color",
+            "--target",
+            "/install/packages",
+            "-r",
+            "/install/main/reqs.txt",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let pkg_cache = package_cache("python");
+        make_paths(&pkg_cache, tid)?;
+        let mut mounts = vec![(pkg_cache, "/cache".to_owned())];
+        match &rf.run_info {
+            RunFunction::Runtime { packages_dir, main_dir } => {
+                make_paths(Path::new(packages_dir), tid)?;
+                make_paths(Path::new(main_dir), tid)?;
+                mounts.push((packages_dir.clone(), "/install/packages".to_string()));
+                mounts.push((main_dir.clone(), "/install/main".to_string()));
+            },
+            // this func should only be called if using a runtime
+            _ => unreachable!(),
+        };
+        info!(tid = tid, "starting package install");
+        match self
+            .create_container(
+                pkg_namespace,
+                &Arc::new(rf.clone()),
+                tid,
+                Compute::CPU,
+                None,
+                Some(entrypoint),
+                Some(mounts),
+            )
+            .await
+        {
+            Ok(ctr) => {
+                let mut client = TasksClient::new(self.channel());
+                let req = StartRequest {
+                    container_id: ctr.container_id.clone(),
+                    ..Default::default()
+                };
+                match client.start(with_namespace!(req, pkg_namespace)).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        bail_error!(tid=tid, error=%e, "Starting task failed");
+                    },
+                };
+
+                debug!(tid = tid, "waiting for package install to finish");
+                loop {
+                    let r = GetRequest {
+                        container_id: ctr.container_id.clone(),
+                        ..Default::default()
+                    };
+                    let task = client.get(with_namespace!(r, pkg_namespace)).await?.into_inner();
+                    info!(tid = tid, task=?task, "task deets");
+                    if let Some(proc) = task.process {
+                        match proc.status() {
+                            containerd_client::types::v1::Status::Stopped => {
+                                let ctr: Container = Arc::new(ctr);
+                                if proc.exit_status == 0 {
+                                    debug!(tid = tid, "package install finished");
+                                    return self.remove_container(ctr, pkg_namespace, tid).await;
+                                } else {
+                                    let stdout = self.read_stdout(&ctr, tid).await;
+                                    let stderr = self.read_stderr(&ctr, tid).await;
+                                    if let Err(e) = self.remove_container(ctr, pkg_namespace, tid).await {
+                                        error!(tid=tid, error=%e, "cleanup removal failed");
+                                    };
+                                    bail_error!(
+                                        tid = tid,
+                                        exit_status = proc.exit_status,
+                                        stdout = stdout,
+                                        stderr = stderr,
+                                        "bad exit on packages"
+                                    );
+                                }
+                            },
+                            _ => (),
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            },
+            Err(e) => Err(e.0),
+        }
+    }
+
     fn stdout_pth(&self, container_id: &str) -> PathBuf {
         container_path(container_id).join("stdout")
     }
@@ -822,15 +993,10 @@ impl ContainerIsolationService for ContainerdIsolation {
     /// creates and starts the entrypoint for a container based on the given image
     /// Run inside the specified namespace
     /// returns a new, unique ID representing it
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, fqdn, image_name, parallel_invokes, namespace, mem_limit_mb, cpus), fields(tid=tid)))]
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, reg, namespace, iso, compute, device_resource), fields(tid=tid)))]
     async fn run_container(
         &self,
-        fqdn: &str,
-        image_name: &str,
-        parallel_invokes: u32,
         namespace: &str,
-        mem_limit_mb: MemSizeMb,
-        cpus: u32,
         reg: &Arc<RegisteredFunction>,
         iso: Isolation,
         compute: Compute,
@@ -840,20 +1006,9 @@ impl ContainerIsolationService for ContainerdIsolation {
         if !iso.eq(&Isolation::CONTAINERD) {
             error_value!("Only supports containerd Isolation, now {:?}", iso, device_resource);
         }
-        info!(tid=tid, image=%image_name, namespace=%namespace, "Creating container from image");
+        info!(tid=tid, namespace=%namespace, "Creating container from image");
         let mut container = self
-            .create_container(
-                fqdn,
-                image_name,
-                namespace,
-                parallel_invokes,
-                mem_limit_mb,
-                cpus,
-                reg,
-                tid,
-                compute,
-                device_resource,
-            )
+            .create_container(namespace, reg, tid, compute, device_resource, None, None)
             .await?;
         let mut client = TasksClient::new(self.channel());
 
@@ -869,7 +1024,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                 container.task.running = true;
                 self.send_bg_packet(
                     container.task.pid,
-                    fqdn,
+                    &reg.fqdn,
                     &container.task.container_id.clone().unwrap(),
                     tid,
                 )
@@ -904,7 +1059,10 @@ impl ContainerIsolationService for ContainerdIsolation {
         self.ensure_image(&rf.image_name, tid, namespace).await?;
         let snapshot_base = self.search_image_digest(&rf.image_name, "default", tid).await?;
         rf.snapshot_base = snapshot_base;
-        Ok(())
+        match &rf.run_info {
+            RunFunction::Runtime { .. } => self.dependencies(rf, tid).await,
+            _ => Ok(()),
+        }
     }
 
     async fn clean_containers(
@@ -1068,7 +1226,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             Ok(s) => str::replace(&s, "\n", "\\n"),
             Err(e) => {
                 error!(tid=tid, container_id=container.container_id(), error=%e, "Error reading container stdout");
-                format!("STDOUT_READ_ERROR: {}", e)
+                format!("STDOUT_READ_ERROR: {e}")
             },
         }
     }
@@ -1078,7 +1236,7 @@ impl ContainerIsolationService for ContainerdIsolation {
             Ok(s) => str::replace(&s, "\n", "\\n"),
             Err(e) => {
                 error!(tid=tid, container_id=container.container_id(), error=%e, "Error reading container stderr");
-                format!("STDERR_READ_ERROR: {}", e)
+                format!("STDERR_READ_ERROR: {e}")
             },
         }
     }

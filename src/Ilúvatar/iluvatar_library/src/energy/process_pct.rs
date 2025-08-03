@@ -79,7 +79,7 @@ impl ProcessMonitor {
                 return;
             },
         };
-        let to_write = format!("{},{},{}\n", t, cpu_pct, cpu_time);
+        let to_write = format!("{t},{cpu_pct},{cpu_time}\n");
         self.write_text(to_write, tid);
     }
 

@@ -131,7 +131,7 @@ impl RaplMsr {
         let intel = RaplMsr::use_intel(tid)?;
 
         for cpu in 0..procs {
-            let mut file = match File::open(format!("/dev/cpu/{}/msr", cpu)) {
+            let mut file = match File::open(format!("/dev/cpu/{cpu}/msr")) {
                 Ok(f) => f,
                 // This can happen if the CPU core in question has been disabled
                 Err(e) => bail_error!(tid=tid, error=%e, cpu=cpu, "Failed to open MSR for cpu"),
@@ -284,7 +284,7 @@ impl RaplMonitor {
             },
         };
 
-        let to_write = format!("{},{}\n", t, rapl_uj);
+        let to_write = format!("{t},{rapl_uj}\n");
         self.write_text(to_write, tid);
     }
 
