@@ -1,5 +1,8 @@
 # Ilúvatar Setup
 
+## High-level flow 
+
+
 ## Worker Runtime dependencies
 
 These steps are required on a system that is going to *run* a worker.
@@ -93,8 +96,9 @@ sudo ln /usr/local/lib/systemd/system/containerd.service /etc/systemd/system/con
 **ZFS and file system.**
 Containerd supports a [variety of different snapshotters](https://github.com/containerd/containerd/tree/main/docs/snapshotters).
 After initially using the default `overlayfs`, we chose to focus on using the `ZFS` snapshotter.
+
 You are welcome to choose any supported one, simply set it up accordingly and specify the name in the worker configuration file.
-These instructions are to set up a ZFS pool for use with Ilúvatar.
+These instructions are to set up a ZFS pool for use with Ilúvatar, which we recommend for performance.
 
 ```bash
 # vary these based on your setup
