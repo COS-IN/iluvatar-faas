@@ -2,6 +2,8 @@
 
 ## High-level flow 
 
+The main readme should suffice in most cases: https://github.com/COS-IN/iluvatar-faas/blob/master/README.md 
+This document has some finer-grained details, but may also be stale. 
 
 ## Worker Runtime dependencies
 
