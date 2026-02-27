@@ -3,7 +3,7 @@ use crate::services::invocation::dispatching::greedy_weight::GreedyWeights;
 use crate::services::invocation::dispatching::mice::Mice;
 use crate::services::invocation::dispatching::weighted_random::WeightedRandom;
 use crate::services::invocation::dispatching::{
-    landlord::get_landlord, popular::get_popular, EnqueueingPolicy, QueueMap, NO_ESTIMATE,
+    landlord::get_landlord, popular::get_popular, epsilon_greedy::EpsilonGreedy, EnqueueingPolicy, QueueMap, NO_ESTIMATE,
 };
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -353,7 +353,7 @@ impl QueueingDispatcher {
             EnqueueingPolicy::Speedup => {
                 Ok(Arc::new(Speedup::new(invocation_config.clone(), cmap)))
             }
-            EnqueueingPolicy::Greedy => Ok(Arc::new(Greedy::new(cmap))),
+            EnqueueingPolicy::Greedy => Ok(Arc::new(Greedy::new(cmap, que_map))),
             EnqueueingPolicy::WeightedRandom => Ok(Arc::new(WeightedRandom::new(
                 invocation_config.clone(),
                 &cmap,
@@ -383,6 +383,11 @@ impl QueueingDispatcher {
                 que_map,
                 tid,
             )?)),
+            EnqueueingPolicy::EpsilonGreedy => Ok(Arc::new(EpsilonGreedy::new(
+                cmap,
+                &invocation_config.epsilon_greedy_config,
+                que_map,
+            ))),
         }
     }
 
@@ -664,37 +669,66 @@ impl DispatchPolicy for Ucb1 {
 
 struct Greedy {
     cmap: WorkerCharMap,
+    que_map: QueueMap,
 }
 
 impl Greedy {
-    pub fn new(cmap: WorkerCharMap) -> Self {
-        Self { cmap }
+    pub fn new(cmap: WorkerCharMap, que_map: QueueMap) -> Self {
+        Self { cmap, que_map }
+    }
+
+    /// Updates the Kalman-filtered GPU estimate stored in cmap and returns
+    /// (filtered_estimate, residual_error).
+    fn get_gpu_est(&self, fqdn: &str, mqfq_est: f64) -> (f64, f64) {
+        let (est, e2e) = self
+            .cmap
+            .get_2(fqdn, Chars::EstGpu, Value::Avg, Chars::E2EGpu, Value::Avg);
+        let prev_est = if est == 0.0 { mqfq_est } else { est };
+        let prev_e2e = if e2e == 0.0 { mqfq_est } else { e2e };
+        // Kalman Filter (see faasmeter paper)
+        let z = prev_e2e - prev_est; // residual error
+        let alpha = 0.1;
+        let beta = 0.7;
+        let k = 1.0 - (beta + alpha);
+        let xhat = (alpha * prev_est) + (beta * mqfq_est) + k * z;
+        self.cmap.update(fqdn, Chars::EstGpu, xhat);
+        info!(fqdn = %fqdn, raw_est = mqfq_est, error = z, kf_est = xhat, "Greedy GPU Estimate");
+        (xhat, z)
     }
 }
 
 impl DispatchPolicy for Greedy {
     fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
-        // Fetch predicted CPU and GPU execution times
-        let (cpu, gpu) = self.cmap.get_2(
-            &reg.fqdn,
-            Chars::CpuExecTime,
-            Value::Avg,
-            Chars::GpuExecTime,
-            Value::Avg,
+        let (cpu_est, cpu_load) = match self.que_map.get(&Compute::CPU) {
+            Some(q) => q.est_completion_time(reg, tid),
+            None => (self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime), 0.0),
+        };
+
+        // Get the raw queue-based GPU estimate, then refine it with the Kalman filter
+        let (gpu_est_raw, gpu_load) = match self.que_map.get(&Compute::GPU) {
+            Some(q) => q.est_completion_time(reg, tid),
+            None => (self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime), 0.0),
+        };
+
+        // Update the filtered estimate (always, so cmap stays current)
+        let (final_gpu_est, gpu_est_err) = self.get_gpu_est(&reg.fqdn, gpu_est_raw);
+
+        info!(
+            tid = tid,
+            fqdn = %reg.fqdn,
+            mqfq_est = gpu_est_raw,
+            gpu_est = final_gpu_est,
+            gpu_est_err = gpu_est_err,
+            cpu_est = cpu_est,
+            cpu_load = cpu_load,
+            gpu_load = gpu_load,
+            "Greedy Dispatch Estimates"
         );
 
-        // Pure greedy:
-        // pick whichever compute type yields the *minimum predicted exec time*
-        info!(
-            tid = %tid,
-            cpu = cpu,
-            gpu = gpu,
-            "Greedy Dispatch info"
-        );
-        if cpu <= gpu {
-            (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE)
+        if cpu_est <= final_gpu_est {
+            (Compute::CPU, cpu_load, cpu_est)
         } else {
-            (Compute::GPU, NO_ESTIMATE, NO_ESTIMATE)
+            (Compute::GPU, gpu_load, final_gpu_est)
         }
     }
 }
