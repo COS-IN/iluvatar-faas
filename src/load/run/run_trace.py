@@ -360,6 +360,8 @@ worker_kwargs = [
     ),
     # weighted_random
     ("gpu_probability", 0.5, ("invocation", "weighted_random_config", "gpu_probability")),
+    # epsilon_greedy
+    ("epsilon", 0.075, ("invocation", "epsilon_greedy_config", "epsilon")),
 ]
 def load_kwargs(**kwargs):
     default_kwargs = LoadConfig()
