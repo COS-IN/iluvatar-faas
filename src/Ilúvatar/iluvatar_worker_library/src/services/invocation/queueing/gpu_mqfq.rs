@@ -65,6 +65,14 @@ pub struct MqfqConfig {
     time_estimation: MqfqTimeEst,
     #[serde(default = "bool::default")]
     add_estimation_error: bool,
+    /// Optional cap on the value returned by est_completion_time (seconds).
+    /// When the MQFQ virtual-time sum grows very large (e.g. deep queue under
+    /// bursty load), the raw estimate can reach thousands of seconds and
+    /// completely mislead the Landlord policy.
+    /// Setting this caps the returned estimate without touching the internal
+    /// VT accounting, so scheduler fairness is unaffected.
+    /// Recommended: 2× the 99th-percentile observed E2E time for your workload.
+    pub max_est_sec: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1426,7 +1434,46 @@ impl DeviceQueue for MQFQ {
         }
         let raw_est = self.est_completion_time2(reg, tid) / concur;
         debug!(tid=tid, fqdn=%reg.fqdn, qt=q_t, raw_est=raw_est, runtime=exec_time, err=err_time, load=load, "GPU estimated completion time of item");
-        (q_t + exec_time + err_time, load)
+        let total_est = q_t + exec_time + err_time;
+        // Cap the estimate if max_est_sec is configured, to prevent runaway
+        // Default: 60s — 3× the highest observed actual GPU e2e in zipf workloads.
+        let cap = missing_default(&self.q_config.max_est_sec, 60.0);
+        let capped_est = if total_est > cap {
+            info!(tid=tid, fqdn=%reg.fqdn, uncapped=total_est, cap=cap, "EST CAP: clamping runaway queue estimate");
+            cap
+        } else {
+            total_est
+        };
+
+        // Log per-function and system-wide queue state at dispatch time.
+        // Separate log line ("MQFQ Queue State") so it is easy to extend
+        // or parse independently from "Landlord Credit".
+        // Fields:
+        //   fn_queue_len    — invocations waiting in this function's FlowQ
+        //   fn_in_flight    — invocations currently executing for this function
+        //   total_queue_len — total invocations waiting across all flows
+        //   total_in_flight — total invocations executing across all flows
+        //   active_flows    — number of GPU flow queues in Active state
+        let (fn_queue_len, fn_in_flight) = match self.mqfq_set.get(&reg.fqdn) {
+            Some(fq) => (fq.queue.len(), fq.in_flight),
+            None     => (0, 0),
+        };
+        let total_queue_len: usize  = self.mqfq_set.iter().map(|q| q.queue.len()).sum();
+        let total_in_flight: i32    = self.mqfq_set.iter().map(|q| q.in_flight).sum();
+        let n_active: u32           = *self.active_flows.read();
+        info!(
+            tid             = tid,
+            fqdn            = %reg.fqdn,
+            fn_queue_len    = fn_queue_len,
+            fn_in_flight    = fn_in_flight,
+            total_queue_len = total_queue_len,
+            total_in_flight = total_in_flight,
+            active_flows    = n_active,
+            "MQFQ Queue State"
+        );
+
+        (capped_est, load)
+
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {

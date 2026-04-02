@@ -86,7 +86,14 @@
     run_once: true
     register: clean_cmd
     failed_when: clean_cmd.rc != 0
-    environment: "{{proxy_env}}"
+    environment: "{{ proxy_env | default({}) | combine(worker_environment | default({})) }}"
+
+  - name: clean local worker process
+    shell: "pkill -9 -w {{ worker.bin_name }}"
+    become: yes
+    when: mode == "clean_local"
+    failed_when: false
+
 
   - name: clean distrib host
     ansible.builtin.command: 
@@ -99,7 +106,13 @@
     when: mode == "clean"
     register: clean_cmd
     failed_when: clean_cmd.rc != 0
-    environment: "{{proxy_env}}"
+    environment: "{{ proxy_env | default({}) | combine(worker_environment | default({})) }}"
+
+  - name: clean local worker process
+    shell: "pkill -9 -w {{ worker.bin_name }}"
+    become: yes
+    when: mode == "clean_local"
+    failed_when: false
 
   - name: run worker executable
     ansible.builtin.command: 
@@ -111,7 +124,7 @@
     async: 2592000               # 60*60*24*30 – 1 month
     poll: 0
     when: mode == "deploy"
-    environment: "{{proxy_env}}"
+    environment: "{{ proxy_env | default({}) | combine(worker_environment | default({})) }}"
     register: worker_output
 
   - name: debug print
@@ -139,7 +152,7 @@
     async: 2592000               # 60*60*24*30 – 1 month
     poll: 0
     when: mode == "perf"
-    environment: "{{proxy_env}}"
+    environment: "{{ proxy_env | default({}) | combine(worker_environment | default({})) }}"
     register: perf_worker_output
 
   - name: Wait until the worker on this host is up and running
