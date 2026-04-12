@@ -160,6 +160,7 @@ impl QueueingDispatcher {
             &gpu,
             reg,
             tid,
+            cont_manager.clone(),
         )?;
         let svc = Arc::new(QueueingDispatcher {
             que_map,
@@ -322,6 +323,7 @@ impl QueueingDispatcher {
         gpu: &Option<Arc<GpuResourceTracker>>,
         reg: &Arc<RegistrationService>,
         tid: &TransactionId,
+        cont_manager: Arc<ContainerManager>,
     ) -> Result<Arc<dyn DispatchPolicy>> {
         let policy = invocation_config
             .enqueueing_policy
@@ -363,7 +365,7 @@ impl QueueingDispatcher {
             | EnqueueingPolicy::LRU
             | EnqueueingPolicy::LFU
             | EnqueueingPolicy::LandlordFixed => {
-                get_landlord(*policy, &cmap, invocation_config, que_map)
+                get_landlord(*policy, &cmap, invocation_config, que_map, cont_manager)
             }
             EnqueueingPolicy::Popular
             | EnqueueingPolicy::PopularEstTimeDispatch

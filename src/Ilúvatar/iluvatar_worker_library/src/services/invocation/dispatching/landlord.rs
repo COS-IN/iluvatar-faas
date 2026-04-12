@@ -1,3 +1,5 @@
+use crate::services::containers::containermanager::ContainerManager;
+use crate::services::containers::structs::ContainerState;
 use crate::services::invocation::dispatching::queueing_dispatcher::DispatchPolicy;
 use crate::services::invocation::dispatching::{EnqueueingPolicy, QueueMap};
 use crate::services::invocation::queueing::DeviceQueue;
@@ -44,14 +46,15 @@ pub fn get_landlord(
     cmap: &WorkerCharMap,
     invocation_config: &Arc<InvocationConfig>,
     que_map: QueueMap,
+    cont_manager: Arc<ContainerManager>
 ) -> Result<Arc<dyn DispatchPolicy>> {
     match pol {
-        EnqueueingPolicy::Landlord => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL"),
-        EnqueueingPolicy::LRU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LRU"),
-        EnqueueingPolicy::LFU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LFU"),
-        EnqueueingPolicy::LandlordFixed => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLF"),
+        EnqueueingPolicy::Landlord => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL", cont_manager),
+        EnqueueingPolicy::LRU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LRU", cont_manager),
+        EnqueueingPolicy::LFU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LFU", cont_manager),
+        EnqueueingPolicy::LandlordFixed => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLF", cont_manager),
         // landlord policy not being used, give dummy basic policy
-        _ => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL"),
+        _ => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL", cont_manager),
     }
 }
 
@@ -79,6 +82,7 @@ pub struct Landlord {
     // Reason for misses
     negcredits: u32,
     capacitymiss: u32,
+    cont_manager: Arc<ContainerManager>,
 }
 
 impl Landlord {
@@ -87,6 +91,7 @@ impl Landlord {
         cfg: &Option<Arc<LandlordConfig>>,
         que_map: QueueMap,
         cachepol: &str,
+        cont_manager: Arc<ContainerManager>,
     ) -> Result<Self> {
         match cfg {
             None => anyhow::bail!("LandlordConfig was empty"),
@@ -115,6 +120,7 @@ impl Landlord {
                 szmisses: 0.0,
                 negcredits: 0,
                 capacitymiss: 0,
+                cont_manager,
             }),
         }
     }
@@ -314,35 +320,59 @@ impl Landlord {
         est_err: f64,
         tid: &TransactionId,
     ) -> f64 {
+        // --- Diagnostic: Landlord vs Container Pool Consistency ---
+        let physical_state = self.cont_manager.container_available(&reg.fqdn, Compute::GPU);
+        let ll_present = self.present(&reg.fqdn);
+        let current_credit = self.credits.get(&reg.fqdn).cloned().unwrap_or(0.0);
+        
+        // If LL thinks the function is cached, but the container is Cold.
+        let is_disparity = ll_present && matches!(physical_state, ContainerState::Cold);
+        let is_warm_gpu = matches!(physical_state, ContainerState::Warm | ContainerState::Prewarm);
+
+        // For now, keep the cold-start penalty for estimation
+        let cold_start_penalty = if is_warm_gpu { 0.0 } else { 1.5 }; // seconds
+        let adjusted_gpu_est = gpu_est + cold_start_penalty;
+        // ---------------------------------------------------------
+
         let _cpu_q = self.cpu_queue.est_completion_time(reg, tid);
 
         let n_active = self.gpu_active_flows() as f64;
         let epsilon = 0.05;
-        // with 4 active functions, this is a 20% buffer
-        let gpu_est_total = gpu_est * (1.0 + epsilon * n_active);
+        let gpu_est_total = adjusted_gpu_est * (1.0 + epsilon * n_active);
         let cpu_exec = self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime);
         let cpu_est_total = f64::max(cpu_est, cpu_exec);
+
+        // Core Landlord decision log
+        info!(
+            tid = tid,
+            fqdn = reg.fqdn,
+            ll_present = ll_present,
+            ll_credit = current_credit,
+            physical_state = ?physical_state,
+            is_disparity = is_disparity,
+            "Landlord Disparity Check"
+        );
 
         info!(
             tid = tid,
             fqdn = reg.fqdn,
+            is_warm_gpu = is_warm_gpu,
             mqfq_est = mqfq_est,
-            gpu_est = gpu_est,
+            gpu_base_est = gpu_est,
+            gpu_adj_est = adjusted_gpu_est,
             gpu_est_err = est_err,
-            cpu_est = cpu_est,
-            cpu_exec = cpu_exec,
-            gpu_est_total = gpu_est_total,
-            cpu_est_total = cpu_est_total,
+            gpu_estimate_total = gpu_est_total,
+            cpu_estimate_total = cpu_est_total,
             "Landlord Credit"
         );
 
         match self.cachepol.as_str() {
             "LFU" => 1.0,
             "LRU" => match self.present(&reg.fqdn) {
-                true => 0.0, // LRU no extra credit, max is 1
+                true => 0.0,
                 false => 1.0,
             },
-            _ => cpu_est_total - gpu_est_total, //gpu_est, gpu_est is the KF. mqfq_est is 'raw' but should be fine if we are using linear regression
+            _ => cpu_est_total - gpu_est_total,
         }
     }
 
@@ -758,8 +788,9 @@ impl LLWrap {
         cfg: &Option<Arc<LandlordConfig>>,
         que_map: QueueMap,
         cachepol: &str,
+        cont_manager: Arc<ContainerManager>
     ) -> Result<Arc<dyn DispatchPolicy>> {
-        let ll = Landlord::boxed(cmap, cfg, que_map, cachepol)?;
+        let ll = Landlord::boxed(cmap, cfg, que_map, cachepol, cont_manager)?;
         Ok(Arc::new(Self { ll: Mutex::new(ll) }))
     }
 }
