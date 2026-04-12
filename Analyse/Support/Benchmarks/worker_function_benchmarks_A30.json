@@ -1,0 +1,569 @@
+{
+  "data": {
+    "rodinia-myocyte": {
+      "function_name": "rodinia-myocyte",
+      "image_name": "docker.io/alfuerst/rodinia-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            1.6480624675750732,
+            1.654510736465454
+          ],
+          "warm_over_results_us": [
+            28755.532424926758,
+            28999.2635345459
+          ],
+          "cold_results_sec": [
+            2.5819549560546875,
+            2.981384754180908
+          ],
+          "cold_over_results_us": [
+            988457.0439453125,
+            969248.2458190918
+          ],
+          "warm_worker_duration_us": [
+            1659636,
+            1666367
+          ],
+          "cold_worker_duration_us": [
+            2760774,
+            3154530
+          ],
+          "warm_invoke_duration_us": [
+            1676818,
+            1683510
+          ],
+          "cold_invoke_duration_us": [
+            3570412,
+            3950633
+          ]
+        }
+      }
+    },
+    "pyhpc-eos": {
+      "function_name": "pyhpc-eos",
+      "image_name": "docker.io/alfuerst/pyhpc-eos-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            0.01907444000244141,
+            0.020604848861694336
+          ],
+          "warm_over_results_us": [
+            12853.55999755859,
+            12215.151138305664
+          ],
+          "cold_results_sec": [
+            4.016204833984375,
+            3.842392683029175
+          ],
+          "cold_over_results_us": [
+            1259438.166015625,
+            1111583.3169708252
+          ],
+          "warm_worker_duration_us": [
+            24166,
+            25545
+          ],
+          "cold_worker_duration_us": [
+            4435452,
+            4147291
+          ],
+          "warm_invoke_duration_us": [
+            31928,
+            32820
+          ],
+          "cold_invoke_duration_us": [
+            5275643,
+            4953976
+          ]
+        }
+      }
+    },
+    "squeezenet": {
+      "function_name": "squeezenet",
+      "image_name": "docker.io/alfuerst/tf_squeezenet-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            1.6307063102722168,
+            1.541285276412964
+          ],
+          "warm_over_results_us": [
+            10991.689727783203,
+            11773.7235870359
+          ],
+          "cold_results_sec": [
+            5.228714466094971,
+            4.010676622390747
+          ],
+          "cold_over_results_us": [
+            3747609.5339050293,
+            3570351.377609253
+          ],
+          "warm_worker_duration_us": [
+            1633591,
+            1544363
+          ],
+          "cold_worker_duration_us": [
+            8156277,
+            6798888
+          ],
+          "warm_invoke_duration_us": [
+            1641698,
+            1553059
+          ],
+          "cold_invoke_duration_us": [
+            8976324,
+            7581028
+          ]
+        }
+      }
+    },
+    "rodinia-srad": {
+      "function_name": "rodinia-srad",
+      "image_name": "docker.io/alfuerst/rodinia-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            2.553349018096924,
+            2.44903826713562
+          ],
+          "warm_over_results_us": [
+            14511.981903076172,
+            13556.732864379883
+          ],
+          "cold_results_sec": [
+            2.608419418334961,
+            2.6042327880859375
+          ],
+          "cold_over_results_us": [
+            973093.5816650391,
+            956432.2119140625
+          ],
+          "warm_worker_duration_us": [
+            2559629,
+            2454269
+          ],
+          "cold_worker_duration_us": [
+            2783998,
+            2775716
+          ],
+          "warm_invoke_duration_us": [
+            2567861,
+            2462595
+          ],
+          "cold_invoke_duration_us": [
+            3581513,
+            3560665
+          ]
+        }
+      }
+    },
+    "rodinia-lavamd": {
+      "function_name": "rodinia-lavamd",
+      "image_name": "docker.io/alfuerst/rodinia-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            0.6691906452178955,
+            0.7316594123840332
+          ],
+          "warm_over_results_us": [
+            13088.354782104492,
+            13655.587615966797
+          ],
+          "cold_results_sec": [
+            0.8187763690948486,
+            0.8478443622589111
+          ],
+          "cold_over_results_us": [
+            945136.6309051514,
+            973838.6377410889
+          ],
+          "warm_worker_duration_us": [
+            674509,
+            736973
+          ],
+          "cold_worker_duration_us": [
+            987317,
+            1019750
+          ],
+          "warm_invoke_duration_us": [
+            682279,
+            745315
+          ],
+          "cold_invoke_duration_us": [
+            1763913,
+            1821683
+          ]
+        }
+      }
+    },
+    "imagenet": {
+      "function_name": "imagenet",
+      "image_name": "docker.io/alfuerst/tf_imagenet-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            1.8709027767181396,
+            2.471514940261841
+          ],
+          "warm_over_results_us": [
+            11354.223281860352,
+            12529.05973815918
+          ],
+          "cold_results_sec": [
+            4.375837087631226,
+            4.360196352005005
+          ],
+          "cold_over_results_us": [
+            6941291.912368774,
+            8113653.647994995
+          ],
+          "warm_worker_duration_us": [
+            1873728,
+            2475854
+          ],
+          "cold_worker_duration_us": [
+            10394520,
+            11685091
+          ],
+          "warm_invoke_duration_us": [
+            1882257,
+            2484044
+          ],
+          "cold_invoke_duration_us": [
+            11317129,
+            12473850
+          ]
+        }
+      }
+    },
+    "rodinia-gaussian": {
+      "function_name": "rodinia-gaussian",
+      "image_name": "docker.io/alfuerst/rodinia-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            1.1571576595306396,
+            1.153303623199463
+          ],
+          "warm_over_results_us": [
+            13641.340469360352,
+            13729.37680053711
+          ],
+          "cold_results_sec": [
+            1.2515082359313965,
+            1.2685415744781494
+          ],
+          "cold_over_results_us": [
+            966744.7640686035,
+            947887.4255218506
+          ],
+          "warm_worker_duration_us": [
+            1162608,
+            1158759
+          ],
+          "cold_worker_duration_us": [
+            1421798,
+            1434350
+          ],
+          "warm_invoke_duration_us": [
+            1170799,
+            1167033
+          ],
+          "cold_invoke_duration_us": [
+            2218253,
+            2216429
+          ]
+        }
+      }
+    },
+    "ffmpeg": {
+      "function_name": "ffmpeg",
+      "image_name": "docker.io/alfuerst/ffmpeg-iluvatar-gpu:latest",
+      "resource_data": {}
+    },
+    "rodinia-lud": {
+      "function_name": "rodinia-lud",
+      "image_name": "docker.io/alfuerst/rodinia-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            0.7731695175170898,
+            0.7134859561920166
+          ],
+          "warm_over_results_us": [
+            13194.482482910156,
+            13492.043807983398
+          ],
+          "cold_results_sec": [
+            0.9487545490264891,
+            0.9148151874542236
+          ],
+          "cold_over_results_us": [
+            910674.4509735109,
+            951506.8125457764
+          ],
+          "warm_worker_duration_us": [
+            778261,
+            718791
+          ],
+          "cold_worker_duration_us": [
+            1095311,
+            1084971
+          ],
+          "warm_invoke_duration_us": [
+            786364,
+            726978
+          ],
+          "cold_invoke_duration_us": [
+            1859429,
+            1866322
+          ]
+        }
+      }
+    },
+    "rodinia-pathfinder": {
+      "function_name": "rodinia-pathfinder",
+      "image_name": "docker.io/alfuerst/rodinia-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            0.39009809494018555,
+            0.4464445114135742
+          ],
+          "warm_over_results_us": [
+            12898.905059814453,
+            13729.488586425781
+          ],
+          "cold_results_sec": [
+            0.48862338066101074,
+            0.4911830425262451
+          ],
+          "cold_over_results_us": [
+            1010790.6193389893,
+            882290.9574737549
+          ],
+          "warm_worker_duration_us": [
+            395078,
+            452615
+          ],
+          "cold_worker_duration_us": [
+            658403,
+            598111
+          ],
+          "warm_invoke_duration_us": [
+            402997,
+            460174
+          ],
+          "cold_invoke_duration_us": [
+            1499414,
+            1373474
+          ]
+        }
+      }
+    },
+    "rodinia-needle": {
+      "function_name": "rodinia-needle",
+      "image_name": "docker.io/alfuerst/rodinia-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            1.2163183689117432,
+            1.2092270851135254
+          ],
+          "warm_over_results_us": [
+            13341.631088256836,
+            13274.91488647461
+          ],
+          "cold_results_sec": [
+            1.3784496784210205,
+            1.3600971698760986
+          ],
+          "cold_over_results_us": [
+            995927.3215789795,
+            962119.8301239014
+          ],
+          "warm_worker_duration_us": [
+            1221243,
+            1214257
+          ],
+          "cold_worker_duration_us": [
+            1550214,
+            1529219
+          ],
+          "warm_invoke_duration_us": [
+            1229660,
+            1222502
+          ],
+          "cold_invoke_duration_us": [
+            2374377,
+            2322217
+          ]
+        }
+      }
+    },
+    "pyhpc-isoneural": {
+      "function_name": "pyhpc-isoneural",
+      "image_name": "docker.io/alfuerst/pyhpc-isoneural-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            0.02957606315612793,
+            0.017160892486572266
+          ],
+          "warm_over_results_us": [
+            12617.93684387207,
+            10935.107513427734
+          ],
+          "cold_results_sec": [
+            8.919164180755615,
+            8.712130069732666
+          ],
+          "cold_over_results_us": [
+            1128174.8192443848,
+            1111156.930267334
+          ],
+          "warm_worker_duration_us": [
+            34401,
+            20234
+          ],
+          "cold_worker_duration_us": [
+            9225353,
+            9026126
+          ],
+          "warm_invoke_duration_us": [
+            42194,
+            28096
+          ],
+          "cold_invoke_duration_us": [
+            10047339,
+            9823287
+          ]
+        }
+      }
+    },
+    "torch_rnn": {
+      "function_name": "torch_rnn",
+      "image_name": "docker.io/alfuerst/rnn_generate_character_level-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            0.03145194053649902,
+            0.03065657615661621
+          ],
+          "warm_over_results_us": [
+            10151.059463500977,
+            9765.423843383789
+          ],
+          "cold_results_sec": [
+            2.7289881706237793,
+            2.4515323638916016
+          ],
+          "cold_over_results_us": [
+            2828626.8293762207,
+            2450300.6361083984
+          ],
+          "warm_worker_duration_us": [
+            34262,
+            33540
+          ],
+          "cold_worker_duration_us": [
+            4599669,
+            4131028
+          ],
+          "warm_invoke_duration_us": [
+            41603,
+            40422
+          ],
+          "cold_invoke_duration_us": [
+            5557615,
+            4901833
+          ]
+        }
+      }
+    },
+    "onnx-roberta": {
+      "function_name": "onnx-roberta",
+      "image_name": "docker.io/alfuerst/onnx-roberta-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            0.2366478443145752,
+            0.19464445114135745
+          ],
+          "warm_over_results_us": [
+            20428.155685424805,
+            14777.548858642549
+          ],
+          "cold_results_sec": [
+            1.6237106323242188,
+            1.1114583015441897
+          ],
+          "cold_over_results_us": [
+            21366511.36767578,
+            15501696.69845581
+          ],
+          "warm_worker_duration_us": [
+            248784,
+            201268
+          ],
+          "cold_worker_duration_us": [
+            22200386,
+            15827020
+          ],
+          "warm_invoke_duration_us": [
+            257076,
+            209422
+          ],
+          "cold_invoke_duration_us": [
+            22990222,
+            16613155
+          ]
+        }
+      }
+    },
+    "cupy": {
+      "function_name": "cupy",
+      "image_name": "docker.io/alfuerst/cupy-iluvatar-gpu:latest",
+      "resource_data": {
+        "gpu": {
+          "warm_results_sec": [
+            0.8932290077209473,
+            0.8942022323608398
+          ],
+          "warm_over_results_us": [
+            10611.992279052734,
+            12990.767639160156
+          ],
+          "cold_results_sec": [
+            3.691242933273315,
+            2.167524576187134
+          ],
+          "cold_over_results_us": [
+            1786442.066726685,
+            1116541.4238128662
+          ],
+          "warm_worker_duration_us": [
+            895735,
+            899184
+          ],
+          "cold_worker_duration_us": [
+            4171094,
+            2474545
+          ],
+          "warm_invoke_duration_us": [
+            903841,
+            907193
+          ],
+          "cold_invoke_duration_us": [
+            5477685,
+            3284066
+          ]
+        }
+      }
+    }
+  }
+}

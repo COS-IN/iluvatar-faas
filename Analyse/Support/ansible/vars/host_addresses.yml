@@ -1,0 +1,123 @@
+servers:
+  worker1:
+    internal_ip: 127.0.0.1
+    ipmi_ip: 127.0.0.1
+    hardware_interface: 'enp1s0f1'
+
+  127.0.0.1:
+    internal_ip: 127.0.0.1
+    ipmi_ip: 127.0.0.1
+    hardware_interface: 'enp1s0f1'
+
+  localhost:
+    internal_ip: 127.0.0.1
+    ipmi_ip: 127.0.0.1
+    hardware_interface: 'enp1s0f1'
+
+  10.21.87.123:
+    internal_ip: 10.21.87.123
+    ipmi_ip: 127.0.0.1
+
+  10.21.196.73:
+    internal_ip: 10.21.196.73
+    ipmi_ip: 127.0.0.1
+
+  129.79.242.15:
+    ipmi_ip: 129.79.242.15
+    internal_ip: 129.79.242.15
+    hardware_interface: 'enp0s31f6'
+
+  v-019.victor.futuresystems.org:
+    ipmi_ip: 172.29.202.219
+    internal_ip: 149.165.146.219
+    hardware_interface: 'enp175s0f1'
+
+  v-020.victor.futuresystems.org:
+    ipmi_ip: 172.29.202.220
+    internal_ip: 149.165.146.220
+    hardware_interface: 'enp175s0f1'
+
+  v-021.victor.futuresystems.org:
+    ipmi_ip: 172.29.202.221
+    internal_ip: 149.165.146.221
+    hardware_interface: 'enp175s0f1'
+
+  v-022.victor.futuresystems.org:
+    ipmi_ip: 172.29.202.222
+    internal_ip: 149.165.146.222
+    hardware_interface: 'enp175s0f1'
+
+  v-gpu1.victor.futuresystems.org:
+    ipmi_ip: 172.29.202.223
+    internal_ip: 149.165.146.223
+    hardware_interface: 'enp1s0f1'
+
+  v-gpu2.victor.futuresystems.org:
+    ipmi_ip: 172.29.202.224
+    internal_ip: 149.165.146.224
+    hardware_interface: 'enp1s0f1'
+
+  v-gpu3.victor.futuresystems.org:
+    ipmi_ip: 172.29.202.225
+    internal_ip: 149.165.146.225
+    hardware_interface: 'enp1s0f1'
+
+  v-gpu4.victor.futuresystems.org:
+    ipmi_ip: 172.29.202.226
+    internal_ip: 149.165.146.226
+    hardware_interface: 'enp1s0f1'
+
+  d7525-10s10311.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.41
+    internal_ip: 128.105.146.41
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10319.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.37
+    internal_ip: 128.105.146.37
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10325.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.34
+    internal_ip: 128.105.146.34
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10335.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.29
+    internal_ip: 128.105.146.29
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10339.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.27
+    internal_ip: 128.105.146.27
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10317.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.38
+    internal_ip: 128.105.146.38
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10327.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.33
+    internal_ip: 128.105.146.33
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10323.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.35
+    internal_ip: 128.105.146.35
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10309.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.42
+    internal_ip: 128.105.146.42
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10315.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.39
+    internal_ip: 128.105.146.39
+    hardware_interface: 'eno33np0'
+
+  d7525-10s10331.wisc.cloudlab.us:
+    ipmi_ip: 128.105.146.31
+    internal_ip: 128.105.146.31
+    hardware_interface: 'eno33np0'
