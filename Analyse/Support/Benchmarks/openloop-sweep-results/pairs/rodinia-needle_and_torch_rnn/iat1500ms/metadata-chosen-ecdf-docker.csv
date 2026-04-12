@@ -1,0 +1,14 @@
+func_name,cold_dur_ms,warm_dur_ms,mem_mb,image_name,compute,isolation,args
+squeezenet,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/tf_squeezenet-iluvatar-gpu:latest,CPU|GPU,Docker,
+torch_rnn,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/rnn_generate_character_level-iluvatar-gpu:latest,CPU|GPU,Docker,
+rodinia-needle,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/rodinia-iluvatar-gpu:latest,CPU|GPU,Docker,bin=needle
+rodinia-pathfinder,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/rodinia-iluvatar-gpu:latest,CPU|GPU,Docker,bin=pathfinder
+cupy,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/cupy-iluvatar-gpu:latest,CPU|GPU,Docker,
+pyhpc-isoneural,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/pyhpc-isoneural-iluvatar-gpu:latest,CPU|GPU,Docker,
+rodinia-lavamd,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/rodinia-iluvatar-gpu:latest,CPU|GPU,Docker,bin=lavaMD
+rodinia-myocyte,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/rodinia-iluvatar-gpu:latest,CPU|GPU,Docker,bin=myocyte.out
+imagenet,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/tf_imagenet-iluvatar-gpu:latest,CPU|GPU,Docker,
+rodinia-lud,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/rodinia-iluvatar-gpu:latest,CPU|GPU,Docker,bin=lud
+pyhpc-eos,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/pyhpc-eos-iluvatar-gpu:latest,CPU|GPU,Docker,
+rodinia-srad,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/rodinia-iluvatar-gpu:latest,CPU|GPU,Docker,bin=srad
+onnx-roberta,5000,1000,2000,registry.docker.iu.edu/iluvatar-faas/onnx-roberta-iluvatar-gpu:latest,CPU|GPU,Docker,
