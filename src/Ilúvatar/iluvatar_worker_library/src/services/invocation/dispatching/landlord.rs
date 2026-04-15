@@ -250,7 +250,7 @@ impl Landlord {
     /// For LRU and LFU, always decrement by one for all
     fn charge_rent_constant(&mut self) {
         for value in self.credits.values_mut() {
-            *value -= -1.0
+            *value -= 1.0
         }
     }
 
@@ -288,6 +288,10 @@ impl Landlord {
 
             info!(total_load=%total_load, "GPU Load");
 
+            if total_load <= 0.0 {
+                return;
+            }
+
             let frac_rent = total_rent_due / total_load;
 
             vals.into_iter().for_each(|(fqdn, len, exec)| {
@@ -298,6 +302,18 @@ impl Landlord {
 
             // This might result in some getting evicted. We should know about these?
             self.credits.retain(|_fqdn, c| *c > 0.0); // we still see functions with negative credit?
+
+            // Evict functions whose credits have been depleted by rent
+            // let evictions = &mut self.evictions;
+            // self.credits.retain(|fqdn, c| {
+            //     if *c <= 0.0 {
+            //         *evictions += 1;
+            //         info!(fqdn=%fqdn, remaining_credit=%c, "Eviction (Rent)");
+            //         false
+            //     } else {
+            //         true
+            //     }
+            // });
 
             self.landlog("Post Rent");
         }
@@ -324,13 +340,15 @@ impl Landlord {
         let physical_state = self.cont_manager.container_available(&reg.fqdn, Compute::GPU);
         let ll_present = self.present(&reg.fqdn);
         let current_credit = self.credits.get(&reg.fqdn).cloned().unwrap_or(0.0);
-        
+
         // If LL thinks the function is cached, but the container is Cold.
         let is_disparity = ll_present && matches!(physical_state, ContainerState::Cold);
         let is_warm_gpu = matches!(physical_state, ContainerState::Warm | ContainerState::Prewarm);
 
         // For now, keep the cold-start penalty for estimation
-        let cold_start_penalty = if is_warm_gpu { 0.0 } else { 1.5 }; // seconds
+        // let cold_start_penalty = if is_warm_gpu { 0.0 } else { 1.5 }; // seconds
+        // Disparity detection is kept, but penalty is held for now.
+        let cold_start_penalty = 0.0; // seconds
         let adjusted_gpu_est = gpu_est + cold_start_penalty;
         // ---------------------------------------------------------
 
@@ -728,12 +746,27 @@ impl Landlord {
         let (cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, tid);
         let szaware = !matches!(self.cachepol.as_str(), "LFU" | "LRU");
 
+        // Disparity check must happen before any Compute selection.
+        let physical_state = self.cont_manager.container_available(&reg.fqdn, Compute::GPU);
+        let ll_present = self.present(&reg.fqdn);
+        let _is_disparity = ll_present && matches!(physical_state, ContainerState::Cold);
+
+        // if is_disparity {
+        //     self.credits.remove(&reg.fqdn); // Remove from landlord cache.
+        //     info!(
+        //         tid = tid,
+        //         fqdn = %reg.fqdn,
+        //         physical_state = ?physical_state,
+        //         "Landlord disparity detected, removed from cache (credit reset)"
+        //     );
+        // }
+
         if self.present(&reg.fqdn) {
             let exec_time = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
             // This doesnt decrease credit
             let new_credit = self.calc_add_credit(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
             let pos_credit = match self.credits.get(&reg.fqdn) {
-                Some(cr) => *cr + new_credit > 0.0,
+                Some(cr) => *cr > 0.0,
                 _ => false,
             };
             if szaware && !pos_credit {

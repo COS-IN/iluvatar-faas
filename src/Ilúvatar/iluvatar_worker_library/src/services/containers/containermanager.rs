@@ -339,12 +339,12 @@ impl ContainerManager {
         tid: &TransactionId,
         compute: Compute,
     ) -> Result<ContainerLock> {
-        debug!(tid=tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
+        debug!(tid=tid, fqdn=%reg.fqdn, compute=?compute, image=%reg.image_name, memory=reg.memory, "Starting cold start for container");
         let container = self.launch_container_internal(&reg, tid, compute).await?;
         let rpool = self.get_resource_pool(compute)?;
         rpool.add_running_container(container.clone(), tid);
         self.prioritiy_notify.notify_waiters();
-        info!(tid=tid, container_id=%container.container_id(), "Container cold start completed");
+        debug!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(), "Container cold start completed");
         container.set_state(ContainerState::Cold);
         self.try_lock_container(container, tid)
             .ok_or_else(|| anyhow::anyhow!("Encountered an error making conatiner lock"))
@@ -387,6 +387,7 @@ impl ContainerManager {
         };
 
         container.set_state(ContainerState::Warm);
+        debug!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(), compute=?container.compute_type(), "Returning container to idle pool");
         match resource_pool.move_to_idle(container, tid) {
             Ok(_) => (),
             Err(e) => {
@@ -559,12 +560,16 @@ impl ContainerManager {
                 if let Some(mem) = cause.downcast_ref::<InsufficientMemoryError>() {
                     debug!(
                         tid = tid,
-                        amount = mem.needed,
-                        "Trying to reclaim memory to cold-start a container"
+                        needed = mem.needed,
+                        used = mem.used,
+                        available = mem.available,
+                        fqdn = %reg.fqdn,
+                        "Insufficient memory to launch container, attempting reclamation"
                     );
                     self.reclaim_memory(mem.needed, tid).await?;
                     self.try_launch_container(reg, tid, compute).await
                 } else if cause.downcast_ref::<InsufficientGPUError>().is_some() {
+                    debug!(tid = tid, fqdn = %reg.fqdn, "Insufficient GPU resources, attempting to reclaim a GPU");
                     self.reclaim_gpu(tid).await?;
                     self.try_launch_container(reg, tid, compute).await
                 } else {
@@ -604,12 +609,20 @@ impl ContainerManager {
     /// Container **must** have already been removed from the container pool
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     async fn purge_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
-        info!(tid=tid, container_id=%container.container_id(), "Removing container");
+        let mem_usage = container.get_curr_mem_usage();
+        debug!(
+            tid = tid,
+            container_id = %container.container_id(),
+            fqdn = %container.fqdn(),
+            compute = ?container.compute_type(),
+            memory = mem_usage,
+            "Purging container and releasing resources"
+        );
         let r = match self.cont_isolations.get(&container.container_type()) {
             Some(c) => c.remove_container(container.clone(), "default", tid).await,
             None => bail_error!(tid=tid, iso=?container.container_type(), "Lifecycle for container not supported"),
         };
-        *self.used_mem_mb.write() -= container.get_curr_mem_usage();
+        *self.used_mem_mb.write() -= mem_usage;
         self.return_gpu(&container, tid);
         container.remove_drop(tid);
         self.prioritiy_notify.notify_waiters();
@@ -638,7 +651,10 @@ impl ContainerManager {
             }
         }
         match chosen {
-            Some(c) => self.purge_container(c, tid).await?,
+            Some(c) => {
+                debug!(tid=tid, container_id=%c.container_id(), fqdn=%c.fqdn(), "Evicting container to reclaim GPU");
+                self.purge_container(c, tid).await?
+            },
             None => warn!(tid = tid, "tried to evict a container for a GPU, but was unable"),
         };
         Ok(())
@@ -651,18 +667,21 @@ impl ContainerManager {
         if amount_mb <= 0 {
             bail!("Cannot reclaim '{}' amount of memory", amount_mb);
         }
+        debug!(tid=tid, amount=amount_mb, "Attempting to reclaim memory via eviction");
         let mut reclaimed: MemSizeMb = 0;
         let mut to_remove = Vec::new();
         for container in self.prioritized_list.read().iter() {
             if let Some(removed_ctr) = self.cpu_containers.remove_container(container, tid) {
+                let usage = removed_ctr.get_curr_mem_usage();
+                debug!(tid=tid, container_id=%removed_ctr.container_id(), fqdn=%removed_ctr.fqdn(), usage=usage, "Selected container for memory reclamation");
                 to_remove.push(removed_ctr.clone());
-                reclaimed += removed_ctr.get_curr_mem_usage();
+                reclaimed += usage;
                 if reclaimed >= amount_mb {
                     break;
                 }
             }
         }
-        debug!(tid = tid, memory = reclaimed, "Memory to be reclaimed");
+        debug!(tid = tid, requested = amount_mb, actual = reclaimed, "Memory reclamation selection complete");
         for container in to_remove {
             self.purge_container(container, tid).await?;
         }
@@ -697,7 +716,13 @@ impl ContainerManager {
                     continue;
                 }
             }
-            debug!(tid=tid, container_id=%to_remove.container_id(), "Removing container");
+            debug!(
+                tid = tid,
+                container_id = %to_remove.container_id(),
+                fqdn = %to_remove.fqdn(),
+                compute = ?to_remove.compute_type(),
+                "Evicting idle container based on policy"
+            );
             match self.purge_container(to_remove, &tid).await {
                 Ok(_) => (),
                 Err(e) => error!(tid=tid, error=%e, "Got an error trying to evict container"),
