@@ -18,7 +18,9 @@ use parking_lot::RwLock;
 use std::sync::{atomic::AtomicU32, Arc};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Notify;
+use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
+use super::eviction::EvictionPolicy;
 
 lazy_static::lazy_static! {
   pub static ref CTR_MGR_WORKER_TID: TransactionId = "CtrMrgWorker".to_string();
@@ -59,6 +61,9 @@ pub struct ContainerManager {
     unhealthy_removal_rx: UnboundedSender<Container>,
     /// Currently executing a function
     outstanding_containers: DashMap<String, AtomicU32>,
+    pub greedy_dual_clock: RwLock<f64>,
+    pub greedy_dual_costs: DashMap<String, f64>,
+    pub greedy_dual_priorities: DashMap<String, f64>,
 }
 
 impl ContainerManager {
@@ -100,6 +105,9 @@ impl ContainerManager {
             unhealthy_removal_rx: del_ctr_tx,
             outstanding_containers: DashMap::new(),
             prioritiy_notify: pri_notif,
+            greedy_dual_clock: RwLock::new(0.0),
+            greedy_dual_costs: DashMap::new(),
+            greedy_dual_priorities: DashMap::new(),
         });
         tx.send(cm.clone())?;
         health_tx.send(cm.clone())?;
@@ -339,12 +347,16 @@ impl ContainerManager {
         tid: &TransactionId,
         compute: Compute,
     ) -> Result<ContainerLock> {
-        debug!(tid=tid, fqdn=%reg.fqdn, "Trying to cold start a new container");
+        debug!(tid=tid, fqdn=%reg.fqdn, compute=?compute, image=%reg.image_name, memory=reg.memory, "Starting cold start for container");
+        let start = Instant::now();
         let container = self.launch_container_internal(&reg, tid, compute).await?;
+        let duration = start.elapsed().as_secs_f64();
+        self.greedy_dual_costs.insert(reg.fqdn.clone(), duration);
+        debug!(tid=tid, fqdn=%reg.fqdn, cold_start_duration=duration, "Updated GreedyDual cost estimate");
         let rpool = self.get_resource_pool(compute)?;
         rpool.add_running_container(container.clone(), tid);
         self.prioritiy_notify.notify_waiters();
-        info!(tid=tid, container_id=%container.container_id(), "Container cold start completed");
+        debug!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(), "Container cold start completed");
         container.set_state(ContainerState::Cold);
         self.try_lock_container(container, tid)
             .ok_or_else(|| anyhow::anyhow!("Encountered an error making conatiner lock"))
@@ -357,6 +369,7 @@ impl ContainerManager {
         if container.is_healthy() {
             debug!(tid=tid, container_id=%container.container_id(), "Container acquired");
             container.touch();
+            self.update_greedy_dual_priority(&container);
             if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
                 (*cnt).fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
@@ -387,6 +400,7 @@ impl ContainerManager {
         };
 
         container.set_state(ContainerState::Warm);
+        debug!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(), compute=?container.compute_type(), "Returning container to idle pool");
         match resource_pool.move_to_idle(container, tid) {
             Ok(_) => (),
             Err(e) => {
@@ -559,12 +573,16 @@ impl ContainerManager {
                 if let Some(mem) = cause.downcast_ref::<InsufficientMemoryError>() {
                     debug!(
                         tid = tid,
-                        amount = mem.needed,
-                        "Trying to reclaim memory to cold-start a container"
+                        needed = mem.needed,
+                        used = mem.used,
+                        available = mem.available,
+                        fqdn = %reg.fqdn,
+                        "Insufficient memory to launch container, attempting reclamation"
                     );
                     self.reclaim_memory(mem.needed, tid).await?;
                     self.try_launch_container(reg, tid, compute).await
                 } else if cause.downcast_ref::<InsufficientGPUError>().is_some() {
+                    debug!(tid = tid, fqdn = %reg.fqdn, "Insufficient GPU resources, attempting to reclaim a GPU");
                     self.reclaim_gpu(tid).await?;
                     self.try_launch_container(reg, tid, compute).await
                 } else {
@@ -584,6 +602,7 @@ impl ContainerManager {
     pub async fn prewarm(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId, compute: Compute) -> Result<()> {
         for spec_comp in compute.into_iter() {
             let container = self.launch_container_internal(reg, tid, spec_comp).await?;
+            self.update_greedy_dual_priority(&container);
             container.set_state(ContainerState::Prewarm);
             let pool = self.get_resource_pool(spec_comp)?;
             pool.add_idle_container(container, tid);
@@ -597,19 +616,97 @@ impl ContainerManager {
     pub fn register(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> Result<()> {
         debug!(tid=tid, function_name=%reg.function_name, function_version=%reg.function_version, fqdn=%reg.fqdn, "Adding new registration to active_containers map");
         self.outstanding_containers.insert(reg.fqdn.clone(), AtomicU32::new(0));
+
+        // Initialize GreedyDual state for the function
+        let mut initial_cost = 1.0; // default 1s
+        if let Some(timings) = &reg.all_resource_timings {
+            for t in timings.values() {
+                if !t.cold_results_sec.is_empty() {
+                    initial_cost = t.cold_results_sec[0];
+                    break;
+                }
+            }
+        }
+        self.greedy_dual_costs.insert(reg.fqdn.clone(), initial_cost);
+
         Ok(())
+    }
+
+    pub fn get_freq(&self, fqdn: &str) -> u32 {
+        self.cmap.get_latest(fqdn, Chars::GpuInvokeCount) as u32
+    }
+
+    pub fn get_cost(&self, fqdn: &str) -> f64 {
+        self.greedy_dual_costs.get(fqdn).map(|r| *r).unwrap_or(1.0)
+    }
+
+    pub fn update_greedy_dual_priority(&self, container: &Container) {
+        let fqdn = container.fqdn();
+        let compute = container.compute_type();
+
+        // Update invocation counts in charmap
+        let current_total = self.cmap.get_latest(fqdn, Chars::TotalInvokeCount);
+        self.cmap.update(fqdn, Chars::TotalInvokeCount, current_total + 1.0);
+
+        if compute == Compute::CPU {
+            let current = self.cmap.get_latest(fqdn, Chars::CpuInvokeCount);
+            self.cmap.update(fqdn, Chars::CpuInvokeCount, current + 1.0);
+        } else if compute == Compute::GPU {
+            let current = self.cmap.get_latest(fqdn, Chars::GpuInvokeCount);
+            self.cmap.update(fqdn, Chars::GpuInvokeCount, current + 1.0);
+        }
+
+        // Use GpuInvokeCount as frequency for GreedyDual
+        let freq = self.cmap.get_latest(fqdn, Chars::GpuInvokeCount);
+
+        let cost = self.get_cost(fqdn);
+        let size = container.get_curr_mem_usage() as f64;
+        let size = if size <= 0.0 { 1.0 } else { size };
+        let clock = *self.greedy_dual_clock.read();
+
+        let priority = clock + (freq * cost) / size;
+        self.greedy_dual_priorities.insert(container.container_id().clone(), priority);
+        debug!(container_id=%container.container_id(), fqdn=%fqdn, freq=freq, cost=cost, priority=priority, clock=clock, "Updated GreedyDual priority");
+    }
+
+    pub fn record_eviction(&self, container: &Container) {
+        if let EvictionPolicy::GreedyDual = self.resources.eviction {
+            let p = self.greedy_dual_priorities.get(container.container_id()).map(|r| *r).unwrap_or_else(|| {
+                // If not found (e.g. should not happen), calculate a fallback
+                let clock = *self.greedy_dual_clock.read();
+                let fqdn = container.fqdn();
+                let freq = self.get_freq(fqdn) as f64;
+                let cost = self.get_cost(fqdn);
+                let size = container.get_curr_mem_usage() as f64;
+                let size = if size <= 0.0 { 1.0 } else { size };
+                clock + (freq * cost) / size
+            });
+            let mut lock = self.greedy_dual_clock.write();
+            if p > *lock {
+                *lock = p;
+                debug!(container_id=%container.container_id(), priority=p, "Updated GreedyDual clock to {}", p);
+            }
+        }
     }
 
     /// Delete a container and releases tracked resources for it
     /// Container **must** have already been removed from the container pool
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     async fn purge_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
-        info!(tid=tid, container_id=%container.container_id(), "Removing container");
+        let mem_usage = container.get_curr_mem_usage();
+        debug!(
+            tid = tid,
+            container_id = %container.container_id(),
+            fqdn = %container.fqdn(),
+            compute = ?container.compute_type(),
+            memory = mem_usage,
+            "Purging container and releasing resources"
+        );
         let r = match self.cont_isolations.get(&container.container_type()) {
             Some(c) => c.remove_container(container.clone(), "default", tid).await,
             None => bail_error!(tid=tid, iso=?container.container_type(), "Lifecycle for container not supported"),
         };
-        *self.used_mem_mb.write() -= container.get_curr_mem_usage();
+        *self.used_mem_mb.write() -= mem_usage;
         self.return_gpu(&container, tid);
         container.remove_drop(tid);
         self.prioritiy_notify.notify_waiters();
@@ -638,7 +735,11 @@ impl ContainerManager {
             }
         }
         match chosen {
-            Some(c) => self.purge_container(c, tid).await?,
+            Some(c) => {
+                debug!(tid=tid, container_id=%c.container_id(), fqdn=%c.fqdn(), "Evicting container to reclaim GPU");
+                self.record_eviction(&c);
+                self.purge_container(c.clone(), tid).await?
+            },
             None => warn!(tid = tid, "tried to evict a container for a GPU, but was unable"),
         };
         Ok(())
@@ -651,19 +752,23 @@ impl ContainerManager {
         if amount_mb <= 0 {
             bail!("Cannot reclaim '{}' amount of memory", amount_mb);
         }
+        debug!(tid=tid, amount=amount_mb, "Attempting to reclaim memory via eviction");
         let mut reclaimed: MemSizeMb = 0;
         let mut to_remove = Vec::new();
         for container in self.prioritized_list.read().iter() {
             if let Some(removed_ctr) = self.cpu_containers.remove_container(container, tid) {
+                let usage = removed_ctr.get_curr_mem_usage();
+                debug!(tid=tid, container_id=%removed_ctr.container_id(), fqdn=%removed_ctr.fqdn(), usage=usage, "Selected container for memory reclamation");
                 to_remove.push(removed_ctr.clone());
-                reclaimed += removed_ctr.get_curr_mem_usage();
+                reclaimed += usage;
                 if reclaimed >= amount_mb {
                     break;
                 }
             }
         }
-        debug!(tid = tid, memory = reclaimed, "Memory to be reclaimed");
+        debug!(tid = tid, requested = amount_mb, actual = reclaimed, "Memory reclamation selection complete");
         for container in to_remove {
+            self.record_eviction(&container);
             self.purge_container(container, tid).await?;
         }
         Ok(())
@@ -697,7 +802,14 @@ impl ContainerManager {
                     continue;
                 }
             }
-            debug!(tid=tid, container_id=%to_remove.container_id(), "Removing container");
+            debug!(
+                tid = tid,
+                container_id = %to_remove.container_id(),
+                fqdn = %to_remove.fqdn(),
+                compute = ?to_remove.compute_type(),
+                "Evicting idle container based on policy"
+            );
+            self.record_eviction(&to_remove);
             match self.purge_container(to_remove, &tid).await {
                 Ok(_) => (),
                 Err(e) => error!(tid=tid, error=%e, "Got an error trying to evict container"),

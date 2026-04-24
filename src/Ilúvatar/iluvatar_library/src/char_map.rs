@@ -161,11 +161,19 @@ pub enum Chars {
     /// Also store the error?
     QueueErrGpu,
     QueueErrCpu,
+
+    /// Number of cpu executions
+    CpuInvokeCount,
+    /// Number of gpu executions
+    GpuInvokeCount,
+    /// TotalCount
+    TotalInvokeCount,
+
 }
 impl Chars {
     /// Get the Cold, Warm, and Execution time [Chars] specific to the given compute device.
     /// (Cold, Warm, PreWarm, Exec, E2E, QueueEstErr)
-    pub fn get_chars(compute: &Compute) -> anyhow::Result<(Chars, Chars, Chars, Chars, Chars, Chars)> {
+    pub fn get_chars(compute: &Compute) -> anyhow::Result<(Chars, Chars, Chars, Chars, Chars, Chars, Chars, Chars)> {
         if compute == &Compute::CPU {
             Ok((
                 Chars::CpuColdTime,
@@ -174,6 +182,8 @@ impl Chars {
                 Chars::CpuExecTime,
                 Chars::E2ECpu,
                 Chars::QueueErrCpu,
+                Chars::CpuInvokeCount,
+                Chars::TotalInvokeCount,
             ))
         } else if compute == &Compute::GPU {
             Ok((
@@ -183,6 +193,8 @@ impl Chars {
                 Chars::GpuExecTime,
                 Chars::E2EGpu,
                 Chars::QueueErrGpu,
+                Chars::GpuInvokeCount,
+                Chars::TotalInvokeCount,
             ))
         } else {
             anyhow::bail!("Unknown compute to get Chars for registration: {:?}", compute)
@@ -190,7 +202,7 @@ impl Chars {
     }
 }
 impl Max for Chars {
-    const MAX: usize = Self::QueueErrCpu as usize;
+    const MAX: usize = Self::TotalInvokeCount as usize;
 }
 impl num_traits::AsPrimitive<usize> for Chars {
     #[inline(always)]
@@ -443,7 +455,7 @@ pub fn add_registration_timings(
         for dev_compute in compute.into_iter() {
             if let Some(timings) = r.get(&dev_compute) {
                 debug!(tid=tid, compute=%dev_compute, from_compute=%compute, fqdn=fqdn, timings=?r, "Registering timings for function");
-                let (cold, warm, prewarm, exec, e2e, _) = Chars::get_chars(&dev_compute)?;
+                let (cold, warm, prewarm, exec, e2e, _, _perdevice_count, _total_count) = Chars::get_chars(&dev_compute)?;
                 for v in timings.cold_results_sec.iter() {
                     cmap.update(fqdn, exec, *v);
                 }

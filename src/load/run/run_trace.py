@@ -281,7 +281,7 @@ worker_kwargs = [
     ("worker_log_dir", "/tmp/iluvatar/logs/ansible", ("logging", "directory")),
     ("worker_include_spans_json", False, ("logging", "include_spans_json")),
     ("worker_status_ms", 500, ("status", "report_freq_ms")),
-    
+
     # energy
     ("ipmi_freq_ms", 0, ("energy", "ipmi_freq_ms")),
     ("ipmi_pass_file", "", ("energy", "ipmi_pass_file")),
@@ -317,6 +317,7 @@ worker_kwargs = [
     # containers
     ("concurrent_creation", 5, ("container_resources", "concurrent_creation")),
     ("snapshotter", "zfs", ("container_resources", "snapshotter")),
+    ("eviction", "LRU", ("container_resources", "eviction")),
     ("worker_memory_buffer", 1024, ("container_resources", "memory_buffer_mb")),
     # influx
     ("influx_enabled", False, ("influx", "enabled")),
@@ -360,6 +361,8 @@ worker_kwargs = [
     ),
     # weighted_random
     ("gpu_probability", 0.5, ("invocation", "weighted_random_config", "gpu_probability")),
+    # epsilon_greedy
+    ("epsilon", 0.075, ("invocation", "epsilon_greedy_config", "epsilon")),
 ]
 def load_kwargs(**kwargs):
     default_kwargs = LoadConfig()
@@ -407,7 +410,7 @@ def run_live(
             with open(config_dump, 'w', encoding='utf-8') as f:
                 # print("Dump json")
                 json.dump(kwargs.to_dict(), f, ensure_ascii=False, indent=4)
-                
+
 
             with open(log_file, "w") as log_file_fp:
                 try:

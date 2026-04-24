@@ -3,6 +3,7 @@ use iluvatar_library::types::Compute;
 use std::collections::HashMap;
 use std::sync::Arc; 
 
+pub mod epsilon_greedy;
 pub mod greedy_weight;
 pub mod landlord;
 pub mod popular;
@@ -51,6 +52,7 @@ pub enum EnqueueingPolicy {
     LeastPopular,
     MICE,
     Greedy,
+    EpsilonGreedy,
 }
 
 type QueueMap = HashMap<Compute, Arc<dyn DeviceQueue>>;

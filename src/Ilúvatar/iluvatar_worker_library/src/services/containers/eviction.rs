@@ -4,7 +4,7 @@ use crate::services::containers::structs::Container;
 use iluvatar_library::transaction::TransactionId;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tracing::{debug, error};
+use tracing::debug;
 
 // NOTE: Rust will panic if the comparator doesn't implement total ordering.
 // As the values used to sort containers _may_ change during sorting here, they must be pre-captured.
@@ -32,14 +32,11 @@ pub fn order_pool_eviction(
     tid: &TransactionId,
     list: Subpool,
 ) -> (Subpool, Subpool) {
-    debug!(tid = tid, "Computing eviction priorities");
+    debug!(tid = tid, eviction_policy = ?policy, "Computing eviction priorities");
     match policy {
         EvictionPolicy::LRU => lru_eviction(list),
         EvictionPolicy::TTL { timout_sec } => ttl_eviction(list, Duration::from_secs(*timout_sec)),
-        EvictionPolicy::GreedyDual => {
-            error!(tid = tid, "GreedyDual eviction algorithm not implemented yet");
-            (list, vec![])
-        },
+        EvictionPolicy::GreedyDual => greedy_dual_eviction(_ctr_mrg, list),
     }
 }
 
@@ -62,4 +59,36 @@ fn ttl_eviction(list: Subpool, timeout: Duration) -> (Subpool, Subpool) {
     }
     sort.sort_unstable_by(|c1, c2| c1.0.cmp(&c2.0));
     (sort.into_iter().map(|c| c.1).collect(), evict)
+}
+
+fn greedy_dual_eviction(mgr: &ContainerManager, list: Subpool) -> (Subpool, Subpool) {
+    let mut insts: Vec<(f64, Container)> = list
+        .into_iter()
+        .map(|c| {
+            let priority = mgr
+                .greedy_dual_priorities
+                .get(c.container_id())
+                .map(|r| *r)
+                .unwrap_or_else(|| {
+                    // Fallback calculation if priority is missing
+                    let clock = *mgr.greedy_dual_clock.read();
+                    let fqdn = c.fqdn();
+                    let freq = mgr.get_freq(fqdn) as f64;
+                    let cost = mgr.get_cost(fqdn);
+                    let size = c.get_curr_mem_usage() as f64;
+                    let size = if size <= 0.0 { 1.0 } else { size };
+                    clock + (freq * cost) / size
+                });
+            (priority, c)
+        })
+        .collect();
+
+    // Sort ascending by priority (lowest priority first)
+    insts.sort_unstable_by(|c1, c2| c1.0.partial_cmp(&c2.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    for (priority, c) in insts.iter() {
+        debug!(container_id=%c.container_id(), fqdn=%c.fqdn(), priority=priority, "GreedyDual candidate priority");
+    }
+
+    (insts.into_iter().map(|c| c.1).collect(), vec![])
 }
