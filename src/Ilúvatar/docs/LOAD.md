@@ -125,10 +125,7 @@ iluvatar_load_gen -p 100 -h localhost trace --target "controller" --setup "simul
 The `benchmark` command repeatedly runs functions on a system to determine the runtime characteristics of each.
 Results of the benchmark will be stored as json, in the format specified by the `BenchmarkStore` struct [here](../iluvatar_load_gen/src/benchmark.rs)
 
-1. `--functions-dir`: A directory holding the functions that are to be benchmarked.
-It is assumed that images for each already exist and are available, they are not prepared by this.
-It iterates over the sub-directories and uses their names to specify images to run.
-The easiest way is to use the `python3` functions in [this folder](../../load/functions/python3/functions) of the repository.
+1. `--function-file`: A csv with all the functions to be benchmarked listed inside of it. See `struct Function` in `trace.rs` for all the supported items that can be in this csv. You can use either folder code uploads or pre-built images. The [benchmark](./examples/benchmark/README.md) example has both of these.
 
 1. `--target`, `-t`: What is the experiment targeting?
 Specifying `worker` and it will use RPCs to communicate with a single worker directly.

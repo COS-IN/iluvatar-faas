@@ -9,15 +9,21 @@ sudo iluvatar_worker -c iluvatar_worker/src/worker.dev.json
 ```
 
 Register a simple function.
-Currently, functions must use pre-built images.
-The system does not support building images from function code at runtime.
+Functions can upload a folder of a `main.py`, any other files that will be zipped together and added to the container when it is run, and a `reqs.txt` file, or pre-built OCI images.
 
 ```shell
-foo@cosin:~$ iluvatar_worker_cli --host localhost --port 8079 register --name myfunc --version 1 --memory 512 --cpu 1 --image docker.io/alfuerst/hello-iluvatar-action:latest --isolation containerd --compute cpu
+foo@cosin:~$ iluvatar_worker_cli --host localhost --port 8079 register --name myfunc --version 1 --memory 512 --cpu 1 \
+    --image docker.io/alfuerst/hello-iluvatar-action:latest --isolation containerd --compute cpu
 {"Ok": "function registered"}
 ```
 
-Then invoke it, with or without arguments.
+```shell
+foo@cosin:~$ iluvatar_worker_cli -host localhost --port 8079 register --name myfunc --version 1 --memory 512 --cpu 1 \
+    --runtime python3 --code-folder ./cnn_image_classification
+{"Ok": "function registered"}
+```
+
+Then invoke your new function, with or without arguments.
 
 ```shell
 foo@cosin:~$ iluvatar_worker_cli --host localhost --port 8079 invoke --name myfunc --version 1 -a name=Alex
@@ -48,6 +54,15 @@ The code for all of them resides [here](../../load/functions/).
 
 All the current functions use Python3 as a language runtime and have our [custom server agent](../../load/functions/python3/server.py) wrap the function's Python code.
 This server imports the function's code on startup and runs an HTTP server to wait for invocations.
+
+### Custom Code Upload
+
+Originally, Ilúvatar supported only using pre-built images with out agent inside them already.
+It now supports automatically zipping up folders with python code in it, preparing those internally, and running functions directly from that.
+The CLI and load generator will zip up a folder containing a `main.py`, a `reqs.txt`, and anything else in the targeted folder, so you can upload several Python files or other dependencies or pre-made inputs you might want.
+On worker function registration Python dependencies are fetched and cached on each worker.
+When we start a new container, the function and dependencies are mounted into the container and run.
+See the documentation and help for the cli and load generator for details on using this feature.
 
 ### Lookbusy
 

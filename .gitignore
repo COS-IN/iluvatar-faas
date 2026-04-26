@@ -6,3 +6,4 @@ __pycache__/*.lock
 .idea/
 .vscode/
 dist/
+.mypy_cache/

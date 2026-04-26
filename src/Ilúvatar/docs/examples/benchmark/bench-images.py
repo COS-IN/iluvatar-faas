@@ -16,7 +16,7 @@ from load.run.run_trace import (
     run_ansible,
 )
 
-build_level = BuildTarget.RELEASE
+build_level = BuildTarget.DEBUG
 results_dir = os.path.join(os.getcwd(), "results")
 os.makedirs(results_dir, exist_ok=True)
 worker_log_dir = os.path.join(os.getcwd(), "results", "tmp")
@@ -41,7 +41,7 @@ kwargs = {
     "memory": 1024 * 10,
     "worker_status_ms": 1000,
     "worker_log_dir": worker_log_dir,
-    "snapshotter": "overlayfs",
+    "snapshotter": "zfs",
 }
 
 

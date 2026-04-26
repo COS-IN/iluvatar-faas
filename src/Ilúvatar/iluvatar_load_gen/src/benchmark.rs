@@ -85,7 +85,7 @@ pub struct BenchmarkArgs {
     /// Target for the load
     target: Target,
     #[arg(long)]
-    /// The csv with all the functions to be benchmarked listed inside of it. In the form <f_name>,<f_image>
+    /// The csv with all the functions to be benchmarked listed inside of it.
     function_file: String,
     #[arg(long, default_value = "10")]
     /// Number of times to run each function cold

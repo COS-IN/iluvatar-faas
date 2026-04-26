@@ -57,72 +57,6 @@ cli_pth = os.path.join(
 pre_run_cleanup(log_file, out_folder, **kwargs)
 try:
     run_ansible(log_file, **kwargs)
-    # args = [
-    #     cli_pth,
-    #     "--port",
-    #     str(8070),
-    #     "--host",
-    #     kwargs["host"],
-    #     "register",
-    #     "--memory",
-    #     "1024",
-    #     "--isolation",
-    #     "CONTAINERD",
-    #     # "--runtime",
-    #     # "python3",
-    #     # "--code-zip",
-    #     # "code.tar.gz",
-    #     "--image",
-    #     "docker.io/alfuerst/json_dumps_loads-iluvatar-action-unix:latest",
-    #     "--server",
-    #     "UNIX",
-    #     "--runtime",
-    #     "nolang",
-    #     "--name",
-    #     "test",
-    #     "--version",
-    #     "1",
-    #     "--cpu",
-    #     "1",
-    # ]
-    # env = deepcopy(os.environ)
-    # env["RUST_BACTRACE"] = "1"
-    # completed = subprocess.run(
-    #     args=args,
-    #     stdout=subprocess.PIPE,
-    #     stderr=subprocess.PIPE,
-    #     text=True,
-    #     env=env,
-    # )
-    # logger.info(completed.stdout)
-    # logger.info(completed.stderr)
-    # completed.check_returncode()
-
-    # args = [
-    #     cli_pth,
-    #     "--port",
-    #     str(8070),
-    #     "--host",
-    #     kwargs["host"],
-    #     "invoke",
-    #     "--name",
-    #     "test",
-    #     "--version",
-    #     "1",
-    # ]
-    # env = deepcopy(os.environ)
-    # env["RUST_BACTRACE"] = "1"
-    # completed = subprocess.run(
-    #     args=args,
-    #     stdout=subprocess.PIPE,
-    #     stderr=subprocess.PIPE,
-    #     text=True,
-    #     env=env,
-    # )
-    # logger.info(completed.stdout)
-    # logger.info(completed.stderr)
-    # completed.check_returncode()
-
     args = [
         cli_pth,
         "--port",
@@ -134,14 +68,12 @@ try:
         "1024",
         "--isolation",
         "CONTAINERD",
+        "--isolation",
+        "DOCKER",
         "--runtime",
         "python3",
         "--code-folder",
         "./cnn_image_classification",
-        # "--image",
-        # "docker.io/alfuerst/json_dumps_loads-iluvatar-action-unix:latest",
-        # "--server",
-        # "UNIX",
         "--name",
         "test",
         "--version",
