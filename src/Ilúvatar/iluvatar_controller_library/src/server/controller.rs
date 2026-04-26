@@ -289,13 +289,13 @@ impl ControllerAPITrait for Controller {
                 Err(e) => Ok(RegisterResponse {
                     success: false,
                     fqdn: "".to_string(),
-                    error: format!("{:?}", e),
+                    error: format!("{e:?}"),
                 }),
             },
             Err(e) => Ok(RegisterResponse {
                 success: false,
                 fqdn: "".to_string(),
-                error: format!("{:?}", e),
+                error: format!("{e:?}"),
             }),
         }
     }

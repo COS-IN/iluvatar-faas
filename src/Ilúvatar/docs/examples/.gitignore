@@ -35,3 +35,4 @@ results/
 temp-results/
 *.json
 *.csv
+*.tar.gz

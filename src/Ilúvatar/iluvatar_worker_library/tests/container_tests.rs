@@ -187,8 +187,6 @@ mod registration {
         );
     }
 
-    #[ignore]
-    // ignored because containerd testing is currently broken
     #[iluvatar_library::live_test]
     async fn image_invalid_registration_fails_ctr() {
         let (_log, _cfg, _cm, _invoker, reg, _, _) = build_test_services(None, None, None).await;
@@ -326,7 +324,7 @@ mod prewarm {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         let _cast_container = cast::<DockerContainer>(&c.container).unwrap();
         assert_eq!(c.container.function().function_name, "test");
         assert_eq!(c.container.function().function_version, "test");
@@ -348,7 +346,7 @@ mod prewarm {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         let cast_container = cast::<DockerContainer>(&c.container).unwrap();
         assert_eq!(cast_container.function.function_name, "test");
         assert_eq!(cast_container.function.function_version, "test");
@@ -491,7 +489,7 @@ mod remove_container {
         assert_error!(
             result,
             "HTTP error when trying to connect to container",
-            format!("Unpexpected result when container should be gone {:?}", result)
+            format!("Unpexpected result when container should be gone {result:?}")
         );
     }
 
@@ -736,7 +734,7 @@ mod server_invokable {
     #[case("http")]
     #[case("unix")]
     async fn docker_severs_work(#[case] server: &str) {
-        let image = format!("docker.io/alfuerst/hello-iluvatar-action-{}:latest", server);
+        let image = format!("docker.io/alfuerst/hello-iluvatar-action-{server}:latest");
         let (_log, _cfg, cm, invoker, reg, _, _) = build_test_services(None, None, None).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
@@ -770,14 +768,11 @@ mod server_invokable {
 
     #[iluvatar_library::live_test]
     #[rstest]
-    // ignored because containerd testing is currently broken
-    #[ignore]
     #[case("http")]
-    #[ignore]
     #[case("unix")]
     async fn containerd_severs_work(#[case] server: &str) {
-        let image = format!("docker.io/alfuerst/hello-iluvatar-action-{}:latest", server);
-        let (_log, _cfg, cm, invoker, reg, _, _) = build_test_services(None, None, None).await;
+        let image = format!("docker.io/alfuerst/hello-iluvatar-action-{server}:latest");
+        let (_log, _cfg, cm, invoker, reg, _, _) = build_test_services(None, None, Some("warn")).await;
         let req = RegisterRequest {
             function_name: "test".to_string(),
             function_version: "test".to_string(),

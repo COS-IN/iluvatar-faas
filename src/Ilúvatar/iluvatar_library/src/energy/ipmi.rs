@@ -2,7 +2,6 @@ use super::EnergyConfig;
 use crate::clock::{get_global_clock, Clock};
 use crate::threading::os_thread;
 use crate::{
-    bail_error,
     transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID},
     utils::execute_cmd_checked,
 };
@@ -143,7 +142,7 @@ impl IPMIMonitor {
                 return;
             },
         };
-        let to_write = format!("{},{}\n", t, ipmi_uj);
+        let to_write = format!("{t},{ipmi_uj}\n");
         self.write_text(to_write, tid);
     }
 

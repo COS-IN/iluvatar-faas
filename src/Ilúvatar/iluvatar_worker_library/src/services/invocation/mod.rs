@@ -52,7 +52,7 @@ impl Display for InvokerLoad {
             Ok(s) => s,
             Err(_e) => return Err(std::fmt::Error {}),
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

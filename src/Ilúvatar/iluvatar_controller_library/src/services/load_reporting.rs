@@ -81,10 +81,9 @@ impl LoadService {
 
     async fn get_live_update(&self, tid: &TransactionId) -> HashMap<String, WorkerStatus> {
         let query = format!(
-            "from(bucket: \"{}\")
+            "from(bucket: \"{WORKERS_BUCKET}\")
 |> range(start: -1m)
-|> last()",
-            WORKERS_BUCKET,
+|> last()"
         );
         let mut ret = HashMap::new();
         match &self.influx {

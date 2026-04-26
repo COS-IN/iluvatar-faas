@@ -18,13 +18,7 @@
         "env": [
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "TERM=xterm",
-            "__IL_PORT=$PORT",
-            "__IL_HOST=$HOST_ADDR",
-            "__IL_SOCKET=$SOCK/sock",
-            "FLASK_APP=server",
-            "FLASK_RUN_PORT=$PORT",
-            "FLASK_RUN_HOST=$HOST_ADDR",
-            "GUNICORN_CMD_ARGS=--workers=1 --timeout=$INVOKE_TIMEOUT --bind=$HOST_ADDR:$PORT --enable-stdio-inheritance -e PYTHONUNBUFFERED=1"
+            "FLASK_APP=server"
         ],
         "cwd": "/app",
         "rlimits": [{
@@ -35,7 +29,7 @@
         "noNewPrivileges": true
     },
     "root": {
-        "path": "$ROOTFS",
+        "path": "FIXME",
         "readonly": false
     },
     "hostname": "test",
@@ -48,12 +42,6 @@
             "destination": "/tmp",
             "type": "tmpfs",
             "source": "tmpfs"
-        },
-        {
-            "source": "/tmp/iluvatar/$CTR_ID/",
-            "destination": "$SOCK",
-            "options": [ "rw", "bind" ],
-            "type": "none"
         },
         {
             "destination": "/dev",
@@ -123,18 +111,12 @@
                 "relatime",
                 "ro"
             ]
-        },
-        {
-            "destination": "/etc/resolv.conf",
-            "type": "none",
-            "source": "$RESOLV_CONF",
-            "options": [ "ro", "bind" ]
         }
     ],
     "hooks": {},
     "linux": {
         "devices": [],
-        "cgroupsPath": "$CGROUPSPATH",
+        "cgroupsPath": "FIXME",
         "resources": {
           "devices": [
               {"allow":false,"access":"rwm"},
@@ -146,20 +128,16 @@
               {"allow":true,"type":"c","major":5,"minor":1,"access":"rwm"}
           ],
           "memory": {
-            "limit": "$MEMLIMIT"
+            "limit": "0"
           },
           "cpu": {
-            "quota": "$CPUQUOTA",
-            "period": "$CPUPERIOD"
+            "quota": "FIXME",
+            "period": "FIXME"
           }
         },
         "namespaces": [
           {
             "type":"pid"
-          },
-          {
-            "type": "network",
-            "path": "$NET_NS"
           },
           {
             "type":"ipc"

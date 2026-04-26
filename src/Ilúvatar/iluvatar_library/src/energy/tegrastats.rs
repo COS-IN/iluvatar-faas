@@ -1,5 +1,5 @@
 use crate::clock::now;
-use crate::{bail_error, transaction::TransactionId, utils::execute_cmd_nonblocking};
+use crate::{transaction::TransactionId, utils::execute_cmd_nonblocking};
 use anyhow::Result;
 use std::{process::Child, time::Duration};
 use tracing::{info, warn};

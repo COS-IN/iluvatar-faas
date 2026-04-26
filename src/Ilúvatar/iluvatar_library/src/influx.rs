@@ -102,15 +102,15 @@ impl InfluxClient {
                             self.has_k_v(
                                 &m,
                                 "message",
-                                format!("bucket with name {} already exists", name).as_str(),
+                                format!("bucket with name '{name}' already exists").as_str(),
                             )?;
                             info!(tid = tid, "Bucket {} already exists", name);
                             Ok(())
                         },
-                        Err(_) => anyhow::bail!(format!("Unknown error format: '{}'", text)),
+                        Err(_) => anyhow::bail!(format!("Unknown error format: '{text}'")),
                     }
                 },
-                _ => anyhow::bail!(format!("HTTP error on creating bucket: {} {}", status, text)),
+                _ => anyhow::bail!(format!("HTTP error on creating bucket: {status} {text}")),
             },
             RequestError::Serializing { source } => anyhow::bail!(source.to_string()),
             RequestError::Deserializing { text } => anyhow::bail!(text),

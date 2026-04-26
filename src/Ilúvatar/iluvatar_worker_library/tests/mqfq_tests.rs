@@ -31,7 +31,7 @@ fn build_gpu_env(overrun: f64, timeout_sec: f64, mqfq_policy: &str) -> Vec<(Stri
         ("invocation.queue_policies.gpu".to_string(), mqfq_policy.to_string()),
         (
             "invocation.mqfq_config.allowed_overrun".to_string(),
-            format!("{}", overrun),
+            format!("{overrun}"),
         ),
         ("invocation.mqfq_config.ttl_sec".to_string(), timeout_sec.to_string()),
         ("invocation.mqfq_config.service_average".to_string(), "5.0".to_string()),

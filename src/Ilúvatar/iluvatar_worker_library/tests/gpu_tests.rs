@@ -6,10 +6,10 @@ use iluvatar_library::transaction::TEST_TID;
 
 fn build_gpu_env(num: u32, memory_mb: u32) -> Vec<(String, String)> {
     vec![
-        ("container_resources.gpu_resource.count".to_string(), format!("{}", num)),
+        ("container_resources.gpu_resource.count".to_string(), format!("{num}")),
         (
             "container_resources.gpu_resource.memory_mb".to_string(),
-            format!("{}", memory_mb),
+            format!("{memory_mb}"),
         ),
     ]
 }

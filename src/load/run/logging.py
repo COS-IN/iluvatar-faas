@@ -2,7 +2,9 @@ from typing import Optional
 import logging
 import sys
 
-def create_logger(log_file: Optional[str], level = logging.INFO) -> logging.Logger:
+def create_logger(log_file: Optional[str | logging.Logger], level = logging.INFO) -> logging.Logger:
+    if type(log_file) is logging.Logger:
+        return log_file
     if log_file is not None:
         logging.basicConfig(filename=log_file, filemode='a', level=level, force=True)
     else:

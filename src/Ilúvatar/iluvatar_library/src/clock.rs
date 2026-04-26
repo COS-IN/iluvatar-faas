@@ -100,7 +100,7 @@ fn format_offset_time(clock: &dyn GlobalClock, w: &mut Writer<'_>) -> std::fmt::
     let s = match clock.now_str() {
         Ok(s) => s,
         Err(e) => {
-            println!("time formatting error: {}", e);
+            println!("time formatting error: {e}");
             return Err(std::fmt::Error {});
         },
     };

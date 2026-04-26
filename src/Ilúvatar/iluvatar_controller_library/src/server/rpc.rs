@@ -48,11 +48,11 @@ impl RpcControllerAPI {
     }
 
     async fn try_new_connection(address: &str, port: Port) -> Result<RpcControllerAPI, RPCError> {
-        let addr = format!("http://{}:{}", address, port);
+        let addr = format!("http://{address}:{port}");
         match IluvatarControllerClient::connect(addr).await {
             Ok(c) => Ok(RpcControllerAPI { client: c }),
             Err(e) => Err(RPCError {
-                message: Status::new(Code::Unknown, format!("Got unexpected error of {:?}", e)),
+                message: Status::new(Code::Unknown, format!("Got unexpected error of {e:?}")),
                 source: "[RCPcontrollerAPI:new]".to_string(),
             }),
         }

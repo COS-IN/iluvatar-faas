@@ -95,7 +95,7 @@ mod compute_iso_matching {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert_eq!(c.container.container_type(), Isolation::DOCKER);
         assert_eq!(c.container.compute_type(), Compute::CPU);
     }
@@ -114,7 +114,7 @@ mod compute_iso_matching {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert_eq!(c.container.container_type(), Isolation::CONTAINERD);
         assert_eq!(c.container.compute_type(), Compute::CPU);
     }
@@ -143,14 +143,14 @@ mod compute_iso_matching {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert_eq!(c.container.container_type(), Isolation::DOCKER);
         assert_eq!(c.container.compute_type(), Compute::CPU);
         let c = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert_eq!(c.container.container_type(), Isolation::DOCKER);
         assert_eq!(c.container.compute_type(), Compute::GPU);
     }
@@ -181,7 +181,7 @@ mod compute_iso_matching {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert_eq!(c.container.container_type(), Isolation::CONTAINERD);
         assert_eq!(c.container.compute_type(), Compute::CPU);
     }
@@ -320,14 +320,14 @@ mod gpu {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert_eq!(c.container.container_type(), Isolation::CONTAINERD);
         assert_eq!(c.container.compute_type(), Compute::CPU);
         let c = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert_eq!(c.container.container_type(), Isolation::DOCKER);
         assert_eq!(c.container.compute_type(), Compute::GPU);
     }
@@ -380,7 +380,7 @@ mod gpu {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
     }
 
     #[iluvatar_library::sim_test]
@@ -398,14 +398,14 @@ mod gpu {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         let c1_cont = c1.container.clone();
         drop(c1);
         let c2 = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert!(c1_cont.is_healthy());
         assert_eq!(c1_cont.container_id(), c2.container.container_id());
     }
@@ -425,7 +425,7 @@ mod gpu {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         let c1_cont = c1.container.clone();
         c1_cont.mark_unhealthy();
         assert!(
@@ -438,7 +438,7 @@ mod gpu {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert!(c2.container.is_healthy(), "New container should be healthy");
     }
 
@@ -457,7 +457,7 @@ mod gpu {
             EventualItem::Future(_) => panic!("Should have gotten prewarmed container"),
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         let err = match cm.acquire_container(&func, &TEST_TID, Compute::GPU) {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(_) => panic!("Should not have gotten prewarmed container"),
@@ -1032,7 +1032,7 @@ mod clean_tests {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert_eq!(c.container.compute_type(), Compute::CPU);
         drop(c);
         let removed = cm
@@ -1070,7 +1070,7 @@ mod clean_tests {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         drop(c);
         let removed = cm
             .remove_idle_containers(&TEST_TID)
@@ -1107,7 +1107,7 @@ mod clean_tests {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         assert_eq!(c.container.compute_type(), Compute::CPU);
         drop(c);
         let removed = cm
@@ -1145,7 +1145,7 @@ mod clean_tests {
             EventualItem::Future(f) => f.await,
             EventualItem::Now(n) => n,
         }
-        .unwrap_or_else(|e| panic!("acquire container failed: {:?}", e));
+        .unwrap_or_else(|e| panic!("acquire container failed: {e:?}"));
         drop(c);
         let removed = cm
             .remove_idle_containers(&TEST_TID)

@@ -87,22 +87,25 @@ message PrewarmResponse {
 message RegisterRequest {
   string function_name = 1;
   string function_version = 2;
+  // Optional, pass empty string
   string image_name = 3;
   int64 memory = 4;
   uint32 cpus = 5;
   uint32 parallel_invokes = 6;
   string transaction_id = 7;
-  LanguageRuntime language = 8;
+  Runtime runtime = 8;
   // The compute platforms that the function can run on. Passing multiple means the function can optional run on any of them, and the platform will choose at execution time.
   uint32 compute = 9;
   // The compute platforms that the function can run on. Passing multiple means the function can optional run on any of them, and the platform will choose at execution time.
   uint32 isolate = 10;
   // The type of server built into the image, see `ContainerServer`
   uint32 container_server = 11;
-  // Optional. A serialized string of the iluvatar_library::types::ResourceTimings struct to pre-populate the worker with information
+  // Optional, pass empty string. A serialized string of the iluvatar_library::types::ResourceTimings struct to pre-populate the worker with information
   string resource_timings_json = 12;
   // Marks this function as purely internal to the Ilúvatar control plane.
   bool system_function = 13;
+  // Optional, pass empty list. A zip of source code to be loaded by internal runtime.
+  bytes code_zip = 14;
 }
 
 message RegisterResponse {
@@ -150,10 +153,11 @@ message CleanResponse {
 }
 
 // The language a function's code uses
-enum LanguageRuntime {
+enum Runtime {
   // Use when the the function being created is registered with an image, not code. As we don't need to know the language.
   NOLANG = 0;
   PYTHON3 = 1;
+  PYTHON3GPU = 2;
 }
 
 message EstInvokeRequest {

@@ -3,7 +3,7 @@ use std::error::Error;
 fn main() -> Result<(), Box<dyn Error>> {
     tonic_build::configure()
         .type_attribute(
-            "iluvatar_rpc.LanguageRuntime",
+            "iluvatar_rpc.Runtime",
             "#[derive(serde::Serialize,serde::Deserialize,clap::ValueEnum)]",
         )
         .type_attribute(

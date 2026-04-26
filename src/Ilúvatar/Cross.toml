@@ -1,11 +1,6 @@
-[build.env]
-volumes = ["/var/run/docker.sock=/var/run/docker.sock", "/tmp=/tmp"]
-
 [build]
 pre-build = [
     "dpkg --add-architecture $CROSS_DEB_ARCH",
     "apt-get update",
-    "apt-get install protobuf-compiler -y",
-    "ln -snf /usr/share/zoneinfo/America/Indiana/Indianapolis /etc/localtime",
-    "echo America/Indiana/Indianapolis > /etc/timezone"
+    "apt-get install protobuf-compiler -y"
 ]

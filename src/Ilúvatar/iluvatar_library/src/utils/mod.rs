@@ -41,11 +41,11 @@ pub async fn try_get_child_pid(ppid: u32, timeout_ms: u64, mut tries: u32) -> u3
 
 /// get the fully qualified domain name for a function from its name and version
 pub fn calculate_fqdn(function_name: &str, function_version: &str) -> String {
-    format!("{}-{}", function_name, function_version)
+    format!("{function_name}-{function_version}")
 }
 
 pub fn format_uri(address: &str, port: Port, path: &str) -> String {
-    format!("http://{}:{}/{}", address, port, path)
+    format!("http://{address}:{port}/{path}")
 }
 
 pub fn calculate_invoke_uri(address: &str, port: Port) -> String {
@@ -203,14 +203,6 @@ pub async fn wait_for_exit_signal(tid: &TransactionId) -> Result<()> {
     let mut sig_quit = try_create_signal(tid, SignalKind::quit())?;
 
     info!(tid = tid, "Waiting on exit signal");
-    tokio::select! {
-      _res = sig_int.recv() => println!("sigint"),
-      _res = sig_term.recv() => println!("sigterm"),
-      _res = sig_usr1.recv() => println!("sigusr1"),
-      _res = sig_usr2.recv() => println!("sigusr2"),
-      _res = sig_quit.recv() => println!("sigquit"),
-    }
-
     if tokio::select! {
       res = sig_int.recv() => res,
       res = sig_term.recv() => res,

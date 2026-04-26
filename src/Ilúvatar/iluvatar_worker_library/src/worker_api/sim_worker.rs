@@ -7,7 +7,7 @@ use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
     CleanRequest, CleanResponse, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest,
-    LanguageRuntime, ListFunctionRequest, PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
+    ListFunctionRequest, PingRequest, PrewarmRequest, RegisterRequest, Runtime, StatusRequest,
 };
 use iluvatar_rpc::rpc::{InvokeResponse, ListFunctionResponse, StatusResponse};
 use iluvatar_rpc::RPCError;
@@ -154,6 +154,8 @@ impl WorkerAPI for SimWorkerAPI {
         server: ContainerServer,
         timings: Option<&iluvatar_library::types::ResourceTimings>,
         system_function: bool,
+        code_zip: Vec<u8>,
+        runtime: Runtime,
     ) -> Result<String> {
         let request = tonic::Request::new(RegisterRequest::new(
             &function_name,
@@ -162,13 +164,14 @@ impl WorkerAPI for SimWorkerAPI {
             cpus,
             memory,
             timings,
-            LanguageRuntime::Nolang,
+            runtime,
             compute,
             isolate,
             server,
             parallels,
             &tid,
             system_function,
+            code_zip,
         )?);
         let inv = self.worker.register(request);
         #[cfg(feature = "full_spans")]
@@ -209,7 +212,7 @@ impl WorkerAPI for SimWorkerAPI {
                     // HealthStatus::Unhealthy
                     1 => Ok(HealthStatus::UNHEALTHY),
                     i => anyhow::bail!(RPCError::new(
-                        tonic::Status::new(tonic::Code::InvalidArgument, format!("Got unexpected status of {}", i)),
+                        tonic::Status::new(tonic::Code::InvalidArgument, format!("Got unexpected status of {i}")),
                         "[RCPWorkerAPI:health]".to_string()
                     )),
                 }

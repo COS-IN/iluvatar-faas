@@ -26,8 +26,6 @@ try:
 except:
     import_msg = traceback.format_exc()
 
-
-
 def index():
     global import_msg
     if import_msg is not None:
@@ -107,7 +105,7 @@ def invoke(args_bytes):
     except Exception as e:
         # User code failed, report the error with the rest of our information
         end = datetime.now()
-        return append_metadata(e, start, end, was_cold, success=False)
+        return append_metadata(str(e), start, end, was_cold, success=False)
 
 socket_pth = os.environ.get("__IL_SOCKET", "/iluvatar/sockets/sock")
 print("SOCKET:", socket_pth)

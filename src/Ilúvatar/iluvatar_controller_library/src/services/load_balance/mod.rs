@@ -1,13 +1,12 @@
 use super::controller_health::ControllerHealthService;
 use crate::server::controller_config::ControllerConfig;
 use crate::services::load_balance::least_loaded::LeastLoadedBalancer;
-use crate::services::registration::{FunctionRegistration, RegisteredWorker};
+use crate::services::registration::{FunctionRegistration, RegisteredFunction, RegisteredWorker};
 use anyhow::Result;
 use ch_rlu::ChRluLoadedBalancer;
 use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_rpc::rpc::InvokeResponse;
-use iluvatar_worker_library::services::registration::RegisteredFunction;
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use rrCH::CHGLoadBalancer;
 use rrG::RRGLoadBalancer;

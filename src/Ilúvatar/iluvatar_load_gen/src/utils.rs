@@ -13,7 +13,7 @@ use iluvatar_library::{
     utils::{port::Port, timing::TimedExt},
 };
 use iluvatar_rpc::rpc::{CleanResponse, ContainerState, InvokeRequest, InvokeResponse, RegisterRequest};
-use iluvatar_rpc::rpc::{LanguageRuntime, PrewarmRequest};
+use iluvatar_rpc::rpc::{PrewarmRequest, Runtime};
 use iluvatar_worker_library::worker_api::worker_comm::WorkerAPIFactory;
 use serde::{Deserialize, Serialize};
 use std::{fs::File, io::Write, path::Path, sync::Arc, time::Duration};
@@ -250,8 +250,8 @@ pub async fn controller_invoke(
             },
             Err(e) => CompletedControllerInvocation::error(
                 format!(
-                    "FunctionExecOutput Deserialization error: {}; {}",
-                    e, &response.json_result
+                    "FunctionExecOutput Deserialization error: {e}; {}",
+                    &response.json_result
                 ),
                 name,
                 version,
@@ -260,7 +260,7 @@ pub async fn controller_invoke(
             ),
         },
         Err(e) => {
-            CompletedControllerInvocation::error(format!("Invocation error: {}", e), name, version, &tid, invoke_start)
+            CompletedControllerInvocation::error(format!("Invocation error: {e}"), name, version, &tid, invoke_start)
         },
     };
     Ok(r)
@@ -269,30 +269,32 @@ pub async fn controller_invoke(
 pub async fn controller_register(
     name: &str,
     version: &str,
-    image: &str,
+    image: Option<&str>,
     memory: MemSizeMb,
     isolation: Isolation,
     compute: Compute,
     server: ContainerServer,
     timings: Option<&ResourceTimings>,
+    code_pth: Option<&str>,
     api: ControllerAPI,
 ) -> Result<Duration> {
     let start = now();
-    let tid = format!("{}-{}-reg", name, version);
+    let tid = format!("{name}-{version}-reg");
     let req = RegisterRequest::new(
         name,
         version,
-        image,
+        image.unwrap_or(""),
         1,
         memory,
         timings,
-        LanguageRuntime::Python3,
+        Runtime::Python3,
         compute,
         isolation,
         server,
         1,
         &tid,
         false, // would never register a system function from the load generator
+        try_load_code_zip(code_pth, &tid).await?,
     )?;
     match api.register(req).await {
         Ok(_) => Ok(start.elapsed()),
@@ -322,7 +324,7 @@ pub async fn controller_prewarm(
 pub async fn worker_register(
     name: String,
     version: &str,
-    image: String,
+    image: Option<&str>,
     memory: MemSizeMb,
     host: String,
     port: Port,
@@ -331,14 +333,16 @@ pub async fn worker_register(
     compute: Compute,
     server: ContainerServer,
     timings: Option<&ResourceTimings>,
+    code_pth: Option<&str>,
+    runtime: Runtime,
 ) -> Result<(String, Duration, TransactionId)> {
-    let tid: TransactionId = format!("{}-reg-tid", name);
+    let tid: TransactionId = format!("{name}-reg-tid");
     let mut api = factory.get_worker_api(&host, &host, port, &tid).await?;
     let (reg_out, reg_dur) = api
         .register(
             name,
             version.to_owned(),
-            image,
+            image.unwrap_or("").to_string(),
             memory,
             1,
             1,
@@ -348,13 +352,15 @@ pub async fn worker_register(
             server,
             timings,
             false, // would never register a system function from the load generator
+            try_load_code_zip(code_pth, &tid).await?,
+            runtime,
         )
         .timed()
         .await;
 
     match reg_out {
         Ok(fqdn) => Ok((fqdn, reg_dur, tid)),
-        Err(e) => anyhow::bail!("worker registration encoutered an error because {:?}", e),
+        Err(e) => anyhow::bail!("worker registration encountered an error because {:?}", e),
     }
 }
 
@@ -421,7 +427,7 @@ pub async fn worker_invoke(
             ),
         },
         Err(e) => CompletedWorkerInvocation::error(
-            format!("Invocation error: {:?}", e),
+            format!("Invocation error: {e:?}"),
             name,
             version,
             tid,
@@ -600,5 +606,14 @@ pub fn wrap_logging<T>(
     match run(args) {
         Err(e) => bail_error!(error=%e, "Load failed, check error log"),
         _ => Ok(()),
+    }
+}
+
+/// Loads the zip file, returns an error if file is missing or read fails.
+/// Returns empty vec if path is empty
+pub async fn try_load_code_zip(path: Option<&str>, tid: &TransactionId) -> Result<Vec<u8>> {
+    match path {
+        None => Ok(Vec::new()),
+        Some(path) => iluvatar_worker_library::tar_folder(path, tid),
     }
 }

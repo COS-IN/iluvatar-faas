@@ -1,5 +1,6 @@
 use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::threading::tokio_spawn_thread;
+use iluvatar_library::utils::file::ensure_temp_dir;
 use iluvatar_library::{
     clock::ContainerTimeFormatter,
     logging::{start_tracing, LoggingConfig},
@@ -49,13 +50,14 @@ pub async fn build_test_services(
     Option<Arc<GpuResourceTracker>>,
 ) {
     let tid: TransactionId = TEST_TID.clone();
+    ensure_temp_dir().unwrap();
     let cfg: WorkerConfig = iluvatar_library::load_config_default!(
         "iluvatar_worker_library/tests/resources/worker.json",
         config_pth,
         overrides,
         WORKER_ENV_PREFIX
     )
-    .unwrap_or_else(|e| panic!("Failed to load config file for test: {}", e));
+    .unwrap_or_else(|e| panic!("Failed to load config file for test: {e}"));
     let log = match log {
         Some(level) => {
             let fake_logging = Arc::new(LoggingConfig {

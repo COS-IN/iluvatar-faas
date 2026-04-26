@@ -59,7 +59,7 @@ fn compute_prewarms(func: &Function, default_prewarms: Option<u32>, max_prewarms
     }
 }
 
-type ComputeChoiceList = Vec<(String, f64, f64, String)>;
+type ComputeChoiceList = Vec<(String, f64, f64)>;
 fn choose_bench_data_for_func<'a>(func: &'a Function, bench_data: &'a BenchmarkStore) -> Result<ComputeChoiceList> {
     let mut data = vec![];
     for (k, v) in bench_data.data.iter() {
@@ -83,12 +83,7 @@ fn choose_bench_data_for_func<'a>(func: &'a Function, bench_data: &'a BenchmarkS
                 / timings.cold_invoke_duration_us.len() as f64;
             let avg_warm_us = tot as f64 / timings.warm_invoke_duration_us.len() as f64;
             // Cold uses E2E duration because of the cold start time needed
-            data.push((
-                k.clone(),
-                avg_warm_us / 1000.0,
-                avg_cold_us / 1000.0,
-                v.image_name.clone(),
-            ));
+            data.push((k.clone(), avg_warm_us / 1000.0, avg_cold_us / 1000.0));
         }
     }
     Ok(data)
@@ -122,14 +117,12 @@ fn map_from_benchmark(
                 None => anyhow::bail!("failed to get a minimum func from {:?}", device_data),
             };
             let mut chosen_name = chosen.0.clone();
-            let mut chosen_image = chosen.3.clone();
             let mut chosen_warm_time_ms = chosen.1;
             let mut chosen_cold_time_ms = chosen.1;
 
-            for (name, avg_warm, avg_cold, image) in device_data.iter() {
+            for (name, avg_warm, avg_cold) in device_data.iter() {
                 if func.warm_dur_ms.unwrap_or(0) as f64 >= *avg_warm && chosen_warm_time_ms < *avg_warm {
                     chosen_name.clone_from(name);
-                    chosen_image.clone_from(image);
                     chosen_warm_time_ms = *avg_warm;
                     chosen_cold_time_ms = *avg_cold;
                 }
@@ -140,7 +133,6 @@ fn map_from_benchmark(
                 func.cold_dur_ms = Some(chosen_cold_time_ms as u64);
                 func.warm_dur_ms = Some(chosen_warm_time_ms as u64);
                 func.chosen_name = Some(chosen_name);
-                func.image_name = Some(chosen_image);
             }
         }
         if func.prewarms.is_none() {
@@ -249,7 +241,7 @@ async fn worker_prewarm_functions(
                 func_name
             )
         })? {
-            let tid = format!("{}-{}-prewarm", i, &func_name);
+            let tid = format!("{i}-{func_name}-prewarm");
             let h_c = host.to_owned();
             let f_c = func_name.clone();
             let fct_cln = factory.clone();
@@ -261,9 +253,9 @@ async fn worker_prewarm_functions(
                     match worker_prewarm(&f_c, &VERSION, &h_c, port, &tid, &fct_cln, compute).await {
                         Ok((_s, _prewarm_dur)) => break,
                         Err(e) => {
-                            errors = format!("{} iteration {}: '{}';\n", errors, i, e);
+                            errors = format!("{errors} iteration {i}: '{e}';\n");
                             if it.peek().is_none() {
-                                anyhow::bail!("prewarm failed because {}", errors)
+                                anyhow::bail!("prewarm failed because {errors}")
                             }
                             tokio::time::sleep(Duration::from_millis(100)).await;
                         },
@@ -347,13 +339,14 @@ async fn worker_wait_reg(
             let isol = func.isolation;
             let server = func.server;
             let mem = func.mem_mb;
+            let code_pth = func.code_folder.clone();
+            let runtime = func.runtime;
             let func_timings = match &func.chosen_name {
                 Some(chosen_name) => match bench_data.as_ref() {
                     Some(t) => match t.data.get(chosen_name) {
                         Some(d) => Some(d.resource_data.clone()),
                         None => anyhow::bail!(format!(
-                            "Benchmark was passed but function '{}' was not present",
-                            chosen_name
+                            "Benchmark was passed but function '{chosen_name}' was not present"
                         )),
                     },
                     None => None,
@@ -364,7 +357,7 @@ async fn worker_wait_reg(
                 worker_register(
                     f_c,
                     &VERSION,
-                    image,
+                    Some(&image),
                     mem,
                     h_c,
                     port,
@@ -373,6 +366,8 @@ async fn worker_wait_reg(
                     comp,
                     server,
                     func_timings.as_ref(),
+                    code_pth.as_deref(),
+                    runtime,
                 )
                 .await
             }));
@@ -446,7 +441,7 @@ pub fn make_simulation_worker_config(id: usize, orig_config_path: &str) -> Resul
     let p = Path::new(orig_config_path)
         .parent()
         .unwrap()
-        .join(format!("{}.json", worker_name));
+        .join(format!("{worker_name}.json"));
     match File::create(&p) {
         Ok(f) => match serde_json::to_writer_pretty(f, &worker_config) {
             Ok(_) => (),

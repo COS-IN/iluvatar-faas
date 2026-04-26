@@ -1,3 +1,4 @@
+use crate::services::registration::RegisteredFunction;
 use crate::{
     services::containers::{docker::DockerIsolation, ContainerIsolationService},
     worker_api::worker_config::{ContainerResourceConfig, GPUResourceConfig},
@@ -128,7 +129,7 @@ impl Display for GpuStatVec {
             Ok(s) => s,
             Err(_e) => return Err(std::fmt::Error {}),
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -450,14 +451,22 @@ impl GpuResourceTracker {
         };
         let img_name = "docker.io/nvidia/cuda:11.8.0-base-ubuntu20.04";
         let entrypoint = vec!["/usr/bin/nvidia-cuda-mps-control".to_owned(), "-f".to_owned()];
+        let fake_reg = Arc::new(RegisteredFunction {
+            function_name: "mps".to_string(),
+            function_version: "0".to_string(),
+            fqdn: "mps-0".to_string(),
+            image_name: img_name.to_string(),
+            memory: 1024,
+            cpus: 1,
+            parallel_invokes: 1,
+            ..Default::default()
+        });
         docker
             .docker_run(
                 tid,
-                img_name,
                 MPS_CONTAINER_NAME,
                 vec![],
-                1024,
-                1,
+                &fake_reg,
                 &None,
                 None,
                 Some(cfg),
@@ -524,7 +533,7 @@ impl GpuResourceTracker {
             .memory_mb
             .ok_or_else(|| anyhow::format_err!("`memory_mb` config must be provided during simulation"))?;
         for gpu_hardware_id in 0..gpu_config.count {
-            let gpu_uuid = format!("GPU-{}", gpu_hardware_id);
+            let gpu_uuid = format!("GPU-{gpu_hardware_id}");
             let gpu_structs = GPU::split_resources(&gpu_uuid, gpu_hardware_id, memory_mb, gpu_config, tid)?;
             let sem = Self::create_concurrency_semaphore(gpu_config, gpu_hardware_id, &gpu_structs, tid)?;
             let metadata = GpuMetadata {

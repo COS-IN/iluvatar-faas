@@ -6,7 +6,7 @@ pub mod utils;
 
 use crate::utils::wrap_logging;
 use benchmark::BenchmarkArgs;
-use clap::{command, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use iluvatar_library::sync_live_scope;
 use scaling::ScalingArgs;
 use trace::TraceArgs;

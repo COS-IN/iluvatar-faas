@@ -1,7 +1,6 @@
 use super::EnergyConfig;
 use crate::clock::{get_global_clock, Clock};
 use crate::{
-    bail_error,
     threading::os_thread,
     transaction::{TransactionId, ENERGY_LOGGER_PS_TID},
     utils::execute_cmd_checked,
@@ -79,7 +78,7 @@ impl ProcessMonitor {
                 return;
             },
         };
-        let to_write = format!("{},{},{}\n", t, cpu_pct, cpu_time);
+        let to_write = format!("{t},{cpu_pct},{cpu_time}\n");
         self.write_text(to_write, tid);
     }
 
