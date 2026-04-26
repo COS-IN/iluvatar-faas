@@ -1,4 +1,3 @@
-use crate::bail_error;
 use crate::clock::{get_global_clock, ClockWrapper};
 use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;
@@ -340,7 +339,7 @@ pub fn start_simulation_tracing(
 
 #[allow(dyn_drop)]
 fn stdout_layer<S: Subscriber + for<'span> LookupSpan<'span>>(
-    layers: &mut Vec<Box<(dyn Layer<S> + Send + Sync + 'static)>>,
+    layers: &mut Vec<Box<dyn Layer<S> + Send + Sync + 'static>>,
     drops: &mut Vec<Box<dyn Drop + Send + Sync + 'static>>,
     tid: &TransactionId,
 ) -> Result<()> {

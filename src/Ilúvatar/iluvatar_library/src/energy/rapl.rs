@@ -1,5 +1,4 @@
 use super::EnergyConfig;
-use crate::bail_error;
 use crate::clock::{get_global_clock, now, Clock};
 use crate::threading::os_thread;
 use crate::transaction::{TransactionId, WORKER_ENERGY_LOGGER_TID};

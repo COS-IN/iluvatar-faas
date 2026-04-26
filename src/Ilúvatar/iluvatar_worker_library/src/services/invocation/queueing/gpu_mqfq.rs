@@ -447,7 +447,7 @@ impl TryFrom<Option<&String>> for MqfqPolicy {
 /// TODO: config with D, T, wts, etc.
 /// TODO: limit number active queues via GPU memory sizing
 #[allow(dyn_drop)]
-#[allow(elided_named_lifetimes)]
+#[allow(mismatched_lifetime_syntaxes)]
 impl MQFQ {
     pub fn new(
         cont_manager: Arc<ContainerManager>,

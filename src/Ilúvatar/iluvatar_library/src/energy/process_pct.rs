@@ -1,7 +1,6 @@
 use super::EnergyConfig;
 use crate::clock::{get_global_clock, Clock};
 use crate::{
-    bail_error,
     threading::os_thread,
     transaction::{TransactionId, ENERGY_LOGGER_PS_TID},
     utils::execute_cmd_checked,
