@@ -13,9 +13,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
 pub enum AllowPolicy {
     /// Top 25% of funcs are allowed on GPU.
+    #[default]
     TopQuarter,
     /// Top 33% of funcs are allowed on GPU.
     TopThird,
@@ -28,11 +29,6 @@ pub enum AllowPolicy {
     /// Use [GreedyWeightConfig::cache_size].
     Fixed,
     Incremental,
-}
-impl Default for AllowPolicy {
-    fn default() -> Self {
-        Self::TopQuarter
-    }
 }
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct GreedyWeightConfig {
@@ -233,7 +229,7 @@ impl GreedyWeights {
                 load,
             });
         }
-        data.sort_by(|i1, i2| i2.opp_cost.cmp(&i1.opp_cost));
+        data.sort_by_key(|i| std::cmp::Reverse(i.opp_cost));
         // TODO: a principled but working way to allow functions in
         // Based on per-function applied load applied to GPU?
         // Allow fractions of a function's invocations to go through?

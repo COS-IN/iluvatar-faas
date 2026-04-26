@@ -10,19 +10,15 @@ use tracing::{debug, error};
 // As the values used to sort containers _may_ change during sorting here, they must be pre-captured.
 // Failure to do so will result in a panic and brick the system.
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub enum EvictionPolicy {
     /// Least recently used ordering for on-demand eviction
+    #[default]
     LRU,
     /// Time-to-live, performs immediate eviction
     TTL { timout_sec: u64 },
     /// From 2020 FaaS paper
     GreedyDual,
-}
-impl Default for EvictionPolicy {
-    fn default() -> Self {
-        Self::LRU
-    }
 }
 
 /// Return two lists: ordered list of containers for potential future eviction, and another for immediate eviction
@@ -45,7 +41,7 @@ pub fn order_pool_eviction(
 
 fn lru_eviction(list: Subpool) -> (Subpool, Subpool) {
     let mut insts: Vec<(tokio::time::Instant, Container)> = list.into_iter().map(|c| (c.last_used(), c)).collect();
-    insts.sort_unstable_by(|c1, c2| c1.0.cmp(&c2.0));
+    insts.sort_unstable_by_key(|c1| c1.0);
     (insts.into_iter().map(|c| c.1).collect(), vec![])
 }
 
@@ -60,6 +56,6 @@ fn ttl_eviction(list: Subpool, timeout: Duration) -> (Subpool, Subpool) {
             sort.push((last_used, ctr));
         }
     }
-    sort.sort_unstable_by(|c1, c2| c1.0.cmp(&c2.0));
+    sort.sort_unstable_by_key(|c1| c1.0);
     (sort.into_iter().map(|c| c.1).collect(), evict)
 }

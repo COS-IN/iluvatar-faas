@@ -176,7 +176,7 @@ impl ChRluLoadedBalancer {
             arrival_rate = 1.0;
         }
         self.arrival_rate.store(arrival_rate, Ordering::Relaxed);
-        iats.sort_by(|a, b| a.0.cmp(&b.0));
+        iats.sort_by_key(|a| a.0);
         let take = self.chrlu_cfg.popular_pct * len;
         let new_pop = HashSet::from_iter(iats.iter().take(f64::round(take) as usize).map(|a| a.1.fqdn.clone()));
         debug!(tid=tid, take=take, iats = ?iats, populars=?new_pop, "computed popularity");
@@ -309,7 +309,7 @@ impl LoadBalancerTrait for ChRluLoadedBalancer {
         if func.supported_compute == Compute::GPU {
             choices.push((OrderedFloat(gpu), Compute::GPU));
         }
-        choices.sort_by(|c1, c2| c1.0.cmp(&c2.0));
+        choices.sort_by_key(|c1| c1.0);
         let c = choices
             .first()
             .ok_or_else(|| anyhow::format_err!("Could not prewarm with no compute"))?;

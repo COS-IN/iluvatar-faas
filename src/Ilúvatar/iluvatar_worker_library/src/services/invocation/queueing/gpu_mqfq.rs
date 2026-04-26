@@ -68,20 +68,16 @@ pub struct MqfqConfig {
     add_estimation_error: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 enum MqfqTimeEst {
     V1,
     V2,
+    #[default]
     V3,
     LinReg,
     PerFuncLinReg,
     FallbackLinReg,
     GlobalLinReg,
-}
-impl Default for MqfqTimeEst {
-    fn default() -> Self {
-        Self::V3
-    }
 }
 
 /// Multi-Queue Fair Queueing.
@@ -1072,7 +1068,7 @@ impl MQFQ {
     ) -> Option<RefMutMulti<'a, String, FlowQ>> {
         let cnt = self.get_select_num();
         let mut top = self.select_top_flows(_tid, _token, virtual_time, cnt);
-        top.sort_by(|a, b| b.queue.len().cmp(&a.queue.len()));
+        top.sort_by_key(|b| std::cmp::Reverse(b.queue.len()));
         top.into_iter().min_by(|q1, q2| q1.in_flight.cmp(&q2.in_flight))
     }
 
@@ -1286,7 +1282,7 @@ impl MQFQ {
             })
             .collect::<Vec<FlowQInfo>>();
         loop {
-            flow_deets.sort_by(|f1, f2| OrderedFloat(f2.finish_time_virt).cmp(&OrderedFloat(f1.finish_time_virt)));
+            flow_deets.sort_by_key(|f2| std::cmp::Reverse(OrderedFloat(f2.finish_time_virt)));
             let mut keep_flows = vec![];
             let mut other = vec![];
             while keep_flows.len() < cnt {
@@ -1302,9 +1298,8 @@ impl MQFQ {
                 }
             }
             flow_deets.extend(other);
-            keep_flows.sort_by(|f1, f2| f2.queue_len.cmp(&f1.queue_len));
+            keep_flows.sort_by_key(|f1| f1.in_flight);
             // min by
-            keep_flows.sort_by(|f1, f2| f1.in_flight.cmp(&f2.in_flight));
             match keep_flows.first_mut() {
                 Some(min_flow) => {
                     let time = (min_flow.finish_time_virt - min_flow.start_time_virt) / min_flow.queue_len as f64;
