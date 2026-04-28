@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 // use actix_web::{web::Data, App, HttpServer};
-use clap::{command, Parser};
+use clap::{Parser};
 use iluvatar_controller_library::server::{config::Configuration, controller::Controller};
 use iluvatar_library::logging::start_tracing;
 use iluvatar_library::transaction::{TransactionId, LOAD_BALANCER_TID};

@@ -1,4 +1,3 @@
-use crate::bail_error;
 use crate::clock::{get_global_clock, ClockWrapper};
 use crate::transaction::TransactionId;
 use crate::utils::file_utils::ensure_dir;

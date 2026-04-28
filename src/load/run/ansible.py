@@ -54,13 +54,26 @@ def _copy_logs(log_file, results_dir, kwargs):
                 src = os.path.join(kwargs["worker_log_dir"], subdir)
                 dest = os.path.join(results_dir, subdir)
                 if src != dest:
-                    shutil.move(src, dest)
+                    try:
+                        shutil.move(src, dest)
+                    except PermissionError:
+                        # Fallback to sudo for root-owned logs on localhost
+                        _run_cmd(["sudo", "mv", src, dest], log_file)
+                        # Chown back to current user so they are readable/movable later
+                        user = os.environ.get("USER") or os.getlogin()
+                        _run_cmd(["sudo", "chown", user, dest], log_file)
+
         if os.path.isdir(kwargs["controller_log_dir"]):
             for subdir in os.listdir(kwargs["controller_log_dir"]):
                 src = os.path.join(kwargs["controller_log_dir"], subdir)
                 dest = os.path.join(results_dir, subdir)
                 if src != dest:
-                    shutil.move(src, dest)
+                    try:
+                        shutil.move(src, dest)
+                    except PermissionError:
+                        _run_cmd(["sudo", "mv", src, dest], log_file)
+                        user = os.environ.get("USER") or os.getlogin()
+                        _run_cmd(["sudo", "chown", user, dest], log_file)
     else:
         from paramiko import SSHClient
         import paramiko
@@ -97,7 +110,7 @@ def _remote_cleanup(
 
     if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
         if results_dir != kwargs["worker_log_dir"]:
-            _run_cmd(["rm", "-rf", kwargs["worker_log_dir"]], log_file, shell=False)
+            _run_cmd(["sudo", "rm", "-rf", kwargs["worker_log_dir"]], log_file, shell=False)
     else:
         from paramiko import SSHClient
         import paramiko

@@ -1,5 +1,5 @@
 // extern crate clap;
-use clap::{command, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use iluvatar_library::types::{Compute, ContainerServer, Isolation};
 use iluvatar_library::{types::MemSizeMb, utils::port_utils::Port};
 
