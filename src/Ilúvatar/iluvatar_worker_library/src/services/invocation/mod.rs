@@ -214,6 +214,7 @@ async fn invoke_on_container(
     Ok((data, dur, ctr.compute_type(), ctr.state()))
 }
 
+/// Main place to track invocation starting and finishing 
 /// Returns
 /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
 /// [Duration]: The E2E latency between the worker and the container
@@ -235,21 +236,28 @@ async fn invoke_on_container_2(
     device_tput: &Arc<DeviceTput>,
 ) -> Result<(ParsedResult, Duration, Container)> {
     info!(tid=tid, insert_time=%clock.format_time(queue_insert_time)?, remove_time=%remove_time, "Item starting to execute");
+    
     let (data, duration) = ctr_lock.invoke(json_args).await?;
     let compute = ctr_lock.container.compute_type();
     let chars = Chars::get_chars(&compute)?;
-    let (state_char, time) = match ctr_lock.container.state() {
+    let (state_char, exec_time) = match ctr_lock.container.state() {
         ContainerState::Warm => (chars.1, data.duration_sec),
         ContainerState::Prewarm => (chars.2, data.duration_sec),
         _ => (chars.0, cold_time_start.elapsed().as_secs_f64()),
     };
+    // What's the use of the above? do we care about warm vs. pre-warm?
+    // data.duration_sec is same as duration ? 
     let now = clock.now();
     let e2etime = (now - queue_insert_time).as_seconds_f64();
     let err = e2etime - est_completion_time;
+    // This is the only place update_5 is called. Replace by something meaningful
+    // Track the per-function and also the system metrics
+    // fqdn, cold/warm, device, exec_time, q_time, arrival_time, mem
+    // update per-fqdn and systemwide 
     cmap.update_5(
         &reg.fqdn,
         state_char,
-        time,
+        exec_time,
         chars.3,
         data.duration_sec,
         chars.4,
@@ -259,7 +267,9 @@ async fn invoke_on_container_2(
         Chars::GpuMemoryUsage,
         data.gpu_allocation_mb as f64,
     );
-    device_tput.add_tput(time);
+    // remove this. device-tput and other system
+    // Either that, or reuse this for all system-state recording. 
+    device_tput.add_tput(exec_time);
     if compute == Compute::GPU {
         ctr_lock.container.set_device_memory(data.gpu_allocation_mb);
         cmap.insert_gpu_load_est(&reg.fqdn, insert_time_load, e2etime);
