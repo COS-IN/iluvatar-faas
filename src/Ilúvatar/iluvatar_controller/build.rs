@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use std::env;
 use std::error::Error;
 use std::path::Path;

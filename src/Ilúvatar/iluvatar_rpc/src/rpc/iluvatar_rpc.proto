@@ -166,7 +166,8 @@ message EstInvokeResponse {
     // These are in the same order as [EstInvokeRequest.fqdns].
     // If a value is 0.0, either an error occurred in the worker for it, or insufficient information was available to make an estimation.
     // Will query GPU queue only instead of CPU if function supports GPU compute.
-    repeated double est_time = 1;
+    // repeated double est_time = 1;
+    map<string, double> est_times = 1; 
 }
 
 service IluvatarWorker {

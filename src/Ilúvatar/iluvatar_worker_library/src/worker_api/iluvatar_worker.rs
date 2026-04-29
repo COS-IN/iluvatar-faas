@@ -24,6 +24,8 @@ use iluvatar_rpc::rpc::{
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info};
+use std::collections::HashMap;
+
 
 #[allow(unused)]
 /// Public members are _only_ for use in testing
@@ -384,7 +386,7 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         }
         // some value to simulate "queue time" if we don't have enough CPUs
         let mut queue_time = 0.0;
-        let est_time = request
+        let est_time:Vec<_> = request
             .fqdns
             .iter()
             .map(|fqdn| {
@@ -414,6 +416,8 @@ impl IluvatarWorker for IluvatarWorkerImpl {
                 }
             })
             .collect();
-        Ok(Response::new(EstInvokeResponse { est_time }))
+	let mut est_times = HashMap::new();
+	est_times.insert("old".to_string(), *est_time.first().unwrap_or(&0.0));
+        Ok(Response::new(EstInvokeResponse { est_times }))
     }
 }

@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use self::worker_config::WorkerConfig;
 use crate::services::containers::{containermanager::ContainerManager, IsolationFactory};
 use crate::services::influx_updater::InfluxUpdater;

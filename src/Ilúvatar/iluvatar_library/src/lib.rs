@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Ilúvatar Library
 //!
 //! This crate is for shared code and utilities that are not specific to any executable in the Ilúvatar stack.
