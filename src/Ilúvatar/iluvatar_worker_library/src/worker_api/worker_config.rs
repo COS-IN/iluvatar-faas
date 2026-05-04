@@ -1,17 +1,17 @@
 use crate::services::containers::eviction::EvictionPolicy;
+use crate::services::invocation::dispatching::epsilon_greedy::EpsilonGreedyConfig;
 use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
-use crate::services::invocation::dispatching::epsilon_greedy::EpsilonGreedyConfig;
 use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
 use iluvatar_library::types::Compute;
 use iluvatar_library::{
     energy::EnergyConfig, influx::InfluxConfig, logging::LoggingConfig, types::MemSizeMb, utils::port_utils::Port,
 };
 
+use crate::services::invocation::dispatching::weighted_random::WeightedRandomConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::services::invocation::dispatching::weighted_random::WeightedRandomConfig;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Configuration {
@@ -50,7 +50,7 @@ pub struct Configuration {
     pub http_server: Option<Arc<HttpServerConfig>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 /// total resources the worker is allowed to allocate to containers
 pub struct ContainerResourceConfig {
     /// total memory pool in MB
@@ -80,7 +80,7 @@ pub struct ContainerResourceConfig {
     /// Settings for the CPU compute resources the worker can use
     pub gpu_resource: Option<Arc<GPUResourceConfig>>,
 }
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 /// Configuration detailing a single type of compute.
 pub struct CPUResourceConfig {
     /// number of cores it can use, i.e. number of concurrent functions allowed at once
@@ -96,7 +96,7 @@ pub struct CPUResourceConfig {
     /// Ilúvatar assumes that it will be the only program running on the system with this enabled, and has access to all CPUs.
     pub max_load: Option<f64>,
 }
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 /// Configuration detailing a single type of compute
 pub struct GPUResourceConfig {
     /// Number of GPU devices it can use, i.e. number of concurrent functions allowed at once.

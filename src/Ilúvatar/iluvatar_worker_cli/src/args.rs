@@ -22,6 +22,12 @@ pub struct AsyncCheck {
     pub cookie: String,
 }
 #[derive(Parser, Debug)]
+pub struct EstInvokeArgs {
+    #[arg(long, num_args = 1.., required = true)]
+    /// Fully qualified function names to estimate, e.g. hello-1
+    pub fqdn: Vec<String>,
+}
+#[derive(Parser, Debug)]
 pub struct PrewarmArgs {
     #[arg(short, long)]
     /// Name of function to prewarm
@@ -95,6 +101,8 @@ pub enum Commands {
     Status,
     /// Query worker health
     Health,
+    /// Estimate E2E invoke time in seconds for one or more registered FQDNs
+    EstInvokeTime(EstInvokeArgs),
     /// Play table tennis
     Ping,
     /// List all registered functions

@@ -7,10 +7,12 @@ use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation,
 use iluvatar_library::utils::port::Port;
 use iluvatar_rpc::rpc::iluvatar_worker_client::IluvatarWorkerClient;
 use iluvatar_rpc::rpc::{
-    CleanRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest, ListFunctionRequest,
-    PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
+    CleanRequest, EstInvokeRequest, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest,
+    ListFunctionRequest, PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
 };
-use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, LanguageRuntime, ListFunctionResponse, StatusResponse};
+use iluvatar_rpc::rpc::{
+    CleanResponse, EstInvokeResponse, InvokeResponse, LanguageRuntime, ListFunctionResponse, StatusResponse,
+};
 use iluvatar_rpc::RPCError;
 use tonic::transport::Channel;
 use tonic::{Code, Request, Status};
@@ -238,6 +240,17 @@ impl WorkerAPI for RPCWorkerAPI {
                 }
             },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:health]".to_string())),
+        }
+    }
+
+    async fn est_invoke_time(&mut self, fqdns: Vec<String>, tid: TransactionId) -> Result<EstInvokeResponse> {
+        let request = Request::new(EstInvokeRequest {
+            fqdns,
+            transaction_id: tid,
+        });
+        match self.client.est_invoke_time(request).await {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:est_invoke_time]".to_string())),
         }
     }
 

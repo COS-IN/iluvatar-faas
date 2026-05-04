@@ -16,9 +16,10 @@ use iluvatar_library::energy::energy_logging::EnergyLogger;
 use iluvatar_library::influx::InfluxClient;
 use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation, MemSizeMb, ResourceTimings};
 use iluvatar_library::{bail_error, transaction::TransactionId};
-use iluvatar_rpc::rpc::{CleanResponse, InvokeResponse, ListFunctionResponse, StatusResponse};
+use iluvatar_rpc::rpc::{CleanResponse, EstInvokeResponse, InvokeResponse, ListFunctionResponse, StatusResponse};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::warn;
 
 pub mod worker_config;
 pub use worker_config as config;
@@ -27,13 +28,37 @@ pub mod rpc;
 pub mod sim_worker;
 pub mod worker_comm;
 
+fn effective_container_resources(
+    container_resources: &Arc<worker_config::ContainerResourceConfig>,
+    tid: &TransactionId,
+) -> Arc<worker_config::ContainerResourceConfig> {
+    if cfg!(target_os = "linux")
+        || iluvatar_library::utils::is_simulation()
+        || container_resources
+            .gpu_resource
+            .as_ref()
+            .map_or(true, |gpu| gpu.count == 0)
+    {
+        return container_resources.clone();
+    }
+
+    warn!(
+        tid = tid,
+        "GPU resources are only enabled on Linux hosts; starting worker in CPU-only mode"
+    );
+    let mut resources = container_resources.as_ref().clone();
+    resources.gpu_resource = None;
+    Arc::new(resources)
+}
+
 pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> Result<IluvatarWorkerImpl> {
     let cmap = worker_char_map();
     let buff = Arc::new(iluvatar_library::ring_buff::RingBuffer::new(Duration::from_secs(60)));
+    let container_resources = effective_container_resources(&worker_config.container_resources, tid);
 
     let factory = IsolationFactory::new(worker_config.clone(), cmap.clone());
     let load_avg = build_load_avg_signal();
-    let cpu = CpuResourceTracker::new(&worker_config.container_resources.cpu_resource, load_avg.clone(), tid)
+    let cpu = CpuResourceTracker::new(&container_resources.cpu_resource, load_avg.clone(), tid)
         .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make cpu resource tracker"))?;
 
     let isos = factory
@@ -41,8 +66,8 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         .await
         .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make lifecycle(s)"))?;
     let gpu_resource = GpuResourceTracker::boxed(
-        &worker_config.container_resources.gpu_resource,
-        &worker_config.container_resources,
+        &container_resources.gpu_resource,
+        &container_resources,
         tid,
         &isos.get(&Isolation::DOCKER),
         &worker_config.status,
@@ -52,7 +77,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make GPU resource tracker"))?;
 
     let container_man = ContainerManager::boxed(
-        worker_config.container_resources.clone(),
+        container_resources.clone(),
         isos.clone(),
         gpu_resource.clone(),
         &cmap,
@@ -67,7 +92,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         isos.clone(),
         worker_config.limits.clone(),
         cmap.clone(),
-        worker_config.container_resources.clone(),
+        container_resources.clone(),
     );
 
     let energy = EnergyLogger::boxed(worker_config.energy.as_ref(), tid)
@@ -84,7 +109,7 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
         cmap.clone(),
         cpu.clone(),
         gpu_resource.clone(),
-        worker_config.container_resources.gpu_resource.clone(),
+        container_resources.gpu_resource.clone(),
         &reg,
         &buff,
         &worker_config.status,
@@ -185,6 +210,8 @@ pub trait WorkerAPI {
     async fn status(&mut self, tid: TransactionId) -> Result<StatusResponse>;
     /// Test worker health.
     async fn health(&mut self, tid: TransactionId) -> Result<HealthStatus>;
+    /// Estimate the E2E invoke time in seconds for each FQDN.
+    async fn est_invoke_time(&mut self, fqdns: Vec<String>, tid: TransactionId) -> Result<EstInvokeResponse>;
     /// Make worker clean up containers, etc.
     async fn clean(&mut self, tid: TransactionId) -> Result<CleanResponse>;
     async fn list_registered_funcs(&mut self, tid: TransactionId) -> Result<ListFunctionResponse>;

@@ -30,8 +30,9 @@ async fn main() -> Result<()> {
         args::Commands::InvokeAsyncCheck(args) => commands::invoke_async_check(cli.host, cli.port, args).await,
         args::Commands::Prewarm(args) => commands::prewarm(cli.host, cli.port, args).await,
         args::Commands::Register(args) => commands::register(cli.host, cli.port, args).await,
-        args::Commands::Status => commands::health(cli.host, cli.port).await,
-        args::Commands::Health => commands::status(cli.host, cli.port).await,
+        args::Commands::Status => commands::status(cli.host, cli.port).await,
+        args::Commands::Health => commands::health(cli.host, cli.port).await,
+        args::Commands::EstInvokeTime(args) => commands::est_invoke_time(cli.host, cli.port, args).await,
         args::Commands::Ping => commands::ping(cli.host, cli.port).await,
         args::Commands::List => commands::list_registered_funcs(cli.host, cli.port).await,
     } {

@@ -10,7 +10,7 @@ use tracing::{debug, error};
 // As the values used to sort containers _may_ change during sorting here, they must be pre-captured.
 // Failure to do so will result in a panic and brick the system.
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum EvictionPolicy {
     /// Least recently used ordering for on-demand eviction
     LRU,

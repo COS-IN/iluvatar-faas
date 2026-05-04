@@ -6,8 +6,9 @@ use iluvatar_library::types::{Compute, ContainerServer, HealthStatus, Isolation}
 use iluvatar_library::{transaction::TransactionId, types::MemSizeMb};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorker;
 use iluvatar_rpc::rpc::{
-    CleanRequest, CleanResponse, HealthRequest, InvokeAsyncLookupRequest, InvokeAsyncRequest, InvokeRequest,
-    LanguageRuntime, ListFunctionRequest, PingRequest, PrewarmRequest, RegisterRequest, StatusRequest,
+    CleanRequest, CleanResponse, EstInvokeRequest, EstInvokeResponse, HealthRequest, InvokeAsyncLookupRequest,
+    InvokeAsyncRequest, InvokeRequest, LanguageRuntime, ListFunctionRequest, PingRequest, PrewarmRequest,
+    RegisterRequest, StatusRequest,
 };
 use iluvatar_rpc::rpc::{InvokeResponse, ListFunctionResponse, StatusResponse};
 use iluvatar_rpc::RPCError;
@@ -215,6 +216,20 @@ impl WorkerAPI for SimWorkerAPI {
                 }
             },
             Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:register]".to_string())),
+        }
+    }
+
+    async fn est_invoke_time(&mut self, fqdns: Vec<String>, tid: TransactionId) -> Result<EstInvokeResponse> {
+        let request = tonic::Request::new(EstInvokeRequest {
+            fqdns,
+            transaction_id: tid,
+        });
+        let inv = self.worker.est_invoke_time(request);
+        #[cfg(feature = "full_spans")]
+        let inv = inv.instrument(name_span!(self.worker.config.name));
+        match inv.await {
+            Ok(response) => Ok(response.into_inner()),
+            Err(e) => bail!(RPCError::new(e, "[RCPWorkerAPI:est_invoke_time]".to_string())),
         }
     }
 

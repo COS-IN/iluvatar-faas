@@ -13,7 +13,7 @@ use iluvatar_library::{
     utils::{execute_cmd_checked, execute_cmd_checked_async, missing_or_zero_default},
     ToAny,
 };
-use nvml_wrapper::{error::NvmlError, Nvml};
+use nvml_wrapper::Nvml;
 use parking_lot::{RwLock, RwLockReadGuard};
 use std::fmt::Display;
 use std::{collections::HashMap, sync::Arc};
@@ -334,6 +334,11 @@ pub struct GpuResourceTracker {
     nvml: Option<Nvml>,
 }
 impl GpuResourceTracker {
+    #[inline(always)]
+    fn real_gpu_supported() -> bool {
+        cfg!(target_os = "linux")
+    }
+
     pub async fn boxed(
         resources: &Option<Arc<GPUResourceConfig>>,
         container_config: &Arc<ContainerResourceConfig>,
@@ -346,9 +351,16 @@ impl GpuResourceTracker {
             if config.count == 0 {
                 return Ok(None);
             }
+            if !iluvatar_library::utils::is_simulation() && !Self::real_gpu_supported() {
+                warn!(
+                    tid = tid,
+                    "GPU resources are only enabled on Linux hosts; skipping GPU resource tracker"
+                );
+                return Ok(None);
+            }
             let (gpu_structs, metadata) = Self::prepare_structs(&config, tid)?;
             let mut nvml = None;
-            if !iluvatar_library::utils::is_simulation() {
+            if !iluvatar_library::utils::is_simulation() && Self::real_gpu_supported() {
                 match config.mig_enabled() {
                     true => Self::enable_mig(tid),
                     false => Self::disable_mig(tid),
@@ -1019,7 +1031,7 @@ impl GpuResourceTracker {
 
     #[cfg(target_os = "linux")]
     #[tracing::instrument(level = "debug", skip_all)]
-    async fn nvml_gpu_utilization(&self, nvml: &Nvml, _tid: &TransactionId) -> Result<Vec<GpuStatus>, NvmlError> {
+    async fn nvml_gpu_utilization(&self, nvml: &Nvml, _tid: &TransactionId) -> Result<Vec<GpuStatus>> {
         let is_empty = (*self.status_info.read()).is_empty();
         let mut ret: Vec<GpuStatus> = vec![];
         let dev_count = nvml.device_count()?;
@@ -1059,6 +1071,13 @@ impl GpuResourceTracker {
             }
         }
         Ok(ret)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[tracing::instrument(level = "debug", skip_all)]
+    async fn nvml_gpu_utilization(&self, _nvml: &Nvml, tid: &TransactionId) -> Result<Vec<GpuStatus>> {
+        trace!(tid = tid, "NVML support is disabled on non-Linux hosts");
+        self.smi_gpu_utilization(tid).await
     }
 
     #[tracing::instrument(level = "debug", skip_all)]

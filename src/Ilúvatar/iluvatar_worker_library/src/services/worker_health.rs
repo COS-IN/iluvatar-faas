@@ -51,8 +51,7 @@ impl WorkerHealthService {
             .container_resources
             .gpu_resource
             .as_ref()
-            .unwrap()
-            .is_tegra
+            .and_then(|gpu| gpu.is_tegra)
             .unwrap_or(false)
         {
             "docker.io/aarehman/hello-iluvatar-action:aarch64".to_string()

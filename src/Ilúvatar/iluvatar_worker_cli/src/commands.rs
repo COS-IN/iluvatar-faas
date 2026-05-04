@@ -1,4 +1,4 @@
-use crate::args::{AsyncCheck, InvokeArgs, PrewarmArgs, RegisterArgs};
+use crate::args::{AsyncCheck, EstInvokeArgs, InvokeArgs, PrewarmArgs, RegisterArgs};
 use anyhow::Result;
 use iluvatar_library::transaction::gen_tid;
 use iluvatar_library::types::HealthStatus;
@@ -100,6 +100,15 @@ pub async fn list_registered_funcs(host: String, port: Port) -> Result<()> {
         .collect::<Vec<_>>();
     let output = json!({ "functions": functions });
     info!("{}", serde_json::to_string_pretty(&output).unwrap());
+    Ok(())
+}
+
+pub async fn est_invoke_time(host: String, port: Port, args: EstInvokeArgs) -> Result<()> {
+    let tid = gen_tid();
+    let mut api = RPCWorkerAPI::new(&host, port, &tid).await?;
+    let ret = api.est_invoke_time(args.fqdn, tid).await?;
+    let output = json!({ "est_times": ret.est_times });
+    info!("{}", serde_json::to_string_pretty(&output)?);
     Ok(())
 }
 
