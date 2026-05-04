@@ -6,6 +6,9 @@ pub struct Args {
     #[arg(short, long)]
     /// Sets a custom config file
     pub config: Option<String>,
+    #[arg(long, default_value_t = false)]
+    /// Run worker in simulation mode
+    pub sim: bool,
     /// Use direct mode for writing logs, rather than async version. Helpful for debugging
     #[arg(short, long)]
     pub direct_logs: Option<bool>,
