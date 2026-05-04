@@ -401,13 +401,26 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             gpu_queue.map_or(0.0, |queue| queue.len as f64),
         );
 
-	let first_func = request.fqdns.first(); 
-	let r = self.reg.get_registration(first_func.expect("")).unwrap();
-	let t = self.invoker.est_e2e_time(&r, &request.transaction_id);
-	
+        let cpu_estimated_wait_time_sec = request
+            .fqdns
+            .iter()
+            .find_map(|fqdn| self.reg.get_registration(fqdn))
+            .map_or_else(
+                || {
+                    debug!(
+                        tid = request.transaction_id,
+                        fqdns = ?request.fqdns,
+                        "No registered FQDN found in est_invoke_time request; defaulting CPU estimate to 0.0"
+                    );
+                    0.0
+                },
+                |registration| self.invoker.est_e2e_time(&registration, &request.transaction_id),
+            );
+
         est_times.insert(
             "cpu_estimated_wait_time_sec".to_string(),
-            t);
+            cpu_estimated_wait_time_sec,
+        );
   
         est_times.insert(
             "gpu_estimated_wait_time_sec".to_string(),
