@@ -37,9 +37,9 @@ impl Mice {
     fn get_gpu_est(&self, fqdn: &str, obs: f64) -> f64 {
         use iluvatar_library::char_map::Value;
 
-        let (prev_est_raw, prev_e2e_raw) =
-            self.cmap
-                .get_2(fqdn, Chars::EstGpu, Value::Avg, Chars::E2EGpu, Value::Avg);
+        let (prev_est_raw, prev_e2e_raw) = self
+            .cmap
+            .get_2(fqdn, Chars::EstGpu, Value::Avg, Chars::E2EGpu, Value::Avg);
 
         let prev_est = prev_est_raw.max(1e-6);
         let prev_e2e = prev_e2e_raw.max(prev_est);

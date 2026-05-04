@@ -1456,11 +1456,11 @@ impl DeviceQueue for MQFQ {
         //   active_flows    — number of GPU flow queues in Active state
         let (fn_queue_len, fn_in_flight) = match self.mqfq_set.get(&reg.fqdn) {
             Some(fq) => (fq.queue.len(), fq.in_flight),
-            None     => (0, 0),
+            None => (0, 0),
         };
-        let total_queue_len: usize  = self.mqfq_set.iter().map(|q| q.queue.len()).sum();
-        let total_in_flight: i32    = self.mqfq_set.iter().map(|q| q.in_flight).sum();
-        let n_active: u32           = *self.active_flows.read();
+        let total_queue_len: usize = self.mqfq_set.iter().map(|q| q.queue.len()).sum();
+        let total_in_flight: i32 = self.mqfq_set.iter().map(|q| q.in_flight).sum();
+        let n_active: u32 = *self.active_flows.read();
         info!(
             tid             = tid,
             fqdn            = %reg.fqdn,
@@ -1473,7 +1473,6 @@ impl DeviceQueue for MQFQ {
         );
 
         (capped_est, load)
-
     }
 
     fn enqueue_item(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {

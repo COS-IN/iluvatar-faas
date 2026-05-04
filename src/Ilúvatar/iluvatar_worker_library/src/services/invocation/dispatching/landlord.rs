@@ -46,13 +46,17 @@ pub fn get_landlord(
     cmap: &WorkerCharMap,
     invocation_config: &Arc<InvocationConfig>,
     que_map: QueueMap,
-    cont_manager: Arc<ContainerManager>
+    cont_manager: Arc<ContainerManager>,
 ) -> Result<Arc<dyn DispatchPolicy>> {
     match pol {
-        EnqueueingPolicy::Landlord => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL", cont_manager),
+        EnqueueingPolicy::Landlord => {
+            LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL", cont_manager)
+        },
         EnqueueingPolicy::LRU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LRU", cont_manager),
         EnqueueingPolicy::LFU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LFU", cont_manager),
-        EnqueueingPolicy::LandlordFixed => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLF", cont_manager),
+        EnqueueingPolicy::LandlordFixed => {
+            LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLF", cont_manager)
+        },
         // landlord policy not being used, give dummy basic policy
         _ => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL", cont_manager),
     }
@@ -821,7 +825,7 @@ impl LLWrap {
         cfg: &Option<Arc<LandlordConfig>>,
         que_map: QueueMap,
         cachepol: &str,
-        cont_manager: Arc<ContainerManager>
+        cont_manager: Arc<ContainerManager>,
     ) -> Result<Arc<dyn DispatchPolicy>> {
         let ll = Landlord::boxed(cmap, cfg, que_map, cachepol, cont_manager)?;
         Ok(Arc::new(Self { ll: Mutex::new(ll) }))

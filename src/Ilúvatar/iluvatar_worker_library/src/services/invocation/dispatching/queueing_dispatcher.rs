@@ -3,7 +3,8 @@ use crate::services::invocation::dispatching::greedy_weight::GreedyWeights;
 use crate::services::invocation::dispatching::mice::Mice;
 use crate::services::invocation::dispatching::weighted_random::WeightedRandom;
 use crate::services::invocation::dispatching::{
-    landlord::get_landlord, popular::get_popular, epsilon_greedy::EpsilonGreedy, EnqueueingPolicy, QueueMap, NO_ESTIMATE,
+    epsilon_greedy::EpsilonGreedy, landlord::get_landlord, popular::get_popular, EnqueueingPolicy, QueueMap,
+    NO_ESTIMATE,
 };
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -135,15 +136,9 @@ impl QueueingDispatcher {
             &energy,
         )?;
         let mut que_map = HashMap::from_iter([(Compute::CPU, cpu_q)]);
-        if let Some(gpu_q) = Self::get_invoker_gpu_queue(
-            &invocation_config,
-            &cmap,
-            &cont_manager,
-            tid,
-            &cpu,
-            &gpu,
-            gpu_config,
-        )? {
+        if let Some(gpu_q) =
+            Self::get_invoker_gpu_queue(&invocation_config, &cmap, &cont_manager, tid, &cpu, &gpu, gpu_config)?
+        {
             que_map.insert(Compute::GPU, gpu_q);
         }
         let (_handle, rx) = tokio_logging_thread(
@@ -237,7 +232,7 @@ impl QueueingDispatcher {
                 } else {
                     anyhow::bail!("Unkonwn GPU queue {}", q);
                 }
-            }
+            },
             None => anyhow::bail!("GPU queue was not specified"),
         }
     }
@@ -296,22 +291,18 @@ impl QueueingDispatcher {
                     }
                     if enq.is_none() {
                         if let Some(arg) = args.take() {
-                            enq =
-                                Some(self.make_enqueue(reg, arg, &tid, insert_t, comp_time, load));
+                            enq = Some(self.make_enqueue(reg, arg, &tid, insert_t, comp_time, load));
                         }
                     }
                     if let Some(e) = &enq {
                         q.enqueue_item(e)?;
                         enqueues += 1;
                     }
-                }
+                },
             }
         }
         if enqueues == 0 {
-            bail_error!(
-                tid = tid,
-                "Unable to enqueue function invocation, not matching compute"
-            );
+            bail_error!(tid = tid, "Unable to enqueue function invocation, not matching compute");
         }
         enq.ok_or_else(|| anyhow::anyhow!("Enqueued item was never created"))
     }
@@ -339,46 +330,32 @@ impl QueueingDispatcher {
             EnqueueingPolicy::UCB1 => Ok(Arc::new(Ucb1::new(&cmap, tid)?)),
             EnqueueingPolicy::MWUA => Ok(Arc::new(Mwua::new(&cmap, tid)?)),
             EnqueueingPolicy::HitTput => Ok(Arc::new(HitTput::new(que_map, &cmap, tid)?)),
-            EnqueueingPolicy::EstSpeedup => Ok(Arc::new(EstSpeedup::new(
+            EnqueueingPolicy::EstSpeedup => Ok(Arc::new(EstSpeedup::new(invocation_config.clone(), cmap, que_map))),
+            EnqueueingPolicy::RunningAvgEstSpeedup => {
+                Ok(Arc::new(RunningAvgEstSpeedup::new(invocation_config, cmap, que_map)))
+            },
+            EnqueueingPolicy::QueueAdjustAvgEstSpeedup => Ok(Arc::new(QueueAdjustAvgEstSpeedup::new(
                 invocation_config.clone(),
                 cmap,
                 que_map,
             ))),
-            EnqueueingPolicy::RunningAvgEstSpeedup => Ok(Arc::new(RunningAvgEstSpeedup::new(
-                invocation_config,
-                cmap,
-                que_map,
-            ))),
-            EnqueueingPolicy::QueueAdjustAvgEstSpeedup => Ok(Arc::new(
-                QueueAdjustAvgEstSpeedup::new(invocation_config.clone(), cmap, que_map),
-            )),
-            EnqueueingPolicy::Speedup => {
-                Ok(Arc::new(Speedup::new(invocation_config.clone(), cmap)))
-            }
+            EnqueueingPolicy::Speedup => Ok(Arc::new(Speedup::new(invocation_config.clone(), cmap))),
             EnqueueingPolicy::Greedy => Ok(Arc::new(Greedy::new(cmap, que_map))),
-            EnqueueingPolicy::WeightedRandom => Ok(Arc::new(WeightedRandom::new(
-                invocation_config.clone(),
-                &cmap,
-                tid,
-            )?)),
+            EnqueueingPolicy::WeightedRandom => {
+                Ok(Arc::new(WeightedRandom::new(invocation_config.clone(), &cmap, tid)?))
+            },
             EnqueueingPolicy::Landlord
             | EnqueueingPolicy::LRU
             | EnqueueingPolicy::LFU
-            | EnqueueingPolicy::LandlordFixed => {
-                get_landlord(*policy, &cmap, invocation_config, que_map, cont_manager)
-            }
+            | EnqueueingPolicy::LandlordFixed => get_landlord(*policy, &cmap, invocation_config, que_map, cont_manager),
             EnqueueingPolicy::Popular
             | EnqueueingPolicy::PopularEstTimeDispatch
             | EnqueueingPolicy::PopularQueueLenDispatch
             | EnqueueingPolicy::LeastPopular
             | EnqueueingPolicy::TopAvg => get_popular(*policy, &cmap, que_map),
-            EnqueueingPolicy::GreedyWeights => GreedyWeights::boxed(
-                &cmap,
-                que_map,
-                &invocation_config.greedy_weight_config,
-                reg,
-                gpu,
-            ),
+            EnqueueingPolicy::GreedyWeights => {
+                GreedyWeights::boxed(&cmap, que_map, &invocation_config.greedy_weight_config, reg, gpu)
+            },
             EnqueueingPolicy::MICE => Ok(Arc::new(Mice::new(
                 invocation_config.clone(),
                 cmap.clone(),
@@ -428,24 +405,8 @@ impl QueueingDispatcher {
         }
 
         match reg.supported_compute {
-            Compute::CPU => self.enqueue_compute(
-                reg,
-                json_args,
-                tid,
-                Compute::CPU,
-                insert_t,
-                NO_ESTIMATE,
-                NO_ESTIMATE,
-            ),
-            Compute::GPU => self.enqueue_compute(
-                reg,
-                json_args,
-                tid,
-                Compute::GPU,
-                insert_t,
-                NO_ESTIMATE,
-                NO_ESTIMATE,
-            ),
+            Compute::CPU => self.enqueue_compute(reg, json_args, tid, Compute::CPU, insert_t, NO_ESTIMATE, NO_ESTIMATE),
+            Compute::GPU => self.enqueue_compute(reg, json_args, tid, Compute::GPU, insert_t, NO_ESTIMATE, NO_ESTIMATE),
             _ => {
                 let (chosen_compute, load, est_time) = self.policy.choose(reg, &tid);
                 if self.invocation_config.log_details() {
@@ -454,16 +415,8 @@ impl QueueingDispatcher {
                         _ => info!(tid=tid, fqdn=%reg.fqdn, pot_creds=load, "Cache Miss"),
                     }
                 }
-                self.enqueue_compute(
-                    reg,
-                    json_args,
-                    tid,
-                    chosen_compute,
-                    insert_t,
-                    est_time,
-                    load,
-                )
-            }
+                self.enqueue_compute(reg, json_args, tid, chosen_compute, insert_t, est_time, load)
+            },
         }
     }
 }
@@ -634,13 +587,9 @@ impl DispatchPolicy for Ucb1 {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         // device_wt = exec_time + sqrt(log steps/n), where n is number of times device has been selected for the function
         // Pick device with lowest weight and dispatch
-        let (cpu_t, gpu_t) = self.cmap.get_2(
-            &reg.fqdn,
-            Chars::E2ECpu,
-            Value::Avg,
-            Chars::E2EGpu,
-            Value::Avg,
-        );
+        let (cpu_t, gpu_t) = self
+            .cmap
+            .get_2(&reg.fqdn, Chars::E2ECpu, Value::Avg, Chars::E2EGpu, Value::Avg);
 
         let lck = self.dispatch_state.read();
         let total_dispatch = lck.total_dispatch as f64;
@@ -656,9 +605,7 @@ impl DispatchPolicy for Ucb1 {
 
         let device_wts = HashMap::from([(Compute::CPU, cpu_wt), (Compute::GPU, gpu_wt)]);
 
-        let min_val_pair = device_wts
-            .iter()
-            .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
+        let min_val_pair = device_wts.iter().min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap());
 
         // pick smallest of the two
         let selected_device = min_val_pair.unwrap().0;
@@ -745,11 +692,7 @@ impl DispatchPolicy for Random {
     fn choose(&self, reg: &Arc<RegisteredFunction>, _tid: &TransactionId) -> (Compute, f64, f64) {
         // unwrap safe, has to have some compute entry to get this far
         let v: Vec<Compute> = reg.supported_compute.iter().collect();
-        (
-            *v.choose(&mut rand::rng()).unwrap(),
-            NO_ESTIMATE,
-            NO_ESTIMATE,
-        )
+        (*v.choose(&mut rand::rng()).unwrap(), NO_ESTIMATE, NO_ESTIMATE)
     }
 }
 
@@ -856,11 +799,7 @@ struct EstSpeedup {
     invocation_config: Arc<InvocationConfig>,
 }
 impl EstSpeedup {
-    pub fn new(
-        invocation_config: Arc<InvocationConfig>,
-        cmap: WorkerCharMap,
-        que_map: QueueMap,
-    ) -> Self {
+    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: WorkerCharMap, que_map: QueueMap) -> Self {
         Self {
             que_map,
             cmap,
@@ -1023,11 +962,7 @@ struct RunningAvgEstSpeedup {
     running_avg_speedup: Mutex<f64>,
 }
 impl RunningAvgEstSpeedup {
-    pub fn new(
-        invocation_config: &Arc<InvocationConfig>,
-        cmap: WorkerCharMap,
-        que_map: QueueMap,
-    ) -> Self {
+    pub fn new(invocation_config: &Arc<InvocationConfig>, cmap: WorkerCharMap, que_map: QueueMap) -> Self {
         Self {
             running_avg_speedup: Mutex::new(invocation_config.speedup_ratio.unwrap_or(4.0)),
             que_map,
@@ -1076,11 +1011,7 @@ struct QueueAdjustAvgEstSpeedup {
     running_avg_speedup: Mutex<f64>,
 }
 impl QueueAdjustAvgEstSpeedup {
-    pub fn new(
-        invocation_config: Arc<InvocationConfig>,
-        cmap: WorkerCharMap,
-        que_map: QueueMap,
-    ) -> Self {
+    pub fn new(invocation_config: Arc<InvocationConfig>, cmap: WorkerCharMap, que_map: QueueMap) -> Self {
         Self {
             running_avg_speedup: Mutex::new(invocation_config.speedup_ratio.unwrap_or(4.0)),
             que_map,
@@ -1124,7 +1055,7 @@ impl DispatchPolicy for QueueAdjustAvgEstSpeedup {
                         }
                     }
                     (*c, *load, *est)
-                }
+                },
                 None => (Compute::CPU, NO_ESTIMATE, NO_ESTIMATE),
             }
         } else {
@@ -1155,40 +1086,26 @@ impl Invoker for QueueingDispatcher {
                 }
                 info!(tid=tid, fqdn=%reg.fqdn, e2etime=%e2etime, compute=%result_ptr.compute, "Invocation complete");
                 Ok(queued.result_ptr.clone())
-            }
+            },
             false => {
                 bail_error!(
                     tid = tid,
                     "Invocation was signaled completion but completion value was not set"
                 )
-            }
+            },
         }
     }
-    fn async_invocation(
-        &self,
-        reg: Arc<RegisteredFunction>,
-        json_args: String,
-        tid: TransactionId,
-    ) -> Result<String> {
+    fn async_invocation(&self, reg: Arc<RegisteredFunction>, json_args: String, tid: TransactionId) -> Result<String> {
         let invoke = self.enqueue_new_invocation(&reg, json_args, tid)?;
         self.async_functions.insert_async_invoke(invoke)
     }
-    fn invoke_async_check(
-        &self,
-        cookie: &str,
-        tid: &TransactionId,
-    ) -> Result<iluvatar_rpc::rpc::InvokeResponse> {
+    fn invoke_async_check(&self, cookie: &str, tid: &TransactionId) -> Result<iluvatar_rpc::rpc::InvokeResponse> {
         self.async_functions.invoke_async_check(cookie, tid)
     }
 
     /// The queue length of both CPU and GPU queues
     fn queue_len(&self) -> InvokerLoad {
-        InvokerLoad(
-            self.que_map
-                .iter()
-                .map(|q| (*q.0, q.1.queue_load()))
-                .collect(),
-        )
+        InvokerLoad(self.que_map.iter().map(|q| (*q.0, q.1.queue_load())).collect())
         // InvokerLoad {
         //     num_running_funcs: self.running_funcs(),
         //     queues: self.que_map.iter().map(|q| (*q.0, q.1.queue_load())).collect(),

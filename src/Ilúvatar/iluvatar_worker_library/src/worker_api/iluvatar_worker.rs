@@ -374,6 +374,8 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok(Response::new(reply))
     }
 
+    /// For a list of fqdns (which can be empty also?), return the various parts of system-state:
+    /// 
     async fn est_invoke_time(&self, request: Request<EstInvokeRequest>) -> Result<Response<EstInvokeResponse>, Status> {
         let request = request.into_inner();
         // TODO: this logic doesn't consider GPU exhaustion/queuing

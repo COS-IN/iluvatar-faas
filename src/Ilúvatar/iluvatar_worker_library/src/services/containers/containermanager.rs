@@ -667,7 +667,11 @@ impl ContainerManager {
         if amount_mb <= 0 {
             bail!("Cannot reclaim '{}' amount of memory", amount_mb);
         }
-        debug!(tid=tid, amount=amount_mb, "Attempting to reclaim memory via eviction");
+        debug!(
+            tid = tid,
+            amount = amount_mb,
+            "Attempting to reclaim memory via eviction"
+        );
         let mut reclaimed: MemSizeMb = 0;
         let mut to_remove = Vec::new();
         for container in self.prioritized_list.read().iter() {
@@ -681,7 +685,12 @@ impl ContainerManager {
                 }
             }
         }
-        debug!(tid = tid, requested = amount_mb, actual = reclaimed, "Memory reclamation selection complete");
+        debug!(
+            tid = tid,
+            requested = amount_mb,
+            actual = reclaimed,
+            "Memory reclamation selection complete"
+        );
         for container in to_remove {
             self.purge_container(container, tid).await?;
         }

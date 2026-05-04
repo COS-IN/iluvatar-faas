@@ -1,15 +1,15 @@
-use std::sync::Arc;
-use parking_lot::RwLock;
-use rand::Rng;
 use crate::services::invocation::dispatching::queueing_dispatcher::{DispatchPolicy, PolymDispatchCtx};
+use crate::services::invocation::dispatching::NO_ESTIMATE;
 use crate::services::registration::RegisteredFunction;
-use iluvatar_library::char_map::{WorkerCharMap};
+use crate::worker_api::config::InvocationConfig;
+use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::clock::{get_global_clock, Clock};
 use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
-use crate::worker_api::config::InvocationConfig;
-use crate::services::invocation::dispatching::NO_ESTIMATE;
+use parking_lot::RwLock;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 // #[derive(Debug, Clone, Serialize, Deserialize)]
 // pub struct WeightedRandomConfig {
@@ -29,13 +29,13 @@ pub struct WeightedRandomConfig {
     pub gpu_probability: f64,
 }
 pub struct WeightedRandom {
-    config : Arc<InvocationConfig>,
+    config: Arc<InvocationConfig>,
     dispatch_state: RwLock<PolymDispatchCtx>,
     clock: Clock,
 }
 
 impl WeightedRandom {
-    pub fn new(config:Arc<InvocationConfig>, cmap: &WorkerCharMap, tid: &TransactionId) -> anyhow::Result<Self> {
+    pub fn new(config: Arc<InvocationConfig>, cmap: &WorkerCharMap, tid: &TransactionId) -> anyhow::Result<Self> {
         Ok(Self {
             config,
             dispatch_state: RwLock::new(PolymDispatchCtx::boxed(cmap)),
@@ -45,11 +45,7 @@ impl WeightedRandom {
 }
 
 impl DispatchPolicy for WeightedRandom {
-    fn choose(
-        &self,
-        reg: &Arc<RegisteredFunction>,
-        tid: &TransactionId,
-    ) -> (Compute, f64, f64) {
+    fn choose(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
         // let gpu_probability = self.config.weighted_random_config.clone().unwrap().gpu_probability;
         // let gpu_probability = self.config.weighted_random_config.gpu_probability;
         let gpu_probability = self

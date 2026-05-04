@@ -353,30 +353,30 @@ impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for Cha
         };
     }
 
-    fn completion_metrics_update(&self, fqdn: &str,
-				 state_char: Chars,
-				 exec_time: f64,
-				 e2e_time: f64,
-				 est_error: f64) {
-	//self.update_5 with these arguments.
-	//self.system_state_update()
-	// 
+    // fn completion_metrics_update(&self, fqdn: &str,
+    // 				 state_char: Chars,
+    // 				 exec_time: f64,
+    // 				 e2e_time: f64,
+    // 				 est_error: f64) {
+    // 	//self.update_5 with these arguments.
+    // 	//self.system_state_update()
+    // 	// 
 
-    }
+    // }
 
-    fn system_metrics_update(&self, fqdn: &str,
-				 state_char: Chars,
-				 exec_time: f64,
-				 e2e_time: f64,
-				 est_error: f64) {
-	// System metrics with the same arguments.
-	// arrival_rate
-	// mean_service_time
-	// device_load
-	// This should be per-device.
-	// service time variance 
+    // fn system_metrics_update(&self, fqdn: &str,
+    // 				 state_char: Chars,
+    // 				 exec_time: f64,
+    // 				 e2e_time: f64,
+    // 				 est_error: f64) {
+    // 	// System metrics with the same arguments.
+    // 	// arrival_rate
+    // 	// mean_service_time
+    // 	// device_load
+    // 	// This should be per-device.
+    // 	// service time variance 
 
-    }
+    // }
 
     
     fn get(&self, fqdn: &str, key: T, value: Value) -> f64 {
