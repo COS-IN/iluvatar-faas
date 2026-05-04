@@ -374,52 +374,45 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         Ok(Response::new(reply))
     }
 
-    /// For a list of fqdns (which can be empty also?), return the various parts of system-state:
-    /// 
     async fn est_invoke_time(&self, request: Request<EstInvokeRequest>) -> Result<Response<EstInvokeResponse>, Status> {
         let request = request.into_inner();
-        // TODO: this logic doesn't consider GPU exhaustion/queuing
-        // TODO: this logic should be replaced when we have true system simulation
-        let mut open_cpus = self.cpu.available_cores();
-        let mut func_cache = None;
-        if request.fqdns.len() >= self.reg.num_registered() / 2 {
-            // avoid many calls to reg service, get all registrations even if we don't need them
-            func_cache = Some(self.reg.get_all_registered_functions());
-        }
-        // some value to simulate "queue time" if we don't have enough CPUs
-        let mut queue_time = 0.0;
-        let est_time:Vec<_> = request
-            .fqdns
-            .iter()
-            .map(|fqdn| {
-                match func_cache
-                    .as_ref()
-                    .map_or_else(|| self.reg.get_registration(fqdn), |c| c.get(fqdn).cloned())
-                {
-                    Some(r) => {
-                        let t = self.invoker.est_e2e_time(&r, &request.transaction_id);
-                        queue_time += t;
-                        if open_cpus > 0 {
-                            open_cpus -= 1;
-                            t
-                        } else {
-                            // simulate increasing amount of queue time
-                            t + (queue_time / self.cpu.cores)
-                        }
-                    },
-                    None => {
-                        error!(
-                            tid = request.transaction_id,
-                            fqdn = fqdn,
-                            "Unable to get registration in est_invoke_time"
-                        );
-                        0.0
-                    },
-                }
-            })
-            .collect();
-	let mut est_times = HashMap::new();
-	est_times.insert("old".to_string(), *est_time.first().unwrap_or(&0.0));
+        debug!(
+            tid = request.transaction_id,
+            fqdns = ?request.fqdns,
+            "Handling est invoke time request"
+        );
+
+        let queue_load = self.invoker.queue_len();
+        let cpu_queue = queue_load.0.get(&Compute::CPU);
+        let gpu_queue = queue_load.0.get(&Compute::GPU);
+
+        let gpu_running = self.gpu.as_ref().map_or(0, |gpu| gpu.outstanding());
+        let cpu_running = self.invoker.running_funcs().saturating_sub(gpu_running);
+
+        let mut est_times = HashMap::new();
+        est_times.insert("cpu_running_functions".to_string(), cpu_running as f64);
+        est_times.insert("gpu_running_functions".to_string(), gpu_running as f64);
+        est_times.insert(
+            "cpu_waiting_functions".to_string(),
+            cpu_queue.map_or(0.0, |queue| queue.len as f64),
+        );
+        est_times.insert(
+            "gpu_waiting_functions".to_string(),
+            gpu_queue.map_or(0.0, |queue| queue.len as f64),
+        );
+
+	let first_func = request.fqdns.first(); 
+	let r = self.reg.get_registration(first_func.expect("")).unwrap();
+	let t = self.invoker.est_e2e_time(&r, &request.transaction_id);
+	
+        est_times.insert(
+            "cpu_estimated_wait_time_sec".to_string(),
+            t);
+  
+        est_times.insert(
+            "gpu_estimated_wait_time_sec".to_string(),
+            gpu_queue.map_or(0.0, |queue| queue.load_avg),
+        );
         Ok(Response::new(EstInvokeResponse { est_times }))
     }
 }
