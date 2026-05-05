@@ -1,0 +1,118 @@
+diff --git a/src/Ilúvatar/iluvatar_worker_library/src/services/invocation/queueing/gpu_mqfq.rs b/src/Ilúvatar/iluvatar_worker_library/src/services/invocation/queueing/gpu_mqfq.rs
+index eb272ea9..PATCHED 100644
+--- a/src/Ilúvatar/iluvatar_worker_library/src/services/invocation/queueing/gpu_mqfq.rs
++++ b/src/Ilúvatar/iluvatar_worker_library/src/services/invocation/queueing/gpu_mqfq.rs
+@@ -1,7 +1,10 @@
+ use super::{DeviceQueue, EnqueuedInvocation};
+ use crate::services::containers::{
+     containermanager::ContainerManager,
+-    structs::{Container, ParsedResult},
++    structs::{
++        Container, InsufficientGPUError, InsufficientMemoryError, ParsedResult,
++    },
+ };
+ use crate::services::invocation::{completion_time_tracker::CompletionTimeTracker, invoke_on_container_2, QueueLoad};
+ use crate::services::registration::RegisteredFunction;
+@@ -1187,16 +1190,43 @@ impl MQFQ {
+             MqfqPolicy::SelectDOutLen => self.select_d_out_len_sorted_next_flow(tid, token, virtual_time),
+         }
+     }
+ 
+     // Invoked functions automatically increase the count, conversely for finished functions
+     fn get_token(&self, tid: &TransactionId) -> Option<GpuToken> {
+-	// XX Shouldnt this also check if any container is idle?? 
+         self.gpu.try_acquire_resource(None, tid).ok()
+     }
+ 
++    #[inline(always)]
++    fn est_required_gpu_mem_mb(&self, fqdn: &str) -> MemSizeMb {
++        let tracked = self.cmap.get_avg(fqdn, Chars::GpuMemoryUsage) as MemSizeMb;
++        if tracked > 0 { tracked } else { 1024 * 3 }
++    }
++
++    /// True if the flow can run on this token right now:
++    /// - warm container already on this GPU, or
++    /// - enough free GPU memory for an expected cold/prewarm path
++    #[inline(always)]
++    fn flow_schedulable_on_token(&self, fqdn: &str, token: &GpuToken) -> bool {
++        if self.cont_manager.warm_container(fqdn, token) {
++            return true;
++        }
++        let free = self.gpu.get_free_mem_by_id(token.gpu_id);
++        let need = self.est_required_gpu_mem_mb(fqdn);
++        free >= need
++    }
++
+     /// Main
+     fn dispatch(&self, tid: &TransactionId) -> Option<(Arc<MQRequest>, GpuToken)> {
+         // Filter by active queues, and select with the lowest start time.
+         let qlen = self.queue_len();
+         if qlen == 0 {
+             debug!(tid = tid, qlen = qlen, "Empty queue");
+             return None;
+@@ -1213,6 +1243,20 @@ impl MQFQ {
+                     // We _must_ return with an item, may have to update VT before finding it
+                     let virtual_time = self.mindicator.min();
+                     if let Some(mut chosen_q) = self.next_flow(tid, &token, virtual_time) {
++                        if !self.flow_schedulable_on_token(&chosen_q.fqdn, &token) {
++                            debug!(
++                                tid = tid,
++                                fqdn = %chosen_q.fqdn,
++                                gpu_id = token.gpu_id,
++                                free_mb = self.gpu.get_free_mem_by_id(token.gpu_id),
++                                need_mb = self.est_required_gpu_mem_mb(&chosen_q.fqdn),
++                                "Flow not schedulable on selected GPU token; deferring flow"
++                            );
++                            // Prevent tight spin on the same unschedulable flow.
++                            chosen_q.set_idle_throttled(virtual_time);
++                            cnt += 1;
++                            continue;
++                        }
++
+                         if let Some(i) = chosen_q.pop_flow() {
+                             // let updated_vitual_time: f64 = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
+                             // *self.vitual_time.write() = updated_vitual_time;
+@@ -624,7 +668,7 @@ impl MQFQ {
+                     Some(container)
+                 },
+                 Err(cause) => {
+-                    self.handle_invocation_error(item.invoke.clone(), cause);
++                    self.handle_invocation_error(item.clone(), cause);
+                     None
+                 },
+             };
+@@ -651,10 +695,31 @@ impl MQFQ {
+     /// Handle an error with the given enqueued invocation.
+     /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
+     ///   Calls [Self::add_item_to_queue] to do this
+     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
+     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=item.tid)))]
+-    fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
+-        debug!(tid=item.tid, error=%cause, "Marking invocation as error");
+-        item.mark_error(&cause);
++    fn handle_invocation_error(&self, item: Arc<MQRequest>, cause: anyhow::Error) {
++        let recoverable =
++            cause.downcast_ref::<InsufficientMemoryError>().is_some()
++                || cause.downcast_ref::<InsufficientGPUError>().is_some();
++        if recoverable {
++            let fqdn = item.invoke.registration.fqdn.clone();
++            match self.mqfq_set.get_mut(&fqdn) {
++                Some(mut q) => {
++                    debug!(
++                        tid = item.invoke.tid,
++                        fqdn = %fqdn,
++                        error = %cause,
++                        "Recoverable launch failure; re-inserting invocation into MQFQ"
++                    );
++                    q.value_mut().reinsert_item(item);
++                    return;
++                },
++                None => {
++                    error!(tid=item.invoke.tid, fqdn=%fqdn, error=%cause, "Recoverable failure but flow queue missing; marking invocation error");
++                },
++            }
++        }
++
++        debug!(tid=item.invoke.tid, error=%cause, "Marking invocation as error");
++        item.invoke.mark_error(&cause);
+     }
