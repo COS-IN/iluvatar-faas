@@ -1,0 +1,38 @@
+diff --git a/iluvatar_worker_library/src/worker_api/worker_config.rs b/iluvatar_worker_library/src/worker_api/worker_config.rs
+index 8cb7e85..f5ab123 100644
+--- a/iluvatar_worker_library/src/worker_api/worker_config.rs
++++ b/iluvatar_worker_library/src/worker_api/worker_config.rs
+@@ -175,7 +175,7 @@ pub struct FunctionLimits {
+ pub struct InvocationConfig {
+     /// number of retries before giving up on an invocation
+     /// Setting to 0 means no retries
+-    pub retries: u32,
++    pub retries: Option<u32>,
+     /// Duration in milliseconds the worker queue will sleep between checking for new invocations
+     pub queue_sleep_ms: u64,
+     /// Queue to use for different compute resources
+diff --git a/iluvatar_worker_library/src/services/invocation/cpu_q_invoke.rs b/iluvatar_worker_library/src/services/invocation/cpu_q_invoke.rs
+index 1a8fa20..ae9814c 100644
+--- a/iluvatar_worker_library/src/services/invocation/cpu_q_invoke.rs
++++ b/iluvatar_worker_library/src/services/invocation/cpu_q_invoke.rs
+@@ -278,7 +278,7 @@ impl CPUQueueingInvoker {
+         } else {
+             error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+-            if item.increment_error_retry(&cause, self.invocation_config.retries) {
++            if item.increment_error_retry(&cause, self.invocation_config.retries.unwrap_or(0)) {
+                 match self.queue.add_item_to_queue(&item, Some(0)) {
+                     Ok(_) => self.signal.notify_waiters(),
+                     Err(e) => {
+diff --git a/iluvatar_worker_library/src/services/invocation/gpu_q_invoke.rs b/iluvatar_worker_library/src/services/invocation/gpu_q_invoke.rs
+index a89a605..d3f1a64 100644
+--- a/iluvatar_worker_library/src/services/invocation/gpu_q_invoke.rs
++++ b/iluvatar_worker_library/src/services/invocation/gpu_q_invoke.rs
+@@ -346,7 +346,7 @@ impl GPUQueueingInvoker {
+                 Err(cause) => {
+                     error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+                     ctr_lock.as_ref().unwrap().container.mark_unhealthy();
+-                    if item.increment_error_retry(&cause, self.invocation_config.retries) {
++                    if item.increment_error_retry(&cause, self.invocation_config.retries.unwrap_or(0)) {
+                         item.unlock();
+                         match self.queue.add_item_to_queue(&item) {
+                             Ok(_) => self.signal.notify_waiters(),
