@@ -1194,6 +1194,7 @@ impl MQFQ {
 
     // Invoked functions automatically increase the count, conversely for finished functions
     fn get_token(&self, tid: &TransactionId) -> Option<GpuToken> {
+	// XX Shouldnt this also check if any container is idle?? 
         self.gpu.try_acquire_resource(None, tid).ok()
     }
 

@@ -187,6 +187,7 @@ impl ContainerPool {
     /// Removing a running container can cause instability.
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     pub fn remove_container(&self, container: &Container, tid: &TransactionId) -> Option<Container> {
+	// XXX: No idle containers found: 
         if let Some(c) = self.remove_container_pool(container, &self.idle_pool, tid, PoolType::Idle) {
             self.len.fetch_sub(1, LEN_ORDERING);
             return Some(c);
